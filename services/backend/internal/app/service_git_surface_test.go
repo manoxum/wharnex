@@ -468,6 +468,45 @@ func TestGitFileDiffIncludesUntrackedChangedPath(t *testing.T) {
 	}
 }
 
+func TestGitUnpushedWithoutUpstreamListsOnlyCommitsAbsentFromRemotes(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	root := gitRepo(t, "app.go", "package main\n")
+	sessionID := startGitSession(t, service, root)
+	runGitForApp(t, root, "add", "-A")
+	runGitForApp(t, root, "commit", "-qm", "chore: project config")
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	runGitForApp(t, t.TempDir(), "init", "-q", "--bare", "-b", "main", remote)
+	runGitForApp(t, root, "remote", "add", "origin", remote)
+	runGitForApp(t, root, "push", "-q", "origin", "main")
+	runGitForApp(t, root, "checkout", "-q", "-b", "fix/no-upstream")
+
+	if err := os.WriteFile(filepath.Join(root, "local.txt"), []byte("local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForApp(t, root, "add", "-A")
+	runGitForApp(t, root, "commit", "-qm", "fix: local unpublished commit")
+	local := headOf(t, root)
+
+	overview, err := service.GitUnpushed(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.HasUpstream || len(overview.Commits) != 1 || overview.Commits[0].SHA != local {
+		t.Fatalf("expected the local-only commit without inventing an upstream, got %+v", overview)
+	}
+	detail, err := service.GitUnpushedCommit(context.Background(), sessionID, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Commit.SHA != local || !strings.Contains(detail.Diff, "+local") {
+		t.Fatalf("expected detail for the local-only commit, got %+v", detail)
+	}
+	if _, err := service.PushSelectedCommits(context.Background(), sessionID, []string{local}); err == nil {
+		t.Fatal("selective push must still require a valid upstream")
+	}
+}
+
 func TestSelectivePushRequiresOldestContiguousUnpushedCommits(t *testing.T) {
 	requireGitForApp(t)
 	service, _ := gitSurfaceService(t)

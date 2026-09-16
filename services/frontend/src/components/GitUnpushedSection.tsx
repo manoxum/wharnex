@@ -34,6 +34,7 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
   const oldestFirst = useMemo(() => [...(overview?.commits || [])].reverse(), [overview?.commits])
   const defaultRemote = overview?.remote || remotes[0]?.name || ''
   const branch = overview?.branch || activeBranch?.name || ''
+  const canPushSelected = overview?.has_upstream === true
 
   function toggleCommit(sha: string, checked: boolean) {
     const index = oldestFirst.findIndex((commit) => commit.sha === sha)
@@ -87,20 +88,24 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
 
     {error && <p className="git-notice warning-card" role="alert">{error}</p>}
     {loading && <p className="git-empty inline">A comparar a branch local com a origem…</p>}
-    {!loading && overview && !overview.has_upstream && <p className="git-empty inline">Ainda não existe upstream. Faça o push completo para publicar a branch e estabelecer a referência de origem; depois o Wharnex consegue listar exatamente os commits por publicar.</p>}
+    {!loading && overview && !overview.has_upstream && <p className="git-empty inline">{overview.commits.length > 0
+      ? 'Sem upstream, a lista abaixo mostra commits de HEAD que ainda não são alcançáveis por nenhuma referência remota local. Faça o push completo para publicar a branch e estabelecer a origem.'
+      : 'Ainda não existe upstream e não há commits de HEAD fora das referências remotas locais. Faça o push completo para publicar a branch e estabelecer a origem.'}</p>}
     {!loading && overview?.has_upstream && overview.commits.length === 0 && <p className="git-empty inline">Não há commits locais por publicar nesta branch.</p>}
 
     {!loading && overview && overview.commits.length > 0 && <>
       <div className="git-unpushed-actions">
-        <p>O push seletivo publica apenas um prefixo contínuo a partir do commit mais antigo, preservando a história da branch sem reescrita.</p>
-        <button type="button" className="git-action" disabled={blocked || selected.size === 0} onClick={() => void run(() => onSelectedPush(oldestFirst.filter((commit) => selected.has(commit.sha)).map((commit) => commit.sha)))}>
+        <p>{canPushSelected
+          ? 'O push seletivo publica apenas um prefixo contínuo a partir do commit mais antigo, preservando a história da branch sem reescrita.'
+          : 'Estes commits podem ser inspecionados agora, mas o push seletivo só fica disponível depois de existir um upstream para definir a branch remota de destino.'}</p>
+        {canPushSelected && <button type="button" className="git-action" disabled={blocked || selected.size === 0} onClick={() => void run(() => onSelectedPush(oldestFirst.filter((commit) => selected.has(commit.sha)).map((commit) => commit.sha)))}>
           <Icon name="arrow-up" size={13}/> Push selecionado ({selected.size})
-        </button>
+        </button>}
       </div>
       <ul className="git-unpushed-list">
         {overview.commits.map((commit) => <li key={commit.sha}>
           <div className="git-unpushed-check">
-            <input type="checkbox" aria-label={`Selecionar ${commit.subject}`} checked={selected.has(commit.sha)} disabled={blocked} onChange={(event) => toggleCommit(commit.sha, event.target.checked)}/>
+            <input type="checkbox" aria-label={`Selecionar ${commit.subject}`} checked={selected.has(commit.sha)} disabled={blocked || !canPushSelected} onChange={(event) => toggleCommit(commit.sha, event.target.checked)}/>
             <button type="button" className="git-unpushed-commit-link" disabled={blocked} onClick={() => void openDetail(commit.sha)}>
               <span className="git-unpushed-copy">
                 <strong>{commit.subject}</strong>

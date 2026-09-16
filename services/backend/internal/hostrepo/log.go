@@ -36,8 +36,8 @@ type Commit struct {
 	Wharnex bool `json:"wharnex"`
 	// Merge marks a merge commit.
 	Merge bool `json:"merge"`
-	// Pushed is true when the commit is already reachable from the branch's
-	// upstream. False means it is local-only.
+	// Pushed is true when the commit is reachable from the valid upstream, or
+	// from any remote-tracking ref when the current branch has no upstream.
 	Pushed bool `json:"pushed"`
 }
 
@@ -59,38 +59,45 @@ func Log(ctx context.Context, root string, limit int) ([]Commit, error) {
 	return LogRefs(ctx, root, nil, false, limit)
 }
 
-// Unpushed returns every commit on the current branch that is not reachable
-// from its configured upstream. A branch without an upstream has no safe
-// remote comparison, so it reports an empty list rather than guessing.
+// Unpushed returns commits on the current branch that are not published.
+// With a valid upstream, publication is defined against that branch. Without
+// one, the read-only fallback mirrors `git log HEAD --not --remotes`: commits
+// reachable from HEAD but from no remote-tracking ref are still provably local.
 func Unpushed(ctx context.Context, root string, limit int) ([]Commit, error) {
 	upstream, err := run(ctx, root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
-	if err != nil || strings.TrimSpace(upstream) == "" {
-		return []Commit{}, nil
+	if err == nil && strings.TrimSpace(upstream) != "" {
+		return LogRefs(ctx, root, []string{strings.TrimSpace(upstream) + "..HEAD"}, false, limit)
 	}
-	return LogRefs(ctx, root, []string{strings.TrimSpace(upstream) + "..HEAD"}, false, limit)
+	return logCommits(ctx, root, []string{"HEAD", "--not", "--remotes"}, limit)
 }
 
 // LogRefs reads history for selected branch refs or the whole repository.
-// Refs are validated as names rather than arbitrary rev expressions so the
-// trusted UI cannot accidentally turn a branch picker into a Git argument
-// injection surface.
+// Refs are validated as names rather than arbitrary options so the trusted UI
+// cannot accidentally turn a branch picker into a Git argument injection
+// surface. Internal callers that need fixed revision options use logCommits.
 func LogRefs(ctx context.Context, root string, refs []string, all bool, limit int) ([]Commit, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	format := strings.Join([]string{"%H", "%h", "%an", "%ae", "%cI", "%P", "%s", "%b"}, commitFieldSeparator) + commitRecordSeparator
-	args := []string{"log", "--no-color", "--topo-order", fmt.Sprintf("--max-count=%d", limit), "--format=" + format}
+	revArgs := make([]string, 0, len(refs)+1)
 	if all {
-		args = append(args, "--all")
+		revArgs = append(revArgs, "--all")
 	} else {
 		for _, ref := range refs {
 			ref = strings.TrimSpace(ref)
 			if ref == "" || strings.HasPrefix(ref, "-") {
 				return nil, fmt.Errorf("invalid history ref %q", ref)
 			}
-			args = append(args, ref)
+			revArgs = append(revArgs, ref)
 		}
 	}
+	return logCommits(ctx, root, revArgs, limit)
+}
+
+func logCommits(ctx context.Context, root string, revArgs []string, limit int) ([]Commit, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	format := strings.Join([]string{"%H", "%h", "%an", "%ae", "%cI", "%P", "%s", "%b"}, commitFieldSeparator) + commitRecordSeparator
+	args := []string{"log", "--no-color", "--topo-order", fmt.Sprintf("--max-count=%d", limit), "--format=" + format}
+	args = append(args, revArgs...)
 	output, err := run(ctx, root, args...)
 	if err != nil {
 		// A repository with no commit yet is an empty log, not a failure.
@@ -125,24 +132,27 @@ func LogRefs(ctx context.Context, root string, refs []string, all bool, limit in
 		commit.RequestID = trailerValue(commit.Body, "Request-Id")
 		commit.PlanID = trailerValue(commit.Body, "Plan-Id")
 		commit.Wharnex = commit.RequestID != "" || strings.EqualFold(commit.AuthorEmail, CommitAuthorEmail)
-		// With no upstream nothing is provably pushed, and unpushedCommits
-		// returns nil; treating that as "everything pushed" would be the
-		// dangerous direction, so absence of proof means not pushed.
+		// A commit is published when the chosen comparison can prove it is
+		// reachable remotely. Without an upstream, unpushedCommits falls back
+		// to all remote-tracking refs instead of marking the whole history local.
 		commit.Pushed = unpushed != nil && !unpushed[commit.SHA]
 		commits = append(commits, commit)
 	}
 	return commits, nil
 }
 
-// unpushedCommits returns the set of commits on the current branch that its
-// upstream does not contain. A nil result means the question is unanswerable
-// (no upstream, or no HEAD), which callers must not read as "all pushed".
+// unpushedCommits returns commits on HEAD that are not published according to
+// the strongest local evidence available. A configured upstream is preferred;
+// otherwise remote-tracking refs provide a safe read-only fallback. nil means
+// even that comparison could not be evaluated (for example, no HEAD yet).
 func unpushedCommits(ctx context.Context, root string) map[string]bool {
 	upstream, err := run(ctx, root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
-	if err != nil || strings.TrimSpace(upstream) == "" {
-		return nil
+	var output string
+	if err == nil && strings.TrimSpace(upstream) != "" {
+		output, err = run(ctx, root, "rev-list", strings.TrimSpace(upstream)+"..HEAD")
+	} else {
+		output, err = run(ctx, root, "rev-list", "HEAD", "--not", "--remotes")
 	}
-	output, err := run(ctx, root, "rev-list", upstream+"..HEAD")
 	if err != nil {
 		return nil
 	}

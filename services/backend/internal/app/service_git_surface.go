@@ -297,8 +297,8 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 }
 
 // GitUnpushedOverview is the current local branch's commits that are not yet
-// reachable from its configured upstream. Commits are newest first, matching
-// the rest of the Git history APIs.
+// published according to its valid upstream or, when none exists, any local
+// remote-tracking ref. Commits are newest first like the other history APIs.
 type GitUnpushedOverview struct {
 	Branch       string            `json:"branch"`
 	Upstream     string            `json:"upstream,omitempty"`
@@ -333,9 +333,10 @@ func splitUpstream(upstream string) (string, string) {
 	return remote, branch
 }
 
-// GitUnpushed returns every commit ahead of the current branch's upstream. A
-// branch without an upstream is intentionally reported as such rather than
-// guessing which remote branch should define published history.
+// GitUnpushed returns commits that are provably unpublished. A valid upstream
+// is the primary comparison. Without one, the hostrepo layer falls back to
+// commits reachable from HEAD but from no remote-tracking ref, which keeps the
+// list useful without inventing a destination branch for selective push.
 func (s *Service) GitUnpushed(ctx context.Context, sessionID string) (GitUnpushedOverview, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
@@ -351,14 +352,15 @@ func (s *Service) GitUnpushed(ctx context.Context, sessionID string) (GitUnpushe
 	}
 	hasUpstream := active.HasUpstream && !active.Gone
 	overview := GitUnpushedOverview{Branch: active.Name, Upstream: active.Upstream, HasUpstream: hasUpstream, Commits: []hostrepo.Commit{}}
-	if !hasUpstream {
-		return overview, nil
+	limit := 50
+	if hasUpstream {
+		overview.Remote, overview.RemoteBranch = splitUpstream(active.Upstream)
+		if active.Ahead <= 0 {
+			return overview, nil
+		}
+		limit = active.Ahead
 	}
-	overview.Remote, overview.RemoteBranch = splitUpstream(active.Upstream)
-	if active.Ahead <= 0 {
-		return overview, nil
-	}
-	commits, err := hostrepo.Unpushed(ctx, item.ProjectPath, active.Ahead)
+	commits, err := hostrepo.Unpushed(ctx, item.ProjectPath, limit)
 	if err != nil {
 		return GitUnpushedOverview{}, err
 	}

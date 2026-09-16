@@ -123,6 +123,33 @@ describe('GitDrawer', () => {
     expect(screen.getByText(/\+fixed/)).toBeTruthy()
   })
 
+  it('lists local-only commits without an upstream and keeps selective push disabled', async () => {
+    const base = { sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', short_sha: 'aaaaaaa', subject: 'chore: published base', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-10T10:00:00Z', parents: [], wharnex: false, merge: false, pushed: true }
+    const local = { sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', short_sha: 'bbbbbbb', subject: 'fix: local unpublished commit', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-11T10:00:00Z', parents: [base.sha], wharnex: false, merge: false, pushed: false }
+    vi.mocked(api.gitOverview).mockResolvedValue(overview({
+      current_branch: 'fix/no-upstream',
+      branches: [
+        { name: 'fix/no-upstream', current: true, commit_sha: local.sha, subject: local.subject, ahead: 0, behind: 0, has_upstream: false, gone: false },
+        { name: 'origin/main', remote: 'origin', current: false, commit_sha: base.sha, subject: base.subject, ahead: 0, behind: 0, has_upstream: false, gone: false },
+      ],
+      commits: [local, base],
+    }))
+    vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'fix/no-upstream', has_upstream: false, commits: [local] })
+
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    const tab = await screen.findByRole('tab', { name: /Por publicar/ })
+    expect(tab.querySelector('.git-tab-count')?.textContent).toBe('1')
+    fireEvent.click(tab)
+
+    expect(await screen.findByText('fix: local unpublished commit')).toBeTruthy()
+    expect(screen.getByText(/Sem upstream, a lista abaixo mostra commits de HEAD/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Push selecionado/ })).toBeNull()
+    expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: /Push completo/ }))
+    await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'fix/no-upstream', true))
+  })
+
   it('loads selected and all-branch commit timelines', async () => {
     vi.mocked(api.gitHistory).mockResolvedValue([{ sha: 'f1', short_sha: 'f1', subject: 'feat: feature timeline', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-11T10:00:00Z', parents: ['a2'], wharnex: false, merge: false, pushed: false }])
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)

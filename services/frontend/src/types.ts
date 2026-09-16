@@ -710,7 +710,7 @@ export type GitCommit = {
   /** Originated from a Wharnex change, identified by its Request-Id trailer. */
   wharnex: boolean
   merge: boolean
-  /** Reachable from the branch's upstream. False also means "not provable". */
+  /** Reachable from the valid upstream, or from any remote-tracking ref when no upstream exists. */
   pushed: boolean
 }
 
