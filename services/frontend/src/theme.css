@@ -1526,3 +1526,50 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .project-quick-switch button.active .project-color-mark {
   box-shadow: 0 0 0 2px hsl(var(--project-hue) 70% 56% / .10), 0 0 7px hsl(var(--project-hue) 76% 54% / .24);
 }
+
+/* Workbench theme registry extensions. `data-theme` remains the compatibility
+ * bridge for existing component selectors; `data-ui-theme` is the durable UI
+ * theme identity and can grow without changing component JSX. */
+:root[data-ui-theme='high-contrast'] {
+  --app-bg: #000;
+  --ink: #fff;
+  --muted: #d8d8d8;
+  --line: #fff;
+  --paper: #000;
+  --paper-2: #111;
+  --dark: #000;
+  --acid: #d7ff76;
+  --acid-dark: #d7ff76;
+  --danger: #ff8d86;
+  --warning: #ffe07a;
+  --success: #9dffab;
+  --theme-bg: #000;
+  --theme-surface: #050505;
+  --theme-elevated: #0d0d0d;
+  --theme-muted: #111;
+  --theme-subtle: #181818;
+  --theme-hover: #262626;
+  --theme-text: #fff;
+  --theme-text-soft: #f0f0f0;
+  --theme-text-muted: #d3d3d3;
+  --theme-border: #fff;
+  --theme-border-soft: #9b9b9b;
+  --theme-accent: #d7ff76;
+  --theme-accent-soft: #253300;
+  --theme-shadow: rgba(0,0,0,.72);
+}
+:root[data-ui-theme='high-contrast'] .workspace-topbar,
+:root[data-ui-theme='high-contrast'] .multi-project-bar,
+:root[data-ui-theme='high-contrast'] .agent-activity-bar,
+:root[data-ui-theme='high-contrast'] .agent-drawer,
+:root[data-ui-theme='high-contrast'] .terminal-workspace,
+:root[data-ui-theme='high-contrast'] .workbench-status-bar,
+:root[data-ui-theme='high-contrast'] .quick-switcher-popover { border-color: #fff !important; background: #000 !important; color: #fff !important; }
+:root[data-ui-theme='high-contrast'] button:focus-visible,
+:root[data-ui-theme='high-contrast'] input:focus-visible,
+:root[data-ui-theme='high-contrast'] select:focus-visible,
+:root[data-ui-theme='high-contrast'] textarea:focus-visible { outline: 2px solid #d7ff76; outline-offset: 2px; }
+
+.theme-preference-control { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.theme-preview-original { border-color: var(--theme-border); background: linear-gradient(135deg, #fafbf7 0 49%, #171717 51%); color: var(--theme-accent); }
+.theme-preview-high-contrast { border-color: #fff; background: #000; color: #fff; box-shadow: inset 0 0 0 1px #000; }

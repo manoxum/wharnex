@@ -123,8 +123,11 @@ export function configureMonaco() {
 }
 
 export function activeMonacoTheme() {
-  return document.documentElement.dataset.theme === 'dark' ? 'wharness-dark' : 'wharness-light'
+  const scheme = document.documentElement.dataset.contentScheme
+  if (scheme === 'high-contrast') return 'hc-black'
+  return scheme === 'dark' || (!scheme && document.documentElement.dataset.theme === 'dark') ? 'wharness-dark' : 'wharness-light'
 }
+
 
 export function editorModelURI(path: string) {
   return monaco.Uri.from({ scheme: 'file', path: `/${path.replace(/^\/+/, '')}` })

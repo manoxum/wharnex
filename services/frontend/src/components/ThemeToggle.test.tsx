@@ -8,6 +8,7 @@ describe('theme controls', () => {
     localStorage.clear()
     document.documentElement.removeAttribute('data-theme')
     document.documentElement.removeAttribute('data-theme-preference')
+    document.documentElement.removeAttribute('data-ui-theme')
   })
 
   it('switches to the opposite resolved theme and persists the explicit choice', () => {
@@ -21,12 +22,12 @@ describe('theme controls', () => {
     expect(screen.getByRole('button', { name: 'Ativar tema claro' })).toBeTruthy()
   })
 
-  it('offers light, dark and operating-system preferences accessibly', () => {
+  it('offers Original, dark, light and high-contrast preferences accessibly', () => {
     let selected = 'light'
-    const { rerender } = render(<ThemePreferenceControl value="system" onChange={(theme) => { selected = theme }} />)
-    expect(screen.getByRole('radio', { name: /Sistema/ }).getAttribute('aria-checked')).toBe('true')
-    fireEvent.click(screen.getByRole('radio', { name: /Escuro/ }))
-    expect(selected).toBe('dark')
+    const { rerender } = render(<ThemePreferenceControl value="original" onChange={(theme) => { selected = theme }} />)
+    expect(screen.getByRole('radio', { name: /Original/ }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(screen.getByRole('radio', { name: /Alto contraste/ }))
+    expect(selected).toBe('high-contrast')
     rerender(<ThemePreferenceControl value="dark" onChange={(theme) => { selected = theme }} />)
     expect(screen.getByRole('radio', { name: /Escuro/ }).getAttribute('aria-checked')).toBe('true')
   })
