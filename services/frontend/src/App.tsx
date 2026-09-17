@@ -3049,8 +3049,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (source === 'right' && rightDrawer === tool) { setRightDrawer(''); setSideDrawer(tool) }
   }
 
-  const openLeftDrawer = (next: Drawer) => { setSideDrawer(next); if (next) setRightDrawer('') }
-  const openRightDrawer = (next: Drawer) => { setRightDrawer(next); if (next) setSideDrawer('') }
+  const openLeftDrawer = (next: Drawer) => setSideDrawer(next)
+  const openRightDrawer = (next: Drawer) => setRightDrawer(next)
 
   const sharedChatProps: ComponentProps<typeof ChatPanel> = {
     session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, reasoningEffort: session.reasoning_effort || 'high', chatTransportMode,
@@ -3144,6 +3144,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           attentionItems={attentionItems}
           chatgptAttentionNonce={chatgptAttentionNonce}
           inspectorAttention={inspectorAttention}
+          singlePane={Boolean(sideDrawer && rightDrawer)}
           onOpenAttention={openAttentionItem}
           onAttentionAction={runAttentionItemAction}
           onOpenAttentionDrawer={() => openLeftDrawer('attention')}
