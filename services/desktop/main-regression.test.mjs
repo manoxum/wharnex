@@ -2,13 +2,27 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-test('workspace shell occupies the native titlebar while keeping window controls', async () => {
+test('workspace shell owns a frameless window instead of native titlebar overlay', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const createStart = source.indexOf('function createWindow(')
   const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
   const create = source.slice(createStart, registerStart)
-  assert.match(create, /titleBarStyle: 'hidden'/)
-  assert.match(create, /titleBarOverlay: \{ height: 43 \}/)
+  assert.match(create, /frame: false/)
+  assert.doesNotMatch(create, /titleBarStyle/)
+  assert.doesNotMatch(create, /titleBarOverlay/)
+})
+
+test('renderer window controls are closed preload IPC operations', async () => {
+  const [source, preload] = await Promise.all([
+    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./preload.cjs', import.meta.url), 'utf8'),
+  ])
+  assert.match(source, /ipcMain\.handle\('wharness:windows:minimize'/)
+  assert.match(source, /ipcMain\.handle\('wharness:windows:toggle-maximize'/)
+  assert.match(source, /ipcMain\.handle\('wharness:windows:close'/)
+  assert.match(preload, /minimize: \(\) => invoke\('wharness:windows:minimize'\)/)
+  assert.match(preload, /toggleMaximize: \(\) => invoke\('wharness:windows:toggle-maximize'\)/)
+  assert.match(preload, /close: \(\) => invoke\('wharness:windows:close'\)/)
 })
 
 test('local frontend navigation uses a per-runtime cache token', async () => {

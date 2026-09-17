@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       return () => ipcRenderer.removeListener('wharness:windows:activate-project', handler)
     },
     open: () => invoke('wharness:windows:open'),
+    minimize: () => invoke('wharness:windows:minimize'),
+    toggleMaximize: () => invoke('wharness:windows:toggle-maximize'),
+    close: () => invoke('wharness:windows:close'),
     prepareRestart: (scope) => invoke('wharness:windows:prepare-restart', { scope }),
   }),
   chatgpt: Object.freeze({

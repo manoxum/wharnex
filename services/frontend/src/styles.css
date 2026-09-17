@@ -1646,7 +1646,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 
 /* Multi-window / multi-project workspace shell */
 .desktop-shell-root { position: relative; width: 100vw; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-rows: 43px minmax(0, 1fr); overflow: hidden; background: var(--app-bg, #eceee7); }
-.multi-project-bar { min-width: 0; height: 43px; padding-block: 0; padding-left: max(9px, calc(env(titlebar-area-x, 0px) + 9px)); padding-right: max(9px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 9px)); display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; -webkit-app-region: drag; user-select: none; }
+.multi-project-bar { min-width: 0; height: 43px; padding: 0 0 0 9px; display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; -webkit-app-region: drag; user-select: none; }
 .multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar [data-chatgpt-overlay-blocker='true'] { -webkit-app-region: no-drag; }
 .multi-project-brand { display: flex; align-items: center; color: #30352d; }
 .project-quick-switch { min-width: 0; height: 100%; display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: thin; }
@@ -1662,6 +1662,17 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .multi-project-actions button { border-color: #d6dbd0; background: #fafbf7; }
 .project-actions-menu { position: relative; flex: 0 0 auto; }
 .multi-project-actions .project-actions-trigger { width: 29px; padding: 0; justify-content: center; }
+.window-chrome-controls { align-self: stretch; height: 43px; display: flex; align-items: stretch; border-left: 1px solid var(--theme-border, #cfd4ca); background: var(--theme-surface, #f4f5ef); -webkit-app-region: no-drag; }
+.window-chrome-button { width: 42px; height: 43px; padding: 0; position: relative; display: grid; place-items: center; border: 0; border-radius: 0; background: transparent; color: var(--theme-text-muted, #677061); cursor: pointer; -webkit-app-region: no-drag; }
+.window-chrome-button:hover { background: var(--theme-hover, #e9ece4); color: var(--theme-text, #31382d); }
+.window-chrome-button:focus-visible { outline: 1px solid var(--theme-accent, #557d24); outline-offset: -2px; }
+.window-chrome-button > span { width: 12px; height: 12px; position: relative; display: block; }
+.window-chrome-button.minimize > span::before { content: ''; width: 11px; height: 1.5px; position: absolute; left: .5px; top: 8px; border-radius: 999px; background: currentColor; }
+.window-chrome-button.maximize > span::before { content: ''; width: 9px; height: 9px; position: absolute; left: 1.5px; top: 1.5px; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: 1px; }
+.window-chrome-button.close > span::before, .window-chrome-button.close > span::after { content: ''; width: 13px; height: 1.5px; position: absolute; left: -.5px; top: 5.25px; border-radius: 999px; background: currentColor; transform-origin: center; }
+.window-chrome-button.close > span::before { transform: rotate(45deg); }
+.window-chrome-button.close > span::after { transform: rotate(-45deg); }
+.window-chrome-button.close:hover { background: color-mix(in srgb, var(--danger, #a54038) 82%, var(--theme-surface, #f4f5ef)); color: var(--theme-elevated, #fff); }
 .project-actions-popover { position: absolute; z-index: 100; top: calc(100% + 7px); right: 0; width: 208px; padding: 5px; border: 1px solid #cbd2c5; border-radius: 10px; background: #fafbf7; box-shadow: 0 14px 34px rgba(25,31,22,.18); }
 .multi-project-actions .project-actions-popover button { width: 100%; height: auto; min-height: 43px; padding: 7px 8px; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 7px; background: transparent; color: #454d40; text-align: left; }
 .multi-project-actions .project-actions-popover button:hover { background: #e9eee3; color: #24301e; }
@@ -1744,8 +1755,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 }
 .restart-scope-actions { flex-wrap: wrap; }
 @media (max-width: 980px) {
-  .multi-project-bar { grid-template-columns: auto auto auto minmax(0, 1fr); }
-  .multi-project-actions { display: none; }
+  .multi-project-bar { grid-template-columns: auto auto auto minmax(0, 1fr) auto; }
+  .multi-project-context, .multi-project-actions { display: none; }
 }
 
 
