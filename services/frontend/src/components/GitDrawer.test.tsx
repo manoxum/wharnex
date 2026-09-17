@@ -144,7 +144,7 @@ describe('GitDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Push selecionado \(1\)/ }))
     await waitFor(() => expect(api.gitPushSelected).toHaveBeenCalledWith('ses_1', [oldest.sha]))
 
-    fireEvent.click(screen.getAllByRole('button', { name: /Detalhes/ })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: /Ver alterações/ })[0])
     await waitFor(() => expect(api.gitUnpushedCommit).toHaveBeenCalledWith('ses_1', newest.sha))
     expect(await screen.findByRole('dialog', { name: 'Commit 2222222' })).toBeTruthy()
     expect(screen.getByText(/Request/)).toBeTruthy()

@@ -198,15 +198,12 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   // The chat width is published only once the operator has actually chosen it,
   // so an untouched layout falls through to the stylesheet's 60/40 default.
   return <section ref={workspaceRef} className="agent-workspace" style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
-    <header className="agent-commandbar">
-      {(session.self_evolution || session.wharnex_instance_id) && <div className="agent-commandbar-center">
-        <span className="self-evolution-badge"><Icon name="refresh" size={13}/>{session.self_evolution ? ' WHX · AUTO-EVOLUÇÃO' : ` WHX · EVOLUÇÃO DA INSTÂNCIA ${session.wharnex_instance_id}`}</span>
-      </div>}
+    <header className="agent-commandbar" aria-label="Atalhos do Agent">
       <div className="agent-command-actions">
         {bundleQuota && <AgentBundleCounters quota={bundleQuota}/>}
         <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{attentionSummary.total} {attentionSummary.total === 1 ? 'alerta ativo' : 'alertas ativos'}; {attentionSummary.urgent} {attentionSummary.urgent === 1 ? 'urgente' : 'urgentes'}; {attentionSummary.actionable} com ação disponível.</span>
         {attentionItems.length > 0 && <div className="agent-attention-cluster" ref={attentionClusterRef}>
-          <button ref={attentionTriggerRef} type="button" className={`agent-attention-summary ${attentionSummary.urgent ? 'urgent' : ''}`} onClick={() => setAttentionPopoverOpen((open) => !open)} aria-expanded={attentionPopoverOpen} aria-haspopup="dialog" aria-controls="agent-attention-popover" aria-label={`Centro de notificações, ${attentionSummary.total} alerta(s), ${attentionSummary.urgent} urgente(s), ${attentionSummary.actionable} com ação`} title="Centro de Alertas · todos os chats deste projeto"><Icon name="bell" size={14}/><span><b>{attentionSummary.total} {attentionSummary.total === 1 ? 'alerta' : 'alertas'}</b><small>{attentionSummary.urgent} {attentionSummary.urgent === 1 ? 'urgente' : 'urgentes'}</small></span></button>
+          <button ref={attentionTriggerRef} type="button" className={`agent-attention-summary ${attentionSummary.urgent ? 'urgent' : ''}`} onClick={() => setAttentionPopoverOpen((open) => !open)} aria-expanded={attentionPopoverOpen} aria-haspopup="dialog" aria-controls="agent-attention-popover" aria-label={`Centro de notificações, ${attentionSummary.total} alerta(s), ${attentionSummary.urgent} urgente(s), ${attentionSummary.actionable} com ação`} title="Centro de Alertas · todos os chats deste projeto"><Icon name="bell" size={14}/><span className="agent-attention-count" aria-hidden="true">{attentionSummary.total}</span></button>
           {attentionPopoverOpen && <AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention} onClose={closeAttentionPopover}/>}
         </div>}
       </div>

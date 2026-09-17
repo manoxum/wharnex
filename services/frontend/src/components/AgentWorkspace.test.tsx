@@ -360,8 +360,7 @@ describe('AgentWorkspace', () => {
     const view = props(current)
     render(<view.Harness attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
     const summary = screen.getByRole('button', { name: /Centro de notificações, 1 alerta/ })
-    expect(summary.textContent).toContain('1 alerta')
-    expect(summary.textContent).toContain('0 urgentes')
+    expect(summary.querySelector('.agent-attention-count')?.textContent).toBe('1')
     fireEvent.click(summary)
     expect(screen.getByRole('dialog', { name: 'Alertas ativos' })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Paralelo.*Aprovação necessária/ })).toBeTruthy()
@@ -653,7 +652,7 @@ describe('AgentWorkspace', () => {
     expect((screen.getByRole('button', { name: /^Paralelo$/ }) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('shows the WHX evolution badge and evidence action only for backend-qualified self-evolution', async () => {
+  it('keeps self-evolution status out of the Agent rail while preserving its evidence action', async () => {
     const normal = props()
     const rendered = render(normal.element)
     expect(screen.queryByText('WHX · AUTO-EVOLUÇÃO')).toBeNull()
@@ -662,13 +661,11 @@ describe('AgentWorkspace', () => {
     const self = { ...session(), self_evolution: true }
     vi.spyOn(api, 'evolutionEvidence').mockResolvedValue({ events: [], counts: {}, projects: [], categories: [], total: 0, truncated: false })
     rendered.rerender(props(self).element)
-    const badge = screen.getByText('WHX · AUTO-EVOLUÇÃO')
+    expect(screen.queryByText('WHX · AUTO-EVOLUÇÃO')).toBeNull()
     const directChatGPT = screen.getByRole('navigation', { name: 'ChatGPT direto' })
     const agentAreas = screen.getByRole('navigation', { name: 'Áreas do Agent' })
-    expect(badge).toBeTruthy()
     const commandbar = directChatGPT.closest('.agent-commandbar')
-    const centeredBadge = badge.closest('.agent-commandbar-center')
-    expect(centeredBadge?.parentElement).toBe(commandbar)
+    expect(commandbar?.getAttribute('aria-label')).toBe('Atalhos do Agent')
     expect(commandbar?.lastElementChild).toBe(directChatGPT)
     expect(directChatGPT.previousElementSibling).toBe(agentAreas)
     expect(agentAreas.previousElementSibling?.classList.contains('agent-command-actions')).toBe(true)
