@@ -124,13 +124,13 @@ its Session so conflict state and branch metadata stay coherent in both
 surfaces. Missing root project version remains an Engine concern and is created by the
 project-version service before the Git overview is returned.
 
-The multi-project shell header is also the Desktop window title bar. Electron
-hides the redundant native title text while retaining the operating system's
-window controls in a 43 px Window Controls Overlay. Unused header chrome stays
-draggable, but buttons, fields, menus and dialogs remain interactive no-drag
-regions. The shell reserves the overlay-reported control area so Git identity,
-workspace modes, project switching and project actions never sit underneath
-minimize/maximize/close controls.
+The multi-project shell header is also the complete Desktop window title bar.
+The primary BrowserWindow is frameless, and minimize/maximize/close are narrow
+preload-bridged actions rendered by the shell itself. This keeps the window
+controls on the same theme surface as Git identity, workspace modes, project
+switching and project actions instead of mixing in a platform-specific Window
+Controls Overlay. Unused header chrome stays draggable, while buttons, fields,
+menus, dialogs and the three window controls remain interactive no-drag regions.
 
 The panel presents, in one read: the project's commit mode; the current branch
 with its ahead/behind counts; local and remote-tracking branches; the pending

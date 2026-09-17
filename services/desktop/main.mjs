@@ -5895,11 +5895,11 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     windowStatePersistence: true,
     backgroundColor: '#eceee7',
     autoHideMenuBar: true,
-    // The workspace shell owns the visible title bar. Electron keeps only the
-    // native window controls over that 43px strip so project/mode/actions live
-    // in one chrome row instead of below a second native title row.
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { height: 43 },
+    // The workspace shell owns the complete visible window chrome. Keeping the
+    // BrowserWindow frameless avoids mixing Linux/native titlebar rendering with
+    // the themed React shell; minimize/maximize/close are exposed through the
+    // preload bridge and rendered inside the same 43px toolbar.
+    frame: false,
     webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
   })
   const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '' }
@@ -6025,6 +6025,24 @@ function registerIPC() {
     const windowState = createWindow()
     windowState.window.show(); windowState.window.focus()
     return { ok: true, windowId: windowState.id }
+  })
+  ipcMain.handle('wharness:windows:minimize', (event) => {
+    const windowState = trustedSender(event)
+    windowState.window.minimize()
+    return { ok: true }
+  })
+  ipcMain.handle('wharness:windows:toggle-maximize', (event) => {
+    const windowState = trustedSender(event)
+    if (windowState.window.isMaximized()) windowState.window.unmaximize()
+    else windowState.window.maximize()
+    return { ok: true, maximized: windowState.window.isMaximized() }
+  })
+  ipcMain.handle('wharness:windows:close', (event) => {
+    const windowState = trustedSender(event)
+    setTimeout(() => {
+      if (!windowState.window.isDestroyed()) windowState.window.close()
+    }, 0)
+    return { ok: true }
   })
   ipcMain.handle('wharness:windows:prepare-restart', (event, request) => {
     const windowState = trustedSender(event)

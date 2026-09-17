@@ -37,6 +37,22 @@ describe('WorkspaceShell project actions', () => {
     expect(container.querySelector('.multi-project-bar')?.getAttribute('data-window-titlebar')).toBe('true')
   })
 
+  it('routes themed window chrome controls through the desktop bridge', () => {
+    const minimize = vi.fn().mockResolvedValue({ ok: true })
+    const toggleMaximize = vi.fn().mockResolvedValue({ ok: true, maximized: true })
+    const close = vi.fn().mockResolvedValue({ ok: true })
+    window.wharnessDesktop = { windows: { minimize, toggleMaximize, close } } as unknown as WharnessDesktopBridge
+
+    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Minimizar janela' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Maximizar ou restaurar janela' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar janela' }))
+
+    expect(minimize).toHaveBeenCalledTimes(1)
+    expect(toggleMaximize).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
   it('binds an additional project from its complete local path', () => {
     const onBindPath = vi.fn()
     render(<ShellChrome projects={['/work/current']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={onBindPath} onNewWindow={vi.fn()} />)
