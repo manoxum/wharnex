@@ -677,6 +677,27 @@ export type BundleSubmission = { session: Session; auto_executed: boolean; auto_
 export type ProjectStorageUsage = { project_path: string; session_count: number; context_bytes: number; sandbox_bytes: number; artifact_bytes: number; archive_bytes: number; total_bytes: number }
 export type BackendStorageUsage = { total_bytes: number; state_bytes: number; context_bytes: number; sandbox_bytes: number; artifact_bytes: number; archive_bytes: number; orphan_bytes: number; projects: ProjectStorageUsage[] }
 
+
+export type ProjectTodoKind = 'feature' | 'improvement' | 'error'
+export type ProjectTodoUrgency = 'very_urgent' | 'urgent' | 'normal' | 'no_urgency'
+export type ProjectTodoAttachment = { name: string; size: number; mime: string; storage_ref: string; preview_kind?: 'thumbnail' | 'icon' | 'none' }
+export type ProjectTodo = {
+  id: string
+  project_path: string
+  body: string
+  status: 'open' | 'done'
+  kind?: ProjectTodoKind
+  urgency?: ProjectTodoUrgency
+  classification_status: 'queued' | 'classified' | 'failed'
+  classification_task_id?: string
+  classification_error?: string
+  attachment_cache_key?: string
+  attachments?: ProjectTodoAttachment[]
+  project_files?: string[]
+  created_at: string
+  updated_at: string
+}
+
 // ---------------------------------------------------------------------------
 // Git surface
 // ---------------------------------------------------------------------------

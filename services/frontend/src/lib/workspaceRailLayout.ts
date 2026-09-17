@@ -1,12 +1,12 @@
 export type WorkspaceRailSide = 'left' | 'right'
-export type WorkspaceTool = 'archive' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'plans' | 'executions' | 'fifo' | 'evolution' | 'terminal' | 'database'
+export type WorkspaceTool = 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'plans' | 'executions' | 'fifo' | 'evolution' | 'terminal' | 'database'
 export type WorkspaceRailLayout = Record<WorkspaceRailSide, WorkspaceTool[]>
 
 const STORAGE_KEY = 'whx.workspace.rail-layout.v1'
-const ALL_TOOLS: WorkspaceTool[] = ['archive', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal', 'database']
+const ALL_TOOLS: WorkspaceTool[] = ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal', 'database']
 
 export const DEFAULT_WORKSPACE_RAIL_LAYOUT: WorkspaceRailLayout = {
-  left: ['archive', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal'],
+  left: ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal'],
   right: ['database'],
 }
 

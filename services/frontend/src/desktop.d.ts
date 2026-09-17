@@ -156,6 +156,7 @@ interface WharnessDesktopBridge {
   attachments: {
     persist(request: { cacheKey: string; messageId: string; attachments: DesktopUserAttachment[] }): Promise<{ ok: boolean; attachments: DesktopStoredAttachment[] }>
     preview(request: { storageRef: string }): Promise<DesktopAttachmentPreview>
+    read(request: { storageRef: string }): Promise<DesktopUserAttachment>
     open(request: { storageRef: string }): Promise<{ ok: boolean }>
     removeChat(request: { cacheKey: string }): Promise<{ ok: boolean }>
   }

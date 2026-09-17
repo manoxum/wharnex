@@ -9,7 +9,7 @@ describe('workspaceRailLayout', () => {
     const reordered = moveWorkspaceTool(moved, 'git', 'left', 'project')
     saveWorkspaceRailLayout(reordered)
     expect(loadWorkspaceRailLayout().right).toEqual(['library', 'database'])
-    expect(loadWorkspaceRailLayout().left.slice(0, 3)).toEqual(['archive', 'git', 'project'])
+    expect(loadWorkspaceRailLayout().left.slice(0, 4)).toEqual(['archive', 'todo', 'git', 'project'])
   })
 
   it('keeps the order stable when a tool is dropped on itself', () => {
@@ -22,6 +22,6 @@ describe('workspaceRailLayout', () => {
     const layout = loadWorkspaceRailLayout()
     expect(layout.left.filter((item) => item === 'library')).toHaveLength(1)
     expect(layout.right).toContain('database')
-    expect(new Set([...layout.left, ...layout.right]).size).toBe(13)
+    expect(new Set([...layout.left, ...layout.right]).size).toBe(14)
   })
 })

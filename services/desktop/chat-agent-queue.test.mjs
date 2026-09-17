@@ -91,8 +91,22 @@ test('aging promotes maintenance without overtaking P0 writes', async () => {
   await Promise.allSettled([cleanup, awaitResponse, write])
 })
 
+
+test('TODO classification stays behind user-facing work but ages normally', async () => {
+  const queue = new ChatAgentQueue()
+  const classify = queue.enqueueTask({ type: 'TODO_CLASSIFY', chatId: 'todo' })
+  const archive = queue.enqueueTask({ type: 'ARCHIVE_CHAT', chatId: 'archive' })
+  const first = queue.take()
+  const second = queue.take()
+  assert.equal(first.type, 'ARCHIVE_CHAT')
+  assert.equal(second.type, 'TODO_CLASSIFY')
+  settleJob(first, null, true)
+  settleJob(second, null, true)
+  await Promise.all([classify, archive])
+})
+
 test('task catalog covers approved scheduler verbs', () => {
-  for (const type of ['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT']) {
+  for (const type of ['TRANSLATE_MARKDOWN', 'TODO_CLASSIFY', 'ORCHESTRATOR_PLAN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT']) {
     assert.ok(TASK_TYPES.includes(type), type)
   }
 })

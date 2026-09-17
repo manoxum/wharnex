@@ -619,7 +619,7 @@ test('the two pools partition the durable queue: Supervisors take chat-bound wor
   for (const type of ['AWAIT_RESPONSE', 'BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN']) {
     assert.match(execute, new RegExp(`case '${type}'`), `the Supervisor pool must run ${type}`)
   }
-  for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'TRANSLATE_MARKDOWN', 'TITLE_DISCOVER']) {
+  for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'TRANSLATE_MARKDOWN', 'TODO_CLASSIFY', 'TITLE_DISCOVER']) {
     assert.doesNotMatch(execute, new RegExp(`case '${type}'`), `${type} is small Worker work and must never reach a Supervisor`)
   }
   // Navigation is the exception, not the rule: the bound renderer is normally
@@ -1754,6 +1754,27 @@ test('translation worker is transport only: it uploads the engine’s bundle and
   assert.match(download, /expected\.resolve\(bytes\)/)
   assert.doesNotMatch(download, /new TextDecoder/)
   assert.match(download, /\^whx_translation_res_cat_\[a-f0-9\]\{20\}\\\.zip\$/)
+})
+
+
+test('TODO classification worker keeps the provider exchange bundle-only', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const executeStart = source.indexOf('async function executeChatAgentTodoClassification(')
+  const executeEnd = source.indexOf('\nasync function chatAgentLifecycleRetry', executeStart)
+  const worker = source.slice(executeStart, executeEnd)
+  assert.notEqual(executeStart, -1)
+  assert.match(worker, /wharness\.todo-classification-input\/v1/)
+  assert.match(worker, /chatGPTFillComposerScript\(bootstrap\)/)
+  assert.match(worker, /chatGPTExpectedDownloadScript\(filename, assistantBaseline\)/)
+  assert.match(worker, /bundle_base64: outcome\.value\.toString\('base64'\)/)
+  assert.doesNotMatch(worker, /textContent|innerText|JSON\.parse\(outcome\.value/)
+  assert.match(worker, /target\.reasoningEffort = 'instant'/)
+
+  const downloadStart = source.indexOf('function registerChatGPTTodoClassificationDownload(')
+  const downloadEnd = source.indexOf('\nfunction registerChatGPTPlanDownloads', downloadStart)
+  const download = source.slice(downloadStart, downloadEnd)
+  assert.match(download, /MAX_TODO_CLASSIFICATION_BYTES/)
+  assert.match(download, /expected\.resolve\(bytes\)/)
 })
 
 test('orchestrator planning survives as an exact artifact-only Worker delivery', async () => {
