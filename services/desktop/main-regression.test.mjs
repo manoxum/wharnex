@@ -1609,18 +1609,28 @@ test('a chat slot is given its layout viewport before it is ever hidden', async 
 })
 
 test('background native input preserves the already-focused local composer', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const [source, guard] = await Promise.all([
+    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./local-focus-guard.mjs', import.meta.url), 'utf8'),
+  ])
   const helperStart = source.indexOf('function focusedLocalWharnexContents()')
   const helper = source.slice(helperStart, source.indexOf('\nfunction ensureChatGPTLayoutViewport(', helperStart))
   assert.ok(helperStart > 0)
   assert.match(helper, /BrowserWindow\.getFocusedWindow\(\)/)
   assert.match(helper, /contents\.isFocused\(\)/)
-  assert.match(helper, /contents\.focus\(\)/)
+  assert.match(helper, /preserveLocalFocusDuringBackgroundOperation/)
+  assert.match(helper, /BrowserWindow\.fromWebContents\(contents\)/)
   assert.doesNotMatch(helper, /view\.webContents\.focus\(|wc\.focus\(/)
+  assert.match(guard, /BACKGROUND_NATIVE_FOCUS_RESTORE_DELAYS_MS = \[0, 16, 48\]/)
+  assert.match(guard, /isOwnerFocused\?\.\(owner\)/)
 
   const accountStart = source.indexOf('async function commitChatGPTAccountControl(')
   const account = source.slice(accountStart, source.indexOf('\nasync function chooseChatGPTConversationAction', accountStart))
   assert.match(account, /withPreservedLocalFocus\(\(\) => dispatchChatGPTPointerClick/)
+
+  const submitStart = source.indexOf('async function submitChatGPTDraft(')
+  const submit = source.slice(submitStart, source.indexOf('\nasync function preparePromptForChatGPT', submitStart))
+  assert.match(submit, /withPreservedLocalFocus\(\(\) => dispatchChatGPTEffortCycle/)
 })
 
 test('the layout viewport guard does not read native bounds as renderer evidence', async () => {
