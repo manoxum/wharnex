@@ -152,8 +152,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .topbar-indicator .indicator-dot { box-shadow: 0 0 0 2px #e8ece4; }
 
 :root[data-theme='light'] .agent-workspace { background: var(--theme-bg); }
+:root[data-theme='light'] .agent-direct-chatgpt-tab button,
 :root[data-theme='light'] .agent-surface-tabs button { border-color: var(--theme-border-soft); color: var(--theme-text-muted); }
+:root[data-theme='light'] .agent-direct-chatgpt-tab button:hover,
 :root[data-theme='light'] .agent-surface-tabs button:hover { background: var(--theme-hover); color: var(--theme-text-soft); }
+:root[data-theme='light'] .agent-direct-chatgpt-tab button.active,
 :root[data-theme='light'] .agent-surface-tabs button.active { border-bottom-color: var(--theme-accent); background: var(--theme-elevated); color: var(--theme-text); }
 :root[data-theme='light'] .agent-surface-tabs { border-color: var(--theme-border); }
 :root[data-theme='light'] .agent-policy-icon { color: var(--theme-text-muted); }
@@ -1214,14 +1217,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .workspace-topbar .icon-button,
 :root[data-theme='dark'] .agent-policy-icon,
 :root[data-theme='dark'] .agent-activity-bar button { color: #adadad; }
+:root[data-theme='dark'] .agent-direct-chatgpt-tab button,
 :root[data-theme='dark'] .agent-surface-tabs button {
   border-color: #383838;
   color: #adadad;
 }
+:root[data-theme='dark'] .agent-direct-chatgpt-tab button:hover,
 :root[data-theme='dark'] .agent-surface-tabs button:hover {
   background: #292929;
   color: #f2f2f2;
 }
+:root[data-theme='dark'] .agent-direct-chatgpt-tab button.active,
 :root[data-theme='dark'] .agent-surface-tabs button.active {
   border-bottom-color: #d0d0d0;
   background: #212121;
@@ -1455,6 +1461,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .agent-activity-bar,
 :root[data-theme='dark'] .agent-drawer,
 :root[data-theme='dark'] .project-activity-list { background: var(--theme-surface); border-color: var(--theme-border); color: var(--theme-text-soft); }
+:root[data-theme='dark'] .agent-direct-chatgpt-tab button.active,
 :root[data-theme='dark'] .agent-surface-tabs button.active,
 :root[data-theme='dark'] .project-activity-list button.active { background: var(--theme-accent-soft); color: var(--theme-text); }
 :root[data-theme='dark'] .project-activity-list button,
