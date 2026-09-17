@@ -12,8 +12,6 @@ import (
 	"kernl.local/harness/backend/internal/todoclassification"
 )
 
-const todoClassificationDelay = 45 * time.Second
-
 type ProjectTodoCreateInput struct {
 	Body               string                         `json:"body"`
 	AttachmentCacheKey string                         `json:"attachment_cache_key"`
@@ -152,7 +150,7 @@ func (s *Service) enqueueProjectTodoClassification(current domain.Session, item 
 	_, err = s.store.EnqueueChatAgentTask(session.ChatAgentTask{
 		Type: "TODO_CLASSIFY", TaskID: taskID, ProjectID: current.ProjectPath, ChatID: item.ID, SessionID: current.ID,
 		RequestID: item.ID, RootRequestID: item.ID, DedupeKey: "todo-classify:" + item.ID,
-		Payload: payload, MaxAttempts: 4, NotBefore: time.Now().UTC().Add(todoClassificationDelay),
+		Payload: payload, MaxAttempts: 4,
 	})
 	if err != nil {
 		item.ClassificationStatus, item.ClassificationError = domain.ProjectTodoClassificationFailed, err.Error()
