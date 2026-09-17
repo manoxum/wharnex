@@ -41,7 +41,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
   ]
   const archivedChats = [{ id: 'arch-1', title: 'Diagnóstico antigo', sessionId: 'ses-old', createdAt: '2026-09-03T10:00:00.000Z', updatedAt: '2026-09-03T11:00:00.000Z' }]
 
-  function Harness({ session: active = current, attentionSessions = {}, chatgptHumanActions = {}, nonce = human.nonce, recoveryTab, chatProps: chatOverride, inspectorProps: inspectorOverride, executionFIFO = [] }: {
+  function Harness({ session: active = current, attentionSessions = {}, chatgptHumanActions = {}, nonce = human.nonce, recoveryTab, chatProps: chatOverride, inspectorProps: inspectorOverride, executionFIFO = [], singlePane = false }: {
     session?: Session
     attentionSessions?: Record<string, Session | undefined>
     chatgptHumanActions?: Record<string, DesktopChatGPTHumanAction>
@@ -50,6 +50,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
     chatProps?: Record<string, unknown>
     inspectorProps?: Record<string, unknown>
     executionFIFO?: ExecutionFIFOItem[]
+    singlePane?: boolean
   }) {
     const [drawer, setDrawer] = useState<Drawer>('')
     const [inspectorAttention, setInspectorAttention] = useState<{ tab: AttentionTarget; nonce: number }>({ tab: 'terminal', nonce: 0 })
@@ -95,6 +96,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
           attentionItems={attentionItems}
           chatgptAttentionNonce={nonce}
           inspectorAttention={inspectorAttention}
+          singlePane={singlePane}
           onOpenAttention={openAttention}
           onAttentionAction={runAttention}
           onOpenAttentionDrawer={() => setDrawer('attention')}
@@ -186,6 +188,37 @@ describe('AgentWorkspace', () => {
     expect(view.onExecute).toHaveBeenCalledWith(true)
     fireEvent.click(screen.getByRole('button', { name: /^Plano(?: ·|$)/ }))
     expect(screen.getByText('Atualizar UI')).toBeTruthy()
+  })
+
+
+  it('moves chat into the Agent surface tabs while both side drawers are open', () => {
+    const view = props()
+    const rendered = render(<view.Harness singlePane />)
+    const areas = screen.getByRole('navigation', { name: 'Áreas do Agent' })
+    const chat = within(areas).getByRole('button', { name: 'Chat' })
+
+    expect(rendered.container.querySelector('.agent-workspace.single-pane')).toBeTruthy()
+    expect(chat.className).toContain('active')
+    expect(rendered.container.querySelector('.agent-chat-stage.surface-hidden')).toBeNull()
+    expect(rendered.container.querySelector('.agent-inspector-stage.surface-hidden')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Redimensionar chat e Engine' })).toBeNull()
+
+    fireEvent.click(within(areas).getByRole('button', { name: 'Engine' }))
+
+    expect(chat.className).not.toContain('active')
+    expect(rendered.container.querySelector('.agent-chat-switcher.surface-hidden')).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-chat-stage.surface-hidden')).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-inspector-stage.surface-hidden')).toBeNull()
+
+    fireEvent.click(chat)
+    expect(chat.className).toContain('active')
+    expect(rendered.container.querySelector('.agent-chat-stage.surface-hidden')).toBeNull()
+
+    rendered.rerender(<view.Harness />)
+    expect(screen.queryByRole('button', { name: 'Chat' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Redimensionar chat e Engine' })).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-chat-stage.surface-hidden')).toBeNull()
+    expect(rendered.container.querySelector('.agent-inspector-stage.surface-hidden')).toBeNull()
   })
 
   it('opens the global file library from the left workspace rail', async () => {
