@@ -32,6 +32,11 @@ describe('WorkspaceShell project actions', () => {
     expect(screen.queryByText('Wharnex')).toBeNull()
   })
 
+  it('marks the shell chrome as the desktop window title bar', () => {
+    const { container } = render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    expect(container.querySelector('.multi-project-bar')?.getAttribute('data-window-titlebar')).toBe('true')
+  })
+
   it('binds an additional project from its complete local path', () => {
     const onBindPath = vi.fn()
     render(<ShellChrome projects={['/work/current']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={onBindPath} onNewWindow={vi.fn()} />)

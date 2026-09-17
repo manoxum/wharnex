@@ -257,7 +257,7 @@ export function ShellChrome({ projects, activeProject, activeSessionID, mode, bu
 
   const otherWindows = projectWindows.items.filter((item) => item.windowId !== projectWindows.currentWindowId)
 
-  return <header className="multi-project-bar">
+  return <header className="multi-project-bar" data-window-titlebar="true">
     <div className="multi-project-brand"><SignalCore size="compact" /></div>
     {activeProject && <ProjectGitBadge sessionID={activeSessionID} busy={busy} onSync={onGitSync} />}
     {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button><button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => onMode('orchestrator')}><Icon name="plan" size={14}/> Orchestrator</button></div>}
