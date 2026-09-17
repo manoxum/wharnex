@@ -39,7 +39,7 @@ func TestDirectiveLegendExplainsOnlyTheKindsUsed(t *testing.T) {
 	}
 
 	both := directiveLegend("read @{[file]src/a.ts} and @{[ref]core}", manifestWith("src/a.ts"))
-	if !strings.Contains(both, "RELATED_PROJECTS") {
+	if !strings.Contains(both, "ref-context/") {
 		t.Fatalf("legend must place a @ref marker in the related-project namespace: %q", both)
 	}
 }
@@ -83,7 +83,7 @@ func TestDirectiveLegendResolvesQualifiedSeeToExactBundlePath(t *testing.T) {
 		Attachments:     []domain.AttachedPathContext{{Root: "/srv/contracts", Prefix: "ATTACHMENTS/01-contracts/", IncludedPaths: []string{"openapi/api.yml"}}},
 	}
 	legend := directiveLegendWithContext("focus @{[see]project|src/App.tsx} @{[see]ref|core|api/auth.go} @{[see]attach|/srv/contracts|openapi/api.yml}", context)
-	for _, path := range []string{"src/App.tsx", "RELATED_PROJECTS/01-core/api/auth.go", "ATTACHMENTS/01-contracts/openapi/api.yml"} {
+	for _, path := range []string{"src/App.tsx", "ref-context/01-core/api/auth.go", "att-context/attach-01/openapi/api.yml"} {
 		if !strings.Contains(legend, path) {
 			t.Fatalf("legend must resolve %q: %s", path, legend)
 		}
@@ -97,7 +97,7 @@ func TestDirectiveLegendResolvesSeeDirectoriesFromVisibleDescendants(t *testing.
 		Attachments:     []domain.AttachedPathContext{{Root: "/srv/contracts", Prefix: "ATTACHMENTS/01-contracts/", IncludedPaths: []string{"openapi/v1/api.yml"}}},
 	}
 	legend := directiveLegendWithContext("focus @{[see]project|src} @{[see]ref|core|api/auth} @{[see]attach|/srv/contracts|openapi}", context)
-	for _, path := range []string{"src/", "RELATED_PROJECTS/01-core/api/auth/", "ATTACHMENTS/01-contracts/openapi/"} {
+	for _, path := range []string{"src/", "ref-context/01-core/api/auth/", "att-context/attach-01/openapi/"} {
 		if !strings.Contains(legend, path) {
 			t.Fatalf("legend must resolve directory %q: %s", path, legend)
 		}
