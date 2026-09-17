@@ -43,7 +43,7 @@ func TestBuildManualPromptUsesExecutionBundleDelivery(t *testing.T) {
 		"For kind=change OR kind=workflow, plan.json MUST exist",
 		"ASK FIRST, CODE ONLY WHEN ASKED",
 		"kind=workflow",
-		"Workflow commands run only in a disposable Protected sandbox",
+		"Ordinary workflow commands run in a disposable Protected sandbox",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("manual prompt missing %q", want)

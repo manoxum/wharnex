@@ -37,3 +37,9 @@ Host Apply now reloads durable session state under the project lock. A duplicate
 - A deterministic concurrent Apply test reproduces the deleted-branch error and proves the second caller stops at the consumed-candidate guard.
 - Transaction coverage proves a failed pre-mutation extension can remove its own membership while preserving the original pending batch.
 - Reconciliation coverage proves a later healthy restart clears an older stranded activation and emits timestamped audit evidence.
+
+## 2026-09-17 live reasoning-control calibration
+
+The rebuilt Electron Desktop was started with `WHARNESS_BEHAVIOR_PROBE=1`. Captured authenticated composer surfaces established one visible composer surface, one effort pill, and the observed Portuguese labels `Instantâneo`, `Médio` and `Elevada`; the browser behavior document therefore exposes only those three closed levels. The selector is composer-scoped, not a global menu scrape, and every cycle is verified before submit.
+
+An end-to-end Markdown translation was then deliberately run as a minimal live transport check. The Worker loaded the trusted ChatGPT origin but failed before reasoning enforcement: ChatGPT never acknowledged the ZIP upload after the bounded retry policy (`cat_cd5c47498f4b659788c8`, terminal `FAILED`). This is transport evidence, not a reasoning-selection success; no arbitrary DOM evaluation, response-prose read, or unbounded retry was used to bypass it. The failure remains actionable separately as `ChatGPT upload failed after 5 attempts`.

@@ -1042,6 +1042,18 @@ describe('ChatPanel', () => {
     expect(onAutomationMode).toHaveBeenCalledWith('auto')
   })
 
+  it('keeps provider reasoning separate from the autonomous attempt budget', () => {
+    const onReasoningEffort = vi.fn()
+    render(
+      <ChatPanel session={{ ...session, effort_level: 'ultra', reasoning_effort: 'medium' }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onReasoningEffort={onReasoningEffort} {...chatActions} />,
+    )
+    const picker = screen.getByLabelText('Esforço de raciocínio') as HTMLSelectElement
+    expect(picker.value).toBe('medium')
+    fireEvent.change(picker, { target: { value: 'instant' } })
+    expect(onReasoningEffort).toHaveBeenCalledWith('instant')
+    expect((screen.getByLabelText('Nível de esforço') as HTMLSelectElement).value).toBe('ultra')
+  })
+
   it('keeps the request ZIP mandatory while each chat can enable or disable tunnel channels', () => {
     const onChatTransport = vi.fn()
     render(
