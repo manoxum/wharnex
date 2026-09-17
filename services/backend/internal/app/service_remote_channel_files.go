@@ -36,9 +36,9 @@ type remoteFileMapDocument struct {
 // buildRemoteFileMapResources publishes only individually-addressable files.
 // The ZIP remains a local snapshot/audit artifact; it is never exposed through
 // the consumer-Web channel because that runtime cannot reliably retrieve it.
-func buildRemoteFileMapResources(dir, contextPath string, manifest domain.ContextManifest, knowledge domain.RequestKnowledgeSnapshot, continuation []continuationArtifact, selectedPaths []string, attachments, artifacts []decodedRemoteFile, existing []remoteFileMapEntry, resourceURL func(string) string) ([]RemoteInputChannelResource, []remoteFileMapEntry, error) {
-	resources := make([]RemoteInputChannelResource, 0, len(manifest.Files)+len(attachments)+len(artifacts))
-	entries := make([]remoteFileMapEntry, 0, len(manifest.Files)+len(attachments)+len(artifacts))
+func buildRemoteFileMapResources(dir, contextPath string, manifest domain.ContextManifest, knowledge domain.RequestKnowledgeSnapshot, gitContext RequestGitContext, continuation []continuationArtifact, selectedPaths []string, attachments, artifacts []decodedRemoteFile, existing []remoteFileMapEntry, resourceURL func(string) string) ([]RemoteInputChannelResource, []remoteFileMapEntry, error) {
+	resources := make([]RemoteInputChannelResource, 0, len(manifest.Files)+len(gitContext.Files)+len(attachments)+len(artifacts))
+	entries := make([]remoteFileMapEntry, 0, len(manifest.Files)+len(gitContext.Files)+len(attachments)+len(artifacts))
 	selected := make(map[string]struct{}, len(selectedPaths))
 	for _, item := range selectedPaths {
 		selected[item] = struct{}{}
@@ -102,6 +102,11 @@ func buildRemoteFileMapResources(dir, contextPath string, manifest domain.Contex
 	// of what this Main Request already proved and what moved underneath it.
 	for _, entry := range continuation {
 		if err := addBytes("continuation", entry.Name, entry.Raw, true); err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, entry := range gitContext.Files {
+		if err := addBytes("git-context", entry.Path, []byte(entry.Content), true); err != nil {
 			return nil, nil, err
 		}
 	}

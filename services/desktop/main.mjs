@@ -3023,6 +3023,15 @@ async function fetchContextZip(sessionId) {
   return { id, bytes }
 }
 
+async function fetchRequestGitContext(sessionId) {
+  const id = sanitizeSessionId(sessionId)
+  const target = new URL(`/api/sessions/${encodeURIComponent(id)}/git/context`, BACKEND_URL)
+  const response = await fetch(target, { redirect: 'error' })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok || body?.protocol !== 'harness.git-context/v1') throw new Error(body?.error?.message || `Git context HTTP ${response.status}`)
+  return body
+}
+
 async function fetchRequestKnowledge(sessionId, requestId) {
   const id = sanitizeSessionId(sessionId)
   const rid = String(requestId || '').trim()
@@ -3145,6 +3154,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const knowledge = await fetchRequestKnowledge(sessionId, requestId)
+  const gitContext = await fetchRequestGitContext(sessionId)
   const continuation = await fetchRequestContinuation(sessionId, requestId)
   // A derived request must be self-contained even when the linked ChatGPT
   // conversation forgot or truncated an earlier snapshot. The delta remains
@@ -3158,6 +3168,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
     prompt: promptText,
     context,
     knowledge,
+    gitContext,
     continuation,
     attachments: decoded,
     artifacts: artifacts.decoded,
@@ -3179,8 +3190,9 @@ async function materializeProtocolChatInput(cacheKey, sessionId, requestId, prom
   const archivePath = path.join(dir, archiveName)
   const context = await fetchContextZip(sessionId)
   const knowledge = await fetchRequestKnowledge(sessionId, requestId)
+  const gitContext = await fetchRequestGitContext(sessionId)
   const continuation = await fetchRequestContinuation(sessionId, requestId)
-  const archive = await writeChatInputArchive(archivePath, { requestId, requestMetadata, prompt: promptText, context, knowledge, continuation, attachments: decoded, liveTunnels })
+  const archive = await writeChatInputArchive(archivePath, { requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels })
   return { archivePath, archiveName, attachmentCount: decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes, requestMetadata: archive.requestMetadata }
 }
 

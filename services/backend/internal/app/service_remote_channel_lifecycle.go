@@ -103,8 +103,13 @@ func (s *Service) refreshRemoteInputChannelContext(ctx context.Context, sessionI
 		return err
 	}
 	defer os.RemoveAll(temporaryDir)
-	resources, err := buildRemoteContextUpdateResources(temporaryDir, item, &next)
+	resources, err := buildRemoteContextUpdateResources(ctx, temporaryDir, item, &next)
 	if err == nil {
+		// requestGitContextForItem performs read-only Git commands that can refresh
+		// optional index metadata. Persist the post-collection probe to avoid a
+		// spurious second context rebuild on the next monitor tick.
+		next.contextProbe, _ = contextbundle.SourceProbe(item.ProjectPath)
+		next.contextChecked = time.Now()
 		err = updateRemoteChannelSet(ctx, store, current.publications, RemoteInputChannelUpdate{ChannelID: channelID, Resources: resources, Event: "context.changed", Data: map[string]string{"generation": strconv.FormatInt(next.generation, 10), "context_sha256": next.contextSHA256}})
 	}
 	if err == nil {
@@ -122,7 +127,7 @@ func (s *Service) refreshRemoteInputChannelContext(ctx context.Context, sessionI
 	return nil
 }
 
-func buildRemoteContextUpdateResources(dir string, item domain.Session, state *remoteInputChannelState) ([]RemoteInputChannelResource, error) {
+func buildRemoteContextUpdateResources(ctx context.Context, dir string, item domain.Session, state *remoteInputChannelState) ([]RemoteInputChannelResource, error) {
 	hashPath := remoteChannelResourcePath(dir, "hash.txt")
 	mapPath := remoteChannelResourcePath(dir, "file-map.json")
 	diffCheckPath := remoteChannelResourcePath(dir, "diff-check.json")
@@ -133,13 +138,14 @@ func buildRemoteContextUpdateResources(dir string, item domain.Session, state *r
 		}
 	}
 	resourceURL := func(path string) string { return strings.TrimSuffix(state.baseURL, "/") + "/" + path }
-	resources, contextEntries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, nil, nil, nil, nil, state.fileMapEntries, resourceURL)
+	gitContext := requestGitContextForItem(ctx, item)
+	resources, contextEntries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, gitContext, nil, nil, nil, nil, state.fileMapEntries, resourceURL)
 	if err != nil {
 		return nil, err
 	}
 	entries := contextEntries
 	for _, entry := range state.fileMapEntries {
-		if entry.Role != "context" {
+		if entry.Role != "context" && entry.Role != "git-context" {
 			entries = append(entries, entry)
 		}
 	}

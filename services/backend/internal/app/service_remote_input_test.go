@@ -230,7 +230,8 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, size, err := buildRemoteInputArchive(target, contextPath, request, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, nil, attachments, nil)
+	gitContext := RequestGitContext{Protocol: requestGitContextProtocol, State: "present", Root: "git-context/", Index: "git-context/index.json", Ref: "main", RefPath: "git-context/main/", Files: []RequestGitContextFile{requestGitJSONFile("git-context/index.json", map[string]any{"protocol": requestGitContextProtocol, "state": "present"})}}
+	digest, size, err := buildRemoteInputArchive(target, contextPath, request, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, gitContext, nil, attachments, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,10 +259,14 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 			}
 		}
 	}
-	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "context/src/main.txt", "attachments/notes.txt"} {
+	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "git-context/index.json", "context/src/main.txt", "attachments/notes.txt"} {
 		if !names[expected] {
 			t.Errorf("missing %s", expected)
 		}
+	}
+	gitManifest, ok := transport["git_context"].(map[string]any)
+	if !ok || gitManifest["protocol"] != requestGitContextProtocol || gitManifest["ref"] != "main" {
+		t.Fatalf("Git context metadata missing from remote archive: %#v", transport)
 	}
 	metadata, ok := transport["request_metadata"].(map[string]any)
 	if !ok || metadata["chat_id"] != "chat-1" || metadata["protocol"] != "harness.request-metadata/v1" {
@@ -804,7 +809,7 @@ func TestRemoteFileMapKeepsContextFilesSnapshotBackedUntilFetched(t *testing.T) 
 	}
 	defer os.RemoveAll(filepath.Dir(bundle.ZipPath))
 	dir := t.TempDir()
-	resources, entries, err := buildRemoteFileMapResources(dir, bundle.ZipPath, bundle.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, nil, nil, nil, nil, nil, func(path string) string { return "https://example.invalid/" + path })
+	resources, entries, err := buildRemoteFileMapResources(dir, bundle.ZipPath, bundle.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, RequestGitContext{}, nil, nil, nil, nil, nil, func(path string) string { return "https://example.invalid/" + path })
 	if err != nil {
 		t.Fatal(err)
 	}
