@@ -85,6 +85,7 @@ import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmat
 import { hasRecordedRequest } from './lib/requestDispatch'
 import { executionNeedsAttention, sessionNeedsExecutionConsent } from './lib/executionRecovery'
 import { errorMessage as messageOf } from './lib/errorMessage'
+import { storedAttachmentFile, withProjectTodoPrePlan } from './lib/projectTodoForwarding'
 import { expectedResponseBundleName } from './lib/bundlename'
 import { reconcileTunnelConfig } from './lib/tunnelConfigState'
 import { mergeDurableChatItems } from './lib/chatHistory'
@@ -714,15 +715,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setError(undefined)
     try {
       const bridge = desktopBridge()
-      const files: File[] = []
+      const sourceFiles: File[] = []
       for (const attachment of todo.attachments || []) {
         if (!bridge) throw new Error('Recuperar anexos do TODO requer o Wharnex Desktop.')
         const stored = await bridge.attachments.read({ storageRef: attachment.storage_ref })
-        const binary = atob(stored.contentBase64)
-        const bytes = new Uint8Array(binary.length)
-        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
-        files.push(new File([bytes], stored.name, { type: stored.mime || attachment.mime || 'application/octet-stream' }))
+        sourceFiles.push(storedAttachmentFile(stored, attachment.mime || 'application/octet-stream'))
       }
+      const files = withProjectTodoPrePlan(todo, sourceFiles)
       const chatId = crypto.randomUUID()
       const created = await api.createSession(session.project_path, executionMode, automationMode, chatId, effortLevel)
       const title = `TODO · ${deriveChatTitle(todo.body)}`
