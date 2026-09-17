@@ -137,6 +137,9 @@ type Store struct {
 	// workspacechats.go.
 	workspaceChats     map[string][]domain.WorkspaceChat
 	workspaceChatItems map[string][]domain.WorkspaceChatItem
+	// projectTodos is the non-Postgres fallback for the durable project TODO
+	// inbox. Production persists the same records in harness_project_todos.
+	projectTodos map[string][]domain.ProjectTodo
 	// chatAgentTasks is the non-Postgres fallback for the durable browser job
 	// scheduler. Production persists the same records in
 	// harness_chat_agent_tasks.
@@ -145,14 +148,16 @@ type Store struct {
 	chatAgentProcessingSamples []ChatAgentProcessingSample
 }
 
-func NewStore() *Store { return &Store{items: make(map[string]domain.Session)} }
+func NewStore() *Store {
+	return &Store{items: make(map[string]domain.Session), projectTodos: make(map[string][]domain.ProjectTodo)}
+}
 
 func NewPersistentStore(path string) (*Store, error) {
 	cleaned := ""
 	if path != "" {
 		cleaned = filepath.Clean(path)
 	}
-	store := &Store{items: make(map[string]domain.Session), path: cleaned}
+	store := &Store{items: make(map[string]domain.Session), projectTodos: make(map[string][]domain.ProjectTodo), path: cleaned}
 	if err := store.load(); err != nil {
 		return nil, err
 	}

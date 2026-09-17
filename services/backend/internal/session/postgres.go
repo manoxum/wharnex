@@ -83,6 +83,15 @@ CREATE INDEX IF NOT EXISTS harness_workspace_chats_project_updated_idx
     ON harness_workspace_chats (project_path, updated_at DESC, id);
 CREATE INDEX IF NOT EXISTS harness_workspace_chats_conversation_idx
     ON harness_workspace_chats (conversation_id) WHERE conversation_id <> '';
+CREATE TABLE IF NOT EXISTS harness_project_todos (
+    id text PRIMARY KEY,
+    project_path text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    payload jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS harness_project_todos_project_updated_idx
+    ON harness_project_todos (project_path, updated_at DESC, id);
 CREATE TABLE IF NOT EXISTS harness_chat_items (
     chat_id text NOT NULL,
     item_id text NOT NULL,
@@ -196,7 +205,7 @@ func NewPostgresStore(ctx context.Context, databaseURL, legacyPath string) (*Sto
 		db.Close()
 		return nil, errors.New("connect PostgreSQL session store: database is unavailable or rejected the credentials")
 	}
-	store := &Store{db: db, path: legacyPath, items: make(map[string]domain.Session)}
+	store := &Store{db: db, path: legacyPath, items: make(map[string]domain.Session), projectTodos: make(map[string][]domain.ProjectTodo)}
 	if _, err := db.ExecContext(ctx, postgresSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize PostgreSQL session schema: %w", err)

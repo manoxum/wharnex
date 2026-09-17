@@ -1,7 +1,7 @@
 import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
-import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ExecutionMode, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
+import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
 import type { ReasoningEffort } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
@@ -21,7 +21,7 @@ import { Icon } from './components/Icon'
 import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
-  loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace,
+  loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace, saveComposerDraft, saveComposerFileDraft,
   conflictChatGPTCacheKey, durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
@@ -706,6 +706,36 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
       setEvents([]); setManualPrompt(''); setChatTransportMode(created.chat_transport_mode || 'scraper'); connectEvents(created.id, created.project_path, chat.id)
     } catch (e) { setError(messageOf(e)) } finally { creatingChatRef.current = false }
+  }
+
+  async function promoteTodoToChat(todo: ProjectTodo) {
+    if (!session || creatingChatRef.current) return
+    creatingChatRef.current = true
+    setError(undefined)
+    try {
+      const bridge = desktopBridge()
+      const files: File[] = []
+      for (const attachment of todo.attachments || []) {
+        if (!bridge) throw new Error('Recuperar anexos do TODO requer o Wharnex Desktop.')
+        const stored = await bridge.attachments.read({ storageRef: attachment.storage_ref })
+        const binary = atob(stored.contentBase64)
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+        files.push(new File([bytes], stored.name, { type: stored.mime || attachment.mime || 'application/octet-stream' }))
+      }
+      const chatId = crypto.randomUUID()
+      const created = await api.createSession(session.project_path, executionMode, automationMode, chatId, effortLevel)
+      const title = `TODO · ${deriveChatTitle(todo.body)}`
+      const chat = newWorkspaceChat(created.id, title, chatId)
+      await api.saveWorkspaceChat(durableWorkspaceChat(created.project_path, chat))
+      saveComposerDraft(created.project_path, chat.id, { message: todo.body, height: 156 })
+      saveComposerFileDraft(created.project_path, chat.id, { attachments: files, projectFiles: todo.project_files || [] })
+      const next = [chat, ...chats]
+      persistChats(created.project_path, next)
+      transcriptReadyRef.current.add(chat.id)
+      activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
+      setEvents([]); setManualPrompt(''); setChatTransportMode(created.chat_transport_mode || 'scraper'); setMode('agent'); connectEvents(created.id, created.project_path, chat.id)
+    } catch (reason) { setError(messageOf(reason)) } finally { creatingChatRef.current = false }
   }
 
   async function exportActiveChat() {
@@ -3058,6 +3088,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         tools={railLayout.left}
         onMoveTool={moveRailTool}
         chats={chats}
+        chatProps={sharedChatProps}
+        onPromoteTodoToChat={promoteTodoToChat}
         onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
         onGoToOrchestrator={goToOrchestratorFromTask}
         onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}
@@ -3132,6 +3164,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         tools={railLayout.right}
         onMoveTool={moveRailTool}
         chats={chats}
+        chatProps={sharedChatProps}
+        onPromoteTodoToChat={promoteTodoToChat}
         onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
         onGoToOrchestrator={goToOrchestratorFromTask}
         onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}

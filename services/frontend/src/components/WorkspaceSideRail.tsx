@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
-import type { HarnessEvent, Session } from '../types'
+import type { HarnessEvent, ProjectTodo, Session } from '../types'
 import { ChatPanel } from './ChatPanel'
 import { promptDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
@@ -20,9 +20,10 @@ import type { ExecutionFIFOItem } from '../lib/executionQueueView'
 import { AttentionList } from './AttentionList'
 import { ArtifactExplorerPanel } from './ArtifactExplorerPanel'
 import { DatabaseExplorerPanel } from './DatabaseExplorerPanel'
+import { ProjectTodoPanel } from './ProjectTodoPanel'
 import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../lib/workspaceRailLayout'
 
-export type Drawer = 'attention' | 'archive' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | ProjectActivityKind | ''
+export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | ProjectActivityKind | ''
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 42
@@ -44,6 +45,7 @@ export type WorkspaceSideRailProps = {
   drawer: Drawer
   onDrawer: (next: Drawer) => void
   chats: ComponentProps<typeof ChatPanel>['chats']
+  chatProps?: ComponentProps<typeof ChatPanel>
   archivedChats: ComponentProps<typeof ChatPanel>['archivedChats']
   activeChatId: string
   activeEvents: HarnessEvent[]
@@ -64,6 +66,7 @@ export type WorkspaceSideRailProps = {
   onToggleTerminal: () => void
   onGoToChat?: (chatId?: string, sessionId?: string) => void
   onGoToOrchestrator?: () => void
+  onPromoteTodoToChat?: (todo: ProjectTodo) => Promise<void>
   onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
   onFocusProject?: (projectPath: string) => void
   side?: WorkspaceRailSide
@@ -96,6 +99,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const close = () => onDrawer('')
 
   function toolMeta(tool: WorkspaceTool): ToolMeta {
+    if (tool === 'todo') return { label: 'TODO do projeto', title: 'Ideias, necessidades, erros e melhorias', icon: 'check', drawer: 'todo' }
     if (tool === 'archive') return { label: 'Chats arquivados', title: 'Chats arquivados', icon: 'folder', drawer: 'archive', badge: archivedChats.length }
     if (tool === 'project') return { label: 'Explorador do projeto', title: 'Explorador do projeto', icon: 'workspace', drawer: 'project' }
     if (tool === 'library') return { label: 'Biblioteca de ficheiros', title: 'Biblioteca de ficheiros', icon: 'package', drawer: 'library' }
@@ -152,6 +156,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
 
   const drawerPanel = drawer ? <aside className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } as React.CSSProperties : undefined}>
     {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
+    {drawer === 'todo' && props.chatProps ? <ProjectTodoPanel session={session} chatProps={props.chatProps} onClose={close} onPromoteToChat={props.onPromoteTodoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onError={onError}/> : null}
     {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archivedChats} busy={busy} onRestore={props.onRestoreChat} onDelete={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
     {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError} onClose={close}/> : null}
     {drawer === 'library' ? <ArtifactExplorerPanel sessionId={session.id} onError={onError} onClose={close}/> : null}
@@ -170,7 +175,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
 }
 
 function isWorkspaceTool(value: string): value is WorkspaceTool {
-  return ['archive', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal', 'database'].includes(value)
+  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal', 'database'].includes(value)
 }
 function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
   const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable'>('all')

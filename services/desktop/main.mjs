@@ -8,7 +8,7 @@ import { TextDecoder } from 'node:util'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTEffortCycle, dispatchChatGPTPointerClick, submitWithRetry } from './chatgpt-input.mjs'
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
-import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
+import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
@@ -51,6 +51,8 @@ const MAX_PLAN_BYTES = 2 * 1024 * 1024
 const MAX_EXECUTION_BUNDLE_BYTES = 16 * 1024 * 1024
 const MAX_MARKDOWN_TRANSLATION_BYTES = 4 * 1024 * 1024
 const MAX_MARKDOWN_TRANSLATION_RESULT_BYTES = 8 * 1024 * 1024
+const MAX_TODO_CLASSIFICATION_BYTES = 256 * 1024
+const TODO_CLASSIFICATION_TIMEOUT_MS = 4 * 60 * 1000
 const MARKDOWN_TRANSLATION_TIMEOUT_MS = 5 * 60 * 1000
 const MARKDOWN_TRANSLATION_POLL_MS = 1_000
 const MAX_ORCHESTRATOR_PLAN_BYTES = 2 * 1024 * 1024
@@ -155,6 +157,7 @@ const recentChatGPTCommentFingerprints = new Map()
 const chatGPTActivityFingerprints = new Map()
 const expectedChatGPTBundles = new Map()
 const expectedChatGPTTranslations = new Map()
+const expectedChatGPTTodoClassifications = new Map()
 const expectedChatGPTOrchestratorPlans = new Map()
 // Plan artifacts that arrived while no attempt held the lease.
 //
@@ -1409,6 +1412,42 @@ function registerChatGPTMarkdownTranslationDownload(item, sourceFilename) {
   return true
 }
 
+function registerChatGPTTodoClassificationDownload(item, sourceFilename) {
+  const filename = path.basename(String(sourceFilename || ''))
+  const expected = expectedChatGPTTodoClassifications.get(filename)
+  const looksInternal = /^whx_todo_classification_res_cat_[a-f0-9]{20}\.zip$/.test(filename)
+  if (!expected && !looksInternal) return false
+  if (!expected || Date.now() - expected.armedAt > TODO_CLASSIFICATION_TIMEOUT_MS + 60_000) {
+    item.cancel()
+    return true
+  }
+  if (Number(item.getTotalBytes?.() || 0) > MAX_TODO_CLASSIFICATION_BYTES) {
+    item.cancel(); expected.reject(new Error('TODO classification bundle exceeds the transport limit')); return true
+  }
+  const dir = path.join(app.getPath('temp'), 'wharnex-todo-classifications', expected.taskId)
+  const savePath = path.join(dir, filename)
+  try { mkdirSync(dir, { recursive: true, mode: 0o700 }); item.setSavePath(savePath) }
+  catch (error) { item.cancel(); expected.reject(error instanceof Error ? error : new Error(String(error))); return true }
+  item.on('updated', () => {
+    if (item.getReceivedBytes() > MAX_TODO_CLASSIFICATION_BYTES) {
+      item.cancel(); expected.reject(new Error('TODO classification bundle exceeds the transport limit'))
+    }
+  })
+  item.once('done', async (_event, state) => {
+    if (state !== 'completed') {
+      if (state !== 'cancelled') expected.reject(new Error(`TODO classification download ended in state ${state}`))
+      return
+    }
+    try {
+      const bytes = await readFile(savePath)
+      if (bytes.byteLength > MAX_TODO_CLASSIFICATION_BYTES) throw new Error('TODO classification bundle exceeds the transport limit')
+      expected.resolve(bytes)
+    } catch (error) { expected.reject(error instanceof Error ? error : new Error(String(error))) }
+    finally { await rm(savePath, { force: true }).catch(() => undefined) }
+  })
+  return true
+}
+
 function orchestratorPlanInboxDirectory() {
   return path.join(app.getPath('temp'), 'wharness-orchestrator-plans', 'inbox')
 }
@@ -1544,6 +1583,7 @@ function registerChatGPTPlanDownloads(chatSession) {
     const sourceFilename = item.getFilename()
     if (registerChatGPTOrchestratorPlanDownload(item, sourceFilename)) return
     if (registerChatGPTMarkdownTranslationDownload(item, sourceFilename)) return
+    if (registerChatGPTTodoClassificationDownload(item, sourceFilename)) return
     const expectedBundle = expectedChatGPTBundleForDownload(sourceWebContents, sourceFilename)
     const sourceCacheKey = expectedBundle?.key || chatGPTKeyForWebContents(sourceWebContents)
     // Manual chat transport mode: let the download proceed as an ordinary
@@ -4483,6 +4523,12 @@ function markdownTranslationFilename(taskID) {
   return `whx_translation_res_${id}.zip`
 }
 
+function todoClassificationFilename(taskID) {
+  const id = String(taskID || '').trim()
+  if (!/^cat_[a-f0-9]{20}$/.test(id)) throw new Error('invalid TODO classification task id')
+  return `whx_todo_classification_res_${id}.zip`
+}
+
 // Legacy per-task JSON artifact. Retained only so a planning request that was
 // already checkpointed under the old contract can finish on it; nothing new is
 // ever asked for in this shape.
@@ -4917,6 +4963,80 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
   }
 }
 
+async function executeChatAgentTodoClassification(task, entry, key, payload) {
+  if (payload?.protocol !== 'wharness.todo-classification-input/v1' || payload?.task !== 'classify_todo') {
+    return { status: 'failed', error: 'invalid TODO classification worker protocol payload' }
+  }
+  const filename = String(payload.result_filename || '')
+  if (filename !== todoClassificationFilename(task.task_id)) return { status: 'failed', error: 'TODO classification payload names a foreign result artifact' }
+  const requestFilename = String(payload.request_filename || '')
+  if (!/^whx_todo_classification_req_cat_[a-f0-9]{20}\.zip$/.test(requestFilename)) return { status: 'failed', error: 'TODO classification payload names an invalid request archive' }
+  const bootstrap = String(payload.bootstrap || '').trim()
+  if (!bootstrap) return { status: 'failed', error: 'TODO classification payload has no composer bootstrap' }
+  let archive
+  try { archive = Buffer.from(String(payload.archive_base64 || ''), 'base64') } catch { archive = undefined }
+  if (!archive?.byteLength || archive.byteLength > MAX_TODO_CLASSIFICATION_BYTES) return { status: 'failed', error: 'TODO classification request archive is invalid' }
+
+  await paceChatGPTWorkerSubmission()
+  const rateLimitDelay = chatAgentRateLimitDelayMs()
+  if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
+
+  const dir = path.join(app.getPath('temp'), 'wharnex-todo-classifications', task.task_id)
+  const sourcePath = path.join(dir, requestFilename)
+  await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+  await mkdir(dir, { recursive: true, mode: 0o700 })
+  await writeFile(sourcePath, archive, { mode: 0o600 })
+  let resolveDownload
+  let rejectDownload
+  const download = new Promise((resolve, reject) => { resolveDownload = resolve; rejectDownload = reject })
+  download.catch(() => undefined)
+  const expected = { taskId: task.task_id, key, filename, armedAt: Date.now(), resolve: resolveDownload, reject: rejectDownload }
+  expectedChatGPTTodoClassifications.set(filename, expected)
+  let conversationUrl = ''
+  try {
+    const target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
+    target.reasoningEffort = 'instant'
+    const filled = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-fill', chatGPTFillComposerScript(bootstrap))
+    if (!filled) throw new Error('ChatGPT TODO classification composer could not be populated')
+    await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
+    await wait(chatInputSettleDelay(archive.byteLength, 1))
+    const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
+    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
+    conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
+    if (!conversationUrl) throw new Error('ChatGPT TODO classification submission has no stable conversation id')
+    const deadline = Date.now() + TODO_CLASSIFICATION_TIMEOUT_MS
+    while (Date.now() < deadline) {
+      const outcome = await Promise.race([
+        download.then((value) => ({ done: true, value }), (error) => ({ done: true, error })),
+        wait(MARKDOWN_TRANSLATION_POLL_MS).then(() => ({ done: false })),
+      ])
+      if (outcome.done) {
+        if (outcome.error) throw outcome.error
+        return { status: 'done', payload: { protocol: 'harness.todo-classification/v1', task_id: task.task_id, filename, bundle_base64: outcome.value.toString('base64') } }
+      }
+      const health = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-health', chatGPTHumanActionScript())
+      if (noteChatGPTRateLimitGate(key, health)) return { status: 'waiting', delayMs: chatAgentRateLimitDelayMs(), observation: true, error: 'ChatGPT rate-limit gate is active' }
+      if (health?.required === true) {
+        const kind = String(health.kind || 'verification')
+        setChatGPTHumanAction(key, kind, '', 'todo-classification-worker')
+        return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(kind) }
+      }
+      const completion = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-completion', chatGPTResponseCompletionScript(assistantBaseline))
+      if (Number(completion?.assistantCount || 0) > assistantBaseline) await executeChatGPTDOMScript(key, target.entry, 'todo-classification-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
+    }
+    throw new Error(`ChatGPT did not provide ${filename} before the TODO classification timeout`)
+  } finally {
+    if (expectedChatGPTTodoClassifications.get(filename) === expected) expectedChatGPTTodoClassifications.delete(filename)
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    if (conversationUrl) {
+      enqueueChatAgentTask('DELETE_TEMP_CHAT', {
+        key, requestId: task.task_id, rootRequestId: task.task_id, conversationURL: conversationUrl,
+        parentTaskID: task.task_id, dedupeKey: `delete-todo-classification:${chatAgentConversationID(conversationUrl)}`, payload: {}, maxAttempts: 4,
+      }).catch((error) => console.warn(`[todo-classification] temporary ChatGPT cleanup scheduling failed: ${error instanceof Error ? error.message : String(error)}`))
+    }
+  }
+}
+
 async function chatAgentLifecycleRetry(task, key, conversationURL, error, { persist = true } = {}) {
   const detail = String(error || 'remote lifecycle operation did not complete')
   if (Number(task.attempt || 0) < Number(task.max_attempts || 0)) {
@@ -5147,6 +5267,7 @@ async function executeChatAgentTask(task, { worker, owner }) {
   switch (task.type) {
     case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan(task, entry, key, payload, owner)
     case 'TRANSLATE_MARKDOWN': return executeChatAgentMarkdownTranslation(task, entry, key, payload)
+    case 'TODO_CLASSIFY': return executeChatAgentTodoClassification(task, entry, key, payload)
     case 'AWAIT_RESPONSE': return probeChatAgentResponse(task, entry, key, payload, conversationURL)
     case 'BOT_WRITE':
     case 'RECOVERY_WRITE': return executeChatAgentWrite(task, entry, key, payload, conversationURL)
@@ -6441,6 +6562,10 @@ function registerIPC() {
     trustedSender(event)
     try { return await readStoredAttachmentPreview(chatAttachmentRoot(), request?.storageRef) }
     catch { return { available: false, dataUrl: '', previewKind: 'none' } }
+  })
+  ipcMain.handle('wharness:attachments:read', async (event, request) => {
+    trustedSender(event)
+    return readStoredAttachment(chatAttachmentRoot(), request?.storageRef)
   })
   ipcMain.handle('wharness:attachments:open', async (event, request) => {
     trustedSender(event)

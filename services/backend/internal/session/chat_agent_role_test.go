@@ -32,7 +32,7 @@ func claimTypes(t *testing.T, store *Store, role string, count int) []string {
 func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 	store := NewStore()
 	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE", "ORCHESTRATOR_PLAN"}
-	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TRANSLATE_MARKDOWN", "TITLE_DISCOVER"}
+	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TRANSLATE_MARKDOWN", "TODO_CLASSIFY", "TITLE_DISCOVER"}
 	for index, taskType := range append(append([]string{}, supervisorTypes...), workerTypes...) {
 		task := testChatAgentTask(taskType, "chat-"+taskType, "conv-"+taskType, taskType+":"+string(rune('a'+index)))
 		if _, err := store.EnqueueChatAgentTask(task); err != nil {
@@ -105,7 +105,7 @@ func TestChatAgentSupervisorSQLMatchesTheTypeList(t *testing.T) {
 			t.Fatalf("supervisor SQL predicate is missing %q: %s", taskType, rendered)
 		}
 	}
-	for _, taskType := range []string{"RENAME_CHAT", "TRANSLATE_MARKDOWN", "DELETE_BUNDLE"} {
+	for _, taskType := range []string{"RENAME_CHAT", "TRANSLATE_MARKDOWN", "TODO_CLASSIFY", "DELETE_BUNDLE"} {
 		if strings.Contains(rendered, "'"+taskType+"'") {
 			t.Fatalf("supervisor SQL predicate must not contain small Worker work %q", taskType)
 		}

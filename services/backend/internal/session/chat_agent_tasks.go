@@ -72,6 +72,7 @@ var chatAgentPriorities = map[string]int{
 	"ORGANIZE_CHAT": 2, "RENAME_CHAT": 2,
 	"ARCHIVE_CHAT": 3, "DELETE_CHAT": 3,
 	"DELETE_BUNDLE": 4, "DELETE_TEMP_CHAT": 4,
+	"TODO_CLASSIFY": 5,
 }
 
 // NewChatAgentTaskID mints an id before the task is enqueued.
@@ -150,7 +151,7 @@ func chatAgentTaskActive(status string) bool {
 }
 
 var chatAgentWriterTypes = []string{
-	"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
+	"TRANSLATE_MARKDOWN", "TODO_CLASSIFY", "ORCHESTRATOR_PLAN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
 }
 
 var chatAgentAccountTypes = []string{

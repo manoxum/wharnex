@@ -64,6 +64,19 @@ export async function storedAttachmentPath(root, storageRef) {
   return filePath
 }
 
+export async function readStoredAttachment(root, storageRef) {
+  const resolved = await resolveStoredAttachment(root, storageRef)
+  const filePath = path.join(resolved.messageDir, safeStoredFilename(resolved.record.filename))
+  await assertRegularFile(filePath)
+  const bytes = await readFile(filePath)
+  if (bytes.byteLength !== Number(resolved.record.size || 0)) throw new Error('Stored attachment size changed')
+  return {
+    name: String(resolved.record.name || ''),
+    mime: String(resolved.record.mime || 'application/octet-stream'),
+    contentBase64: bytes.toString('base64'),
+  }
+}
+
 export async function removeStoredChatAttachments(root, cacheKey) {
   await rm(path.join(root, cacheKey), { recursive: true, force: true })
 }
