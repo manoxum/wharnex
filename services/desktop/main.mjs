@@ -5895,6 +5895,11 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     windowStatePersistence: true,
     backgroundColor: '#eceee7',
     autoHideMenuBar: true,
+    // The workspace shell owns the visible title bar. Electron keeps only the
+    // native window controls over that 43px strip so project/mode/actions live
+    // in one chrome row instead of below a second native title row.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { height: 43 },
     webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
   })
   const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '' }

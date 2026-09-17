@@ -2,6 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
+test('workspace shell occupies the native titlebar while keeping window controls', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const createStart = source.indexOf('function createWindow(')
+  const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
+  const create = source.slice(createStart, registerStart)
+  assert.match(create, /titleBarStyle: 'hidden'/)
+  assert.match(create, /titleBarOverlay: \{ height: 43 \}/)
+})
+
 test('local frontend navigation uses a per-runtime cache token', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /const FRONTEND_RUNTIME_TOKEN = randomUUID\(\)/)

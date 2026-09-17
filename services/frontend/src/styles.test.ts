@@ -275,6 +275,14 @@ describe('composer layout CSS', () => {
 
 
 describe('multi-project shell CSS', () => {
+  it('uses the shell header as draggable window chrome without swallowing controls', () => {
+    const bar = firstRule('.multi-project-bar')
+    const controls = firstRule(".multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar [data-chatgpt-overlay-blocker='true']")
+    expect(bar).toContain('-webkit-app-region: drag')
+    expect(bar).toContain('env(titlebar-area-width, 100vw)')
+    expect(controls).toContain('-webkit-app-region: no-drag')
+  })
+
   it('keeps the active project accent visible without a heavy glow', () => {
     const activeProject = lastRule('.project-quick-switch button.active')
     const activeUnderline = lastRule('.project-quick-switch button.active::after')
