@@ -274,6 +274,105 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 	}
 }
 
+func TestBuildRemoteInputArchiveSeparatesWorkspaceContextRoots(t *testing.T) {
+	root := t.TempDir()
+	contextPath := filepath.Join(root, "workspace.zip")
+	contextFile, err := os.Create(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextZip := zip.NewWriter(contextFile)
+	for name, raw := range map[string][]byte{
+		"primary.txt":                          []byte("primary"),
+		"RELATED_PROJECTS/01-core/api.txt":     []byte("related"),
+		"ATTACHMENTS/01-contracts/openapi.yml": []byte("attached"),
+		legacyContextSourcesIndex: []byte(`{
+  "protocol": "harness.related-projects/v1",
+  "primary_project": "main",
+  "related_projects": [{"project_path":"/tmp/core","name":"core","prefix":"RELATED_PROJECTS/01-core/","manifest":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","files":[]}}],
+  "attached_paths": [{"root":"/tmp/contracts","name":"contracts","kind":"directory","prefix":"ATTACHMENTS/01-contracts/","files":0,"bytes":0}],
+  "execution_rule": "legacy"
+}`),
+	} {
+		if err := writeZipBytes(contextZip, name, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := contextZip.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := contextFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(root, "remote.zip")
+	request := RemoteInputRequest{RequestID: "req_workspace", Prompt: "prompt", IncludeContext: true}
+	if _, _, err := buildRemoteInputArchive(target, contextPath, request, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, RequestGitContext{}, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.OpenReader(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+
+	names := map[string]bool{}
+	var transport map[string]any
+	var sources requestContextSourcesDocument
+	for _, entry := range archive.File {
+		names[entry.Name] = true
+		if entry.Name != "transport.json" && entry.Name != requestContextSourcesIndex {
+			continue
+		}
+		input, openErr := entry.Open()
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		raw, readErr := io.ReadAll(input)
+		_ = input.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if entry.Name == "transport.json" {
+			if err := json.Unmarshal(raw, &transport); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := json.Unmarshal(raw, &sources); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, expected := range []string{
+		"context/primary.txt",
+		"ref-context/01-core/api.txt",
+		"att-context/attach-01/openapi.yml",
+		requestContextSourcesIndex,
+	} {
+		if !names[expected] {
+			t.Errorf("missing %s", expected)
+		}
+	}
+	for _, legacy := range []string{
+		"context/RELATED_PROJECTS/01-core/api.txt",
+		"context/ATTACHMENTS/01-contracts/openapi.yml",
+		"context/RELATED_PROJECTS.json",
+	} {
+		if names[legacy] {
+			t.Errorf("legacy workspace path leaked into request archive: %s", legacy)
+		}
+	}
+	if sources.Protocol != "harness.context-sources/v1" || len(sources.Projects) != 1 || sources.Projects[0].Prefix != "ref-context/01-core/" {
+		t.Fatalf("related source metadata was not rewritten: %#v", sources)
+	}
+	if len(sources.Attachments) != 1 || sources.Attachments[0].Prefix != "att-context/attach-01/" {
+		t.Fatalf("attachment source metadata was not rewritten: %#v", sources)
+	}
+	roots, ok := transport["context_roots"].(map[string]any)
+	if !ok || roots["primary"] != "context/" || roots["references"] != "ref-context/" || roots["attached_paths"] != "att-context/" || roots["sources_index"] != requestContextSourcesIndex {
+		t.Fatalf("request context roots missing from transport: %#v", transport)
+	}
+}
+
 func TestPublishRemoteInputRequiresActiveRequestAndReturnsShortBootstrap(t *testing.T) {
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "main.txt"), []byte("hello"), 0o600); err != nil {

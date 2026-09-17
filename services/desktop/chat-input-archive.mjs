@@ -8,6 +8,14 @@ const STORE_METHOD = 0
 const DOS_DATE_1980_01_01 = 0x0021
 const MAX_ZIP32 = 0xffffffff
 
+const LEGACY_CONTEXT_SOURCES_INDEX = 'RELATED_PROJECTS.json'
+const LEGACY_RELATED_CONTEXT_ROOT = 'RELATED_PROJECTS/'
+const LEGACY_ATTACHED_CONTEXT_ROOT = 'ATTACHMENTS/'
+const PRIMARY_CONTEXT_ROOT = 'context/'
+const REFERENCE_CONTEXT_ROOT = 'ref-context/'
+const ATTACHED_CONTEXT_ROOT = 'att-context/'
+const CONTEXT_SOURCES_INDEX = 'metadata/context-sources.json'
+
 const crcTable = (() => {
   const table = new Uint32Array(256)
   for (let index = 0; index < 256; index += 1) {
@@ -40,6 +48,50 @@ function findZipEnd(buffer) {
     if (buffer.readUInt32LE(offset) === 0x06054b50) return offset
   }
   throw new Error('Context archive has no valid ZIP directory')
+}
+
+function requestArchiveAttachmentPrefix(prefix) {
+  const clean = String(prefix || '').replace(/^\/+|\/+$/g, '').replace(/^ATTACHMENTS\//, '')
+  const segment = clean.split('/')[0] || '01'
+  const dash = segment.indexOf('-')
+  const slot = dash > 0 ? segment.slice(0, dash) : segment
+  return `${ATTACHED_CONTEXT_ROOT}attach-${slot || '01'}/`
+}
+
+function requestArchiveContextEntry(name, workspace) {
+  if (!workspace) return `${PRIMARY_CONTEXT_ROOT}${name}`
+  if (name === LEGACY_CONTEXT_SOURCES_INDEX) return CONTEXT_SOURCES_INDEX
+  if (name.startsWith(LEGACY_RELATED_CONTEXT_ROOT)) return `${REFERENCE_CONTEXT_ROOT}${name.slice(LEGACY_RELATED_CONTEXT_ROOT.length)}`
+  if (name.startsWith(LEGACY_ATTACHED_CONTEXT_ROOT)) {
+    const relative = name.slice(LEGACY_ATTACHED_CONTEXT_ROOT.length)
+    const slash = relative.indexOf('/')
+    const segment = slash >= 0 ? relative.slice(0, slash) : relative
+    const suffix = slash >= 0 ? relative.slice(slash + 1) : ''
+    const prefix = requestArchiveAttachmentPrefix(`${LEGACY_ATTACHED_CONTEXT_ROOT}${segment}/`)
+    return suffix ? `${prefix}${suffix}` : prefix.slice(0, -1)
+  }
+  return `${PRIMARY_CONTEXT_ROOT}${name}`
+}
+
+function rewriteContextSourcesIndex(bytes) {
+  let document
+  try { document = JSON.parse(bytes.toString('utf8')) } catch { throw new Error('Context sources index is malformed') }
+  if (!document || typeof document !== 'object' || Array.isArray(document)) throw new Error('Context sources index is malformed')
+  document.protocol = 'harness.context-sources/v1'
+  if (Array.isArray(document.related_projects)) {
+    document.related_projects = document.related_projects.map((project) => ({
+      ...project,
+      prefix: `${REFERENCE_CONTEXT_ROOT}${String(project?.prefix || '').replace(/^RELATED_PROJECTS\//, '')}`,
+    }))
+  }
+  if (Array.isArray(document.attached_paths)) {
+    document.attached_paths = document.attached_paths.map((attachment) => ({
+      ...attachment,
+      prefix: requestArchiveAttachmentPrefix(attachment?.prefix),
+    }))
+  }
+  document.execution_rule = 'context/ contains only the primary project snapshot. ref-context/ contains related project snapshots whose write authority is controlled by the request grant. att-context/ contains read-only external @attach material and is never a patch target.'
+  return Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8')
 }
 
 function flattenContextEntries(buffer) {
@@ -81,9 +133,13 @@ function flattenContextEntries(buffer) {
     if (bytes.byteLength !== size) throw new Error(`Context entry size mismatch: ${normalized}`)
     total += size
     if (total > 256 << 20) throw new Error('Expanded context exceeds 256 MiB')
-    entries.push({ name: `context/${normalized}`, bytes })
+    entries.push({ name: normalized, bytes })
   }
-  return entries
+  const workspace = entries.some((entry) => entry.name === LEGACY_CONTEXT_SOURCES_INDEX)
+  return entries.map((entry) => ({
+    name: requestArchiveContextEntry(entry.name, workspace),
+    bytes: workspace && entry.name === LEGACY_CONTEXT_SOURCES_INDEX ? rewriteContextSourcesIndex(entry.bytes) : entry.bytes,
+  }))
 }
 
 async function writeAll(handle, buffer, position) {
@@ -361,6 +417,7 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
   if (!promptText) throw new Error('Prepared prompt is empty')
   const normalizedRequestMetadata = normalizeRequestMetadata(requestMetadata, requestId)
   promptText = `${requestMetadataBlock(normalizedRequestMetadata)}\n\n${promptText}`
+  if (context?.bytes) promptText += `\n\nREQUEST ARCHIVE CONTEXT ROOTS (Wharnex-owned transport metadata):\n- ${PRIMARY_CONTEXT_ROOT} contains only the primary project snapshot.\n- ${REFERENCE_CONTEXT_ROOT}<project>/ contains @ref related-project snapshots.\n- ${ATTACHED_CONTEXT_ROOT}attach-<slot>/ contains read-only @attach material.\n- ${CONTEXT_SOURCES_INDEX} maps source roots and write authority.\nIf an older persisted prompt mentions RELATED_PROJECTS or ATTACHMENTS, those are legacy logical namespace names; open the physical roots above in this archive.`
   const knowledgeSnapshot = normalizeKnowledgeSnapshot(knowledge)
   const gitContextSnapshot = normalizeGitContextSnapshot(gitContext)
   if (knowledgeSnapshot.v2) {
@@ -396,7 +453,13 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
     request_metadata: normalizedRequestMetadata,
     prompt: 'prompt/wharness-planner-prompt.md',
     context_included: Boolean(context?.bytes),
-    context_root: context?.bytes ? 'context/' : '',
+    context_root: context?.bytes ? PRIMARY_CONTEXT_ROOT : '',
+    context_roots: {
+      primary: context?.bytes ? PRIMARY_CONTEXT_ROOT : '',
+      references: context?.bytes ? REFERENCE_CONTEXT_ROOT : '',
+      attached_paths: context?.bytes ? ATTACHED_CONTEXT_ROOT : '',
+      sources_index: context?.bytes ? CONTEXT_SOURCES_INDEX : '',
+    },
     project_files: selectedPaths,
     git_context: gitContextManifest(gitContextSnapshot),
     knowledge: {

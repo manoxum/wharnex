@@ -1044,9 +1044,9 @@ func messageWithRelatedProjects(message, primary string, related []domain.Relate
 	builder.WriteString("\n\nMULTI-PROJECT WORKSPACE (Wharnex-owned scope metadata):\n")
 	builder.WriteString("Primary project and execution root: ")
 	builder.WriteString(primary)
-	builder.WriteString("\nRelated project contexts are available under their RELATED_PROJECTS namespaces:\n")
+	builder.WriteString("\nRelated project contexts are available under ref-context/ namespaces in the request bundle:\n")
 	for _, project := range related {
-		fmt.Fprintf(&builder, "- %s (%s): %s\n", project.Name, project.ProjectPath, project.Prefix)
+		fmt.Fprintf(&builder, "- %s (%s): %s\n", project.Name, project.ProjectPath, requestArchiveRelatedPrefix(project.Prefix))
 	}
 	builder.WriteString("Analyze cross-project contracts and dependencies as needed.")
 	// Which of these contexts may be changed is decided by the request's own

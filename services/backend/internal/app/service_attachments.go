@@ -162,7 +162,7 @@ func messageWithAttachments(message string, attachments []domain.AttachedPathCon
 	builder.WriteString(message)
 	builder.WriteString("\n\nATTACHED EXTERNAL PATHS (Wharnex-owned scope metadata):\n")
 	for _, attachment := range attachments {
-		fmt.Fprintf(&builder, "- %s %s -> %s (%d file(s), %d byte(s))", attachment.Kind, attachment.Root, attachment.Prefix, attachment.Files, attachment.Bytes)
+		fmt.Fprintf(&builder, "- %s %s -> %s (%d file(s), %d byte(s))", attachment.Kind, attachment.Root, requestArchiveAttachmentPrefix(attachment.Prefix), attachment.Files, attachment.Bytes)
 		if attachment.ExcludedItems > 0 {
 			fmt.Fprintf(&builder, "; %d item(s) excluded by the attachment's own include/exclude selection", attachment.ExcludedItems)
 		}

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/context-sources.schema.json",
+  "title": "Wharnex request context source index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "primary_project",
+    "related_projects",
+    "execution_rule"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "harness.context-sources/v1"
+    },
+    "primary_project": {
+      "type": "string"
+    },
+    "related_projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "prefix"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string",
+            "pattern": "^ref-context/[^/]+/$"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "attached_paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "prefix"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string",
+            "pattern": "^att-context/attach-[^/]+/$"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "execution_rule": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

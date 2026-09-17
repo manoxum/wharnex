@@ -330,7 +330,15 @@ func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequ
 		_ = file.Close()
 		return "", 0, err
 	}
-	manifest := map[string]any{"protocol": "wharness.remote-input/v1", "request_id": request.RequestID, "request_metadata": request.RequestMetadata, "prompt": "prompt/wharness-planner-prompt.md", "context_included": request.IncludeContext, "project_files": request.ProjectFiles, "knowledge": knowledgeManifest(knowledge), "git_context": requestGitContextManifest(gitContext)}
+	manifest := map[string]any{
+		"protocol": "wharness.remote-input/v1", "request_id": request.RequestID, "request_metadata": request.RequestMetadata,
+		"prompt": "prompt/wharness-planner-prompt.md", "context_included": request.IncludeContext,
+		"context_roots": map[string]string{
+			"primary": requestPrimaryContextRoot, "references": requestReferenceContextRoot,
+			"attached_paths": requestAttachedContextRoot, "sources_index": requestContextSourcesIndex,
+		},
+		"project_files": request.ProjectFiles, "knowledge": knowledgeManifest(knowledge), "git_context": requestGitContextManifest(gitContext),
+	}
 	manifestRaw, _ := json.MarshalIndent(manifest, "", "  ")
 	writeErr := writeZipBytes(archive, "transport.json", manifestRaw)
 	if writeErr == nil {
@@ -404,6 +412,13 @@ func writeContextDirectory(target *zip.Writer, contextPath string) error {
 		return fmt.Errorf("open context archive: %w", err)
 	}
 	defer source.Close()
+	workspace := false
+	for _, file := range source.File {
+		if filepath.ToSlash(filepath.Clean(file.Name)) == legacyContextSourcesIndex {
+			workspace = true
+			break
+		}
+	}
 	for _, file := range source.File {
 		clean := filepath.ToSlash(filepath.Clean(file.Name))
 		if clean == "." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") || file.FileInfo().Mode()&os.ModeSymlink != 0 {
@@ -416,18 +431,28 @@ func writeContextDirectory(target *zip.Writer, contextPath string) error {
 		if openErr != nil {
 			return fmt.Errorf("open context entry %q: %w", clean, openErr)
 		}
-		header := &zip.FileHeader{Name: "context/" + clean, Method: zip.Deflate}
-		header.SetMode(0o600)
-		output, createErr := target.CreateHeader(header)
-		if createErr == nil {
-			_, createErr = io.Copy(output, input)
-		}
+		raw, readErr := io.ReadAll(input)
 		closeErr := input.Close()
-		if createErr != nil {
-			return fmt.Errorf("copy context entry %q: %w", clean, createErr)
+		if readErr != nil {
+			return fmt.Errorf("read context entry %q: %w", clean, readErr)
 		}
 		if closeErr != nil {
 			return fmt.Errorf("close context entry %q: %w", clean, closeErr)
+		}
+		if workspace && clean == legacyContextSourcesIndex {
+			raw, err = rewriteRequestContextSources(raw)
+			if err != nil {
+				return err
+			}
+		}
+		header := &zip.FileHeader{Name: requestArchiveContextEntry(clean, workspace), Method: zip.Deflate}
+		header.SetMode(0o600)
+		output, createErr := target.CreateHeader(header)
+		if createErr == nil {
+			_, createErr = output.Write(raw)
+		}
+		if createErr != nil {
+			return fmt.Errorf("copy context entry %q: %w", clean, createErr)
 		}
 	}
 	return nil

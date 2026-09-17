@@ -110,6 +110,46 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
 })
 
 
+test('workspace context is separated into primary, ref and attach roots', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-context-roots-'))
+  try {
+    const requestId = 'req_20260917T210614_contextroots'
+    const target = path.join(root, chatInputArchiveFilename('chat-roots', requestId))
+    const contextBytes = Buffer.from('UEsDBBQAAAAIAA+qMV1sZRs2CgAAAAgAAAALAAAAcHJpbWFyeS50eHQrKMrMTSyq5AIAUEsDBBQAAAAIAA+qMV2nwrjCCgAAAAgAAAAgAAAAUkVMQVRFRF9QUk9KRUNUUy8wMS1jb3JlL2FwaS50eHQrSs1JLElN4QIAUEsDBBQAAAAIAA+qMV2jl98zCQAAAAcAAAAkAAAAQVRUQUNITUVOVFMvMDEtY29udHJhY3RzL29wZW5hcGkueW1syy9IzUssyAQAUEsDBBQAAAAIAA+qMV3t7JrQLwEAAGICAAAVAAAAUkVMQVRFRF9QUk9KRUNUUy5qc29upVDLTsMwEPyVymfaUCRA4laVSAjxUskNVdHW2RBTx47WTklU5d/xpgm0veLTPmbWM7MXFVlvpdXibiIKIIPOzQg1eMymYfeF0rtoNxcXkwBVJVCbDmNmRN+Wtq4CiVEJyjBqII8oF2AfezF0aQW+OCNKS8hEAyXyauwrwlw1PFnFT4skvk/fVq+P8TJ5jy7nU0ZFDCvBqBwdy9kLlfUXfHM4cPiTrD0XO/7hCri6vuHl5p+Pr+VKY+93HRpspK4zzMbeY+NTT7WRHE+Y5qAddh3vwHuQBYcW4hkS+1XtaBf0Gk/AaZ4EdTTcKtN7zxQFz5ba0wgXSbJYPjzHL2N6AzU61j0P9ab1fX0bamUOFv5kCVuhgUrN2lKLdXfwibL2ypqUat3r0vgJsp30bfcDUEsBAhQDFAAAAAgAD6oxXWxlGzYKAAAACAAAAAsAAAAAAAAAAAAAAIABAAAAAHByaW1hcnkudHh0UEsBAhQDFAAAAAgAD6oxXafCuMIKAAAACAAAACAAAAAAAAAAAAAAAIABMwAAAFJFTEFURURfUFJPSkVDVFMvMDEtY29yZS9hcGkudHh0UEsBAhQDFAAAAAgAD6oxXaOX3zMJAAAABwAAACQAAAAAAAAAAAAAAIABewAAAEFUVEFDSE1FTlRTLzAxLWNvbnRyYWN0cy9vcGVuYXBpLnltbFBLAQIUAxQAAAAIAA+qMV3t7JrQLwEAAGICAAAVAAAAAAAAAAAAAACAAcYAAABSRUxBVEVEX1BST0pFQ1RTLmpzb25QSwUGAAAAAAQABAAcAQAAKAIAAAAA', 'base64')
+    await writeChatInputArchive(target, {
+      requestId,
+      prompt: '# Planner',
+      knowledge: { state: 'none' },
+      context: { bytes: contextBytes },
+    })
+    const entries = storedEntries(await readFile(target))
+    assert.ok(entries.has('context/primary.txt'))
+    assert.ok(entries.has('ref-context/01-core/api.txt'))
+    assert.ok(entries.has('att-context/attach-01/openapi.yml'))
+    assert.ok(entries.has('metadata/context-sources.json'))
+    assert.equal(entries.has('context/RELATED_PROJECTS/01-core/api.txt'), false)
+    assert.equal(entries.has('context/ATTACHMENTS/01-contracts/openapi.yml'), false)
+    const sources = JSON.parse(entries.get('metadata/context-sources.json').toString('utf8'))
+    assert.equal(sources.protocol, 'harness.context-sources/v1')
+    assert.equal(sources.related_projects[0].prefix, 'ref-context/01-core/')
+    assert.equal(sources.attached_paths[0].prefix, 'att-context/attach-01/')
+    const transport = JSON.parse(entries.get('transport.json').toString('utf8'))
+    assert.deepEqual(transport.context_roots, {
+      primary: 'context/',
+      references: 'ref-context/',
+      attached_paths: 'att-context/',
+      sources_index: 'metadata/context-sources.json',
+    })
+    const prompt = entries.get('prompt/wharness-planner-prompt.md').toString('utf8')
+    assert.match(prompt, /REQUEST ARCHIVE CONTEXT ROOTS/)
+    assert.match(prompt, /ref-context\/<project>/)
+    assert.match(prompt, /att-context\/attach-<slot>/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
 test('v2 project knowledge is transported as independently named files', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-knowledge-v2-'))
   try {
