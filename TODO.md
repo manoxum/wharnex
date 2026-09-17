@@ -1172,7 +1172,4 @@ completo), `npm run typecheck`/`lint`/`test -- --run` (52 ficheiros, 227 testes)
 ficheiros) — nenhum commit foi pedido nesta sessão.
 
 
-wdwdw
-dw
-dwd
 dwdw
