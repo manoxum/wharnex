@@ -1113,6 +1113,25 @@ test('ChatGPT request archive upload uses the dedicated file input instead of cl
   assert.doesNotMatch(upload, /wc\.paste\(\)/)
 })
 
+// Live testing against the real ChatGPT account (two concurrent hidden
+// Workers each classifying a TODO) reproduced "did not start the file
+// upload before timeout" on effectively every attempt: the provider did
+// confirm most uploads eventually, just not inside the 8s observation
+// window while a second Worker's own retry landed on ChatGPT around the
+// same moment. Every attempt after the first is exactly the case the
+// process-wide provider pacing gate exists for, so a retry that skips it
+// reintroduces that contention.
+test('every ChatGPT upload attempt, not only the first, is paced against the shared provider gate', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count)')
+  const end = source.indexOf('\nasync function submitChatGPTDraft', start)
+  const upload = source.slice(start, end)
+  const beforeAttemptStart = upload.indexOf('beforeAttempt: async () => {')
+  const beforeAttemptEnd = upload.indexOf('beginUpload:', beforeAttemptStart)
+  const beforeAttempt = upload.slice(beforeAttemptStart, beforeAttemptEnd)
+  assert.match(beforeAttempt, /await paceChatGPTWorkerSubmission\(\)/)
+})
+
 test('task comments are sent as a single protocol ZIP containing the guidance and attachments', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const materializeStart = source.indexOf('async function materializeProtocolChatInput')

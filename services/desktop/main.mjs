@@ -3736,6 +3736,14 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
   const { wc } = requireOwnedChatGPTEntry(key, entry)
   const result = await pasteWithUploadRetry({
     beforeAttempt: async () => {
+      // A retry is a fresh provider-facing action: without this, two Workers
+      // retiring their own 500ms/1s/2s/4s backoffs independently can still
+      // land their file-selection attempts on ChatGPT within the same couple
+      // of seconds, and live testing showed that contention is exactly what
+      // pushes an upload that would otherwise start past the coordinator's
+      // observation window. The shared gate spaces retries the same way it
+      // already spaces first attempts and navigation.
+      await paceChatGPTWorkerSubmission()
       await waitForChatGPTSurfaceReady(key, entry)
       const ready = await wc.executeJavaScript(chatGPTComposerReadyScript(), true)
       if (!ready) throw new Error('ChatGPT composer DOM was not found before upload')

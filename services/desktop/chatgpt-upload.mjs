@@ -158,7 +158,13 @@ export class ChatGPTUploadCoordinator {
     this.pendingByRequest = new Map()
   }
 
-  expect(webContentsId, { startTimeoutMs = 8_000, completionTimeoutMs = 90_000 } = {}) {
+  // 8s was measured live against two concurrent hidden Worker uploads: the
+  // provider consistently confirmed the request, just not inside that window
+  // under contention, so every retry spent its whole budget on a false
+  // "did not start" instead of the slower real completion. 20s keeps the same
+  // shape while giving a backgrounded, contended renderer room to actually
+  // reach the network before the coordinator gives up on it.
+  expect(webContentsId, { startTimeoutMs = 20_000, completionTimeoutMs = 90_000 } = {}) {
     if (!Number.isInteger(webContentsId) || webContentsId < 1) throw new Error('Invalid ChatGPT webContents id')
     const previous = this.pendingByWebContents.get(webContentsId)
     if (previous) previous.finish(new Error('ChatGPT upload observation was superseded'))
