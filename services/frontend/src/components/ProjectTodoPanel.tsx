@@ -119,12 +119,13 @@ function TodoCard({ todo, busy, onStatus, onRetry, onChat, onOrchestrator }: { t
   const classification = classified
     ? <><span className={`todo-badge kind-${todo.kind || 'unknown'}`}>{KIND_LABEL[todo.kind || ''] || todo.kind}</span><span className={`todo-badge urgency-${todo.urgency || 'normal'}`}>{URGENCY_LABEL[todo.urgency || ''] || todo.urgency}</span></>
     : todo.classification_status === 'failed'
-      ? <><span className="todo-badge classification-failed">Análise pendente</span><button type="button" className="todo-inline-action" disabled={busy} onClick={onRetry}><Icon name="refresh" size={11}/> Tentar novamente</button></>
+      ? <><span className="todo-badge classification-failed">Falha na análise</span><button type="button" className="todo-inline-action" disabled={busy} onClick={onRetry}><Icon name="refresh" size={11}/> Tentar novamente</button></>
       : <span className="todo-badge classification-queued"><Icon name="agent" size={11}/> Worker na fila</span>
 
   return <article className={`project-todo-card ${todo.status}`}>
     <div className="project-todo-meta"><div className="project-todo-badges">{classification}</div><time dateTime={todo.created_at}>{new Date(todo.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</time></div>
     <p className="project-todo-body">{todo.body}</p>
+    {todo.classification_status === 'failed' && todo.classification_error ? <p className="project-todo-classification-error" role="status">{todo.classification_error}</p> : null}
     {classified && (todo.description || todo.pre_plan?.length) ? <section className="project-todo-worker-detail">
       <header><span><Icon name="agent" size={12}/></span><div><small>Análise do Worker</small><strong>Contexto preparado para execução</strong></div></header>
       {todo.description ? <p>{todo.description}</p> : null}

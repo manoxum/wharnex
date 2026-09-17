@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TextDecoder } from 'node:util'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTEffortCycle, dispatchChatGPTPointerClick, submitWithRetry } from './chatgpt-input.mjs'
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
-import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
+import { ChatGPTUploadCoordinator, chatGPTUploadReadyScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
@@ -3737,8 +3737,8 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
   const result = await pasteWithUploadRetry({
     beforeAttempt: async () => {
       await waitForChatGPTSurfaceReady(key, entry)
-      const ready = await wc.executeJavaScript(chatGPTComposerReadyScript(), true)
-      if (!ready) throw new Error('ChatGPT composer DOM was not found before upload')
+      const ready = await wc.executeJavaScript(chatGPTUploadReadyScript(), true)
+      if (!ready) throw new Error('ChatGPT composer upload input was not ready before upload')
     },
     beginUpload: () => chatGPTUploads.expect(wc.id),
     cancelUpload: (error) => chatGPTUploads.cancel(wc.id, `ChatGPT upload selection failed: ${error instanceof Error ? error.message : String(error)}`),
