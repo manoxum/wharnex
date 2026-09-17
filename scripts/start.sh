@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}
 RUN_DIR="$ROOT/.harness/run"
 LOG_DIR="$ROOT/.harness/logs"
 PID_FILE="$RUN_DIR/coordinator.pid"
@@ -10,6 +11,15 @@ BUILD_STAMP="$ROOT/.harness/build-success"
 SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
 # Optional per-checkout overrides (Electron profile dir, etc). Gitignored.
 [ -f "$ROOT/.harness/env" ] && . "$ROOT/.harness/env"
+# A `make start` run directly from a terminal, outside the installed
+# launcher, previously left WHARNESS_DESKTOP_USER_DATA_DIR unset. Electron
+# then fell back to its own default profile directory instead of the
+# launcher's, so a plain `make start` opened what was effectively a
+# different, unauthenticated instance (separate Chromium profile, separate
+# ChatGPT login) from the one the desktop shortcut already uses. Resolve the
+# same canonical profile install-dev.sh installs the launcher with, unless
+# the caller already set one explicitly.
+. "$SCRIPT_DIR/desktop-profile.sh"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
@@ -27,6 +37,22 @@ if [ -f "$PID_FILE" ]; then
   rm -f "$PID_FILE"
 fi
 
+# `make start` run directly from a terminal is otherwise indistinguishable
+# from the installed OS launcher except for the splash it shows first. When
+# WHARNESS_LAUNCHER_SPLASH_ACTIVE is set, the launcher already owns one
+# around this call (see launcher.sh), so a second splash here would just be a
+# redundant window flashing on top of it.
+own_splash=0
+if [ "${WHARNESS_LAUNCHER_SPLASH_ACTIVE:-}" != 1 ]; then
+  . "$SCRIPT_DIR/splash-lib.sh"
+  trap 'wharness_splash_close' EXIT HUP INT TERM
+  if wharness_splash_open 'A verificar o código do projeto…'; then
+    own_splash=1
+  else
+    wharness_splash_close
+  fi
+fi
+
 WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
 
 build_required=''
@@ -38,8 +64,11 @@ fi
 
 if [ -n "$build_required" ]; then
   printf 'Wharnex build is required (%s); rebuilding before startup...\n' "$build_required"
+  [ "$own_splash" -eq 1 ] && wharness_splash_update 'A compilar a nova versão. Isto pode demorar alguns minutos…' || true
   (cd "$ROOT" && make build)
 fi
+
+[ "$own_splash" -eq 1 ] && wharness_splash_update 'A iniciar o Desktop…' || true
 
 if [ ! -x "$ROOT/services/desktop/node_modules/.bin/electron" ]; then
   echo 'Electron dependencies are missing. Run: make build' >&2

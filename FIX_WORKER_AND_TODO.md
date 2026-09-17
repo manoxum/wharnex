@@ -149,3 +149,96 @@ Ordem sugerida, do diagnóstico definitivo à correção e testes:
 - **Confiabilidade geral do Worker pool para automação de ChatGPT**: como o mesmo mecanismo de upload de ficheiro (`chatgpt-upload.mjs`) é usado por outros fluxos que exigem anexo (não confirmado no código lido nesta investigação além de `TODO_CLASSIFY`, mas a arquitetura do ficheiro sugere reutilização), uma correção aqui deve ser validada contra qualquer outro consumidor de `pasteChatGPTFile`/`pasteWithUploadRetry` para não regredir um fluxo que hoje funciona.
 - **Auto-evolução concorrente**: esta investigação foi diretamente afetada por um ciclo de self-evolution que recriou `wharnex-backend-1` a meio da análise (ver seção "Limitação de logs"), destruindo evidência de log do incidente. Isto não é, por si, uma violação de nenhum invariante (o comportamento de self-evolution recriar o container é esperado), mas reforça a recomendação, fora do escopo desta correção pontual, de considerar persistência de logs de aplicação fora do ciclo de vida do container (`SoT/OBSERVABILITY.md`), para que investigações futuras de incidentes reais não dependam apenas do estado (parcial) preservado no Postgres.
 - **Nenhuma alteração de código foi feita como parte desta tarefa** — esta é exclusivamente uma tarefa de análise e documentação, conforme solicitado; a implementação do plano acima fica para uma mudança separada, seguindo o protocolo de mudança completo de `AGENTS.md` §6.
+
+---
+
+## Adenda — implementação e validação ao vivo (mesmo dia, sessão de continuação)
+
+Numa sessão de continuação, o plano de correção acima foi implementado e testado ao vivo contra a instância real do Electron/ChatGPT (não simulado), usando os dois TODOs de teste originais. Esta seção documenta o que foi efetivamente alterado, o que a validação ao vivo revelou (incluindo uma revisão da causa raiz original) e o estado final.
+
+### Correção 1 — implementada e confirmada ao vivo: timeout de início de upload curto demais sob concorrência
+
+Reproduzi o defeito original ao vivo, disparando reclassificação real dos dois TODOs simultaneamente. Os logs do Electron (`.harness/logs/desktop.log`) mostraram que o upload **frequentemente é confirmado pelo ChatGPT**, mas só depois de mais do que 8 segundos quando dois Workers competem pela mesma conta ao mesmo tempo — ou seja, a hipótese original ("o ChatGPT nunca reage à seleção do ficheiro") estava incompleta: o ChatGPT reage, só que fora da janela de observação de 8s sob contenção.
+
+Alterações em `services/desktop/chatgpt-upload.mjs`:
+- `ChatGPTUploadCoordinator.expect`: `startTimeoutMs` default de `8_000` → `20_000`.
+
+Alterações em `services/desktop/main.mjs` (`pasteChatGPTFile`):
+- Cada nova tentativa de upload (não só a primeira) agora chama `await paceChatGPTWorkerSubmission()` dentro de `beforeAttempt`, respeitando o gate de pacing global entre Workers já exigido por `AGENTS.md` §"Provider-facing Worker navigation and autonomous submission MUST share one process-wide pacing gate" — antes, apenas a primeira tentativa da tarefa inteira era pautada; retries internos (backoff de 500ms/1s/2s/4s) podiam colidir no tempo com os retries de outro Worker.
+
+**Validação ao vivo:** após reiniciar o Desktop com a correção e reclassificar os dois TODOs de teste, o upload passou a confirmar de forma consistente (`[chatgpt-upload] confirmed ... observed=true`), sem nenhuma ocorrência do erro "did not start the file upload before timeout" nas execuções seguintes — até seria suficiente sozinho, mas revelou uma segunda causa (abaixo).
+
+### Correção 2 — implementada e confirmada ao vivo: tentativa repetida reutilizava um composer "sujo"
+
+Ao observar as tentativas subsequentes (nível de tarefa, não de upload) com a Correção 1 já aplicada, o log mostrou algo revelador: **a 1ª tentativa de uma tarefa confirmava o upload com sucesso**, mas a tarefa ainda assim falhava por outro motivo mais adiante no fluxo (ver Correção pendente abaixo) e avançava para a 2ª tentativa — e a partir daí **todo upload voltava a falhar com "did not start"**, permanentemente, pelo resto das tentativas.
+
+Causa: nem `executeChatAgentTodoClassification` nem `executeChatAgentMarkdownTranslation` reiniciavam a página entre tentativas da mesma tarefa. `targetChatGPTComposer` só navega quando a URL atual difere da esperada; se a 1ª tentativa nunca avançou para uma conversa real (falhou antes disso), a página permanece a mesma "nova conversa" já com o ficheiro anexado da tentativa anterior. O ChatGPT ignora silenciosamente uma reseleção do mesmo ficheiro já presente no composer (comportamento de deduplicação já documentado nos comentários de `chatgpt-upload.mjs:144-148` para um caso relacionado), então nenhuma nova requisição de rede é disparada — reproduzindo exatamente "did not start the file upload before timeout", desta vez de forma determinística e permanente a partir da 2ª tentativa.
+
+Alteração em `services/desktop/main.mjs`, no início de `executeChatAgentTodoClassification` e `executeChatAgentMarkdownTranslation`: quando `task.attempt > 0` (ou seja, é uma nova tentativa da mesma tarefa), a página é recarregada (`wc.reload()` + `waitForChatGPTSurfaceReady`) antes de prosseguir, garantindo que cada tentativa começa com um composer vazio.
+
+**Validação ao vivo:** com as duas correções aplicadas, reclassifiquei os dois TODOs de teste do zero. Em ambos os casos o upload confirmou com sucesso em **todas** as tentativas subsequentes (attempt 1 a 4), sem nenhuma recorrência de "did not start" — o defeito original relatado neste documento está confirmado corrigido.
+
+### Achado adicional (fora do escopo original, não corrigido): reclassificação concorrente pode perder a tarefa silenciosamente
+
+Ao disparar as duas reclassificações de teste em sequência rápida (dois `POST .../classify` consecutivos), uma delas retornou `HTTP 202` com um `classification_task_id` válido, mas a tarefa correspondente **nunca apareceu em `harness_chat_agent_tasks`** — o TODO ficou apontando para um `task_id` fantasma, preso permanentemente em `classification_status="queued"` sem nenhum Worker jamais a poder reclamar (nenhum log do backend registou erro nesse instante). Reenviar a mesma reclassificação isoladamente, sem concorrência, funcionou normalmente. Isto é consistente com uma condição de corrida em `Service.enqueueProjectTodoClassification` (`services/backend/internal/app/service_project_todos.go:128-163`) ou na camada de persistência abaixo dela quando dois pedidos de classificação chegam quase simultaneamente. **Não foi corrigido nesta sessão** — está fora do escopo do defeito original (upload) e merece investigação própria, incluindo instrumentação do backend e um teste de concorrência em `service_project_todos_test.go`.
+
+### Bug secundário pré-existente descoberto pela validação ao vivo — agora o único bloqueador restante
+
+Com as Correções 1 e 2 aplicadas, **os dois TODOs de teste passaram no upload em todas as tentativas**, mas ambos ainda falharam definitivamente, desta vez com um erro completamente diferente e não relacionado a upload:
+
+```
+ChatGPT reasoning effort did not reach instant after bounded cycling (high -> high -> high -> high)
+```
+
+Este erro vem de `ensureChatGPTReasoningEffort` (`services/desktop/chatgpt-effort.mjs:15-36`): `TODO_CLASSIFY`/`TRANSLATE_MARKDOWN` forçam `reasoningEffort='instant'` (`main.mjs:4919` e `main.mjs:5010` aprox.), e o mecanismo de alternância (`dispatchChatGPTEffortCycle`, `services/desktop/chatgpt-input.mjs:48-53`) envia o atalho de teclado nativo `Ctrl+Shift+M` ao `webContents` até o nível "instant" ser observado — mas o nível lido nunca muda de "high" após 4 ciclos consecutivos do atalho, seja qual for a tentativa. Confirmei nos dados históricos (`harness_chat_agent_tasks`, tarefas `cat_f1eede055152b48c4233`/`cat_66830909f3aa6c1e60f5` de hoje às 12:13, e um `TRANSLATE_MARKDOWN` de 2026-09-16 20:28 com "medium -> medium -> medium -> medium") que este defeito **já existia antes desta sessão** e é **100% reprodutível sempre que o nível pedido difere do nível atual da conta** — por isso fluxos como `BOT_WRITE`, que normalmente pedem `'high'` (o nível em que a conta já costuma estar), raramente o expõem: não precisam de ciclar.
+
+Hipótese não confirmada (não investigada ao vivo com inspeção de DOM por falta de orçamento de tempo nesta sessão): nem `chatGPTFillComposerScript` nem nenhum outro ponto do fluxo chamam `.focus()` no composer — o preenchimento do texto é feito via setter de propriedade + `dispatchEvent`, nunca uma interação real. Se o atalho `Ctrl+Shift+M` do ChatGPT só é reconhecido quando o composer tem foco real de documento (`document.activeElement`), o evento de teclado despachado via `sendInputEvent` nunca chegaria ao handler correto. Alternativa igualmente plausível: o próprio atalho de teclado do ChatGPT para ciclar o nível de raciocínio mudou ou foi removido da interface atual (o mesmo tipo de deriva de UI já documentado para o seletor de upload). Não tentei corrigir isto às cegas: o próprio comentário em `chatgpt-effort.mjs:11-14` explica que a alternativa (clicar diretamente no controlo deslizante) foi deliberadamente evitada por ser "mais frágil", o que sugere que não há uma substituição trivial e segura sem inspecionar a página real.
+
+**Próximo passo recomendado:** repetir o passo 1 do plano de correção original (trace ao vivo via CDP) especificamente sobre `dispatchChatGPTEffortCycle`/`reasoningEffortStateScript`, para confirmar se o atalho ainda existe na interface atual do ChatGPT e, em caso afirmativo, se exige foco prévio do composer.
+
+### Testes adicionados
+
+- `services/desktop/chatgpt-upload.test.mjs`: novo teste confirma que o timeout de início por omissão é `20_000` ms (usando um `setTimeout` fake para não tornar a suíte lenta).
+- `services/desktop/main-regression.test.mjs`: novo teste confirma que `pasteChatGPTFile` pauta **cada** tentativa (não só a primeira) contra o gate `paceChatGPTWorkerSubmission`.
+- Suíte completa do desktop (`npm run check` em `services/desktop`): **390/390 a passar** após as alterações.
+
+### Correção 3 — implementada e confirmada ao vivo: `reasoning effort` bloqueava o envio inteiro
+
+Ao observar as duas tarefas de teste com as Correções 1 e 2 aplicadas, ambas passaram no upload em todas as tentativas mas ainda falhavam — desta vez com um erro totalmente diferente, sem relação com upload:
+
+```
+ChatGPT reasoning effort did not reach instant after bounded cycling (high -> high -> high -> high)
+```
+
+Isto corresponde exatamente ao que o utilizador reportou observando a UI ao vivo: *"ela esta conseguir colocar o prompt e o bundle... no worker mas falta ela dar o submit"*. `submitChatGPTDraft` (`services/desktop/main.mjs`) tenta primeiro forçar o nível de raciocínio pedido (`'instant'`, para `TODO_CLASSIFY`/`TRANSLATE_MARKDOWN`) via `ensureChatGPTReasoningEffort`, que alterna o atalho `Ctrl+Shift+M` até o nível mudar; antes de chegar ao clique/Enter de envio. Confirmei nos dados históricos que o nível nunca sai de `"high"` depois de 4 ciclos do atalho, e que isto **já acontecia antes desta sessão** (`cat_f1eede055152b48c4233`/`cat_66830909f3aa6c1e60f5`, hoje às 12:13; um `TRANSLATE_MARKDOWN` de 2026-09-16 20:28) — é 100% reprodutível sempre que o nível pedido difere do nível atual da conta. Fluxos como `BOT_WRITE` (que pedem `'high'`, o nível em que a conta já costuma estar) raramente expõem isto por não precisarem de ciclar.
+
+Não tentei corrigir a causa do atalho de teclado em si (precisaria de inspeção ao vivo do DOM/UI atual do ChatGPT, fora do orçamento desta sessão; o próprio comentário em `chatgpt-effort.mjs:11-14` já evita deliberadamente a alternativa de clicar no controlo por ser "mais frágil"). Em vez disso, tornei a exigência de `reasoning effort` **best-effort** especificamente para os dois workers de fundo (`TODO_CLASSIFY`, `TRANSLATE_MARKDOWN`), que só pedem `'instant'` como preferência de latência/custo, nunca como requisito de correção:
+
+- `services/desktop/main.mjs`, `submitChatGPTDraft`: novo parâmetro opcional `{ requireReasoningEffort = true }`. Quando `ensureChatGPTReasoningEffort` falha e `requireReasoningEffort` é `false`, regista um aviso e prossegue para o envio no nível atual em vez de lançar erro. O valor por omissão continua `true` — todo o resto do sistema (`BOT_WRITE`, `ORCHESTRATOR_PLAN`, etc.) mantém o comportamento fail-closed original, correto para uma troca de planeamento sensível a correção.
+- `executeChatAgentTodoClassification` e `executeChatAgentMarkdownTranslation`: passam agora `{ requireReasoningEffort: false }`.
+
+**Validação ao vivo:** reclassifiquei os dois TODOs de teste do zero, com as três correções aplicadas. **Ambas as tarefas chegaram a `DONE`** e os dois TODOs no Postgres passaram para `classification_status: "classified"` com `kind`, `urgency`, `description` e `pre_plan` coerentes com o conteúdo de cada um — confirmado também visualmente na UI pelo utilizador. Este é o resultado de ponta a ponta que o pedido original exigia.
+
+### Achado adicional (fora do escopo original, corrigido nesta sessão): `make start` abria um perfil Electron diferente do launcher instalado
+
+Durante a validação, o utilizador reportou que `make start` parecia iniciar "quase uma instância diferente" do launcher instalado (`wharnex-main`). Confirmado: existiam **quatro diretórios de perfil Electron distintos** em `~/.config/` (`wharness-desktop`, `Wharnex - main`, `wharnex-statable-desktop`, `wharness`). Causa: `services/desktop/dev.mjs:170` só passa `--user-data-dir` ao Electron quando `WHARNESS_DESKTOP_USER_DATA_DIR` está definida; `scripts/start.sh` (usado por `make start`) nunca definia essa variável quando corrido diretamente (fora do launcher instalado), só `scripts/install-dev.sh` a calculava e exportava, dentro do próprio script do launcher gerado. Sem essa variável, o Electron usa o seu próprio diretório de perfil por omissão (`~/.config/Wharnex - main`) — uma sessão do Chromium completamente separada, sem a autenticação ChatGPT nem o estado da sessão canónica.
+
+Correção: extraí a lógica de resolução do perfil (antes só existente em `install-dev.sh`) para um script partilhado, `scripts/desktop-profile.sh`, agora usado tanto por `install-dev.sh` como por `start.sh`. `make start`, corrido diretamente, resolve agora o mesmo perfil canónico (`~/.config/wharness-desktop` para a instância `main`) que o launcher instalado usa, a menos que `WHARNESS_DESKTOP_USER_DATA_DIR` já esteja definida explicitamente no ambiente.
+
+**Validação ao vivo:** após `make stop && make start`, o processo Electron confirmado via `/proc/<pid>/cmdline` passou a incluir `--user-data-dir=/home/zootakuxy/.config/wharness-desktop` — o mesmo perfil do launcher — e o diretório `Wharnex - main` deixou de ser tocado.
+
+### Testes adicionados
+
+- `services/desktop/chatgpt-upload.test.mjs`: novo teste confirma que o timeout de início por omissão é `20_000` ms (usando um `setTimeout` fake para não tornar a suíte lenta).
+- `services/desktop/main-regression.test.mjs`:
+  - novo teste confirma que `pasteChatGPTFile` pauta **cada** tentativa (não só a primeira) contra o gate `paceChatGPTWorkerSubmission`;
+  - novo teste confirma que `submitChatGPTDraft` continua fail-closed por omissão e que só `executeChatAgentTodoClassification`/`executeChatAgentMarkdownTranslation` usam `requireReasoningEffort: false`.
+- `scripts/install-dev-check.sh` (já existente) e `scripts/lifecycle-check.sh` (já existente): confirmados a passar sem alterações após extrair `desktop-profile.sh`.
+- Suíte completa do desktop (`npm run check` em `services/desktop`): **391/391 a passar** após todas as alterações.
+
+### Estado final
+
+- **Corrigido e validado ao vivo, de ponta a ponta:** o defeito original descrito neste documento. Os dois TODOs de teste do enunciado classificam agora com sucesso (`classification_status: "classified"`), confirmado no Postgres e na UI. As três causas reais eram: (1) timeout de 8s de início de upload curto demais sob concorrência de dois Workers; (2) reutilização de um composer já sujo entre tentativas da mesma tarefa; (3) a exigência rígida de `reasoning effort='instant'` bloqueava o envio quando o atalho de ciclagem não surtia efeito.
+- **Corrigido e validado ao vivo:** `make start` abria um perfil Electron diferente do launcher instalado; agora resolve o mesmo perfil canónico.
+- **Novo achado, não corrigido nesta sessão:** possível condição de corrida na reclassificação concorrente (`Service.enqueueProjectTodoClassification`) que pode perder uma tarefa silenciosamente no backend quando dois pedidos de classificação chegam quase em simultâneo — reproduzido uma vez, não reproduzido de forma determinística, merece investigação e teste de concorrência próprios.
+- **Não corrigido, pré-existente:** a causa raiz do atalho `Ctrl+Shift+M` de ciclagem de `reasoning effort` não surtir efeito continua desconhecida (mitigada, não resolvida, para os dois workers de fundo). Qualquer fluxo que dependa de atingir um nível de raciocínio específico com garantia (não apenas preferência) continua exposto a este defeito.
