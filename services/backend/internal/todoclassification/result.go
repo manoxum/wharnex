@@ -57,5 +57,22 @@ func ParseResult(filename string, bundle []byte, request TransportManifest) (Res
 	if !validKind(result.Kind) || !validUrgency(result.Urgency) {
 		return Result{}, fmt.Errorf("TODO classification result contains an unsupported classification")
 	}
+	result.Description = strings.TrimSpace(result.Description)
+	if len([]rune(result.Description)) > MaxDescriptionChars {
+		return Result{}, fmt.Errorf("TODO classification description is too large")
+	}
+	hasEnrichment := result.Description != "" || len(result.PrePlan) > 0
+	if hasEnrichment && (result.Description == "" || len(result.PrePlan) < MinPrePlanItems) {
+		return Result{}, fmt.Errorf("TODO classification enrichment is incomplete")
+	}
+	if len(result.PrePlan) > MaxPrePlanItems {
+		return Result{}, fmt.Errorf("TODO classification pre-plan has too many items")
+	}
+	for index := range result.PrePlan {
+		result.PrePlan[index] = strings.TrimSpace(result.PrePlan[index])
+		if result.PrePlan[index] == "" || len([]rune(result.PrePlan[index])) > MaxPrePlanItemChars {
+			return Result{}, fmt.Errorf("TODO classification pre-plan contains an invalid item")
+		}
+	}
 	return result, nil
 }

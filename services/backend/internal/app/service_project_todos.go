@@ -119,6 +119,7 @@ func (s *Service) ReclassifyProjectTodo(sessionID, todoID string) (domain.Projec
 	item.ClassificationStatus = domain.ProjectTodoClassificationQueued
 	item.ClassificationError = ""
 	item.ClassificationTaskID = ""
+	item.Kind, item.Urgency, item.Description, item.PrePlan = "", "", "", nil
 	item, err = s.store.SaveProjectTodo(item)
 	if err != nil {
 		return domain.ProjectTodo{}, err
@@ -143,7 +144,7 @@ func (s *Service) enqueueProjectTodoClassification(current domain.Session, item 
 		Protocol: todoclassification.RequestProtocolV1, Task: todoclassification.TaskClassifyTodo,
 		TaskID: taskID, TodoID: item.ID, RequestFilename: manifest.RequestFilename, ResultFilename: manifest.ResultFilename,
 		Bootstrap: todoclassification.RequestBootstrap(manifest), ArchiveBase64: base64.StdEncoding.EncodeToString(archive),
-		ReasoningEffort: string(domain.ReasoningEffortInstant),
+		ReasoningEffort: string(domain.ReasoningEffortMedium),
 	})
 	if err != nil {
 		return domain.ProjectTodo{}, err

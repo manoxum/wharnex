@@ -16,8 +16,12 @@ const (
 	SourcePath    = "todo/todo.md"
 	ResultPath    = "classification.json"
 
-	MaxSourceBytes = 64 << 10
-	MaxBundleBytes = 256 << 10
+	MaxSourceBytes      = 64 << 10
+	MaxBundleBytes      = 256 << 10
+	MaxDescriptionChars = 4_000
+	MinPrePlanItems     = 2
+	MaxPrePlanItems     = 6
+	MaxPrePlanItemChars = 800
 )
 
 var taskIDPattern = regexp.MustCompile(`^cat_[a-f0-9]{20}$`)
@@ -44,13 +48,15 @@ type TransportManifest struct {
 }
 
 type Result struct {
-	Protocol     string `json:"protocol"`
-	Task         string `json:"task"`
-	TaskID       string `json:"task_id"`
-	TodoID       string `json:"todo_id"`
-	SourceSHA256 string `json:"source_sha256"`
-	Kind         string `json:"kind"`
-	Urgency      string `json:"urgency"`
+	Protocol     string   `json:"protocol"`
+	Task         string   `json:"task"`
+	TaskID       string   `json:"task_id"`
+	TodoID       string   `json:"todo_id"`
+	SourceSHA256 string   `json:"source_sha256"`
+	Kind         string   `json:"kind"`
+	Urgency      string   `json:"urgency"`
+	Description  string   `json:"description,omitempty"`
+	PrePlan      []string `json:"pre_plan,omitempty"`
 }
 
 func RequestFilename(taskID string) (string, error) {

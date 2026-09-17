@@ -31,6 +31,7 @@ func (s *Service) reconcileProjectTodoClassification(item domain.ProjectTodo) do
 			if decodeErr == nil && requestErr == nil {
 				if parsed, parseErr := todoclassification.ParseResult(delivered.Filename, bundle, manifest); parseErr == nil {
 					item.Kind, item.Urgency = parsed.Kind, parsed.Urgency
+					item.Description, item.PrePlan = parsed.Description, append([]string(nil), parsed.PrePlan...)
 					item.ClassificationStatus, item.ClassificationError = domain.ProjectTodoClassificationClassified, ""
 					if saved, saveErr := s.store.SaveProjectTodo(item); saveErr == nil {
 						return saved
