@@ -26,6 +26,8 @@ type ProjectTodo struct {
 	Status               string                  `json:"status"`
 	Kind                 string                  `json:"kind,omitempty"`
 	Urgency              string                  `json:"urgency,omitempty"`
+	Description          string                  `json:"description,omitempty"`
+	PrePlan              []string                `json:"pre_plan,omitempty"`
 	ClassificationStatus string                  `json:"classification_status"`
 	ClassificationTaskID string                  `json:"classification_task_id,omitempty"`
 	ClassificationError  string                  `json:"classification_error,omitempty"`

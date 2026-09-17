@@ -688,6 +688,8 @@ export type ProjectTodo = {
   status: 'open' | 'done'
   kind?: ProjectTodoKind
   urgency?: ProjectTodoUrgency
+  description?: string
+  pre_plan?: string[]
   classification_status: 'queued' | 'classified' | 'failed'
   classification_task_id?: string
   classification_error?: string
