@@ -345,6 +345,18 @@ describe('Git workbench CSS', () => {
     expect(section).not.toContain('#1a1d18')
   })
 
+  it('gives Git mutations a modal processing surface with visible progress', () => {
+    const backdrop = firstRule('.git-operation-backdrop')
+    const modal = firstRule('.git-operation-modal')
+    const progress = firstRule('.git-operation-progress')
+
+    expect(backdrop).toContain('position: absolute')
+    expect(backdrop).toContain('backdrop-filter: blur(5px)')
+    expect(modal).toContain('grid-template-columns: 42px minmax(0,1fr)')
+    expect(progress).toContain('height: 4px')
+    expect(css).toContain('@keyframes git-operation-progress')
+  })
+
   it('keeps history rows graph-first and compact', () => {
     const row = lastRule('.git-history-row')
     const compactRow = lastRule('.git-drawer .git-history-row')

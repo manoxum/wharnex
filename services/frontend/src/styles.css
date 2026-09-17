@@ -4406,3 +4406,39 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .git-diff-empty { min-height: 180px; margin: 0; display: grid; place-items: center; color: var(--theme-text-muted); border: 1px dashed var(--theme-border-soft); border-radius: 8px; }
 .git-commit-detail-modal { grid-template-rows: auto auto auto minmax(0,1fr) auto; }
 @media (max-width: 720px) { .git-diff-review { grid-template-columns: 1fr; grid-template-rows: minmax(90px, 28%) minmax(0,1fr); } .git-diff-review-files { border-right: 0; border-bottom: 1px solid var(--theme-border-soft); } }
+
+/* Git operations: keep commit/sync actions visible while they run and leave a
+   clear terminal state instead of relying on a terse inline notice alone. */
+.git-operation-backdrop { position: absolute; inset: 0; z-index: 24; padding: 18px; display: grid; place-items: center; background: color-mix(in srgb, var(--theme-bg) 72%, transparent); backdrop-filter: blur(5px); }
+.git-operation-modal { width: min(430px, 100%); padding: 18px; display: grid; grid-template-columns: 42px minmax(0,1fr); gap: 13px 14px; border: 1px solid var(--theme-border); border-radius: 15px; background: var(--theme-elevated); color: var(--theme-text); box-shadow: 0 24px 70px var(--theme-shadow); }
+.git-operation-symbol { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border)); border-radius: 12px; background: var(--theme-accent-soft); color: var(--theme-accent); }
+.git-operation-modal.success .git-operation-symbol { border-color: color-mix(in srgb, var(--success) 45%, var(--theme-border)); background: color-mix(in srgb, var(--success) 12%, var(--theme-surface)); color: var(--success); }
+.git-operation-modal.error .git-operation-symbol { border-color: color-mix(in srgb, var(--theme-danger, #d66b62) 52%, var(--theme-border)); background: color-mix(in srgb, var(--theme-danger, #d66b62) 13%, var(--theme-surface)); color: var(--theme-danger, #d66b62); }
+.git-operation-spinner { width: 19px; height: 19px; border: 2px solid color-mix(in srgb, var(--theme-accent) 24%, transparent); border-top-color: var(--theme-accent); border-radius: 50%; animation: git-operation-spin .75s linear infinite; }
+.git-operation-copy { min-width: 0; display: grid; align-content: center; gap: 3px; }
+.git-operation-copy .panel-kicker { color: var(--theme-text-muted); }
+.git-operation-copy strong { font-size: calc(11.5px * var(--ui-font-scale)); letter-spacing: -.015em; }
+.git-operation-copy p { margin: 0; color: var(--theme-text-muted); font-size: calc(8px * var(--ui-font-scale)); line-height: 1.45; }
+.git-operation-progress { grid-column: 1 / -1; height: 4px; overflow: hidden; border-radius: 999px; background: var(--theme-muted); }
+.git-operation-progress i { display: block; width: 42%; height: 100%; border-radius: inherit; background: var(--theme-accent); }
+.git-operation-progress i.active { animation: git-operation-progress 1.25s ease-in-out infinite; }
+.git-operation-progress i.complete { width: 100%; }
+.git-operation-modal.error .git-operation-progress i { background: var(--theme-danger, #d66b62); }
+.git-operation-steps { grid-column: 1 / -1; margin: 0; padding: 2px 0 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; list-style: none; }
+.git-operation-steps li { min-width: 0; padding: 8px; display: grid; grid-template-columns: 22px minmax(0,1fr); align-items: center; gap: 7px; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: var(--theme-bg); opacity: .58; }
+.git-operation-steps li > span { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--theme-muted); color: var(--theme-text-muted); font: 750 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family); }
+.git-operation-steps li > div { min-width: 0; display: grid; gap: 2px; }
+.git-operation-steps strong { font-size: calc(7.6px * var(--ui-font-scale)); }
+.git-operation-steps small { overflow: hidden; color: var(--theme-text-muted); font-size: calc(6.7px * var(--ui-font-scale)); line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.git-operation-steps li.active { border-color: color-mix(in srgb, var(--theme-accent) 45%, var(--theme-border)); background: var(--theme-accent-soft); opacity: 1; }
+.git-operation-steps li.done { opacity: 1; }
+.git-operation-steps li.done > span { background: color-mix(in srgb, var(--success) 15%, var(--theme-muted)); color: var(--success); }
+.git-operation-steps li.error { border-color: color-mix(in srgb, var(--theme-danger, #d66b62) 45%, var(--theme-border)); background: color-mix(in srgb, var(--theme-danger, #d66b62) 10%, var(--theme-surface)); }
+.git-operation-steps li.error > span { color: var(--theme-danger, #d66b62); }
+.git-operation-message { grid-column: 1 / -1; margin: 0; padding: 9px 10px; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: var(--theme-surface); color: var(--theme-text-soft); font-size: calc(8px * var(--ui-font-scale)); line-height: 1.45; }
+.git-operation-modal.error .git-operation-message { border-color: color-mix(in srgb, var(--theme-danger, #d66b62) 38%, var(--theme-border)); color: color-mix(in srgb, var(--theme-danger, #d66b62) 72%, var(--theme-text)); }
+.git-operation-close { grid-column: 1 / -1; justify-self: end; }
+@keyframes git-operation-spin { to { transform: rotate(360deg); } }
+@keyframes git-operation-progress { 0% { transform: translateX(-105%); } 50% { transform: translateX(72%); } 100% { transform: translateX(245%); } }
+@media (max-width: 560px) { .git-operation-backdrop { padding: 10px; } .git-operation-modal { padding: 14px; } .git-operation-steps { grid-template-columns: 1fr; } .git-operation-steps small { white-space: normal; } }
+@media (prefers-reduced-motion: reduce) { .git-operation-spinner, .git-operation-progress i.active { animation-duration: 2.5s; } }
