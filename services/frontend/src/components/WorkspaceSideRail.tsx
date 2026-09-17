@@ -33,6 +33,9 @@ const WORKSPACE_RIGHT_DRAWER_MIN_PX = 360
 const WORKSPACE_RIGHT_DRAWER_DEFAULT_PX = 460
 const WORKSPACE_STACK_MIN_PX = 560
 const TOOL_DRAG_TYPE = 'application/x-wharnex-workspace-tool'
+const DEFAULT_STANDALONE_RAIL_TOOLS: WorkspaceTool[] = DEFAULT_WORKSPACE_RAIL_LAYOUT.left.includes('project')
+  ? DEFAULT_WORKSPACE_RAIL_LAYOUT.left
+  : [...DEFAULT_WORKSPACE_RAIL_LAYOUT.left.slice(0, 2), 'project', ...DEFAULT_WORKSPACE_RAIL_LAYOUT.left.slice(2)]
 
 function scopedKey(prefix: string, side: WorkspaceRailSide) { return `${prefix}:${side}:${desktopWindowScope()}` }
 
@@ -81,7 +84,7 @@ type ToolMeta = { label: string; title: string; icon: ComponentProps<typeof Icon
 export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const { session, busy, drawer, onDrawer, archivedChats, attentionItems, executionFIFO, activeExecutionCount, onError } = props
   const side = props.side || 'left'
-  const tools = props.tools || DEFAULT_WORKSPACE_RAIL_LAYOUT.left
+  const tools = props.tools || DEFAULT_STANDALONE_RAIL_TOOLS
   const [previewPath, setPreviewPath] = useState<string>()
   const [localDrawerWidth, setLocalDrawerWidth] = useState(() => loadWorkspaceDrawerWidth(side))
   const drawerWidth = props.drawerWidth || localDrawerWidth
@@ -103,15 +106,15 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
 
   function toolMeta(tool: WorkspaceTool): ToolMeta {
     if (tool === 'todo') return { label: 'TODO do projeto', title: 'Ideias, necessidades, erros e melhorias', icon: 'check', drawer: 'todo' }
-    if (tool === 'archive') return { label: 'Chats arquivados', title: 'Chats arquivados', icon: 'folder', drawer: 'archive', badge: archivedChats.length }
+    if (tool === 'archive') return { label: 'Chats arquivados', title: 'Chats arquivados', icon: 'archive', drawer: 'archive', badge: archivedChats.length }
     if (tool === 'project') return { label: 'Explorador do projeto', title: 'Explorador do projeto', icon: 'workspace', drawer: 'project' }
     if (tool === 'library') return { label: 'Biblioteca de ficheiros', title: 'Biblioteca de ficheiros', icon: 'package', drawer: 'library' }
-    if (tool === 'knowledge') return { label: 'Conhecimento do projeto', title: 'Conhecimento adquirido', icon: 'clipboard', drawer: 'knowledge' }
+    if (tool === 'knowledge') return { label: 'Conhecimento do projeto', title: 'Conhecimento adquirido', icon: 'knowledge', drawer: 'knowledge' }
     if (tool === 'git') return { label: 'Git do projeto', title: 'Git do projeto', icon: 'git', drawer: 'git', badge: pendingCommitCount }
     if (tool === 'agents') return { label: 'Gestão de agentes', title: 'Supervisor e Workers', icon: 'agent', drawer: 'agents' }
     if (tool === 'tasks') return { label: 'Tarefas do runtime', title: 'Fila e tarefas em execução', icon: 'list', drawer: 'tasks' }
     if (tool === 'plans') return { label: 'Planos do projeto', title: 'Planos do projeto', icon: 'plan', drawer: 'plans' }
-    if (tool === 'executions') return { label: 'Execuções do projeto', title: 'Execuções do projeto', icon: 'terminal', drawer: 'executions' }
+    if (tool === 'executions') return { label: 'Execuções do projeto', title: 'Execuções do projeto', icon: 'history', drawer: 'executions' }
     if (tool === 'fifo') return { label: 'Fila FIFO de execução', title: 'Fila FIFO de execução', icon: 'play', drawer: 'fifo', badge: activeExecutionCount }
     if (tool === 'evolution') return { label: 'Logs de auto-evolução', title: 'Logs e análise de auto-evolução', icon: 'refresh', drawer: 'evolution' }
     if (tool === 'database') return { label: 'Database connection', title: 'Database connection', icon: 'database', drawer: 'database' }

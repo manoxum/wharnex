@@ -5,7 +5,7 @@ import type { BackendStorageUsage, ContextInspection, ProjectConfig, Session, Tu
 import { ContextInspector, type ContextSelection } from './ContextInspector'
 import { Icon } from './Icon'
 import { desktopBridge, formatBytes } from '../lib/desktop'
-import { loadUIPreferences, saveUIPreferences, subscribeUIPreferences, type UIPreferences } from '../lib/uiPreferences'
+import { UI_ACCENT_REGISTRY, loadUIPreferences, saveUIPreferences, subscribeUIPreferences, type UIPreferences } from '../lib/uiPreferences'
 import { confirmDialog, noticeDialog } from '../lib/appDialog'
 import { ThemePreferenceControl } from './ThemeToggle'
 import { RemoteStorageSettings } from './RemoteStorageSettings'
@@ -215,9 +215,15 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
         {activeSection === 'appearance' ? <section className="appearance-settings-section">
           <div className="context-section-title"><div><strong>Aparência e tipografia</strong><span>Ajuste a leitura da interface sem alterar o projeto. As preferências são locais ao Wharnex.</span></div><code>{Math.round(uiPreferences.scale * 100)}%</code></div>
           <ThemePreferenceControl value={uiPreferences.theme} onChange={(theme) => { const next = saveUIPreferences({ ...uiPreferences, theme }); setUIPreferences(next) }} />
+          <div className="accent-settings" aria-label="Cor de destaque">
+            <span>Cor de destaque</span>
+            <div>{UI_ACCENT_REGISTRY.map((accent) => <button key={accent.id} type="button" className={`accent-choice accent-${accent.id}${uiPreferences.accent === accent.id ? ' active' : ''}`} aria-label={`Destaque: ${accent.label}`} aria-pressed={uiPreferences.accent === accent.id} onClick={() => { const next = saveUIPreferences({ ...uiPreferences, accent: accent.id }); setUIPreferences(next) }}><i/><b>{accent.label}</b></button>)}</div>
+          </div>
           <div className="typography-settings-grid workbench-appearance-grid">
             <label><span>Esquema do conteúdo</span><select value={uiPreferences.contentScheme} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, contentScheme: event.target.value as UIPreferences['contentScheme'] }); setUIPreferences(next) }}><option value="follow-ui">Seguir interface</option><option value="original">Original</option><option value="dark">Escuro</option><option value="light">Claro</option><option value="high-contrast">Alto contraste</option></select></label>
             <label><span>Densidade</span><select value={uiPreferences.density} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, density: event.target.value as UIPreferences['density'] }); setUIPreferences(next) }}><option value="default">Normal</option><option value="compact">Compacta</option></select></label>
+            <label><span>Tool windows</span><select value={uiPreferences.toolWindowMode} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, toolWindowMode: event.target.value as UIPreferences['toolWindowMode'] }); setUIPreferences(next) }}><option value="docked">Acopladas</option><option value="floating">Flutuantes e redimensionáveis</option></select></label>
+            <label><span>Barras de ferramentas</span><select value={uiPreferences.toolRailPlacement} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, toolRailPlacement: event.target.value as UIPreferences['toolRailPlacement'] }); setUIPreferences(next) }}><option value="sides">Laterais</option><option value="bottom">Cantos inferiores</option></select></label>
           </div>
           <div className="typography-settings-grid">
             <label><span>Fonte da interface</span><select value={uiPreferences.uiFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, uiFont: event.target.value as UIPreferences['uiFont'] }); setUIPreferences(next) }}><option value="elegant">Elegante · Inter / Manrope</option><option value="system">Sistema · Segoe / nativa</option><option value="humanist">Humanista · Aptos / Calibri</option></select></label>

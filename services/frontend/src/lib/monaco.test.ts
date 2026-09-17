@@ -11,6 +11,9 @@ describe('Monaco build surface', () => {
     expect(source).toContain("['vs/editor/editor.main']")
     expect(source).toContain("defineTheme('wharness-light'")
     expect(source).toContain("defineTheme('wharness-dark'")
+    expect(source).toContain("languages.register({ id: 'dotenv' })")
+    expect(source).toContain("defineWorkbenchTheme('wharness-jetbrains-darcula'")
+    expect(source).toContain("defineWorkbenchTheme('wharness-vscode-dark'")
 
     const viteConfig = readFileSync(resolve(process.cwd(), 'vite.config.ts'), 'utf8')
     expect(viteConfig).toContain('monaco-editor/min/vs')
