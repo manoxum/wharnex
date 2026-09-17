@@ -23,6 +23,7 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/sessions/{id}/git/commit-mode", a.setGitCommitMode)
 	mux.HandleFunc("GET /api/sessions/{id}/git/pending/{pending_id}", a.gitPendingCommit)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pending/commit", a.commitGitPending)
+	mux.HandleFunc("POST /api/sessions/{id}/git/worktree/commit", a.commitGitWorktree)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pending/discard", a.discardGitPending)
 	mux.HandleFunc("POST /api/sessions/{id}/git/push", a.gitPush)
 	mux.HandleFunc("POST /api/sessions/{id}/git/push-selected", a.gitPushSelected)
@@ -119,6 +120,22 @@ func (a *API) commitGitPending(w http.ResponseWriter, r *http.Request) {
 		// A blocked selection is the operator's to widen, not a server fault:
 		// it carries the records they need to include.
 		writeJSONError(w, http.StatusConflict, "git_commit_blocked", err.Error(), result)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) commitGitWorktree(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Message string   `json:"message"`
+		Paths   []string `json:"paths"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := a.service.CommitWorkingFiles(r.Context(), r.PathValue("id"), body.Message, body.Paths)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_worktree_commit_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

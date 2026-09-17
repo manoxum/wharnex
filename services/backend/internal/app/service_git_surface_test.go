@@ -270,6 +270,45 @@ func TestRecordAndUnwindLeavesTheChangeUncommittedWithItsMessage(t *testing.T) {
 	}
 }
 
+func TestCommitWorkingFilesAllowsManualCommitInAutoMode(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	root := gitRepo(t, "app.go", "package main\n")
+	sessionID := startGitSession(t, service, root)
+	if mode := service.GitCommitMode(root); mode != gitsettings.CommitModeAuto {
+		t.Fatalf("expected auto mode fixture, got %q", mode)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "app.go"), []byte("package main\n// manual commit\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("keep pending\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.CommitWorkingFiles(context.Background(), sessionID, "fix(app): commit selected worktree file", []string{"app.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CommitSHA == "" || len(result.Paths) != 1 || result.Paths[0] != "app.go" {
+		t.Fatalf("unexpected worktree commit result: %+v", result)
+	}
+	commits, err := hostrepo.Log(context.Background(), root, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commits[0].Subject != "fix(app): commit selected worktree file" {
+		t.Fatalf("unexpected commit subject: %+v", commits[0])
+	}
+	working, err := hostrepo.Working(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsString(working.Stageable, "app.go") || !containsString(working.Stageable, "notes.txt") {
+		t.Fatalf("manual commit must include only the selected path, got %+v", working)
+	}
+}
+
 func TestCommitPendingCommitsWithTheRecordedMessage(t *testing.T) {
 	requireGitForApp(t)
 	service, _ := gitSurfaceService(t)

@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TextDecoder } from 'node:util'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTEffortCycle, dispatchChatGPTPointerClick, submitWithRetry } from './chatgpt-input.mjs'
+import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
@@ -3219,25 +3220,12 @@ function focusedLocalWharnexContents() {
   return contents && !contents.isDestroyed() && contents.isFocused() ? contents : undefined
 }
 
-function restoreLocalFocusAfterBackgroundInput(contents) {
-  if (!contents || contents.isDestroyed()) return
-  const owner = BrowserWindow.fromWebContents(contents)
-  if (!owner || owner.isDestroyed() || BrowserWindow.getFocusedWindow() !== owner) return
-  // sendInputEvent and the visible->hidden viewport grant are renderer-level,
-  // but Chromium may still nominate that child WebContents as the focused
-  // surface of the BrowserWindow. Restore only a local renderer that was
-  // already focused before the background operation; never choose a new focus
-  // owner and never focus a remote WebContents.
-  contents.focus()
-  setTimeout(() => {
-    if (!contents.isDestroyed() && !owner.isDestroyed() && BrowserWindow.getFocusedWindow() === owner) contents.focus()
-  }, 0)
-}
-
 function withPreservedLocalFocus(operation) {
-  const local = focusedLocalWharnexContents()
-  try { return operation() }
-  finally { if (local) restoreLocalFocusAfterBackgroundInput(local) }
+  return preserveLocalFocusDuringBackgroundOperation(operation, {
+    captureLocal: focusedLocalWharnexContents,
+    ownerFor: (contents) => BrowserWindow.fromWebContents(contents),
+    isOwnerFocused: (owner) => BrowserWindow.getFocusedWindow() === owner,
+  })
 }
 
 function grantChatGPTLayoutViewport(view) {
@@ -3754,7 +3742,7 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
     cycle: async () => {
       const owned = requireOwnedChatGPTEntry(key, target.entry)
       assertExpectedConversation()
-      dispatchChatGPTEffortCycle(owned.wc)
+      withPreservedLocalFocus(() => dispatchChatGPTEffortCycle(owned.wc))
     },
   })
   console.log(`[chatgpt-effort] key=${key} target=${effort.effort} changed=${effort.changed} cycles=${effort.cycles}`)

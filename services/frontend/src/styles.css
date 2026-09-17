@@ -2938,6 +2938,11 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .git-tab-count { min-width: 17px; height: 17px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--theme-muted); color: var(--theme-text-muted); font: 700 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); }
 .git-tabs button.active .git-tab-count { background: var(--theme-accent-soft); color: var(--theme-text); }
 .git-tab-content { flex: 1 1 auto; min-height: 0; padding: 10px; display: grid; align-content: start; gap: 10px; overflow-y: auto; background: var(--theme-bg); }
+.git-changes-tabs { width: fit-content; max-width: 100%; display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--theme-border); border-radius: 9px; background: var(--theme-surface); overflow-x: auto; }
+.git-changes-tabs button { min-width: max-content; height: 29px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--theme-text-muted); cursor: pointer; font-size: calc(8px * var(--ui-font-scale)); font-weight: 650; }
+.git-changes-tabs button:hover { background: var(--theme-hover); color: var(--theme-text); }
+.git-changes-tabs button.active { background: var(--theme-elevated); color: var(--theme-text); box-shadow: 0 1px 4px var(--theme-shadow); }
+.git-changes-tabs button.active .git-tab-count { background: var(--theme-accent-soft); color: var(--theme-text); }
 .git-settings-stack { display: grid; gap: 10px; }
 .git-section { padding: 12px; display: grid; gap: 10px; border: 1px solid var(--theme-border-soft); border-radius: 11px; background: var(--theme-surface); box-shadow: none; }
 .git-section-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -4358,11 +4363,17 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 /* Git worktree paths and commits pending publication. */
 .git-worktree-files-section { gap: 7px; }
 .git-worktree-files { margin: 0; padding: 0; display: grid; gap: 5px; list-style: none; }
-.git-worktree-files li { min-width: 0; padding: 7px 8px; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 7px; border: 1px solid var(--theme-border-soft); border-radius: 8px; background: var(--theme-bg); }
+.git-worktree-files li { min-width: 0; padding: 7px 8px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; border: 1px solid var(--theme-border-soft); border-radius: 8px; background: var(--theme-bg); }
+.git-worktree-file-select { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.git-worktree-file-select input:disabled { cursor: default; }
 .git-worktree-file-icon { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 6px; background: var(--theme-muted); color: var(--theme-text-muted); }
 .git-worktree-file-copy { min-width: 0; display: grid; gap: 2px; }
 .git-worktree-file-copy strong { overflow: hidden; color: var(--theme-text); font: 600 calc(7.9px * var(--ui-font-scale))/1.35 var(--mono-font-family, monospace); text-overflow: ellipsis; white-space: nowrap; }
 .git-worktree-file-copy small { color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); }
+.git-worktree-commit { display: flex; align-items: flex-end; gap: 8px; }
+.git-worktree-commit > label { min-width: 0; flex: 1 1 220px; display: grid; gap: 4px; color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); font-weight: 650; }
+.git-worktree-commit input { width: 100%; min-width: 0; height: 30px; padding: 0 9px; border: 1px solid var(--theme-border); border-radius: 7px; background: var(--theme-bg); color: var(--theme-text); font-size: calc(8px * var(--ui-font-scale)); }
+.git-worktree-commit input:focus { outline: 1px solid color-mix(in srgb, var(--theme-accent) 60%, transparent); border-color: var(--theme-accent); }
 .git-unpushed-summary { padding: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: var(--theme-surface); }
 .git-unpushed-summary > div { min-width: 0; display: grid; gap: 2px; }
 .git-unpushed-summary span, .git-unpushed-summary small { color: var(--theme-text-muted); font-size: calc(7.2px * var(--ui-font-scale)); }
@@ -4383,6 +4394,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .git-commit-detail-meta strong { color: var(--theme-text-soft); font-size: inherit; }
 .git-commit-detail-meta code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 720px) {
+  .git-worktree-commit { align-items: stretch; flex-direction: column; }
+  .git-worktree-commit .git-action { align-self: flex-start; }
   .git-unpushed-summary, .git-unpushed-actions { align-items: stretch; flex-direction: column; }
   .git-unpushed-summary .git-action, .git-unpushed-actions .git-action { align-self: flex-start; }
   .git-commit-detail-meta { grid-template-columns: 1fr; }

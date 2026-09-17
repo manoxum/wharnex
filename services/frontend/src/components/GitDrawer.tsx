@@ -8,6 +8,7 @@ import { GitDiffReview } from './GitDiffReview'
 import { GitOperationModal, type GitOperation } from './GitOperationModal'
 
 type GitTab = 'changes' | 'history' | 'branches' | 'settings'
+type GitChangesTab = 'working' | 'pending'
 
 export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   session: Session
@@ -27,6 +28,9 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   const [mergeRef, setMergeRef] = useState('')
   const [activeTab, setActiveTab] = useState<GitTab>('changes')
   const [operation, setOperation] = useState<GitOperation | null>(null)
+  const [activeChangesTab, setActiveChangesTab] = useState<GitChangesTab>('working')
+  const [selectedWorktree, setSelectedWorktree] = useState<Set<string>>(new Set())
+  const [worktreeCommitMessage, setWorktreeCommitMessage] = useState('')
 
   const report = useCallback((error: unknown) => {
     const message = error instanceof APIError ? error.message : error instanceof Error ? error.message : String(error)
@@ -53,6 +57,11 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { void refresh() }, [session.last_host_applied_at, session.state, refresh])
+  useEffect(() => {
+    if (!overview) return
+    const committable = new Set(overview.working.files.filter((file) => file.kind === 'change' || file.kind === 'gitlink').map((file) => file.path))
+    setSelectedWorktree((currentSelection) => new Set(Array.from(currentSelection).filter((path) => committable.has(path))))
+  }, [overview])
 
   const localBranches = useMemo(() => (overview?.branches || []).filter((branch) => !branch.remote), [overview])
   const remoteBranches = useMemo(() => (overview?.branches || []).filter((branch) => branch.remote), [overview])
@@ -124,6 +133,20 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
     )
   }
 
+  async function commitWorktree() {
+    const paths = Array.from(selectedWorktree)
+    await runGitOperation(
+      'A criar commit manual',
+      `${paths.length} ficheiro(s) selecionado(s) serão adicionados ao histórico local.`,
+      async () => {
+        const result = await api.commitGitWorktree(session.id, worktreeCommitMessage, paths)
+        setSelectedWorktree(new Set())
+        setWorktreeCommitMessage('')
+        return `Commit criado com ${result.paths.length} ficheiro(s): ${result.commit_sha.slice(0, 8)}.`
+      },
+    )
+  }
+
   return <section className="git-drawer" aria-label="Git do projeto">
     <header className="agent-drawer-heading git-drawer-heading">
       <div className="git-heading-copy">
@@ -151,11 +174,36 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
 
       <div className="git-tab-content" role="tabpanel" aria-label={gitTabLabel(activeTab)}>
         {activeTab === 'changes' && <>
-          <WorktreeSummary overview={overview}/>
-          <WorktreeFiles overview={overview} disabled={disabled} onOpenDiff={(path) => void (async () => {
-            try { setWorktreeDiff(await api.gitFileDiff(session.id, path)) } catch (error) { report(error) }
-          })()}/>
-          <PendingSection
+          <ChangesTabs
+            active={activeChangesTab}
+            workingCount={overview.working.files.length}
+            pendingCount={pending.length}
+            onChange={setActiveChangesTab}
+          />
+          {activeChangesTab === 'working' && pending.length > 0 && <div className="git-row git-pending-actions">
+            <button type="button" className="git-action small" disabled={disabled || !overview.has_identity} onClick={() => void commit([])}>
+              <Icon name="check" size={12}/> Commitar todos os commits pendentes
+            </button>
+          </div>}
+          {activeChangesTab === 'working' && <>
+            <WorktreeSummary overview={overview}/>
+            <WorktreeFiles
+              overview={overview} disabled={disabled} hasIdentity={overview.has_identity}
+              selected={selectedWorktree} message={worktreeCommitMessage}
+              onMessageChange={setWorktreeCommitMessage}
+              onToggle={(path) => setSelectedWorktree((currentSelection) => {
+                const next = new Set(currentSelection)
+                if (next.has(path)) next.delete(path)
+                else next.add(path)
+                return next
+              })}
+              onCommit={() => void commitWorktree()}
+              onOpenDiff={(path) => void (async () => {
+                try { setWorktreeDiff(await api.gitFileDiff(session.id, path)) } catch (error) { report(error) }
+              })()}
+            />
+          </>}
+          {activeChangesTab === 'pending' && <PendingSection
             pending={pending} selected={selected} disabled={disabled} hasIdentity={overview.has_identity}
             commitMode={overview.commit_mode} onToggle={toggle} onCommitAll={() => void commit([])}
             onCommitSelected={() => void commit(Array.from(selected))}
@@ -163,7 +211,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
             onOpenDiff={(record) => void (async () => {
               try { setOpenDiff(await api.gitPendingCommit(session.id, record.id)) } catch (error) { report(error) }
             })()}
-          />
+          />}
           <GitUnpushedSection
             sessionId={session.id} activeBranch={current} remotes={overview.remotes} disabled={disabled}
             onFullPush={(remote, branch, setUpstream) => runGitOperation(
@@ -267,30 +315,57 @@ function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (ta
   </nav>
 }
 
+function ChangesTabs({ active, workingCount, pendingCount, onChange }: {
+  active: GitChangesTab; workingCount: number; pendingCount: number; onChange: (tab: GitChangesTab) => void
+}) {
+  return <nav className="git-changes-tabs" role="tablist" aria-label="Tipos de alterações locais">
+    <button type="button" role="tab" aria-selected={active === 'working'} className={active === 'working' ? 'active' : ''} onClick={() => onChange('working')}>
+      <Icon name="edit" size={12}/><span>Alterações pendentes</span><span className="git-tab-count">{workingCount}</span>
+    </button>
+    <button type="button" role="tab" aria-selected={active === 'pending'} className={active === 'pending' ? 'active' : ''} onClick={() => onChange('pending')}>
+      <Icon name="clipboard" size={12}/><span>Commits pendentes</span><span className="git-tab-count">{pendingCount}</span>
+    </button>
+  </nav>
+}
+
 function WorktreeSummary({ overview }: { overview: GitOverview }) {
   const clean = overview.working.clean
   return <section className="git-worktree-card">
     <span className={`git-worktree-status ${clean ? 'clean' : 'dirty'}`}><Icon name={clean ? 'check' : 'edit'} size={14}/></span>
     <div><strong>{clean ? 'Worktree limpo' : `${overview.working.files?.length || overview.working.stageable_count} alteração(ões) no worktree`}</strong>
       <p>{clean ? 'Não há ficheiros locais por commitar.' : 'As alterações locais permanecem separadas dos registos pendentes do Wharnex.'}</p></div>
-    <span className="git-worktree-badge">{overview.pending.length} pendente(s)</span>
+    <span className="git-worktree-badge">{overview.working.files.length} ficheiro(s)</span>
   </section>
 }
 
 
-function WorktreeFiles({ overview, disabled, onOpenDiff }: { overview: GitOverview; disabled: boolean; onOpenDiff: (path: string) => void }) {
+function WorktreeFiles({ overview, disabled, hasIdentity, selected, message, onMessageChange, onToggle, onCommit, onOpenDiff }: {
+  overview: GitOverview; disabled: boolean; hasIdentity: boolean; selected: Set<string>; message: string
+  onMessageChange: (value: string) => void; onToggle: (path: string) => void; onCommit: () => void; onOpenDiff: (path: string) => void
+}) {
   const files = overview.working.files || []
   if (files.length === 0) return null
+  const canCommit = (kind: GitOverview['working']['files'][number]['kind']) => kind === 'change' || kind === 'gitlink'
   return <section className="git-section git-worktree-files-section">
     <div className="git-section-heading"><div><span>Worktree</span><strong>Ficheiros alterados</strong></div><span className="git-section-count">{files.length}</span></div>
+    <p className="git-hint">Pode criar um commit manual destes ficheiros em qualquer modo, incluindo Auto-commit.</p>
     <ul className="git-worktree-files">{files.map((file) => {
       const diffable = file.kind !== 'submodule' && file.kind !== 'embedded_repository'
+      const committable = canCommit(file.kind)
       return <li key={`${file.kind}:${file.path}`}>
-        <span className="git-worktree-file-icon"><Icon name={file.kind === 'unmerged' ? 'alert' : 'file'} size={12}/></span>
+        <label className="git-worktree-file-select" title={committable ? 'Selecionar ficheiro para commit' : 'Este tipo de entrada não pode ser commitado daqui'}>
+          <input type="checkbox" checked={selected.has(file.path)} disabled={disabled || !committable} aria-label={`Selecionar ${file.path}`} onChange={() => onToggle(file.path)}/>
+          <span className="git-worktree-file-icon"><Icon name={file.kind === 'unmerged' ? 'alert' : 'file'} size={12}/></span>
+        </label>
         <span className="git-worktree-file-copy"><strong>{file.path}</strong><small>{worktreeKind(file.kind)}</small></span>
         <button type="button" className="git-action small" disabled={disabled || !diffable} title={diffable ? 'Ver alterações deste ficheiro' : 'Este tipo de entrada não tem diff inline'} onClick={() => onOpenDiff(file.path)}><Icon name="code" size={11}/> Diff</button>
       </li>
     })}</ul>
+    <div className="git-worktree-commit">
+      <label><span>Mensagem do commit</span><input type="text" value={message} disabled={disabled || !hasIdentity} onChange={(event) => onMessageChange(event.target.value)} placeholder="ex.: fix(ui): ajustar painel Git"/></label>
+      <button type="button" className="git-action primary" disabled={disabled || !hasIdentity || selected.size === 0 || !message.trim()} onClick={onCommit}><Icon name="check" size={13}/> Commitar selecionados ({selected.size})</button>
+    </div>
+    {!hasIdentity && <p className="git-hint warning-card">Configure <code>user.name</code> e <code>user.email</code> para criar commits manuais.</p>}
   </section>
 }
 

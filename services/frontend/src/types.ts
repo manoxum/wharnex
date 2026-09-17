@@ -802,6 +802,7 @@ export type GitOverview = {
 
 export type GitCommitOutcome = { pending_id: string; subject: string; commit_sha?: string; skipped?: string }
 export type GitCommitResult = { outcomes: GitCommitOutcome[]; blocked?: string[] }
+export type GitWorktreeCommitResult = { commit_sha: string; paths: string[] }
 export type GitPushResult = {
   outcome: 'pushed' | 'up_to_date' | 'rejected' | 'auth_required' | 'failed' | 'conflict'
   remote: string
