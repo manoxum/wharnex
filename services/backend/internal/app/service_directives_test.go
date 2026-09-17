@@ -90,6 +90,23 @@ func TestDirectiveLegendResolvesQualifiedSeeToExactBundlePath(t *testing.T) {
 	}
 }
 
+func TestDirectiveLegendResolvesSeeDirectoriesFromVisibleDescendants(t *testing.T) {
+	context := domain.ContextBundle{
+		Manifest:        manifestWith("src/ui/App.tsx"),
+		RelatedProjects: []domain.RelatedProjectContext{{Name: "core", Prefix: "RELATED_PROJECTS/01-core/", Manifest: manifestWith("api/auth/handler.go")}},
+		Attachments:     []domain.AttachedPathContext{{Root: "/srv/contracts", Prefix: "ATTACHMENTS/01-contracts/", IncludedPaths: []string{"openapi/v1/api.yml"}}},
+	}
+	legend := directiveLegendWithContext("focus @{[see]project|src} @{[see]ref|core|api/auth} @{[see]attach|/srv/contracts|openapi}", context)
+	for _, path := range []string{"src/", "RELATED_PROJECTS/01-core/api/auth/", "ATTACHMENTS/01-contracts/openapi/"} {
+		if !strings.Contains(legend, path) {
+			t.Fatalf("legend must resolve directory %q: %s", path, legend)
+		}
+	}
+	if strings.Count(legend, "prioritize this directory") != 3 {
+		t.Fatalf("legend must classify each resolved directory: %s", legend)
+	}
+}
+
 // The marker stays where the operator wrote it: that placement is the whole
 // reason the notation exists.
 func TestCanonicalizationKeepsMarkersInPlace(t *testing.T) {

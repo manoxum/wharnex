@@ -5,11 +5,11 @@
 // project the request belongs to. `@ref` points at another project, optionally
 // at one file inside it, and is also what grants that project's writability for
 // the request (see internal/crossproject). `@attach` points at a file or
-// directory outside every project. `@see` points at a file the operator already
-// attached directly to this message — by name only, since it carries no
-// filesystem location here: unlike the other three, its content never travels
-// through this package, only its position and name do. All four are parsed here
-// so they can never drift into separate dialects of the same idea.
+// directory outside every project. `@see` spotlights a visible file or directory
+// already carried by the request. Direct uploads remain name-only because they
+// have no filesystem location here; project/ref/attach targets carry a qualified
+// context path that the app resolves against the exact request snapshot. All four
+// are parsed here so they can never drift into separate dialects of the same idea.
 //
 // # Position is meaning
 //
@@ -53,14 +53,11 @@ const (
 	// point of it: the operator is pointing at something the project does not
 	// contain. It grants reading, never writing.
 	KindAttach Kind = "attach"
-	// KindSee names a file the operator already selected as a direct chat
-	// attachment (pasted or picked in the composer), by its exact file name.
-	// Unlike the other three kinds, its value is never resolved against a
-	// filesystem here: direct attachments travel to the model through a
-	// separate transport (the Desktop clipboard bridge or the request bundle),
-	// never through this package. Parsing and canonicalizing it keeps the
-	// marker stable and in place, the same reason every other kind is parsed
-	// here instead of being left as prose.
+	// KindSee spotlights a file or directory that is already visible in the
+	// request. Qualified project/ref/attach values are resolved against the
+	// context snapshot by the app; direct uploads remain name-only because their
+	// bytes travel through a separate transport. Parsing and canonicalizing it
+	// here keeps the marker stable and in place.
 	KindSee Kind = "see"
 	// KindChat points at a persisted file that belongs to the current chat.
 	KindChat Kind = "chat"

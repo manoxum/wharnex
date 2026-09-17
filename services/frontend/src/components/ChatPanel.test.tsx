@@ -937,12 +937,12 @@ describe('ChatPanel', () => {
     expect(view.container.querySelector('.composer-directive-chip.see')?.getAttribute('title')).toBe('@{[see]diagram.png}')
     fireEvent.click(screen.getByLabelText('Configurar referência'))
     const popover = view.container.querySelector('.composer-directive-popover')
-    expect(popover?.textContent).toContain('Anexo enviado')
-    expect(popover?.textContent).toContain('Não encontrado entre os anexos atuais')
+    expect(popover?.textContent).toContain('Ficheiro ou diretório visível')
+    expect(popover?.textContent).toContain('Não encontrado no contexto atual')
     view.unmount()
   })
 
-  it('selects an @see source before showing files inside that source', () => {
+  it('selects an @see source before showing files and directories inside that source', () => {
     const sourceSession = {
       ...session,
       context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
@@ -955,9 +955,11 @@ describe('ChatPanel', () => {
     expect(screen.getByRole('option', { name: /Projeto atual/ })).toBeTruthy()
     expect(screen.queryByRole('option', { name: /src\/App\.tsx/ })).toBeNull()
     fireEvent.click(screen.getByRole('option', { name: /Projeto atual/ }))
+    const directoryOption = screen.getByText('src/').closest('button')
+    expect(directoryOption).toBeTruthy()
     expect(screen.getByRole('option', { name: /src\/App\.tsx/ })).toBeTruthy()
-    fireEvent.click(screen.getByRole('option', { name: /src\/App\.tsx/ }))
-    expect(composerText(ref)).toBe('destaca @{[see]project|src/App.tsx}')
+    fireEvent.click(directoryOption!)
+    expect(composerText(ref)).toBe('destaca @{[see]project|src}')
     view.unmount()
   })
 

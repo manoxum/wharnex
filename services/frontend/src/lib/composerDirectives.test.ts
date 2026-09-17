@@ -12,6 +12,7 @@ import {
   KEYWORDS,
   parseDirectives,
   removeDirective,
+  seeDirectiveAvailable,
 } from './composerDirectives'
 
 const projects = [
@@ -200,7 +201,7 @@ describe('see directives', () => {
     expect(files).toEqual([{ value: 'upload|diagram.png', label: 'diagram.png', detail: 'Anexo direto' }])
   })
 
-  it('offers context sources first, then files only within the selected source', () => {
+  it('offers context sources first, then visible files and directories within the selected source', () => {
     const visibleProjects = [{
       name: 'flowcore', projectPath: '/work/flowcore', attached: true,
       files: ['services/api/auth.go'],
@@ -212,7 +213,34 @@ describe('see directives', () => {
       expect.objectContaining({ value: 'upload|', label: 'Anexos diretos', continues: true }),
     ]))
     expect(directiveSuggestions(directiveQuery('destaca @see:ref|flowcore|', 'destaca @see:ref|flowcore|'.length)!, ['src/App.tsx'], visibleProjects, ['diagram.png']))
-      .toEqual([{ value: 'ref|flowcore|services/api/auth.go', label: 'services/api/auth.go', detail: '@ref flowcore' }])
+      .toEqual(expect.arrayContaining([
+        { value: 'ref|flowcore|services', label: 'services/', detail: 'Diretório · @ref flowcore', sourceIcon: 'folder' },
+        { value: 'ref|flowcore|services/api', label: 'services/api/', detail: 'Diretório · @ref flowcore', sourceIcon: 'folder' },
+        { value: 'ref|flowcore|services/api/auth.go', label: 'services/api/auth.go', detail: 'Ficheiro · @ref flowcore', sourceIcon: 'file' },
+      ]))
+  })
+
+  it('lets @see select a directory without changing its canonical grammar', () => {
+    const files = ['src/App.tsx', 'src/lib/auth.ts', 'README.md']
+    const rows = directiveSuggestions(directiveQuery('destaca @see:project|src', 'destaca @see:project|src'.length)!, files, projects, [])
+    expect(rows).toEqual(expect.arrayContaining([
+      { value: 'project|src', label: 'src/', detail: 'Diretório · Projeto atual', sourceIcon: 'folder' },
+      { value: 'project|src/lib', label: 'src/lib/', detail: 'Diretório · Projeto atual', sourceIcon: 'folder' },
+      { value: 'project|src/App.tsx', label: 'src/App.tsx', detail: 'Ficheiro · Projeto atual', sourceIcon: 'file' },
+    ]))
+    const applied = applyDirectiveSuggestion('destaca @see:project|src', directiveQuery('destaca @see:project|src', 'destaca @see:project|src'.length)!, rows[0])
+    expect(parseDirectives(applied.text)[0]).toMatchObject({ kind: 'see', path: expect.any(String) })
+  })
+
+  it('recognizes qualified @see directories as available when they have visible descendants', () => {
+    const visibleProjects = [{ name: 'flowcore', projectPath: '/work/flowcore', attached: true, files: ['services/api/auth.go'] }]
+    const attachedPaths = [{ root: '/srv/contracts', files: ['openapi/v1/api.yml'] }]
+    const [projectDir] = parseDirectives('@{[see]project|src}')
+    const [refDir] = parseDirectives('@{[see]ref|flowcore|services/api}')
+    const [attachDir] = parseDirectives('@{[see]attach|/srv/contracts|openapi}')
+    expect(seeDirectiveAvailable(projectDir, ['src/App.tsx'], visibleProjects, [], attachedPaths)).toBe(true)
+    expect(seeDirectiveAvailable(refDir, ['src/App.tsx'], visibleProjects, [], attachedPaths)).toBe(true)
+    expect(seeDirectiveAvailable(attachDir, ['src/App.tsx'], visibleProjects, [], attachedPaths)).toBe(true)
   })
 
   it('labels a see chip by the attachment name', () => {
