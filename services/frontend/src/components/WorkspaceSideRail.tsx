@@ -72,6 +72,8 @@ export type WorkspaceSideRailProps = {
   side?: WorkspaceRailSide
   tools?: WorkspaceTool[]
   onMoveTool?: (tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool) => void
+  drawerWidth?: number
+  onDrawerWidth?: (width: number) => void
 }
 
 type ToolMeta = { label: string; title: string; icon: ComponentProps<typeof Icon>['name']; drawer?: Exclude<Drawer, ''>; badge?: number }
@@ -81,7 +83,8 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const side = props.side || 'left'
   const tools = props.tools || DEFAULT_WORKSPACE_RAIL_LAYOUT.left
   const [previewPath, setPreviewPath] = useState<string>()
-  const [drawerWidth, setDrawerWidth] = useState(() => loadWorkspaceDrawerWidth(side))
+  const [localDrawerWidth, setLocalDrawerWidth] = useState(() => loadWorkspaceDrawerWidth(side))
+  const drawerWidth = props.drawerWidth || localDrawerWidth
   const [pendingCommitCount, setPendingCommitCount] = useState(0)
   const visibleTools = useMemo(() => tools.filter((tool) => tool !== 'evolution' || session.self_evolution), [session.self_evolution, tools])
 
@@ -139,7 +142,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       const ceiling = Math.max(minimum, rect.width - (WORKSPACE_RAIL_PX * 2) - WORKSPACE_SPLITTER_PX - WORKSPACE_STACK_MIN_PX)
       const raw = side === 'left' ? clientX - rect.left - WORKSPACE_RAIL_PX : rect.right - clientX - WORKSPACE_RAIL_PX
       const next = Math.round(Math.max(minimum, Math.min(ceiling, raw)))
-      setDrawerWidth(next); saveWorkspaceDrawerWidth(side, next)
+      setLocalDrawerWidth(next); saveWorkspaceDrawerWidth(side, next); props.onDrawerWidth?.(next)
     }
     const move = (moveEvent: PointerEvent) => update(moveEvent.clientX)
     const finish = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish) }

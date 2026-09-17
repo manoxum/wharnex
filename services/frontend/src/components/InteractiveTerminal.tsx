@@ -7,13 +7,35 @@ import { confirmDialog } from '../lib/appDialog'
 import { desktopBridge } from '../lib/desktop'
 import type { Session, TerminalFrame, TerminalRunRequest, TerminalTarget } from '../types'
 import { Icon } from './Icon'
+import { subscribeUIPreferences } from '../lib/uiPreferences'
 
-const terminalTheme = {
+const terminalThemes = {
+  dark: {
   background: '#121411', foreground: '#cfd5c7', cursor: '#95cf50', selectionBackground: '#556b3f88',
   black: '#121411', red: '#e36a60', green: '#95cf50', yellow: '#d6a56b', blue: '#7da9d8',
   magenta: '#c594d8', cyan: '#75b9ad', white: '#d8ddd1', brightBlack: '#697064',
   brightRed: '#f08b82', brightGreen: '#b5e57b', brightYellow: '#edc487', brightBlue: '#9ac3ec',
   brightMagenta: '#d8afe7', brightCyan: '#96d5ca', brightWhite: '#f2f4ef',
+  },
+  light: {
+    background: '#f7f8f4', foreground: '#30362e', cursor: '#527c20', selectionBackground: '#cadab8aa',
+    black: '#20241d', red: '#a54038', green: '#39734b', yellow: '#996117', blue: '#4777a5',
+    magenta: '#8d5aa1', cyan: '#397e75', white: '#e8ebe5', brightBlack: '#697066',
+    brightRed: '#c55f55', brightGreen: '#557d24', brightYellow: '#b77a26', brightBlue: '#5b8fbe',
+    brightMagenta: '#a86aba', brightCyan: '#4b978d', brightWhite: '#ffffff',
+  },
+  'high-contrast': {
+    background: '#000000', foreground: '#ffffff', cursor: '#ffffff', selectionBackground: '#ffffff55',
+    black: '#000000', red: '#ff6b6b', green: '#7dff7d', yellow: '#fff56b', blue: '#70b7ff',
+    magenta: '#ff8cff', cyan: '#72ffff', white: '#ffffff', brightBlack: '#a0a0a0',
+    brightRed: '#ff9494', brightGreen: '#a6ffa6', brightYellow: '#fff99a', brightBlue: '#9bd0ff',
+    brightMagenta: '#ffb2ff', brightCyan: '#adffff', brightWhite: '#ffffff',
+  },
+}
+
+function activeTerminalTheme() {
+  const scheme = document.documentElement.dataset.contentScheme
+  return terminalThemes[scheme === 'light' || scheme === 'high-contrast' ? scheme : 'dark']
 }
 
 type ConnectionStatus = 'connecting' | 'connected' | 'closed' | 'error'
@@ -27,6 +49,7 @@ export function InteractiveTerminal({ session, height, onHeight, onError, visibl
   const terminalRootRef = useRef<HTMLDivElement>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const terminalIDRef = useRef('')
+  const terminalRef = useRef<XTerm | null>(null)
   const deliveredRunRef = useRef(0)
   const onErrorRef = useRef(onError)
   onErrorRef.current = onError
@@ -44,10 +67,10 @@ export function InteractiveTerminal({ session, height, onHeight, onError, visibl
     const terminal = new XTerm({
       cursorBlink: true, scrollback: 10_000, allowProposedApi: false,
       fontFamily: "ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
-      fontSize: 11, lineHeight: 1.35, theme: terminalTheme,
+      fontSize: 11, lineHeight: 1.35, theme: activeTerminalTheme(),
     })
     const fit = new FitAddon()
-    terminal.loadAddon(fit); terminal.open(root); fitRef.current = fit
+    terminal.loadAddon(fit); terminal.open(root); fitRef.current = fit; terminalRef.current = terminal
 
     const reportError = (error: unknown) => {
       if (!active) return
@@ -133,10 +156,15 @@ export function InteractiveTerminal({ session, height, onHeight, onError, visibl
       window.cancelAnimationFrame(frame); window.clearTimeout(inputTimer); window.clearTimeout(resizeTimer)
       observer?.disconnect(); source?.close(); root.removeEventListener('keydown', clipboardShortcut, true); inputDisposable.dispose(); resizeDisposable.dispose(); terminal.dispose()
       fitRef.current = null
+      if (terminalRef.current === terminal) terminalRef.current = null
       if (terminalIDRef.current === terminalID) terminalIDRef.current = ''
       if (terminalID) void api.closeTerminal(session.id, terminalID).catch(() => undefined)
     }
   }, [session.id, target, hostConfirmed, network, generation])
+
+  useEffect(() => subscribeUIPreferences(() => {
+    if (terminalRef.current) terminalRef.current.options.theme = activeTerminalTheme()
+  }), [])
 
   useEffect(() => { if (!visible) return; try { fitRef.current?.fit() } catch { /* panel may still be resizing */ } }, [height, visible])
 

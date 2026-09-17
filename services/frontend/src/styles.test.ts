@@ -320,13 +320,23 @@ describe('terminal and editor execution CSS', () => {
     expect(tabs).toContain('overflow-x: auto')
     expect(tabs).toContain('scrollbar-width: none')
     expect(css).toContain('.terminal-tabs::-webkit-scrollbar { display: none; }')
-    expect(activeTab).toContain('box-shadow: inset 0 -2px #8db94b')
+    expect(activeTab).toContain('box-shadow: inset 0 -2px var(--theme-accent)')
   })
 
   it('renders package script actions as a green play affordance in the Monaco gutter', () => {
     const glyph = lastRule('.editor-run-glyph::before')
     expect(glyph).toContain("content: '▶'")
     expect(glyph).toContain('color: #78b841')
+  })
+})
+
+
+describe('configurable workbench CSS', () => {
+  it('keeps the central workspace dominant and exposes compact chrome tokens', () => {
+    const compactRail = lastRule(":root[data-density='compact'] .workspace-body > .agent-activity-bar")
+    expect(css).toContain('.workspace-mode-stack { flex: 1 1 760px; min-width: 560px;')
+    expect(css).toContain('.workbench-status-bar { height: 24px; flex: 0 0 24px;')
+    expect(compactRail).toContain('width: 36px')
   })
 })
 

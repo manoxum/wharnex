@@ -98,3 +98,12 @@ describe('complete colour themes', () => {
   })
 
 })
+
+
+describe('workbench theme registry', () => {
+  it('declares a high contrast UI theme using the shared semantic tokens', () => {
+    expect(theme).toContain(":root[data-ui-theme='high-contrast']")
+    expect(theme).toContain('--theme-accent: #d7ff76')
+    expect(theme).toContain(".theme-preview-original")
+  })
+})

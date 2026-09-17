@@ -7,7 +7,7 @@ import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent } from '../li
 import type { AppConfig, WorkspaceMode } from '../types'
 import { Bootstrap } from './Bootstrap'
 import { Icon } from './Icon'
-import { ThemeToggle } from './ThemeToggle'
+import { QuickSwitcher } from './QuickSwitcher'
 import { ErrorToast } from './ErrorToast'
 import { TunnelOverviewModal } from './TunnelOverviewModal'
 import { ProjectGitBadge } from './ProjectGitBadge'
@@ -272,7 +272,7 @@ export function ShellChrome({ projects, activeProject, activeSessionID, mode, bu
     {projects.length > 1 && <span className="multi-project-context" title="O Agent recebe contexto separado de todos os projetos vinculados; execução e Apply continuam isolados por projeto."><Icon name="bridge" size={12}/>{projects.length} projetos no contexto</span>}
     <div className="multi-project-actions">
       <button type="button" onClick={() => setTunnelsOpen(true)} aria-label="Túneis ativos" title="Túneis ativos"><Icon name="network" size={14}/></button>
-      <ThemeToggle compact />
+      <QuickSwitcher compact />
       <div ref={projectActionsRef} className="project-actions-menu">
         <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => { setProjectWindowOpen(false); setProjectActionsOpen((current) => !current) }} aria-label="Ações de projeto" aria-expanded={projectActionsOpen} title="Ações de projeto"><Icon name="plus" size={15}/></button>
         {projectActionsOpen && <div className="project-actions-popover" role="menu" data-chatgpt-overlay-blocker="true">

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AppConfig, AutomationMode, BundleQuota, ExecutionMode, Session, WorkspaceMode } from '../types'
 import { api } from '../lib/api'
 import { Icon } from './Icon'
-import { ThemeToggle } from './ThemeToggle'
+import { QuickSwitcher } from './QuickSwitcher'
 import { ProjectGitBadge } from './ProjectGitBadge'
 import { SignalCore } from './SignalCore'
 
@@ -57,7 +57,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
         status={bundleQuota.warning}
       />}
       <TopbarIndicator tone={automaticPlanner ? 'success' : 'neutral'} label={config?.planner === 'openai' ? 'AI automático' : 'AI manual'} icon={config?.planner === 'openai' ? 'chatgpt' : 'agent'} />
-      <ThemeToggle compact />
+      <QuickSwitcher compact />
       <button className="icon-button" aria-label="Configuração do projeto" title="Configuração do projeto" onClick={onSettings}><Icon name="settings" size={16}/></button>
       <button className="icon-button" aria-label="Fechar workspace" title="Fechar workspace" onClick={onClose}><Icon name="close" size={16}/></button>
     </div>
