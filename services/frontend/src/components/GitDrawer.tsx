@@ -5,6 +5,7 @@ import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
 import { Icon } from './Icon'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
+import { GitOperationModal, type GitOperation } from './GitOperationModal'
 
 type GitTab = 'changes' | 'history' | 'branches' | 'settings'
 
@@ -25,6 +26,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   const [worktreeDiff, setWorktreeDiff] = useState<GitFileDiff | null>(null)
   const [mergeRef, setMergeRef] = useState('')
   const [activeTab, setActiveTab] = useState<GitTab>('changes')
+  const [operation, setOperation] = useState<GitOperation | null>(null)
 
   const report = useCallback((error: unknown) => {
     const message = error instanceof APIError ? error.message : error instanceof Error ? error.message : String(error)
@@ -33,15 +35,21 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
     onError?.(message)
   }, [onError])
 
+  const loadOverview = useCallback(async () => {
+    const next = await api.gitOverview(session.id)
+    setOverview(next)
+    return next
+  }, [session.id])
+
   const refresh = useCallback(async () => {
     try {
-      setOverview(await api.gitOverview(session.id))
+      await loadOverview()
     } catch (error) {
       report(error)
     } finally {
       setLoading(false)
     }
-  }, [session.id, report])
+  }, [loadOverview, report])
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { void refresh() }, [session.last_host_applied_at, session.state, refresh])
@@ -66,6 +74,31 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
     }
   }
 
+  async function runGitOperation(title: string, detail: string, action: () => Promise<string>, syncSession = false) {
+    let phase: 'running' | 'refreshing' = 'running'
+    let actionMessage = ''
+    setWorking(true)
+    setNotice('')
+    setNoticeError(false)
+    setOperation({ title, detail, phase })
+    try {
+      actionMessage = await action()
+      phase = 'refreshing'
+      setOperation({ title, detail, phase })
+      await loadOverview()
+      if (syncSession && onSession) onSession(await api.getSession(session.id))
+      setNotice(actionMessage)
+      setOperation({ title, detail, phase: 'success', message: actionMessage })
+    } catch (error) {
+      const cause = error instanceof APIError ? error.message : error instanceof Error ? error.message : String(error)
+      const message = phase === 'refreshing' && actionMessage ? `${actionMessage} Não foi possível atualizar o painel: ${cause}` : cause
+      report(error)
+      setOperation({ title, detail, phase: 'error', message, failedPhase: phase })
+    } finally {
+      setWorking(false)
+    }
+  }
+
   const disabled = busy || working || loading
 
   function toggle(id: string) {
@@ -78,13 +111,17 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   }
 
   async function commit(ids: string[]) {
-    await run(async () => {
-      const result = await api.commitGitPending(session.id, ids)
-      setSelected(new Set())
-      const made = result.outcomes.filter((outcome) => outcome.commit_sha).length
-      const skipped = result.outcomes.filter((outcome) => outcome.skipped).length
-      setNotice(`${made} commit(s) criado(s)${skipped ? `, ${skipped} registo(s) obsoleto(s) retirado(s)` : ''}.`)
-    })
+    await runGitOperation(
+      ids.length ? 'A criar commits selecionados' : 'A criar commits',
+      ids.length ? `${ids.length} registo(s) selecionado(s) serão adicionados ao histórico local.` : 'A fila pendente será registada no histórico local.',
+      async () => {
+        const result = await api.commitGitPending(session.id, ids)
+        setSelected(new Set())
+        const made = result.outcomes.filter((outcome) => outcome.commit_sha).length
+        const skipped = result.outcomes.filter((outcome) => outcome.skipped).length
+        return `${made} commit(s) criado(s)${skipped ? `, ${skipped} registo(s) obsoleto(s) retirado(s)` : ''}.`
+      },
+    )
   }
 
   return <section className="git-drawer" aria-label="Git do projeto">
@@ -129,19 +166,23 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
           />
           <GitUnpushedSection
             sessionId={session.id} activeBranch={current} remotes={overview.remotes} disabled={disabled}
-            onFullPush={async (remote, branch, setUpstream) => {
-              const result = await api.gitPush(session.id, remote, branch, setUpstream)
-              setNoticeError(false)
-              setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
-              await refresh()
-              if (onSession) onSession(await api.getSession(session.id))
-            }}
-            onSelectedPush={async (commitSHAs) => {
-              const result = await api.gitPushSelected(session.id, commitSHAs)
-              setNoticeError(false)
-              setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
-              await refresh()
-            }}
+            onFullPush={(remote, branch, setUpstream) => runGitOperation(
+              'A publicar alterações',
+              `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
+              async () => {
+                const result = await api.gitPush(session.id, remote, branch, setUpstream)
+                return pushMessage(result.outcome, result.integrated, result.conflict_id)
+              },
+              true,
+            )}
+            onSelectedPush={(commitSHAs) => runGitOperation(
+              'A publicar commits selecionados',
+              `A enviar ${commitSHAs.length} commit(s) para o upstream da branch atual.`,
+              async () => {
+                const result = await api.gitPushSelected(session.id, commitSHAs)
+                return pushMessage(result.outcome, result.integrated, result.conflict_id)
+              },
+            )}
           />
         </>}
         {activeTab === 'history' && <HistorySection sessionId={session.id} commits={overview.commits} branches={overview.branches}/>}
@@ -149,27 +190,46 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
           current={current?.name || overview.current_branch} detached={overview.detached}
           localBranches={localBranches} remoteBranches={remoteBranches} remotes={overview.remotes}
           disabled={disabled} mergeRef={mergeRef} onMergeRefChange={setMergeRef}
-          onMerge={() => run(async () => {
-            const result = await api.gitMerge(session.id, mergeRef)
-            setMergeRef('')
-            setNotice(result.conflict_id ? `Merge de ${result.ref} entrou em conflito; escolha resolução manual ou GPT no chat.` : `Merge de ${result.ref}: ${result.outcome}.`)
-          }, true)}
-          onFetch={(remote) => run(async () => {
-            await api.gitFetch(session.id, remote)
-            setNotice(`Fetch de ${remote} concluído.`)
-          })}
-          onPull={(remote, branch) => run(async () => {
-            const result = await api.gitPull(session.id, remote, branch)
-            setNotice(result.conflict_id ? `Pull de ${result.ref} encontrou conflito; escolha resolução manual ou GPT no chat.` : `Pull de ${result.ref}: ${result.outcome}.`)
-          }, true)}
+          onMerge={() => runGitOperation(
+            'A integrar branch',
+            `A fazer merge de ${mergeRef} na branch atual.`,
+            async () => {
+              const result = await api.gitMerge(session.id, mergeRef)
+              setMergeRef('')
+              return result.conflict_id ? `Merge de ${result.ref} entrou em conflito; escolha resolução manual ou GPT no chat.` : `Merge de ${result.ref}: ${result.outcome}.`
+            },
+            true,
+          )}
+          onFetch={(remote) => runGitOperation(
+            'A procurar alterações na origem',
+            `A atualizar as referências remotas a partir de ${remote}.`,
+            async () => {
+              await api.gitFetch(session.id, remote)
+              return `Fetch de ${remote} concluído.`
+            },
+          )}
+          onPull={(remote, branch) => runGitOperation(
+            'A integrar alterações da origem',
+            `A trazer ${remote}/${branch} para a branch local.`,
+            async () => {
+              const result = await api.gitPull(session.id, remote, branch)
+              return result.conflict_id ? `Pull de ${result.ref} encontrou conflito; escolha resolução manual ou GPT no chat.` : `Pull de ${result.ref}: ${result.outcome}.`
+            },
+            true,
+          )}
           onSwitch={(branch) => run(async () => {
             await api.gitSwitch(session.id, branch)
             setNotice(`Branch alterada para ${branch}.`)
           }, true)}
-          onPush={(remote, branch, setUpstream) => run(async () => {
-            const result = await api.gitPush(session.id, remote, branch, setUpstream)
-            setNotice(pushMessage(result.outcome, result.integrated, result.conflict_id))
-          }, true)}
+          onPush={(remote, branch, setUpstream) => runGitOperation(
+            'A publicar alterações',
+            `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
+            async () => {
+              const result = await api.gitPush(session.id, remote, branch, setUpstream)
+              return pushMessage(result.outcome, result.integrated, result.conflict_id)
+            },
+            true,
+          )}
         />}
         {activeTab === 'settings' && <RepositorySettings overview={overview} disabled={disabled} onChange={(mode) => run(async () => {
           await api.setGitCommitMode(session.id, mode)
@@ -179,6 +239,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
 
     {openDiff && <DiffModal sessionId={session.id} record={openDiff} onClose={() => setOpenDiff(null)} />}
     {worktreeDiff && <WorktreeDiffModal sessionId={session.id} file={worktreeDiff} onClose={() => setWorktreeDiff(null)}/>}
+    {operation && <GitOperationModal operation={operation} onClose={() => setOperation(null)}/>}
   </section>
 }
 

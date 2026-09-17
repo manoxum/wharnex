@@ -171,6 +171,28 @@ describe('GitDrawer', () => {
     await waitFor(() => expect(api.gitHistory).toHaveBeenCalledWith('ses_1', [], true))
   })
 
+  it('shows visible processing and a terminal modal for commit and fetch actions', async () => {
+    let finishCommit: ((value: { outcomes: Array<{ pending_id: string; subject: string; commit_sha: string }> }) => void) | undefined
+    vi.mocked(api.commitGitPending).mockImplementationOnce(() => new Promise((resolve) => { finishCommit = resolve }))
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    fireEvent.click(await screen.findByRole('button', { name: /Commitar todos/ }))
+
+    const commitDialog = await screen.findByRole('dialog', { name: 'A criar commits' })
+    expect(commitDialog.textContent).toContain('A executar operação Git')
+    expect(commitDialog.querySelector('.git-operation-spinner')).toBeTruthy()
+
+    finishCommit?.({ outcomes: [{ pending_id: 'p1', subject: 'feat: one', commit_sha: 'abc' }] })
+    await waitFor(() => expect(commitDialog.textContent).toContain('Operação concluída'))
+    expect(commitDialog.textContent).toContain('1 commit(s) criado(s)')
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar' }))
+
+    openTab('Branches')
+    fireEvent.click(screen.getByRole('button', { name: /Fetch/ }))
+    const fetchDialog = await screen.findByRole('dialog', { name: 'A procurar alterações na origem' })
+    await waitFor(() => expect(fetchDialog.textContent).toContain('Fetch de origin concluído'))
+    expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin')
+  })
+
   it('renders remote Git failures as high-contrast operational errors', async () => {
     vi.mocked(api.gitFetch).mockRejectedValueOnce(new Error('fetch origin: /usr/bin/gh: not found'))
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
