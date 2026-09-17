@@ -225,6 +225,7 @@ export function ShellChrome({ projects, activeProject, activeSessionID, mode, bu
   const projectActionsRef = useRef<HTMLDivElement>(null)
   const projectWindowRef = useRef<HTMLDivElement>(null)
   const activeProjectButtonRef = useRef<HTMLButtonElement>(null)
+  const useNativeWindowFrame = desktopBridge()?.platform === 'linux'
 
   useEffect(() => {
     if (!projectActionsOpen && !projectWindowOpen) return
@@ -284,11 +285,11 @@ export function ShellChrome({ projects, activeProject, activeSessionID, mode, bu
       {activeProject && <button type="button" disabled={busy} onClick={onSettings} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
       {activeProject && <button type="button" disabled={busy} onClick={() => onUnbind(activeProject)} aria-label="Desvincular projeto" title="Desvincular projeto desta janela"><Icon name="close" size={14}/></button>}
     </div>
-    <div className="window-chrome-controls" role="group" aria-label="Controlos da janela">
+    {!useNativeWindowFrame && <div className="window-chrome-controls" role="group" aria-label="Controlos da janela">
       <button type="button" className="window-chrome-button minimize" onClick={() => void desktopBridge()?.windows.minimize()} aria-label="Minimizar janela" title="Minimizar"><span aria-hidden="true"/></button>
       <button type="button" className="window-chrome-button maximize" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label="Maximizar ou restaurar janela" title="Maximizar / restaurar"><span aria-hidden="true"/></button>
       <button type="button" className="window-chrome-button close" onClick={() => void desktopBridge()?.windows.close()} aria-label="Fechar janela" title="Fechar"><span aria-hidden="true"/></button>
-    </div>
+    </div>}
     {projectWindowOpen && projectWindowAnchor && <div ref={projectWindowRef} className="project-window-popover" data-chatgpt-overlay-blocker="true" style={{ left: projectWindowAnchor.left, top: projectWindowAnchor.top, minWidth: Math.max(270, projectWindowAnchor.width + 90) }}>
       <div className="project-window-popover-heading"><span>Projetos abertos</span><small>Troque ou desvincule nesta janela; projetos de outras janelas podem ser trazidos para a frente.</small></div>
       <div className="project-window-group"><b>Nesta janela</b>{projects.map((projectPath) => <div key={projectPath} className={`project-window-local-row ${projectPath === activeProject ? 'current' : ''}`} style={projectAccentStyle(projectPath)}><button type="button" className="project-window-project" onClick={() => { setProjectWindowOpen(false); onActivate(projectPath) }}><span className="project-window-accent"/><span><strong>{projectName(projectPath)}</strong><small>{projectPath === activeProject ? 'Projeto atual' : 'Vinculado nesta janela'}</small></span>{projectPath === activeProject && <Icon name="check" size={13}/>}</button><button type="button" className="project-window-unbind" disabled={busy} onClick={() => { setProjectWindowOpen(false); onUnbind(projectPath) }} aria-label={`Desvincular ${projectName(projectPath)} desta janela`} title="Desvincular desta janela"><Icon name="close" size={12}/></button></div>)}</div>
