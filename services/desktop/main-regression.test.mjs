@@ -1155,7 +1155,7 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
 
 test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of returning a silently ignorable failure', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined)")
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   assert.notEqual(start, -1)
   assert.notEqual(end, -1)
@@ -1179,7 +1179,7 @@ test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of 
 
 test('every ChatGPT submit verifies the requested reasoning effort before starting its POST observation', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined)")
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   const body = source.slice(start, end)
   const ensure = body.indexOf('await ensureChatGPTReasoningEffort({')
@@ -1188,6 +1188,34 @@ test('every ChatGPT submit verifies the requested reasoning effort before starti
   const submit = body.indexOf('submitWithRetry({')
   assert.ok(ensure >= 0 && observe > ensure && cycle > observe && submit > cycle)
   assert.match(body, /normalizeChatGPTReasoningEffort\(target\.reasoningEffort \|\| target\.entry\.reasoningEffort \|\| 'high'\)/)
+})
+
+// Live testing against the real ChatGPT account showed the effort-cycle
+// keyboard shortcut can stop registering entirely (observed stuck on "high"
+// through every bounded cycle), and that this is unrelated to anything the
+// submission itself is doing. `submitChatGPTDraft`'s default behavior must
+// stay fail-closed for correctness-sensitive planning exchanges, so this
+// bypass has to be explicit per caller, not a change to the default.
+test('an unreachable reasoning effort still blocks submission unless a caller explicitly opts out', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
+  const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
+  assert.notEqual(start, -1)
+  const body = source.slice(start, end)
+  assert.match(body, /if \(requireReasoningEffort\) throw error/)
+
+  // Only the two background bundle-only workers (TODO classification and
+  // markdown translation) may opt out; every other caller keeps the default.
+  const classifyStart = source.indexOf('async function executeChatAgentTodoClassification(task, entry, key, payload)')
+  const classifyEnd = source.indexOf('\nasync function chatAgentLifecycleRetry', classifyStart)
+  assert.match(source.slice(classifyStart, classifyEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false \}\)/)
+
+  const translateStart = source.indexOf('async function executeChatAgentMarkdownTranslation(task, entry, key, payload)')
+  const translateEnd = source.indexOf('\nasync function executeChatAgentTodoClassification', translateStart)
+  assert.match(source.slice(translateStart, translateEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false \}\)/)
+
+  const botWriteCount = (body.match(/requireReasoningEffort: false/g) || []).length
+  assert.equal(botWriteCount, 0, 'submitChatGPTDraft itself must keep failing closed by default')
 })
 
 test('expected bundle supervision is armed only around submissions that can leave stale state', async () => {

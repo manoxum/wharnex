@@ -3772,7 +3772,7 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
 // that relied on their own try/catch or on the shared DOM-probe-failure
 // counter in pollExpectedChatGPTDownloadKey already handle a thrown error
 // correctly.
-async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined) {
+async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {}) {
   const target = preparedTarget || await targetChatGPTComposer(key, '', false, entryOverride)
   const wc = target.wc
   const reasoningEffort = normalizeChatGPTReasoningEffort(target.reasoningEffort || target.entry.reasoningEffort || 'high')
@@ -3784,15 +3784,33 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
     }
   }
   assertExpectedConversation()
-  const effort = await ensureChatGPTReasoningEffort({
-    target: reasoningEffort,
-    observe: () => executeChatGPTDOMScript(key, target.entry, 'reasoning-effort-state', reasoningEffortStateScript(CHATGPT_BEHAVIOR)),
-    cycle: async () => {
-      const owned = requireOwnedChatGPTEntry(key, target.entry)
-      assertExpectedConversation()
-      withPreservedLocalFocus(() => dispatchChatGPTEffortCycle(owned.wc))
-    },
-  })
+  let effort
+  try {
+    effort = await ensureChatGPTReasoningEffort({
+      target: reasoningEffort,
+      observe: () => executeChatGPTDOMScript(key, target.entry, 'reasoning-effort-state', reasoningEffortStateScript(CHATGPT_BEHAVIOR)),
+      cycle: async () => {
+        const owned = requireOwnedChatGPTEntry(key, target.entry)
+        assertExpectedConversation()
+        withPreservedLocalFocus(() => dispatchChatGPTEffortCycle(owned.wc))
+      },
+    })
+  } catch (error) {
+    // Live testing showed ChatGPT's own Ctrl+Shift+M effort-cycle shortcut
+    // can simply stop registering (observed stuck on "high" through every
+    // bounded cycle) independently of anything this submission is doing.
+    // Every other caller here treats the requested reasoning effort as a
+    // hard precondition for a correctness-sensitive planning exchange, so it
+    // must keep failing closed. A background classification/translation
+    // worker only ever requests 'instant' as a latency/cost preference, not
+    // a correctness requirement, so for those callers a submission that
+    // never reaches ChatGPT because of an unrelated effort-picker regression
+    // is strictly worse than one delivered at whatever effort level the
+    // account is already on.
+    if (requireReasoningEffort) throw error
+    console.warn(`[chatgpt-effort] key=${key} could not reach ${reasoningEffort}, submitting at whatever level ChatGPT is currently on instead: ${error instanceof Error ? error.message : String(error)}`)
+    effort = { effort: `unconfirmed(wanted ${reasoningEffort})`, changed: false, cycles: 0 }
+  }
   console.log(`[chatgpt-effort] key=${key} target=${effort.effort} changed=${effort.changed} cycles=${effort.cycles}`)
   markChatGPTAffinitySubmitted(target.entry.affinity)
   let method = 'dom-click'
@@ -4914,6 +4932,14 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
   }
   expectedChatGPTTranslations.set(filename, expected)
 
+  // See the matching comment in executeChatAgentTodoClassification: a
+  // retried attempt must not reuse a page whose composer may already hold
+  // the file a previous attempt attached before failing later in the flow.
+  if (Number(task.attempt || 0) > 0) {
+    const { wc: staleWc } = requireOwnedChatGPTEntry(key, entry)
+    staleWc.reload()
+    await waitForChatGPTSurfaceReady(key, entry)
+  }
   let conversationUrl = ''
   try {
     const target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
@@ -4923,7 +4949,11 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
     await wait(chatInputSettleDelay(archive.byteLength, 1))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
+    // 'instant' is a latency/cost preference for this background transport,
+    // not a correctness requirement: live testing found the effort-cycle
+    // shortcut can stop registering, and a translation delivered at whatever
+    // level the account is already on beats one that never submits at all.
+    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort: false })
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT translation submission has no stable conversation id')
 
@@ -5000,6 +5030,19 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
   download.catch(() => undefined)
   const expected = { taskId: task.task_id, key, filename, armedAt: Date.now(), resolve: resolveDownload, reject: rejectDownload }
   expectedChatGPTTodoClassifications.set(filename, expected)
+  // A retried attempt reuses whatever page this exact function left behind
+  // when an earlier attempt got past a successful upload and then failed
+  // later in the flow (submission, reasoning effort, no response). ChatGPT
+  // silently no-ops re-selecting a file its composer already holds, so every
+  // upload attempt against that stale page "never starts" — live testing
+  // against the real account reproduced this deterministically on the very
+  // first retry after a confirmed upload. A hard reload guarantees the next
+  // attempt begins from an empty composer instead of a stuck one.
+  if (Number(task.attempt || 0) > 0) {
+    const { wc: staleWc } = requireOwnedChatGPTEntry(key, entry)
+    staleWc.reload()
+    await waitForChatGPTSurfaceReady(key, entry)
+  }
   let conversationUrl = ''
   try {
     const target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
@@ -5009,7 +5052,9 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
     await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
     await wait(chatInputSettleDelay(archive.byteLength, 1))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
+    // See the matching comment in executeChatAgentMarkdownTranslation:
+    // 'instant' is a preference here, not a precondition for submitting.
+    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort: false })
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT TODO classification submission has no stable conversation id')
     const deadline = Date.now() + TODO_CLASSIFICATION_TIMEOUT_MS

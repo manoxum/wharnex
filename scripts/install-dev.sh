@@ -2,27 +2,23 @@
 set -eu
 
 # Installs a per-checkout, per-instance launcher without requiring root access.
-ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}
 [ -f "$ROOT/.harness/env" ] && . "$ROOT/.harness/env"
 
 instance=${WHARNESS_INSTANCE_ID:-}
 [ -n "$instance" ] || instance=$(basename "$ROOT")
 instance=$(printf '%s' "$instance" | tr '\n\r' '  ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')
 [ -n "$instance" ] || instance=wharnex
-slug=$(printf '%s' "$instance" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
-[ -n "$slug" ] || slug=wharnex
+# Shared with start.sh, so a plain `make start` resolves the exact same
+# profile directory as the installed launcher instead of Electron's own
+# default profile. Sourced from this script's own real location (not $ROOT,
+# which tests override to a fixture directory that only stages a few files).
+. "$SCRIPT_DIR/desktop-profile.sh"
+slug=$WHARNESS_DESKTOP_SLUG
 escaped_root=$(printf '%s' "$ROOT" | sed "s/'/'\\\\''/g")
 escaped_instance=$(printf '%s' "$instance" | sed "s/'/'\\\\''/g")
-profile_root=${WHARNESS_DESKTOP_PROFILE_ROOT:-"$HOME/.config"}
-profile_dir="$profile_root/wharnex-$slug"
-# `wharness-desktop` was the profile used before development launchers gained
-# per-instance identity. Reusing it for the main instance preserves existing
-# project bindings, local chats and the authenticated browser partition instead
-# of silently opening an empty workspace in a new directory.
-if [ "$slug" = main ] && [ -d "$profile_root/wharness-desktop" ]; then
-  profile_dir="$profile_root/wharness-desktop"
-fi
-escaped_profile=$(printf '%s' "$profile_dir" | sed "s/'/'\\\\''/g")
+escaped_profile=$(printf '%s' "$WHARNESS_DESKTOP_USER_DATA_DIR" | sed "s/'/'\\\\''/g")
 
 bin_dir="$ROOT/dist/bin"
 launcher="$bin_dir/wharnex-$slug"

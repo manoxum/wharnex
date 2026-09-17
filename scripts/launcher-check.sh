@@ -9,7 +9,7 @@ fake_bin="$temporary/bin"
 trace="$temporary/trace"
 
 mkdir -p "$fixture/scripts" "$fixture/services/desktop" "$fixture/.harness/run" "$fake_bin"
-cp "$ROOT/scripts/launcher.sh" "$ROOT/scripts/source-fingerprint.sh" "$fixture/scripts/"
+cp "$ROOT/scripts/launcher.sh" "$ROOT/scripts/source-fingerprint.sh" "$ROOT/scripts/splash-lib.sh" "$fixture/scripts/"
 cp "$ROOT/services/desktop/launcher-splash.mjs" "$fixture/services/desktop/launcher-splash.mjs"
 chmod 0755 "$fixture/scripts/launcher.sh" "$fixture/scripts/source-fingerprint.sh"
 printf 'fixture source\n' >"$fixture/Makefile"
@@ -25,6 +25,7 @@ cat >"$fake_bin/make" <<'EOF'
 #!/usr/bin/env sh
 printf 'make %s\n' "$*" >>"$WHARNESS_LAUNCHER_TRACE"
 printf 'docker-autostart=%s\n' "${WHARNESS_LAUNCHER_AUTOSTART_DOCKER:-}" >>"$WHARNESS_LAUNCHER_TRACE"
+printf 'splash-active=%s\n' "${WHARNESS_LAUNCHER_SPLASH_ACTIVE:-}" >>"$WHARNESS_LAUNCHER_TRACE"
 EOF
 cat >"$fake_bin/zenity" <<'EOF'
 #!/usr/bin/env sh
@@ -49,6 +50,9 @@ grep -Fx 'make stop' "$trace"
 grep -Fx 'make build' "$trace"
 grep -Fx 'make start' "$trace"
 grep -Fxc 'docker-autostart=1' "$trace" | grep -Fx '3'
+# start.sh must know a splash is already owned by this launcher, so it never
+# opens a second, redundant one when the launcher's own `make start` runs it.
+grep -Fxc 'splash-active=1' "$trace" | grep -Fx '3'
 if grep -Fq 'splash-node-mode' "$trace"; then
   echo 'launcher regression: splash inherited ELECTRON_RUN_AS_NODE and started as plain Node' >&2
   exit 1
