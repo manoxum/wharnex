@@ -10,7 +10,6 @@ import { ProjectKnowledgeDrawer } from './ProjectKnowledgeDrawer'
 import { GitDrawer } from './GitDrawer'
 import { AgentRuntimeDrawer } from './AgentRuntimeDrawer'
 import { ChatAgentTasksDrawer } from './ChatAgentTasksDrawer'
-import { FilePreviewModal } from './FilePreviewModal'
 import { MarkdownContent } from './MarkdownContent'
 import { loadChat } from '../lib/workspaceMemory'
 import { desktopWindowScope } from '../lib/projectBindings'
@@ -85,7 +84,6 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const { session, busy, drawer, onDrawer, archivedChats, attentionItems, executionFIFO, activeExecutionCount, onError } = props
   const side = props.side || 'left'
   const tools = props.tools || DEFAULT_STANDALONE_RAIL_TOOLS
-  const [previewPath, setPreviewPath] = useState<string>()
   const [localDrawerWidth, setLocalDrawerWidth] = useState(() => loadWorkspaceDrawerWidth(side))
   const drawerWidth = props.drawerWidth || localDrawerWidth
   const [pendingCommitCount, setPendingCommitCount] = useState(0)
@@ -164,7 +162,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
     {drawer === 'todo' && props.chatProps ? <ProjectTodoPanel session={session} chatProps={props.chatProps} onClose={close} onPromoteToChat={props.onPromoteTodoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onError={onError}/> : null}
     {drawer === 'archive' ? <ArchiveDrawer projectPath={session.project_path} chats={archivedChats} busy={busy} onRestore={props.onRestoreChat} onDelete={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
-    {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={setPreviewPath} onError={onError} onClose={close}/> : null}
+    {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={props.onOpenFile} onError={onError} onClose={close}/> : null}
     {drawer === 'library' ? <ArtifactExplorerPanel sessionId={session.id} onError={onError} onClose={close}/> : null}
     {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
     {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession}/> : null}
@@ -177,7 +175,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   </aside> : null
   const splitter = drawer ? <button type="button" className={`agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`} aria-label={`Redimensionar painel lateral ${side === 'left' ? 'esquerdo' : 'direito'}`} title="Arraste para redimensionar" onPointerDown={beginDrawerResize}/> : null
 
-  return <>{side === 'left' ? <>{rail}{drawerPanel}{splitter}</> : <>{splitter}{drawerPanel}{rail}</>}{previewPath && <FilePreviewModal sessionId={session.id} path={previewPath} onOpenInEditor={props.onOpenFile} onClose={() => setPreviewPath(undefined)}/>}</>
+  return <>{side === 'left' ? <>{rail}{drawerPanel}{splitter}</> : <>{splitter}{drawerPanel}{rail}</>}</>
 }
 
 function isWorkspaceTool(value: string): value is WorkspaceTool {

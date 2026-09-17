@@ -81,6 +81,11 @@ const CHATGPT_AFFINITY_RECOVERY_GRACE_MS = 60_000
 // embedded view loading indefinitely. The local runtime has a verified IPv4
 // path, so keep the desktop browser on it until the host network is fixed.
 app.commandLine.appendSwitch('disable-ipv6')
+// Electron 44 on this Linux/X11 runtime has trapped in the GPU path while the
+// local shell and embedded ChatGPT surfaces are composited together. Wharnex
+// is a productivity UI, not a GPU workload; software compositing keeps the
+// title-bar overlay and workspace stable without changing application features.
+if (process.platform === 'linux') app.disableHardwareAcceleration()
 // Channel choice is explicit configuration, ordered by priority. The managed
 // desktop-direct entry is always present as the safe final fallback.
 const SAFE_ATTACHMENT_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'])
@@ -272,6 +277,11 @@ const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
 // How many times a window's frontend renderer may be restarted after a
 // crash before Wharnex stops and asks for human attention.
 const FRONTEND_RENDERER_RESTART_LIMIT = 5
+// Give the local React shell one quiet paint before allocating hidden Chromium
+// surfaces for autonomous account work. Starting all renderers together has
+// intermittently killed the visible Linux renderer with exitCode=133.
+const CHAT_AGENT_STARTUP_DELAY_MS = 2_500
+const CHAT_AGENT_WORKER_SPAWN_GAP_MS = 1_500
 let chatGPTDownloadPoller
 let recentExpectedDownload
 const chatGPTUploads = new ChatGPTUploadCoordinator()
@@ -867,8 +877,10 @@ function rehomeChatGPTWorkers(windowState) {
   if (!replacement) return false
   for (const entry of chatGPTWorkerEntries) {
     if (entry.ownerWindowId !== windowState.id || entry.view.webContents.isDestroyed()) continue
-    try { windowState.window.contentView.removeChildView?.(entry.view) } catch { /* already detached */ }
-    replacement.window.contentView.addChildView(entry.view)
+    if (entry.attached) {
+      try { windowState.window.contentView.removeChildView?.(entry.view) } catch { /* already detached */ }
+      replacement.window.contentView.addChildView(entry.view)
+    }
     entry.ownerWindowId = replacement.id
     entry.interactionWindowId = ''
     entry.parkedLayout = true
@@ -2107,8 +2119,12 @@ function createChatGPTWorkerView(slotId, windowState) {
   if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT worker without a host window')
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
   view.setBackgroundColor('#ffffff')
-  const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, interactionWindowId: '', view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, layoutViewportGranted: true, affinity: createChatGPTAffinityTracker() }
-  windowState.window.contentView.addChildView(view)
+  // Hidden Workers do not need to participate in the visible window's native
+  // compositor tree. Keeping them detached avoids the Linux WebContentsView
+  // attachment trap that killed and reloaded the local frontend renderer as
+  // each background slot was created. A Worker is attached only while the
+  // operator explicitly surfaces it, then detached again when that pane closes.
+  const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, interactionWindowId: '', attached: false, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, layoutViewportGranted: true, affinity: createChatGPTAffinityTracker() }
   grantChatGPTLayoutViewport(view)
   chatGPTWorkerEntries.push(entry)
   chatAgentResidency.register(slotId)
@@ -2150,7 +2166,7 @@ function retireChatGPTWorkerView(entry) {
   hideChatAgentInteractionEntry(entry)
   clearTimeout(entry.affinitySettleTimer)
   const state = windowStateForEntry(entry)
-  try { state?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
+  if (entry.attached) try { state?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
   if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
   return true
 }
@@ -2360,6 +2376,18 @@ function ensureChatGPTWorkerPool(windowState) {
   reconcileChatGPTWorkerPool(windowState)
 }
 
+async function primeChatGPTWorkerPool(windowState) {
+  while (!quitting && chatGPTWorkerEntries.length < desiredChatAgentWorkerSlots) {
+    const host = windowState?.window && !windowState.window.isDestroyed()
+      ? windowState
+      : [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+    if (!host) return
+    const index = chatGPTWorkerEntries.length
+    createChatGPTWorkerView(`worker-${index + 1}`, host)
+    if (chatGPTWorkerEntries.length < desiredChatAgentWorkerSlots) await delay(CHAT_AGENT_WORKER_SPAWN_GAP_MS)
+  }
+}
+
 function assignChatGPTWorker(entry, task) {
   if (!entry || entry.role !== 'worker') throw new Error('Chat-agent worker slot is unavailable')
   const chatId = task?.chat_id || task?.chatId
@@ -2418,6 +2446,12 @@ function hideChatAgentInteractionEntry(entry) {
   entry.interactionWindowId = ''
   entry.parkedLayout = true
   try { entry.view.setVisible(false) } catch { /* renderer may already be gone */ }
+  if (entry.attached) {
+    const ownerState = windowStateForEntry(entry)
+    try { ownerState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
+    entry.attached = false
+    grantChatGPTLayoutViewport(entry.view)
+  }
   return true
 }
 
@@ -2445,11 +2479,12 @@ function showChatAgentInteraction(agentID, rawBounds, windowState) {
     const previousState = desktopWindows.get(entry.interactionWindowId)
     if (previousState?.activeAgentInteractionId === entry.slotId) previousState.activeAgentInteractionId = ''
   }
-  if (entry.ownerWindowId !== windowState.id) {
+  if (entry.ownerWindowId !== windowState.id || !entry.attached) {
     const ownerState = windowStateForEntry(entry)
-    try { ownerState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
+    if (entry.attached) try { ownerState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
     windowState.window.contentView.addChildView(entry.view)
     entry.ownerWindowId = windowState.id
+    entry.attached = true
   }
   entry.interactionWindowId = windowState.id
   windowState.activeAgentInteractionId = entry.slotId
@@ -5895,11 +5930,11 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     windowStatePersistence: true,
     backgroundColor: '#eceee7',
     autoHideMenuBar: true,
-    // Keep the Linux BrowserWindow on Electron's native frame. The recent
-    // frameless path is visually cleaner, but on the supported Linux runtime it
-    // can prevent the primary window from being created at all. Other desktop
-    // platforms keep the renderer-owned chrome and the same trusted IPC controls.
-    frame: process.platform === 'linux',
+    // The themed shell owns every visible pixel of window chrome, including
+    // minimize, maximize and close. This keeps the controls consistent with
+    // the selected Wharnex theme instead of mixing native window buttons into
+    // the project header.
+    frame: false,
     webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
   })
   const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '' }
@@ -6713,7 +6748,6 @@ app.whenReady().then(async () => {
   }
 
   const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
-  ensureChatGPTWorkerPool(workerHost)
   chatAgentScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: executeChatAgentTask,
     // The Worker pool takes only small account-lifecycle and utility work. The
@@ -6788,7 +6822,15 @@ app.whenReady().then(async () => {
       void refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState).catch(() => undefined)
     },
   })
-  chatAgentScheduler.start()
+  // Do not compete with the first local frontend paint. The queue is durable,
+  // so this short delay does not discard work; it prevents the visible app
+  // from being reloaded while hidden WebContents are starting.
+  setTimeout(async () => {
+    if (quitting) return
+    await primeChatGPTWorkerPool(workerHost)
+    if (quitting) return
+    chatAgentScheduler.start()
+  }, CHAT_AGENT_STARTUP_DELAY_MS)
   // The Supervisor pool draws from the same durable queue with the complementary
   // role: opening the chat, submitting the request bundle, following the remote
   // instance and collecting the response bundle. One loop per Supervisor slot,

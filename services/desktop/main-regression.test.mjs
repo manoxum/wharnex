@@ -2,14 +2,40 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-test('linux keeps the native frame while other platforms retain renderer chrome', async () => {
+test('workspace toolbar owns the themed title bar and window controls', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const createStart = source.indexOf('function createWindow(')
   const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
   const create = source.slice(createStart, registerStart)
-  assert.match(create, /frame: process\.platform === 'linux'/)
-  assert.doesNotMatch(create, /titleBarStyle/)
+  assert.match(create, /frame: false/)
   assert.doesNotMatch(create, /titleBarOverlay/)
+})
+
+test('Linux Desktop uses software compositing to avoid GPU renderer traps', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /if \(process\.platform === 'linux'\) app\.disableHardwareAcceleration\(\)/)
+})
+
+test('agent Chromium workers start after the first local shell paint', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const delay = source.indexOf('CHAT_AGENT_STARTUP_DELAY_MS')
+  assert.ok(delay !== -1)
+  assert.match(source, /setTimeout\(async \(\) => \{[\s\S]*await primeChatGPTWorkerPool\(workerHost\)[\s\S]*chatAgentScheduler\.start\(\)[\s\S]*CHAT_AGENT_STARTUP_DELAY_MS/)
+  assert.match(source, /createChatGPTWorkerView\(`worker-\$\{index \+ 1\}`, host\)[\s\S]*await delay\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
+})
+
+test('hidden Worker views stay out of the local shell compositor until explicitly surfaced', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const createStart = source.indexOf('function createChatGPTWorkerView(')
+  const createEnd = source.indexOf('\nfunction retireChatGPTWorkerView', createStart)
+  const create = source.slice(createStart, createEnd)
+  const showStart = source.indexOf('function showChatAgentInteraction(')
+  const showEnd = source.indexOf('\nfunction setChatAgentInteractionBounds', showStart)
+  const show = source.slice(showStart, showEnd)
+  assert.match(create, /attached: false/)
+  assert.doesNotMatch(create, /contentView\.addChildView\(view\)/)
+  assert.match(show, /windowState\.window\.contentView\.addChildView\(entry\.view\)/)
+  assert.match(show, /entry\.attached = true/)
 })
 
 test('renderer window controls are closed preload IPC operations', async () => {
@@ -1620,15 +1646,18 @@ test('a chat slot is given its layout viewport before it is ever hidden', async 
   assert.match(grant, /setVisible\(true\)[\s\S]*setBounds\([\s\S]*setVisible\(false\)/)
   assert.doesNotMatch(grant, /await/)
 
-  for (const factory of ['function createChatGPTView(', 'function createChatGPTWorkerView(']) {
-    const start = source.indexOf(factory)
-    assert.ok(start > 0, `${factory} must exist`)
-    const body = source.slice(start, source.indexOf('\n  const wc = view.webContents', start))
-    // Hiding the slot before it has bounds is what stranded it at 0x0.
-    assert.doesNotMatch(body, /view\.setVisible\(false\)/)
-    assert.match(body, /addChildView\(view\)\n\s*grantChatGPTLayoutViewport\(view\)/)
-    assert.match(body, /layoutViewportGranted: true/)
-  }
+  const supervisorStart = source.indexOf('function createChatGPTView(')
+  const supervisor = source.slice(supervisorStart, source.indexOf('\n  const wc = view.webContents', supervisorStart))
+  assert.doesNotMatch(supervisor, /view\.setVisible\(false\)/)
+  assert.match(supervisor, /addChildView\(view\)\n\s*grantChatGPTLayoutViewport\(view\)/)
+  assert.match(supervisor, /layoutViewportGranted: true/)
+
+  const workerStart = source.indexOf('function createChatGPTWorkerView(')
+  const worker = source.slice(workerStart, source.indexOf('\n  const wc = view.webContents', workerStart))
+  assert.doesNotMatch(worker, /view\.setVisible\(false\)/)
+  assert.doesNotMatch(worker, /addChildView\(view\)/)
+  assert.match(worker, /grantChatGPTLayoutViewport\(view\)/)
+  assert.match(worker, /layoutViewportGranted: true/)
 })
 
 test('background native input preserves the already-focused local composer', async () => {

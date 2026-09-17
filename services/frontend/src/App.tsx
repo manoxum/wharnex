@@ -1,4 +1,4 @@
-import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'react'
+import { type ComponentProps, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
@@ -199,8 +199,24 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const runInTerminal = useCallback((input: TerminalRunInput) => {
     terminalRunNonceRef.current += 1
     setTerminalOpen(true)
-    setTerminalRunRequest({ ...input, id: terminalRunNonceRef.current })
+    setTerminalRunRequest({ ...input, id: terminalRunNonceRef.current, target: 'host', openNew: true })
   }, [])
+
+  const resizeTerminal = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const startY = event.clientY
+    const startHeight = terminalHeight
+    const maximum = Math.round(window.innerHeight * .78)
+    const move = (pointer: PointerEvent) => setTerminalHeight(Math.max(185, Math.min(maximum, startHeight + startY - pointer.clientY)))
+    const finish = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      document.body.classList.remove('terminal-resizing')
+    }
+    document.body.classList.add('terminal-resizing')
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish, { once: true })
+  }, [terminalHeight])
 
   useEffect(() => { setTerminalRunRequest(undefined) }, [session?.id])
 
@@ -3111,7 +3127,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         shell, so switching between Agent, Editor and Orchestrator never changes
         which panel is open — and the polling drawers are mounted once, not once
         per workspace. */}
-    <div className={`workspace-body ${sideDrawer || rightDrawer ? 'drawer-open' : ''}`}>
+    <div className={`workspace-body ${sideDrawer || rightDrawer ? 'drawer-open' : ''}`} style={{ ['--terminal-height' as string]: terminalOpen ? `${terminalHeight}px` : '0px' } as React.CSSProperties}>
+      <div className="workspace-main-row">
       <WorkspaceSideRail
         session={session}
         busy={activeBusy}
@@ -3187,9 +3204,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           }}
         />}
       </div>
-        {terminalOpen && <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(275)} />}
-        <TerminalWorkspace key={session.id} session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
-        <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} />
       </div>
       <WorkspaceSideRail
         session={session}
@@ -3227,6 +3241,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />
+      </div>
+      {terminalOpen && <div className="terminal-resizer" role="separator" aria-orientation="horizontal" aria-label="Ajustar altura do terminal" title="Arraste para aumentar ou reduzir o terminal" onPointerDown={resizeTerminal} onDoubleClick={() => setTerminalHeight(275)} />}
+      <TerminalWorkspace session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
+      <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} />
     </div>
   </main>
 }

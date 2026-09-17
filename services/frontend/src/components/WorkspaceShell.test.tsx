@@ -53,12 +53,12 @@ describe('WorkspaceShell project actions', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  it('uses the native Linux frame without duplicating renderer window controls', () => {
+  it('keeps themed title-bar window controls in the Desktop shell', () => {
     window.wharnessDesktop = { platform: 'linux', windows: {} } as unknown as WharnessDesktopBridge
 
     render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
 
-    expect(screen.queryByRole('group', { name: 'Controlos da janela' })).toBeNull()
+    expect(screen.getByRole('group', { name: 'Controlos da janela' })).toBeTruthy()
   })
 
   it('binds an additional project from its complete local path', () => {

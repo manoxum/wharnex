@@ -275,17 +275,13 @@ describe('composer layout CSS', () => {
 
 
 describe('multi-project shell CSS', () => {
-  it('uses the shell header as draggable frameless chrome without swallowing controls', () => {
+  it('uses the shell header as draggable title-bar chrome without swallowing controls', () => {
     const bar = firstRule('.multi-project-bar')
     const controls = firstRule(".multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar [data-chatgpt-overlay-blocker='true']")
-    const windowControls = firstRule('.window-chrome-controls')
-    const closeHover = firstRule('.window-chrome-button.close:hover')
     expect(bar).toContain('-webkit-app-region: drag')
-    expect(bar).not.toContain('titlebar-area')
+    expect(bar).not.toContain('titlebar-area-width')
+    expect(bar).toContain('height: 48px')
     expect(controls).toContain('-webkit-app-region: no-drag')
-    expect(windowControls).toContain('var(--theme-surface')
-    expect(windowControls).toContain('-webkit-app-region: no-drag')
-    expect(closeHover).toContain('var(--danger')
   })
 
   it('keeps the active project accent visible without a heavy glow', () => {
@@ -346,21 +342,29 @@ describe('terminal and editor execution CSS', () => {
 
 describe('configurable workbench CSS', () => {
   it('keeps the central workspace dominant and exposes compact chrome tokens', () => {
-    const compactRail = lastRule(":root[data-density='compact'] .workspace-body > .agent-activity-bar")
+    const compactRail = lastRule(":root[data-density='compact'] .workspace-main-row > .agent-activity-bar")
     expect(css).toContain('.workspace-mode-stack { flex: 1 1 760px; min-width: 560px;')
+    expect(css).toContain('.workspace-main-row { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }')
     expect(css).toContain('.workbench-status-bar { height: 24px; flex: 0 0 24px;')
     expect(compactRail).toContain('width: 36px')
   })
 
   it('supports floating resizable tool windows and bottom-corner tool rails', () => {
-    const floating = lastRule(":root[data-tool-window='floating'] .workspace-body > .agent-drawer")
-    const bottomRail = lastRule(":root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail")
+    const floating = lastRule(":root[data-tool-window='floating'] .workspace-main-row > .agent-drawer")
+    const bottomRail = lastRule(":root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail")
     expect(floating).toContain('position:absolute')
     expect(floating).toContain('resize:both')
     expect(floating).toContain('box-shadow:0 18px 54px var(--theme-shadow)')
     expect(bottomRail).toContain('position:absolute')
     expect(bottomRail).toContain('flex-direction:row')
     expect(bottomRail).toContain('overflow-x:auto')
+  })
+
+  it('uses a theme-aware scrollbar and a full-width bottom terminal', () => {
+    expect(lastRule('*::-webkit-scrollbar')).toContain('width: 10px')
+    expect(lastRule('*::-webkit-scrollbar-thumb')).toContain('border-radius: 999px')
+    expect(firstRule('.terminal-workspace')).toContain('width: 100%')
+    expect(lastRule('.terminal-resizer')).toContain('cursor: ns-resize')
   })
 
   it('keeps the editor single-pane and gives project files semantic glyph colors', () => {

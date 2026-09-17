@@ -3,7 +3,6 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { api, APIError } from '../lib/api'
-import { confirmDialog } from '../lib/appDialog'
 import { desktopBridge } from '../lib/desktop'
 import type { Session, TerminalFrame, TerminalRunRequest, TerminalTarget } from '../types'
 import { Icon } from './Icon'
@@ -40,9 +39,9 @@ function activeTerminalTheme() {
 
 type ConnectionStatus = 'connecting' | 'connected' | 'closed' | 'error'
 
-export function InteractiveTerminal({ session, height, onHeight, onError, visible = true, runRequest }: { session: Session; height: number; onHeight: (value: number) => void; onError: (message: string) => void; visible?: boolean; runRequest?: TerminalRunRequest }) {
-  const [target, setTarget] = useState<TerminalTarget>('sandbox')
-  const [hostConfirmed, setHostConfirmed] = useState(false)
+export function InteractiveTerminal({ session, height, onHeight, onError, visible = true, runRequest, initialTarget = 'sandbox' }: { session: Session; height: number; onHeight: (value: number) => void; onError: (message: string) => void; visible?: boolean; runRequest?: TerminalRunRequest; initialTarget?: TerminalTarget }) {
+  const [target, setTarget] = useState<TerminalTarget>(initialTarget)
+  const [hostConfirmed, setHostConfirmed] = useState(initialTarget === 'host')
   const [network, setNetwork] = useState(false)
   const [generation, setGeneration] = useState(0)
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
@@ -177,12 +176,6 @@ export function InteractiveTerminal({ session, height, onHeight, onError, visibl
   async function selectTarget(next: TerminalTarget) {
     if (next === target) return
     if (next === 'host') {
-      const accepted = await confirmDialog({
-        title: 'Ativar Terminal HOST?',
-        message: 'Este terminal abre um shell real no projeto com todos os direitos do seu utilizador. Pode editar, criar e apagar ficheiros, instalar dependências e executar qualquer programa disponível. As alterações são imediatas e não têm rollback automático.',
-        tone: 'danger', confirmLabel: 'Abrir shell no HOST',
-      })
-      if (!accepted) return
       setHostConfirmed(true); setNetwork(false); setTarget('host')
     } else {
       setHostConfirmed(false); setTarget('sandbox')

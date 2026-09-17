@@ -225,7 +225,7 @@ export function ShellChrome({ projects, activeProject, activeSessionID, mode, bu
   const projectActionsRef = useRef<HTMLDivElement>(null)
   const projectWindowRef = useRef<HTMLDivElement>(null)
   const activeProjectButtonRef = useRef<HTMLButtonElement>(null)
-  const useNativeWindowFrame = desktopBridge()?.platform === 'linux'
+  const useNativeWindowControls = false
 
   useEffect(() => {
     if (!projectActionsOpen && !projectWindowOpen) return
@@ -285,7 +285,7 @@ export function ShellChrome({ projects, activeProject, activeSessionID, mode, bu
       {activeProject && <button type="button" disabled={busy} onClick={onSettings} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
       {activeProject && <button type="button" disabled={busy} onClick={() => onUnbind(activeProject)} aria-label="Desvincular projeto" title="Desvincular projeto desta janela"><Icon name="close" size={14}/></button>}
     </div>
-    {!useNativeWindowFrame && <div className="window-chrome-controls" role="group" aria-label="Controlos da janela">
+    {!useNativeWindowControls && <div className="window-chrome-controls" role="group" aria-label="Controlos da janela">
       <button type="button" className="window-chrome-button minimize" onClick={() => void desktopBridge()?.windows.minimize()} aria-label="Minimizar janela" title="Minimizar"><span aria-hidden="true"/></button>
       <button type="button" className="window-chrome-button maximize" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label="Maximizar ou restaurar janela" title="Maximizar / restaurar"><span aria-hidden="true"/></button>
       <button type="button" className="window-chrome-button close" onClick={() => void desktopBridge()?.windows.close()} aria-label="Fechar janela" title="Fechar"><span aria-hidden="true"/></button>

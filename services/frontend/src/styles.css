@@ -20,7 +20,12 @@
   --ui-font-scale: 1.25;
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--theme-accent, #79a947) 64%, var(--theme-text-muted, #70746b)) color-mix(in srgb, var(--theme-bg, #eeefe9) 88%, transparent); }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: color-mix(in srgb, var(--theme-bg, #eeefe9) 90%, transparent); }
+*::-webkit-scrollbar-thumb { min-height: 34px; border: 2px solid transparent; border-radius: 999px; background: color-mix(in srgb, var(--theme-text-muted, #70746b) 62%, var(--theme-accent, #79a947)); background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--theme-accent, #79a947) 72%, var(--theme-text, #252820)); background-clip: padding-box; }
+*::-webkit-scrollbar-corner { background: var(--theme-bg, #eeefe9); }
 html, body, #root { margin: 0; min-width: 320px; min-height: 100%; height: 100%; }
 body { overflow: hidden; font-size: calc(15px * var(--ui-font-scale)); }
 button, input, textarea { font: inherit; }
@@ -298,7 +303,10 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .editor-empty .empty-mark { color: #d9dcd2; }
 .editor-empty h3 { margin: 0 0 8px; color: #50554b; font-size: calc(15px * var(--ui-font-scale)); }
 .editor-empty p { margin: 0; max-width: 430px; font-size: calc(11px * var(--ui-font-scale)); line-height: 1.6; }
-.terminal-resizer { height: 3px; flex: 0 0 3px; background: #33362f; cursor: ns-resize; }
+.terminal-resizer { height: 7px; flex: 0 0 7px; position: relative; background: var(--theme-border, #33362f); cursor: ns-resize; touch-action: none; }
+.terminal-resizer::after { content: ''; position: absolute; left: 50%; top: 2px; width: 44px; height: 2px; border-radius: 999px; background: var(--theme-text-muted, #778072); transform: translateX(-50%); opacity: .7; }
+.terminal-resizer:hover, body.terminal-resizing .terminal-resizer { background: color-mix(in srgb, var(--theme-accent, #78b841) 38%, var(--theme-border, #33362f)); }
+body.terminal-resizing { cursor: ns-resize; user-select: none; }
 
 /* Interactive terminal */
 .ide-terminal { flex: 0 0 auto; min-height: 155px; max-height: 65vh; background: #121411; color: #cfd5c7; display: flex; flex-direction: column; border-top: 1px solid #3a3e35; }
@@ -1329,13 +1337,14 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 /* The shell's own row: one activity rail and one drawer beside every mode
    surface. Flex rather than grid, because the drawer column appears and
    disappears and only the mode stack should absorb the difference. */
-.workspace-body { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }
-.workspace-body > .agent-activity-bar { flex: 0 0 42px; grid-column: auto; grid-row: auto; }
+.workspace-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.workspace-main-row { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }
+.workspace-main-row > .agent-activity-bar { flex: 0 0 42px; grid-column: auto; grid-row: auto; }
 /* Drawer open: the drawer takes a third of the shell, leaving the mode stack
    two thirds — which the Agent then splits evenly, so chat and inspector each
    land on a third of the whole as well. */
-.workspace-body > .agent-drawer { flex: 0 0 var(--workspace-drawer-width, calc((100% - 54px) / 3)); min-width: 240px; grid-column: auto; grid-row: auto; border-right: 0; }
-.workspace-body > .agent-drawer-splitter { flex: 0 0 6px; grid-column: auto; grid-row: auto; }
+.workspace-main-row > .agent-drawer { flex: 0 0 var(--workspace-drawer-width, calc((100% - 54px) / 3)); min-width: 240px; grid-column: auto; grid-row: auto; border-right: 0; }
+.workspace-main-row > .agent-drawer-splitter { flex: 0 0 6px; grid-column: auto; grid-row: auto; }
 .workspace-mode-stack { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .workspace-rail-terminal { margin-top: 0; }
 .workspace-body.drawer-open .agent-workspace { --agent-chat-width: calc((100% - 6px) / 2); }
@@ -1645,8 +1654,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 }
 
 /* Multi-window / multi-project workspace shell */
-.desktop-shell-root { position: relative; width: 100vw; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-rows: 43px minmax(0, 1fr); overflow: hidden; background: var(--app-bg, #eceee7); }
-.multi-project-bar { min-width: 0; height: 43px; padding: 0 0 0 9px; display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; -webkit-app-region: drag; user-select: none; }
+.desktop-shell-root { position: relative; width: 100vw; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr); overflow: hidden; background: var(--app-bg, #eceee7); }
+.multi-project-bar { min-width: 0; height: 48px; padding: 0 0 0 14px; display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; -webkit-app-region: drag; user-select: none; }
 .multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar [data-chatgpt-overlay-blocker='true'] { -webkit-app-region: no-drag; }
 .multi-project-brand { display: flex; align-items: center; color: #30352d; }
 .project-quick-switch { min-width: 0; height: 100%; display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: thin; }
@@ -1662,8 +1671,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .multi-project-actions button { border-color: #d6dbd0; background: #fafbf7; }
 .project-actions-menu { position: relative; flex: 0 0 auto; }
 .multi-project-actions .project-actions-trigger { width: 29px; padding: 0; justify-content: center; }
-.window-chrome-controls { align-self: stretch; height: 43px; display: flex; align-items: stretch; border-left: 1px solid var(--theme-border, #cfd4ca); background: var(--theme-surface, #f4f5ef); -webkit-app-region: no-drag; }
-.window-chrome-button { width: 42px; height: 43px; padding: 0; position: relative; display: grid; place-items: center; border: 0; border-radius: 0; background: transparent; color: var(--theme-text-muted, #677061); cursor: pointer; -webkit-app-region: no-drag; }
+.window-chrome-controls { align-self: stretch; height: 48px; display: flex; align-items: stretch; border-left: 1px solid var(--theme-border, #cfd4ca); background: var(--theme-surface, #f4f5ef); -webkit-app-region: no-drag; }
+.window-chrome-button { width: 44px; height: 48px; padding: 0; position: relative; display: grid; place-items: center; border: 0; border-radius: 0; background: transparent; color: var(--theme-text-muted, #677061); cursor: pointer; -webkit-app-region: no-drag; }
 .window-chrome-button:hover { background: var(--theme-hover, #e9ece4); color: var(--theme-text, #31382d); }
 .window-chrome-button:focus-visible { outline: 1px solid var(--theme-accent, #557d24); outline-offset: -2px; }
 .window-chrome-button > span { width: 12px; height: 12px; position: relative; display: block; }
@@ -2012,11 +2021,11 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .agent-chat-stage { grid-column: 1; grid-row: 3; border-right: 0; border-bottom: 1px solid #cfd4ca; }
   .agent-inspector-stage { grid-column: 1; grid-row: 4; }
   .agent-splitter, .agent-drawer-splitter { display: none; }
-  .workspace-body { flex-direction: column; overflow: auto; }
-  .workspace-body > .agent-activity-bar { flex: 0 0 auto; width: auto; flex-direction: row; border-right: 0; border-bottom: 1px solid #30342d; }
-  .workspace-body > .workspace-side-rail-right { border-left: 0; }
-  .workspace-body > .workspace-side-drawer-right { min-width: 0 !important; }
-  .workspace-body > .agent-drawer { flex: 0 0 auto; min-height: 280px; }
+  .workspace-main-row { flex-direction: column; overflow: auto; }
+  .workspace-main-row > .agent-activity-bar { flex: 0 0 auto; width: auto; flex-direction: row; border-right: 0; border-bottom: 1px solid #30342d; }
+  .workspace-main-row > .workspace-side-rail-right { border-left: 0; }
+  .workspace-main-row > .workspace-side-drawer-right { min-width: 0 !important; }
+  .workspace-main-row > .agent-drawer { flex: 0 0 auto; min-height: 280px; }
   .agent-command-actions { padding: 0 4px; }
 }
 
@@ -3743,8 +3752,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 @media (max-width: 640px) { .composer-attachment-patterns { grid-template-columns: 1fr; } .composer-attachment-backdrop { padding: 10px; } }
 
 /* Right-side workspace tools: global artifact storage and database explorer. */
-.workspace-body > .workspace-right-splitter { flex: 0 0 6px; width: 6px; padding: 0; border: 0; border-left: 1px solid transparent; border-right: 1px solid var(--theme-border); background: color-mix(in srgb, var(--theme-bg) 88%, var(--theme-border)); cursor: col-resize; touch-action: none; }
-.workspace-body > .workspace-right-splitter:hover, .workspace-body > .workspace-right-splitter:focus-visible { border-color: var(--theme-accent); background: color-mix(in srgb, var(--theme-accent) 24%, var(--theme-bg)); outline: none; }
+.workspace-main-row > .workspace-right-splitter { flex: 0 0 6px; width: 6px; padding: 0; border: 0; border-left: 1px solid transparent; border-right: 1px solid var(--theme-border); background: color-mix(in srgb, var(--theme-bg) 88%, var(--theme-border)); cursor: col-resize; touch-action: none; }
+.workspace-main-row > .workspace-right-splitter:hover, .workspace-main-row > .workspace-right-splitter:focus-visible { border-color: var(--theme-accent); background: color-mix(in srgb, var(--theme-accent) 24%, var(--theme-bg)); outline: none; }
 .workspace-right-rail { flex: 0 0 42px; width: 42px; min-height: 0; padding: 7px 5px; display: flex; flex-direction: column; align-items: center; gap: 5px; border-left: 1px solid #30342d; background: #20231f; }
 .workspace-right-rail button { width: 32px; height: 36px; position: relative; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #737b70; cursor: pointer; }
 .workspace-right-rail button::after { content: ''; width: 2px; position: absolute; right: -5px; top: 5px; bottom: 5px; border-radius: 2px; background: transparent; }
@@ -3877,7 +3886,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .workspace-right-splitter { display: none; }
 }
 /* Persistent multi-terminal workbench + editor execution tools */
-.terminal-workspace { flex: 0 0 auto; min-height: 185px; max-height: 68vh; display: grid; grid-template-rows: 30px minmax(0, 1fr); overflow: hidden; border-top: 1px solid #34382f; background: #121411; }
+.terminal-workspace { flex: 0 0 auto; width: 100%; min-height: 185px; max-height: 78vh; display: grid; grid-template-rows: 30px minmax(0, 1fr); overflow: hidden; border-top: 1px solid #34382f; background: #121411; }
 .terminal-workspace-hidden { display: none; }
 .terminal-tabbar { min-width: 0; display: flex; align-items: stretch; justify-content: space-between; border-bottom: 1px solid #292d26; background: #171916; }
 .terminal-tabs { min-width: 0; padding: 3px 4px 0; display: flex; align-items: end; gap: 3px; overflow-x: auto; scrollbar-width: none; }
@@ -4545,9 +4554,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 
 /* Configurable workbench shell ------------------------------------------------ */
 .workspace-mode-stack { flex: 1 1 760px; min-width: 560px; background: var(--theme-bg); }
-.workspace-body > .agent-activity-bar { flex-basis: 40px; width: 40px; padding: 5px 4px; background: color-mix(in srgb, var(--theme-surface) 88%, var(--theme-bg)); border-color: var(--theme-border); }
-.workspace-body > .agent-activity-bar button { width: 31px; height: 33px; border-radius: 4px; }
-.workspace-body > .agent-drawer { max-width: min(48vw, 840px); background: var(--theme-surface); color: var(--theme-text-soft); border-color: var(--theme-border); }
+.workspace-main-row > .agent-activity-bar { flex-basis: 40px; width: 40px; padding: 5px 4px; background: color-mix(in srgb, var(--theme-surface) 88%, var(--theme-bg)); border-color: var(--theme-border); }
+.workspace-main-row > .agent-activity-bar button { width: 31px; height: 33px; border-radius: 4px; }
+.workspace-main-row > .agent-drawer { max-width: min(48vw, 840px); background: var(--theme-surface); color: var(--theme-text-soft); border-color: var(--theme-border); }
 .workspace-side-drawer-left { box-shadow: 8px 0 22px color-mix(in srgb, var(--theme-shadow) 70%, transparent); }
 .workspace-side-drawer-right { box-shadow: -8px 0 22px color-mix(in srgb, var(--theme-shadow) 70%, transparent); }
 .agent-drawer-heading { height: 40px; border-color: var(--theme-border); background: var(--theme-muted); }
@@ -4591,8 +4600,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 :root[data-density='compact'] .workspace-topbar,
 :root[data-density='compact'] .multi-project-bar { min-height: 40px; height: 40px; }
 :root[data-density='compact'] .workspace-topbar { flex-basis: 40px; padding-inline: 9px; gap: 9px; }
-:root[data-density='compact'] .workspace-body > .agent-activity-bar { flex-basis: 36px; width: 36px; padding: 3px; gap: 2px; }
-:root[data-density='compact'] .workspace-body > .agent-activity-bar button { width: 29px; height: 29px; }
+:root[data-density='compact'] .workspace-main-row > .agent-activity-bar { flex-basis: 36px; width: 36px; padding: 3px; gap: 2px; }
+:root[data-density='compact'] .workspace-main-row > .agent-activity-bar button { width: 29px; height: 29px; }
 :root[data-density='compact'] .agent-drawer-heading { height: 34px; padding-inline: 8px; }
 :root[data-density='compact'] .terminal-workspace { grid-template-rows: 26px minmax(0, 1fr); }
 :root[data-density='compact'] .terminal-tab-shell { height: 24px; min-width: 96px; }
@@ -4601,11 +4610,11 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 
 @media (max-width: 1180px) {
   .workspace-mode-stack { min-width: 460px; }
-  .workspace-body > .agent-drawer { max-width: 42vw; }
+  .workspace-main-row > .agent-drawer { max-width: 42vw; }
 }
 @media (max-width: 820px) {
   .workspace-mode-stack { min-width: 0; }
-  .workspace-body > .agent-drawer { max-width: none; }
+  .workspace-main-row > .agent-drawer { max-width: none; }
   .workbench-status-bar { gap: 7px; }
   .workbench-status-bar span:nth-child(n+4) { display: none; }
 }
@@ -4657,27 +4666,27 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 
 /* Floating tool windows leave the editor/workspace dominant and use native
  * two-axis resize, matching familiar IDE floating panels without extra state. */
-:root[data-tool-window='floating'] .workspace-body { position:relative; }
-:root[data-tool-window='floating'] .workspace-body > .agent-drawer { position:absolute; z-index:80; top:10px; bottom:auto; width:var(--workspace-drawer-width,390px); height:min(72vh,720px); max-width:min(70vw,920px); max-height:calc(100% - 54px); min-width:280px; min-height:220px; resize:both; overflow:auto; border:1px solid var(--theme-border); border-radius:7px; box-shadow:0 18px 54px var(--theme-shadow); }
-:root[data-tool-window='floating'] .workspace-body > .workspace-side-drawer-left { left:50px; right:auto; }
-:root[data-tool-window='floating'] .workspace-body > .workspace-side-drawer-right { left:auto; right:50px; }
-:root[data-tool-window='floating'] .workspace-body > .agent-drawer > * { min-height:100%; }
-:root[data-tool-window='floating'] .workspace-body > .agent-drawer-splitter { display:none; }
+:root[data-tool-window='floating'] .workspace-main-row { position:relative; }
+:root[data-tool-window='floating'] .workspace-main-row > .agent-drawer { position:absolute; z-index:80; top:10px; bottom:auto; width:var(--workspace-drawer-width,390px); height:min(72vh,720px); max-width:min(70vw,920px); max-height:calc(100% - 54px); min-width:280px; min-height:220px; resize:both; overflow:auto; border:1px solid var(--theme-border); border-radius:7px; box-shadow:0 18px 54px var(--theme-shadow); }
+:root[data-tool-window='floating'] .workspace-main-row > .workspace-side-drawer-left { left:50px; right:auto; }
+:root[data-tool-window='floating'] .workspace-main-row > .workspace-side-drawer-right { left:auto; right:50px; }
+:root[data-tool-window='floating'] .workspace-main-row > .agent-drawer > * { min-height:100%; }
+:root[data-tool-window='floating'] .workspace-main-row > .agent-drawer-splitter { display:none; }
 :root[data-tool-window='floating'] .workspace-mode-stack { flex:1 1 auto; min-width:0; }
 
 /* Tool rails can live in the two lower corners like compact IDE tool-window
  * bars. They remain draggable, while drawers keep the chosen dock/float mode. */
-:root[data-tool-rail='bottom'] .workspace-body { position:relative; padding-bottom:42px; }
-:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail { position:absolute; z-index:90; bottom:5px; width:auto; max-width:calc(50% - 12px); height:34px; flex:0 0 auto; padding:2px 3px; flex-direction:row; align-items:center; gap:2px; overflow-x:auto; overflow-y:hidden; border:1px solid var(--theme-border); border-radius:6px; background:color-mix(in srgb,var(--theme-surface) 94%,transparent); box-shadow:0 6px 22px var(--theme-shadow); scrollbar-width:none; }
-:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail::-webkit-scrollbar { display:none; }
-:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail-left { left:6px; right:auto; }
-:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail-right { right:6px; left:auto; border-left:1px solid var(--theme-border); }
-:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail button { width:30px; height:28px; flex:0 0 30px; }
-:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail button::before { left:5px; right:5px; top:auto; bottom:-3px; width:auto; height:2px; }
-:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail .workspace-rail-terminal { margin-top:0; }
+:root[data-tool-rail='bottom'] .workspace-main-row { position:relative; padding-bottom:42px; }
+:root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail { position:absolute; z-index:90; bottom:5px; width:auto; max-width:calc(50% - 12px); height:34px; flex:0 0 auto; padding:2px 3px; flex-direction:row; align-items:center; gap:2px; overflow-x:auto; overflow-y:hidden; border:1px solid var(--theme-border); border-radius:6px; background:color-mix(in srgb,var(--theme-surface) 94%,transparent); box-shadow:0 6px 22px var(--theme-shadow); scrollbar-width:none; }
+:root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail::-webkit-scrollbar { display:none; }
+:root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail-left { left:6px; right:auto; }
+:root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail-right { right:6px; left:auto; border-left:1px solid var(--theme-border); }
+:root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail button { width:30px; height:28px; flex:0 0 30px; }
+:root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail button::before { left:5px; right:5px; top:auto; bottom:-3px; width:auto; height:2px; }
+:root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail .workspace-rail-terminal { margin-top:0; }
 
 @media (max-width:900px) {
   .accent-settings > div, .quick-switcher-accents { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .workbench-appearance-grid { grid-template-columns:1fr; }
-  :root[data-tool-window='floating'] .workspace-body > .agent-drawer { position:absolute; left:44px; right:44px; width:auto; max-width:none; resize:both; box-shadow:0 18px 54px var(--theme-shadow); }
+  :root[data-tool-window='floating'] .workspace-main-row > .agent-drawer { position:absolute; left:44px; right:44px; width:auto; max-width:none; resize:both; box-shadow:0 18px 54px var(--theme-shadow); }
 }
