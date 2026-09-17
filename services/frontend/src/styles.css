@@ -4070,6 +4070,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .project-git-actions button:disabled { opacity: .45; cursor: default; }
 .project-git-sync, .project-git-notice { margin: 0; }
 .project-git-notice { padding: 7px 8px; border-radius: 7px; background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-bg)); color: var(--theme-muted); font-size: 11px; }
+.project-git-operation-layer { position: fixed; inset: 0; z-index: 10030; }
 .git-branch-hero-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .git-history-scope { display: flex; gap: 6px; padding: 2px 0 8px; }
 .git-history-scope button, .git-history-branch-picker button { border: 1px solid var(--theme-border); border-radius: 999px; background: var(--theme-bg); color: var(--theme-muted); min-height: 27px; padding: 0 9px; font-size: 11px; cursor: pointer; }

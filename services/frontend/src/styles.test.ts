@@ -352,6 +352,8 @@ describe('Git workbench CSS', () => {
 
     expect(backdrop).toContain('position: absolute')
     expect(backdrop).toContain('backdrop-filter: blur(5px)')
+    expect(lastRule('.project-git-operation-layer')).toContain('position: fixed')
+    expect(lastRule('.project-git-operation-layer')).toContain('inset: 0')
     expect(modal).toContain('grid-template-columns: 42px minmax(0,1fr)')
     expect(progress).toContain('height: 4px')
     expect(css).toContain('@keyframes git-operation-progress')
