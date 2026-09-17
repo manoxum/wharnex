@@ -2,12 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-test('workspace shell owns a frameless window instead of native titlebar overlay', async () => {
+test('linux keeps the native frame while other platforms retain renderer chrome', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const createStart = source.indexOf('function createWindow(')
   const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
   const create = source.slice(createStart, registerStart)
-  assert.match(create, /frame: false/)
+  assert.match(create, /frame: process\.platform === 'linux'/)
   assert.doesNotMatch(create, /titleBarStyle/)
   assert.doesNotMatch(create, /titleBarOverlay/)
 })

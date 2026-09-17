@@ -5895,11 +5895,11 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     windowStatePersistence: true,
     backgroundColor: '#eceee7',
     autoHideMenuBar: true,
-    // The workspace shell owns the complete visible window chrome. Keeping the
-    // BrowserWindow frameless avoids mixing Linux/native titlebar rendering with
-    // the themed React shell; minimize/maximize/close are exposed through the
-    // preload bridge and rendered inside the same 43px toolbar.
-    frame: false,
+    // Keep the Linux BrowserWindow on Electron's native frame. The recent
+    // frameless path is visually cleaner, but on the supported Linux runtime it
+    // can prevent the primary window from being created at all. Other desktop
+    // platforms keep the renderer-owned chrome and the same trusted IPC controls.
+    frame: process.platform === 'linux',
     webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
   })
   const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '' }

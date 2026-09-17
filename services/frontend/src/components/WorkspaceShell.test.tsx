@@ -53,6 +53,14 @@ describe('WorkspaceShell project actions', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
+  it('uses the native Linux frame without duplicating renderer window controls', () => {
+    window.wharnessDesktop = { platform: 'linux', windows: {} } as unknown as WharnessDesktopBridge
+
+    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+
+    expect(screen.queryByRole('group', { name: 'Controlos da janela' })).toBeNull()
+  })
+
   it('binds an additional project from its complete local path', () => {
     const onBindPath = vi.fn()
     render(<ShellChrome projects={['/work/current']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={onBindPath} onNewWindow={vi.fn()} />)
