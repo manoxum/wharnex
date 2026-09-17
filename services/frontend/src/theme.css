@@ -1526,3 +1526,124 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .project-quick-switch button.active .project-color-mark {
   box-shadow: 0 0 0 2px hsl(var(--project-hue) 70% 56% / .10), 0 0 7px hsl(var(--project-hue) 76% 54% / .24);
 }
+
+
+/* JetBrains-inspired workbench palette: layered neutral surfaces with restrained accent. */
+:root[data-theme='light'] {
+  --workbench-chrome: #eef0f3;
+  --workbench-panel: #f6f7f8;
+  --workbench-editor: #ffffff;
+  --workbench-deep: #e7e9ec;
+  --workbench-line: #d5d8dc;
+  --workbench-muted: #6f747b;
+  --workbench-text: #25282d;
+  --workbench-active: #e3e6e9;
+  --workbench-accent: #688f3d;
+}
+:root[data-theme='dark'] {
+  --workbench-chrome: #2b2d30;
+  --workbench-panel: #242629;
+  --workbench-editor: #1e1f22;
+  --workbench-deep: #191a1c;
+  --workbench-line: #393b40;
+  --workbench-muted: #8b8d92;
+  --workbench-text: #dfe1e5;
+  --workbench-active: #323438;
+  --workbench-accent: #9fca6b;
+}
+
+:root[data-theme] .multi-project-bar,
+:root[data-theme] .workspace-topbar,
+:root[data-theme] .agent-activity-bar {
+  border-color: var(--workbench-line);
+  background: var(--workbench-chrome);
+  color: var(--workbench-text);
+  box-shadow: none;
+}
+:root[data-theme] .project-quick-switch button,
+:root[data-theme] .multi-project-actions button,
+:root[data-theme] .shell-mode-switch button,
+:root[data-theme] .mode-switch button { color: var(--workbench-muted); }
+:root[data-theme] .project-quick-switch button:hover,
+:root[data-theme] .multi-project-actions button:hover,
+:root[data-theme] .shell-mode-switch button:hover,
+:root[data-theme] .mode-switch button:hover { background: var(--workbench-active); color: var(--workbench-text); }
+:root[data-theme] .project-quick-switch button.active,
+:root[data-theme] .shell-mode-switch button.active,
+:root[data-theme] .mode-switch button.active {
+  border-color: var(--workbench-line);
+  background: var(--workbench-active);
+  color: var(--workbench-text);
+  box-shadow: none;
+}
+:root[data-theme] .project-quick-switch button.active::after { left: 7px; right: 7px; background: var(--workbench-accent); box-shadow: none; }
+:root[data-theme] .shell-mode-switch,
+:root[data-theme] .mode-switch { border-color: var(--workbench-line); background: var(--workbench-deep); }
+:root[data-theme] .multi-project-actions button { border-color: var(--workbench-line); background: transparent; }
+:root[data-theme] .multi-project-context { color: var(--workbench-muted); }
+
+:root[data-theme] .agent-activity-bar button { color: var(--workbench-muted); }
+:root[data-theme] .agent-activity-bar button:hover,
+:root[data-theme] .agent-activity-bar button.active { background: var(--workbench-active); color: var(--workbench-text); }
+:root[data-theme] .agent-activity-bar button.active::before { background: var(--workbench-accent); }
+:root[data-theme] .agent-drawer { border-color: var(--workbench-line); background: var(--workbench-panel); color: var(--workbench-text); box-shadow: none; }
+:root[data-theme] .agent-drawer-heading { border-color: var(--workbench-line); background: var(--workbench-chrome); }
+:root[data-theme] .agent-drawer-heading strong { color: var(--workbench-text); }
+:root[data-theme] .agent-drawer-icon { color: var(--workbench-muted); }
+:root[data-theme] .agent-drawer-icon:hover:not(:disabled) { background: var(--workbench-active); color: var(--workbench-text); }
+
+:root[data-theme] .file-explorer { border-color: var(--workbench-line); background: var(--workbench-panel); color: var(--workbench-text); }
+:root[data-theme] .file-explorer > header { border-color: var(--workbench-line); background: var(--workbench-chrome); }
+:root[data-theme] .file-explorer > header strong { color: var(--workbench-text); }
+:root[data-theme] .explorer-toolbar .icon-button { color: var(--workbench-muted); }
+:root[data-theme] .explorer-toolbar .icon-button:hover:not(:disabled) { background: var(--workbench-active); color: var(--workbench-text); }
+:root[data-theme] .explorer-search { border-color: var(--workbench-line); background: var(--workbench-editor); color: var(--workbench-muted); }
+:root[data-theme] .explorer-search:focus-within { border-color: var(--workbench-accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--workbench-accent) 20%, transparent); }
+:root[data-theme] .explorer-search input { color: var(--workbench-text); }
+:root[data-theme] .explorer-search input::placeholder { color: var(--workbench-muted); }
+:root[data-theme] .explorer-selection { border-color: var(--workbench-line); background: var(--workbench-active); color: var(--workbench-muted); }
+:root[data-theme] .tree-row { color: var(--workbench-muted); }
+:root[data-theme] .tree-row:hover,
+:root[data-theme] .tree-row.selected-node { background: var(--workbench-active); color: var(--workbench-text); }
+:root[data-theme] .tree-row.active,
+:root[data-theme] .tree-row.active.selected-node {
+  background: color-mix(in srgb, var(--workbench-accent) 11%, var(--workbench-active));
+  color: var(--workbench-text);
+  box-shadow: inset 2px 0 var(--workbench-accent);
+}
+:root[data-theme] .folder-row,
+:root[data-theme] .folder-row > svg,
+:root[data-theme] .file-row > svg { color: color-mix(in srgb, var(--workbench-muted) 88%, var(--workbench-text)); }
+:root[data-theme] .explorer-footer { border-color: var(--workbench-line); background: var(--workbench-chrome); color: var(--workbench-muted); }
+
+:root[data-theme] .editor-area,
+:root[data-theme] .monaco-editor-host,
+:root[data-theme] .editor-empty { background: var(--workbench-editor); }
+:root[data-theme] .editor-tabbar { border-color: var(--workbench-line); background: var(--workbench-chrome); }
+:root[data-theme] .editor-tab { border-color: var(--workbench-line); background: var(--workbench-chrome); color: var(--workbench-muted); }
+:root[data-theme] .editor-tab:hover { background: var(--workbench-active); color: var(--workbench-text); }
+:root[data-theme] .editor-tab.active { border-bottom-color: var(--workbench-accent); background: var(--workbench-editor); color: var(--workbench-text); }
+:root[data-theme] .editor-tab-close { color: var(--workbench-muted); }
+:root[data-theme] .editor-tab-close:hover { background: var(--workbench-active); color: var(--workbench-text); }
+:root[data-theme] .editor-tabbar .editor-save,
+:root[data-theme] .editor-shortcuts button { border-color: var(--workbench-line); background: var(--workbench-chrome); color: var(--workbench-muted); }
+:root[data-theme] .editor-tabbar .editor-save:hover:not(:disabled),
+:root[data-theme] .editor-shortcuts button:hover { background: var(--workbench-active); color: var(--workbench-text); }
+:root[data-theme] .editor-contextbar,
+:root[data-theme] .editor-statusbar { border-color: var(--workbench-line); background: var(--workbench-panel); color: var(--workbench-muted); }
+:root[data-theme] .editor-breadcrumbs span:last-child { color: var(--workbench-text); }
+:root[data-theme] .editor-breadcrumbs i { color: color-mix(in srgb, var(--workbench-muted) 62%, transparent); }
+
+:root[data-theme] .terminal-resizer { background: var(--workbench-line); }
+:root[data-theme] .terminal-resizer:hover { background: var(--workbench-accent); }
+:root[data-theme] .terminal-workspace { border-color: var(--workbench-line); background: var(--workbench-deep); }
+:root[data-theme] .terminal-tabbar { border-color: var(--workbench-line); background: var(--workbench-chrome); }
+:root[data-theme] .terminal-tab-shell { border-color: transparent; border-right-color: var(--workbench-line); background: var(--workbench-chrome); color: var(--workbench-muted); }
+:root[data-theme] .terminal-tab-shell:hover { background: var(--workbench-active); color: var(--workbench-text); }
+:root[data-theme] .terminal-tab-shell.active { border-color: transparent; border-right-color: var(--workbench-line); background: var(--workbench-deep); color: var(--workbench-text); box-shadow: inset 0 -2px var(--workbench-accent); }
+:root[data-theme] .terminal-add-tab { border-color: var(--workbench-line); color: var(--workbench-muted); }
+:root[data-theme] .terminal-add-tab:hover { background: var(--workbench-active); color: var(--workbench-text); }
+:root[data-theme] .ide-terminal { border-color: var(--workbench-line); background: var(--workbench-deep); color: var(--workbench-text); }
+:root[data-theme] .ide-terminal > header { border-color: var(--workbench-line); background: var(--workbench-chrome); }
+:root[data-theme] .ide-terminal > header strong { color: var(--workbench-text); }
+:root[data-theme] .ide-terminal > header span { color: var(--workbench-muted); }
