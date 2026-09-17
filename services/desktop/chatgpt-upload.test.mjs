@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ChatGPTUploadCoordinator, chatGPTComposerPoint, chatGPTUploadReadyScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
+import { ChatGPTUploadCoordinator, chatGPTComposerPoint, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 
 const uploadURL = 'https://chatgpt.com/backend-api/files/process_upload_stream'
 
@@ -54,40 +54,6 @@ test('ChatGPT upload fails closed when the dedicated file input is unavailable',
   }
   await assert.rejects(() => selectChatGPTUploadFile({ debugger: debuggerClient }, '/tmp/request.zip'), /file input was not found/)
   assert.equal(attached, false)
-})
-
-test('ChatGPT upload readiness requires a composer-scoped file input on the usable composer', () => {
-  const script = chatGPTUploadReadyScript()
-  assert.doesNotThrow(() => new Function(script))
-  assert.match(script, /chooseUsableChatGPTDOMCandidate/)
-  assert.match(script, /closest\('\[data-composer-surface\]'\)/)
-  assert.match(script, /input#upload-files/)
-  assert.match(script, /aria-disabled/)
-  assert.doesNotMatch(script, /return Boolean\(composer\)/)
-})
-
-test('ChatGPT upload readiness ignores a stale composer and accepts the live scoped input', () => {
-  const staleRoot = { querySelector: () => ({ isConnected: true, disabled: false, getAttribute: () => null }) }
-  const liveInput = { isConnected: true, disabled: false, getAttribute: () => null }
-  const liveRoot = { querySelector: (selector) => selector === 'input#upload-files' ? liveInput : null }
-  const staleComposer = {
-    disabled: false,
-    hidden: false,
-    getAttribute: () => null,
-    closest: (selector) => selector.startsWith('[hidden]') ? {} : staleRoot,
-  }
-  const liveComposer = {
-    disabled: false,
-    hidden: false,
-    getAttribute: () => null,
-    closest: (selector) => selector === '[data-composer-surface]' ? liveRoot : null,
-  }
-  const document = { querySelectorAll: () => [staleComposer, liveComposer] }
-  const evaluate = new Function('document', 'getComputedStyle', `return ${chatGPTUploadReadyScript()}`)
-
-  assert.equal(evaluate(document, () => ({ display: 'block', visibility: 'visible' })), true)
-  liveRoot.querySelector = () => null
-  assert.equal(evaluate(document, () => ({ display: 'block', visibility: 'visible' })), false)
 })
 
 test('ChatGPT upload accepts the bounded general-file fallback when the stable id changes', async () => {

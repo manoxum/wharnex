@@ -1,25 +1,13 @@
 import path from 'node:path'
-import { chooseUsableChatGPTDOMCandidate } from './chatgpt-dom.mjs'
 
 const composerUploadInputExpression = `(() => {
-  const chooseUsable = ${chooseUsableChatGPTDOMCandidate.toString()};
-  const composerSelectors = ['#prompt-textarea', 'div[contenteditable="true"][data-testid*="composer"]', 'div[contenteditable="true"][role="textbox"]', 'textarea[placeholder]'];
-  const composer = chooseUsable(composerSelectors.flatMap((selector) => [...document.querySelectorAll(selector)]));
-  const roots = [...new Set([composer?.closest('[data-composer-surface]'), composer?.closest('form')].filter(Boolean))];
-  if (!roots.length) return null;
+  const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"][data-testid*="composer"], div[contenteditable="true"][role="textbox"], textarea[placeholder]');
+  const root = composer?.closest('[data-composer-surface]') || composer?.closest('form');
+  if (!root) return null;
   const selectors = ['input#upload-files', 'input[type="file"][data-testid*="upload" i]', 'input[type="file"][multiple]'];
-  for (const selector of selectors) {
-    for (const root of roots) {
-      const input = root.querySelector(selector);
-      if (input?.isConnected !== false && input?.disabled !== true && input?.getAttribute?.('aria-disabled') !== 'true') return input;
-    }
-  }
+  for (const selector of selectors) { const input = root.querySelector(selector); if (input) return input; }
   return null;
 })()`
-
-export function chatGPTUploadReadyScript() {
-  return `Boolean(${composerUploadInputExpression})`
-}
 
 function uploadRequestStage(details) {
   try {

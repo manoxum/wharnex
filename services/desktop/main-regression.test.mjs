@@ -1108,8 +1108,6 @@ test('ChatGPT request archive upload uses the dedicated file input instead of cl
   const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count)')
   const end = source.indexOf('\nasync function submitChatGPTDraft', start)
   const upload = source.slice(start, end)
-  assert.match(upload, /chatGPTUploadReadyScript\(\)/)
-  assert.match(upload, /composer upload input was not ready before upload/)
   assert.match(upload, /selectChatGPTUploadFile\(wc, filePath\)/)
   assert.doesNotMatch(upload, /clipboard\.write/)
   assert.doesNotMatch(upload, /wc\.paste\(\)/)

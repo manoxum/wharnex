@@ -4485,7 +4485,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .todo-badge.kind-error, .todo-badge.urgency-very_urgent, .todo-badge.classification-failed { border-color:color-mix(in srgb, var(--danger) 42%, var(--theme-border)); background:color-mix(in srgb, var(--danger) 11%, var(--theme-surface)); color:var(--danger); }
 .todo-badge.urgency-urgent { border-color:color-mix(in srgb, var(--warning) 42%, var(--theme-border)); background:color-mix(in srgb, var(--warning) 11%, var(--theme-surface)); color:var(--warning); }
 .todo-badge.classification-queued { border-color:color-mix(in srgb, var(--theme-text-muted) 36%, var(--theme-border)); }
-.project-todo-classification-error { margin:0; padding:7px 9px; border-left:2px solid var(--danger); color:var(--theme-text-muted); font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
 .todo-inline-action { min-height:22px; padding:0 4px; display:inline-flex; gap:4px; align-items:center; border:0; border-radius:6px; background:transparent; color:var(--theme-text-soft); font:inherit; font-size:9px; cursor:pointer; }
 .todo-inline-action:hover:not(:disabled) { background:var(--theme-hover); color:var(--theme-text); }
 .project-todo-worker-detail { display:grid; gap:9px; padding:10px; border:1px solid color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border)); border-radius:10px; background:color-mix(in srgb, var(--theme-accent-soft) 48%, var(--theme-surface)); }

@@ -60,21 +60,4 @@ describe('ProjectTodoPanel', () => {
     await waitFor(() => expect(mocks.createProjectTodo).toHaveBeenCalledWith('session-1', expect.objectContaining({ body: 'Nova ideia' })))
     await waitFor(() => expect(screen.queryByTestId('todo-composer')).toBeNull())
   })
-
-  it('presents a terminal classification failure as failed with its diagnostic', async () => {
-    mocks.projectTodos.mockResolvedValue({ todos: [{
-      ...classified,
-      classification_status: 'failed',
-      classification_error: 'ChatGPT did not start the file upload before timeout',
-      kind: undefined,
-      urgency: undefined,
-    }] })
-
-    render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
-
-    expect(await screen.findByText('Falha na análise')).toBeTruthy()
-    expect(screen.queryByText('Análise pendente')).toBeNull()
-    expect(screen.getByRole('status').textContent).toContain('did not start the file upload')
-    expect(screen.getByRole('button', { name: /Tentar novamente/ })).toBeTruthy()
-  })
 })
