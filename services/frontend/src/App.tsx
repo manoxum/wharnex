@@ -556,6 +556,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [embeddedProject, session?.id])
 
   useEffect(() => {
+    if (!embeddedProject) return
+    window.parent.postMessage({
+      type: 'wharness:project-runtime',
+      projectPath: embeddedProject,
+      selfEvolution: Boolean(session?.self_evolution),
+      instanceId: session?.wharnex_instance_id || '',
+    }, window.location.origin)
+  }, [embeddedProject, session?.self_evolution, session?.wharnex_instance_id])
+
+  useEffect(() => {
     if (!embeddedProject || !session?.id) return
     const handler = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.data?.type !== 'wharness:refresh-session') return

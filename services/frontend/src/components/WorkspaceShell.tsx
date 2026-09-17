@@ -17,6 +17,7 @@ import { ProjectLinkModal } from './ProjectLinkModal'
 type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
 type OpenProjectWindow = { windowId: string; projectPath: string; focused: boolean }
 type ProjectWindowSnapshot = { currentWindowId: string; items: OpenProjectWindow[] }
+type ProjectRuntimeState = { selfEvolution: boolean; instanceId: string }
 
 const MAX_BOUND_PROJECTS = 12
 export function WorkspaceShell() {
@@ -25,6 +26,7 @@ export function WorkspaceShell() {
   const [activeProject, setActiveProject] = useState('')
   const [projectModes, setProjectModes] = useState<Record<string, WorkspaceMode>>({})
   const [projectSessions, setProjectSessions] = useState<Record<string, string>>({})
+  const [projectRuntime, setProjectRuntime] = useState<Record<string, ProjectRuntimeState>>({})
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [busy, setBusy] = useState(true)
   const [initialized, setInitialized] = useState(false)
@@ -76,6 +78,19 @@ export function WorkspaceShell() {
         const sessionID = String(event.data.sessionId || '')
         const frame = frames.current.get(projectPath)
         if (projectPath && frame?.contentWindow === event.source) setProjectSessions((current) => ({ ...current, [projectPath]: sessionID }))
+      }
+      if (event.data?.type === 'wharness:project-runtime') {
+        const projectPath = String(event.data.projectPath || '')
+        const frame = frames.current.get(projectPath)
+        if (projectPath && frame?.contentWindow === event.source) {
+          setProjectRuntime((current) => ({
+            ...current,
+            [projectPath]: {
+              selfEvolution: Boolean(event.data.selfEvolution),
+              instanceId: String(event.data.instanceId || ''),
+            },
+          }))
+        }
       }
       if (event.data?.type === 'wharness:unbind-project') {
         const projectPath = String(event.data.projectPath || '')
@@ -146,6 +161,7 @@ export function WorkspaceShell() {
       const next = projects.filter((item) => item !== projectPath)
       frames.current.delete(projectPath)
       setProjectSessions((current) => { const nextSessions = { ...current }; delete nextSessions[projectPath]; return nextSessions })
+      setProjectRuntime((current) => { const nextRuntime = { ...current }; delete nextRuntime[projectPath]; return nextRuntime })
       setProjects(next)
       if (activeProject === projectPath) setActiveProject(next[0] || '')
     } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
@@ -185,7 +201,7 @@ export function WorkspaceShell() {
     } catch (reason) { setError(messageOf(reason)); setBusy(false); return false }
   }
 
-  const chrome = <ShellChrome projects={projects} activeProject={activeProject} activeSessionID={projectSessions[activeProject] || ''} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
+  const chrome = <ShellChrome projects={projects} activeProject={activeProject} activeSessionID={projectSessions[activeProject] || ''} activeRuntime={projectRuntime[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
   const linkModal = linkModalOpen ? <ProjectLinkModal recent={recent} boundProjects={projects} busy={busy} error={error} onOpen={bindProject} onBrowse={chooseAndBind} onCreate={createProject} onClone={cloneProject} onClose={() => setLinkModalOpen(false)} /> : null
 
   if (!projects.length) return <div className="desktop-shell-root">
@@ -211,8 +227,8 @@ export function WorkspaceShell() {
   </main>
 }
 
-export function ShellChrome({ projects, activeProject, activeSessionID, mode, busy, onActivate, onMode, onGitSync, onSettings, onUnbind, onBind, onBindPath, onNewWindow }: {
-  projects: string[]; activeProject: string; activeSessionID?: string; busy: boolean
+export function ShellChrome({ projects, activeProject, activeSessionID, activeRuntime, mode, busy, onActivate, onMode, onGitSync, onSettings, onUnbind, onBind, onBindPath, onNewWindow }: {
+  projects: string[]; activeProject: string; activeSessionID?: string; activeRuntime?: ProjectRuntimeState; busy: boolean
   mode: WorkspaceMode
   onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onGitSync?: () => void; onSettings: () => void; onUnbind: (projectPath: string) => void; onBind: () => void; onBindPath: (projectPath: string) => void; onNewWindow: () => void
 }) {
@@ -286,6 +302,7 @@ export function ShellChrome({ projects, activeProject, activeSessionID, mode, bu
       {activeProject && <button type="button" disabled={busy} onClick={() => onUnbind(activeProject)} aria-label="Desvincular projeto" title="Desvincular projeto desta janela"><Icon name="close" size={14}/></button>}
     </div>
     {!useNativeWindowControls && <div className="window-chrome-controls" role="group" aria-label="Controlos da janela">
+      {(activeRuntime?.selfEvolution || activeRuntime?.instanceId) && <span className="window-runtime-badge self-evolution-badge"><Icon name="refresh" size={12}/>{activeRuntime.selfEvolution ? ' WHX · AUTO-EVOLUÇÃO' : ` WHX · EVOLUÇÃO DA INSTÂNCIA ${activeRuntime.instanceId}`}</span>}
       <button type="button" className="window-chrome-button minimize" onClick={() => void desktopBridge()?.windows.minimize()} aria-label="Minimizar janela" title="Minimizar"><span aria-hidden="true"/></button>
       <button type="button" className="window-chrome-button maximize" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label="Maximizar ou restaurar janela" title="Maximizar / restaurar"><span aria-hidden="true"/></button>
       <button type="button" className="window-chrome-button close" onClick={() => void desktopBridge()?.windows.close()} aria-label="Fechar janela" title="Fechar"><span aria-hidden="true"/></button>

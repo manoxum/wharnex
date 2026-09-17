@@ -296,28 +296,22 @@ describe('multi-project shell CSS', () => {
 })
 
 describe('split Agent layout CSS', () => {
-  it('uses a persistent resizable chat/inspector split with a shared chat strip', () => {
-    const splitLayout = css.slice(css.lastIndexOf('/* v1.2.42'))
-    // The chat keeps 60% of the usable width and the inspector 40%; the rail
-    // and the side drawer are the shell's columns, not this grid's.
-    expect(splitLayout).toContain('--agent-chat-width: calc((100% - 6px) * 0.6)')
-    expect(splitLayout).toContain('grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr)')
-    expect(splitLayout).toContain('grid-template-rows: 42px 42px minmax(0, 1fr)')
-    expect(splitLayout).toContain('grid-template-columns: minmax(0, 1fr) auto auto auto')
-    expect(splitLayout).toContain('.agent-direct-chatgpt-tab { grid-column: 4')
-    expect(splitLayout).toContain('.agent-command-actions { grid-column: 2')
-    expect(splitLayout).toContain('.agent-surface-tabs { grid-column: 3')
-    expect(splitLayout).toContain('grid-template-columns: repeat(4, 42px)')
-    expect(splitLayout).toContain('justify-self: end')
-    expect(splitLayout).toContain('.agent-commandbar-center { position: absolute; inset: 0')
-    expect(splitLayout).toContain('place-items: center')
-    expect(splitLayout).toContain('pointer-events: none')
-    expect(splitLayout).toContain('.agent-chat-switcher { grid-column: 1 / -1')
-    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1; padding-left: 0')
-    expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 3')
-    expect(splitLayout).toContain('.agent-splitter { grid-column: 2')
-    expect(splitLayout).toContain('cursor: col-resize')
-    expect(splitLayout).toContain('.agent-drawer { grid-column: 2; grid-row: 3; position: relative')
+  it('keeps the resizable split while moving Agent shortcuts into a dedicated right rail', () => {
+    const splitLayout = css.slice(css.lastIndexOf('/* v1.2.47'))
+    expect(splitLayout).toContain('--agent-tools-width: 42px')
+    expect(splitLayout).toContain('--agent-chat-width: calc((100% - 48px) * 0.6)')
+    expect(splitLayout).toContain('grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr) var(--agent-tools-width)')
+    expect(splitLayout).toContain('grid-template-rows: 42px minmax(0, 1fr)')
+    expect(splitLayout).toContain('.agent-commandbar {')
+    expect(splitLayout).toContain('grid-column: 4')
+    expect(splitLayout).toContain('grid-row: 1 / 3')
+    expect(splitLayout).toContain('flex-direction: column')
+    expect(splitLayout).toContain('.agent-chat-switcher { grid-column: 1 / 4; grid-row: 1; }')
+    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1; grid-row: 2; }')
+    expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 3; grid-row: 2; }')
+    expect(splitLayout).toContain('.agent-splitter { grid-column: 2; grid-row: 2; }')
+    expect(splitLayout).toContain('.agent-commandbar .agent-attention-popover { right: calc(100% + 8px); top: 0; }')
+    expect(splitLayout).toContain('grid-template-rows: repeat(4, 42px)')
     expect(lastRule('.topbar-indicator')).toContain('width: 27px')
   })
 })
@@ -387,6 +381,18 @@ describe('Git workbench CSS', () => {
     expect(tabs).toContain('background: var(--theme-surface)')
     expect(tabs).not.toContain('#1b1e19')
     expect(section).not.toContain('#1a1d18')
+  })
+
+  it('keeps Git tabs fully visible and increases the working-copy reading density', () => {
+    const tabs = lastRule('.git-tabs')
+    const changeTabs = lastRule('.git-changes-tabs')
+    const pendingCommit = lastRule('.git-unpushed-list li')
+    expect(tabs).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
+    expect(tabs).toContain('overflow: visible')
+    expect(changeTabs).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(changeTabs).toContain('overflow: visible')
+    expect(pendingCommit).toContain('min-height: 52px')
+    expect(lastRule('.agent-tree-row')).toContain('height: 30px')
   })
 
   it('gives Git mutations a modal processing surface with visible progress', () => {

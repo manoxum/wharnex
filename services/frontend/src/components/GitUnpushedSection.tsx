@@ -114,7 +114,7 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
               </span>
             </button>
           </div>
-          <button type="button" className="git-action small" disabled={blocked} onClick={() => void openDetail(commit.sha)}><Icon name="file" size={12}/> Detalhes</button>
+          <button type="button" className="git-action small" disabled={blocked} onClick={() => void openDetail(commit.sha)}><Icon name="file" size={12}/> Ver alterações</button>
         </li>)}
       </ul>
     </>}

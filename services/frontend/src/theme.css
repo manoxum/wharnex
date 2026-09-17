@@ -1640,3 +1640,29 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .theme-preview-jetbrains-light { border-color:#d8dbe0; background:#fff; color:#3574f0; }
 .theme-preview-vscode-dark { border-color:#3c3c3c; background:#1e1e1e; color:#4daafc; }
 .theme-preview-vscode-light { border-color:#d4d4d4; background:#fff; color:#007acc; }
+
+
+/* v1.2.47 — keep the right-side Agent rail and title-bar actions theme-neutral. */
+:root[data-theme='light'] .agent-direct-chatgpt-tab button.active,
+:root[data-theme='light'] .agent-surface-tabs button.active,
+:root[data-theme='dark'] .agent-direct-chatgpt-tab button.active,
+:root[data-theme='dark'] .agent-surface-tabs button.active {
+  border-left-color: var(--theme-accent);
+  border-bottom-color: transparent;
+}
+:root[data-theme='dark'] .multi-project-actions > button,
+:root[data-theme='dark'] .multi-project-actions > .quick-switcher > .quick-switcher-trigger,
+:root[data-theme='dark'] .multi-project-actions > .project-actions-menu > .project-actions-trigger {
+  border-color: transparent;
+  background: transparent;
+}
+:root[data-theme='dark'] .window-chrome-controls { background: transparent; }
+@media (max-width: 820px) {
+  :root[data-theme='light'] .agent-direct-chatgpt-tab button.active,
+  :root[data-theme='light'] .agent-surface-tabs button.active,
+  :root[data-theme='dark'] .agent-direct-chatgpt-tab button.active,
+  :root[data-theme='dark'] .agent-surface-tabs button.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--theme-accent);
+  }
+}
