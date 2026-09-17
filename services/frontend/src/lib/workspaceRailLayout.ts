@@ -2,19 +2,24 @@ export type WorkspaceRailSide = 'left' | 'right'
 export type WorkspaceTool = 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'plans' | 'executions' | 'fifo' | 'evolution' | 'terminal' | 'database'
 export type WorkspaceRailLayout = Record<WorkspaceRailSide, WorkspaceTool[]>
 
-const STORAGE_KEY = 'whx.workspace.rail-layout.v2'
-const LEGACY_STORAGE_KEY = 'whx.workspace.rail-layout.v1'
+const STORAGE_KEY = 'whx.workspace.rail-layout.v3'
+const LEGACY_STORAGE_KEYS = ['whx.workspace.rail-layout.v2', 'whx.workspace.rail-layout.v1']
 const ALL_TOOLS: WorkspaceTool[] = ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal', 'database']
 
 export const DEFAULT_WORKSPACE_RAIL_LAYOUT: WorkspaceRailLayout = {
-  left: ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal'],
-  right: ['database'],
+  left: ['archive', 'todo', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal'],
+  right: ['project', 'database'],
 }
 
 export function loadWorkspaceRailLayout(scope = ''): WorkspaceRailLayout {
   try {
-    const raw = localStorage.getItem(storageKey(scope)) || localStorage.getItem(LEGACY_STORAGE_KEY)
-    return raw ? normalizeWorkspaceRailLayout(JSON.parse(raw) as Partial<WorkspaceRailLayout>) : cloneDefault()
+    const current = localStorage.getItem(storageKey(scope))
+    if (current) return normalizeWorkspaceRailLayout(JSON.parse(current) as Partial<WorkspaceRailLayout>)
+    for (const key of LEGACY_STORAGE_KEYS) {
+      const raw = localStorage.getItem(scope && key.endsWith('.v2') ? `${key}:${scope}` : key)
+      if (raw) return migrateLegacyLayout(JSON.parse(raw) as Partial<WorkspaceRailLayout>)
+    }
+    return cloneDefault()
   } catch { return cloneDefault() }
 }
 
@@ -47,6 +52,13 @@ export function normalizeWorkspaceRailLayout(value: Partial<WorkspaceRailLayout>
   const right = normalizeSide(value.right)
   for (const tool of ALL_TOOLS) if (!seen.has(tool)) (DEFAULT_WORKSPACE_RAIL_LAYOUT.right.includes(tool) ? right : left).push(tool)
   return { left, right }
+}
+
+function migrateLegacyLayout(value: Partial<WorkspaceRailLayout>) {
+  const normalized = normalizeWorkspaceRailLayout(value)
+  normalized.left = normalized.left.filter((tool) => tool !== 'project')
+  normalized.right = ['project', ...normalized.right.filter((tool) => tool !== 'project')]
+  return normalized
 }
 
 function storageKey(scope: string) { return scope ? `${STORAGE_KEY}:${scope}` : STORAGE_KEY }

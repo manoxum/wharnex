@@ -4597,3 +4597,75 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .workbench-status-bar { gap: 7px; }
   .workbench-status-bar span:nth-child(n+4) { display: none; }
 }
+
+/* Premium configurable workbench refinements ----------------------------- */
+.editor-workspace { grid-template-columns:minmax(0,1fr); }
+.editor-main { min-width:0; }
+.editor-empty { background:var(--theme-bg); }
+
+.file-glyph { width:15px; height:15px; flex:0 0 15px; display:inline-grid; place-items:center; color:var(--theme-text-muted); }
+.file-glyph-env { color:#c59b38; }
+.file-glyph-docker { color:#2496ed; }
+.file-glyph-package, .file-glyph-json { color:#c8a650; }
+.file-glyph-typescript { color:#4f9cf9; }
+.file-glyph-javascript { color:#d8bc42; }
+.file-glyph-style { color:#b477db; }
+.file-glyph-markup { color:#e47854; }
+.file-glyph-markdown { color:#64a8d8; }
+.file-glyph-config { color:#8aa08a; }
+.file-glyph-shell { color:#7ab66f; }
+.file-glyph-php { color:#8c91c8; }
+.file-glyph-go { color:#4cb9ca; }
+.file-glyph-python { color:#d7ae45; }
+.file-glyph-database { color:#69a5d8; }
+
+.agent-project-explorer .agent-project-toolbar { display:flex; align-items:center; gap:3px; padding:5px 7px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-surface); }
+.agent-project-explorer .agent-project-toolbar button { width:27px; height:27px; display:grid; place-items:center; border:0; border-radius:4px; background:transparent; color:var(--theme-text-muted); cursor:pointer; }
+.agent-project-explorer .agent-project-toolbar button:hover { background:var(--theme-hover); color:var(--theme-text); }
+.agent-tree-row.selected-node { background:var(--theme-accent-soft); color:var(--theme-text); }
+.agent-explorer-selection { min-height:29px; padding:4px 7px 4px 9px; display:flex; align-items:center; justify-content:space-between; gap:8px; border-top:1px solid var(--theme-border-soft); border-bottom:1px solid var(--theme-border-soft); background:var(--theme-muted); color:var(--theme-text-muted); }
+.agent-explorer-selection > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:calc(7px * var(--ui-font-scale))/1.2 var(--mono-font-family); }
+.agent-explorer-selection > div { display:flex; align-items:center; gap:2px; }
+.agent-explorer-selection button { width:24px; height:24px; display:grid; place-items:center; border:0; border-radius:4px; background:transparent; color:var(--theme-text-muted); cursor:pointer; }
+.agent-explorer-selection button:hover { background:var(--theme-hover); color:var(--theme-text); }
+.agent-explorer-selection button.danger:hover { color:var(--danger); }
+.agent-explorer-context-menu { z-index:14000; }
+
+.accent-settings { margin:9px 0; display:grid; gap:6px; }
+.accent-settings > span { color:var(--theme-text-muted); font-size:calc(7px * var(--ui-font-scale)); font-weight:750; letter-spacing:.06em; text-transform:uppercase; }
+.accent-settings > div, .quick-switcher-accents { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:4px; }
+.accent-choice { min-width:0; min-height:34px; padding:4px; display:flex; align-items:center; justify-content:center; gap:5px; border:1px solid var(--theme-border); border-radius:5px; background:var(--theme-muted); color:var(--theme-text-muted); cursor:pointer; font-size:calc(6.5px * var(--ui-font-scale)); }
+.accent-choice:hover { background:var(--theme-hover); color:var(--theme-text); }
+.accent-choice.active { border-color:var(--theme-accent); background:var(--theme-accent-soft); color:var(--theme-text); }
+.accent-choice i { width:9px; height:9px; flex:0 0 9px; border-radius:50%; background:var(--theme-accent); box-shadow:0 0 0 1px color-mix(in srgb,var(--theme-text) 18%,transparent); }
+.accent-brand i { background:linear-gradient(135deg,#a8d66d 0 50%,#3574f0 50%); }
+.accent-blue i { background:#3574f0; } .accent-violet i { background:#8b5cf6; } .accent-orange i { background:#d97706; }
+.accent-rose i { background:#e05278; } .accent-cyan i { background:#169ab5; }
+.workbench-appearance-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+
+/* Floating tool windows leave the editor/workspace dominant and use native
+ * two-axis resize, matching familiar IDE floating panels without extra state. */
+:root[data-tool-window='floating'] .workspace-body { position:relative; }
+:root[data-tool-window='floating'] .workspace-body > .agent-drawer { position:absolute; z-index:80; top:10px; bottom:auto; width:var(--workspace-drawer-width,390px); height:min(72vh,720px); max-width:min(70vw,920px); max-height:calc(100% - 54px); min-width:280px; min-height:220px; resize:both; overflow:auto; border:1px solid var(--theme-border); border-radius:7px; box-shadow:0 18px 54px var(--theme-shadow); }
+:root[data-tool-window='floating'] .workspace-body > .workspace-side-drawer-left { left:50px; right:auto; }
+:root[data-tool-window='floating'] .workspace-body > .workspace-side-drawer-right { left:auto; right:50px; }
+:root[data-tool-window='floating'] .workspace-body > .agent-drawer > * { min-height:100%; }
+:root[data-tool-window='floating'] .workspace-body > .agent-drawer-splitter { display:none; }
+:root[data-tool-window='floating'] .workspace-mode-stack { flex:1 1 auto; min-width:0; }
+
+/* Tool rails can live in the two lower corners like compact IDE tool-window
+ * bars. They remain draggable, while drawers keep the chosen dock/float mode. */
+:root[data-tool-rail='bottom'] .workspace-body { position:relative; padding-bottom:42px; }
+:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail { position:absolute; z-index:90; bottom:5px; width:auto; max-width:calc(50% - 12px); height:34px; flex:0 0 auto; padding:2px 3px; flex-direction:row; align-items:center; gap:2px; overflow-x:auto; overflow-y:hidden; border:1px solid var(--theme-border); border-radius:6px; background:color-mix(in srgb,var(--theme-surface) 94%,transparent); box-shadow:0 6px 22px var(--theme-shadow); scrollbar-width:none; }
+:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail::-webkit-scrollbar { display:none; }
+:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail-left { left:6px; right:auto; }
+:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail-right { right:6px; left:auto; border-left:1px solid var(--theme-border); }
+:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail button { width:30px; height:28px; flex:0 0 30px; }
+:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail button::before { left:5px; right:5px; top:auto; bottom:-3px; width:auto; height:2px; }
+:root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail .workspace-rail-terminal { margin-top:0; }
+
+@media (max-width:900px) {
+  .accent-settings > div, .quick-switcher-accents { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .workbench-appearance-grid { grid-template-columns:1fr; }
+  :root[data-tool-window='floating'] .workspace-body > .agent-drawer { position:absolute; left:44px; right:44px; width:auto; max-width:none; resize:both; box-shadow:0 18px 54px var(--theme-shadow); }
+}

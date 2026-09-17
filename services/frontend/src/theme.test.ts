@@ -101,9 +101,23 @@ describe('complete colour themes', () => {
 
 
 describe('workbench theme registry', () => {
-  it('declares a high contrast UI theme using the shared semantic tokens', () => {
+  it('declares IDE families and high contrast using shared semantic tokens', () => {
+    expect(theme).toContain(":root[data-ui-theme='jetbrains-darcula']")
+    expect(theme).toContain(":root[data-ui-theme='jetbrains-light']")
+    expect(theme).toContain(":root[data-ui-theme='vscode-dark']")
+    expect(theme).toContain(":root[data-ui-theme='vscode-light']")
     expect(theme).toContain(":root[data-ui-theme='high-contrast']")
     expect(theme).toContain('--theme-accent: #d7ff76')
-    expect(theme).toContain(".theme-preview-original")
+    expect(theme).toContain('.theme-preview-original')
+    expect(theme).toContain('.theme-preview-jetbrains-darcula')
+    expect(theme).toContain('.theme-preview-vscode-dark')
+  })
+
+  it('keeps accent colors independent from the selected IDE family', () => {
+    expect(theme).toContain("[data-ui-accent='blue']")
+    expect(theme).toContain("[data-ui-accent='violet']")
+    expect(theme).toContain("[data-ui-accent='orange']")
+    expect(theme).toContain("[data-ui-accent='rose']")
+    expect(theme).toContain("[data-ui-accent='cyan']")
   })
 })

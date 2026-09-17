@@ -4,22 +4,20 @@ import { DEFAULT_WORKSPACE_RAIL_LAYOUT, loadWorkspaceRailLayout, moveWorkspaceTo
 describe('workspaceRailLayout', () => {
   beforeEach(() => localStorage.clear())
 
-  it('persists the per-user rail order and moves tools across sides', () => {
+  it('puts the canonical project explorer on the right rail and persists custom movement', () => {
+    expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.right).toEqual(['project', 'database'])
     const moved = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'library', 'right', 'database')
-    const reordered = moveWorkspaceTool(moved, 'git', 'left', 'project')
+    const reordered = moveWorkspaceTool(moved, 'git', 'left', 'todo')
     saveWorkspaceRailLayout(reordered)
-    expect(loadWorkspaceRailLayout().right).toEqual(['library', 'database'])
-    expect(loadWorkspaceRailLayout().left.slice(0, 4)).toEqual(['archive', 'todo', 'git', 'project'])
+    expect(loadWorkspaceRailLayout().right).toEqual(['project', 'library', 'database'])
+    expect(loadWorkspaceRailLayout().left.slice(0, 3)).toEqual(['archive', 'git', 'todo'])
   })
 
-  it('keeps rail layouts isolated per project scope while migrating the legacy layout', () => {
-    localStorage.setItem('whx.workspace.rail-layout.v1', JSON.stringify({ left: ['database'], right: [] }))
-    expect(loadWorkspaceRailLayout('/projects/a').left[0]).toBe('database')
-
-    const moved = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'database', 'left')
-    saveWorkspaceRailLayout(moved, '/projects/a')
-    expect(loadWorkspaceRailLayout('/projects/a').left.includes('database')).toBe(true)
-    expect(loadWorkspaceRailLayout('/projects/b').left[0]).toBe('database')
+  it('migrates v2 layouts by moving only the project explorer to the right', () => {
+    localStorage.setItem('whx.workspace.rail-layout.v2:/projects/a', JSON.stringify({ left: ['database', 'project', 'git'], right: ['library'] }))
+    const migrated = loadWorkspaceRailLayout('/projects/a')
+    expect(migrated.right.slice(0, 2)).toEqual(['project', 'library'])
+    expect(migrated.left.slice(0, 2)).toEqual(['database', 'git'])
   })
 
   it('keeps the order stable when a tool is dropped on itself', () => {
@@ -28,9 +26,10 @@ describe('workspaceRailLayout', () => {
   })
 
   it('repairs incomplete or duplicated stored layouts without losing tools', () => {
-    localStorage.setItem('whx.workspace.rail-layout.v1', JSON.stringify({ left: ['library', 'library'], right: [] }))
+    localStorage.setItem('whx.workspace.rail-layout.v3', JSON.stringify({ left: ['library', 'library'], right: [] }))
     const layout = loadWorkspaceRailLayout()
     expect(layout.left.filter((item) => item === 'library')).toHaveLength(1)
+    expect(layout.right).toContain('project')
     expect(layout.right).toContain('database')
     expect(new Set([...layout.left, ...layout.right]).size).toBe(14)
   })

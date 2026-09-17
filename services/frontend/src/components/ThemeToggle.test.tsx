@@ -11,24 +11,22 @@ describe('theme controls', () => {
     document.documentElement.removeAttribute('data-ui-theme')
   })
 
-  it('switches to the opposite resolved theme and persists the explicit choice', () => {
-    saveUIPreferences({ uiFont: 'elegant', monoFont: 'jetbrains', scale: 1, theme: 'light', errorPopups: true })
+  it('switches within the active IDE family and persists the explicit preset', () => {
+    saveUIPreferences({ uiFont: 'elegant', monoFont: 'jetbrains', scale: 1, theme: 'jetbrains-light', errorPopups: true })
     render(<ThemeToggle compact />)
-
     fireEvent.click(screen.getByRole('button', { name: 'Ativar tema escuro' }))
-
     expect(document.documentElement.dataset.theme).toBe('dark')
-    expect(document.documentElement.dataset.themePreference).toBe('dark')
+    expect(document.documentElement.dataset.themePreference).toBe('jetbrains-darcula')
     expect(screen.getByRole('button', { name: 'Ativar tema claro' })).toBeTruthy()
   })
 
-  it('offers Original, dark, light and high-contrast preferences accessibly', () => {
-    let selected = 'light'
+  it('offers Wharnex, JetBrains, VS Code and accessibility presets accessibly', () => {
+    let selected = 'original'
     const { rerender } = render(<ThemePreferenceControl value="original" onChange={(theme) => { selected = theme }} />)
-    expect(screen.getByRole('radio', { name: /Original/ }).getAttribute('aria-checked')).toBe('true')
-    fireEvent.click(screen.getByRole('radio', { name: /Alto contraste/ }))
-    expect(selected).toBe('high-contrast')
-    rerender(<ThemePreferenceControl value="dark" onChange={(theme) => { selected = theme }} />)
-    expect(screen.getByRole('radio', { name: /Escuro/ }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: 'Wharnex Original' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(screen.getByRole('radio', { name: 'VS Code Dark+' }))
+    expect(selected).toBe('vscode-dark')
+    rerender(<ThemePreferenceControl value="jetbrains-darcula" onChange={(theme) => { selected = theme }} />)
+    expect(screen.getByRole('radio', { name: 'JetBrains Darcula' }).getAttribute('aria-checked')).toBe('true')
   })
 })

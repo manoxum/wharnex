@@ -338,6 +338,23 @@ describe('configurable workbench CSS', () => {
     expect(css).toContain('.workbench-status-bar { height: 24px; flex: 0 0 24px;')
     expect(compactRail).toContain('width: 36px')
   })
+
+  it('supports floating resizable tool windows and bottom-corner tool rails', () => {
+    const floating = lastRule(":root[data-tool-window='floating'] .workspace-body > .agent-drawer")
+    const bottomRail = lastRule(":root[data-tool-rail='bottom'] .workspace-body > .workspace-side-rail")
+    expect(floating).toContain('position:absolute')
+    expect(floating).toContain('resize:both')
+    expect(floating).toContain('box-shadow:0 18px 54px var(--theme-shadow)')
+    expect(bottomRail).toContain('position:absolute')
+    expect(bottomRail).toContain('flex-direction:row')
+    expect(bottomRail).toContain('overflow-x:auto')
+  })
+
+  it('keeps the editor single-pane and gives project files semantic glyph colors', () => {
+    expect(lastRule('.editor-workspace')).toContain('grid-template-columns:minmax(0,1fr)')
+    expect(lastRule('.file-glyph-env')).toContain('color:#c59b38')
+    expect(lastRule('.file-glyph-typescript')).toContain('color:#4f9cf9')
+  })
 })
 
 describe('Git workbench CSS', () => {
