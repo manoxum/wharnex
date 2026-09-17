@@ -23,11 +23,11 @@ export type DirectivePopoverAnchor = { left: number; top: number; bottom: number
  * instead (see `ChatPanel.editDirective`), so this popover only relabels the
  * same action rather than duplicating that panel here.
  */
-export function ComposerDirectiveConfigPopover({ directive, anchor, referenceAttached, attachmentAvailable, onEdit, onRemove, onClose }: {
+export function ComposerDirectiveConfigPopover({ directive, anchor, referenceAttached, seeTargetAvailable, onEdit, onRemove, onClose }: {
   directive: ComposerDirective
   anchor: DirectivePopoverAnchor
   referenceAttached?: (projectName: string) => boolean
-  attachmentAvailable?: (name: string) => boolean
+  seeTargetAvailable?: (directive: ComposerDirective) => boolean
   onEdit: (directive: ComposerDirective) => void
   onRemove: (directive: ComposerDirective) => void
   onClose: () => void
@@ -55,7 +55,7 @@ export function ComposerDirectiveConfigPopover({ directive, anchor, referenceAtt
 
   const rules = directive.rules
   const ruleCount = (rules?.include.length || 0) + (rules?.exclude.length || 0)
-  const seeFound = directive.kind === 'see' ? attachmentAvailable?.(directive.path) : undefined
+  const seeFound = directive.kind === 'see' ? seeTargetAvailable?.(directive) : undefined
   const style = placement === 'below'
     ? { left: anchor.left, top: anchor.bottom + 6 }
     : { left: anchor.left, bottom: window.innerHeight - anchor.top + 6 }
@@ -76,7 +76,7 @@ export function ComposerDirectiveConfigPopover({ directive, anchor, referenceAtt
         </>
         : <span>{directive.path || directive.value}</span>}
       {directive.kind === 'attach' && <span>{rules?.autoExclude === false ? 'Reconhecimento automático desligado' : 'Reconhecimento automático ligado'}{ruleCount ? ` · ${ruleCount} regra(s)` : ''}</span>}
-      {directive.kind === 'see' && <span>{seeFound === false ? 'Não encontrado entre os anexos atuais — foi removido?' : 'Encontrado entre os anexos atuais'}</span>}
+      {directive.kind === 'see' && <span>{seeFound === false ? 'Não encontrado no contexto atual — foi removido?' : 'Encontrado no contexto atual'}</span>}
     </div>
     <div className="composer-directive-popover-actions">
       <button type="button" onClick={() => { onEdit(directive); onClose() }}>

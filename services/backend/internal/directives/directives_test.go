@@ -157,6 +157,19 @@ func TestParseAcceptsSeeAndLookAsTheSameKind(t *testing.T) {
 	}
 }
 
+func TestSeeQualifiedPathsAlsoRepresentDirectories(t *testing.T) {
+	for input, wantPath := range map[string]string{
+		"@{[see]project|src}":                      "src",
+		"@{[see]ref|flowcore|services/api}":        "services/api",
+		"@{[see]attach|/srv/contracts|openapi/v1}": "openapi/v1",
+	} {
+		parsed := Parse(input)
+		if len(parsed) != 1 || parsed[0].Kind != KindSee || parsed[0].Path != wantPath {
+			t.Fatalf("%q parsed=%#v", input, parsed)
+		}
+	}
+}
+
 func TestSeeRequiresQualifiedContextPaths(t *testing.T) {
 	for _, text := range []string{"@see:../secrets.txt", "@see:dir/file.png", "@see:a\\b"} {
 		if parsed := Parse(text); len(parsed) != 0 {
