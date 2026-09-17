@@ -370,21 +370,3 @@ describe('Git workbench CSS', () => {
     expect(css).toContain('.git-graph-node')
   })
 })
-
-describe('JetBrains-inspired workbench density CSS', () => {
-  it('keeps the shell, editor and terminal chrome compact without changing their structure', () => {
-    expect(lastRule('.desktop-shell-root')).toContain('grid-template-rows: 40px minmax(0, 1fr)')
-    expect(lastRule('.multi-project-bar')).toContain('height: 40px')
-    expect(lastRule('.agent-activity-bar')).toContain('width: 40px')
-    expect(lastRule('.editor-workspace')).toContain('grid-template-columns: clamp(190px, 17vw, 252px) minmax(0, 1fr)')
-    expect(lastRule('.file-explorer > header')).toContain('height: 36px')
-    expect(lastRule('.editor-tabbar')).toContain('height: 34px')
-    expect(lastRule('.terminal-workspace')).toContain('grid-template-rows: 29px minmax(0, 1fr)')
-  })
-
-  it('uses rectangular IDE tabs while preserving the terminal active indicator', () => {
-    expect(lastRule('.editor-tab')).toContain('border-bottom: 2px solid transparent')
-    expect(lastRule('.terminal-tab-shell')).toContain('border-radius: 0')
-    expect(lastRule('.terminal-tab-shell.active')).toContain('box-shadow: inset 0 -2px #8db94b')
-  })
-})

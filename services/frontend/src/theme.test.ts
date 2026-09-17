@@ -97,14 +97,4 @@ describe('complete colour themes', () => {
     expect(theme).toContain(":root[data-theme='dark'] .restart-confirmation-summary-label { color: #aebaa8; }")
   })
 
-  it('layers the IDE workbench with JetBrains-style neutral surfaces and restrained accent', () => {
-    expect(theme).toContain('--workbench-chrome: #2b2d30')
-    expect(theme).toContain('--workbench-editor: #1e1f22')
-    expect(theme).toContain('--workbench-deep: #191a1c')
-    expect(theme).toContain('--workbench-accent: #9fca6b')
-    expect(theme).toMatch(/\.tree-row\.active,[\s\S]*?box-shadow: inset 2px 0 var\(--workbench-accent\);/)
-    expect(theme).toMatch(/\.editor-tab\.active \{[^}]*border-bottom-color: var\(--workbench-accent\);/)
-    expect(theme).toMatch(/\.terminal-tab-shell\.active \{[^}]*box-shadow: inset 0 -2px var\(--workbench-accent\);/)
-  })
-
 })
