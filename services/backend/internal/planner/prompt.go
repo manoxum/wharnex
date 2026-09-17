@@ -337,6 +337,11 @@ The user explicitly approved the plan from the parent request in this same Main 
 The user explicitly requested a correction to the plan from the parent request in this same Main Request. This turn is planning-only: revise the proposal using the supplied correction guidance, preserve unaffected scope, and return kind=plan with turn.json + README.md only, with NO plan.json and NO patches/. Do NOT implement or mutate anything yet. The corrected proposal supersedes the parent proposal and requires a fresh user approval before implementation.
 
 `
+	} else if planningMode == "adjust_plan" {
+		header += `REQUEST STRATEGY: ADJUST_PLAN
+The user explicitly requested an adjustment to the unexecuted executable plan from the parent request in this same Main Request. This is not a failure correction and not a planning-only plan correction. Use the operator's full composer prompt, inline directives, attachments, requests/main.md, requests/adjustment.md and the prior response bundles to produce a fresh executable result that supersedes the parent plan. Preserve unaffected intent, never execute the old plan, and return the revised implementation as a normal change bundle with a complete plan/patch set. If the requested adjustment cannot safely become an executable change, return an appropriate terminal blocked or clarification result rather than kind=plan.
+
+`
 	} else {
 		header += `REQUEST STRATEGY: DIRECT
 For explicit CHANGE requests, implement the requested change in this turn and include the required ## TODO checklist in turn.message. If the user's words explicitly ask you to elaborate, propose, draft or present an implementation plan for approval before changing anything, detect that intent even when the UI Plan-first toggle is off: return kind=plan with no plan.json or patches and wait for the linked approval continuation.

@@ -276,6 +276,8 @@ const CONTINUATION_PATHS = new Set([
   'context-delta/delta.json',
   'context-delta/delta.patch',
   'conflict/capsule.json',
+  'requests/main.md',
+  'requests/adjustment.md',
   'responses/index.json',
 ])
 const MAX_CONTINUATION_BYTES = 1 << 20

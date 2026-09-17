@@ -774,10 +774,11 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	if planningMode == "" {
 		planningMode = "direct"
 	}
-	if planningMode != "direct" && planningMode != "plan_first" && planningMode != "approve_plan" && planningMode != "correct_plan" {
+	if planningMode != "direct" && planningMode != "plan_first" && planningMode != "approve_plan" && planningMode != "correct_plan" && planningMode != "adjust_plan" {
 		return planner.Result{}, domain.Session{}, fmt.Errorf("unsupported planning mode %q", planningMode)
 	}
 	message = directives.Canonicalize(message)
+	operatorMessage := message
 	// Attachments are resolved before the context is built, because they are
 	// part of it: an `@attach` marker that arrives after the snapshot points at
 	// material the model was never sent.
@@ -876,6 +877,12 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		}
 		current.RemoteRecoveryAttempt = 0
 		recordRequestLineage(current, requestID, parentRequestID, requestKind)
+		if parentRequestID == "" && requestKind == requestKindStandard {
+			recordRequestSupportArtifact(current, requestID, mainRequestArtifactPath, []byte(operatorMessage))
+		}
+		if requestKind == requestKindPlanAdjustment {
+			recordRequestSupportArtifact(current, requestID, adjustmentRequestArtifactPath, []byte(operatorMessage))
+		}
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
 		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
 		releasedBases = recordRequestBaseCommit(current, requestID, baseCommit)
@@ -1305,6 +1312,9 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
 			return BundleSubmission{}, errors.New("correct_plan request must return kind=plan without plan.json; implementation requires explicit user approval")
 		}
+	}
+	if current.LastRequestMode == "adjust_plan" && parsed.Turn.RequestID == current.LastRequestID && parsed.Turn.Kind == domain.TurnKindPlan {
+		return BundleSubmission{}, errors.New("adjust_plan request must return a revised executable result, not a planning-only proposal")
 	}
 	if parsed.Turn.Kind == domain.TurnKindWorkflow {
 		isDebug := parsed.Plan != nil && parsed.Plan.Debug != nil

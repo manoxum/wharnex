@@ -99,6 +99,16 @@ describe('Inspector plan compatibility', () => {
     expect(screen.getByText('Implementar o fluxo definido.')).toBeTruthy()
     expect(screen.getByText('Alterações locais completas.')).toBeTruthy()
   })
+
+  it('offers an adjustment action beside reject and execute for an unexecuted plan', () => {
+    const onAdjustExecutionPlan = vi.fn()
+    render(<Inspector config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }} session={legacySession()} events={[]} manualPrompt="" busy={false} activeTab="plan" onChatGPTURL={() => true} onExecute={async () => undefined} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={async () => undefined} onManualPlan={async () => undefined} onPlanFile={async () => ''} onBundleFile={async () => ''} onSession={() => undefined}/>)
+    expect(screen.getByRole('button', { name: /^Rejeitar$/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Ajustar$/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Aceitar e executar/i })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Ajustar$/i }))
+    expect(onAdjustExecutionPlan).toHaveBeenCalledTimes(1)
+  })
 })
 
 it('hides the execute control while the active plan already has a durable execution intent', () => {

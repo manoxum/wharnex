@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	conflictCapsuleArtifactPath = "conflict/capsule.json"
-	maxRequestSupportArtifacts  = 24
+	conflictCapsuleArtifactPath   = "conflict/capsule.json"
+	mainRequestArtifactPath       = "requests/main.md"
+	adjustmentRequestArtifactPath = "requests/adjustment.md"
+	maxRequestSupportArtifacts    = 24
 )
 
 func marshalIndented(value any) ([]byte, error) { return json.MarshalIndent(value, "", "  ") }
@@ -346,7 +348,17 @@ func continuationArtifacts(item domain.Session, requestID string) []continuation
 	if ok && lineage.RootRequestID != "" {
 		rootID = lineage.RootRequestID
 	}
-	out := make([]continuationArtifact, 0, 3)
+	out := make([]continuationArtifact, 0, 5)
+	if rootID != requestID {
+		for _, artifact := range item.RequestSupportArtifacts[rootID] {
+			if artifact.Path == mainRequestArtifactPath && len(artifact.Content) > 0 {
+				out = append(out, continuationArtifact{Name: mainRequestArtifactPath, Raw: append([]byte(nil), artifact.Content...)})
+			}
+		}
+	}
+	if artifact := latestAdjustmentSupportArtifact(item, requestID, rootID); artifact != nil {
+		out = append(out, continuationArtifact{Name: adjustmentRequestArtifactPath, Raw: append([]byte(nil), artifact.Content...)})
+	}
 	if ledger := attemptLedgerForRoot(item, rootID); ledger != nil {
 		round, bound := continuationRound(item, rootID)
 		if state := attemptLedgerStateJSON(ledger, requestID, round, bound); state != nil {
@@ -367,24 +379,59 @@ func continuationArtifacts(item domain.Session, requestID string) []continuation
 		}
 	}
 	for _, artifact := range item.RequestSupportArtifacts[requestID] {
-		if artifact.Path == conflictCapsuleArtifactPath && len(artifact.Content) > 0 {
+		if (artifact.Path == conflictCapsuleArtifactPath || (rootID == requestID && artifact.Path == mainRequestArtifactPath)) && len(artifact.Content) > 0 {
 			out = append(out, continuationArtifact{Name: artifact.Path, Raw: append([]byte(nil), artifact.Content...)})
 		}
 	}
 	return out
 }
 
+func latestAdjustmentSupportArtifact(item domain.Session, requestID, rootID string) *domain.RequestSupportArtifact {
+	for currentID := requestID; currentID != ""; {
+		for _, artifact := range item.RequestSupportArtifacts[currentID] {
+			if artifact.Path == adjustmentRequestArtifactPath && len(artifact.Content) > 0 {
+				copy := artifact
+				return &copy
+			}
+		}
+		if currentID == rootID {
+			break
+		}
+		lineage, ok := item.RequestLineages[currentID]
+		if !ok || strings.TrimSpace(lineage.ParentRequestID) == "" || lineage.ParentRequestID == currentID {
+			break
+		}
+		currentID = lineage.ParentRequestID
+	}
+	return nil
+}
+
 // recordRequestSupportArtifact persists a fixed-path, engine-authored request
 // file. The oldest inactive request records are bounded with the same 24-round
 // horizon used by immutable request contexts.
 func recordRequestSupportArtifact(item *domain.Session, requestID, path string, raw []byte) {
-	if item == nil || strings.TrimSpace(requestID) == "" || path != conflictCapsuleArtifactPath || len(raw) == 0 {
+	if item == nil || strings.TrimSpace(requestID) == "" || len(raw) == 0 {
+		return
+	}
+	if path != conflictCapsuleArtifactPath && path != mainRequestArtifactPath && path != adjustmentRequestArtifactPath {
 		return
 	}
 	if item.RequestSupportArtifacts == nil {
 		item.RequestSupportArtifacts = make(map[string][]domain.RequestSupportArtifact)
 	}
-	item.RequestSupportArtifacts[requestID] = []domain.RequestSupportArtifact{{Path: path, Content: append([]byte(nil), raw...)}}
+	artifacts := item.RequestSupportArtifacts[requestID]
+	replaced := false
+	for index := range artifacts {
+		if artifacts[index].Path == path {
+			artifacts[index] = domain.RequestSupportArtifact{Path: path, Content: append([]byte(nil), raw...)}
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		artifacts = append(artifacts, domain.RequestSupportArtifact{Path: path, Content: append([]byte(nil), raw...)})
+	}
+	item.RequestSupportArtifacts[requestID] = artifacts
 	if len(item.RequestSupportArtifacts) <= maxRequestSupportArtifacts {
 		return
 	}

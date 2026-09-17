@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentProps } from 'react'
 import type { BundleQuota, Session } from '../types'
-import { ChatPanel } from './ChatPanel'
+import { ChatPanel, type ChatPanelHandle } from './ChatPanel'
 import type { ChatViewportStore } from './useProgressiveChatHistory'
 import { Inspector, type InspectorTab } from './Inspector'
 import { Icon } from './Icon'
@@ -60,6 +60,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   const attentionClusterRef = useRef<HTMLDivElement>(null)
   const attentionTriggerRef = useRef<HTMLButtonElement>(null)
   const chatViewportStoreRef = useRef<ChatViewportStore>(new Map())
+  const chatPanelRef = useRef<ChatPanelHandle>(null)
   const [chatWidth, setChatWidth] = useState(loadAgentChatWidth)
   const [draggedChatId, setDraggedChatId] = useState('')
   const [dropTargetChatId, setDropTargetChatId] = useState('')
@@ -240,9 +241,9 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
       </div>
     </nav>
 
-    <div className="agent-chat-stage"><ChatPanel key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
+    <div className="agent-chat-stage"><ChatPanel ref={chatPanelRef} key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
     <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
-    <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} /></div>
+    <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} onAdjustExecutionPlan={() => { if (session.plan) chatPanelRef.current?.prepareExecutionPlanAdjustment(session.plan) }} /></div>
   </section>
 }
 
