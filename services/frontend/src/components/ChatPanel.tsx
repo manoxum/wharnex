@@ -1,5 +1,5 @@
 import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
-import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, Interview, InterviewQuestion, ManagedArtifact, ChatFileRecord, QueuedChatRequest, Session } from '../types'
+import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, ExecutionPlan, Interview, InterviewQuestion, ManagedArtifact, ChatFileRecord, QueuedChatRequest, Session } from '../types'
 import type { ReasoningEffort } from '../types'
 import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
@@ -102,7 +102,7 @@ function contextIdentityHash(session: Session) {
  * same way flowdocs' own editor keeps a `getEditor()` escape hatch for its
  * own imperative chip operations.
  */
-export type ChatPanelHandle = { getComposerEditor: () => ReturnType<ComposerRichEditorHandle['getEditor']> }
+export type ChatPanelHandle = { getComposerEditor: () => ReturnType<ComposerRichEditorHandle['getEditor']>; prepareExecutionPlanAdjustment: (plan: ExecutionPlan) => void }
 
 export type ChatPanelProps = {
   session: Session
@@ -148,6 +148,7 @@ export type ChatPanelProps = {
   onRequestMode?: (mode: ChatRequestMode) => void
   onChatTransport?: (transport?: TransportOptions) => void
   onSend: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode) => Promise<void>
+  onAdjustExecutionPlan?: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) => Promise<void>
   onPreviewBundle?: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode) => Promise<ArtifactRecord>
   onComment?: (message: string, attachments: File[]) => Promise<void>
   onQueueEdit?: (id: string, message: string) => void
@@ -182,12 +183,13 @@ export type ChatPanelProps = {
   onGenerateChatTitle?: (chatId: string) => Promise<void>
 }
 
-export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, compactComposer = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, reasoningEffort, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onDebugMode, onEffortLevel, onReasoningEffort, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, compactComposer = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, reasoningEffort, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', onExecutionMode, onAutomationMode, onDebugMode, onEffortLevel, onReasoningEffort, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onAdjustExecutionPlan, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
   const initialDraft = loadComposerDraft(session.project_path, activeChatId)
   const initialFileDraft = loadComposerFileDraft(session.project_path, activeChatId)
   const [message, setMessage] = useState(initialDraft.message)
   const [composerHeight, setComposerHeight] = useState(initialDraft.height)
   const [attachments, setAttachments] = useState<File[]>(initialFileDraft.attachments)
+  const [planAdjustment, setPlanAdjustment] = useState<{ planId: string; requestId: string; fileName: string; summary: string }>()
   const [attachmentError, setAttachmentError] = useState('')
   const [bundlePreview, setBundlePreview] = useState<ArtifactRecord>()
   const bundlePreviewRef = useRef<ArtifactRecord | undefined>(undefined)
@@ -252,7 +254,32 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const composerMessageRef = useRef(initialDraft.message)
   const composerCaretRef = useRef(initialDraft.message.length)
   const editorShellRef = useRef<HTMLDivElement>(null)
-  useImperativeHandle(forwardedRef, () => ({ getComposerEditor: () => richEditorRef.current?.getEditor() }), [])
+  function prepareExecutionPlanAdjustment(plan: ExecutionPlan) {
+    const safeID = plan.plan_id.replace(/[^A-Za-z0-9_-]+/g, '-').slice(0, 80) || 'atual'
+    const fileName = `plano-execucao-${safeID}.md`
+    const body = [
+      '# Plano de execução atual',
+      '',
+      `- Plan ID: ${plan.plan_id}`,
+      `- Request ID: ${plan.request_id}`,
+      `- Risco: ${plan.risk}`,
+      '',
+      `## Resumo\n${plan.summary}`,
+      `## Contrato\n${plan.document || '_Sem documento detalhado._'}`,
+      `## Ficheiros previstos\n${(plan.impact_files || []).map((path) => `- ${path}`).join('\n') || '- Nenhum declarado'}`,
+      `## Operações\n\`\`\`json\n${JSON.stringify(plan.operations || [], null, 2)}\n\`\`\``,
+      `## Verificação\n\`\`\`json\n${JSON.stringify(plan.verification || [], null, 2)}\n\`\`\``,
+    ].join('\n\n')
+    const file = new File([body], fileName, { type: 'text/markdown', lastModified: Date.now() })
+    const withoutPrevious = attachments.filter((item) => item.name !== planAdjustment?.fileName)
+    const next = addChatAttachments(withoutPrevious, [file])
+    persistAttachments(next.files)
+    setAttachmentError(next.error || '')
+    setPlanAdjustment({ planId: plan.plan_id, requestId: plan.request_id, fileName, summary: plan.summary })
+    window.setTimeout(() => richEditorRef.current?.focus(), 0)
+  }
+
+  useImperativeHandle(forwardedRef, () => ({ getComposerEditor: () => richEditorRef.current?.getEditor(), prepareExecutionPlanAdjustment }), [attachments, planAdjustment])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const todos = useMemo(() => latestTodoSnapshot(items), [items])
   const { afterHeight, beforeHeight, endRef, hasOlder, hasNewer, hiddenItemCount, hiddenNewerItemCount, loadOlder, loadNewer, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
@@ -363,7 +390,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     composerMessageRef.current = nextMessage
     composerCaretRef.current = nextMessage.length
     setMessage(nextMessage)
-    setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles([]); setAttachmentError(''); setExpandedWhxNoticeRunId('')
+    setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles([]); setAttachmentError(''); setExpandedWhxNoticeRunId(''); setPlanAdjustment(undefined)
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
   useEffect(() => { saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles }) }, [session.project_path, activeChatId, attachments, projectFiles])
@@ -415,11 +442,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
   async function submitMain(event?: FormEvent) {
     event?.preventDefault()
-    const text = composerMessageRef.current.trim() || (attachments.length ? 'Analise os ficheiros anexados.' : '')
+    const typed = composerMessageRef.current.trim()
+    const text = typed || (attachments.length && !planAdjustment ? 'Analise os ficheiros anexados.' : '')
     if (!text || preparedAttachmentCount || commentBusy) return
     let selected: File[]
     try { selected = await resolveIndexedArtifactFiles(text, attachments) } catch (error) { setAttachmentError(error instanceof Error ? error.message : 'Não foi possível indexar o ficheiro referido.'); return }
     const selectedProjectFiles = projectFiles
+    if (planAdjustment) {
+      if (!onAdjustExecutionPlan) return
+      try {
+        await onAdjustExecutionPlan(text, selected, selectedProjectFiles, selectedArtifacts)
+        clearComposer()
+        setPlanAdjustment(undefined)
+      } catch { /* parent reports the actionable error; keep the adjustment draft */ }
+      return
+    }
     clearComposer()
     try { await onSend(text, selected, selectedProjectFiles, selectedArtifacts, requestMode) } catch { /* parent reports the actionable error */ }
   }
@@ -782,7 +819,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
     {transportProgress && <div className="context-publication-progress" role="status"><span className="publication-orbit"><i/><i/><i/></span><div><strong>A preparar rotas remotas</strong><small>{transportProgress}</small></div></div>}
 
-    <form ref={composerRef} className={`composer ${taskInFlight ? 'comment-mode' : ''}`} style={{ height: composerHeight }} onSubmit={submitMain}>
+    <form ref={composerRef} className={`composer ${taskInFlight ? 'comment-mode' : ''} ${planAdjustment ? 'plan-adjustment-mode' : ''}`} style={{ height: composerHeight }} onSubmit={submitMain}>
       <div
         className="composer-resize-handle"
         role="separator"
@@ -799,6 +836,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         onKeyDown={resizeComposerFromKeyboard}
       />
       <div className="composer-scroll-area">
+      {planAdjustment && <div className="plan-adjustment-context"><span className="plan-adjustment-icon"><Icon name="plan" size={13}/></span><div><strong>Ajustar plano de execução</strong><small>{planAdjustment.summary}</small><code>{planAdjustment.fileName}</code></div><button type="button" aria-label="Cancelar ajuste do plano" title="Cancelar ajuste" onClick={() => { persistAttachments(attachments.filter((file) => file.name !== planAdjustment.fileName)); setPlanAdjustment(undefined) }}><Icon name="close" size={12}/></button></div>}
       {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       {bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
@@ -826,7 +864,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             if (fileSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); selectDirective(fileSuggestions[selectedSuggestionIndex]); return }
             if (event.key !== 'Enter' || event.shiftKey) return
             event.preventDefault(); event.stopPropagation()
-            if ((event.ctrlKey || event.metaKey) && taskInFlight) void submitComment()
+            if (planAdjustment) void submitMain()
+            else if ((event.ctrlKey || event.metaKey) && taskInFlight) void submitComment()
             else void submitMain()
           }}
         />
@@ -897,14 +936,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             <button type="button" className={`composer-round-action mode-manual-transport ${currentChatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>
           </span>
           <span className="composer-action-divider" />
-          <button type="button" className={`composer-round-action ${bundlePreview ? 'selected' : ''}`} disabled={!onPreviewBundle || bundlePreviewBusy || commentBusy || Boolean(preparedAttachmentCount) || (!message.trim() && !attachments.length)} aria-label="Pré-visualizar próximo bundle" title="Montar e explorar o próximo bundle sem enviar a request" onClick={() => void previewMainBundle()}><Icon name={bundlePreviewBusy ? 'refresh' : 'package'} size={12}/></button>
-          <button type="button" className={`composer-round-action plan-first ${requestMode === 'plan_first' ? 'selected' : ''}`} aria-pressed={requestMode === 'plan_first'} aria-label="Planificar antes de alterar" title={requestMode === 'plan_first' ? 'Plan first ativo · o Wharnex pedirá uma proposta e aguardará aprovação' : 'Planificar antes de alterar'} onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}><Icon name="plan" size={12}/></button>
+          <button type="button" className={`composer-round-action ${bundlePreview ? 'selected' : ''}`} disabled={Boolean(planAdjustment) || !onPreviewBundle || bundlePreviewBusy || commentBusy || Boolean(preparedAttachmentCount) || (!message.trim() && !attachments.length)} aria-label="Pré-visualizar próximo bundle" title="Montar e explorar o próximo bundle sem enviar a request" onClick={() => void previewMainBundle()}><Icon name={bundlePreviewBusy ? 'refresh' : 'package'} size={12}/></button>
+          <button type="button" className={`composer-round-action plan-first ${requestMode === 'plan_first' ? 'selected' : ''}`} disabled={Boolean(planAdjustment)} aria-pressed={requestMode === 'plan_first'} aria-label="Planificar antes de alterar" title={requestMode === 'plan_first' ? 'Plan first ativo · o Wharnex pedirá uma proposta e aguardará aprovação' : 'Planificar antes de alterar'} onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}><Icon name="plan" size={12}/></button>
           <button type="button" className={`composer-round-action ${queueOpen ? 'selected' : ''}`} aria-label="Fila de espera" title="Fila de requests principais" onClick={() => setQueueOpen((current) => !current)}><Icon name="clipboard" size={12}/>{queuedRequests.length > 0 && <b>{queuedRequests.length}</b>}</button>
           <button type="button" className={`composer-round-action ${todoOpen ? 'selected' : ''}`} aria-label="Tarefas TODO" title="Tarefas da iteração" disabled={!todos.length} onClick={() => setTodoOpen((current) => !current)}><Icon name="check" size={12}/>{todos.length > 0 && <b>{todos.filter((todo) => !todo.done).length}</b>}</button>
-          {taskInFlight && <span className="composer-comment-state"><span className="comment-pulse"/><Icon name="chatgpt" size={12}/> Request ativa · Ctrl+Enter comenta</span>}
+          {planAdjustment ? <span className="composer-comment-state plan-adjustment-state"><Icon name="edit" size={12}/> Ajuste do plano · use @see para referenciar a miniatura</span> : taskInFlight && <span className="composer-comment-state"><span className="comment-pulse"/><Icon name="chatgpt" size={12}/> Request ativa · Ctrl+Enter comenta</span>}
           </>}
-        </div><button className="send-button" disabled={commentBusy || (!message.trim() && !attachments.length) || Boolean(preparedAttachmentCount)} aria-label={composerSendLabel || (taskInFlight ? 'Adicionar request à fila' : 'Enviar ao agente')} title={composerSendLabel || (taskInFlight ? 'Adicionar à fila' : 'Enviar')}><Icon name="send" size={15}/></button></div>
-        <div className="composer-hint">{composerHint || (taskInFlight ? 'Enter adiciona à fila · Ctrl+Enter envia comentário · Shift+Enter cria linha' : requestMode === 'plan_first' ? 'Enter inicia a próxima request · Plan first aguarda aprovação' : 'Enter inicia a próxima request · Shift+Enter cria linha')}</div>
+        </div><button className="send-button" disabled={commentBusy || (planAdjustment ? !message.trim() : (!message.trim() && !attachments.length)) || Boolean(preparedAttachmentCount)} aria-label={planAdjustment ? 'Enviar ajuste do plano' : composerSendLabel || (taskInFlight ? 'Adicionar request à fila' : 'Enviar ao agente')} title={planAdjustment ? 'Enviar ajuste do plano' : composerSendLabel || (taskInFlight ? 'Adicionar à fila' : 'Enviar')}><Icon name="send" size={15}/></button></div>
+        <div className="composer-hint">{planAdjustment ? 'Descreva o ajuste · @see pode referenciar o plano atual · Shift+Enter cria linha' : composerHint || (taskInFlight ? 'Enter adiciona à fila · Ctrl+Enter envia comentário · Shift+Enter cria linha' : requestMode === 'plan_first' ? 'Enter inicia a próxima request · Plan first aguarda aprovação' : 'Enter inicia a próxima request · Shift+Enter cria linha')}</div>
       </div>
     </form>
 

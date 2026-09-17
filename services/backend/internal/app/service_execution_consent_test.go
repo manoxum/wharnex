@@ -45,6 +45,13 @@ func TestPlanNeedsInitialConsentOnlyForProtectedRootChange(t *testing.T) {
 		t.Fatal("protected root change must wait for informed consent")
 	}
 
+	adjusted := base
+	adjusted.Plan = &domain.ExecutionPlan{RequestID: "req-adjust", Document: "# Adjusted execution plan"}
+	adjusted.RequestLineages["req-adjust"] = domain.RequestLineage{RequestID: "req-adjust", RootRequestID: "req-root", ParentRequestID: "req-root", Kind: requestKindPlanAdjustment}
+	if !planNeedsInitialConsent(adjusted) {
+		t.Fatal("an adjusted unexecuted plan must return to informed consent")
+	}
+
 	repair := base
 	repair.Plan = &domain.ExecutionPlan{RequestID: "req-repair", Document: "# Repair"}
 	repair.RequestLineages["req-repair"] = domain.RequestLineage{RequestID: "req-repair", RootRequestID: "req-root", Kind: requestKindRepair}

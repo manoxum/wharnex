@@ -206,7 +206,7 @@ carry an exact canonical Wharnex filename and, when available, the provider
 artifact id. Fuzzy prefixes, truncated UI labels, ambiguous rows, or artifacts
 still needed by request recovery/audit fail closed and are never deleted.
 
-## Self-contained correction archives (v1.3.9 — see `adr/ADR-0055`)
+## Self-contained derived archives (v1.3.9 — see `adr/ADR-0055`, `adr/ADR-0061`)
 
 Every derived request archive MUST carry the refreshed complete context even
 when the same ChatGPT conversation previously received a snapshot. It also
@@ -216,3 +216,13 @@ bundle in the Main Request with a hash/size index. Historical responses are
 opaque evidence and MUST NOT be accepted or executed as the active response.
 Expired or unreadable history is declared in the index and does not invalidate
 the current request.
+
+An execution-plan adjustment is one of those derived archives but has its own
+semantic identity. A request classified `execution_plan_adjustment` is exposed
+as input bundle type `adjustment`, not as repair/correction. In addition to the
+cumulative history above it MUST carry `requests/main.md` with the root Main
+Request and `requests/adjustment.md` with the operator's current adjustment
+prompt. Consumer-Web archive construction keeps both paths on its fixed
+engine-owned continuation allowlist; they are evidence/context only and never
+replace `prompt/wharness-planner-prompt.md` as the authoritative planner
+instructions.

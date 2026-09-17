@@ -10,11 +10,11 @@ import { ArtifactPreview } from './ArtifactPreview'
 import { ArtifactViewerModal, type ArtifactViewerItem } from './ArtifactViewerModal'
 
 type RequestLineages = NonNullable<Session['request_lineages']>
-type BundleTone = 'main-request' | 'response' | 'correction' | 'debug-ping' | 'debug-pong' | 'plan' | 'plan-approval' | 'plan-correction' | 'restore' | 'improvement' | 'conflict' | 'knowledge-review' | 'knowledge-consolidation' | 'final-summary' | 'clarification' | 'investigation' | 'blocked' | 'request'
+type BundleTone = 'main-request' | 'response' | 'correction' | 'adjustment' | 'debug-ping' | 'debug-pong' | 'plan' | 'plan-approval' | 'plan-correction' | 'restore' | 'improvement' | 'conflict' | 'knowledge-review' | 'knowledge-consolidation' | 'final-summary' | 'clarification' | 'investigation' | 'blocked' | 'request'
 type BundlePresentation = { tone: BundleTone; label: string }
 const BUNDLE_PRESENTATIONS: Record<string, BundlePresentation> = {
   main_request: { tone: 'main-request', label: 'main_request' }, response: { tone: 'response', label: 'response' },
-  correction: { tone: 'correction', label: 'correction' }, debug_ping: { tone: 'debug-ping', label: 'debug_ping' }, debug_pong: { tone: 'debug-pong', label: 'debug_pong' },
+  correction: { tone: 'correction', label: 'correction' }, adjustment: { tone: 'adjustment', label: 'adjustment' }, debug_ping: { tone: 'debug-ping', label: 'debug_ping' }, debug_pong: { tone: 'debug-pong', label: 'debug_pong' },
   plan: { tone: 'plan', label: 'plan' }, plan_approval: { tone: 'plan-approval', label: 'plan_approval' }, plan_correction: { tone: 'plan-correction', label: 'plan_correction' },
   revert_restore: { tone: 'restore', label: 'revert_restore' }, improvement: { tone: 'improvement', label: 'improvement' }, conflict: { tone: 'conflict', label: 'conflict' },
   knowledge_review: { tone: 'knowledge-review', label: 'knowledge_review' }, knowledge_consolidation: { tone: 'knowledge-consolidation', label: 'knowledge_consolidation' },
@@ -249,7 +249,7 @@ function bundlePresentation(bundle: ArtifactRecord, requestLineages: RequestLine
   if (lineageKind === 'knowledge_review') return bundle.direction === 'input' ? presentationForBundleType('knowledge_review')! : presentationForBundleType('final_summary')!
   if (bundle.direction === 'output') return presentationForBundleType('response')!
   const inferred: Record<string, string> = {
-    standard: 'main_request', plan_approval: 'plan_approval', plan_correction: 'plan_correction', repair: 'correction',
+    standard: 'main_request', plan_approval: 'plan_approval', plan_correction: 'plan_correction', execution_plan_adjustment: 'adjustment', repair: 'correction',
     revert_restore: 'revert_restore', improvement: 'improvement', evidence: 'debug_pong', conflict: 'conflict', knowledge_consolidation: 'knowledge_consolidation',
   }
   return presentationForBundleType(inferred[lineageKind || 'standard'] || 'request')!

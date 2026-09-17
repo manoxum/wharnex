@@ -123,5 +123,5 @@ func planNeedsInitialConsent(item domain.Session) bool {
 	}
 	requestID := strings.TrimSpace(item.Plan.RequestID)
 	lineage, ok := item.RequestLineages[requestID]
-	return (!ok || lineage.Kind == requestKindStandard) && !priorExecutionConsentCovers(item)
+	return (!ok || lineage.Kind == requestKindStandard || lineage.Kind == requestKindPlanAdjustment) && !priorExecutionConsentCovers(item)
 }

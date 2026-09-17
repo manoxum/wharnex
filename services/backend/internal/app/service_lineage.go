@@ -10,6 +10,7 @@ const (
 	requestKindStandard        = "standard"
 	requestKindPlanApproval    = "plan_approval"
 	requestKindPlanCorrection  = "plan_correction"
+	requestKindPlanAdjustment  = "execution_plan_adjustment"
 	requestKindRepair          = "repair"
 	requestKindRevertRestore   = "revert_restore"
 	requestKindImprovement     = "improvement"

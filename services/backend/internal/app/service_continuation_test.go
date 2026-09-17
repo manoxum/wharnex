@@ -298,6 +298,25 @@ func TestContinuationTransportCarriesBothAttemptArtifacts(t *testing.T) {
 	}
 }
 
+func TestAdjustmentPromptFollowsRepairDescendants(t *testing.T) {
+	item := domain.Session{ID: "sess", LastRequestID: "req_repair"}
+	item.RequestLineages = map[string]domain.RequestLineage{
+		"req_root":   {RequestID: "req_root", RootRequestID: "req_root", Kind: requestKindStandard},
+		"req_adjust": {RequestID: "req_adjust", RootRequestID: "req_root", ParentRequestID: "req_root", Kind: requestKindPlanAdjustment},
+		"req_repair": {RequestID: "req_repair", RootRequestID: "req_root", ParentRequestID: "req_adjust", Kind: requestKindRepair},
+	}
+	recordRequestSupportArtifact(&item, "req_root", mainRequestArtifactPath, []byte("pedido principal"))
+	recordRequestSupportArtifact(&item, "req_adjust", adjustmentRequestArtifactPath, []byte("mantenha apenas a UI"))
+
+	byName := map[string]string{}
+	for _, artifact := range continuationArtifacts(item, "req_repair") {
+		byName[artifact.Name] = string(artifact.Raw)
+	}
+	if byName[mainRequestArtifactPath] != "pedido principal" || byName[adjustmentRequestArtifactPath] != "mantenha apenas a UI" {
+		t.Fatalf("repair descendant lost adjustment scope: %#v", byName)
+	}
+}
+
 func TestContinuationTransportCarriesCumulativeExecutionEvidenceAndResponses(t *testing.T) {
 	store := session.NewStore()
 	bus := audit.NewBus()

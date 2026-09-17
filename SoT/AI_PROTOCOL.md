@@ -137,7 +137,7 @@ The recovery surface for a non-completed outcome MUST preserve the original goal
 
 `retryable=false` MUST be honoured by every retry path, manual as well as automatic. `reason_code` is matched against a hand-reviewed closed infrastructure allowlist, while an otherwise-unclassified non-retryable result receives Wharnex's own `planner_guidance_required` failure kind; `retryable` is a required boolean the planner is instructed to set accurately, and it therefore remains authoritative without depending on a growing reason-code vocabulary. A bare manual retry of a `retryable=false` outcome MUST be refused, naming the planner's own reason, because it asks the planner to solve a condition it has already declared unsolvable and is answered identically every round. Explicit operator guidance is the deliberate escape: supplying it is the operator stating that something outside the planner's view has changed. Because that refusal is certain, the recovery surface MUST NOT offer a bare retry for such an outcome at all: it withdraws every no-guidance resume action, labels the state as requiring new evidence, and validates a non-empty bounded evidence/guidance field before the request is sent, so the operator is never handed an action whose only possible answer is the refusal. When the missing evidence may contain multi-line diagnostics, the input MUST preserve those lines. When a continuation receives failure evidence, the planner MUST NOT repeat a semantically equivalent plan, blocked target/root, command strategy, or merely restate the same blocker as another retry. It must either choose a materially different approach that addresses the named root cause, or terminate as `blocked` with `retryable=false` and the concrete operator action required.
 
-Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `plan_approval`, `plan_correction`, `repair`, `improvement`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host on planner-patchable paths — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Git conflicts confined to Wharnex-managed `.wharnex/knowledge/**` are local integration drift, not a model task: preserve the current host version and do not spend a planner round on them. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
+Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `plan_approval`, `plan_correction`, `execution_plan_adjustment`, `repair`, `improvement`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host on planner-patchable paths — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Git conflicts confined to Wharnex-managed `.wharnex/knowledge/**` are local integration drift, not a model task: preserve the current host version and do not spend a planner round on them. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 
@@ -159,6 +159,28 @@ Accepting the proposal MUST NOT be submitted through the ordinary Main Request m
 
 Requesting a correction follows the same continuation rule but stays planning-only. Wharnex creates a fresh derived request with classification `plan_correction`, mode `correct_plan`, the pending proposal as parent, and the same Main Request root. The continuation includes the current proposal plus the user guidance and MUST return a new `kind=plan` without `plan.json`, patches, workflow commands, or project mutation. Creating the correction continuation immediately supersedes the parent proposal, which can no longer be approved or corrected; the revised proposal requires a new explicit decision.
 This extension requires no persisted schema migration because request lineage classification and `last_request_mode` are string-valued; historical plan proposals remain readable and keep their existing approval/rejection semantics.
+
+Adjusting an unexecuted **Plano de execução** is a different continuation. While a
+`change` plan is still in `planned` state, the execution-contract surface MAY
+offer `Ajustar` beside reject and execute. Choosing it prepares the current plan
+inside the ordinary composer as a request-local Markdown attachment so the
+operator can use the same directives, attachments and `@see` references as any
+other prompt. Submitting that draft creates a fresh derived request classified
+`execution_plan_adjustment`, with mode `adjust_plan`, the current executable
+plan request as parent and the same Main Request root. Its input bundle type is
+`adjustment`, never `correction`/`plan_correction`.
+
+An execution-plan adjustment MUST be self-contained: it carries the original
+Main Request text in `requests/main.md`, the current adjustment prompt in
+`requests/adjustment.md`, and the cumulative prior response history already
+required for derived requests. The planner uses those inputs to supersede the
+unexecuted plan with a fresh executable result. `adjust_plan` MUST NOT return a
+planning-only `kind=plan`; it returns a normal executable `change` when the
+adjustment is implementable, or a terminal clarification/blocked result when it
+is not. The prior plan remains historical evidence and MUST NOT be executed once
+the adjustment continuation is created. A Protected adjusted execution plan
+returns to the informed execution-consent gate; creating the adjustment never
+inherits approval from the unexecuted plan it replaced.
 
 While a plan proposal is waiting for the user, the session is in `awaiting_plan_approval`; the linked transport channel stays associated with the same Main Request. Rejecting the proposal terminates that approval path without mutation and releases the transport channel. Historical plan-first responses created before this protocol addition remain readable, but new `plan_first` responses MUST use `kind=plan`.
 

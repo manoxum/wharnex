@@ -15,6 +15,7 @@ func TestInputBundleTypeCoversRequestLineages(t *testing.T) {
 		{requestKindStandard, bundleTypeMainRequest},
 		{requestKindPlanApproval, bundleTypePlanApproval},
 		{requestKindPlanCorrection, bundleTypePlanCorrection},
+		{requestKindPlanAdjustment, bundleTypePlanAdjustment},
 		{requestKindRepair, bundleTypeCorrection},
 		{requestKindRevertRestore, bundleTypeRevertRestore},
 		{requestKindImprovement, bundleTypeImprovement},

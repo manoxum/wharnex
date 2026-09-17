@@ -123,6 +123,43 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(deletePreview).toHaveBeenCalledWith(session.id, preview.id))
   })
 
+  it('prepares an execution-plan adjustment as a composer attachment and submits it through the adjustment continuation', async () => {
+    const ref = panelRef()
+    const onSend = vi.fn().mockResolvedValue(undefined)
+    const onAdjustExecutionPlan = vi.fn().mockResolvedValue(undefined)
+    render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="chat-adjust" busy={false} onSend={onSend} onAdjustExecutionPlan={onAdjustExecutionPlan} {...chatActions} />,
+    )
+
+    act(() => ref.current?.prepareExecutionPlanAdjustment({
+      protocol: 'harness.execution/v2', plan_id: 'plan-adjust', request_id: 'req-parent', status: 'ready', summary: 'Implementar o fluxo original',
+      document: '## Implementação\nAlterar o painel.', impact_files: ['services/frontend/src/App.tsx'], risk: 'medium', requires_approval: true,
+      operations: [], verification: [],
+    }))
+
+    expect(screen.getByText('Ajustar plano de execução')).toBeTruthy()
+    expect(screen.getByText('plano-execucao-plan-adjust.md', { selector: 'b' })).toBeTruthy()
+    const seePrompt = 'Revê @see:'
+    typeInComposer(ref, seePrompt, seePrompt.length)
+    fireEvent.click(screen.getByRole('option', { name: /Anexos diretos/ }))
+    expect(screen.getByRole('option', { name: /plano-execucao-plan-adjust\.md/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('option', { name: /plano-execucao-plan-adjust\.md/ }))
+    expect(composerText(ref)).toContain('@{[see]upload|plano-execucao-plan-adjust.md}')
+    const guidance = 'Mantém o backend e altera apenas a experiência visual.'
+    typeInComposer(ref, guidance, guidance.length)
+    const editor = ref.current?.getComposerEditor()
+    if (!editor) throw new Error('composer editor not mounted')
+    fireEvent.keyDown(editor.root, { key: 'Enter' })
+
+    await waitFor(() => expect(onAdjustExecutionPlan).toHaveBeenCalledTimes(1))
+    expect(onSend).not.toHaveBeenCalled()
+    const [message, files, projectFiles, artifacts] = onAdjustExecutionPlan.mock.calls[0]
+    expect(message).toBe(guidance)
+    expect(files.map((file: File) => file.name)).toContain('plano-execucao-plan-adjust.md')
+    expect(projectFiles).toEqual([])
+    expect(artifacts).toEqual({ context: false, prompt: true, result: false, error: false })
+  })
+
   it('keeps hash and chat identity copyable without rendering either value in the compact context header', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
