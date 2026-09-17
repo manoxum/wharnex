@@ -57,5 +57,58 @@ func ValidateTurn(turn domain.AgentTurn) error {
 		}
 		seenEvidence[id] = struct{}{}
 	}
+	if turn.Interview == nil {
+		return nil
+	}
+	if turn.Kind != domain.TurnKindClarification {
+		return errors.New("interview is valid only on a clarification turn")
+	}
+	if turn.Interview.Protocol != domain.InterviewProtocolV1 {
+		return fmt.Errorf("unsupported interview protocol %q", turn.Interview.Protocol)
+	}
+	if len(turn.Interview.Questions) == 0 || len(turn.Interview.Questions) > 8 {
+		return errors.New("interview requires 1..8 questions")
+	}
+	questionIDs := map[string]struct{}{}
+	for index, question := range turn.Interview.Questions {
+		if !safeInterviewID(question.ID) {
+			return fmt.Errorf("interview question %d has invalid id", index)
+		}
+		if _, exists := questionIDs[question.ID]; exists {
+			return fmt.Errorf("interview question %d has duplicate id", index)
+		}
+		questionIDs[question.ID] = struct{}{}
+		if prompt := strings.TrimSpace(question.Prompt); prompt == "" || len(prompt) > 1024 {
+			return fmt.Errorf("interview question %d prompt must be 1..1024 bytes", index)
+		}
+		if len(question.Options) < 2 || len(question.Options) > 8 {
+			return fmt.Errorf("interview question %d requires 2..8 options", index)
+		}
+		optionIDs := map[string]struct{}{}
+		for optionIndex, option := range question.Options {
+			if !safeInterviewID(option.ID) {
+				return fmt.Errorf("interview question %d option %d has invalid id", index, optionIndex)
+			}
+			if _, exists := optionIDs[option.ID]; exists {
+				return fmt.Errorf("interview question %d has duplicate option id", index)
+			}
+			optionIDs[option.ID] = struct{}{}
+			if label := strings.TrimSpace(option.Label); label == "" || len(label) > 512 {
+				return fmt.Errorf("interview question %d option %d label must be 1..512 bytes", index, optionIndex)
+			}
+		}
+	}
 	return nil
+}
+
+func safeInterviewID(value string) bool {
+	if len(value) == 0 || len(value) > 64 {
+		return false
+	}
+	for _, r := range value {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
 }

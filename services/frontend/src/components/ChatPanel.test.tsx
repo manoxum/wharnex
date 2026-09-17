@@ -67,6 +67,18 @@ describe('ChatPanel', () => {
   // serialized dialog queue so the following test's dialog can still open.
   afterEach(() => { clearEphemeralComposerDrafts(); vi.restoreAllMocks(); vi.unstubAllGlobals(); if (document.querySelector('.app-dialog-backdrop')) fireEvent.keyDown(document, { key: 'Escape' }); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
 
+  it('prepares, but does not submit, a selected structured interview answer', () => {
+    const ref = panelRef()
+    const onSend = vi.fn().mockResolvedValue(undefined)
+    render(<ChatPanel ref={ref} session={session} items={[{
+      id: 'interview', role: 'harness', source: 'chatgpt', text: 'Preciso desta decisão.', createdAt: new Date().toISOString(), turnKind: 'clarification',
+      interview: { protocol: 'harness.interview/v1', questions: [{ id: 'retention', prompt: 'Qual retenção?', options: [{ id: 'three', label: '3 dias' }, { id: 'thirty', label: '30 dias' }] }] },
+    }]} chats={[]} activeChatId="chat-1" busy={false} onSend={onSend} {...chatActions} />)
+    fireEvent.click(screen.getByRole('button', { name: '3 dias' }))
+    expect(composerText(ref)).toContain('3 dias')
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
   it('positions the initial transcript at the latest messages without smooth scrolling', () => {
     const scrollIntoView = vi.fn(() => Promise.resolve())
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {

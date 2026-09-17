@@ -8,7 +8,7 @@ The security boundary is enforced by:
 - path validation;
 - command allow/deny policy;
 - network approval;
-- debug host-action approval: `harness.debug/v1 access=modify` is always bound to one exact `plan_id`, high-risk, and consumed after the workflow round; Debug mode never turns it into standing host-write authority;
+- legacy debug host modification is retired. `harness.debug/v1` remains readable only for observe compatibility; new `harness.interactive/v1` workflows are observation-only. Destructive/external capabilities require their own typed module with inventory, immutable manifest, scoped approval and drift revalidation;
 - debug tool lifetime disclosure: host install/update/configure requests state `temporary` or `persistent`, while Policy still denies privilege escalation, shells, Docker/host-service control and other forbidden primitives;
 - narrowly scoped dependency-network recovery after a locally classified offline-cache failure, with a new explicit human approval and Protected-sandbox enforcement;
 - isolated Docker execution;

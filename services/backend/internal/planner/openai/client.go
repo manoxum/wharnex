@@ -213,7 +213,7 @@ func executionFormat(requestID, baselineSHA256 string) map[string]any {
 	plan := executionPlanSchema(requestID, baselineSHA256)
 	schema := map[string]any{
 		"type": "object", "additionalProperties": false,
-		"required": []string{"protocol", "request_id", "kind", "chat_title", "message", "outcome", "plan"},
+		"required": []string{"protocol", "request_id", "kind", "chat_title", "message", "outcome", "interview", "plan"},
 		"properties": map[string]any{
 			"protocol":   map[string]any{"type": "string", "const": domain.TurnProtocolV1},
 			"request_id": map[string]any{"type": "string", "const": requestID},
@@ -230,6 +230,16 @@ func executionFormat(requestID, baselineSHA256 string) map[string]any {
 					"retryable":   map[string]any{"type": "boolean"},
 				},
 			},
+			"interview": map[string]any{"anyOf": []any{
+				map[string]any{"type": "null"},
+				map[string]any{"type": "object", "additionalProperties": false, "required": []string{"protocol", "questions"}, "properties": map[string]any{
+					"protocol": map[string]any{"const": domain.InterviewProtocolV1},
+					"questions": map[string]any{"type": "array", "items": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"id", "prompt", "options"}, "properties": map[string]any{
+						"id": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "allow_multiple": map[string]any{"type": "boolean"},
+						"options": map[string]any{"type": "array", "items": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"id", "label"}, "properties": map[string]any{"id": map[string]any{"type": "string"}, "label": map[string]any{"type": "string"}}}},
+					}}},
+				}},
+			}},
 			"plan": map[string]any{"anyOf": []any{plan, map[string]any{"type": "null"}}},
 		},
 	}

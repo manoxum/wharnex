@@ -124,13 +124,13 @@
       "additionalProperties": false,
       "required": ["protocol", "target", "rationale"],
       "properties": {
-        "protocol": {"const": "harness.debug/v1"},
+        "protocol": {"enum": ["harness.debug/v1", "harness.interactive/v1"]},
         "target": {"enum": ["sandbox", "host"]},
-        "access": {"enum": ["observe", "modify"]},
+		"access": {"enum": ["observe"]},
 		"query": {"enum": ["project_execution_summary"]},
         "rationale": {"type": "string", "minLength": 1, "maxLength": 4096}
       },
-      "description": "Bounded diagnostic protocol for a workflow plan. access defaults to observe; host modify is approval-gated and remains subject to protocol and Policy Engine restrictions."
+      "description": "Bounded interactive observation protocol for a workflow plan. Legacy debug v1 remains readable; both variants are read-only."
     },
     "version_increment": {
       "type": "object",

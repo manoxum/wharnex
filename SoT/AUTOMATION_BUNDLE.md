@@ -23,7 +23,7 @@ Wharness has a per-project automation mode independent from the Agent UI mode:
 Auto may automate two distinct branches:
 
 - `change`: Policy -> Protected sandbox -> verification -> host Apply.
-- `workflow`: Policy -> command-only local step -> capture observations -> fresh planner continuation. Ordinary workflow executes in the disposable Protected sandbox; `harness.debug/v1` may execute a bounded host observe/action step under its dedicated approval rules. Workflow steps never become Apply candidates.
+- `workflow`: Policy -> command-only local step -> capture observations -> fresh planner continuation. Ordinary workflow executes in the disposable Protected sandbox; `harness.interactive/v1` may execute only a bounded closed host observation. Workflow steps never become Apply candidates.
 
 Answers, clarifications, investigations, and blocked outcomes are imported into the Harness transcript and never enter execution, even when Auto is active. Supported provider adapters return turn results directly and can advance the same bounded workflow loop without browser downloads.
 
@@ -39,7 +39,7 @@ For iterative investigation, an ordinary or debug-observe sandbox `workflow` bun
 
 With Debug mode active, a machine-local diagnostic question must use a targeted executable debug workflow before a terminal answer whenever a Policy-accepted local probe can resolve the missing runtime fact; stdout/stderr/exit evidence is returned to the same Main Request. An engine-owned query may supplement, but not replace, such a relevant probe.
 
-A workflow carrying `harness.debug/v1` follows the same continuation loop with explicit `access`. `observe` keeps the closed read-only host diagnostic vocabulary; the closed `project_execution_summary` query is resolved inside the Engine from bounded aggregate durable-ledger data and does not execute argv or expose raw event bodies. With Debug disabled the first observe round pauses once per Main Request root; compatible derived observe rounds inherit that grant, while Debug enabled auto-authorizes them. `modify` is host-only, high-risk and always pauses for exact-plan approval even when Debug is enabled. It may run Policy-accepted host argv commands, may request network when that exact approved action needs it, and may install/update/configure a declared host tool only when `system_tools` records whether the tool is `temporary` or `persistent`. The approval is one-shot and never grants patches, Apply, shell, privilege escalation, Docker/host-service control or other Policy-denied authority.
+A workflow carrying `harness.interactive/v1` follows the same continuation loop with `access=observe`. The closed `project_execution_summary` query is resolved inside the Engine from bounded aggregate durable-ledger data and does not execute argv or expose raw event bodies. With Interativo disabled the first observe round pauses once per Main Request root; compatible derived observe rounds inherit that grant, while Interativo enabled auto-authorizes them. Legacy `harness.debug/v1 access=observe` remains readable. `access=modify` is retired and rejected before execution. The interactive loop permits at most 24 materially distinct evidence rounds; it never grants patches, Apply, network, shell, privilege escalation, Docker, host-service control, external access, tool installation or destructive operations.
 
 Protected Host Apply consumes a verified candidate once. The project mutation lock and the durable candidate read form one boundary: every caller reloads the session after acquiring the lock. A duplicate caller therefore returns the no-candidate precondition and MUST NOT reuse a stale in-memory candidate, recreate/extend self-evolution state, merge a deleted branch or trigger planner repair.
 
@@ -77,7 +77,7 @@ Every new bundle contains `turn.json` using `harness.turn/v1` plus a non-empty `
 
 Required entries for `workflow`:
 
-- `plan.json`: `harness.execution/v2` with `status=ready` and 1..16 command-only operations. Ordinary/debug-observe workflow uses `risk=low|medium`, `requires_approval=false` and `network=false`. Debug host modify uses `risk=high`, `requires_approval=true`; only that posture may declare `network=true`, and only for the explicitly approved host action/tool installation.
+- `plan.json`: `harness.execution/v2` with `status=ready` and 1..16 command-only operations. Ordinary and interactive-observe workflow use `risk=low|medium`, `requires_approval=false` and `network=false`.
 - `README.md`: human explanation of the evidence requested.
 - `patches/` MUST NOT exist.
 

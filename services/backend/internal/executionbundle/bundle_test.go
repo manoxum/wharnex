@@ -90,6 +90,20 @@ func TestParseAnswerTurnWithoutExecutionPlan(t *testing.T) {
 	}
 }
 
+func TestParseClarificationInterview(t *testing.T) {
+	raw := zipBytes(t, map[string]string{
+		"README.md": "# Decision needed\n",
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_12345678","kind":"clarification","chat_title":"Definir retenção","message":"Escolha a retenção.","outcome":{"status":"completed","retryable":false},"interview":{"protocol":"harness.interview/v1","questions":[{"id":"retention","prompt":"Qual retenção?","options":[{"id":"three-days","label":"3 dias"},{"id":"thirty-days","label":"30 dias"}]}]}}`,
+	})
+	parsed, err := Parse("wharness-bundle-req_12345678.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Turn.Interview == nil || len(parsed.Turn.Interview.Questions) != 1 || parsed.Turn.Interview.Questions[0].ID != "retention" {
+		t.Fatalf("interview was not preserved: %#v", parsed.Turn.Interview)
+	}
+}
+
 func TestParseExposesOptionalKnowledgeFileAtRoot(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
 		"README.md":    "# Knowledge review\n",

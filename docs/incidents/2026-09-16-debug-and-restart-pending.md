@@ -23,6 +23,14 @@ The root race was that `ApplyToHost` loaded the session before acquiring its pro
 
 Host Apply now reloads durable session state under the project lock. A duplicate sees no unconsumed candidate and exits before any host or transaction side effect. Pre-mutation extension cleanup also retains the prior transaction and removes only newly appended membership. Finally, a later healthy runtime restart reconciles older activation flags when their successful host Apply timestamp predates that restart; this repairs the historical stranded session without fabricating an Apply or deleting audit history.
 
+## Incident 3: Debug cleanup bundled discovery and destruction
+
+For context `deaa515b44d9ddd9b6f29f4b2b59580adf97ecf3fe607b1e7e1bfc5cd019c31a`, the cleanup plan `plan_20260916T222945_minio_bundle_cleanup_3d` was approved as `harness.debug/v1 access=modify`. It contained one large `node -e` payload that tried to discover a local backend, select all bundle artifacts older than three days, delete them and verify the result. It failed immediately with `connect ECONNREFUSED 127.0.0.1:8888`; no inventory was produced and no deletion occurred. Its continuation nevertheless proposed another destructive host plan.
+
+The root cause was architectural: generic model-authored argv provided no seam between discovery and mutation. An approval could not name or freeze the affected objects, and the inline program hid both target selection and destructive action from the normal command-level review.
+
+ADR-0060 retires host-modifying debug workflows. New `harness.interactive/v1` workflows are observation-only and may use a bounded 24-round evidence budget. The Policy now denies inline programs in model plans. Future cleanup/deployment/remote capabilities must be typed modules that own candidate inventory, immutable manifests, preflight, scoped approval, drift revalidation and postcondition verification.
+
 ## Reusable recognition rules
 
 - `runtime_execution_history_unavailable` after Debug was enabled, with no `workflow.started`, indicates a protocol capability gap, not a source failure. Use an engine-owned aggregate query; never grant raw database/log access.

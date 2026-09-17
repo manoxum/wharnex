@@ -56,7 +56,8 @@
       "type": "object", "additionalProperties": false,
       "required": ["protocol", "target", "rationale"],
       "properties": {
-        "protocol": {"const": "harness.debug/v1"},
+		"protocol": {"enum": ["harness.debug/v1", "harness.interactive/v1"]},
+		"access": {"enum": ["observe"]},
         "target": {"enum": ["sandbox", "host"]},
 		"query": {"enum": ["project_execution_summary"]},
         "rationale": {"type": "string", "minLength": 1, "maxLength": 4096}

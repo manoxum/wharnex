@@ -1,7 +1,10 @@
 # ADR-0059 — Approval-gated debug host actions
 
 ## Status
-Accepted.
+
+Superseded by ADR-0060. The modifying-host decision is retained as historical
+context only; pending and new modifying debug workflows are rejected rather
+than grandfathered.
 
 ## Context
 `harness.debug/v1` originally exposed only sandbox probes plus a small read-only host allowlist. That protected the workstation, but it also meant an active Debug session could not satisfy a user request that explicitly required a local host change or a diagnostic helper that was not installed. The planner could describe the limitation, but it could not return an executable local instruction set whose result flowed back into the same debug conversation.

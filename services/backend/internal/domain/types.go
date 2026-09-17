@@ -12,6 +12,11 @@ const ProtocolV2 = "harness.execution/v2"
 const TurnProtocolV1 = "harness.turn/v1"
 const DebugProtocolV1 = "harness.debug/v1"
 
+// InteractiveProtocolV1 is the public successor to the legacy debug label.
+// DebugProtocolV1 remains readable for durable/in-flight compatibility.
+const InteractiveProtocolV1 = "harness.interactive/v1"
+const InterviewProtocolV1 = "harness.interview/v1"
+
 const DebugQueryProjectExecutionSummary = "project_execution_summary"
 
 const (
@@ -53,6 +58,27 @@ type AgentTurn struct {
 	Message             string       `json:"message"`
 	Outcome             *TurnOutcome `json:"outcome"`
 	ResolvedEvidenceIDs []string     `json:"resolved_evidence_ids,omitempty"`
+	Interview           *Interview   `json:"interview,omitempty"`
+}
+
+// Interview is a structured clarification. It is data for a human decision,
+// never executable instruction. A reply returns through the ordinary composer
+// so the user retains control over what is submitted to the provider.
+type Interview struct {
+	Protocol  string              `json:"protocol"`
+	Questions []InterviewQuestion `json:"questions"`
+}
+
+type InterviewQuestion struct {
+	ID            string            `json:"id"`
+	Prompt        string            `json:"prompt"`
+	AllowMultiple bool              `json:"allow_multiple,omitempty"`
+	Options       []InterviewOption `json:"options"`
+}
+
+type InterviewOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 // TurnOutcome describes whether the planner completed its response. It never

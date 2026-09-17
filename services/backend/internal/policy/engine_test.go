@@ -81,14 +81,15 @@ func TestProjectDefinedCommandsRaiseRiskWithoutForcingApproval(t *testing.T) {
 	}
 }
 
-func TestDebugHostModificationAlwaysRequiresHighRiskApproval(t *testing.T) {
+func TestPolicyNeverLetsApprovalTurnInlineNodeIntoHostAuthority(t *testing.T) {
 	plan := basePlan()
-	plan.Risk = "low"
-	plan.Debug = &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Access: domain.DebugAccessModify, Rationale: "change requested host state"}
-	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("npm", "cache", "verify")}}
+	plan.Risk = "high"
+	plan.RequiresApproval = true
+	plan.Debug = &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Access: domain.DebugAccessModify, Rationale: "delete old bundles"}
+	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("node", "-e", "deleteEverything()")}}
 	decision := NewEngine().Evaluate(plan)
-	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
-		t.Fatalf("host debug modification must be high-risk approval-gated: %#v", decision)
+	if decision.Allowed {
+		t.Fatalf("inline host program must be denied even after approval: %#v", decision)
 	}
 }
 

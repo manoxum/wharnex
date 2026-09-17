@@ -1846,6 +1846,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
               ? (pendingDebugApproval ? 'Aguarda autorização · Debug' : updated.failure_kind === 'offline_go_module_cache' ? 'Aguarda aprovação · rede restrita' : 'Aguarda aprovação · Policy')
               : conversational ? turnMeta(updated.last_turn!.kind) : (submission.auto_applied ? (submission.restart_required ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'AUTO · Host aplicado') : (updated.policy?.allowed ? `Bundle ${filename} · Policy validada` : `Bundle ${filename} · Policy bloqueada`)),
         turnKind: updated.last_turn?.kind,
+		interview: updated.last_turn?.interview,
         iteration: updated.last_turn?.request_id ? iterationRef(updated.last_turn.request_id, plannerFailed ? 'failed' : 'result', plannerFailed || updated.last_execution?.success === false ? ['error', 'result'] : ['result'], targetChat.chatgptUrl) : undefined,
       }
       acceptSessionForChat(targetChat, updated)

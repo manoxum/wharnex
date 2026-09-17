@@ -67,6 +67,23 @@ func TestValidateTurnAcceptsBoundedChatTitle(t *testing.T) {
 	}
 }
 
+func TestValidateTurnAcceptsStructuredInterviewOnlyForClarification(t *testing.T) {
+	turn := domain.AgentTurn{
+		Protocol: domain.TurnProtocolV1, RequestID: "req_12345678", Kind: domain.TurnKindClarification,
+		Message: "Preciso de uma decisão antes de continuar.", Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted},
+		Interview: &domain.Interview{Protocol: domain.InterviewProtocolV1, Questions: []domain.InterviewQuestion{{
+			ID: "retention", Prompt: "Qual a retenção pretendida?", Options: []domain.InterviewOption{{ID: "three-days", Label: "3 dias"}, {ID: "thirty-days", Label: "30 dias"}},
+		}}},
+	}
+	if err := ValidateTurn(turn); err != nil {
+		t.Fatalf("expected valid interview: %v", err)
+	}
+	turn.Kind = domain.TurnKindAnswer
+	if err := ValidateTurn(turn); err == nil {
+		t.Fatal("interview must not turn an answer into a decision surface")
+	}
+}
+
 func TestValidateTurnRejectsOversizedChatTitle(t *testing.T) {
 	turn := domain.AgentTurn{
 		Protocol: domain.TurnProtocolV1, RequestID: "req_12345678", Kind: domain.TurnKindAnswer,

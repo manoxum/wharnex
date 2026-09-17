@@ -214,6 +214,10 @@ export type TerminalRunRequest = TerminalRunInput & { id: number }
 
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
+export type InterviewOption = { id: string; label: string }
+export type InterviewQuestion = { id: string; prompt: string; allow_multiple?: boolean; options: InterviewOption[] }
+export type Interview = { protocol: 'harness.interview/v1'; questions: InterviewQuestion[] }
+
 export type AgentTurn = {
   protocol: 'harness.turn/v1'
   request_id: string
@@ -221,6 +225,7 @@ export type AgentTurn = {
   chat_title?: string
   message: string
   outcome?: { status: 'completed' | 'failed' | 'partial'; reason_code?: string; message?: string; retryable: boolean }
+	interview?: Interview
 }
 
 export type ProjectKnowledgeEntry = {
@@ -665,7 +670,7 @@ export type ChatAttachmentInfo = {
   previewKind?: 'thumbnail' | 'icon' | 'none'
 }
 
-export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[]; iteration?: ChatIterationRef; source?: ChatItemSource; presentation?: ChatItemPresentation; approval?: ChatPlanApproval; change?: ChatChangeSummary }
+export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[]; iteration?: ChatIterationRef; source?: ChatItemSource; presentation?: ChatItemPresentation; approval?: ChatPlanApproval; change?: ChatChangeSummary; interview?: Interview }
 
 export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean; remote_recovery_prepared?: boolean; conflict_prepared?: boolean; workflow_executed?: boolean; workflow_prepared?: boolean; workflow_round?: number; restart_scheduled?: boolean; restart_required?: boolean }
 

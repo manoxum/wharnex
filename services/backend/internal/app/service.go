@@ -1314,11 +1314,12 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		if !isDebug && current.ExecutionMode != domain.ExecutionModeProtected {
 			return BundleSubmission{}, errors.New("workflow bundle requires Protected execution mode")
 		}
-		if current.WorkflowRound >= maxWorkflowRounds {
-			return BundleSubmission{}, fmt.Errorf("workflow round limit reached (%d); return a terminal answer, investigation, clarification, change, or blocked bundle for request %s", maxWorkflowRounds, parsed.Turn.RequestID)
-		}
 		if parsed.Plan == nil {
 			return BundleSubmission{}, errors.New("workflow bundle requires plan.json")
+		}
+		limit := workflowRoundLimit(parsed.Plan)
+		if current.WorkflowRound >= limit {
+			return BundleSubmission{}, fmt.Errorf("workflow round limit reached (%d); return a terminal answer, investigation, clarification, change, or blocked bundle for request %s", limit, parsed.Turn.RequestID)
 		}
 		if err := protocol.ValidateWorkflowPlan(*parsed.Plan); err != nil {
 			return BundleSubmission{}, err

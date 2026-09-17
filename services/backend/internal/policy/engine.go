@@ -27,9 +27,7 @@ func (e *Engine) Evaluate(plan domain.ExecutionPlan) domain.PolicyDecision {
 		decision.Reasons = append(decision.Reasons, "planner requested explicit approval")
 	}
 	if plan.Debug != nil && plan.Debug.Target == "host" && plan.Debug.EffectiveAccess() == domain.DebugAccessModify {
-		decision.RequiresApproval = true
-		decision.Risk = maxRisk(decision.Risk, "high")
-		decision.Reasons = append(decision.Reasons, "debug host modification requires per-plan approval")
+		return domain.PolicyDecision{Allowed: false, RequiresApproval: true, Risk: "high", Reasons: []string{"host-modifying debug workflow is retired; use a dedicated typed operation"}}
 	}
 	for _, tool := range plan.SystemTools {
 		if tool.Target == "host" && tool.Action != "use" {
@@ -61,6 +59,12 @@ func classifyCommand(command domain.CommandSpec, decision *domain.PolicyDecision
 		decision.Reasons = append(decision.Reasons, "command requests network access")
 	}
 	name := strings.ToLower(filepath.Base(command.Argv[0]))
+	if inlineCodeFlag(name, command.Argv[1:]) {
+		decision.Allowed = false
+		decision.Risk = "high"
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("inline code execution through %q is denied in model plans", name))
+		return
+	}
 	if denied[name] {
 		decision.Allowed = false
 		decision.Risk = "high"

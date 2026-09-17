@@ -51,9 +51,9 @@ func normalizePlannerResult(requestID string, result *planner.Result) error {
 	return protocol.ValidateChangePlan(*result.Plan)
 }
 
-func buildWorkflowObservationMessage(result domain.ExecutionResult, round int) string {
+func buildWorkflowObservationMessage(result domain.ExecutionResult, round, limit int) string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "LOCAL WORKFLOW OBSERVATIONS — round %d of %d\n\n", round, maxWorkflowRounds)
+	fmt.Fprintf(&out, "LOCAL WORKFLOW OBSERVATIONS — round %d of %d\n\n", round, limit)
 	out.WriteString("Wharnex executed the previous bounded, observation-only workflow step on the target selected by the validated protocol. Nothing from this workflow step was applied to the host project. Treat the following as execution evidence for the ORIGINAL user request in this same conversation.\n\n")
 	fmt.Fprintf(&out, "PREVIOUS WORKFLOW PLAN: %s\nSUCCESS: %t\n", result.PlanID, result.Success)
 	if result.Error != "" {
@@ -63,7 +63,7 @@ func buildWorkflowObservationMessage(result domain.ExecutionResult, round int) s
 		fmt.Fprintf(&out, "\n[%d] argv=%q cwd=%q exit=%d success=%t\nSTDOUT:\n%s\nSTDERR:\n%s\n", index+1, command.Argv, command.Cwd, command.ExitCode, command.Success, truncateRepairText(command.Stdout, 6000), truncateRepairText(command.Stderr, 6000))
 	}
 	out.WriteString("\nNEXT DECISION:\n- If the evidence is sufficient, return a terminal answer or investigation with the complete useful conclusion.\n- If the original user explicitly requested mutation and the evidence is sufficient, return change with the final execution plan.\n- If another local probe is truly necessary, return workflow with a materially different targeted command plan.\n- Do not turn an ASK/advice request into a change.\n")
-	if round >= maxWorkflowRounds {
+	if round >= limit {
 		out.WriteString("\nFINAL WORKFLOW ROUND: you MUST return a terminal answer, investigation, clarification, change, or blocked result now. Do NOT return workflow again.\n")
 	}
 	return out.String()
