@@ -19,6 +19,7 @@ const (
 	bundleTypePlan                   = "plan"
 	bundleTypePlanApproval           = "plan_approval"
 	bundleTypePlanCorrection         = "plan_correction"
+	bundleTypePlanAdjustment         = "adjustment"
 	bundleTypeRevertRestore          = "revert_restore"
 	bundleTypeImprovement            = "improvement"
 	bundleTypeConflict               = "conflict"
@@ -69,6 +70,8 @@ func inputBundleType(lineageKind string) string {
 		return bundleTypePlanApproval
 	case requestKindPlanCorrection:
 		return bundleTypePlanCorrection
+	case requestKindPlanAdjustment:
+		return bundleTypePlanAdjustment
 	case requestKindRepair:
 		return bundleTypeCorrection
 	case requestKindRevertRestore:

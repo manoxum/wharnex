@@ -70,7 +70,7 @@ describe('BundleExchangeBar', () => {
     const base = { kind: 'bundle', content_type: 'application/zip', size: 2048, sha256: 'b'.repeat(64), expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1 }
     const specs = [
       ['main', 'input', 'main_request', 'main-request'], ['response', 'output', 'response', 'response'],
-      ['correction', 'input', 'correction', 'correction'], ['debug-ping', 'output', 'debug_ping', 'debug-ping'],
+      ['correction', 'input', 'correction', 'correction'], ['adjustment', 'input', 'adjustment', 'adjustment'], ['debug-ping', 'output', 'debug_ping', 'debug-ping'],
       ['debug-pong', 'input', 'debug_pong', 'debug-pong'], ['plan', 'output', 'plan', 'plan'],
       ['plan-approval', 'input', 'plan_approval', 'plan-approval'], ['plan-correction', 'input', 'plan_correction', 'plan-correction'],
       ['restore', 'input', 'revert_restore', 'restore'], ['improvement', 'input', 'improvement', 'improvement'],

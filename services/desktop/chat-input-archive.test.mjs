@@ -225,6 +225,8 @@ test('a continuation request carries its attempt ledger and divergence report as
       prompt: '# Planner\n\nSESSION ATTEMPT LEDGER\nReturn the bundle.',
       knowledge: { state: 'none' },
       continuation: [
+        { path: 'requests/main.md', content_base64: Buffer.from('Pedido inicial').toString('base64') },
+        { path: 'requests/adjustment.md', content_base64: Buffer.from('Ajustar apenas a UI').toString('base64') },
         { path: 'attempts/state.json', content_base64: Buffer.from('{"protocol":"harness.attempts/v1"}').toString('base64') },
         { path: 'attempts/ledger.md', content_base64: Buffer.from(ledger).toString('base64') },
         { path: 'attempts/events.json', content_base64: Buffer.from('{"protocol":"harness.execution-history/v1","events":[]}').toString('base64') },
@@ -240,6 +242,8 @@ test('a continuation request carries its attempt ledger and divergence report as
     assert.deepEqual([...entries.keys()], [
       'transport.json',
       'prompt/wharness-planner-prompt.md',
+      'requests/main.md',
+      'requests/adjustment.md',
       'attempts/state.json',
       'attempts/ledger.md',
       'attempts/events.json',
@@ -252,7 +256,7 @@ test('a continuation request carries its attempt ledger and divergence report as
     assert.equal(entries.get('context-delta/delta.patch').toString('utf8'), patch)
     const manifest = JSON.parse(entries.get('transport.json').toString('utf8'))
     assert.deepEqual(manifest.continuation.map((item) => item.path), [
-      'attempts/state.json', 'attempts/ledger.md', 'attempts/events.json', 'context-delta/delta.json', 'context-delta/delta.patch', 'responses/index.json', 'responses/001-req_root.zip',
+      'requests/main.md', 'requests/adjustment.md', 'attempts/state.json', 'attempts/ledger.md', 'attempts/events.json', 'context-delta/delta.json', 'context-delta/delta.patch', 'responses/index.json', 'responses/001-req_root.zip',
     ])
   } finally {
     await rm(root, { recursive: true, force: true })

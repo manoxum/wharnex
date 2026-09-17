@@ -2202,6 +2202,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .bundle-tone-main-request { --bundle-color:#356ac3; --bundle-bg:#edf4ff; --bundle-border:#b9cff1; }
 .bundle-tone-response { --bundle-color:#2f806d; --bundle-bg:#e8f6f1; --bundle-border:#abd6c9; }
 .bundle-tone-correction { --bundle-color:#a86616; --bundle-bg:#fff4df; --bundle-border:#e5c58d; }
+.bundle-tone-adjustment { --bundle-color:#376d9f; --bundle-bg:#edf6ff; --bundle-border:#a9cae7; }
 .bundle-tone-debug-ping { --bundle-color:#087f9c; --bundle-bg:#e8f8fc; --bundle-border:#9bd8e6; }
 .bundle-tone-debug-pong { --bundle-color:#087866; --bundle-bg:#e7f8f3; --bundle-border:#9ed8cb; }
 .bundle-tone-plan { --bundle-color:#6848b8; --bundle-bg:#f2edff; --bundle-border:#c9baf0; }
@@ -4519,3 +4520,13 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .chat-panel.compact-composer .composer-footer { padding-top:5px; }
 .chat-panel.compact-composer .composer-action-row { min-height:28px; }
 .chat-panel.compact-composer .composer-hint { max-width:100%; }
+
+/* Execution-plan adjustment composer */
+.plan-adjustment-context { display:flex; align-items:center; gap:10px; margin:8px 10px 2px; padding:9px 10px; border:1px solid var(--border); border-radius:10px; background:color-mix(in srgb, var(--panel) 82%, var(--accent) 18%); }
+.plan-adjustment-context .plan-adjustment-icon { display:grid; place-items:center; width:28px; height:28px; border-radius:8px; background:var(--panel); }
+.plan-adjustment-context > div { min-width:0; display:grid; gap:2px; flex:1; }
+.plan-adjustment-context strong { font-size:12px; }
+.plan-adjustment-context small, .plan-adjustment-context code { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:10px; }
+.plan-adjustment-context button { border:0; background:transparent; color:var(--muted); cursor:pointer; padding:5px; }
+.plan-adjustment-mode { box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.plan-adjustment-state { color:var(--accent); }

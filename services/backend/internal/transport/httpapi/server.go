@@ -117,6 +117,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/correct", a.correctPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/reject", a.rejectExecutionPlan)
+	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/adjust", a.adjustExecutionPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/failures", a.remoteInputFailure)
@@ -1101,6 +1102,21 @@ func (a *API) rejectPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) adjustExecutionPlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Guidance string `json:"guidance"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, item, err := a.service.SubmitExecutionPlanAdjustment(r.Context(), r.PathValue("id"), body.Guidance)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "execution_plan_adjustment_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
 }
 
 func (a *API) rejectExecutionPlan(w http.ResponseWriter, r *http.Request) {

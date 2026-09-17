@@ -22,7 +22,7 @@ import { ChangeDiffEditor } from './ChangeDiffEditor'
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onRejectExecutionPlan, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -42,6 +42,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   onContextSent?: (sha256: string, conversationUrl?: string) => void
   onExecute: (approved: boolean) => Promise<void>
   onApproveDebug?: () => Promise<void>
+  onAdjustExecutionPlan?: () => void
   onRetryDependencyNetwork?: () => Promise<void>
   onRetryHostDependencyRepair?: () => Promise<void>
   onRejectExecutionPlan?: () => Promise<void>
@@ -95,7 +96,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
 
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''} ${selectedTab === 'files' ? 'files-content' : ''}`}>
         {selectedTab === 'files' && <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
-        {selectedTab === 'plan' && <PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}
+        {selectedTab === 'plan' && <PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}
         {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode !== 'manual' && !desktop && <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
@@ -286,7 +287,7 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
   </div>
 }
 
-export function PlanView({ session, busy = false, canExecute = false, needsApproval = false, canRejectPending = false, onExecute, onApproveDebug, onRejectExecutionPlan, onRejectPendingChanges, conflictGuidance = '', onConflictGuidance, onResolveManually, onResolveWithGPT }: {
+export function PlanView({ session, busy = false, canExecute = false, needsApproval = false, canRejectPending = false, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, conflictGuidance = '', onConflictGuidance, onResolveManually, onResolveWithGPT }: {
   session: Session
   busy?: boolean
   canExecute?: boolean
@@ -294,6 +295,7 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
   canRejectPending?: boolean
   onExecute?: (approved: boolean) => Promise<void>
   onApproveDebug?: () => Promise<void>
+  onAdjustExecutionPlan?: () => void
   onRejectExecutionPlan?: () => Promise<void>
   onRejectPendingChanges?: () => Promise<void>
   conflictGuidance?: string
@@ -347,7 +349,7 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
         <div className="plan-control-copy"><span className="plan-control-mark"><Icon name="plan" size={15}/></span><div><span className="panel-kicker">Contrato de execução</span><strong>{canExecute ? 'Aguardando a sua decisão' : pendingCount ? 'Integração pendente de recuperação' : 'Plano registado'}</strong><span>{needsApproval ? 'Uma aprovação cobre a execução Protected e a integração automática no host; correções só voltam a pedir decisão quando introduzem novo impacto.' : pendingCount ? 'A aplicação ao host já foi autorizada pelo plano. Não existe uma segunda aprovação de Apply; apenas a recuperação do bloqueio pendente.' : 'Depois de uma execução Protected autorizada e verificada, a integração no host acontece sem uma segunda aprovação.'}</span></div></div>
         <div className="plan-decision-actions">
           {session.state === 'debug_approval_required' && session.plan.debug && <button type="button" className="apply-button" disabled={busy} onClick={() => void onApproveDebug?.()}><Icon name="terminal" size={14}/> {session.plan.debug.target === 'host' && session.plan.debug.access === 'modify' ? 'Autorizar alteração de debug no host' : `Autorizar debug ${session.plan.debug.target}`}</button>}
-          {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><button type="button" className={session.execution_mode === 'unprotected' ? 'danger-button' : 'apply-button'} disabled={busy} onClick={() => void onExecute?.(true)}><Icon name="check" size={14}/> {session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
+          {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><button type="button" className="secondary-button" disabled={busy} onClick={() => onAdjustExecutionPlan?.()}><Icon name="edit" size={13}/> Ajustar</button><button type="button" className={session.execution_mode === 'unprotected' ? 'danger-button' : 'apply-button'} disabled={busy} onClick={() => void onExecute?.(true)}><Icon name="check" size={14}/> {session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
           {canRejectPending && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={13}/> Rejeitar</button>}
         </div>
       </div>

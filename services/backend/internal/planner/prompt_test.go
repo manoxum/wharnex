@@ -139,6 +139,15 @@ func TestBuildManualPromptPlanApprovalContinuesSameMainRequest(t *testing.T) {
 	}
 }
 
+func TestBuildManualPromptAdjustPlanProducesFreshExecutableResult(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-plan-adjustment", Message: "reduce scope", PlanningMode: "adjust_plan"})
+	for _, want := range []string{"REQUEST STRATEGY: ADJUST_PLAN", "not a failure correction", "requests/main.md", "requests/adjustment.md", "fresh executable result"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("adjust-plan prompt missing %q: %q", want, prompt)
+		}
+	}
+}
+
 func TestBuildManualPromptPlanCorrectionIsPlanningOnly(t *testing.T) {
 	prompt := BuildManualPrompt(Request{RequestID: "req-plan-correction", Message: "revise proposal", PlanningMode: "correct_plan"})
 	for _, want := range []string{"REQUEST STRATEGY: CORRECT_PLAN", "planning-only", "kind=plan", "NO plan.json", "supersedes the parent proposal"} {
