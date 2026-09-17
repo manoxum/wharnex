@@ -2,7 +2,6 @@ package hostrepo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -196,14 +195,9 @@ func DiffBetween(ctx context.Context, root, fromSHA, toSHA string, limitBytes in
 // is responsible for validating that sha belongs to a commit it intends to
 // expose.
 func CommitDiff(ctx context.Context, root, sha string, limitBytes int) (diff string, truncated bool, err error) {
-	sha = strings.TrimSpace(sha)
-	if len(sha) != 40 {
-		return "", false, errors.New("a full commit sha is required")
-	}
-	for _, r := range sha {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
-			return "", false, errors.New("invalid commit sha")
-		}
+	sha, err = fullCommitSHA(sha)
+	if err != nil {
+		return "", false, err
 	}
 	output, err := runRaw(ctx, root, "show", "--format=", "--no-color", "--no-ext-diff", sha)
 	if err != nil {

@@ -9,6 +9,7 @@
 - `harness.interactive/v1`: the public interactive observation extension carried only by a `workflow` execution plan. It declares a bounded `sandbox|host` target and rationale; it is read-only. `harness.debug/v1` is a legacy observe-only compatibility spelling.
 - `wharness.translation-input/v1`: the request bundle Wharnex uploads for one document translation.
 - `harness.translation/v1`: the response bundle ChatGPT returns for that request.
+- `harness.git-context/v1`: engine-authored, read-only Git working-state and local-unpushed-commit context carried with planner requests under `git-context/`; `harness.git-context-worktree/v1` and `harness.git-context-commit/v1` identify its bounded worktree and per-commit records.
 - `harness.conflict/v1`: a Wharness-generated, focused BASE/CURRENT/RESULT capsule for resolving a planner-resolvable conflict. It travels as the fixed `conflict/capsule.json` entry of the single request ZIP and is referenced, never duplicated, by the bounded prompt. Its `origin` field says which reconciliation is being asked for — `integration` (the historical case, and the default when the field is absent), or `push`/`pull`/`branch_merge` for a host Git operation the operator started, which additionally carries the `git` block naming the merge to replay (see `adr/ADR-0040`). For an integration conflict it resolves a verified candidate — sourced from a real Git merge conflict's merge-base/host/branch commits for a candidate integrated via the Git-native flow (see `AUTOMATION_BUNDLE.md`), or from a canonical `ChangeSet` for a candidate reconciled from an immutable archived base. Wharnex-managed `.wharnex/knowledge/**` paths never enter this planner capsule: managed-only Git collisions preserve the current host state locally, while mixed collisions expose only ordinary paths.
 
 ## Composer directive language (v1.3.10 — see `adr/ADR-0053`)
@@ -270,6 +271,20 @@ Routing is passive and belongs to Wharness, not to the plan:
 - an exact gitlink for a repository already owned by the candidate is reconciled locally by the Engine's validated repository-tree transaction and MUST NOT enter `harness.conflict/v1` or request another planner turn; a conflict in a source file inside that repository remains a normal project-relative conflict.
 
 The manifest is descriptive, exactly like the environment manifest. The routing it describes happens whether or not a planner reads it; the section exists so the planner's prose, commit message and impact set can be true about a change that crosses repositories.
+
+## Request Git context (`harness.git-context/v1`, v1.3.11 — see `adr/ADR-0061`)
+
+Every planner request carries a bounded, engine-authored Git snapshot beside the ordinary project context. The root `git-context/index.json` enumerates the repositories represented in the request. The primary repository uses `git-context/<current-ref>/`; a related `@ref` project uses a collision-resistant `git-context/related-<RELATED_PROJECTS namespace>/` directory and records its actual branch/ref inside the index. The transport spelling `uncommited/` is intentionally retained as a wire-compatibility path.
+
+Each represented repository contributes:
+
+- `uncommited/diff`, the tracked, staged, unstaged, untracked and resolvable conflict diff for paths that are present in that repository's current context manifest, plus `uncommited/state.json` describing admitted paths, omissions and truncation;
+- one `<40-char commit sha>/commit.json` and `<40-char commit sha>/diff` pair for each bounded local commit that is not represented by the configured upstream, or by any remote ref when no upstream exists; the metadata includes subject/body, author, parent commits, timestamps and Wharnex request/plan trailers when present;
+- explicit upstream/ahead/behind/ref identity in the root index so the planner can distinguish worktree dirt from already-committed local divergence.
+
+Git context reuses the context manifest as a hard disclosure allowlist. It never exports `.git` internals, repository URLs, credentials, Git config, excluded files, or a diff for a path the corresponding context snapshot did not admit. Worktree and commit diffs are byte-bounded, the aggregate file inventory is capped at 128 entries, and the commit budget is shared fairly when related projects are present. A repository that cannot be inspected becomes an `unavailable` index entry with a generic reason instead of leaking a host path or aborting the request; the root state is unavailable only when no represented repository can be inspected.
+
+The same snapshot MUST be used by direct Desktop ZIPs, one-shot remote ZIPs, live remote file maps, bundle preview, and continuation/direct request materialization. Preview is therefore non-destructive but byte-shape faithful: if the next real request would expose Git context, the preview must expose the same Git-context inventory.
 
 ## Patch representation
 

@@ -1139,10 +1139,11 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
   assert.match(materialize, /const context = await fetchContextZip\(sessionId\)/)
-  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, requestMetadata, prompt: promptText, context, knowledge, continuation, attachments: decoded, liveTunnels \}\)/)
+  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels \}\)/)
   // The attempt ledger and divergence report must ride in the same single
   // protocol ZIP; fetching them separately at send time would let a comment
   // reach ChatGPT without the evidence the prompt says is attached.
+  assert.match(materialize, /const gitContext = await fetchRequestGitContext\(sessionId\)/)
   assert.match(materialize, /const continuation = await fetchRequestContinuation\(sessionId, requestId\)/)
 
   const flushStart = source.indexOf('async function flushQueuedChatGPTComments')

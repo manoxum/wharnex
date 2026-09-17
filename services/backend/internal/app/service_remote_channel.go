@@ -118,9 +118,8 @@ func (s *Service) openRemoteInputChannel(ctx context.Context, store RemoteInputC
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
-	state := &remoteInputChannelState{channelID: channelID, rootRequestID: request.RequestID, activeRequest: request.RequestID, generation: 1, contextSHA256: item.Context.Manifest.SHA256, contextChecked: time.Now(), selectedIDs: append([]string(nil), request.TunnelInstanceIDs...), knowledge: knowledge}
-	state.contextProbe, _ = contextbundle.SourceProbe(item.ProjectPath)
-	resources, total, largest, err := buildRemoteChannelResources(dir, item, request, knowledge, attachments, artifacts, state, true)
+	state := &remoteInputChannelState{channelID: channelID, rootRequestID: request.RequestID, activeRequest: request.RequestID, generation: 1, contextSHA256: item.Context.Manifest.SHA256, selectedIDs: append([]string(nil), request.TunnelInstanceIDs...), knowledge: knowledge}
+	resources, total, largest, err := buildRemoteChannelResources(ctx, dir, item, request, knowledge, attachments, artifacts, state, true)
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
@@ -139,6 +138,11 @@ func (s *Service) openRemoteInputChannel(ctx context.Context, store RemoteInputC
 		_ = closeRemoteChannelSet(ctx, store, publications, channelID)
 		return RemoteInputResult{}, err
 	}
+	// The initial publish and request.ready update both collect Git context.
+	// `git status` may refresh .git/index on either pass, so persist the probe
+	// only after the final collection that runs before the monitor starts.
+	state.contextProbe, _ = contextbundle.SourceProbe(item.ProjectPath)
+	state.contextChecked = time.Now()
 	monitorContext, cancel := context.WithCancel(context.Background())
 	state.cancel = cancel
 	s.remoteLeaseMu.Lock()
@@ -152,14 +156,14 @@ func (s *Service) updateRemoteInputChannel(ctx context.Context, store RemoteInpu
 	next := *current
 	next.activeRequest = request.RequestID
 	next.contextSHA256 = item.Context.Manifest.SHA256
-	next.contextProbe, _ = contextbundle.SourceProbe(item.ProjectPath)
-	next.contextChecked = time.Now()
 	next.generation++
 	next.knowledge = knowledge
 	total, err := updateRemoteChannelResources(ctx, store, current.publications, dir, item, request, knowledge, attachments, artifacts, &next, false, "prompt.changed")
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
+	next.contextProbe, _ = contextbundle.SourceProbe(item.ProjectPath)
+	next.contextChecked = time.Now()
 	s.remoteLeaseMu.Lock()
 	if active := s.remoteChannels[item.ID]; active != nil && active.channelID == current.channelID {
 		active.activeRequest = next.activeRequest
@@ -186,7 +190,7 @@ func updateRemoteChannelResources(ctx context.Context, store RemoteInputChannelS
 		endpoint.provider = publication.Provider
 		endpoint.manifestURL = publication.URL
 		endpoint.baseURL = strings.TrimSuffix(publication.URL, "/manifest.json")
-		resources, size, _, err := buildRemoteChannelResources(dir, item, request, knowledge, attachments, artifacts, &endpoint, includeManifest)
+		resources, size, _, err := buildRemoteChannelResources(ctx, dir, item, request, knowledge, attachments, artifacts, &endpoint, includeManifest)
 		if err != nil {
 			return 0, err
 		}
@@ -268,7 +272,7 @@ func publicationIDs(publications []RemoteInputPublication) []string {
 	return ids
 }
 
-func buildRemoteChannelResources(dir string, item domain.Session, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, attachments, artifacts []decodedRemoteFile, state *remoteInputChannelState, includeManifest bool) ([]RemoteInputChannelResource, int64, int64, error) {
+func buildRemoteChannelResources(ctx context.Context, dir string, item domain.Session, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, attachments, artifacts []decodedRemoteFile, state *remoteInputChannelState, includeManifest bool) ([]RemoteInputChannelResource, int64, int64, error) {
 	channelSubID := ""
 	if request.RequestID != state.rootRequestID {
 		channelSubID = request.RequestID
@@ -281,7 +285,8 @@ func buildRemoteChannelResources(dir string, item domain.Session, request Remote
 		}
 		return strings.TrimSuffix(state.baseURL, "/") + "/" + path
 	}
-	resources, entries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, knowledge, continuationArtifacts(item, request.RequestID), request.ProjectFiles, attachments, artifacts, state.fileMapEntries, resourceURL)
+	gitContext := requestGitContextForItem(ctx, item)
+	resources, entries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, knowledge, gitContext, continuationArtifacts(item, request.RequestID), request.ProjectFiles, attachments, artifacts, state.fileMapEntries, resourceURL)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -338,7 +343,7 @@ func buildRemoteChannelResources(dir string, item domain.Session, request Remote
 		if len(knowledge.Entries) == 0 {
 			knowledgeInstruction = "When legacy knowledge.state is present, read and verify knowledge/project.md from the file map before reasoning."
 		}
-		manifest := map[string]any{"protocol": "wharness.remote-channel/v2", "root_request_id": state.rootRequestID, "state": resourceURL("state.json"), "prompt": resourceURL("prompt.md"), "file_map": resourceURL("file-map.json"), "diff_check": resourceURL("diff-check.json"), "hash": resourceURL("hash.txt"), "events": resourceURL("events"), "bundle_contract": resourceURL("bundle-contract.json"), "knowledge": knowledgeManifest(knowledge), "instructions": []string{"Use only the absolute endpoint URLs supplied in this bootstrap, manifest, state, diff check, and file map; do not construct sibling URLs.", "Read state.json, prompt.md, then file-map.json. The map is the complete allowlist of project knowledge, context, attachment, and artifact file URLs.", knowledgeInstruction, "Fetch only the individual files required to answer the request. Verify their SHA-256 values against the map when your runtime can do so.", "Retry transient connection, DNS, or 5xx retrieval failures with bounded backoff; this tunnel remains available for the Wharnex session.", remoteFinalDiffCheckInstruction, "Return only the canonical " + expectedFilename + "."}}
+		manifest := map[string]any{"protocol": "wharness.remote-channel/v2", "root_request_id": state.rootRequestID, "state": resourceURL("state.json"), "prompt": resourceURL("prompt.md"), "file_map": resourceURL("file-map.json"), "diff_check": resourceURL("diff-check.json"), "hash": resourceURL("hash.txt"), "events": resourceURL("events"), "bundle_contract": resourceURL("bundle-contract.json"), "knowledge": knowledgeManifest(knowledge), "instructions": []string{"Use only the absolute endpoint URLs supplied in this bootstrap, manifest, state, diff check, and file map; do not construct sibling URLs.", "Read state.json, prompt.md, then file-map.json. The map is the complete allowlist of project knowledge, Git context, project context, attachment, and artifact file URLs.", knowledgeInstruction, "Fetch only the individual files required to answer the request. Verify their SHA-256 values against the map when your runtime can do so.", "Retry transient connection, DNS, or 5xx retrieval failures with bounded backoff; this tunnel remains available for the Wharnex session.", remoteFinalDiffCheckInstruction, "Return only the canonical " + expectedFilename + "."}}
 		manifestRaw, err := marshalRemoteChannelJSON(manifest)
 		if err != nil {
 			return nil, 0, 0, err

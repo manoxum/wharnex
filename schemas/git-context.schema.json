@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/git-context.schema.json",
+  "title": "Wharnex planner request Git context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "state",
+    "root",
+    "index",
+    "has_upstream",
+    "ahead",
+    "behind",
+    "files"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "harness.git-context/v1"
+    },
+    "state": {
+      "enum": ["none", "present", "unavailable"]
+    },
+    "root": {
+      "const": "git-context/"
+    },
+    "index": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "ref": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "ref_path": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "head_sha": {
+      "type": "string",
+      "pattern": "^$|^[A-Fa-f0-9]{40}$"
+    },
+    "upstream": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "has_upstream": {
+      "type": "boolean"
+    },
+    "ahead": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "behind": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "files": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256", "bytes"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^git-context/(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+            "maxLength": 1024
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2097152
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 2097152
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"state": {"const": "none"}},
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "index": {"const": ""},
+          "files": {"maxItems": 0}
+        }
+      },
+      "else": {
+        "properties": {
+          "index": {"const": "git-context/index.json"},
+          "files": {"minItems": 1}
+        }
+      }
+    }
+  ]
+}

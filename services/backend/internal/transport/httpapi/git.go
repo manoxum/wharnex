@@ -16,6 +16,7 @@ import (
 // than becoming plan operations.
 func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git/overview", a.gitOverview)
+	mux.HandleFunc("GET /api/sessions/{id}/git/context", a.gitRequestContext)
 	mux.HandleFunc("GET /api/sessions/{id}/git/diff", a.gitFileDiff)
 	mux.HandleFunc("GET /api/sessions/{id}/git/history", a.gitHistory)
 	mux.HandleFunc("GET /api/sessions/{id}/git/unpushed", a.gitUnpushed)
@@ -40,6 +41,15 @@ func (a *API) gitOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, overview)
+}
+
+func (a *API) gitRequestContext(w http.ResponseWriter, r *http.Request) {
+	snapshot, err := a.service.RequestGitContext(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
 }
 
 func (a *API) gitHistory(w http.ResponseWriter, r *http.Request) {

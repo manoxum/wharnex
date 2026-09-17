@@ -33,6 +33,10 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     const target = path.join(root, filename)
     const knowledgeContent = '# Project knowledge\n\n- Prior integration lesson.\n'
     const knowledgeSha256 = 'a9d213eb8d86ef6c392563787faead1dcfae23d588dbb6bf01070a4d1b0476c1'
+    const gitIndexContent = '{\"protocol\":\"harness.git-context/v1\",\"state\":\"present\"}\n'
+    const gitDiffContent = 'diff --git a/src/App.tsx b/src/App.tsx\n'
+    const crypto = await import('node:crypto')
+    const digest = (value) => crypto.createHash('sha256').update(Buffer.from(value, 'utf8')).digest('hex')
     const result = await writeChatInputArchive(target, {
       requestId,
       requestMetadata: {
@@ -43,6 +47,13 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
       },
       prompt: `# Planner\n\nPROJECT KNOWLEDGE\nKnowledge identity: version=3 sha256=${knowledgeSha256}\n${knowledgeContent}\nReturn the bundle.`,
       knowledge: { state: 'present', content: knowledgeContent, version: 3, sha256: knowledgeSha256, updated_by_request_id: 'req_earlier12345678' },
+      gitContext: {
+        protocol: 'harness.git-context/v1', state: 'present', root: 'git-context/', index: 'git-context/index.json', ref: 'main', ref_path: 'git-context/main/', head_sha: 'a'.repeat(40), upstream: 'origin/main', has_upstream: true, ahead: 1, behind: 0,
+        files: [
+          { path: 'git-context/index.json', content: gitIndexContent, sha256: digest(gitIndexContent), bytes: Buffer.byteLength(gitIndexContent) },
+          { path: 'git-context/main/uncommited/diff', content: gitDiffContent, sha256: digest(gitDiffContent), bytes: Buffer.byteLength(gitDiffContent) },
+        ],
+      },
       context: { bytes: Buffer.from('UEsDBBQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAbWFuaWZlc3QuanNvbquuBQBQSwMEFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAABzcmMvQXBwLnRzeEutKMgvKlFIzs8rLlGoULBVMOQCAFBLAQIUAxQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAAAAAAAAAAACAAQAAAABtYW5pZmVzdC5qc29uUEsBAhQDFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAAAAAAAAAAAAAIABLwAAAHNyYy9BcHAudHN4UEsFBgAAAAACAAIAdAAAAG0AAAAAAA==', 'base64') },
       artifacts: [{ name: 'result.md', bytes: Buffer.from('result') }],
       attachments: [{ name: 'notes.txt', bytes: Buffer.from('notes') }],
@@ -55,12 +66,14 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     const raw = await readFile(target)
     const entries = storedEntries(raw)
     assert.equal(raw.byteLength, result.bytes)
-    assert.equal(result.fileCount, 8)
+    assert.equal(result.fileCount, 10)
     assert.equal(result.requestMetadata.protocol, 'harness.request-metadata/v1')
     assert.deepEqual([...entries.keys()], [
       'transport.json',
       'prompt/wharness-planner-prompt.md',
       'knowledge/project.md',
+      'git-context/index.json',
+      'git-context/main/uncommited/diff',
       'context/manifest.json',
       'context/src/App.tsx',
       'references/project-files.json',
@@ -77,6 +90,9 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
       requested_at: '2026-09-15T23:04:43.000Z',
     })
     assert.deepEqual(transport.live_tunnels.map((item) => item.instance_id), ['tunnel-1', 'tunnel-2'])
+    assert.equal(transport.git_context.protocol, 'harness.git-context/v1')
+    assert.equal(transport.git_context.ref, 'main')
+    assert.deepEqual(transport.git_context.files.map((item) => item.path), ['git-context/index.json', 'git-context/main/uncommited/diff'])
     assert.deepEqual(transport.knowledge, { protocol: 'legacy', state: 'present', sharing_enabled: true, revision: 0, path: 'knowledge/project.md', version: 3, sha256: knowledgeSha256, updated_by_request_id: 'req_earlier12345678', entries: [] })
     assert.equal(entries.get('knowledge/project.md').toString('utf8'), knowledgeContent)
     const prompt = entries.get('prompt/wharness-planner-prompt.md').toString('utf8')

@@ -128,7 +128,8 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	temporaryPath := temporary.Name()
 	_ = temporary.Close()
 	defer os.Remove(temporaryPath)
-	digest, size, err := buildRemoteInputArchive(temporaryPath, item.Context.ZipPath, request, knowledgeSnapshot, continuationArtifacts(item, request.RequestID), attachments, artifacts)
+	gitContext := requestGitContextForItem(ctx, item)
+	digest, size, err := buildRemoteInputArchive(temporaryPath, item.Context.ZipPath, request, knowledgeSnapshot, gitContext, continuationArtifacts(item, request.RequestID), attachments, artifacts)
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
@@ -141,7 +142,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 			return RemoteInputResult{}, fmt.Errorf("persist remote input bundle: %w", err)
 		}
 	}
-	fileCount, maxFileSize, err := remoteInputShape(item.Context.ZipPath, request, knowledgeSnapshot, attachments, artifacts)
+	fileCount, maxFileSize, err := remoteInputShape(item.Context.ZipPath, request, knowledgeSnapshot, gitContext, attachments, artifacts)
 	if err != nil {
 		return RemoteInputResult{}, err
 	}
@@ -224,8 +225,8 @@ func (s *Service) releaseSupersededRemoteInputLeases(sessionID string, pending [
 	}
 }
 
-func remoteInputShape(contextPath string, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, attachments, artifacts []decodedRemoteFile) (int, int64, error) {
-	count := 2 + len(attachments) + len(artifacts) // transport manifest + prompt
+func remoteInputShape(contextPath string, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, gitContext RequestGitContext, attachments, artifacts []decodedRemoteFile) (int, int64, error) {
+	count := 2 + len(attachments) + len(artifacts) + len(gitContext.Files) // transport manifest + prompt + Git context
 	if knowledge.State == domain.KnowledgeStatePresent {
 		if len(knowledge.Entries) == 0 {
 			count++ // legacy single-document snapshot
@@ -242,6 +243,9 @@ func remoteInputShape(contextPath string, request RemoteInputRequest, knowledge 
 	}
 	if len(knowledge.Entries) == 0 {
 		largest = max(largest, int64(len(knowledge.Content))) // legacy snapshot
+	}
+	for _, entry := range gitContext.Files {
+		largest = max(largest, entry.Bytes)
 	}
 	if request.IncludeContext {
 		info, err := os.Stat(contextPath)
@@ -315,7 +319,7 @@ func decodeRemoteFiles(files []RemoteInputFile, totalLimit int) ([]decodedRemote
 	return decoded, nil
 }
 
-func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, continuation []continuationArtifact, attachments, artifacts []decodedRemoteFile) (string, int64, error) {
+func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequest, knowledge domain.RequestKnowledgeSnapshot, gitContext RequestGitContext, continuation []continuationArtifact, attachments, artifacts []decodedRemoteFile) (string, int64, error) {
 	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", 0, err
@@ -326,7 +330,7 @@ func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequ
 		_ = file.Close()
 		return "", 0, err
 	}
-	manifest := map[string]any{"protocol": "wharness.remote-input/v1", "request_id": request.RequestID, "request_metadata": request.RequestMetadata, "prompt": "prompt/wharness-planner-prompt.md", "context_included": request.IncludeContext, "project_files": request.ProjectFiles, "knowledge": knowledgeManifest(knowledge)}
+	manifest := map[string]any{"protocol": "wharness.remote-input/v1", "request_id": request.RequestID, "request_metadata": request.RequestMetadata, "prompt": "prompt/wharness-planner-prompt.md", "context_included": request.IncludeContext, "project_files": request.ProjectFiles, "knowledge": knowledgeManifest(knowledge), "git_context": requestGitContextManifest(gitContext)}
 	manifestRaw, _ := json.MarshalIndent(manifest, "", "  ")
 	writeErr := writeZipBytes(archive, "transport.json", manifestRaw)
 	if writeErr == nil {
@@ -349,6 +353,11 @@ func buildRemoteInputArchive(target, contextPath string, request RemoteInputRequ
 	for _, entry := range continuation {
 		if writeErr == nil {
 			writeErr = writeZipBytes(archive, entry.Name, entry.Raw)
+		}
+	}
+	for _, entry := range gitContext.Files {
+		if writeErr == nil {
+			writeErr = writeZipBytes(archive, entry.Path, []byte(entry.Content))
 		}
 	}
 	if writeErr == nil && request.IncludeContext {
