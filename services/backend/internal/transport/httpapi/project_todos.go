@@ -49,3 +49,26 @@ func (a *API) classifyProjectTodo(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusAccepted, item)
 }
+
+func (a *API) archiveProjectTodo(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Archived bool `json:"archived"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := a.service.ArchiveProjectTodo(r.PathValue("id"), r.PathValue("todo_id"), input.Archived)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "project_todo_archive_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) deleteProjectTodo(w http.ResponseWriter, r *http.Request) {
+	if err := a.service.DeleteProjectTodo(r.PathValue("id"), r.PathValue("todo_id")); err != nil {
+		writeError(w, http.StatusBadRequest, "project_todo_delete_failed", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

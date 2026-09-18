@@ -160,6 +160,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/todos", a.createProjectTodo)
 	mux.HandleFunc("PATCH /api/sessions/{id}/todos/{todo_id}", a.updateProjectTodo)
 	mux.HandleFunc("POST /api/sessions/{id}/todos/{todo_id}/classify", a.classifyProjectTodo)
+	mux.HandleFunc("PATCH /api/sessions/{id}/todos/{todo_id}/archived", a.archiveProjectTodo)
+	mux.HandleFunc("DELETE /api/sessions/{id}/todos/{todo_id}", a.deleteProjectTodo)
 	mux.HandleFunc("POST /api/sessions/{id}/chat-export", a.chatExport)
 	mux.HandleFunc("GET /api/sessions/{id}/bundle", a.bundle)
 	mux.HandleFunc("GET /api/sessions/{id}/chat-files", a.chatFiles)

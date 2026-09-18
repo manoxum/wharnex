@@ -102,6 +102,42 @@ func (s *Service) UpdateProjectTodo(sessionID, todoID string, input ProjectTodoP
 	return s.store.SaveProjectTodo(item)
 }
 
+func (s *Service) ArchiveProjectTodo(sessionID, todoID string, archived bool) (domain.ProjectTodo, error) {
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return domain.ProjectTodo{}, err
+	}
+	item, err := s.store.GetProjectTodo(todoID)
+	if err != nil {
+		return domain.ProjectTodo{}, err
+	}
+	if item.ProjectPath != current.ProjectPath {
+		return domain.ProjectTodo{}, fmt.Errorf("project TODO does not belong to this project")
+	}
+	if archived {
+		now := time.Now().UTC()
+		item.ArchivedAt = &now
+	} else {
+		item.ArchivedAt = nil
+	}
+	return s.store.SaveProjectTodo(item)
+}
+
+func (s *Service) DeleteProjectTodo(sessionID, todoID string) error {
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return err
+	}
+	item, err := s.store.GetProjectTodo(todoID)
+	if err != nil {
+		return err
+	}
+	if item.ProjectPath != current.ProjectPath {
+		return fmt.Errorf("project TODO does not belong to this project")
+	}
+	return s.store.DeleteProjectTodo(todoID)
+}
+
 func (s *Service) ReclassifyProjectTodo(sessionID, todoID string) (domain.ProjectTodo, error) {
 	current, err := s.store.Get(sessionID)
 	if err != nil {
