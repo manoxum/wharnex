@@ -20,7 +20,7 @@
 // Keep this in step with the Go parser: it is the same language, and the half
 // that renders chips must agree with the half that resolves them.
 
-export type DirectiveKind = 'file' | 'ref' | 'attach' | 'see' | 'chat' | 'lib' | 'interview'
+export type DirectiveKind = 'file' | 'ref' | 'attach' | 'see' | 'chat' | 'lib'
 
 /**
  * The typed vocabulary: one canonical keyword per kind, plus the alternate
@@ -35,7 +35,6 @@ export const KEYWORDS: { kind: DirectiveKind; keyword: string; label: string; al
   { kind: 'see', keyword: 'see', label: 'Ficheiro ou diretório visível', aliases: ['look'] },
   { kind: 'chat', keyword: 'chat', label: 'Ficheiro deste chat', aliases: [] },
   { kind: 'lib', keyword: 'lib', label: 'Ficheiro da biblioteca', aliases: ['library'] },
-  { kind: 'interview', keyword: 'interview', label: 'Entrevista estruturada', aliases: [] },
 ]
 
 const KIND_ALIASES: Record<string, DirectiveKind> = Object.fromEntries(
@@ -43,10 +42,10 @@ const KIND_ALIASES: Record<string, DirectiveKind> = Object.fromEntries(
 )
 
 function typedKeywordAlternation() {
-  // `@interview` is a valueless control marker; all other directives carry a
-  // value after `:`. Keep it out of the value grammar while retaining it in
-  // KIND_ALIASES so the kind picker still discovers it.
-  return Object.keys(KIND_ALIASES).filter((keyword) => KIND_ALIASES[keyword] !== 'interview').sort((a, b) => b.length - a.length).join('|')
+  // Longest first for readability. Correctness does not depend on order: a
+  // short alias whose following letters do not complete a `:` simply fails to
+  // match the surrounding pattern, whichever alternative is tried.
+  return Object.keys(KIND_ALIASES).sort((a, b) => b.length - a.length).join('|')
 }
 
 /**
@@ -87,7 +86,7 @@ const PROJECT_NAME = /^[A-Za-z0-9._-]+$/
 // group accepts every alias; the bracketed canonical form accepts only the
 // three real kind names, since nothing ever writes an alias into it.
 const VALUE_CHARS = '[^\\s<>{}(),;:!?"\'`]*'
-const DIRECTIVE = new RegExp(`@\\{\\[(file|ref|attach|see|chat|lib|interview)\\]([^{}\\n]*)\\}|@(interview)\\b|@(${typedKeywordAlternation()}):(?:<<([^<>\\n]*)>>|(${VALUE_CHARS}))`, 'g')
+const DIRECTIVE = new RegExp(`@\\{\\[(file|ref|attach|see|chat|lib)\\]([^{}\\n]*)\\}|@(${typedKeywordAlternation()}):(?:<<([^<>\\n]*)>>|(${VALUE_CHARS}))`, 'g')
 
 export function validProjectName(name: string) {
   const trimmed = name.trim()
@@ -172,7 +171,6 @@ export function renderAttachValue(target: string, rules: AttachRules) {
 }
 
 function build(kind: DirectiveKind, raw: string): Omit<ComposerDirective, 'start' | 'end'> | undefined {
-  if (kind === 'interview') return raw.trim() ? undefined : { kind, value: '', project: '', path: '' }
   // An attachment carries its own rule tokens and an absolute path, so it is
   // read by its own parser before the project-relative trimming below could
   // mangle it.
@@ -263,12 +261,12 @@ export function parseDirectives(text: string): ComposerDirective[] {
   let match: RegExpExecArray | null
   while ((match = DIRECTIVE.exec(text)) !== null) {
     if (parsed.length >= MAX_DIRECTIVES) break
-    // The bracketed form's keyword (group 1) is always a real kind. Group 3
-    // is the valueless interview marker; group 4 is a value-carrying keyword
-    // which may be an alias. Downstream code sees only canonical kinds.
-    const kind = match[1] !== undefined ? (match[1] as DirectiveKind) : match[3] !== undefined ? 'interview' : KIND_ALIASES[match[4]]
+    // The bracketed form's keyword (group 1) is always a real kind. The typed
+    // form's keyword (group 3) may be an alias and is normalized here, so
+    // downstream code only ever sees the canonical kind.
+    const kind = match[1] !== undefined ? (match[1] as DirectiveKind) : KIND_ALIASES[match[3]]
     if (!kind) continue
-    const raw = match[1] !== undefined ? match[2] : match[3] !== undefined ? '' : (match[5] !== undefined ? match[5] : match[6])
+    const raw = match[1] !== undefined ? match[2] : (match[4] !== undefined ? match[4] : match[5])
     const directive = build(kind, raw ?? '')
     if (!directive) continue
     parsed.push({ ...directive, start: match.index, end: match.index + match[0].length })
@@ -346,10 +344,10 @@ export function directiveKindSuggestions(query: string): DirectiveKindSuggestion
     .map((entry) => ({ keyword: entry.keyword, kind: entry.kind, label: entry.label, aliases: entry.aliases }))
 }
 
-/** Inserts the selected directive kind. Valueless controls are completed
- * immediately; reference directives leave the caret ready for their value. */
+/** Inserts `@<keyword>:` at the kind query's range and leaves the caret ready
+ * for the value query that opens immediately after. */
 export function applyDirectiveKindSuggestion(text: string, query: { start: number; end: number }, suggestion: DirectiveKindSuggestion) {
-  const typed = suggestion.kind === 'interview' ? '@{[interview]}' : `@${suggestion.keyword}:`
+  const typed = `@${suggestion.keyword}:`
   return { text: text.slice(0, query.start) + typed + text.slice(query.end), caret: query.start + typed.length }
 }
 
@@ -648,7 +646,6 @@ export function removeDirective(text: string, directive: Pick<ComposerDirective,
 
 /** A short label for a chip: the basename is what identifies it at a glance. */
 export function directiveChipLabel(directive: Pick<ComposerDirective, 'kind' | 'path' | 'project' | 'rules'>) {
-  if (directive.kind === 'interview') return '@interview'
   if (directive.kind === 'attach') {
     const base = directive.path.split('/').filter(Boolean).pop() || directive.path
     const rules = (directive.rules?.include.length || 0) + (directive.rules?.includeOverrides.length || 0) + (directive.rules?.exclude.length || 0)

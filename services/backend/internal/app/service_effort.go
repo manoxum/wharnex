@@ -44,46 +44,21 @@ func policyForEffort(level domain.EffortLevel) effortPolicy {
 	}
 }
 
-func structuredInterviewTurn(turn *domain.AgentTurn) bool {
-	if turn == nil || turn.Kind != domain.TurnKindClarification || turn.Interview == nil || turn.Outcome == nil || turn.Outcome.Status != domain.TurnOutcomeCompleted {
-		return false
-	}
-	return turn.Interview.Protocol == domain.InterviewProtocolV1 || turn.Interview.Protocol == domain.InterviewProtocolV2
-}
-
-// creditStructuredInterviewRound removes the planner round that produced an
-// interview from the autonomous effort budget. The eventual substantive
-// answer/change still consumes its normal attempt; any number of human
-// clarification waves therefore costs zero budget by itself.
-func creditStructuredInterviewRound(item *domain.Session, turn *domain.AgentTurn) {
-	if structuredInterviewTurn(turn) && item.AutomationAttempt > 0 {
-		item.AutomationAttempt--
-	}
-}
-
 func automaticAttemptsSpent(item domain.Session) int {
 	if item.AutomationAttempt > 0 {
 		return item.AutomationAttempt
 	}
 	// Sessions persisted before effort levels existed only tracked repair
 	// rounds. Reconstruct a conservative total so upgrading cannot silently
-	// reset an in-flight request's autonomous budget. Credit only the current
-	// interview round; prior repair/conflict work must remain accounted.
+	// reset an in-flight request's autonomous budget.
 	if item.RepairAttempt > 0 || item.ConflictAttempt > 0 {
 		spentRounds := item.RepairAttempt
 		if item.ConflictAttempt > spentRounds {
 			spentRounds = item.ConflictAttempt
 		}
-		total := spentRounds + 1
-		if structuredInterviewTurn(item.LastTurn) {
-			total--
-		}
-		return total
+		return spentRounds + 1
 	}
 	if item.LastRequestID != "" || item.Plan != nil {
-		if structuredInterviewTurn(item.LastTurn) {
-			return 0
-		}
 		return 1
 	}
 	return 0

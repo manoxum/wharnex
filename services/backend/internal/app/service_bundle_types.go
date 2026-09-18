@@ -86,8 +86,6 @@ func inputBundleType(lineageKind string) string {
 		return bundleTypeKnowledgeReview
 	case requestKindKnowledgeConsolidation:
 		return bundleTypeKnowledgeConsolidation
-	case requestKindInterview:
-		return bundleTypeClarification
 	default:
 		return bundleTypeRequest
 	}
