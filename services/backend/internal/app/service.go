@@ -1939,6 +1939,10 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	if err != nil {
 		return domain.ExecutionResult{}, item, err
 	}
+	if err := s.ensureWorkspaceChatExecutable(item); err != nil {
+		s.bus.Publish(sessionID, "execution.standby", map[string]any{"chat_id": item.ChatID})
+		return domain.ExecutionResult{}, item, err
+	}
 	if item.Plan == nil || item.Policy == nil {
 		return domain.ExecutionResult{}, item, errors.New("no plan available")
 	}
@@ -1958,6 +1962,10 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	defer ticket.release()
 	item, err = s.store.Get(sessionID)
 	if err != nil {
+		return domain.ExecutionResult{}, item, err
+	}
+	if err := s.ensureWorkspaceChatExecutable(item); err != nil {
+		s.bus.Publish(sessionID, "execution.standby", map[string]any{"chat_id": item.ChatID})
 		return domain.ExecutionResult{}, item, err
 	}
 	if item.Plan == nil || item.Policy == nil {

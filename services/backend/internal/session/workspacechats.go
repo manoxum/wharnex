@@ -54,7 +54,7 @@ func (s *Store) ListWorkspaceChats(projectPath string) ([]domain.WorkspaceChat, 
 	}
 
 	rows, err := s.db.Query(`SELECT id, project_path, session_id, title, chatgpt_url, conversation_id, remote_project_ref,
-		remote_title, remote_state, archived_at, created_at, updated_at, payload
+		remote_title, remote_state, saved_at, archived_at, created_at, updated_at, payload
 		FROM harness_workspace_chats WHERE project_path=$1 ORDER BY updated_at DESC, id`, project)
 	if err != nil {
 		return nil, fmt.Errorf("list workspace chats: %w", err)
@@ -64,12 +64,16 @@ func (s *Store) ListWorkspaceChats(projectPath string) ([]domain.WorkspaceChat, 
 	chats := make([]domain.WorkspaceChat, 0, 32)
 	for rows.Next() {
 		var chat domain.WorkspaceChat
-		var archivedAt sql.NullTime
+		var savedAt, archivedAt sql.NullTime
 		var payload []byte
 		if err := rows.Scan(&chat.ID, &chat.ProjectPath, &chat.SessionID, &chat.Title, &chat.ChatGPTURL,
 			&chat.ConversationID, &chat.RemoteProjectRef, &chat.RemoteTitle, &chat.RemoteState,
-			&archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload); err != nil {
+			&savedAt, &archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload); err != nil {
 			return nil, fmt.Errorf("scan workspace chat: %w", err)
+		}
+		if savedAt.Valid {
+			at := savedAt.Time
+			chat.SavedAt = &at
 		}
 		if archivedAt.Valid {
 			at := archivedAt.Time
@@ -104,15 +108,19 @@ func (s *Store) GetWorkspaceChat(chatID string) (domain.WorkspaceChat, error) {
 		return domain.WorkspaceChat{}, sql.ErrNoRows
 	}
 	var chat domain.WorkspaceChat
-	var archivedAt sql.NullTime
+	var savedAt, archivedAt sql.NullTime
 	var payload []byte
 	err := s.db.QueryRow(`SELECT id, project_path, session_id, title, chatgpt_url, conversation_id, remote_project_ref,
-		remote_title, remote_state, archived_at, created_at, updated_at, payload
+		remote_title, remote_state, saved_at, archived_at, created_at, updated_at, payload
 		FROM harness_workspace_chats WHERE id=$1`, id).Scan(&chat.ID, &chat.ProjectPath, &chat.SessionID, &chat.Title,
 		&chat.ChatGPTURL, &chat.ConversationID, &chat.RemoteProjectRef, &chat.RemoteTitle, &chat.RemoteState,
-		&archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload)
+		&savedAt, &archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload)
 	if err != nil {
 		return domain.WorkspaceChat{}, err
+	}
+	if savedAt.Valid {
+		at := savedAt.Time
+		chat.SavedAt = &at
 	}
 	if archivedAt.Valid {
 		at := archivedAt.Time
@@ -122,6 +130,24 @@ func (s *Store) GetWorkspaceChat(chatID string) (domain.WorkspaceChat, error) {
 		_ = json.Unmarshal(payload, &chat.Extra)
 	}
 	return chat, nil
+}
+
+// IsWorkspaceChatSaved reports whether a chat is intentionally parked. Missing
+// rows are not treated as saved because sessions created before the durable chat
+// index must remain executable.
+func (s *Store) IsWorkspaceChatSaved(chatID string) (bool, error) {
+	id := strings.TrimSpace(chatID)
+	if id == "" {
+		return false, nil
+	}
+	chat, err := s.GetWorkspaceChat(id)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return chat.Saved(), nil
 }
 
 // SaveWorkspaceChat inserts or updates one chat. It is an upsert because the
@@ -161,14 +187,18 @@ func (s *Store) SaveWorkspaceChat(chat domain.WorkspaceChat) error {
 	if err != nil {
 		return fmt.Errorf("encode workspace chat payload: %w", err)
 	}
+	var savedAt any
+	if chat.Saved() {
+		savedAt = *chat.SavedAt
+	}
 	var archivedAt any
 	if chat.Archived() {
 		archivedAt = *chat.ArchivedAt
 	}
 	_, err = s.db.Exec(`INSERT INTO harness_workspace_chats
 			(id, project_path, session_id, title, chatgpt_url, conversation_id, remote_project_ref,
-			 remote_title, remote_state, archived_at, created_at, updated_at, payload)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			 remote_title, remote_state, saved_at, archived_at, created_at, updated_at, payload)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (id) DO UPDATE SET
 			project_path=EXCLUDED.project_path,
 			session_id=EXCLUDED.session_id,
@@ -178,11 +208,12 @@ func (s *Store) SaveWorkspaceChat(chat domain.WorkspaceChat) error {
 			remote_project_ref=EXCLUDED.remote_project_ref,
 			remote_title=EXCLUDED.remote_title,
 			remote_state=EXCLUDED.remote_state,
+			saved_at=EXCLUDED.saved_at,
 			archived_at=EXCLUDED.archived_at,
 			updated_at=EXCLUDED.updated_at,
 			payload=EXCLUDED.payload`,
 		chat.ID, chat.ProjectPath, chat.SessionID, chat.Title, chat.ChatGPTURL, chat.ConversationID,
-		chat.RemoteProjectRef, chat.RemoteTitle, chat.RemoteState, archivedAt, chat.CreatedAt, chat.UpdatedAt, payload)
+		chat.RemoteProjectRef, chat.RemoteTitle, chat.RemoteState, savedAt, archivedAt, chat.CreatedAt, chat.UpdatedAt, payload)
 	if err != nil {
 		return fmt.Errorf("persist workspace chat: %w", err)
 	}

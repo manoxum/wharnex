@@ -70,11 +70,13 @@ CREATE TABLE IF NOT EXISTS harness_workspace_chats (
     session_id text NOT NULL DEFAULT '',
     title text NOT NULL DEFAULT '',
     chatgpt_url text NOT NULL DEFAULT '',
+    saved_at timestamptz,
     archived_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     payload jsonb NOT NULL DEFAULT '{}'::jsonb
 );
+ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS saved_at timestamptz;
 ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS conversation_id text NOT NULL DEFAULT '';
 ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS remote_project_ref text NOT NULL DEFAULT '';
 ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS remote_title text NOT NULL DEFAULT '';

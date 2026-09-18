@@ -82,6 +82,36 @@ func TestChatAgentTaskDedupeIncludesActiveWrites(t *testing.T) {
 	}
 }
 
+func TestChatAgentClaimLeavesSavedChatTasksInStandby(t *testing.T) {
+	store := NewStore()
+	project := "/home/u/project"
+	chat := chatFixture("saved-worker", project)
+	savedAt := time.Now().UTC()
+	chat.SavedAt = &savedAt
+	if err := store.SaveWorkspaceChat(chat); err != nil {
+		t.Fatal(err)
+	}
+	task, err := store.EnqueueChatAgentTask(testChatAgentTask("BOT_WRITE", chat.ID, "conv-saved", "saved:write"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimChatAgentTask("worker-1", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed != nil {
+		t.Fatalf("saved chat task must remain pending, got %#v", claimed)
+	}
+	chat.SavedAt = nil
+	if err := store.SaveWorkspaceChat(chat); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = store.ClaimChatAgentTask("worker-1", 30*time.Second)
+	if err != nil || claimed == nil || claimed.TaskID != task.TaskID {
+		t.Fatalf("reactivated task claim=%#v err=%v want %s", claimed, err, task.TaskID)
+	}
+}
+
 func TestChatAgentClaimRespectsNotBeforeAndPriority(t *testing.T) {
 	store := NewStore()
 	future := testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:future")

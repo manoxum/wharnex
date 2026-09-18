@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"kernl.local/harness/backend/internal/domain"
 )
 
 const (
@@ -184,6 +186,21 @@ func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) boo
 	}
 }
 
+func workspaceChatSavedLocked(chatID string, chats map[string][]domain.WorkspaceChat) bool {
+	id := strings.TrimSpace(chatID)
+	if id == "" {
+		return false
+	}
+	for _, list := range chats {
+		for _, chat := range list {
+			if chat.ID == id {
+				return chat.Saved()
+			}
+		}
+	}
+	return false
+}
+
 func (s *Store) ClaimChatAgentTask(owner string, lease time.Duration) (*ChatAgentTask, error) {
 	return s.ClaimChatAgentTaskWithOptions(owner, lease, ChatAgentClaimOptions{})
 }
@@ -235,6 +252,9 @@ func (s *Store) ClaimChatAgentTaskWithOptions(owner string, lease time.Duration,
 	eligible := make([]ChatAgentTask, 0, len(tasks))
 	for _, task := range tasks {
 		if task.Status != ChatAgentTaskPending && task.Status != ChatAgentTaskWaiting {
+			continue
+		}
+		if workspaceChatSavedLocked(task.ChatID, s.chatFallback()) {
 			continue
 		}
 		if task.NotBefore.After(now) || task.Attempt >= task.MaxAttempts {

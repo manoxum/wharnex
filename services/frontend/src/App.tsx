@@ -21,9 +21,9 @@ import { RestartConfirmation } from './components/RestartConfirmation'
 import { Icon } from './components/Icon'
 import { ErrorToast } from './components/ErrorToast'
 import {
-  archiveChat as archiveStoredChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadChat, loadLegacyChat,
-  loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, saveActiveWorkspace, saveComposerDraft, saveComposerFileDraft,
-  conflictChatGPTCacheKey, durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
+  archiveChat as archiveStoredChat, archiveSavedChat as archiveStoredSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat,
+  loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveChatForLater as saveStoredChatForLater, saveComposerDraft, saveComposerFileDraft,
+  conflictChatGPTCacheKey, durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
 // Background chat maintenance runs rarely on purpose: it drives real ChatGPT
@@ -116,6 +116,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [config, setConfig] = useState<AppConfig>()
   const [session, setSession] = useState<Session>()
   const [chats, setChats] = useState<WorkspaceChat[]>([])
+  const [savedChats, setSavedChats] = useState<WorkspaceChat[]>([])
   const [archivedChats, setArchivedChats] = useState<WorkspaceChat[]>([])
   const [activeChatId, setActiveChatId] = useState(activeAtLoad?.chatId || '')
   const [items, setItems] = useState<ChatItem[]>([])
@@ -412,14 +413,17 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function hydrateWorkspaceMemory(projectPath: string) {
     const localActive = loadWorkspaceChats(projectPath)
+    const localSaved = loadSavedWorkspaceChats(projectPath)
     const localArchived = loadArchivedWorkspaceChats(projectPath)
-    const local = [...localActive, ...localArchived]
+    const local = [...localActive, ...localSaved, ...localArchived]
     try {
       const response = await api.workspaceChats(projectPath)
       const merged = mergeDurableWorkspaceChats(local, response.chats || [])
-      const active = merged.filter((chat) => !chat.archivedAt).slice(0, 30)
+      const active = merged.filter((chat) => !chat.savedAt && !chat.archivedAt).slice(0, 30)
+      const saved = merged.filter((chat) => Boolean(chat.savedAt) && !chat.archivedAt).slice(0, 30)
       const archived = merged.filter((chat) => Boolean(chat.archivedAt)).slice(0, 30)
       saveWorkspaceChats(projectPath, active)
+      saveSavedWorkspaceChats(projectPath, saved)
       saveArchivedWorkspaceChats(projectPath, archived)
 
       // One-way compatibility migration for installations which already had
@@ -430,11 +434,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         const transcript = loadChat(projectPath, chat.id)
         if (transcript.length) await api.replaceWorkspaceChatItems(chat.id, transcript)
       }))
-      return { active, archived }
+      return { active, saved, archived }
     } catch {
       // Backend unavailability must not prevent the already-cached workspace
       // from opening; later writes retry the durable upsert best-effort.
-      return { active: localActive, archived: localArchived }
+      return { active: localActive, saved: localSaved, archived: localArchived }
     }
   }
 
@@ -500,7 +504,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         const chatItems = await hydrateChatTranscript(restored.project_path, nextChat.id)
         transcriptReadyRef.current.add(nextChat.id)
         saveWorkspaceChats(restored.project_path, nextChats)
-        setChats(nextChats); setArchivedChats(restored.project_path === active.projectPath ? hydrated.archived : loadArchivedWorkspaceChats(restored.project_path)); activeChatIdRef.current = nextChat.id; setActiveChatId(nextChat.id); setSession(restored)
+        setChats(nextChats); setSavedChats(restored.project_path === active.projectPath ? hydrated.saved : loadSavedWorkspaceChats(restored.project_path)); setArchivedChats(restored.project_path === active.projectPath ? hydrated.archived : loadArchivedWorkspaceChats(restored.project_path)); activeChatIdRef.current = nextChat.id; setActiveChatId(nextChat.id); setSession(restored)
         setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(restored.effort_level || loadEffortLevel(restored.project_path)); setChatTransportMode(restored.chat_transport_mode || 'scraper'); setManualPrompt(restored.last_manual_prompt || '')
         setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
         connectEvents(restored.id, restored.project_path, nextChat.id)
@@ -696,7 +700,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const chatItems = await hydrateChatTranscript(created.project_path, selected.id)
       transcriptReadyRef.current.add(selected.id)
       persistChats(created.project_path, nextChats)
-      setArchivedChats(hydrated.archived); setSession(selectedSession); activeChatIdRef.current = selected.id; setActiveChatId(selected.id)
+      setSavedChats(hydrated.saved); setArchivedChats(hydrated.archived); setSession(selectedSession); activeChatIdRef.current = selected.id; setActiveChatId(selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
       setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(projectEffortLevel); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
       connectEvents(selectedSession.id, selectedSession.project_path, selected.id)
@@ -909,6 +913,112 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
+  async function saveChatForLater(chatId: string) {
+    if (!session || busy) return
+    const target = chats.find((chat) => chat.id === chatId)
+    if (!target) return
+    setBusy(true); setError(undefined)
+    try {
+      const projectPath = session.project_path
+      await api.saveWorkspaceChat(durableWorkspaceChat(projectPath, target))
+      await api.setWorkspaceChatSaved(chatId, true)
+      const moved = saveStoredChatForLater(projectPath, chatId)
+      setSavedChats(moved.saved)
+      setExecutionFIFO((current) => current.filter((item) => item.chatId !== chatId))
+      try { await desktopBridge()?.chatgpt.release?.(chatId) } catch { /* saving never mutates the remote conversation */ }
+      if (chatId !== activeChatId) {
+        setChats(moved.active)
+        return
+      }
+
+      sourceRef.current?.close(); sourceRef.current = null
+      let nextChats = moved.active
+      let nextChat = nextChats[0]
+      setChats(nextChats)
+      if (!nextChat) {
+        activeChatIdRef.current = ''; setActiveChatId(''); setEvents([]); setItems([]); setManualPrompt('')
+        return
+      }
+      let restored: Session
+      try {
+        restored = await api.getSession(nextChat.sessionId)
+        restored = await syncSessionModes(restored, executionMode, automationMode)
+      } catch (error) {
+        if (!(error instanceof APIError) || error.status !== 404) throw error
+        restored = await api.createSession(projectPath, executionMode, automationMode, undefined, effortLevel)
+        nextChat = { ...nextChat, sessionId: restored.id, updatedAt: new Date().toISOString() }
+        nextChats = nextChats.map((chat) => chat.id === nextChat!.id ? nextChat! : chat)
+        saveWorkspaceChats(projectPath, nextChats); setChats(nextChats)
+      }
+      const chatItems = await hydrateChatTranscript(projectPath, nextChat.id)
+      transcriptReadyRef.current.add(nextChat.id)
+      activeChatIdRef.current = nextChat.id; setActiveChatId(nextChat.id); setSession(restored); setEvents([])
+      setManualPrompt(restored.last_manual_prompt || '')
+      setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
+      connectEvents(restored.id, restored.project_path, nextChat.id)
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
+  async function restoreSavedChat(chatId: string) {
+    if (!session || busy) return
+    const target = savedChats.find((chat) => chat.id === chatId)
+    if (!target) return
+    setBusy(true); setError(undefined)
+    try {
+      const projectPath = session.project_path
+      await api.setWorkspaceChatSaved(chatId, false)
+      const moved = restoreStoredSavedChat(projectPath, chatId)
+      let selected = moved.active.find((chat) => chat.id === chatId) || target
+      let restored: Session
+      try {
+        restored = await api.getSession(selected.sessionId)
+        restored = await syncSessionModes(restored, executionMode, automationMode)
+      } catch (error) {
+        if (!(error instanceof APIError) || error.status !== 404) throw error
+        restored = await api.createSession(projectPath, executionMode, automationMode, undefined, effortLevel)
+        selected = { ...selected, sessionId: restored.id, updatedAt: new Date().toISOString(), savedAt: undefined }
+        moved.active = moved.active.map((chat) => chat.id === selected.id ? selected : chat)
+        saveWorkspaceChats(projectPath, moved.active)
+      }
+      sourceRef.current?.close(); sourceRef.current = null
+      const chatItems = await hydrateChatTranscript(projectPath, selected.id)
+      transcriptReadyRef.current.add(selected.id)
+      setChats(moved.active); setSavedChats(moved.saved); activeChatIdRef.current = selected.id; setActiveChatId(selected.id); setSession(restored); setEvents([])
+      setManualPrompt(restored.last_manual_prompt || '')
+      setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
+      connectEvents(restored.id, restored.project_path, selected.id)
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
+  async function archiveSavedChat(chatId: string) {
+    if (!session || busy) return
+    const target = savedChats.find((chat) => chat.id === chatId)
+    if (!target) return
+    setBusy(true); setError(undefined)
+    try {
+      const projectPath = session.project_path
+      const bridge = desktopBridge()
+      let remoteArchive: RemoteArchive = bridge && target.chatgptUrl
+        ? { state: 'pending', attempts: 0, lastState: 'queue-pending' }
+        : { state: 'not-applicable', attempts: 0 }
+      await api.setWorkspaceChatArchived(chatId, true)
+      const moved = archiveStoredSavedChat(projectPath, chatId, remoteArchive)
+      if (bridge && target.chatgptUrl) {
+        try {
+          const queued = await bridge.chatgpt.queueArchive({ cacheKey: chatId, url: target.chatgptUrl, sessionId: target.sessionId, projectId: projectPath })
+          remoteArchive = { state: 'pending', attempts: 0, lastState: queued.state, lastAttemptAt: new Date().toISOString() }
+        } catch (cause) {
+          remoteArchive = { state: 'pending', attempts: 0, lastState: `queue-error: ${messageOf(cause).slice(0, 180)}`, lastAttemptAt: new Date().toISOString() }
+        }
+        moved.archived = moved.archived.map((chat) => chat.id === chatId ? { ...chat, remoteArchive } : chat)
+        saveArchivedWorkspaceChats(projectPath, moved.archived)
+      }
+      try { await api.archiveChat(target.sessionId) } catch { /* durable workspace-chat archive remains authoritative */ }
+      try { await bridge?.chatgpt.release?.(chatId) } catch { /* lifecycle task is durable */ }
+      setSavedChats(moved.saved); setArchivedChats(moved.archived)
+    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+  }
+
   async function restoreArchivedChat(chatId: string) {
     if (!session || busy) return
     const target = archivedChats.find((chat) => chat.id === chatId)
@@ -977,7 +1087,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!session) return
     const title = requestedTitle.replace(/\s+/g, ' ').trim().slice(0, 82)
     if (!title) return
-    const target = chats.find((chat) => chat.id === chatId) || archivedChats.find((chat) => chat.id === chatId)
+    const target = chats.find((chat) => chat.id === chatId) || savedChats.find((chat) => chat.id === chatId) || archivedChats.find((chat) => chat.id === chatId)
     if (!target) return
     setBusy(true); setError(undefined)
     try {
@@ -985,9 +1095,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       // The local title is definitive immediately. Remote organization is a
       // durable background task and cannot veto or roll back the user's title.
       const naming: ChatNaming = { state: 'definitive', attempts: (target.naming?.attempts || 0) + 1, lastAttemptAt: updatedAt, projectAssigned: true }
-      setChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt, naming } : chat); saveWorkspaceChats(session.project_path, next); return next })
-      setArchivedChats((current) => { const next = current.map((chat) => chat.id === chatId ? { ...chat, title, updatedAt, naming } : chat); saveArchivedWorkspaceChats(session.project_path, next); return next })
-      if (target.chatgptUrl && isDesktop()) {
+      const updated = { ...target, title, updatedAt, naming }
+      setChats((current) => { const next = current.map((chat) => chat.id === chatId ? updated : chat); saveWorkspaceChats(session.project_path, next); return next })
+      setSavedChats((current) => { const next = current.map((chat) => chat.id === chatId ? updated : chat); saveSavedWorkspaceChats(session.project_path, next); return next })
+      setArchivedChats((current) => { const next = current.map((chat) => chat.id === chatId ? updated : chat); saveArchivedWorkspaceChats(session.project_path, next); return next })
+      await api.saveWorkspaceChat(durableWorkspaceChat(session.project_path, updated))
+      if (target.chatgptUrl && !target.savedAt && isDesktop()) {
         try {
           await desktopBridge()?.chatgpt.queueRename({ cacheKey: target.id, url: target.chatgptUrl, sessionId: target.sessionId, projectId: session.project_path, projectName: chatGPTProjectName(session.project_path), title })
         } catch (cause) {
@@ -999,7 +1112,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function generateWorkspaceChatTitle(chatId: string) {
     if (!session || !isDesktop()) return
-    const target = chats.find((chat) => chat.id === chatId) || archivedChats.find((chat) => chat.id === chatId)
+    const target = chats.find((chat) => chat.id === chatId) || savedChats.find((chat) => chat.id === chatId) || archivedChats.find((chat) => chat.id === chatId)
+    if (target?.savedAt) { setError('Reative o chat antes de pedir operações remotas.'); return }
     if (!target?.chatgptUrl) { setError('Este chat ainda não possui uma conversa ChatGPT capaz de fornecer o nome contextual.'); return }
     setBusy(true); setError(undefined)
     try {
@@ -3137,7 +3251,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     onSend: enqueueMainRequest, onAdjustExecutionPlan: adjustExecutionPlan, onPreviewBundle: previewComposerBundle, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
     onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
     onRepairWithGPT: repairFailureWithGPT, canRepairWithGPT: canRepairFailureWithGPT(session), onRetryDependencyNetwork: retryDependencyNetwork, canRetryDependencyNetwork: canRetryDependencyNetwork(session), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
-    onNewChat: newChat, onSelectChat: selectChat, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
+    onNewChat: newChat, onSelectChat: selectChat, onSaveChat: saveChatForLater, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
   }
 
   return <main className="workspace-root">
@@ -3177,6 +3291,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onGoToOrchestrator={goToOrchestratorFromTask}
         onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}
         onFocusProject={focusProject}
+        savedChats={savedChats}
         archivedChats={archivedChats}
         activeChatId={activeChatId}
         activeEvents={events}
@@ -3185,6 +3300,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         activeExecutionCount={activeExecutionCount}
         onOpenAttention={openAttentionItem}
         onAttentionAction={runAttentionItemAction}
+        onRestoreSavedChat={restoreSavedChat}
+        onArchiveSavedChat={archiveSavedChat}
         onRestoreChat={restoreArchivedChat}
         onDeleteArchivedChat={deleteArchivedChat}
         onRenameChat={renameWorkspaceChat}
@@ -3215,7 +3332,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         {chats.length === 0 ? <div className="agent-empty-workspace">
           <Icon name="agent" size={30}/>
           <strong>Nenhum chat aberto</strong>
-          <span>Todos os chats deste projeto foram fechados e arquivados.</span>
+          <span>Não há chats ativos. Reative um chat guardado em Gestão de chats ou crie um novo.</span>
           <button type="button" className="primary-button" disabled={busy} onClick={() => void newChat()}><Icon name="plus" size={14}/> Novo chat</button>
         </div> : <AgentWorkspace
           session={session}
@@ -3260,6 +3377,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onGoToOrchestrator={goToOrchestratorFromTask}
         onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}
         onFocusProject={focusProject}
+        savedChats={savedChats}
         archivedChats={archivedChats}
         activeChatId={activeChatId}
         activeEvents={events}
@@ -3268,6 +3386,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         activeExecutionCount={activeExecutionCount}
         onOpenAttention={openAttentionItem}
         onAttentionAction={runAttentionItemAction}
+        onRestoreSavedChat={restoreSavedChat}
+        onArchiveSavedChat={archiveSavedChat}
         onRestoreChat={restoreArchivedChat}
         onDeleteArchivedChat={deleteArchivedChat}
         onRenameChat={renameWorkspaceChat}

@@ -296,6 +296,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
           onDragEnd={() => { setDraggedChatId(''); setDropTargetChatId('') }}
         >
           <button className={chat.id === chatProps.activeChatId ? 'chat-tab active' : 'chat-tab'} onClick={() => void chatProps.onSelectChat(chat.id)} onKeyDown={(event) => moveChatWithKeyboard(event, chat.id)} title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}\nArraste para reordenar · Alt+←/→` : `${chat.title}\nChatGPT ainda não vinculado\nArraste para reordenar · Alt+←/→`}><span>{chat.title}</span><i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" /></button>
+          {chatProps.onSaveChat && <button className="chat-tab-remove chat-tab-save" disabled={busy} onClick={() => void chatProps.onSaveChat?.(chat.id)} title={`Guardar ${chat.title} em standby`} aria-label={`Guardar chat ${chat.title}`}><Icon name="save" size={11}/></button>}
           <button className="chat-tab-remove" disabled={busy} onClick={() => void chatProps.onArchiveChat(chat.id)} title={`Fechar e arquivar ${chat.title}`} aria-label={`Fechar e arquivar chat ${chat.title}`}><Icon name="close" size={11}/></button>
         </div>)}
       </div>

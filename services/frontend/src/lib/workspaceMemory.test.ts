@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-	archiveChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
+	archiveChat, archiveSavedChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
+  durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -143,6 +143,30 @@ describe('workspace memory', () => {
     expect(loadChat('/tmp/project', chat.id)[0].attachments).toEqual([
       { name: 'screen.png', size: 1234, mime: 'image/png', storageRef: `${chat.id}/m1/0`, previewKind: 'thumbnail' },
     ])
+  })
+
+  it('saves a chat in standby, reactivates it, and can archive it without losing the remote binding', () => {
+    const chat = { ...newWorkspaceChat('ses-standby', 'Pendente'), chatgptUrl: 'https://chatgpt.com/c/pending' }
+    saveWorkspaceChats('/tmp/project', [chat])
+    saveChat('/tmp/project', chat.id, [{ id: 'm1', role: 'user', text: 'continuar depois' }])
+
+    const parked = saveChatForLater('/tmp/project', chat.id)
+    expect(parked.active).toEqual([])
+    expect(loadSavedWorkspaceChats('/tmp/project')[0]).toMatchObject({ id: chat.id, chatgptUrl: chat.chatgptUrl })
+    expect(loadSavedWorkspaceChats('/tmp/project')[0].savedAt).toBeTruthy()
+    expect(loadChat('/tmp/project', chat.id)[0].text).toBe('continuar depois')
+
+    const resumed = restoreSavedChat('/tmp/project', chat.id)
+    expect(resumed.saved).toEqual([])
+    expect(resumed.active[0]).toMatchObject({ id: chat.id, chatgptUrl: chat.chatgptUrl })
+    expect(resumed.active[0].savedAt).toBeUndefined()
+
+    saveChatForLater('/tmp/project', chat.id)
+    const archived = archiveSavedChat('/tmp/project', chat.id)
+    expect(archived.saved).toEqual([])
+    expect(archived.archived[0]).toMatchObject({ id: chat.id, chatgptUrl: chat.chatgptUrl })
+    expect(archived.archived[0].savedAt).toBeUndefined()
+    expect(archived.archived[0].archivedAt).toBeTruthy()
   })
 
   it('archives, restores and permanently removes Harness chats without losing history on close', () => {
