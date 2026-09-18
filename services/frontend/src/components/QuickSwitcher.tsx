@@ -64,12 +64,9 @@ export function QuickSwitcher({ compact = true }: { compact?: boolean }) {
         </div>
       </div>
 
-      <div className="quick-switcher-layout-grid">
+      <div className="quick-switcher-layout-grid single">
         <CompactChoice label="Densidade" value={preferences.density === 'compact' ? 'Compacta' : 'Normal'}>
           <div className="quick-switcher-segments two">{(['default', 'compact'] as UIDensity[]).map((density) => <button type="button" key={density} className={preferences.density === density ? 'active' : ''} aria-label={`Densidade: ${density === 'compact' ? 'Compacta' : 'Normal'}`} aria-pressed={preferences.density === density} onClick={() => update({ density })}>{density === 'compact' ? 'Compacta' : 'Normal'}</button>)}</div>
-        </CompactChoice>
-        <CompactChoice label="Janelas" value={preferences.toolWindowMode === 'docked' ? 'Acopladas' : 'Flutuantes'}>
-          <div className="quick-switcher-segments two"><button type="button" className={preferences.toolWindowMode === 'docked' ? 'active' : ''} onClick={() => update({ toolWindowMode: 'docked' })}>Acopladas</button><button type="button" className={preferences.toolWindowMode === 'floating' ? 'active' : ''} onClick={() => update({ toolWindowMode: 'floating' })}>Flutuantes</button></div>
         </CompactChoice>
       </div>
 

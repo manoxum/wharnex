@@ -30,7 +30,7 @@ describe('UI preferences', () => {
     expect(document.documentElement.dataset.contentSchemePreference).toBe('light')
     expect(document.documentElement.dataset.contentScheme).toBe('light')
     expect(document.documentElement.dataset.uiAccent).toBe('brand')
-    expect(document.documentElement.dataset.toolWindow).toBe('docked')
+    expect(document.documentElement.getAttribute('data-tool-window')).toBeNull()
     expect(document.documentElement.dataset.toolRail).toBe('sides')
     expect(document.documentElement.dataset.density).toBe('compact')
     expect(document.documentElement.style.colorScheme).toBe('dark')
@@ -43,12 +43,16 @@ describe('UI preferences', () => {
     expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('0.5')
   })
 
-  it('migrates the legacy system theme to Original and follows the operating system', () => {
-    localStorage.setItem('kernl.ui.preferences.v1', JSON.stringify({ uiFont: 'system', monoFont: 'system', scale: 1, theme: 'system' }))
-    expect(loadUIPreferences().theme).toBe('original')
-    expect(loadUIPreferences().contentScheme).toBe('follow-ui')
-    expect(loadUIPreferences().density).toBe('default')
-    expect(loadUIPreferences().errorPopups).toBe(true)
+  it('migrates legacy preferences without reviving floating tool windows', () => {
+    localStorage.setItem('kernl.ui.preferences.v1', JSON.stringify({ uiFont: 'system', monoFont: 'system', scale: 1, theme: 'system', toolWindowMode: 'floating' }))
+    const preferences = loadUIPreferences()
+    expect(preferences.theme).toBe('original')
+    expect(preferences.contentScheme).toBe('follow-ui')
+    expect(preferences.density).toBe('default')
+    expect(preferences.errorPopups).toBe(true)
+    expect('toolWindowMode' in preferences).toBe(false)
+    saveUIPreferences(preferences)
+    expect(document.documentElement.getAttribute('data-tool-window')).toBeNull()
     expect(resolveTheme('jetbrains-light')).toBe('light')
   })
 

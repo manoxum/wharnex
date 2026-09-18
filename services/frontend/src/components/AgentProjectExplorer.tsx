@@ -143,7 +143,6 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose }: {
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar no projeto" aria-label="Pesquisar ficheiros" />
       {query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={11}/></button>}
     </label>
-    {focused && <div className="agent-explorer-selection" title={focused.path}><span>{focused.path}</span><div><button type="button" title="Copiar caminho" onClick={() => void copyPath()}><Icon name="copy" size={12}/></button><button type="button" title="Renomear" onClick={() => void rename()}><Icon name="rename" size={12}/></button><button type="button" className="danger" title="Eliminar" onClick={() => void remove()}><Icon name="trash" size={12}/></button></div></div>}
     <div className="agent-project-tree" tabIndex={0} onKeyDown={(event) => {
       if (event.key === 'F2' && focused) { event.preventDefault(); void rename() }
       if (event.key === 'Delete' && focused) { event.preventDefault(); void remove() }

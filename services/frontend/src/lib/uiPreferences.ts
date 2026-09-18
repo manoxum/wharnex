@@ -10,7 +10,6 @@ export type ContentSchemePreference = 'follow-ui' | 'original' | 'light' | 'dark
 export type ResolvedContentScheme = 'light' | 'dark' | 'high-contrast'
 export type UIDensity = 'default' | 'compact'
 export type UIAccent = 'brand' | 'blue' | 'violet' | 'orange' | 'rose' | 'cyan'
-export type ToolWindowMode = 'docked' | 'floating'
 export type ToolRailPlacement = 'sides' | 'bottom'
 export type UIPreferences = {
   uiFont: UIFontChoice
@@ -20,7 +19,6 @@ export type UIPreferences = {
   accent: UIAccent
   contentScheme: ContentSchemePreference
   density: UIDensity
-  toolWindowMode: ToolWindowMode
   toolRailPlacement: ToolRailPlacement
   errorPopups: boolean
 }
@@ -56,7 +54,6 @@ export const DEFAULT_UI_PREFERENCES: UIPreferences = {
   accent: 'brand',
   contentScheme: 'follow-ui',
   density: 'default',
-  toolWindowMode: 'docked',
   toolRailPlacement: 'sides',
   errorPopups: true,
 }
@@ -104,7 +101,7 @@ export function applyUIPreferences(value: UIPreferencesInput) {
   root.dataset.contentSchemePreference = normalized.contentScheme
   root.dataset.contentScheme = contentScheme
   root.dataset.density = normalized.density
-  root.dataset.toolWindow = normalized.toolWindowMode
+  root.removeAttribute('data-tool-window')
   root.dataset.toolRail = normalized.toolRailPlacement
   root.style.colorScheme = resolvedTheme
   const themeColor = normalized.theme === 'high-contrast' ? '#000000' : resolvedTheme === 'dark' ? '#1e1f22' : '#f3f4f5'
@@ -148,12 +145,11 @@ export function normalizeUIPreferences(value: UIPreferencesInput): UIPreferences
   const accent: UIAccent = value.accent === 'blue' || value.accent === 'violet' || value.accent === 'orange' || value.accent === 'rose' || value.accent === 'cyan' ? value.accent : 'brand'
   const contentScheme: ContentSchemePreference = value.contentScheme === 'original' || value.contentScheme === 'light' || value.contentScheme === 'dark' || value.contentScheme === 'high-contrast' ? value.contentScheme : 'follow-ui'
   const density: UIDensity = value.density === 'compact' ? 'compact' : 'default'
-  const toolWindowMode: ToolWindowMode = value.toolWindowMode === 'floating' ? 'floating' : 'docked'
   const toolRailPlacement: ToolRailPlacement = value.toolRailPlacement === 'bottom' ? 'bottom' : 'sides'
   const numeric = Number(value.scale)
   const scale = Number.isFinite(numeric) ? Math.min(1.6, Math.max(0.4, Math.round(numeric * 20) / 20)) : DEFAULT_UI_PREFERENCES.scale
   const errorPopups = value.errorPopups !== false
-  return { uiFont, monoFont, scale, theme, accent, contentScheme, density, toolWindowMode, toolRailPlacement, errorPopups }
+  return { uiFont, monoFont, scale, theme, accent, contentScheme, density, toolRailPlacement, errorPopups }
 }
 
 function normalizeTheme(theme: UIPreferencesInput['theme']): ThemePreference {

@@ -16,7 +16,7 @@ describe('AgentProjectExplorer', () => {
       { path: 'src/lib/index.ts', name: 'index.ts', kind: 'file', size: 12 },
     ] })
 
-    render(<AgentProjectExplorer session={session} onOpen={vi.fn()} onError={vi.fn()} onClose={vi.fn()} />)
+    const { container } = render(<AgentProjectExplorer session={session} onOpen={vi.fn()} onError={vi.fn()} onClose={vi.fn()} />)
 
     expect(await screen.findByText('Explorer')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Novo ficheiro' })).toBeTruthy()
@@ -24,6 +24,7 @@ describe('AgentProjectExplorer', () => {
     expect(screen.getByRole('button', { name: 'Atualizar ficheiros' })).toBeTruthy()
 
     fireEvent.click(screen.getByTitle('src'))
+    expect(container.querySelector('.agent-explorer-selection')).toBeNull()
     fireEvent.click(await screen.findByTitle('src/lib'))
     expect(await screen.findByRole('button', { name: 'Abrir src/lib/index.ts' })).toBeTruthy()
 

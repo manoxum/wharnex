@@ -343,12 +343,9 @@ describe('configurable workbench CSS', () => {
     expect(compactRail).toContain('width: 36px')
   })
 
-  it('supports floating resizable tool windows and bottom-corner tool rails', () => {
-    const floating = lastRule(":root[data-tool-window='floating'] .workspace-main-row > .agent-drawer")
+  it('keeps tool drawers integrated while supporting bottom-corner tool rails', () => {
     const bottomRail = lastRule(":root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail")
-    expect(floating).toContain('position:absolute')
-    expect(floating).toContain('resize:both')
-    expect(floating).toContain('box-shadow:0 18px 54px var(--theme-shadow)')
+    expect(css).not.toContain("data-tool-window='floating'")
     expect(bottomRail).toContain('position:absolute')
     expect(bottomRail).toContain('flex-direction:row')
     expect(bottomRail).toContain('overflow-x:auto')
