@@ -396,6 +396,33 @@ describe('configurable workbench CSS', () => {
   })
 })
 
+describe('canonical workbench tab CSS', () => {
+  it('keeps semantic tabs flat with one accent underline instead of mixed pills/cards', () => {
+    const canonical = css.slice(css.lastIndexOf('/* Canonical workbench tabs'))
+    const gitTabs = lastRule('.git-tabs')
+    const gitChangeTabs = lastRule('.git-changes-tabs')
+
+    expect(canonical).toContain('.project-source-tabs,')
+    expect(canonical).toContain('.context-view-switch,')
+    expect(canonical).toContain('.agent-runtime-tabs,')
+    expect(canonical).toContain('.composer-attachment-tabs,')
+    expect(canonical).toContain('.database-workspace-tabs,')
+    expect(canonical).toContain('.database-object-kind-tabs,')
+    expect(canonical).toContain('.file-library-tabs,')
+    expect(canonical).toContain(".project-todo-tabs button[aria-pressed='true']::after")
+    expect(canonical).toContain('.chat-tab-group.active {')
+    expect(canonical).toContain('.editor-tab.active {')
+    expect(canonical).toContain('.terminal-tab-shell.active {')
+    expect(canonical).toContain('.agent-surface-tabs button.active {')
+    expect(canonical).toContain('background: var(--theme-accent)')
+    expect(gitTabs).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
+    expect(gitTabs).toContain('overflow: visible')
+    expect(gitTabs).toContain('background: var(--theme-surface)')
+    expect(gitChangeTabs).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(gitChangeTabs).toContain('overflow: visible')
+  })
+})
+
 describe('Git workbench CSS', () => {
   it('uses project theme tokens instead of the old green-tinted dark island', () => {
     const drawer = lastRule('.git-drawer')

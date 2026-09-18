@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { GitOverview, Session } from '../types'
 import { api } from '../lib/api'
@@ -13,6 +13,7 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
   const [branch, setBranch] = useState('')
   const [notice, setNotice] = useState('')
   const [operation, setOperation] = useState<GitOperation | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async () => {
     if (!id) throw new Error('Sessão Git ainda não disponível.')
@@ -32,6 +33,20 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
     }).catch(() => {})
     return () => { alive = false }
   }, [id, session?.state, session?.last_host_applied_at])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
 
   const locals = useMemo(() => (overview?.branches || []).filter((item) => !item.remote), [overview])
   const current = locals.find((item) => item.current)
@@ -74,7 +89,7 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
   }
 
   const disabled = busy || working || !id || !overview?.available
-  return <div className="project-git-badge-wrap">
+  return <div ref={rootRef} className="project-git-badge-wrap">
     <button type="button" className={`project-git-badge ${open ? 'active' : ''}`} onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label={`Git: ${currentBranch}, projeto ${overview?.project_version || 'sem versão'}`}>
       <span className="project-git-branch"><Icon name="git" size={13}/><strong>{currentBranch}</strong></span>
       <span className="project-git-version">{overview?.project_version || 'v…'}</span>
