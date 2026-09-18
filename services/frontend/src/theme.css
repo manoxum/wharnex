@@ -1668,3 +1668,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
     border-bottom-color: var(--theme-accent);
   }
 }
+
+/* Unified Agent shortcuts inherit the workspace rail selection indicator. */
+:root .workspace-agent-rail-slot .agent-direct-chatgpt-tab button.active,
+:root .workspace-agent-rail-slot .agent-surface-tabs button.active {
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+}
