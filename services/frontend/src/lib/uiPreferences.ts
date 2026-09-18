@@ -1,5 +1,5 @@
 const UI_PREFERENCES_KEY = 'kernl.ui.preferences.v1'
-const UI_FONT_BASELINE = 1.25
+const UI_FONT_BASELINE = 1.32
 export const UI_PREFERENCES_EVENT = 'wharness:ui-preferences'
 
 export type UIFontChoice = 'elegant' | 'system' | 'humanist'
