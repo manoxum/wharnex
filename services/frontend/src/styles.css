@@ -1863,7 +1863,12 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 /* The center pane may give up space to the side drawers, but never below a
    third of the whole screen - past that point it stops being usable as a
    working surface rather than a sliver next to two open drawers. */
-.agent-workspace { --agent-chat-width: calc((100% - 6px) * 0.6); flex: 1; min-width: calc(100vw / 3); min-height: 0; position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr); grid-template-rows: 42px 42px minmax(0, 1fr); background: var(--theme-bg); }
+/* The chat/inspector split's own per-column floors used to add up to more
+   than a third of the screen (320px + 6px + 320px = 646px), overriding this
+   component's own min-width below on any viewport narrower than ~1940px -
+   the split has to shrink along with its container, not guarantee its own
+   width underneath it. */
+.agent-workspace { --agent-chat-width: calc((100% - 6px) * 0.6); flex: 1; min-width: calc(100vw / 3); min-height: 0; position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(0, var(--agent-chat-width)) 6px minmax(0, 1fr); grid-template-rows: 42px 42px minmax(0, 1fr); background: var(--theme-bg); }
 .agent-commandbar { grid-column: 1 / -1; grid-row: 1; min-width: 0; height: 42px; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: stretch; border-bottom: 1px solid #30342d; background: #181b17; color: #c9d0c3; }
 .agent-commandbar-center { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; pointer-events: none; }
 .agent-commandbar-center .self-evolution-badge { position: static; transform: none; }
@@ -4760,12 +4765,12 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-workspace {
   --agent-tools-width: 42px;
   --agent-chat-width: calc((100% - 48px) * 0.6);
-  grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr) var(--agent-tools-width);
+  grid-template-columns: minmax(0, var(--agent-chat-width)) 6px minmax(0, 1fr) var(--agent-tools-width);
   grid-template-rows: 42px minmax(0, 1fr);
 }
 .agent-workspace.agent-rail-unified {
   --agent-chat-width: calc((100% - 6px) * 0.6);
-  grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr);
+  grid-template-columns: minmax(0, var(--agent-chat-width)) 6px minmax(0, 1fr);
 }
 .workspace-body.drawer-open .agent-workspace.agent-rail-unified { --agent-chat-width: calc((100% - 6px) / 2); }
 .agent-commandbar {
