@@ -3020,7 +3020,13 @@ async function fetchContextZip(sessionId) {
   const bytes = Buffer.from(await response.arrayBuffer())
   if (bytes.byteLength > MAX_CONTEXT_BYTES) throw new Error('Context ZIP exceeds 256 MiB desktop limit')
   if (bytes.byteLength < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error('Backend did not return a ZIP bundle')
-  return { id, bytes }
+  const mapsURL = new URL(`/api/sessions/${encodeURIComponent(id)}/context/maps`, BACKEND_URL)
+  const mapsResponse = await fetch(mapsURL, { redirect: 'error' })
+  const maps = await mapsResponse.json().catch(() => ({}))
+  if (!mapsResponse.ok || maps?.protocol !== 'harness.context-map/v1' || !Array.isArray(maps?.files)) {
+    throw new Error(maps?.error?.message || `Context maps HTTP ${mapsResponse.status}`)
+  }
+  return { id, bytes, maps: maps.files }
 }
 
 async function fetchRequestGitContext(sessionId) {

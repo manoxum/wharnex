@@ -231,7 +231,7 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 		t.Fatal(err)
 	}
 	gitContext := RequestGitContext{Protocol: requestGitContextProtocol, State: "present", Root: "git-context/", Index: "git-context/index.json", Ref: "main", RefPath: "git-context/main/", Files: []RequestGitContextFile{requestGitJSONFile("git-context/index.json", map[string]any{"protocol": requestGitContextProtocol, "state": "present"})}}
-	digest, size, err := buildRemoteInputArchive(target, contextPath, request, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, gitContext, nil, attachments, nil)
+	digest, size, err := buildRemoteInputArchive(target, contextPath, domain.ContextManifest{ProjectRoot: root}, request, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, gitContext, nil, attachments, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 			}
 		}
 	}
-	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "git-context/index.json", "context/src/main.txt", "attachments/notes.txt"} {
+	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "git-context/index.json", "context/src/main.txt", "context-map/main/maps", "context-map/main/sensitive-file-map", "attachments/notes.txt"} {
 		if !names[expected] {
 			t.Errorf("missing %s", expected)
 		}
@@ -271,6 +271,47 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 	metadata, ok := transport["request_metadata"].(map[string]any)
 	if !ok || metadata["chat_id"] != "chat-1" || metadata["protocol"] != "harness.request-metadata/v1" {
 		t.Fatalf("request metadata missing from remote archive: %#v", transport)
+	}
+}
+
+func TestRequestContextMapRedactsEnvValues(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("PASSWORD=super-secret\nEMPTY=\nQUOTED=\"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	contextPath := filepath.Join(root, "context.zip")
+	contextFile, err := os.Create(contextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextZip := zip.NewWriter(contextFile)
+	if err := contextZip.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := contextFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manifest := domain.ContextManifest{ProjectRoot: root, Excluded: []string{".env (mandatory security/context exclusion)"}}
+	files, err := requestContextMapFiles(contextPath, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := map[string]string{}
+	for _, file := range files {
+		contents[file.Path] = file.Content
+	}
+	maps := contents["context-map/main/maps"]
+	if !strings.Contains(maps, `"path": ".env"`) || !strings.Contains(maps, `"status": "excluded"`) {
+		t.Fatalf("excluded env path missing from map: %s", maps)
+	}
+	redacted := contents["context-map/main/sensitive-file-map"]
+	for _, expected := range []string{"PASSWORD=<<configured>>", "EMPTY=<<empty>>", "QUOTED=<<empty>>"} {
+		if !strings.Contains(redacted, expected) {
+			t.Fatalf("redacted map missing %q: %s", expected, redacted)
+		}
+	}
+	if strings.Contains(redacted, "super-secret") {
+		t.Fatalf("sensitive value leaked into redacted map: %s", redacted)
 	}
 }
 
@@ -307,7 +348,7 @@ func TestBuildRemoteInputArchiveSeparatesWorkspaceContextRoots(t *testing.T) {
 
 	target := filepath.Join(root, "remote.zip")
 	request := RemoteInputRequest{RequestID: "req_workspace", Prompt: "prompt", IncludeContext: true}
-	if _, _, err := buildRemoteInputArchive(target, contextPath, request, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, RequestGitContext{}, nil, nil, nil); err != nil {
+	if _, _, err := buildRemoteInputArchive(target, contextPath, domain.ContextManifest{ProjectRoot: root}, request, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, RequestGitContext{}, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	archive, err := zip.OpenReader(target)
@@ -346,6 +387,8 @@ func TestBuildRemoteInputArchiveSeparatesWorkspaceContextRoots(t *testing.T) {
 		"context/primary.txt",
 		"ref-context/01-core/api.txt",
 		"att-context/attach-01/openapi.yml",
+		"context-map/main/maps",
+		"context-map/@ref/01-core/maps",
 		requestContextSourcesIndex,
 	} {
 		if !names[expected] {
@@ -368,7 +411,7 @@ func TestBuildRemoteInputArchiveSeparatesWorkspaceContextRoots(t *testing.T) {
 		t.Fatalf("attachment source metadata was not rewritten: %#v", sources)
 	}
 	roots, ok := transport["context_roots"].(map[string]any)
-	if !ok || roots["primary"] != "context/" || roots["references"] != "ref-context/" || roots["attached_paths"] != "att-context/" || roots["sources_index"] != requestContextSourcesIndex {
+	if !ok || roots["primary"] != "context/" || roots["references"] != "ref-context/" || roots["attached_paths"] != "att-context/" || roots["maps"] != requestContextMapRoot || roots["sources_index"] != requestContextSourcesIndex {
 		t.Fatalf("request context roots missing from transport: %#v", transport)
 	}
 }
@@ -914,6 +957,15 @@ func TestRemoteFileMapKeepsContextFilesSnapshotBackedUntilFetched(t *testing.T) 
 	}
 	if len(entries) == 0 {
 		t.Fatal("context file map is empty")
+	}
+	foundMap := false
+	for _, entry := range entries {
+		if entry.Role == "context-map" && entry.Path == "context-map/main/maps" {
+			foundMap = true
+		}
+	}
+	if !foundMap {
+		t.Fatal("generated context map metadata is missing from the remote file map")
 	}
 	found := false
 	for _, resource := range resources {

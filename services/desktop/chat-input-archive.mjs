@@ -14,6 +14,7 @@ const LEGACY_ATTACHED_CONTEXT_ROOT = 'ATTACHMENTS/'
 const PRIMARY_CONTEXT_ROOT = 'context/'
 const REFERENCE_CONTEXT_ROOT = 'ref-context/'
 const ATTACHED_CONTEXT_ROOT = 'att-context/'
+const CONTEXT_MAP_ROOT = 'context-map/'
 const CONTEXT_SOURCES_INDEX = 'metadata/context-sources.json'
 
 const crcTable = (() => {
@@ -90,7 +91,7 @@ function rewriteContextSourcesIndex(bytes) {
       prefix: requestArchiveAttachmentPrefix(attachment?.prefix),
     }))
   }
-  document.execution_rule = 'context/ contains only the primary project snapshot. ref-context/ contains related project snapshots whose write authority is controlled by the request grant. att-context/ contains read-only external @attach material and is never a patch target.'
+  document.execution_rule = 'context/ contains only the primary project snapshot. ref-context/ contains related project snapshots whose write authority is controlled by the request grant. att-context/ contains read-only external @attach material and is never a patch target. context-map/ contains generated path inventory and redacted sensitive configuration key-state metadata; it is never a patch target.'
   return Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8')
 }
 
@@ -395,6 +396,22 @@ function continuationArtifactLimit(name) {
   return 0
 }
 
+function normalizeContextMapFiles(values) {
+  const list = Array.isArray(values) ? values : []
+  if (!list.length || list.length > 128) throw new Error('Invalid context map inventory')
+  const seen = new Set()
+  let total = 0
+  return list.map((item) => {
+    const name = safeEntryName(String(item?.path || '').trim()).name
+    if (!name.startsWith(CONTEXT_MAP_ROOT) || seen.has(name)) throw new Error('Invalid context map path')
+    seen.add(name)
+    const bytes = Buffer.from(String(item?.content || ''), 'utf8')
+    total += bytes.byteLength
+    if (!bytes.byteLength || bytes.byteLength > (4 << 20) || total > (16 << 20)) throw new Error('Context maps exceed safe archive bounds')
+    return { name, bytes }
+  })
+}
+
 function normalizeContinuationFiles(values) {
   const list = Array.isArray(values) ? values : []
   const seen = new Set()
@@ -417,7 +434,7 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
   if (!promptText) throw new Error('Prepared prompt is empty')
   const normalizedRequestMetadata = normalizeRequestMetadata(requestMetadata, requestId)
   promptText = `${requestMetadataBlock(normalizedRequestMetadata)}\n\n${promptText}`
-  if (context?.bytes) promptText += `\n\nREQUEST ARCHIVE CONTEXT ROOTS (Wharnex-owned transport metadata):\n- ${PRIMARY_CONTEXT_ROOT} contains only the primary project snapshot.\n- ${REFERENCE_CONTEXT_ROOT}<project>/ contains @ref related-project snapshots.\n- ${ATTACHED_CONTEXT_ROOT}attach-<slot>/ contains read-only @attach material.\n- ${CONTEXT_SOURCES_INDEX} maps source roots and write authority.\nIf an older persisted prompt mentions RELATED_PROJECTS or ATTACHMENTS, those are legacy logical namespace names; open the physical roots above in this archive.`
+  if (context?.bytes) promptText += `\n\nREQUEST ARCHIVE CONTEXT ROOTS (Wharnex-owned transport metadata):\n- ${PRIMARY_CONTEXT_ROOT} contains only the primary project snapshot.\n- ${REFERENCE_CONTEXT_ROOT}<project>/ contains @ref related-project snapshots.\n- ${ATTACHED_CONTEXT_ROOT}attach-<slot>/ contains read-only @attach material.\n- ${CONTEXT_MAP_ROOT} contains generated path inventories and redacted sensitive configuration key-state maps for main/@ref; it is metadata only and never a patch target.\n- ${CONTEXT_SOURCES_INDEX} maps source roots and write authority.\nIf an older persisted prompt mentions RELATED_PROJECTS or ATTACHMENTS, those are legacy logical namespace names; open the physical roots above in this archive.`
   const knowledgeSnapshot = normalizeKnowledgeSnapshot(knowledge)
   const gitContextSnapshot = normalizeGitContextSnapshot(gitContext)
   if (knowledgeSnapshot.v2) {
@@ -447,6 +464,7 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
   // divergence the prompt describes. Names are Wharnex-generated and validated
   // here as well: the renderer never supplies a path.
   const continuationFiles = normalizeContinuationFiles(continuation)
+  const contextMapFiles = context?.bytes ? normalizeContextMapFiles(context?.maps) : []
   const manifest = {
     protocol: 'wharness.chat-input/v1',
     request_id: String(requestId || ''),
@@ -458,6 +476,7 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
       primary: context?.bytes ? PRIMARY_CONTEXT_ROOT : '',
       references: context?.bytes ? REFERENCE_CONTEXT_ROOT : '',
       attached_paths: context?.bytes ? ATTACHED_CONTEXT_ROOT : '',
+      maps: context?.bytes ? CONTEXT_MAP_ROOT : '',
       sources_index: context?.bytes ? CONTEXT_SOURCES_INDEX : '',
     },
     project_files: selectedPaths,
@@ -489,7 +508,10 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
   }
   entries.push(...continuationFiles)
   for (const entry of gitContextSnapshot.files) entries.push({ name: entry.path, bytes: entry.raw })
-  if (context?.bytes) entries.push(...flattenContextEntries(context.bytes))
+  if (context?.bytes) {
+    entries.push(...flattenContextEntries(context.bytes))
+    entries.push(...contextMapFiles)
+  }
   if (selectedPaths.length) {
     entries.push({
       name: 'references/project-files.json',

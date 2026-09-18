@@ -5,6 +5,14 @@ import path from 'node:path'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { chatInputArchiveFilename, commentAttachmentArchiveFilename, localChatInputBootstrap, writeChatInputArchive, writeCommentAttachmentArchive } from './chat-input-archive.mjs'
 
+
+function contextMaps() {
+  return [
+    { path: 'context-map/main/maps', content: '{"protocol":"harness.context-map/v1","entries":[]}\n' },
+    { path: 'context-map/main/sensitive-file-map', content: '# harness.sensitive-file-map/v1\nPASSWORD=<<configured>>\n' },
+  ]
+}
+
 function storedEntries(buffer) {
   const entries = new Map()
   let offset = 0
@@ -54,7 +62,7 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
           { path: 'git-context/main/uncommited/diff', content: gitDiffContent, sha256: digest(gitDiffContent), bytes: Buffer.byteLength(gitDiffContent) },
         ],
       },
-      context: { bytes: Buffer.from('UEsDBBQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAbWFuaWZlc3QuanNvbquuBQBQSwMEFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAABzcmMvQXBwLnRzeEutKMgvKlFIzs8rLlGoULBVMOQCAFBLAQIUAxQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAAAAAAAAAAACAAQAAAABtYW5pZmVzdC5qc29uUEsBAhQDFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAAAAAAAAAAAAAIABLwAAAHNyYy9BcHAudHN4UEsFBgAAAAACAAIAdAAAAG0AAAAAAA==', 'base64') },
+      context: { maps: contextMaps(), bytes: Buffer.from('UEsDBBQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAbWFuaWZlc3QuanNvbquuBQBQSwMEFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAABzcmMvQXBwLnRzeEutKMgvKlFIzs8rLlGoULBVMOQCAFBLAQIUAxQAAAAIAFpiJl1Dv6ajBAAAAAIAAAANAAAAAAAAAAAAAACAAQAAAABtYW5pZmVzdC5qc29uUEsBAhQDFAAAAAgAWmImXU5FPCsVAAAAEwAAAAsAAAAAAAAAAAAAAIABLwAAAHNyYy9BcHAudHN4UEsFBgAAAAACAAIAdAAAAG0AAAAAAA==', 'base64') },
       artifacts: [{ name: 'result.md', bytes: Buffer.from('result') }],
       attachments: [{ name: 'notes.txt', bytes: Buffer.from('notes') }],
       projectFiles: ['src/App.tsx'],
@@ -66,7 +74,7 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     const raw = await readFile(target)
     const entries = storedEntries(raw)
     assert.equal(raw.byteLength, result.bytes)
-    assert.equal(result.fileCount, 10)
+    assert.equal(result.fileCount, 12)
     assert.equal(result.requestMetadata.protocol, 'harness.request-metadata/v1')
     assert.deepEqual([...entries.keys()], [
       'transport.json',
@@ -76,6 +84,8 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
       'git-context/main/uncommited/diff',
       'context/manifest.json',
       'context/src/App.tsx',
+      'context-map/main/maps',
+      'context-map/main/sensitive-file-map',
       'references/project-files.json',
       'artifacts/result.md',
       'attachments/notes.txt',
@@ -103,6 +113,7 @@ test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user f
     assert.match(prompt, /RequestedAt: 2026-09-15T23:04:43.000Z/)
     assert.match(prompt, new RegExp(`Knowledge identity: version=3 sha256=${knowledgeSha256}`))
     assert.equal(entries.get('context/src/App.tsx').toString('utf8'), 'export const x = 1\n')
+    assert.equal(entries.get('context-map/main/sensitive-file-map').toString('utf8'), '# harness.sensitive-file-map/v1\nPASSWORD=<<configured>>\n')
     assert.equal(entries.get('attachments/notes.txt').toString('utf8'), 'notes')
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -120,7 +131,7 @@ test('workspace context is separated into primary, ref and attach roots', async 
       requestId,
       prompt: '# Planner',
       knowledge: { state: 'none' },
-      context: { bytes: contextBytes },
+      context: { bytes: contextBytes, maps: contextMaps() },
     })
     const entries = storedEntries(await readFile(target))
     assert.ok(entries.has('context/primary.txt'))
@@ -138,12 +149,14 @@ test('workspace context is separated into primary, ref and attach roots', async 
       primary: 'context/',
       references: 'ref-context/',
       attached_paths: 'att-context/',
+      maps: 'context-map/',
       sources_index: 'metadata/context-sources.json',
     })
     const prompt = entries.get('prompt/wharness-planner-prompt.md').toString('utf8')
     assert.match(prompt, /REQUEST ARCHIVE CONTEXT ROOTS/)
     assert.match(prompt, /ref-context\/<project>/)
     assert.match(prompt, /att-context\/attach-<slot>/)
+    assert.match(prompt, /context-map\//)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

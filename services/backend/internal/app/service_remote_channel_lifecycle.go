@@ -145,7 +145,7 @@ func buildRemoteContextUpdateResources(ctx context.Context, dir string, item dom
 	}
 	entries := contextEntries
 	for _, entry := range state.fileMapEntries {
-		if entry.Role != "context" && entry.Role != "git-context" {
+		if entry.Role != "context" && entry.Role != "git-context" && entry.Role != "context-map" {
 			entries = append(entries, entry)
 		}
 	}

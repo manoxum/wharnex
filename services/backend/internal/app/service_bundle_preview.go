@@ -128,7 +128,7 @@ func (s *Service) PreviewComposerBundle(ctx context.Context, sessionID string, i
 	_ = target.Close()
 	defer os.Remove(targetPath)
 	gitContext := requestGitContextForItem(ctx, previewItem)
-	if _, _, err = buildRemoteInputArchive(targetPath, bundle.ZipPath, request, knowledge, gitContext, continuationArtifacts(previewItem, previewID), attachments, artifacts); err != nil {
+	if _, _, err = buildRemoteInputArchive(targetPath, bundle.ZipPath, bundle.Manifest, request, knowledge, gitContext, continuationArtifacts(previewItem, previewID), attachments, artifacts); err != nil {
 		return domain.ArtifactRecord{}, err
 	}
 	raw, err := os.ReadFile(targetPath)
