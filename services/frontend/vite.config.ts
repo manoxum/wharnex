@@ -29,6 +29,30 @@ export default defineConfig(({ command }) => ({
     port: 5173,
     strictPort: true,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // These are all React.lazy()-loaded from WorkspaceSideRail and only
+        // ever rendered once their drawer is opened - most are opened rarely,
+        // if at all, in a given session (Git graph, Postgres browser,
+        // runtime/task inspectors, knowledge/artifact explorers). Rollup's
+        // automatic dynamic-import splitting was not separating them from
+        // the entry chunk on its own here, so chunk assignment is explicit.
+        manualChunks(id) {
+          if (id.includes('/src/components/GitDrawer')) return 'panel-git'
+          if (id.includes('/src/components/DatabaseExplorerPanel')) return 'panel-database'
+          if (id.includes('/src/components/ArtifactExplorerPanel')) return 'panel-artifacts'
+          if (id.includes('/src/components/AgentRuntimeDrawer')) return 'panel-runtime'
+          if (id.includes('/src/components/ChatAgentTasksDrawer')) return 'panel-tasks'
+          if (id.includes('/src/components/ProjectKnowledgeDrawer')) return 'panel-knowledge'
+          if (id.includes('/src/components/EvolutionEvidenceDrawer')) return 'panel-evolution'
+          if (id.includes('/src/components/AgentProjectExplorer')) return 'panel-explorer'
+          if (id.includes('/src/components/ProjectActivityDrawer')) return 'panel-activity'
+          if (id.includes('/src/components/ProjectTodoPanel')) return 'panel-todo'
+        },
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],

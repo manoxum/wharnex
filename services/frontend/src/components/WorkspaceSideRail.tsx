@@ -1,15 +1,9 @@
-import { useEffect, useMemo, useState, type ComponentProps } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type ComponentProps } from 'react'
 import type { HarnessEvent, ProjectTodo, Session } from '../types'
 import { ChatPanel } from './ChatPanel'
 import { promptDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
-import { AgentProjectExplorer } from './AgentProjectExplorer'
-import { ProjectActivityDrawer, type ProjectActivityKind } from './ProjectActivityDrawer'
-import { EvolutionEvidenceDrawer } from './EvolutionEvidenceDrawer'
-import { ProjectKnowledgeDrawer } from './ProjectKnowledgeDrawer'
-import { GitDrawer } from './GitDrawer'
-import { AgentRuntimeDrawer } from './AgentRuntimeDrawer'
-import { ChatAgentTasksDrawer } from './ChatAgentTasksDrawer'
+import { type ProjectActivityKind } from './ProjectActivityDrawer'
 import { MarkdownContent } from './MarkdownContent'
 import { loadChat } from '../lib/workspaceMemory'
 import { desktopWindowScope } from '../lib/projectBindings'
@@ -17,10 +11,28 @@ import { api } from '../lib/api'
 import { summarizeAttention, type AttentionItem } from '../lib/attentionCenter'
 import type { ExecutionFIFOItem } from '../lib/executionQueueView'
 import { AttentionList } from './AttentionList'
-import { ArtifactExplorerPanel } from './ArtifactExplorerPanel'
-import { DatabaseExplorerPanel } from './DatabaseExplorerPanel'
-import { ProjectTodoPanel } from './ProjectTodoPanel'
 import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../lib/workspaceRailLayout'
+
+// Every drawer below is only ever rendered once the operator opens it, and
+// most (Git graph, Postgres browser, artifact/knowledge explorers, runtime
+// and task inspectors) are opened rarely if at all in a given session. They
+// were still statically imported, so their code shipped in - and had to be
+// parsed before - the very first paint. Loading each one's chunk on first
+// open instead keeps that cost off the startup path entirely.
+const AgentProjectExplorer = lazy(() => import('./AgentProjectExplorer').then((m) => ({ default: m.AgentProjectExplorer })))
+const ProjectActivityDrawer = lazy(() => import('./ProjectActivityDrawer').then((m) => ({ default: m.ProjectActivityDrawer })))
+const EvolutionEvidenceDrawer = lazy(() => import('./EvolutionEvidenceDrawer').then((m) => ({ default: m.EvolutionEvidenceDrawer })))
+const ProjectKnowledgeDrawer = lazy(() => import('./ProjectKnowledgeDrawer').then((m) => ({ default: m.ProjectKnowledgeDrawer })))
+const GitDrawer = lazy(() => import('./GitDrawer').then((m) => ({ default: m.GitDrawer })))
+const AgentRuntimeDrawer = lazy(() => import('./AgentRuntimeDrawer').then((m) => ({ default: m.AgentRuntimeDrawer })))
+const ChatAgentTasksDrawer = lazy(() => import('./ChatAgentTasksDrawer').then((m) => ({ default: m.ChatAgentTasksDrawer })))
+const ArtifactExplorerPanel = lazy(() => import('./ArtifactExplorerPanel').then((m) => ({ default: m.ArtifactExplorerPanel })))
+const DatabaseExplorerPanel = lazy(() => import('./DatabaseExplorerPanel').then((m) => ({ default: m.DatabaseExplorerPanel })))
+const ProjectTodoPanel = lazy(() => import('./ProjectTodoPanel').then((m) => ({ default: m.ProjectTodoPanel })))
+
+function DrawerFallback() {
+  return <div className="agent-drawer-empty" aria-busy="true"><Icon name="agent" size={18}/><strong>A carregar…</strong></div>
+}
 
 export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | ProjectActivityKind | ''
 
@@ -181,6 +193,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   </aside>
 
   const drawerPanel = drawer ? <aside className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } as React.CSSProperties : undefined}>
+    <Suspense fallback={<DrawerFallback/>}>
     {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
     {drawer === 'todo' && props.chatProps ? <ProjectTodoPanel session={session} chatProps={props.chatProps} onClose={close} onPromoteToChat={props.onPromoteTodoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onError={onError}/> : null}
     {drawer === 'archive' ? <ChatManagementDrawer projectPath={session.project_path} savedChats={savedChats} archivedChats={archivedChats} busy={busy} onRestoreSaved={props.onRestoreSavedChat} onArchiveSaved={props.onArchiveSavedChat} onRestoreArchived={props.onRestoreChat} onDeleteArchived={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
@@ -194,6 +207,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
     {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
     {drawer === 'database' ? <div className="workspace-database-drawer"><DatabaseExplorerPanel onError={onError}/><button type="button" className="workspace-right-close" onClick={close} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button></div> : null}
+    </Suspense>
   </aside> : null
   const splitter = drawer ? <button type="button" className={`agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`} aria-label={`Redimensionar painel lateral ${side === 'left' ? 'esquerdo' : 'direito'}`} title="Arraste para redimensionar" onPointerDown={beginDrawerResize}/> : null
 
