@@ -9,7 +9,7 @@ import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTEff
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
-import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTDownloadDiagnosticScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { behaviorProbeScript, isBehaviorProbeEnabled, normalizeBehaviorProbeResult, sanitizeBehaviorProbeControl, BEHAVIOR_PROBE_CONTROLS } from './chatgpt-behavior-probe.mjs'
@@ -5254,6 +5254,10 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
       if (!downloadTriggered && Number(completion?.assistantCount || 0) > assistantBaseline) {
         const clicked = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
         if (clicked) downloadTriggered = true
+        else {
+          const diag = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-download-diag', chatGPTDownloadDiagnosticScript(filename, assistantBaseline))
+          console.log(`[diag-download] key=${key} filename=${filename} ${JSON.stringify(diag)}`)
+        }
       }
     }
     throw new Error(`ChatGPT did not provide ${filename} before the TODO classification timeout`)
