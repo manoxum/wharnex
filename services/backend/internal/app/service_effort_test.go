@@ -48,3 +48,20 @@ func TestLoopHasNoNumericCeilingButStillNeedsAutoModeForImprovement(t *testing.T
 		t.Fatal("manual mode must never launch autonomous improvement")
 	}
 }
+
+func TestStructuredInterviewDoesNotSpendAutomaticEffort(t *testing.T) {
+	turn := &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: "req_interview", Kind: domain.TurnKindClarification, Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}, Interview: &domain.Interview{Protocol: domain.InterviewProtocolV2, Questions: []domain.InterviewQuestion{{ID: "scope", Prompt: "Escopo?", AllowOther: true, Options: []domain.InterviewOption{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}}}}}
+	item := domain.Session{EffortLevel: domain.EffortLevelLow, AutomationMode: domain.AutomationModeAuto, AutomationAttempt: 1, LastRequestID: turn.RequestID, LastTurn: turn}
+	creditStructuredInterviewRound(&item, turn)
+	if item.AutomationAttempt != 0 || automaticAttemptsSpent(item) != 0 || !effortAttemptAvailable(item) {
+		t.Fatalf("interview consumed effort: attempt=%d spent=%d", item.AutomationAttempt, automaticAttemptsSpent(item))
+	}
+}
+
+func TestLegacyStructuredInterviewKeepsPriorRepairEffort(t *testing.T) {
+	turn := &domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: "req_interview", Kind: domain.TurnKindClarification, Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}, Interview: &domain.Interview{Protocol: domain.InterviewProtocolV1, Questions: []domain.InterviewQuestion{{ID: "scope", Prompt: "Escopo?", Options: []domain.InterviewOption{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}}}}}
+	item := domain.Session{AutomationAttempt: 0, RepairAttempt: 2, LastRequestID: turn.RequestID, LastTurn: turn}
+	if spent := automaticAttemptsSpent(item); spent != 2 {
+		t.Fatalf("legacy interview should credit only its own round and preserve earlier repair effort: got %d", spent)
+	}
+}

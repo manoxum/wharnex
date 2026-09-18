@@ -84,6 +84,23 @@ func TestValidateTurnAcceptsStructuredInterviewOnlyForClarification(t *testing.T
 	}
 }
 
+func TestValidateTurnAcceptsInterviewV2WithOpenAnswer(t *testing.T) {
+	turn := domain.AgentTurn{
+		Protocol: domain.TurnProtocolV1, RequestID: "req_12345678", Kind: domain.TurnKindClarification, Message: "Preciso destas decisões.",
+		Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted},
+		Interview: &domain.Interview{Protocol: domain.InterviewProtocolV2, Questions: []domain.InterviewQuestion{{
+			ID: "scope", Prompt: "Que áreas entram?", AllowMultiple: true, AllowOther: true, Options: []domain.InterviewOption{{ID: "backend", Label: "Backend"}, {ID: "frontend", Label: "Frontend"}},
+		}}},
+	}
+	if err := ValidateTurn(turn); err != nil {
+		t.Fatalf("expected v2 interview to be valid: %v", err)
+	}
+	turn.Interview.Questions[0].AllowOther = false
+	if err := ValidateTurn(turn); err == nil {
+		t.Fatal("v2 interview must always retain an open Other path")
+	}
+}
+
 func TestValidateTurnRejectsOversizedChatTitle(t *testing.T) {
 	turn := domain.AgentTurn{
 		Protocol: domain.TurnProtocolV1, RequestID: "req_12345678", Kind: domain.TurnKindAnswer,

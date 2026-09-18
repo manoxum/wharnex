@@ -23,6 +23,7 @@ func TestInputBundleTypeCoversRequestLineages(t *testing.T) {
 		{requestKindConflict, bundleTypeConflict},
 		{requestKindKnowledgeReview, bundleTypeKnowledgeReview},
 		{requestKindKnowledgeConsolidation, bundleTypeKnowledgeConsolidation},
+		{requestKindInterview, bundleTypeClarification},
 		{"future_kind", bundleTypeRequest},
 	}
 	for _, tt := range tests {

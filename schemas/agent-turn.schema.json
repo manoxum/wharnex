@@ -51,7 +51,7 @@
       "additionalProperties": false,
       "required": ["protocol", "questions"],
       "properties": {
-        "protocol": { "const": "harness.interview/v1" },
+        "protocol": { "enum": ["harness.interview/v1", "harness.interview/v2"] },
         "questions": {
           "type": "array", "minItems": 1, "maxItems": 8,
           "items": {
@@ -61,6 +61,7 @@
               "id": { "type": "string", "pattern": "^[a-z0-9_-]{1,64}$" },
               "prompt": { "type": "string", "minLength": 1, "maxLength": 1024 },
               "allow_multiple": { "type": "boolean" },
+              "allow_other": { "type": "boolean" },
               "options": {
                 "type": "array", "minItems": 2, "maxItems": 8,
                 "items": {

@@ -17,6 +17,7 @@ const (
 	requestKindEvidence        = "evidence"
 	requestKindConflict        = "conflict"
 	requestKindKnowledgeReview = "knowledge_review"
+	requestKindInterview       = "interview"
 )
 
 func recordRequestLineage(item *domain.Session, requestID, parentID, kind string) {

@@ -18,6 +18,7 @@ const InteractiveProtocolV1 = "harness.interactive/v1"
 const InteractiveProtocolV2 = "harness.interactive/v2"
 const InteractivePolicyRevisionV2 = "interactive-v2-policy/1"
 const InterviewProtocolV1 = "harness.interview/v1"
+const InterviewProtocolV2 = "harness.interview/v2"
 
 const DebugQueryProjectExecutionSummary = "project_execution_summary"
 
@@ -96,6 +97,7 @@ type InterviewQuestion struct {
 	ID            string            `json:"id"`
 	Prompt        string            `json:"prompt"`
 	AllowMultiple bool              `json:"allow_multiple,omitempty"`
+	AllowOther    bool              `json:"allow_other,omitempty"`
 	Options       []InterviewOption `json:"options"`
 }
 
