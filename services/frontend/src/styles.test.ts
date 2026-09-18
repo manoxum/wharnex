@@ -337,7 +337,7 @@ describe('terminal and editor execution CSS', () => {
 describe('configurable workbench CSS', () => {
   it('keeps the central workspace dominant and exposes compact chrome tokens', () => {
     const compactRail = lastRule(":root[data-density='compact'] .workspace-main-row > .agent-activity-bar")
-    expect(css).toContain('.workspace-mode-stack { flex: 1 1 760px; min-width: 560px;')
+    expect(css).toContain('.workspace-center-column { flex: 1 1 760px; min-width: 560px;')
     expect(css).toContain('.workspace-main-row { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }')
     expect(css).toContain('.workbench-status-bar { height: 24px; flex: 0 0 24px;')
     expect(compactRail).toContain('width: 40px')
@@ -355,8 +355,10 @@ describe('configurable workbench CSS', () => {
     expect(lastRule('*::-webkit-scrollbar')).toContain('width: 10px')
     expect(lastRule('*::-webkit-scrollbar-thumb')).toContain('border-radius: 999px')
     expect(firstRule('.terminal-workspace')).toContain('width: auto')
-    expect(css).toContain('.workspace-body > .terminal-workspace { margin-left:44px; margin-right:44px; }')
-    expect(css).toContain(":root[data-tool-rail='bottom'] .workspace-body > .terminal-workspace { margin-left:0; margin-right:0; }")
+    expect(firstRule('.workspace-center-column')).toContain('overflow: hidden')
+    expect(lastRule('.workspace-center-column > .terminal-workspace')).toContain('width:100%')
+    expect(lastRule('.workspace-center-column > .terminal-workspace')).toContain('min-width:0')
+    expect(css).not.toContain('.workspace-body > .terminal-workspace { margin-left:44px; margin-right:44px; }')
     expect(lastRule('.terminal-resizer')).toContain('cursor: ns-resize')
   })
 
