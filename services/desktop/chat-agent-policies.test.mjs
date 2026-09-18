@@ -7,6 +7,7 @@ test('defaults global flow protection on and normalizes its bounded policy', () 
   assert.deepEqual(normalizeChatAgentPolicies(), {
     auto_scale: true, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: HARD_MAX_WORKER_SLOTS, keep_flowing_global: true, keep_flowing_workers: [],
   })
+  assert.equal(normalizeChatAgentPolicies({ keep_flowing_global: false }).auto_scale, true)
   assert.deepEqual(normalizeChatAgentPolicies({ auto_scale: false, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-3', 'worker-2', 'worker-2', 'worker-99', 'bad'] }), {
     auto_scale: false, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-2', 'worker-3'],
   })
@@ -16,10 +17,11 @@ test('defaults global flow protection on and normalizes its bounded policy', () 
   assert.equal(keepFlowingForWorker({ keep_flowing_global: true }, 'worker-3'), true)
 })
 
-test('auto scale grows one slot only when due work has no available Worker', () => {
-  assert.equal(autoScaleTarget({ enabled: true, due: 2, available: 0, current: 2, maxWorkers: 6 }), 3)
-  assert.equal(autoScaleTarget({ enabled: true, due: 2, available: 1, current: 2, maxWorkers: 6 }), 2)
-  assert.equal(autoScaleTarget({ enabled: true, due: 2, available: 0, current: 4, maxWorkers: 4 }), 4)
+test('auto scale fills unmet Worker demand up to the configured ceiling', () => {
+  assert.equal(autoScaleTarget({ enabled: true, due: 2, available: 0, current: 2, maxWorkers: 6 }), 4)
+  assert.equal(autoScaleTarget({ enabled: true, due: 2, available: 1, current: 2, maxWorkers: 6 }), 3)
+  assert.equal(autoScaleTarget({ enabled: true, due: 1, available: 1, current: 2, maxWorkers: 6 }), 2)
+  assert.equal(autoScaleTarget({ enabled: true, due: 5, available: 0, current: 4, maxWorkers: 6 }), 6)
   assert.equal(autoScaleTarget({ enabled: true, due: 2, available: 0, current: 6, maxWorkers: 4 }), 6)
   assert.equal(autoScaleTarget({ enabled: false, due: 2, available: 0, current: 2, maxWorkers: 6 }), 2)
 })
@@ -30,11 +32,11 @@ test('auto scale drains extras back to the configured floor only after backlog c
   assert.equal(autoScaleDrainTarget({ enabled: true, due: 1, configured: 2, current: 5 }), 5)
 })
 
-test('supervisor auto scale grows on waiting lanes, never on task count', () => {
-  assert.equal(autoScaleSupervisorTarget({ enabled: true, dueLanes: 2, available: 0, current: 3, maxSupervisors: 12 }), 4)
-  // A free slot already serves the waiting lane; growing would add a renderer
-  // with nothing to bind to.
-  assert.equal(autoScaleSupervisorTarget({ enabled: true, dueLanes: 2, available: 1, current: 3, maxSupervisors: 12 }), 3)
+test('supervisor auto scale fills unmet waiting lanes, never task count', () => {
+  assert.equal(autoScaleSupervisorTarget({ enabled: true, dueLanes: 2, available: 0, current: 3, maxSupervisors: 12 }), 5)
+  // One free slot serves one waiting lane; the second still needs capacity.
+  assert.equal(autoScaleSupervisorTarget({ enabled: true, dueLanes: 2, available: 1, current: 3, maxSupervisors: 12 }), 4)
+  assert.equal(autoScaleSupervisorTarget({ enabled: true, dueLanes: 1, available: 1, current: 3, maxSupervisors: 12 }), 3)
   // Supervisor-owned work stacked on one conversation is one lane, so the pool
   // stays put: a resident slot already serves all of it.
   assert.equal(autoScaleSupervisorTarget({ enabled: true, dueLanes: 0, available: 0, current: 3, maxSupervisors: 12 }), 3)
