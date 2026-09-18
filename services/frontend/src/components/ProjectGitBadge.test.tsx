@@ -47,6 +47,18 @@ describe('ProjectGitBadge', () => {
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
   })
 
+  it('dismisses the branch popup when the user clicks outside or presses Escape', async () => {
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    await openBadge()
+
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
+
+    await openBadge()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
+  })
+
   it('shows the Git operation modal for fetch, pull and push from the branch popup', async () => {
     const fetch = deferred<Awaited<ReturnType<typeof api.gitFetch>>>()
     const pull = deferred<Awaited<ReturnType<typeof api.gitPull>>>()
