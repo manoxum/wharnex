@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
 	archiveChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
+  durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -205,5 +205,12 @@ describe('composer draft memory', () => {
     expect(memory.loadComposerFileDraft('/p', 'chat-b')).toEqual({ attachments: [], projectFiles: [] })
     memory.clearComposerDraft('/p', 'chat-a')
     expect(memory.loadComposerFileDraft('/p', 'chat-a')).toEqual({ attachments: [], projectFiles: [] })
+  })
+
+  it('persists durable composer attachment references across an app reload', () => {
+    const attachments = [{ name: 'draft.txt', size: 5, mime: 'text/plain', storageRef: 'chat-a/composer_draft/0', previewKind: 'icon' as const, lastModified: 1_700_000_000_000 }]
+    saveComposerStoredFileDraft('/p', 'chat-a', attachments)
+    expect(loadComposerStoredFileDraft('/p', 'chat-a')).toEqual(attachments)
+    expect(loadComposerStoredFileDraft('/p', 'chat-b')).toEqual([])
   })
 })

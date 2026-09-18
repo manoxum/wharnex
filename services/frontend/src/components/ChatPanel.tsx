@@ -1,12 +1,12 @@
 import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, ExecutionPlan, Interview, InterviewQuestion, ManagedArtifact, ChatFileRecord, QueuedChatRequest, Session } from '../types'
 import type { ReasoningEffort } from '../types'
-import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, saveComposerDraft, saveComposerFileDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
+import { clearComposerDraft, loadComposerDraft, loadComposerFileDraft, loadComposerStoredFileDraft, saveComposerDraft, saveComposerFileDraft, saveComposerStoredFileDraft, type ComposerStoredAttachmentDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { ChatItemBoundary } from './ChatItemBoundary'
 import { StatusPill } from './StatusPill'
 import { stateLabel } from '../lib/risk'
-import { addChatAttachments, uniquifyPastedChatFiles } from '../lib/chatAttachments'
+import { addChatAttachments, encodeChatAttachments, uniquifyPastedChatFiles } from '../lib/chatAttachments'
 import { MessageAttachmentCard, ComposerAttachmentChip } from './ChatAttachmentCard'
 import { MarkdownContent } from './MarkdownContent'
 import {
@@ -38,6 +38,7 @@ import { promptDialog } from '../lib/appDialog'
 import { plannerDeclaredNonRetryable, promptGPTRepairDetail } from '../lib/plannerRecovery'
 import { activePendingRequestId } from '../lib/pendingRequest'
 import { ARTIFACT_INDEX_EVENT, artifactIndexMarker, type ArtifactIndexRequest } from '../lib/artifactIndexing'
+import { storedAttachmentFile } from '../lib/projectTodoForwarding'
 
 const COMPOSER_MIN_HEIGHT = 118
 const COMPOSER_MAX_HEIGHT = 420
@@ -255,6 +256,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const composerMessageRef = useRef(initialDraft.message)
   const composerCaretRef = useRef(initialDraft.message.length)
   const editorShellRef = useRef<HTMLDivElement>(null)
+  const draftPersistRevisionRef = useRef(0)
+  const draftPersistQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const draftRestoreRevisionRef = useRef(0)
   function prepareExecutionPlanAdjustment(plan: ExecutionPlan) {
     const safeID = plan.plan_id.replace(/[^A-Za-z0-9_-]+/g, '-').slice(0, 80) || 'atual'
     const fileName = `plano-execucao-${safeID}.md`
@@ -380,8 +384,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // exist".
   useEffect(() => { if (queuedRequests.length) setQueueOpen(true) }, [queuedRequests.length])
   useEffect(() => {
-    const draft = loadComposerDraft(session.project_path, activeChatId)
-    const fileDraft = loadComposerFileDraft(session.project_path, activeChatId)
+    const projectPath = session.project_path
+    const chatId = activeChatId
+    const draft = loadComposerDraft(projectPath, chatId)
+    const fileDraft = loadComposerFileDraft(projectPath, chatId)
+    const storedDraft = loadComposerStoredFileDraft(projectPath, chatId)
     // References used to live in a list beside the composer. A draft saved under
     // that model is folded into inline markers once, so an operator who left a
     // draft open across the change does not silently lose the files they had
@@ -392,6 +399,38 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     composerCaretRef.current = nextMessage.length
     setMessage(nextMessage)
     setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles([]); setAttachmentError(''); setExpandedWhxNoticeRunId(''); setPlanAdjustment(undefined)
+
+    const bridge = desktopBridge()
+    if (!bridge || !storedDraft.length) return undefined
+    const restoreRevision = ++draftRestoreRevisionRef.current
+    void Promise.all(storedDraft.map(async (attachment) => {
+      try {
+        const stored = await bridge.attachments.read({ storageRef: attachment.storageRef })
+        const recovered = storedAttachmentFile(stored, attachment.mime)
+        const file = attachment.lastModified > 0
+          ? new File([recovered], recovered.name, { type: recovered.type, lastModified: attachment.lastModified })
+          : recovered
+        return { file, attachment: { ...attachment, name: file.name, size: file.size, mime: file.type || attachment.mime, lastModified: file.lastModified } }
+      } catch { return undefined }
+    })).then((results) => {
+      if (draftRestoreRevisionRef.current !== restoreRevision) return
+      const recovered = results.filter((item): item is { file: File; attachment: ComposerStoredAttachmentDraft } => Boolean(item))
+      saveComposerStoredFileDraft(projectPath, chatId, recovered.map((item) => item.attachment))
+      if (recovered.length) {
+        setAttachments((current) => {
+          const seen = new Set(current.map((file) => `${file.name}\u0000${file.size}\u0000${file.type}`))
+          const next = [...current]
+          for (const { file } of recovered) {
+            const key = `${file.name}\u0000${file.size}\u0000${file.type}`
+            if (!seen.has(key)) { next.push(file); seen.add(key) }
+          }
+          saveComposerFileDraft(projectPath, chatId, { attachments: next, projectFiles: [] })
+          return next
+        })
+      }
+      if (recovered.length !== storedDraft.length) setAttachmentError('Alguns anexos do rascunho já não estavam disponíveis e foram removidos.')
+    })
+    return () => { draftRestoreRevisionRef.current += 1 }
   }, [session.project_path, activeChatId])
   useEffect(() => { saveComposerDraft(session.project_path, activeChatId, { message, height: composerHeight }) }, [session.project_path, activeChatId, message, composerHeight])
   useEffect(() => { saveComposerFileDraft(session.project_path, activeChatId, { attachments, projectFiles }) }, [session.project_path, activeChatId, attachments, projectFiles])
@@ -424,9 +463,31 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     return () => observer.disconnect()
   }, [])
 
+  function queueDurableComposerDraft(nextAttachments: File[], surfaceError = true) {
+    const bridge = desktopBridge()
+    if (!bridge) return
+    const projectPath = session.project_path
+    const chatId = activeChatId
+    const revision = ++draftPersistRevisionRef.current
+    const files = [...nextAttachments]
+    draftPersistQueueRef.current = draftPersistQueueRef.current.catch(() => undefined).then(async () => {
+      try {
+        const encoded = await encodeChatAttachments(files)
+        const persisted = await bridge.attachments.persist({ cacheKey: chatId, messageId: 'composer_draft', attachments: encoded })
+        if (draftPersistRevisionRef.current !== revision) return
+        saveComposerStoredFileDraft(projectPath, chatId, persisted.attachments.map((attachment, index) => ({ ...attachment, lastModified: files[index]?.lastModified ?? 0 })))
+      } catch {
+        if (draftPersistRevisionRef.current !== revision) return
+        saveComposerStoredFileDraft(projectPath, chatId, [])
+        if (surfaceError) setAttachmentError('Não foi possível guardar os anexos do rascunho para restaurar após recarregar a tela.')
+      }
+    })
+  }
+
   function persistAttachments(nextAttachments: File[]) {
     saveComposerFileDraft(session.project_path, activeChatId, { attachments: nextAttachments, projectFiles })
     setAttachments(nextAttachments)
+    queueDurableComposerDraft(nextAttachments)
   }
 
   function clearComposer() {
@@ -438,6 +499,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     setFileQuery(undefined)
     setAttachmentError('')
     clearComposerDraft(session.project_path, activeChatId)
+    queueDurableComposerDraft([], false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
