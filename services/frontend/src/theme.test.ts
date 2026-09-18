@@ -62,6 +62,7 @@ describe('complete colour themes', () => {
     expect(theme).toMatch(/\[data-theme='light'\] \.provider-connection-panel \{[^}]*background: #f2f4ee;/)
     expect(theme).toMatch(/\[data-theme='light'\] \.remote-storage-actions \{[^}]*background: rgba\(247,248,244,.96\);/)
     expect(theme).toMatch(/\[data-theme='light'\] \.remote-instance-grid input,[\s\S]*?background: #fff;/)
+    expect(theme).toContain(":root[data-theme='light'] .settings-navigation button.active {\n  border-color: transparent;")
   })
 
   it('themes the interrupted-execution recovery cards for dark mode instead of leaving them light-only', () => {
@@ -124,6 +125,7 @@ describe('workbench theme registry', () => {
   it('keeps settings cards and native select menus on the selected IDE palette', () => {
     expect(theme).toContain(':root[data-ui-theme] .settings-premium-card')
     expect(theme).toContain(':root[data-ui-theme] .settings-navigation button.active')
+    expect(theme).toContain(':root[data-ui-theme] .settings-navigation button.active { border-color: transparent;')
     expect(theme).toContain(':root[data-ui-theme] .quick-switcher-select-shell select option')
     expect(theme).toContain('background: var(--theme-elevated); color: var(--theme-text);')
   })

@@ -51,6 +51,6 @@ export function DirectChatGPTPane({ projectPath, suspended = false }: { projectP
         <button onClick={() => void bridge?.chatgpt.openExternal(state.url || CHATGPT_HOME)} aria-label="Abrir externamente"><Icon name="external" size={14}/></button>
       </nav>
     </header>
-    <div ref={hostRef} className="desktop-chatgpt-host direct-chatgpt-host" aria-label="ChatGPT livre incorporado"><span>A carregar ChatGPT…</span></div>
+    <div ref={hostRef} className="desktop-chatgpt-host direct-chatgpt-host" aria-label="ChatGPT livre incorporado">{state.loading ? <span>A carregar ChatGPT…</span> : null}</div>
   </section>
 }

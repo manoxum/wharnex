@@ -16,6 +16,17 @@ describe('workspaceRailLayout', () => {
     expect(loadWorkspaceRailLayout().pinned.right).toEqual(['knowledge'])
   })
 
+  it('restores the last dropped position independently for each project', () => {
+    const projectA = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'knowledge', 'right', 'database')
+    const projectB = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'git', 'right', undefined, true)
+    saveWorkspaceRailLayout(projectA, '/projects/a')
+    saveWorkspaceRailLayout(projectB, '/projects/b')
+
+    expect(loadWorkspaceRailLayout('/projects/a').right).toEqual(['project', 'knowledge', 'database'])
+    expect(loadWorkspaceRailLayout('/projects/b').pinned.right).toEqual(['git'])
+    expect(loadWorkspaceRailLayout('/projects/a').pinned.right).toEqual([])
+  })
+
   it('migrates v2 layouts by moving project right and preserving the terminal side as pinned', () => {
     localStorage.setItem('whx.workspace.rail-layout.v2:/projects/a', JSON.stringify({ left: ['database', 'project', 'git'], right: ['library', 'terminal'] }))
     const migrated = loadWorkspaceRailLayout('/projects/a')

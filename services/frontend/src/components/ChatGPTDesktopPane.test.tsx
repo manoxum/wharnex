@@ -101,6 +101,13 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
   })
 
+  it('does not show a false loading placeholder when a ready native view is temporarily suspended', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    const { container } = render(<ChatGPTDesktopPane {...props} suspended />)
+    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+    await waitFor(() => expect(container.querySelector('.desktop-chatgpt-loading')).toBeNull())
+  })
+
   it('does not navigate a remote view while the pane is suspended', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     render(<ChatGPTDesktopPane {...props} suspended />)

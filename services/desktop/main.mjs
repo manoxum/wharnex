@@ -607,19 +607,68 @@ function releaseWindowProjects(windowState) {
 
 function windowLayoutPath() { return path.join(app.getPath('userData'), 'wharness-window-layout.json') }
 
-function persistWindowLayout(ids = [...desktopWindows.values()].filter((state) => !state.window.isDestroyed()).map((state) => state.id)) {
-  try {
-    writeFileSync(windowLayoutPath(), JSON.stringify({ version: 1, windows: [...new Set(ids)].slice(0, 12) }), { mode: 0o600 })
-  } catch (error) { console.warn('[windows] layout persistence failed', error) }
+const DEFAULT_DESKTOP_WINDOW_SIZE = Object.freeze({ width: 1540, height: 960 })
+const MIN_DESKTOP_WINDOW_SIZE = Object.freeze({ width: 1100, height: 720 })
+let windowLayoutPersistTimer
+
+function normalizedWindowSize(value) {
+  const width = Number(value?.width)
+  const height = Number(value?.height)
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return undefined
+  if (width < MIN_DESKTOP_WINDOW_SIZE.width || height < MIN_DESKTOP_WINDOW_SIZE.height) return undefined
+  if (width > 8192 || height > 8192) return undefined
+  return { width: Math.round(width), height: Math.round(height) }
 }
 
-function loadWindowLayout() {
+function readWindowLayoutState() {
   try {
     const parsed = JSON.parse(readFileSync(windowLayoutPath(), 'utf8'))
     const windows = Array.isArray(parsed?.windows) ? parsed.windows.filter((item) => typeof item === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(item)) : []
-    return windows.length ? [...new Set(windows)].slice(0, 12) : ['primary']
-  } catch { return ['primary'] }
+    const sizes = {}
+    if (parsed?.sizes && typeof parsed.sizes === 'object') {
+      for (const [id, value] of Object.entries(parsed.sizes)) {
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) continue
+        const size = normalizedWindowSize(value)
+        if (size) sizes[id] = size
+      }
+    }
+    return { windows: windows.length ? [...new Set(windows)].slice(0, 12) : ['primary'], sizes }
+  } catch { return { windows: ['primary'], sizes: {} } }
 }
+
+function persistedWindowSize(windowState) {
+  if (!windowState?.window || windowState.window.isDestroyed()) return undefined
+  try {
+    const bounds = typeof windowState.window.getNormalBounds === 'function' ? windowState.window.getNormalBounds() : windowState.window.getBounds()
+    return normalizedWindowSize(bounds)
+  } catch { return undefined }
+}
+
+function persistWindowLayout(ids = [...desktopWindows.values()].filter((state) => !state.window.isDestroyed()).map((state) => state.id)) {
+  try {
+    const previous = readWindowLayoutState()
+    const windows = [...new Set(ids)].filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id)).slice(0, 12)
+    const sizes = {}
+    for (const id of windows) {
+      const live = desktopWindows.get(id)
+      const size = persistedWindowSize(live) || previous.sizes[id]
+      if (size) sizes[id] = size
+    }
+    writeFileSync(windowLayoutPath(), JSON.stringify({ version: 2, windows, sizes }), { mode: 0o600 })
+  } catch (error) { console.warn('[windows] layout persistence failed', error) }
+}
+
+function scheduleWindowLayoutPersistence() {
+  clearTimeout(windowLayoutPersistTimer)
+  windowLayoutPersistTimer = setTimeout(() => {
+    windowLayoutPersistTimer = undefined
+    persistWindowLayout()
+  }, 180)
+}
+
+function loadWindowLayout() { return readWindowLayoutState().windows }
+
+function loadWindowSize(id) { return readWindowLayoutState().sizes[id] || DEFAULT_DESKTOP_WINDOW_SIZE }
 
 function restartIntentPath() { return path.join(app.getPath('userData'), 'wharness-window-restart-intent.json') }
 
@@ -5919,15 +5968,15 @@ function openInternalChatGPTBrowser(windowState, value) {
 
 function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true) {
   const id = /^[A-Za-z0-9_-]{1,80}$/.test(String(windowId || '')) ? String(windowId) : `window-${randomUUID()}`
+  const initialWindowSize = loadWindowSize(id)
   const win = new BrowserWindow({
-    width: 1540,
-    height: 960,
-    minWidth: 1100,
-    minHeight: 720,
+    width: initialWindowSize.width,
+    height: initialWindowSize.height,
+    minWidth: MIN_DESKTOP_WINDOW_SIZE.width,
+    minHeight: MIN_DESKTOP_WINDOW_SIZE.height,
     title: desktopWindowTitle('', DESKTOP_INSTANCE),
     icon: DESKTOP_ICON,
     name: `wharness-${id}`,
-    windowStatePersistence: true,
     backgroundColor: '#eceee7',
     autoHideMenuBar: true,
     // The themed shell owns every visible pixel of window chrome, including
@@ -5992,6 +6041,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
   win.webContents.on('responsive', () => console.log(`[frontend-renderer] window=${id} responsive`))
   win.on('focus', () => { mainWindow = win; win.flashFrame(false); publishChatGPTState(state.activeChatGPTKey) })
   win.on('blur', () => publishChatGPTState(state.activeChatGPTKey))
+  win.on('resize', scheduleWindowLayoutPersistence)
   win.on('close', () => { hideChatAgentInteractionsForWindow(state); if (!quitting) rehomeChatGPTWorkers(state) })
   win.on('closed', () => {
     closeInternalChatGPTBrowserForWindow(state)

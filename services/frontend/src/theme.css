@@ -424,7 +424,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .settings-navigation button { color: #667163; }
 :root[data-theme='light'] .settings-navigation button:hover { background: #e3e8df; color: #30382d; }
 :root[data-theme='light'] .settings-navigation button.active {
-  border-color: #bcc7b5;
+  border-color: transparent;
   background: #f8f9f5;
   color: var(--theme-text);
   box-shadow: inset 2px 0 var(--theme-accent);
@@ -1694,7 +1694,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-ui-theme] .settings-premium-card,
 :root[data-ui-theme] .settings-project-summary { border-color: var(--theme-border-soft); background: var(--theme-elevated); color: var(--theme-text); }
 :root[data-ui-theme] .settings-navigation button:hover { background: var(--theme-hover); color: var(--theme-text); }
-:root[data-ui-theme] .settings-navigation button.active { border-color: color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border)); background: var(--theme-accent-soft); color: var(--theme-text); box-shadow: inset 2px 0 var(--theme-accent); }
+:root[data-ui-theme] .settings-navigation button.active { border-color: transparent; background: var(--theme-accent-soft); color: var(--theme-text); box-shadow: inset 2px 0 var(--theme-accent); }
 :root[data-ui-theme] .context-settings-dialog select,
 :root[data-ui-theme] .quick-switcher-select-shell select { color: var(--theme-text); }
 :root[data-ui-theme] .context-settings-dialog select option,
