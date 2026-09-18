@@ -48,6 +48,8 @@ export function useProgressiveChatHistory(items: ChatItem[], activeChatId: strin
   const currentEndRef = useRef(initialWindow.end)
   const followTailRef = useRef(initialViewportRef.current?.followTail ?? true)
   const initialPositionPendingRef = useRef(!initialViewportRef.current)
+  const pendingWindowIndexRef = useRef<number | undefined>(undefined)
+  const scrollFrameRef = useRef<number | undefined>(undefined)
   const [windowState, setWindowState] = useState<WindowState>(() => ({ chatId: activeChatId, epoch: 0, ...initialWindow, itemCount: items.length }))
 
   if (previousChatIdRef.current !== activeChatId) {
@@ -85,14 +87,39 @@ export function useProgressiveChatHistory(items: ChatItem[], activeChatId: strin
     setWindowState({ chatId: activeChatId, epoch: chatEpochRef.current, ...next, itemCount: items.length })
   }, [activeChatId, items.length])
 
+  const cancelScheduledWindowUpdate = useCallback(() => {
+    pendingWindowIndexRef.current = undefined
+    if (scrollFrameRef.current !== undefined && typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(scrollFrameRef.current)
+    }
+    scrollFrameRef.current = undefined
+  }, [])
+
+  const scheduleWindowAt = useCallback((index: number) => {
+    pendingWindowIndexRef.current = index
+    if (scrollFrameRef.current !== undefined) return
+    if (typeof window.requestAnimationFrame !== 'function') {
+      pendingWindowIndexRef.current = undefined
+      setWindowAt(index)
+      return
+    }
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = undefined
+      const pendingIndex = pendingWindowIndexRef.current
+      pendingWindowIndexRef.current = undefined
+      if (pendingIndex !== undefined) setWindowAt(pendingIndex)
+    })
+  }, [setWindowAt])
+
   const jumpTo = useCallback((index: number) => {
     const stream = streamRef.current
     if (!stream) return
+    cancelScheduledWindowUpdate()
     const next = windowForIndex(items.length, index)
     stream.scrollTop = next.start * ESTIMATED_ITEM_HEIGHT_PX
     followTailRef.current = next.end === items.length
     setWindowState({ chatId: activeChatId, epoch: chatEpochRef.current, ...next, itemCount: items.length })
-  }, [activeChatId, items.length])
+  }, [activeChatId, cancelScheduledWindowUpdate, items.length])
 
   const loadOlder = useCallback(() => jumpTo(Math.max(0, start - HISTORY_PAGE_SIZE)), [jumpTo, start])
   const loadNewer = useCallback(() => jumpTo(Math.min(Math.max(0, items.length - MAX_RENDERED_ITEM_COUNT), start + HISTORY_PAGE_SIZE)), [items.length, jumpTo, start])
@@ -100,12 +127,16 @@ export function useProgressiveChatHistory(items: ChatItem[], activeChatId: strin
   const onScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     const stream = event.currentTarget
     followTailRef.current = stream.scrollHeight - stream.scrollTop - stream.clientHeight <= FOLLOW_TAIL_THRESHOLD_PX
-    setWindowAt(Math.floor(Math.max(0, stream.scrollTop) / ESTIMATED_ITEM_HEIGHT_PX))
+    const windowIndex = Math.floor(Math.max(0, stream.scrollTop) / ESTIMATED_ITEM_HEIGHT_PX)
+    const pendingWindow = windowForIndex(items.length, windowIndex)
+    scheduleWindowAt(windowIndex)
     viewportByChatRef.current.set(activeChatId, {
-      start: currentStartRef.current, end: currentEndRef.current, itemCount: items.length,
+      start: pendingWindow.start, end: pendingWindow.end, itemCount: items.length,
       scrollTop: stream.scrollTop, followTail: followTailRef.current,
     })
-  }, [activeChatId, items.length, setWindowAt])
+  }, [activeChatId, items.length, scheduleWindowAt])
+
+  useLayoutEffect(() => () => cancelScheduledWindowUpdate(), [activeChatId, cancelScheduledWindowUpdate, items.length])
 
   useLayoutEffect(() => {
     const stream = streamRef.current
