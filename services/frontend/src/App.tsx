@@ -3176,8 +3176,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />
-      <div className="workspace-mode-stack">
-      <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
+      <div className="workspace-center-column">
+        <div className="workspace-mode-stack">
+        <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
         <EditorWorkspace session={session} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} />
       </div>
       <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
@@ -3217,6 +3218,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         />}
       </div>
       </div>
+        {terminalOpen && <div className="terminal-resizer" role="separator" aria-orientation="horizontal" aria-label="Ajustar altura do terminal" title="Arraste para aumentar ou reduzir o terminal" onPointerDown={resizeTerminal} onDoubleClick={() => setTerminalHeight(275)} />}
+        <TerminalWorkspace session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
+      </div>
       <WorkspaceSideRail
         session={session}
         busy={activeBusy}
@@ -3255,8 +3259,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />
       </div>
-      {terminalOpen && <div className="terminal-resizer" role="separator" aria-orientation="horizontal" aria-label="Ajustar altura do terminal" title="Arraste para aumentar ou reduzir o terminal" onPointerDown={resizeTerminal} onDoubleClick={() => setTerminalHeight(275)} />}
-      <TerminalWorkspace session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
       <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} />
     </div>
   </main>
