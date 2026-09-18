@@ -418,9 +418,18 @@ function compactEventData(data: Record<string, unknown>) {
 }
 
 const COMPOSER_DRAFT_PREFIX = 'kernl.workspace.composer-draft.v1:'
+const COMPOSER_STORED_FILE_DRAFT_PREFIX = 'kernl.workspace.composer-file-draft.v1:'
 const composerFileDrafts = new Map<string, ComposerFileDraft>()
 export type ComposerDraft = { message: string; height: number }
 export type ComposerFileDraft = { attachments: File[]; projectFiles: string[] }
+export type ComposerStoredAttachmentDraft = {
+  name: string
+  size: number
+  mime: string
+  storageRef: string
+  previewKind: 'thumbnail' | 'icon' | 'none'
+  lastModified: number
+}
 
 function composerDraftKey(projectPath: string, chatId: string) { return `${projectPath}:${chatId}` }
 
@@ -447,9 +456,39 @@ export function saveComposerFileDraft(projectPath: string, chatId: string, draft
   composerFileDrafts.set(key, { attachments: [...draft.attachments], projectFiles: [...draft.projectFiles] })
 }
 
+export function loadComposerStoredFileDraft(projectPath: string, chatId: string): ComposerStoredAttachmentDraft[] {
+  try {
+    const raw = localStorage.getItem(`${COMPOSER_STORED_FILE_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`)
+    const value = raw ? JSON.parse(raw) as { attachments?: unknown[] } : {}
+    return (Array.isArray(value.attachments) ? value.attachments : []).flatMap((item) => {
+      if (!item || typeof item !== 'object') return []
+      const candidate = item as Partial<ComposerStoredAttachmentDraft>
+      if (typeof candidate.name !== 'string' || !candidate.name || typeof candidate.storageRef !== 'string' || !candidate.storageRef) return []
+      const size = Number(candidate.size)
+      if (!Number.isFinite(size) || size < 0) return []
+      const previewKind: ComposerStoredAttachmentDraft['previewKind'] = candidate.previewKind === 'thumbnail' || candidate.previewKind === 'icon' ? candidate.previewKind : 'none'
+      const lastModified = Number(candidate.lastModified)
+      const restored: ComposerStoredAttachmentDraft = { name: candidate.name, size, mime: typeof candidate.mime === 'string' && candidate.mime ? candidate.mime : 'application/octet-stream', storageRef: candidate.storageRef, previewKind, lastModified: Number.isFinite(lastModified) && lastModified >= 0 ? lastModified : 0 }
+      return [restored]
+    }).slice(0, 10)
+  } catch { return [] }
+}
+
+export function saveComposerStoredFileDraft(projectPath: string, chatId: string, attachments: ComposerStoredAttachmentDraft[]) {
+  const key = `${COMPOSER_STORED_FILE_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`
+  try {
+    if (!attachments.length) { localStorage.removeItem(key); return }
+    localStorage.setItem(key, JSON.stringify({ attachments: attachments.slice(0, 10) }))
+  } catch { /* best effort */ }
+}
+
 export function clearComposerDraft(projectPath: string, chatId: string) {
-  try { localStorage.removeItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`) } catch { /* best effort */ }
-  composerFileDrafts.delete(composerDraftKey(projectPath, chatId))
+  const key = composerDraftKey(projectPath, chatId)
+  try {
+    localStorage.removeItem(`${COMPOSER_DRAFT_PREFIX}${key}`)
+    localStorage.removeItem(`${COMPOSER_STORED_FILE_DRAFT_PREFIX}${key}`)
+  } catch { /* best effort */ }
+  composerFileDrafts.delete(key)
 }
 
 export function clearEphemeralComposerDrafts() { composerFileDrafts.clear() }
