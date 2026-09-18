@@ -63,6 +63,10 @@ const (
 	KindChat Kind = "chat"
 	// KindLib points at a persisted file in the global Wharnex library.
 	KindLib Kind = "lib"
+	// KindInterview explicitly requests a structured interview before the
+	// planner resolves the semantic request. Unlike reference directives it is
+	// a valueless control marker and grants no project or execution authority.
+	KindInterview Kind = "interview"
 )
 
 const (
@@ -98,6 +102,7 @@ var keywords = []KeywordSpec{
 	{Kind: KindSee, Keyword: "see", Aliases: []string{"look"}},
 	{Kind: KindChat, Keyword: "chat"},
 	{Kind: KindLib, Keyword: "lib", Aliases: []string{"library"}},
+	{Kind: KindInterview, Keyword: "interview"},
 }
 
 // Keywords returns the directive vocabulary, so a menu — or a test — can
@@ -122,7 +127,10 @@ var kindAliases = func() map[string]Kind {
 // longest-first keeps the source readable as the vocabulary grows.
 func typedKeywordAlternation() string {
 	all := make([]string, 0, len(kindAliases))
-	for keyword := range kindAliases {
+	for keyword, kind := range kindAliases {
+		if kind == KindInterview {
+			continue
+		}
 		all = append(all, keyword)
 	}
 	sort.Slice(all, func(i, j int) bool {
@@ -148,7 +156,7 @@ func typedKeywordAlternation() string {
 // "change @ref:core, then stop" refers to `core`, not to `core,`. A value that
 // genuinely contains one of those characters needs the bracketed form, which is
 // what it is for.
-var pattern = regexp.MustCompile(`@\{\[(file|ref|attach|see|chat|lib)\]([^{}\n]*)\}|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
+var pattern = regexp.MustCompile(`@\{\[(file|ref|attach|see|chat|lib|interview)\]([^{}\n]*)\}|@(interview)\b|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
 
 // Directive is one parsed reference, with the byte range it occupied.
 type Directive struct {
@@ -218,20 +226,29 @@ func matchValue(text string, match []int) (Kind, string) {
 		return Kind(kind), value
 	}
 	if keyword, ok := group(3); ok {
+		return kindAliases[keyword], ""
+	}
+	if keyword, ok := group(4); ok {
 		kind, known := kindAliases[keyword]
 		if !known {
 			return "", ""
 		}
-		if value, has := group(4); has {
+		if value, has := group(5); has {
 			return kind, value
 		}
-		value, _ := group(5)
+		value, _ := group(6)
 		return kind, value
 	}
 	return "", ""
 }
 
 func build(kind Kind, raw string) (Directive, bool) {
+	if kind == KindInterview {
+		if strings.TrimSpace(raw) != "" {
+			return Directive{}, false
+		}
+		return Directive{Kind: KindInterview}, true
+	}
 	// An attachment payload carries its own rule tokens and an absolute path, so
 	// it is read by its own parser before the project-relative trimming below
 	// could mangle it.

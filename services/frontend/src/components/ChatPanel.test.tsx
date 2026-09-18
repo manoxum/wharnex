@@ -67,15 +67,20 @@ describe('ChatPanel', () => {
   // serialized dialog queue so the following test's dialog can still open.
   afterEach(() => { clearEphemeralComposerDrafts(); vi.restoreAllMocks(); vi.unstubAllGlobals(); if (document.querySelector('.app-dialog-backdrop')) fireEvent.keyDown(document, { key: 'Escape' }); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
 
-  it('prepares, but does not submit, a selected structured interview answer', () => {
+  it('prepares, but does not submit, a v2 interview with multi-select and Other', () => {
     const ref = panelRef()
     const onSend = vi.fn().mockResolvedValue(undefined)
     render(<ChatPanel ref={ref} session={session} items={[{
       id: 'interview', role: 'harness', source: 'chatgpt', text: 'Preciso desta decisão.', createdAt: new Date().toISOString(), turnKind: 'clarification',
-      interview: { protocol: 'harness.interview/v1', questions: [{ id: 'retention', prompt: 'Qual retenção?', options: [{ id: 'three', label: '3 dias' }, { id: 'thirty', label: '30 dias' }] }] },
+      interview: { protocol: 'harness.interview/v2', questions: [{ id: 'retention', prompt: 'Qual retenção?', allow_multiple: true, allow_other: true, options: [{ id: 'three', label: '3 dias' }, { id: 'thirty', label: '30 dias' }] }] },
     }]} chats={[]} activeChatId="chat-1" busy={false} onSend={onSend} {...chatActions} />)
     fireEvent.click(screen.getByRole('button', { name: '3 dias' }))
+    fireEvent.click(screen.getByRole('button', { name: '30 dias' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Outro — Qual retenção?' }), { target: { value: '90 dias para auditoria' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preparar resposta' }))
     expect(composerText(ref)).toContain('3 dias')
+    expect(composerText(ref)).toContain('30 dias')
+    expect(composerText(ref)).toContain('Outro: 90 dias para auditoria')
     expect(onSend).not.toHaveBeenCalled()
   })
 

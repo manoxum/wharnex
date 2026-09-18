@@ -300,9 +300,20 @@ describe('bare @ kind picker', () => {
   })
 
   it('filters by keyword or any alias', () => {
-    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach', 'see', 'chat', 'lib'])
+    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach', 'see', 'chat', 'lib', 'interview'])
     expect(directiveKindSuggestions('proj').map((s) => s.kind)).toEqual(['ref'])
     expect(directiveKindSuggestions('dir').map((s) => s.kind)).toEqual(['attach'])
+  })
+
+  it('inserts @interview as a completed valueless canonical marker', () => {
+    const text = 'faz @inter'
+    const query = directiveKindQuery(text, text.length)!
+    const suggestion = directiveKindSuggestions('inter')[0]
+    const applied = applyDirectiveKindSuggestion(text, query, suggestion)
+    expect(applied.text).toBe('faz @{[interview]}')
+    expect(directiveQuery(applied.text, applied.caret)).toBeUndefined()
+    expect(parseDirectives(applied.text)[0]).toMatchObject({ kind: 'interview', value: '' })
+    expect(canonicalizeDirectives('faz @interview')).toBe('faz @{[interview]}')
   })
 
   // Picking a kind inserts its canonical keyword and colon, leaving the caret

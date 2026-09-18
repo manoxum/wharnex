@@ -726,6 +726,20 @@ func (s *Service) SubmitMessage(ctx context.Context, sessionID, message string) 
 }
 
 func (s *Service) SubmitMessageWithMode(ctx context.Context, sessionID, message, planningMode string) (planner.Result, domain.Session, error) {
+	current, err := s.store.Get(sessionID)
+	if err == nil && current.State == "awaiting_clarification" && structuredInterviewTurn(current.LastTurn) {
+		parentRequestID := current.LastTurn.RequestID
+		if updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
+			item.AutomationAttempt++
+			return nil
+		}); updateErr != nil {
+			return planner.Result{}, current, updateErr
+		} else {
+			current = updated
+		}
+		continuation := fmt.Sprintf("INTERVIEW CONTINUATION\nParent request: %s\nThe user answered the structured interview below. Keep this inside the same Main Request. Ask another harness.interview/v2 wave only if a material ambiguity remains; otherwise resolve the original request now.\n\n%s", parentRequestID, message)
+		return s.submitPlannerRequest(ctx, sessionID, continuation, "direct", parentRequestID, requestKindInterview)
+	}
 	return s.submitPlannerRequest(ctx, sessionID, message, planningMode, "", requestKindStandard)
 }
 
@@ -971,6 +985,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			current.LastExecution = nil
 		} else if result.Turn != nil {
 			current.LastBundle = nil
+			creditStructuredInterviewRound(current, result.Turn)
 			if result.Turn.Outcome != nil && result.Turn.Outcome.Status != domain.TurnOutcomeCompleted {
 				applyPlannerFailure(current, result.Turn.Outcome)
 			} else {
@@ -1375,6 +1390,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			item.Policy = nil
 			item.LastExecution = nil
 			item.LastBundle = &parsed.Info
+			creditStructuredInterviewRound(item, &turn)
 			item.State = turnState(turn.Kind)
 			item.PendingManualRequestIDs = removeString(item.PendingManualRequestIDs, turn.RequestID)
 			return nil

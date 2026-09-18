@@ -206,6 +206,13 @@ func TestRefCarriesOptionalRequestLocalSelection(t *testing.T) {
 func TestEveryKeywordAndAliasParses(t *testing.T) {
 	for _, spec := range Keywords() {
 		for _, word := range append([]string{spec.Keyword}, spec.Aliases...) {
+			if spec.Kind == KindInterview {
+				parsed := Parse("@" + word)
+				if len(parsed) != 1 || parsed[0].Kind != KindInterview || parsed[0].Value != "" {
+					t.Fatalf("keyword %q (kind %s): parsed=%#v", word, spec.Kind, parsed)
+				}
+				continue
+			}
 			value := "flowcore"
 			if spec.Kind == KindAttach {
 				value = "/srv/x"
@@ -219,6 +226,21 @@ func TestEveryKeywordAndAliasParses(t *testing.T) {
 				t.Fatalf("keyword %q (kind %s): parsed=%#v", word, spec.Kind, parsed)
 			}
 		}
+	}
+}
+
+func TestInterviewDirectiveIsValuelessAndCanonical(t *testing.T) {
+	for _, text := range []string{"@interview", "@{[interview]}"} {
+		parsed := Parse(text)
+		if len(parsed) != 1 || parsed[0].Kind != KindInterview || parsed[0].Value != "" {
+			t.Fatalf("%q parsed as %#v", text, parsed)
+		}
+	}
+	if got := Canonicalize("antes @interview depois"); got != "antes @{[interview]} depois" {
+		t.Fatalf("canonical interview = %q", got)
+	}
+	if parsed := Parse("@{[interview]anything}"); len(parsed) != 0 {
+		t.Fatalf("interview must reject a value: %#v", parsed)
 	}
 }
 

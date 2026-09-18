@@ -168,5 +168,8 @@ export function directiveChipBadge(kind: DirectiveKind): string {
   if (kind === 'file') return 'FILE'
   if (kind === 'ref') return 'REF'
   if (kind === 'attach') return 'EXT'
+  if (kind === 'interview') return 'ASK'
+  if (kind === 'chat') return 'CHAT'
+  if (kind === 'lib') return 'LIB'
   return 'SEE'
 }
