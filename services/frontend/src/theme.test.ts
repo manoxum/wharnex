@@ -62,6 +62,7 @@ describe('complete colour themes', () => {
     expect(theme).toMatch(/\[data-theme='light'\] \.provider-connection-panel \{[^}]*background: #f2f4ee;/)
     expect(theme).toMatch(/\[data-theme='light'\] \.remote-storage-actions \{[^}]*background: rgba\(247,248,244,.96\);/)
     expect(theme).toMatch(/\[data-theme='light'\] \.remote-instance-grid input,[\s\S]*?background: #fff;/)
+    expect(theme).toContain(":root[data-theme='light'] .settings-navigation button.active {\n  border-color: transparent;")
   })
 
   it('themes the interrupted-execution recovery cards for dark mode instead of leaving them light-only', () => {
@@ -78,8 +79,8 @@ describe('complete colour themes', () => {
     expect(theme).toContain('background: #303030;\n  color: #cecece !important;')
   })
   it('keeps the active linked-project accent restrained in dark mode', () => {
-    expect(theme).toContain('box-shadow: 0 0 0 1px hsl(var(--project-hue) 70% 58% / .08), 0 2px 8px hsl(var(--project-hue) 70% 48% / .14);')
-    expect(theme).toContain('box-shadow: 0 0 0 2px hsl(var(--project-hue) 70% 56% / .10), 0 0 7px hsl(var(--project-hue) 76% 54% / .24);')
+    expect(theme).toContain('box-shadow: 0 1px 3px rgba(0,0,0,.24);')
+    expect(theme).toContain(":root[data-theme='dark'] .project-quick-switch button.active .project-color-mark { box-shadow: none; }")
   })
 
   it('gives the integrated chat header and every bundle stage a distinct dark treatment', () => {
@@ -97,4 +98,35 @@ describe('complete colour themes', () => {
     expect(theme).toContain(":root[data-theme='dark'] .restart-confirmation-summary-label { color: #aebaa8; }")
   })
 
+})
+
+
+describe('workbench theme registry', () => {
+  it('declares IDE families and high contrast using shared semantic tokens', () => {
+    expect(theme).toContain(":root[data-ui-theme='jetbrains-darcula']")
+    expect(theme).toContain(":root[data-ui-theme='jetbrains-light']")
+    expect(theme).toContain(":root[data-ui-theme='vscode-dark']")
+    expect(theme).toContain(":root[data-ui-theme='vscode-light']")
+    expect(theme).toContain(":root[data-ui-theme='high-contrast']")
+    expect(theme).toContain('--theme-accent: #d7ff76')
+    expect(theme).toContain('.theme-preview-original')
+    expect(theme).toContain('.theme-preview-jetbrains-darcula')
+    expect(theme).toContain('.theme-preview-vscode-dark')
+  })
+
+  it('keeps accent colors independent from the selected IDE family', () => {
+    expect(theme).toContain("[data-ui-accent='blue']")
+    expect(theme).toContain("[data-ui-accent='violet']")
+    expect(theme).toContain("[data-ui-accent='orange']")
+    expect(theme).toContain("[data-ui-accent='rose']")
+    expect(theme).toContain("[data-ui-accent='cyan']")
+  })
+
+  it('keeps settings cards and native select menus on the selected IDE palette', () => {
+    expect(theme).toContain(':root[data-ui-theme] .settings-premium-card')
+    expect(theme).toContain(':root[data-ui-theme] .settings-navigation button.active')
+    expect(theme).toContain(':root[data-ui-theme] .settings-navigation button.active { border-color: transparent;')
+    expect(theme).toContain(':root[data-ui-theme] .quick-switcher-select-shell select option')
+    expect(theme).toContain('background: var(--theme-elevated); color: var(--theme-text);')
+  })
 })

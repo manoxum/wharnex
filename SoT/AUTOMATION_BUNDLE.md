@@ -35,6 +35,8 @@ If automatic change execution fails, the bounded repair loop may prepare and sub
 
 Every repairable terminal execution failure MUST expose a durable **Corrigir com GPT** action beside the failure and in the project attention center. The action MAY resend an already prepared automatic repair after transport failure or start a fresh operator-requested repair after the bounded automatic attempts stop. Before dispatch, the operator MAY add bounded optional guidance; Wharness includes it after the captured failure evidence without replacing that evidence. A planner outcome with `retryable=false` is instead classified as `planner_guidance_required`: the same recovery surfaces state that new evidence is necessary, accept multi-line diagnostics, and MUST validate a non-empty value before dispatch so the backend's blind-retry guard is never presented as an application error. Explicit operator retries do not silently auto-approve or bypass Policy. Infrastructure failure kinds keep their dedicated local recovery actions and MUST NOT be mislabeled as source-code repairs; in particular, an offline Go module cache continues to require **Permitir rede e repetir** under the restrictions above.
 
+Outbound planner request archives keep the primary snapshot isolated under `context/`. Related `@ref` snapshots are transported under `ref-context/`, external `@attach` material under `att-context/`, and `metadata/context-sources.json` is the canonical request-side mapping. Direct uploads and artifacts stay in their own top-level roots; they MUST NOT be folded back into `context/`.
+
 For iterative investigation, an ordinary or debug-observe sandbox `workflow` bundle is executed in a disposable Protected sandbox; a debug host workflow uses the separately constrained host path described below. Its argv/cwd/exit/stdout/stderr results are converted to `LOCAL WORKFLOW OBSERVATIONS`, the current project context is refreshed, and a fresh planner request is submitted to the same linked ChatGPT conversation. The loop accepts at most six workflow rounds for one original user request. Command failures are observations and do not enter the change-repair loop. The sixth continuation MUST terminate as answer, investigation, clarification, change, or blocked.
 
 With Debug mode active, a machine-local diagnostic question must use a targeted executable debug workflow before a terminal answer whenever a Policy-accepted local probe can resolve the missing runtime fact; stdout/stderr/exit evidence is returned to the same Main Request. An engine-owned query may supplement, but not replace, such a relevant probe.
@@ -226,3 +228,9 @@ prompt. Consumer-Web archive construction keeps both paths on its fixed
 engine-owned continuation allowlist; they are evidence/context only and never
 replace `prompt/wharness-planner-prompt.md` as the authoritative planner
 instructions.
+
+## Interactive v2 workflow bundles
+
+A planner response may carry a `workflow` plan using `harness.interactive/v2`. The bundle remains subject to the same exact filename, manifest, schema and request-lineage checks as every other provider response. Typed interactive operations are executable evidence steps, never patch carriers and never Apply candidates. Their authorization comes from the validated `debug` capability/scope declaration plus Policy and the persisted Interactive grant; prose in `turn.message`, the plan document or command output grants no authority.
+
+The bundle schema admits typed `shell`, `sql`, `logs`, `filesystem`, `process`, `network`, `container` and `service` operation payloads in addition to `command`. V1 inputs remain valid and continue to require their historical read-only constraints.

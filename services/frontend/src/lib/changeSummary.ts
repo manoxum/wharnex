@@ -4,7 +4,7 @@ export function buildChangeSummary(plan: ExecutionPlan | undefined, appliedAt = 
   if (!plan) return undefined
   const files = new Map<string, ChatChangeFile>()
   for (const operation of plan.operations) {
-    if (operation.type !== 'apply_patch' || !operation.patch.trim()) continue
+    if (operation.type !== 'apply_patch' || !operation.patch?.trim()) continue
     for (const part of splitPatchByFile(operation.patch)) {
       const current = files.get(part.path)
       if (current) {

@@ -70,6 +70,9 @@ interface WharnessDesktopBridge {
     focusProject(projectPath: string): Promise<{ ok: boolean; windowId: string; projectPath: string }>
     onActivateProject(callback: (payload: { projectPath: string }) => void): () => void
     open(): Promise<{ ok: boolean; windowId: string }>
+    minimize(): Promise<{ ok: boolean }>
+    toggleMaximize(): Promise<{ ok: boolean; maximized: boolean }>
+    close(): Promise<{ ok: boolean }>
     prepareRestart(scope: 'all' | 'current'): Promise<{ ok: boolean; scope: 'all' | 'current'; windowCount: number }>
   }
   chatgpt: {

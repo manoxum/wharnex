@@ -29,6 +29,7 @@ export function editorExecutableOptions(path: string, draft: string, files: File
       }))
     } catch { return [] }
   }
+  if (isMakefileName(base)) return makeTargetOptions(draft, cwd)
   const command = executableFileCommand(base)
   return command ? [{ id: runKey({ command, cwd }), label: `Executar ${base}`, command, cwd }] : []
 }
@@ -90,6 +91,32 @@ function packageScriptCommand(manager: string, script: string) {
   if (manager === 'bun') return `bun run ${name}`
   if (manager === 'pnpm') return `pnpm run ${name}`
   return `npm run ${name}`
+}
+
+function isMakefileName(base: string) {
+  const lower = base.toLowerCase()
+  return lower === 'makefile' || lower === 'gnumakefile' || lower.endsWith('.mk')
+}
+
+function makeTargetOptions(source: string, cwd: string): EditorRunOption[] {
+  const options: EditorRunOption[] = []
+  const seen = new Set<string>()
+  source.split('\n').forEach((line, index) => {
+    if (!line || /^\s/.test(line) || line.startsWith('#')) return
+    const rule = line.match(/^([^:=#]+?)\s*::?(?!=)(.*)$/)
+    if (!rule) return
+    const tail = rule[2].trim()
+    if (/^(?:(?:export|private|override|unexport)\s+)?[A-Za-z_][A-Za-z0-9_]*\s*[:+?]?=/.test(tail)) return
+    for (const candidate of rule[1].trim().split(/\s+/)) {
+      const target = candidate.trim()
+      if (!target || target.startsWith('.') || target.includes('%') || /[$(){}]/.test(target)) continue
+      if (!/^[A-Za-z0-9_][A-Za-z0-9_.+/@-]*$/.test(target) || seen.has(target)) continue
+      seen.add(target)
+      const command = `make ${shellQuote(target)}`
+      options.push({ id: runKey({ command, cwd }), label: `Make · ${target}`, command, cwd, line: index + 1 })
+    }
+  })
+  return options
 }
 
 function executableFileCommand(base: string) {

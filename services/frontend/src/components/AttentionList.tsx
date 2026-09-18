@@ -61,8 +61,8 @@ function AttentionCard({ item, current, busy, density, onOpen, onAction }: {
       <span className="attention-card-copy">
         <span className="attention-card-meta">
           <small className={`attention-card-severity ${item.tone}`}>{TONE_LABEL[item.tone]}</small>
-          <small className="attention-card-chat" title={item.chatTitle}>{item.chatTitle}</small>
-          {current ? <small className="attention-card-current">Chat Atual</small> : null}
+          {density === 'full' || !current ? <small className="attention-card-chat" title={item.chatTitle}>{item.chatTitle}</small> : null}
+          {current && density === 'full' ? <small className="attention-card-current">Chat Atual</small> : null}
         </span>
         <strong>{item.title}</strong>
         <span className="attention-card-detail" title={item.detail}>{item.detail}</span>

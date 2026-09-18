@@ -101,6 +101,13 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
   })
 
+  it('does not show a false loading placeholder when a ready native view is temporarily suspended', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    const { container } = render(<ChatGPTDesktopPane {...props} suspended />)
+    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+    await waitFor(() => expect(container.querySelector('.desktop-chatgpt-loading')).toBeNull())
+  })
+
   it('does not navigate a remote view while the pane is suspended', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     render(<ChatGPTDesktopPane {...props} suspended />)
@@ -116,9 +123,11 @@ describe('ChatGPTDesktopPane', () => {
     dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true')
     document.body.appendChild(dialog)
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+    expect(await screen.findByText('ChatGPT preservado')).toBeTruthy()
     const before = vi.mocked(desktop.chatgpt.show).mock.calls.length
     dialog.remove()
     await waitFor(() => expect(vi.mocked(desktop.chatgpt.show).mock.calls.length).toBeGreaterThan(before))
+    await waitFor(() => expect(screen.queryByText('ChatGPT preservado')).toBeNull())
   })
 
   it('includes blocking overlays owned by the same-origin parent WorkspaceShell', () => {

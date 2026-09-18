@@ -2,6 +2,75 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
+test('workspace toolbar owns the themed title bar and window controls', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const createStart = source.indexOf('function createWindow(')
+  const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
+  const create = source.slice(createStart, registerStart)
+  assert.match(create, /frame: false/)
+  assert.doesNotMatch(create, /titleBarOverlay/)
+})
+
+
+test('desktop windows restore their last normal size per window id', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const persistenceStart = source.indexOf('function windowLayoutPath()')
+  const persistenceEnd = source.indexOf('\nfunction restartIntentPath()', persistenceStart)
+  const persistence = source.slice(persistenceStart, persistenceEnd)
+  const createStart = source.indexOf('function createWindow(')
+  const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
+  const create = source.slice(createStart, registerStart)
+
+  assert.match(persistence, /JSON\.stringify\(\{ version: 2, windows, sizes \}\)/)
+  assert.match(persistence, /getNormalBounds/)
+  assert.match(persistence, /function loadWindowSize\(id\)/)
+  assert.match(create, /const initialWindowSize = loadWindowSize\(id\)/)
+  assert.match(create, /width: initialWindowSize\.width/)
+  assert.match(create, /height: initialWindowSize\.height/)
+  assert.match(create, /win\.on\('resize', scheduleWindowLayoutPersistence\)/)
+  assert.doesNotMatch(create, /windowStatePersistence/)
+})
+
+test('Linux Desktop uses software compositing to avoid GPU renderer traps', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /if \(process\.platform === 'linux'\) app\.disableHardwareAcceleration\(\)/)
+})
+
+test('agent Chromium workers start after the first local shell paint', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const delay = source.indexOf('CHAT_AGENT_STARTUP_DELAY_MS')
+  assert.ok(delay !== -1)
+  assert.match(source, /setTimeout\(async \(\) => \{[\s\S]*await primeChatGPTWorkerPool\(workerHost\)[\s\S]*chatAgentScheduler\.start\(\)[\s\S]*CHAT_AGENT_STARTUP_DELAY_MS/)
+  assert.match(source, /createChatGPTWorkerView\(`worker-\$\{index \+ 1\}`, host\)[\s\S]*await delay\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
+})
+
+test('hidden Worker views stay out of the local shell compositor until explicitly surfaced', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const createStart = source.indexOf('function createChatGPTWorkerView(')
+  const createEnd = source.indexOf('\nfunction retireChatGPTWorkerView', createStart)
+  const create = source.slice(createStart, createEnd)
+  const showStart = source.indexOf('function showChatAgentInteraction(')
+  const showEnd = source.indexOf('\nfunction setChatAgentInteractionBounds', showStart)
+  const show = source.slice(showStart, showEnd)
+  assert.match(create, /attached: false/)
+  assert.doesNotMatch(create, /contentView\.addChildView\(view\)/)
+  assert.match(show, /windowState\.window\.contentView\.addChildView\(entry\.view\)/)
+  assert.match(show, /entry\.attached = true/)
+})
+
+test('renderer window controls are closed preload IPC operations', async () => {
+  const [source, preload] = await Promise.all([
+    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./preload.cjs', import.meta.url), 'utf8'),
+  ])
+  assert.match(source, /ipcMain\.handle\('wharness:windows:minimize'/)
+  assert.match(source, /ipcMain\.handle\('wharness:windows:toggle-maximize'/)
+  assert.match(source, /ipcMain\.handle\('wharness:windows:close'/)
+  assert.match(preload, /minimize: \(\) => invoke\('wharness:windows:minimize'\)/)
+  assert.match(preload, /toggleMaximize: \(\) => invoke\('wharness:windows:toggle-maximize'\)/)
+  assert.match(preload, /close: \(\) => invoke\('wharness:windows:close'\)/)
+})
+
 test('local frontend navigation uses a per-runtime cache token', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /const FRONTEND_RUNTIME_TOKEN = randomUUID\(\)/)
@@ -1025,6 +1094,22 @@ test('a busy Supervisor hides its old surface and publishes the deferred target 
   assert.doesNotMatch(navigate, /return currentChatGPTState\(supervisorKey\(\), windowState\)/)
 })
 
+test('deferred Supervisor navigation retries until its gate is actually clear', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const scheduleStart = source.indexOf('function scheduleDeferredSupervisorNavigation()')
+  const scheduleEnd = source.indexOf('\nfunction setDeferredSupervisorNavigation', scheduleStart)
+  const schedule = source.slice(scheduleStart, scheduleEnd)
+  const applyStart = source.indexOf('async function applyDeferredSupervisorNavigation()')
+  const applyEnd = source.indexOf('\nfunction wait(ms)', applyStart)
+  const apply = source.slice(applyStart, applyEnd)
+
+  assert.match(schedule, /setTimeout\([\s\S]*applyDeferredSupervisorNavigation\(\)/)
+  assert.match(apply, /differentSupervisorTransport\(pending\.key\)[\s\S]*scheduleDeferredSupervisorNavigation\(\)[\s\S]*return/)
+  assert.match(apply, /!chatgptViews\.has\(pending\.key\) && chatgptViews\.size >= desiredChatAgentSupervisorSlots/)
+  assert.match(apply, /!reusableSupervisor\(pending\.key, state\)[\s\S]*scheduleDeferredSupervisorNavigation\(\)[\s\S]*return/)
+  assert.match(apply, /clearDeferredSupervisorNavigation\(\)[\s\S]*activateChatGPTView\(pending\.key/)
+})
+
 test('direct Supervisor writes serialize across chats and preserve the selected surface', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const helperStart = source.indexOf('async function withChatGPTSupervisorTransport(')
@@ -1113,6 +1198,25 @@ test('ChatGPT request archive upload uses the dedicated file input instead of cl
   assert.doesNotMatch(upload, /wc\.paste\(\)/)
 })
 
+// Live testing against the real ChatGPT account (two concurrent hidden
+// Workers each classifying a TODO) reproduced "did not start the file
+// upload before timeout" on effectively every attempt: the provider did
+// confirm most uploads eventually, just not inside the 8s observation
+// window while a second Worker's own retry landed on ChatGPT around the
+// same moment. Every attempt after the first is exactly the case the
+// process-wide provider pacing gate exists for, so a retry that skips it
+// reintroduces that contention.
+test('every ChatGPT upload attempt, not only the first, is paced against the shared provider gate', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count)')
+  const end = source.indexOf('\nasync function submitChatGPTDraft', start)
+  const upload = source.slice(start, end)
+  const beforeAttemptStart = upload.indexOf('beforeAttempt: async () => {')
+  const beforeAttemptEnd = upload.indexOf('beginUpload:', beforeAttemptStart)
+  const beforeAttempt = upload.slice(beforeAttemptStart, beforeAttemptEnd)
+  assert.match(beforeAttempt, /await paceChatGPTWorkerSubmission\(\)/)
+})
+
 test('task comments are sent as a single protocol ZIP containing the guidance and attachments', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const materializeStart = source.indexOf('async function materializeProtocolChatInput')
@@ -1120,10 +1224,11 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
   assert.match(materialize, /const context = await fetchContextZip\(sessionId\)/)
-  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, requestMetadata, prompt: promptText, context, knowledge, continuation, attachments: decoded, liveTunnels \}\)/)
+  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels \}\)/)
   // The attempt ledger and divergence report must ride in the same single
   // protocol ZIP; fetching them separately at send time would let a comment
   // reach ChatGPT without the evidence the prompt says is attached.
+  assert.match(materialize, /const gitContext = await fetchRequestGitContext\(sessionId\)/)
   assert.match(materialize, /const continuation = await fetchRequestContinuation\(sessionId, requestId\)/)
 
   const flushStart = source.indexOf('async function flushQueuedChatGPTComments')
@@ -1136,7 +1241,7 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
 
 test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of returning a silently ignorable failure', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined)")
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   assert.notEqual(start, -1)
   assert.notEqual(end, -1)
@@ -1160,7 +1265,7 @@ test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of 
 
 test('every ChatGPT submit verifies the requested reasoning effort before starting its POST observation', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined)")
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   const body = source.slice(start, end)
   const ensure = body.indexOf('await ensureChatGPTReasoningEffort({')
@@ -1169,6 +1274,34 @@ test('every ChatGPT submit verifies the requested reasoning effort before starti
   const submit = body.indexOf('submitWithRetry({')
   assert.ok(ensure >= 0 && observe > ensure && cycle > observe && submit > cycle)
   assert.match(body, /normalizeChatGPTReasoningEffort\(target\.reasoningEffort \|\| target\.entry\.reasoningEffort \|\| 'high'\)/)
+})
+
+// Live testing against the real ChatGPT account showed the effort-cycle
+// keyboard shortcut can stop registering entirely (observed stuck on "high"
+// through every bounded cycle), and that this is unrelated to anything the
+// submission itself is doing. `submitChatGPTDraft`'s default behavior must
+// stay fail-closed for correctness-sensitive planning exchanges, so this
+// bypass has to be explicit per caller, not a change to the default.
+test('an unreachable reasoning effort still blocks submission unless a caller explicitly opts out', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
+  const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
+  assert.notEqual(start, -1)
+  const body = source.slice(start, end)
+  assert.match(body, /if \(requireReasoningEffort\) throw error/)
+
+  // Only the two background bundle-only workers (TODO classification and
+  // markdown translation) may opt out; every other caller keeps the default.
+  const classifyStart = source.indexOf('async function executeChatAgentTodoClassification(task, entry, key, payload)')
+  const classifyEnd = source.indexOf('\nasync function chatAgentLifecycleRetry', classifyStart)
+  assert.match(source.slice(classifyStart, classifyEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false \}\)/)
+
+  const translateStart = source.indexOf('async function executeChatAgentMarkdownTranslation(task, entry, key, payload)')
+  const translateEnd = source.indexOf('\nasync function executeChatAgentTodoClassification', translateStart)
+  assert.match(source.slice(translateStart, translateEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false \}\)/)
+
+  const botWriteCount = (body.match(/requireReasoningEffort: false/g) || []).length
+  assert.equal(botWriteCount, 0, 'submitChatGPTDraft itself must keep failing closed by default')
 })
 
 test('expected bundle supervision is armed only around submissions that can leave stale state', async () => {
@@ -1597,15 +1730,18 @@ test('a chat slot is given its layout viewport before it is ever hidden', async 
   assert.match(grant, /setVisible\(true\)[\s\S]*setBounds\([\s\S]*setVisible\(false\)/)
   assert.doesNotMatch(grant, /await/)
 
-  for (const factory of ['function createChatGPTView(', 'function createChatGPTWorkerView(']) {
-    const start = source.indexOf(factory)
-    assert.ok(start > 0, `${factory} must exist`)
-    const body = source.slice(start, source.indexOf('\n  const wc = view.webContents', start))
-    // Hiding the slot before it has bounds is what stranded it at 0x0.
-    assert.doesNotMatch(body, /view\.setVisible\(false\)/)
-    assert.match(body, /addChildView\(view\)\n\s*grantChatGPTLayoutViewport\(view\)/)
-    assert.match(body, /layoutViewportGranted: true/)
-  }
+  const supervisorStart = source.indexOf('function createChatGPTView(')
+  const supervisor = source.slice(supervisorStart, source.indexOf('\n  const wc = view.webContents', supervisorStart))
+  assert.doesNotMatch(supervisor, /view\.setVisible\(false\)/)
+  assert.match(supervisor, /addChildView\(view\)\n\s*grantChatGPTLayoutViewport\(view\)/)
+  assert.match(supervisor, /layoutViewportGranted: true/)
+
+  const workerStart = source.indexOf('function createChatGPTWorkerView(')
+  const worker = source.slice(workerStart, source.indexOf('\n  const wc = view.webContents', workerStart))
+  assert.doesNotMatch(worker, /view\.setVisible\(false\)/)
+  assert.doesNotMatch(worker, /addChildView\(view\)/)
+  assert.match(worker, /grantChatGPTLayoutViewport\(view\)/)
+  assert.match(worker, /layoutViewportGranted: true/)
 })
 
 test('background native input preserves the already-focused local composer', async () => {

@@ -1,4 +1,4 @@
-import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'react'
+import { type ComponentProps, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
@@ -14,6 +14,7 @@ import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from '.
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { OrchestratorWorkspace } from './components/orchestrator/OrchestratorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
+import { WorkbenchStatusBar } from './components/WorkbenchStatusBar'
 import { WorkspaceShell } from './components/WorkspaceShell'
 import { ProjectSettings } from './components/ProjectSettings'
 import { RestartConfirmation } from './components/RestartConfirmation'
@@ -67,6 +68,11 @@ function attentionSessionFrom(record: AttentionRecord, projectPath: string): Ses
 }
 
 const ATTENTION_REFRESH_INTERVAL_MS = 15_000
+const WORKBENCH_CENTER_MIN_PX = 886
+const WORKBENCH_RAILS_AND_SPLITTERS_PX = 100
+function workbenchDrawersFit(left: number, right: number, viewportWidth = window.innerWidth) {
+  return viewportWidth >= left + right + WORKBENCH_CENTER_MIN_PX + WORKBENCH_RAILS_AND_SPLITTERS_PX
+}
 
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
@@ -90,6 +96,7 @@ import { reconcileTunnelConfig } from './lib/tunnelConfigState'
 import { mergeDurableChatItems } from './lib/chatHistory'
 import { executionStartedNotice } from './lib/executionNotice'
 import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
+import { loadWorkbenchState, saveWorkbenchState } from './lib/workbenchPreferences'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 
@@ -140,18 +147,19 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // operator in Orchestrator, so it always opens on the planning queue that
   // sent them there instead of whichever section was last left open.
   const [orchestratorFocusNonce, setOrchestratorFocusNonce] = useState(0)
-  // The side rail and its drawer live beside every mode surface, so the open
-  // panel and its width belong to the shell rather than to one workspace.
-  const [sideDrawer, setSideDrawer] = useState<Drawer>('')
-  const [rightDrawer, setRightDrawer] = useState<Drawer>('')
-  const [railLayout, setRailLayout] = useState(loadWorkspaceRailLayout)
-  // The interactive terminal is shell-level for the same reason as the rail:
-  // it is the project's terminal, not the Editor's. It stays collapsed by
-  // default because Agent already divides its width three ways, and a panel
-  // permanently taking height from the chat is a cost the operator should opt
-  // into rather than inherit.
-  const [terminalOpen, setTerminalOpen] = useState(false)
-  const [terminalHeight, setTerminalHeight] = useState(275)
+  // Workbench geometry is project-scoped: tool-window visibility and sizes
+  // survive mode switches and project restarts without leaking to another root.
+  const initialWorkbench = useRef(loadWorkbenchState(embeddedProject)).current
+  const [sideDrawer, setSideDrawer] = useState<Drawer>(() => initialWorkbench.left.open ? (initialWorkbench.left.tool as Drawer) : '')
+  const [rightDrawer, setRightDrawer] = useState<Drawer>(() => initialWorkbench.right.open ? (initialWorkbench.right.tool as Drawer) : '')
+  const [leftDrawerWidth, setLeftDrawerWidth] = useState(initialWorkbench.left.size)
+  const [rightDrawerWidth, setRightDrawerWidth] = useState(initialWorkbench.right.size)
+  const [railLayout, setRailLayout] = useState(() => loadWorkspaceRailLayout(embeddedProject))
+  const workbenchProjectRef = useRef(embeddedProject)
+  // The interactive terminal is the bottom tool window, so its visibility and
+  // height participate in the same persisted workbench state.
+  const [terminalOpen, setTerminalOpen] = useState(initialWorkbench.bottom.open)
+  const [terminalHeight, setTerminalHeight] = useState(initialWorkbench.bottom.size)
   const [terminalRunRequest, setTerminalRunRequest] = useState<TerminalRunRequest>()
   const terminalRunNonceRef = useRef(0)
   const [error, setError] = useState<string>()
@@ -196,10 +204,59 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const runInTerminal = useCallback((input: TerminalRunInput) => {
     terminalRunNonceRef.current += 1
     setTerminalOpen(true)
-    setTerminalRunRequest({ ...input, id: terminalRunNonceRef.current })
+    setTerminalRunRequest({ ...input, id: terminalRunNonceRef.current, target: 'host', openNew: true })
   }, [])
 
+  const resizeTerminal = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const startY = event.clientY
+    const startHeight = terminalHeight
+    const maximum = Math.round(window.innerHeight * .78)
+    const move = (pointer: PointerEvent) => setTerminalHeight(Math.max(185, Math.min(maximum, startHeight + startY - pointer.clientY)))
+    const finish = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      document.body.classList.remove('terminal-resizing')
+    }
+    document.body.classList.add('terminal-resizing')
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish, { once: true })
+  }, [terminalHeight])
+
   useEffect(() => { setTerminalRunRequest(undefined) }, [session?.id])
+
+  useEffect(() => {
+    if (!session) return
+    workbenchProjectRef.current = ''
+    const workbench = loadWorkbenchState(session.project_path)
+    setSideDrawer(workbench.left.open ? (workbench.left.tool as Drawer) : '')
+    setRightDrawer(workbench.right.open ? (workbench.right.tool as Drawer) : '')
+    setLeftDrawerWidth(workbench.left.size)
+    setRightDrawerWidth(workbench.right.size)
+    setTerminalOpen(workbench.bottom.open)
+    setTerminalHeight(workbench.bottom.size)
+    setRailLayout(loadWorkspaceRailLayout(session.project_path))
+    window.queueMicrotask(() => { workbenchProjectRef.current = session.project_path })
+  }, [session?.project_path])
+
+  useEffect(() => {
+    if (!session || workbenchProjectRef.current !== session.project_path) return
+    saveWorkbenchState(session.project_path, {
+      version: 1,
+      left: { open: Boolean(sideDrawer), collapsed: !sideDrawer, size: leftDrawerWidth, tool: sideDrawer || '' },
+      right: { open: Boolean(rightDrawer), collapsed: !rightDrawer, size: rightDrawerWidth, tool: rightDrawer || 'database' },
+      bottom: { open: terminalOpen, collapsed: !terminalOpen, size: terminalHeight },
+    })
+  }, [session?.project_path, sideDrawer, rightDrawer, leftDrawerWidth, rightDrawerWidth, terminalOpen, terminalHeight])
+
+  useEffect(() => {
+    const reconcile = () => {
+      if (sideDrawer && rightDrawer && !workbenchDrawersFit(leftDrawerWidth, rightDrawerWidth)) setRightDrawer('')
+    }
+    reconcile()
+    window.addEventListener('resize', reconcile)
+    return () => window.removeEventListener('resize', reconcile)
+  }, [sideDrawer, rightDrawer, leftDrawerWidth, rightDrawerWidth])
 
   const activeChatRecord = chats.find((chat) => chat.id === activeChatId)
   const activeChatOwnsSession = Boolean(activeChatRecord && session && activeChatRecord.sessionId === session.id)
@@ -511,6 +568,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!embeddedProject) return
     window.parent.postMessage({ type: 'wharness:project-session', projectPath: embeddedProject, sessionId: session?.id || '' }, window.location.origin)
   }, [embeddedProject, session?.id])
+
+  useEffect(() => {
+    if (!embeddedProject) return
+    window.parent.postMessage({
+      type: 'wharness:project-runtime',
+      projectPath: embeddedProject,
+      selfEvolution: Boolean(session?.self_evolution),
+      instanceId: session?.wharnex_instance_id || '',
+    }, window.location.origin)
+  }, [embeddedProject, session?.self_evolution, session?.wharnex_instance_id])
 
   useEffect(() => {
     if (!embeddedProject || !session?.id) return
@@ -2937,6 +3004,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   submitBundleFileRef.current = submitBundleFile
 
   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
+  const workspaceProjectPath = session.project_path
   const activeChat = chats.find((chat) => chat.id === activeChatId)
 	const integrationConflict = session.integration_conflict
 	const activeConflictSurface = integrationConflict ? activeChat?.conflictSurfaces?.[integrationConflict.id] : undefined
@@ -3040,17 +3108,23 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
   }
 
-  function moveRailTool(tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool) {
-    const source: WorkspaceRailSide = railLayout.left.includes(tool) ? 'left' : 'right'
-    const next = saveWorkspaceRailLayout(moveWorkspaceTool(railLayout, tool, side, before))
+  function moveRailTool(tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool, pinned = false) {
+    const source: WorkspaceRailSide = railLayout.left.includes(tool) || railLayout.pinned.left.includes(tool) ? 'left' : 'right'
+    const next = saveWorkspaceRailLayout(moveWorkspaceTool(railLayout, tool, side, before, pinned), workspaceProjectPath)
     setRailLayout(next)
     if (source === side || tool === 'terminal') return
     if (source === 'left' && sideDrawer === tool) { setSideDrawer(''); setRightDrawer(tool) }
     if (source === 'right' && rightDrawer === tool) { setRightDrawer(''); setSideDrawer(tool) }
   }
 
-  const openLeftDrawer = (next: Drawer) => { setSideDrawer(next); if (next) setRightDrawer('') }
-  const openRightDrawer = (next: Drawer) => { setRightDrawer(next); if (next) setSideDrawer('') }
+  const openLeftDrawer = (next: Drawer) => {
+    if (next && rightDrawer && !workbenchDrawersFit(leftDrawerWidth, rightDrawerWidth)) setRightDrawer('')
+    setSideDrawer(next)
+  }
+  const openRightDrawer = (next: Drawer) => {
+    if (next && sideDrawer && !workbenchDrawersFit(leftDrawerWidth, rightDrawerWidth)) setSideDrawer('')
+    setRightDrawer(next)
+  }
 
   const sharedChatProps: ComponentProps<typeof ChatPanel> = {
     session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, reasoningEffort: session.reasoning_effort || 'high', chatTransportMode,
@@ -3083,7 +3157,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         shell, so switching between Agent, Editor and Orchestrator never changes
         which panel is open — and the polling drawers are mounted once, not once
         per workspace. */}
-    <div className={`workspace-body ${sideDrawer || rightDrawer ? 'drawer-open' : ''}`}>
+    <div className={`workspace-body ${sideDrawer || rightDrawer ? 'drawer-open' : ''}`} style={{ ['--terminal-height' as string]: terminalOpen ? `${terminalHeight}px` : '0px' } as React.CSSProperties}>
+      <div className="workspace-main-row">
       <WorkspaceSideRail
         session={session}
         busy={activeBusy}
@@ -3091,7 +3166,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onDrawer={openLeftDrawer}
         side="left"
         tools={railLayout.left}
+        pinnedTools={railLayout.pinned.left}
         onMoveTool={moveRailTool}
+        drawerWidth={leftDrawerWidth}
+        onDrawerWidth={setLeftDrawerWidth}
         chats={chats}
         chatProps={sharedChatProps}
         onPromoteTodoToChat={promoteTodoToChat}
@@ -3118,8 +3196,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />
-      <div className="workspace-mode-stack">
-      <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
+      <div className="workspace-center-column">
+        <div className="workspace-mode-stack">
+        <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
         <EditorWorkspace session={session} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} />
       </div>
       <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
@@ -3144,9 +3223,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           attentionItems={attentionItems}
           chatgptAttentionNonce={chatgptAttentionNonce}
           inspectorAttention={inspectorAttention}
+          singlePane={Boolean(sideDrawer && rightDrawer)}
           onOpenAttention={openAttentionItem}
           onAttentionAction={runAttentionItemAction}
           onOpenAttentionDrawer={() => openLeftDrawer('attention')}
+          railVisible={mode === 'agent'}
           onExportChat={exportActiveChat}
           onReorderChat={reorderChat}
           chatProps={sharedChatProps}
@@ -3157,8 +3238,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           }}
         />}
       </div>
-        {terminalOpen && <div className="terminal-resizer" title="Ajustar terminal" onDoubleClick={() => setTerminalHeight(275)} />}
-        <TerminalWorkspace key={session.id} session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
+      </div>
+        {terminalOpen && <div className="terminal-resizer" role="separator" aria-orientation="horizontal" aria-label="Ajustar altura do terminal" title="Arraste para aumentar ou reduzir o terminal" onPointerDown={resizeTerminal} onDoubleClick={() => setTerminalHeight(275)} />}
+        <TerminalWorkspace session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
       </div>
       <WorkspaceSideRail
         session={session}
@@ -3167,7 +3249,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onDrawer={openRightDrawer}
         side="right"
         tools={railLayout.right}
+        pinnedTools={railLayout.pinned.right}
         onMoveTool={moveRailTool}
+        drawerWidth={rightDrawerWidth}
+        onDrawerWidth={setRightDrawerWidth}
         chats={chats}
         chatProps={sharedChatProps}
         onPromoteTodoToChat={promoteTodoToChat}
@@ -3194,6 +3279,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />
+      </div>
+      <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} />
     </div>
   </main>
 }

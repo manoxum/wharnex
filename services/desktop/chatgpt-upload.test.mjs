@@ -301,6 +301,21 @@ test('staged ChatGPT upload waits for the uploaded acknowledgement, not metadata
   assert.deepEqual(await upload, { observed: true })
 })
 
+test('ChatGPT upload start timeout defaults to 20s, not the old 8s that live testing showed was too tight under two-Worker contention', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  // A real 20s wait would make the suite slow for no benefit; a fake clock
+  // exercises the same setTimeout(..., startTimeoutMs) path deterministically.
+  const originalSetTimeout = globalThis.setTimeout
+  let scheduledMs = 0
+  globalThis.setTimeout = (fn, ms) => { scheduledMs = ms; return originalSetTimeout(fn, 0) }
+  try {
+    await assert.rejects(() => coordinator.expect(48), /did not start the file upload before timeout/)
+  } finally {
+    globalThis.setTimeout = originalSetTimeout
+  }
+  assert.equal(scheduledMs, 20_000)
+})
+
 test('ChatGPT upload observation does not accept unrelated file metadata traffic', async () => {
   const coordinator = new ChatGPTUploadCoordinator()
   const upload = coordinator.expect(45, { startTimeoutMs: 20, completionTimeoutMs: 100 })

@@ -275,41 +275,58 @@ describe('composer layout CSS', () => {
 
 
 describe('multi-project shell CSS', () => {
+  it('uses the shell header as draggable title-bar chrome without swallowing controls', () => {
+    const bar = firstRule('.multi-project-bar')
+    const controls = firstRule(".multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar [data-chatgpt-overlay-blocker='true']")
+    expect(bar).toContain('-webkit-app-region: drag')
+    expect(bar).not.toContain('titlebar-area-width')
+    expect(bar).toContain('height: 48px')
+    expect(controls).toContain('-webkit-app-region: no-drag')
+  })
+
   it('keeps the active project accent visible without a heavy glow', () => {
     const activeProject = lastRule('.project-quick-switch button.active')
     const activeUnderline = lastRule('.project-quick-switch button.active::after')
     const activeMark = lastRule('.project-quick-switch button.active .project-color-mark')
 
-    expect(activeProject).toContain('box-shadow: 0 0 0 1px hsl(var(--project-hue) 76% 52% / .08), 0 2px 8px hsl(var(--project-hue) 70% 38% / .11)')
-    expect(activeUnderline).toContain('box-shadow: 0 0 5px hsl(var(--project-hue) 84% 54% / .28)')
-    expect(activeMark).toContain('box-shadow: 0 0 6px hsl(var(--project-hue) 72% 48% / .10)')
+    expect(activeProject).toContain('box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent)')
+    expect(activeUnderline).not.toContain('box-shadow')
+    expect(activeMark).toContain('box-shadow: none')
   })
 })
 
 describe('split Agent layout CSS', () => {
-  it('uses a persistent resizable chat/inspector split with a shared chat strip', () => {
-    const splitLayout = css.slice(css.lastIndexOf('/* v1.2.42'))
-    // The chat keeps 60% of the usable width and the inspector 40%; the rail
-    // and the side drawer are the shell's columns, not this grid's.
-    expect(splitLayout).toContain('--agent-chat-width: calc((100% - 6px) * 0.6)')
-    expect(splitLayout).toContain('grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr)')
-    expect(splitLayout).toContain('grid-template-rows: 42px 42px minmax(0, 1fr)')
-    expect(splitLayout).toContain('grid-template-columns: auto minmax(0, 1fr) auto auto')
-    expect(splitLayout).toContain('.agent-direct-chatgpt-tab { grid-column: 1')
-    expect(splitLayout).toContain('justify-self: start')
-    expect(splitLayout).toContain('.agent-surface-tabs { grid-column: 4')
-    expect(splitLayout).toContain('grid-template-columns: repeat(4, 42px)')
-    expect(splitLayout).toContain('justify-self: end')
-    expect(splitLayout).toContain('.agent-commandbar-center { position: absolute; inset: 0')
-    expect(splitLayout).toContain('place-items: center')
-    expect(splitLayout).toContain('pointer-events: none')
-    expect(splitLayout).toContain('.agent-chat-switcher { grid-column: 1 / -1')
-    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1; padding-left: 0')
-    expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 3')
-    expect(splitLayout).toContain('.agent-splitter { grid-column: 2')
-    expect(splitLayout).toContain('cursor: col-resize')
-    expect(splitLayout).toContain('.agent-drawer { grid-column: 2; grid-row: 3; position: relative')
+  it('keeps the resizable split while moving Agent shortcuts into a dedicated right rail', () => {
+    const splitLayout = css.slice(css.lastIndexOf('/* v1.2.47'))
+    expect(splitLayout).toContain('--agent-tools-width: 42px')
+    expect(splitLayout).toContain('--agent-chat-width: calc((100% - 48px) * 0.6)')
+    expect(splitLayout).toContain('grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr) var(--agent-tools-width)')
+    expect(splitLayout).toContain('grid-template-rows: 42px minmax(0, 1fr)')
+    expect(splitLayout).toContain('.agent-commandbar {')
+    expect(splitLayout).toContain('grid-column: 4')
+    expect(splitLayout).toContain('grid-row: 1 / 3')
+    expect(splitLayout).toContain('flex-direction: column')
+    expect(splitLayout).toContain('.agent-chat-switcher { grid-column: 1 / 4; grid-row: 1; }')
+    expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1; grid-row: 2; }')
+    expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 3; grid-row: 2; }')
+    expect(splitLayout).toContain('.agent-splitter { grid-column: 2; grid-row: 2; }')
+    expect(splitLayout).toContain('.agent-commandbar .agent-attention-popover { right: calc(100% + 8px); top: 0; }')
+    expect(splitLayout).toContain('grid-template-rows: repeat(4, 42px)')
     expect(lastRule('.topbar-indicator')).toContain('width: 27px')
+  })
+})
+
+describe('attention center CSS', () => {
+  it('keeps the compact popover flat, readable and width-safe', () => {
+    const attention = css.slice(css.lastIndexOf('/* Centro de Alertas'))
+
+    expect(attention).toContain('.agent-attention-popover { width:min(420px,calc(100vw - 20px)); position:fixed; z-index:13020')
+    expect(attention).toContain('.agent-attention-popover-metrics span { min-width:0; min-height:44px;')
+    expect(attention).toContain('border:0; border-radius:0; background:transparent')
+    expect(attention).toContain('.attention-list.compact .attention-card { position:relative; border:0;')
+    expect(attention).toContain('box-shadow:none;')
+    expect(attention).toContain('overflow-wrap:normal; word-break:normal; hyphens:none;')
+    expect(attention).toContain('grid-template-columns:minmax(0,1fr) auto;')
   })
 })
 
@@ -320,13 +337,89 @@ describe('terminal and editor execution CSS', () => {
     expect(tabs).toContain('overflow-x: auto')
     expect(tabs).toContain('scrollbar-width: none')
     expect(css).toContain('.terminal-tabs::-webkit-scrollbar { display: none; }')
-    expect(activeTab).toContain('box-shadow: inset 0 -2px #8db94b')
+    expect(activeTab).toContain('box-shadow: inset 0 -2px var(--theme-accent)')
   })
 
   it('renders package script actions as a green play affordance in the Monaco gutter', () => {
     const glyph = lastRule('.editor-run-glyph::before')
     expect(glyph).toContain("content: '▶'")
     expect(glyph).toContain('color: #78b841')
+  })
+})
+
+
+describe('configurable workbench CSS', () => {
+  it('keeps the central workspace dominant and exposes compact chrome tokens', () => {
+    const compactRail = lastRule(":root[data-density='compact'] .workspace-main-row > .agent-activity-bar")
+    expect(css).toContain('.workspace-center-column { flex: 1 1 760px; min-width: 560px;')
+    expect(css).toContain('.workspace-main-row { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }')
+    expect(css).toContain('.workbench-status-bar { height: 24px; flex: 0 0 24px;')
+    expect(compactRail).toContain('width: 40px')
+  })
+
+  it('keeps tool drawers integrated while supporting bottom-corner tool rails', () => {
+    const verticalRail = lastRule('.workspace-main-row > .workspace-side-rail')
+    const bottomRail = lastRule(":root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail")
+    expect(css).not.toContain("data-tool-window='floating'")
+    expect(verticalRail).toContain('overflow:hidden')
+    expect(verticalRail).not.toContain('overflow-y:auto')
+    expect(verticalRail).toContain('scrollbar-width:none')
+    expect(css).toContain('.workspace-main-row > .workspace-side-rail::-webkit-scrollbar { display:none; }')
+    expect(bottomRail).toContain('position:absolute')
+    expect(bottomRail).toContain('flex-direction:row')
+    expect(bottomRail).toContain('width:max-content')
+    expect(bottomRail).toContain('max-width:calc(100% - 12px)')
+    expect(bottomRail).toContain('gap:5px')
+    expect(bottomRail).toContain('overflow-x:hidden')
+    expect(bottomRail).toContain('overflow-y:hidden')
+    expect(lastRule('.workspace-side-rail button.active')).toContain('box-shadow:none')
+    expect(lastRule('.settings-navigation button.active')).toContain('border-color:transparent')
+    expect(lastRule('.quick-switcher-segments button.active')).toContain('border-color: transparent')
+    expect(lastRule('.accent-choice.active')).toContain('border-color:transparent')
+  })
+
+  it('uses a theme-aware scrollbar and keeps the terminal between vertical rails', () => {
+    expect(lastRule('*::-webkit-scrollbar')).toContain('width: 6px')
+    expect(lastRule('*::-webkit-scrollbar-thumb')).toContain('border-radius: 999px')
+    expect(firstRule('.terminal-workspace')).toContain('width: auto')
+    expect(firstRule('.workspace-center-column')).toContain('overflow: hidden')
+    expect(lastRule('.workspace-center-column > .terminal-workspace')).toContain('width:100%')
+    expect(lastRule('.workspace-center-column > .terminal-workspace')).toContain('min-width:0')
+    expect(css).not.toContain('.workspace-body > .terminal-workspace { margin-left:44px; margin-right:44px; }')
+    expect(lastRule('.terminal-resizer')).toContain('cursor: ns-resize')
+  })
+
+  it('keeps the editor single-pane and gives project files semantic glyph colors', () => {
+    expect(lastRule('.editor-workspace')).toContain('grid-template-columns:minmax(0,1fr)')
+    expect(lastRule('.file-glyph-env')).toContain('color:#c59b38')
+    expect(lastRule('.file-glyph-typescript')).toContain('color:#4f9cf9')
+  })
+})
+
+describe('canonical workbench tab CSS', () => {
+  it('keeps semantic tabs flat with one accent underline instead of mixed pills/cards', () => {
+    const canonical = css.slice(css.lastIndexOf('/* Canonical workbench tabs'))
+    const gitTabs = lastRule('.git-tabs')
+    const gitChangeTabs = lastRule('.git-changes-tabs')
+
+    expect(canonical).toContain('.project-source-tabs,')
+    expect(canonical).toContain('.context-view-switch,')
+    expect(canonical).toContain('.agent-runtime-tabs,')
+    expect(canonical).toContain('.composer-attachment-tabs,')
+    expect(canonical).toContain('.database-workspace-tabs,')
+    expect(canonical).toContain('.database-object-kind-tabs,')
+    expect(canonical).toContain('.file-library-tabs,')
+    expect(canonical).toContain(".project-todo-tabs button[aria-pressed='true']::after")
+    expect(canonical).toContain('.chat-tab-group.active {')
+    expect(canonical).toContain('.editor-tab.active {')
+    expect(canonical).toContain('.terminal-tab-shell.active {')
+    expect(canonical).toContain('.agent-surface-tabs button.active {')
+    expect(canonical).toContain('background: var(--theme-accent)')
+    expect(gitTabs).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
+    expect(gitTabs).toContain('overflow: visible')
+    expect(gitTabs).toContain('background: var(--theme-surface)')
+    expect(gitChangeTabs).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(gitChangeTabs).toContain('overflow: visible')
   })
 })
 
@@ -343,6 +436,18 @@ describe('Git workbench CSS', () => {
     expect(tabs).toContain('background: var(--theme-surface)')
     expect(tabs).not.toContain('#1b1e19')
     expect(section).not.toContain('#1a1d18')
+  })
+
+  it('keeps Git tabs fully visible and increases the working-copy reading density', () => {
+    const tabs = lastRule('.git-tabs')
+    const changeTabs = lastRule('.git-changes-tabs')
+    const pendingCommit = lastRule('.git-unpushed-list li')
+    expect(tabs).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
+    expect(tabs).toContain('overflow: visible')
+    expect(changeTabs).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(changeTabs).toContain('overflow: visible')
+    expect(pendingCommit).toContain('min-height: 52px')
+    expect(lastRule('.agent-tree-row')).toContain('height: 30px')
   })
 
   it('gives Git mutations a modal processing surface with visible progress', () => {
@@ -368,5 +473,31 @@ describe('Git workbench CSS', () => {
     expect(graph).toContain('height: 38px')
     expect(css).toContain('--git-lane-0: #5e9cff')
     expect(css).toContain('.git-graph-node')
+  })
+})
+
+describe('workbench rail and theme integrity CSS', () => {
+  it('keeps styles.css structurally balanced so theme.css is never captured by a responsive block', () => {
+    const opens = [...css.matchAll(/\{/g)].length
+    const closes = [...css.matchAll(/\}/g)].length
+    expect(opens).toBe(closes)
+  })
+
+  it('removes the extra Agent column when shortcuts use the existing workspace rail', () => {
+    const unified = firstRule('.agent-workspace.agent-rail-unified')
+    const slot = firstRule('.workspace-agent-rail-slot')
+    expect(lastRule('.agent-workspace.agent-rail-unified')).toContain('grid-template-columns:minmax(480px,var(--agent-chat-width)) 6px minmax(400px,1fr)')
+    expect(unified).not.toContain('var(--agent-tools-width)')
+    expect(slot).toContain('flex: 1 1 auto')
+    expect(slot).toContain('border-top: 1px solid var(--theme-border)')
+  })
+
+  it('keeps the tunnel overview compact and gives the empty state its own hierarchy', () => {
+    const modal = lastRule('.tunnel-overview')
+    const empty = lastRule('.tunnel-empty')
+    expect(modal).toContain('width: min(560px, calc(100vw - 32px))')
+    expect(modal).toContain('border-radius: 12px')
+    expect(empty).toContain('min-height: 138px')
+    expect(empty).toContain('align-content: center')
   })
 })

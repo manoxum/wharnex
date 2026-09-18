@@ -25,6 +25,28 @@ describe('editor execution affordances', () => {
     ])
   })
 
+  it('maps concrete Makefile targets to line actions in the Makefile directory', () => {
+    const source = `ROOT := $(CURDIR)
+.PHONY: help check
+auto-%:
+	@echo pattern
+help:
+	@echo help
+check test: deps
+	@echo verify
+logs: export ROOT := /tmp
+logs:
+	@echo logs
+`
+    const options = editorExecutableOptions('tools/Makefile', source, [])
+    expect(options.map((option) => ({ label: option.label, command: option.command, cwd: option.cwd, line: option.line }))).toEqual([
+      { label: 'Make · help', command: "make 'help'", cwd: 'tools', line: 5 },
+      { label: 'Make · check', command: "make 'check'", cwd: 'tools', line: 7 },
+      { label: 'Make · test', command: "make 'test'", cwd: 'tools', line: 7 },
+      { label: 'Make · logs', command: "make 'logs'", cwd: 'tools', line: 10 },
+    ])
+  })
+
   it('shows only commands that have already been run and orders them by recency', () => {
     const source = '{\n  "scripts": {\n    "dev": "vite",\n    "test": "vitest"\n  }\n}'
     const options = editorExecutableOptions('package.json', source, [])

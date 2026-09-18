@@ -74,6 +74,9 @@ func main() {
 	}
 
 	service := app.NewService(store, bus, builder, p, policies, runner)
+	if err := service.SetInternalPostgresConnectionURL(cfg.DatabaseURL); err != nil {
+		log.Fatalf("interactive database handle: %v", err)
+	}
 	executionSettings, err := config.ReadExecutionSettings(cfg.ExecutionSettingsFile, service.ExecutionConcurrency())
 	if err != nil {
 		log.Fatalf("execution settings: %v", err)

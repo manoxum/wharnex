@@ -206,9 +206,171 @@ func validateOperations(operations []domain.Operation) error {
 			if err := ValidateCommand(op.Command); err != nil {
 				return fmt.Errorf("operation %d: %w", i, err)
 			}
+		case "shell":
+			if err := validateInteractiveShell(op.Shell); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
+		case "sql":
+			if err := validateInteractiveSQL(op.SQL); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
+		case "logs":
+			if err := validateInteractiveLogs(op.Logs); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
+		case "filesystem":
+			if err := validateInteractiveFilesystem(op.Filesystem); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
+		case "process":
+			if err := validateInteractiveProcess(op.Process); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
+		case "network":
+			if err := validateInteractiveNetwork(op.Network); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
+		case "container":
+			if err := validateInteractiveContainer(op.Container); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
+		case "service":
+			if err := validateInteractiveService(op.Service); err != nil {
+				return fmt.Errorf("operation %d: %w", i, err)
+			}
 		default:
 			return fmt.Errorf("operation %d has unsupported type %q", i, op.Type)
 		}
+	}
+	return nil
+}
+
+func validateInteractiveShell(spec *domain.InteractiveShellSpec) error {
+	if spec == nil || strings.TrimSpace(spec.Script) == "" {
+		return errors.New("shell operation requires script")
+	}
+	if len(spec.Script) > 64<<10 {
+		return errors.New("shell script exceeds 64 KiB limit")
+	}
+	if spec.Shell != "bash" {
+		return errors.New("shell operation currently supports bash only")
+	}
+	if spec.TimeoutSeconds < MinCommandTimeoutSeconds || spec.TimeoutSeconds > MaxCommandTimeoutSeconds {
+		return errors.New("shell timeout_seconds is outside the command timeout budget")
+	}
+	for _, name := range spec.EnvAllowlist {
+		if !validInteractiveEnvName(strings.TrimSpace(name)) {
+			return errors.New("shell env_allowlist contains an invalid variable name")
+		}
+	}
+	return nil
+}
+
+func validInteractiveEnvName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || (i > 0 && c >= '0' && c <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validateInteractiveSQL(spec *domain.InteractiveSQLSpec) error {
+	if spec == nil || strings.TrimSpace(spec.ConnectionID) == "" || strings.TrimSpace(spec.Statement) == "" {
+		return errors.New("sql operation requires connection_id and statement")
+	}
+	if len(spec.Statement) > 64<<10 {
+		return errors.New("sql statement exceeds 64 KiB limit")
+	}
+	if spec.Mode != "read_only" && spec.Mode != "write" {
+		return errors.New("sql mode must be read_only or write")
+	}
+	if spec.TimeoutSeconds < 1 || spec.TimeoutSeconds > 300 {
+		return errors.New("sql timeout_seconds must be 1..300")
+	}
+	if spec.MaxRows < 1 || spec.MaxRows > 5000 {
+		return errors.New("sql max_rows must be 1..5000")
+	}
+	return nil
+}
+
+func validateInteractiveLogs(spec *domain.InteractiveLogsSpec) error {
+	if spec == nil || strings.TrimSpace(spec.Source) == "" {
+		return errors.New("logs operation requires source")
+	}
+	if spec.Limit < 1 || spec.Limit > 5000 {
+		return errors.New("logs limit must be 1..5000")
+	}
+	return nil
+}
+
+func validateInteractiveFilesystem(spec *domain.InteractiveFilesystemSpec) error {
+	if spec == nil || strings.TrimSpace(spec.Path) == "" {
+		return errors.New("filesystem operation requires path")
+	}
+	switch spec.Action {
+	case "list", "stat", "read", "write", "remove", "rename":
+	default:
+		return fmt.Errorf("unsupported filesystem action %q", spec.Action)
+	}
+	if spec.MaxBytes < 0 || spec.MaxBytes > 4<<20 {
+		return errors.New("filesystem max_bytes exceeds 4 MiB limit")
+	}
+	return nil
+}
+
+func validateInteractiveProcess(spec *domain.InteractiveProcessSpec) error {
+	if spec == nil {
+		return errors.New("process operation is required")
+	}
+	switch spec.Action {
+	case "list":
+	case "signal":
+		if spec.PID <= 1 || strings.TrimSpace(spec.Signal) == "" {
+			return errors.New("process signal requires pid > 1 and signal")
+		}
+	default:
+		return fmt.Errorf("unsupported process action %q", spec.Action)
+	}
+	return nil
+}
+
+func validateInteractiveNetwork(spec *domain.InteractiveNetworkSpec) error {
+	if spec == nil || strings.TrimSpace(spec.Address) == "" || spec.Action != "connect" {
+		return errors.New("network operation requires action=connect and address")
+	}
+	if spec.TimeoutSeconds < 1 || spec.TimeoutSeconds > 60 {
+		return errors.New("network timeout_seconds must be 1..60")
+	}
+	return nil
+}
+
+func validateInteractiveContainer(spec *domain.InteractiveContainerSpec) error {
+	if spec == nil || strings.TrimSpace(spec.Name) == "" {
+		return errors.New("container operation requires name")
+	}
+	switch spec.Action {
+	case "inspect", "logs", "restart", "exec":
+	default:
+		return fmt.Errorf("unsupported container action %q", spec.Action)
+	}
+	if spec.Action == "exec" && len(spec.Argv) == 0 {
+		return errors.New("container exec requires argv")
+	}
+	return nil
+}
+
+func validateInteractiveService(spec *domain.InteractiveServiceSpec) error {
+	if spec == nil || strings.TrimSpace(spec.Name) == "" {
+		return errors.New("service operation requires name")
+	}
+	if spec.Action != "status" && spec.Action != "restart" {
+		return fmt.Errorf("unsupported service action %q", spec.Action)
 	}
 	return nil
 }
@@ -258,6 +420,11 @@ func ValidateChangePlan(plan domain.ExecutionPlan) error {
 					return fmt.Errorf("impact_files must include patched path %q", path)
 				}
 			}
+		}
+	}
+	for i, operation := range plan.Operations {
+		if operation.Type != "apply_patch" && operation.Type != "command" {
+			return fmt.Errorf("change operation %d cannot use interactive type %q", i, operation.Type)
 		}
 	}
 	if plan.VersionIncrement == nil {
@@ -493,9 +660,9 @@ func validatePatchPath(value string) error {
 	return nil
 }
 
-// ValidateWorkflowPlan constrains an iterative evidence step. The legacy
-// debug extension and its public interactive successor are observe-only: they
-// never become a generic host-action channel.
+// ValidateWorkflowPlan constrains an iterative evidence step. Interactive v1
+// remains argv-only/read-only; interactive v2 admits typed capabilities whose
+// authority is validated against the explicit capability/scope declaration.
 func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 	if err := Validate(plan); err != nil {
 		return err
@@ -506,26 +673,35 @@ func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 	if plan.Status != "ready" {
 		return errors.New("workflow plan must be ready")
 	}
-	if plan.Risk == "high" {
-		return errors.New("workflow plan risk must be low or medium")
-	}
-	if plan.RequiresApproval {
-		return errors.New("workflow plan cannot require host approval")
+	isV2 := plan.Debug != nil && plan.Debug.Protocol == domain.InteractiveProtocolV2
+	if !isV2 {
+		if plan.Risk == "high" {
+			return errors.New("workflow plan risk must be low or medium")
+		}
+		if plan.RequiresApproval {
+			return errors.New("workflow plan cannot require host approval")
+		}
 	}
 	engineQuery := plan.Debug != nil && strings.TrimSpace(plan.Debug.Query) != ""
 	if len(plan.Operations) == 0 && !engineQuery {
-		return errors.New("workflow plan requires at least one command operation")
+		return errors.New("workflow plan requires at least one operation")
 	}
 	if len(plan.Operations) > 16 {
-		return errors.New("workflow plan exceeds 16 command operations")
+		return errors.New("workflow plan exceeds 16 operations")
 	}
 	for i, op := range plan.Operations {
-		if op.Type != "command" {
+		if op.Type == "apply_patch" {
+			return fmt.Errorf("workflow operation %d cannot apply patches", i)
+		}
+		if !isV2 && op.Type != "command" {
 			return fmt.Errorf("workflow operation %d must be command", i)
 		}
-		if op.Command.Network {
+		if !isV2 && op.Command.Network {
 			return fmt.Errorf("workflow operation %d cannot request network access", i)
 		}
+	}
+	if isV2 && len(plan.Verification) != 0 {
+		return errors.New("interactive v2 uses typed operations as evidence and does not accept verification commands")
 	}
 	for i, command := range plan.Verification {
 		if command.Network {
@@ -540,16 +716,12 @@ func ValidateWorkflowPlan(plan domain.ExecutionPlan) error {
 	return nil
 }
 
-// ValidateDebugPlan validates the legacy debug or public interactive extension.
-// Both are read-only evidence protocols. Host mutation used to be accepted by
-// debug v1; it is now intentionally retired because a model-authored argv list
-// cannot prove an immutable target set or enforce a destructive preflight.
 func ValidateDebugPlan(plan domain.ExecutionPlan) error {
 	debug := plan.Debug
 	if debug == nil {
 		return errors.New("debug protocol is required")
 	}
-	if debug.Protocol != domain.DebugProtocolV1 && debug.Protocol != domain.InteractiveProtocolV1 {
+	if debug.Protocol != domain.DebugProtocolV1 && debug.Protocol != domain.InteractiveProtocolV1 && debug.Protocol != domain.InteractiveProtocolV2 {
 		return fmt.Errorf("unsupported interactive protocol %q", debug.Protocol)
 	}
 	if debug.Target != "sandbox" && debug.Target != "host" {
@@ -559,8 +731,42 @@ func ValidateDebugPlan(plan domain.ExecutionPlan) error {
 	if access != domain.DebugAccessObserve && access != domain.DebugAccessModify {
 		return fmt.Errorf("unsupported debug access %q", debug.Access)
 	}
-	if access == domain.DebugAccessModify {
-		return errors.New("host-modifying debug workflows are retired; use a dedicated typed operation with inventory, approval, and revalidation")
+	if debug.Protocol != domain.InteractiveProtocolV2 {
+		if access == domain.DebugAccessModify {
+			return errors.New("host-modifying debug workflows are retired; use harness.interactive/v2")
+		}
+		if len(debug.Capabilities) != 0 {
+			return errors.New("interactive capabilities require harness.interactive/v2")
+		}
+	} else {
+		if access == domain.DebugAccessModify && debug.Target != "host" {
+			return errors.New("interactive v2 modify access requires host target")
+		}
+		if len(debug.Capabilities) == 0 {
+			return errors.New("interactive v2 requires capabilities")
+		}
+		declared := make(map[string]bool, len(debug.Capabilities))
+		for _, capability := range debug.Capabilities {
+			if !domain.ValidInteractiveCapability(capability) {
+				return fmt.Errorf("unsupported interactive capability %q", capability)
+			}
+			if declared[capability] {
+				return fmt.Errorf("duplicate interactive capability %q", capability)
+			}
+			declared[capability] = true
+		}
+		for i, op := range plan.Operations {
+			capability := interactiveOperationCapability(op.Type)
+			if capability == "" || !declared[capability] {
+				return fmt.Errorf("workflow operation %d requires undeclared capability %q", i, capability)
+			}
+			if err := validateInteractiveAccessAndScope(debug, op); err != nil {
+				return fmt.Errorf("workflow operation %d: %w", i, err)
+			}
+		}
+		if access == domain.DebugAccessModify && (!plan.RequiresApproval || plan.Risk != "high") {
+			return errors.New("interactive v2 modify requires risk=high and requires_approval=true")
+		}
 	}
 	if debug.Query != "" {
 		if debug.Query != domain.DebugQueryProjectExecutionSummary {
@@ -576,20 +782,128 @@ func ValidateDebugPlan(plan domain.ExecutionPlan) error {
 	if rationale := strings.TrimSpace(debug.Rationale); rationale == "" || len(rationale) > 4096 {
 		return errors.New("debug rationale must be 1..4096 bytes")
 	}
-	if debug.Target != "host" {
-		return nil
-	}
-	for i, op := range plan.Operations {
-		if err := validateHostDebugCommand(op.Command); err != nil {
-			return fmt.Errorf("debug host operation %d: %w", i, err)
+	if debug.Protocol != domain.InteractiveProtocolV2 && debug.Target == "host" {
+		for i, op := range plan.Operations {
+			if err := validateHostDebugCommand(op.Command); err != nil {
+				return fmt.Errorf("debug host operation %d: %w", i, err)
+			}
 		}
-	}
-	for i, command := range plan.Verification {
-		if err := validateHostDebugCommand(command); err != nil {
-			return fmt.Errorf("debug host verification %d: %w", i, err)
+		for i, command := range plan.Verification {
+			if err := validateHostDebugCommand(command); err != nil {
+				return fmt.Errorf("debug host verification %d: %w", i, err)
+			}
 		}
 	}
 	return nil
+}
+
+func interactiveOperationCapability(operationType string) string {
+	switch operationType {
+	case "command", "shell", "sql", "logs", "filesystem", "process", "network", "container", "service":
+		return operationType
+	default:
+		return ""
+	}
+}
+
+func validateInteractiveAccessAndScope(debug *domain.DebugSpec, op domain.Operation) error {
+	modify := debug.EffectiveAccess() == domain.DebugAccessModify
+	if debug.Target != "host" {
+		switch op.Type {
+		case "sql", "logs", "filesystem", "process", "network", "container", "service":
+			return fmt.Errorf("interactive %s currently requires host target", op.Type)
+		}
+	}
+	switch op.Type {
+	case "command":
+		if op.Command.Network && !containsString(debug.Capabilities, domain.InteractiveCapabilityNetwork) {
+			return errors.New("command network access requires network capability")
+		}
+	case "shell":
+		if op.Shell.Network && !containsString(debug.Capabilities, domain.InteractiveCapabilityNetwork) {
+			return errors.New("shell network access requires network capability")
+		}
+	case "sql":
+		if op.SQL.Mode == "write" && !modify {
+			return errors.New("sql write requires modify access")
+		}
+		if !containsString(debug.Scope.Connections, op.SQL.ConnectionID) {
+			return fmt.Errorf("sql connection %q is outside approved scope", op.SQL.ConnectionID)
+		}
+	case "logs":
+		if !containsString(debug.Scope.LogSources, op.Logs.Source) {
+			return fmt.Errorf("log source %q is outside approved scope", op.Logs.Source)
+		}
+		if (op.Logs.Source == "journald" || op.Logs.Source == "service") && !containsString(debug.Scope.Services, op.Logs.Unit) {
+			return fmt.Errorf("log unit %q is outside approved service scope", op.Logs.Unit)
+		}
+		if op.Logs.Source == "container" && !containsString(debug.Scope.Containers, op.Logs.Container) {
+			return fmt.Errorf("log container %q is outside approved container scope", op.Logs.Container)
+		}
+	case "filesystem":
+		if (op.Filesystem.Action == "write" || op.Filesystem.Action == "remove" || op.Filesystem.Action == "rename") && !modify {
+			return fmt.Errorf("filesystem %s requires modify access", op.Filesystem.Action)
+		}
+		if !pathWithinInteractiveScope(op.Filesystem.Path, debug.Scope.Paths) {
+			return fmt.Errorf("filesystem path %q is outside approved scope", op.Filesystem.Path)
+		}
+	case "process":
+		if op.Process.Action == "signal" && !modify {
+			return errors.New("process signal requires modify access")
+		}
+		processScope := "all"
+		if op.Process.Action == "signal" {
+			processScope = fmt.Sprintf("%d", op.Process.PID)
+		}
+		if !containsString(debug.Scope.Processes, processScope) && !containsString(debug.Scope.Processes, "*") {
+			return fmt.Errorf("process scope %q is outside approved scope", processScope)
+		}
+	case "network":
+		if !containsString(debug.Scope.NetworkDestinations, op.Network.Address) {
+			return fmt.Errorf("network destination %q is outside approved scope", op.Network.Address)
+		}
+	case "container":
+		if (op.Container.Action == "restart" || op.Container.Action == "exec") && !modify {
+			return fmt.Errorf("container %s requires modify access", op.Container.Action)
+		}
+		if !containsString(debug.Scope.Containers, op.Container.Name) {
+			return fmt.Errorf("container %q is outside approved scope", op.Container.Name)
+		}
+	case "service":
+		if op.Service.Action == "restart" && !modify {
+			return errors.New("service restart requires modify access")
+		}
+		if !containsString(debug.Scope.Services, op.Service.Name) {
+			return fmt.Errorf("service %q is outside approved scope", op.Service.Name)
+		}
+	}
+	return nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) == strings.TrimSpace(want) {
+			return true
+		}
+	}
+	return false
+}
+
+func pathWithinInteractiveScope(path string, roots []string) bool {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "." || strings.ContainsRune(path, '\x00') {
+		return false
+	}
+	for _, root := range roots {
+		root = filepath.Clean(strings.TrimSpace(root))
+		if root == "." || root == "" {
+			continue
+		}
+		if path == root || strings.HasPrefix(path, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateHostDebugCommand(command domain.CommandSpec) error {

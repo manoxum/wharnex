@@ -50,7 +50,7 @@ func List(root string) ([]Entry, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if contextbundle.ShouldIgnoreWithPatterns(rel, entry.IsDir(), patterns) {
+		if contextbundle.ShouldIgnoreEditorPath(rel, entry.IsDir(), patterns) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -110,6 +110,9 @@ func Read(root, rel string) (File, error) {
 // OpenPreview applies the same containment, exclusion and symlink boundary as
 // the editor, but leaves content streaming to the HTTP layer.
 func OpenPreview(root, rel string) (*os.File, os.FileInfo, error) {
+	if contextbundle.IsEditorEnvironmentFile(rel) {
+		return nil, nil, errors.New("environment files are not available through preview")
+	}
 	path, err := safeExistingFile(root, rel)
 	if err != nil {
 		return nil, nil, err
@@ -214,7 +217,7 @@ func safeTargetFile(root, rel string) (string, error) {
 		return "", errors.New("file path escapes project root")
 	}
 	relSlash := filepath.ToSlash(clean)
-	if contextbundle.ShouldIgnoreWithPatterns(relSlash, false, contextbundle.LoadIgnorePatterns(root)) {
+	if contextbundle.ShouldIgnoreEditorPath(relSlash, false, contextbundle.LoadIgnorePatterns(root)) {
 		return "", errors.New("file is excluded by harness security/context policy")
 	}
 	absoluteRoot, err := filepath.Abs(root)
@@ -232,7 +235,11 @@ func safeTargetFile(root, rel string) (string, error) {
 		if !info.Mode().IsRegular() {
 			return "", errors.New("target path is not a regular file")
 		}
-	} else if !os.IsNotExist(statErr) {
+	} else if os.IsNotExist(statErr) {
+		if contextbundle.IsEditorEnvironmentFile(relSlash) {
+			return "", errors.New("environment files must already exist before they can be edited")
+		}
+	} else {
 		return "", statErr
 	}
 	parent := filepath.Dir(target)

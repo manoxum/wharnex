@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_UI_PREFERENCES, loadUIPreferences, resolveTheme, saveUIPreferences } from './uiPreferences'
+import { DEFAULT_UI_PREFERENCES, loadUIPreferences, resolveContentScheme, resolveTheme, saveUIPreferences } from './uiPreferences'
 
 describe('UI preferences', () => {
   beforeEach(() => {
@@ -7,33 +7,58 @@ describe('UI preferences', () => {
     document.documentElement.removeAttribute('style')
     document.documentElement.removeAttribute('data-theme')
     document.documentElement.removeAttribute('data-theme-preference')
+    document.documentElement.removeAttribute('data-ui-theme')
+    document.documentElement.removeAttribute('data-ui-accent')
+    document.documentElement.removeAttribute('data-content-scheme-preference')
+    document.documentElement.removeAttribute('data-content-scheme')
+    document.documentElement.removeAttribute('data-tool-window')
+    document.documentElement.removeAttribute('data-tool-rail')
+    document.documentElement.removeAttribute('data-density')
   })
 
-  it('uses a readable 100% baseline and applies the expanded bounded scale', () => {
+  it('uses a readable 100% baseline and applies theme, content scheme and density independently', () => {
     expect(loadUIPreferences()).toEqual(DEFAULT_UI_PREFERENCES)
-    const saved = saveUIPreferences({ uiFont: 'humanist', monoFont: 'fira', scale: 2, theme: 'dark', errorPopups: false })
+    const saved = saveUIPreferences({ uiFont: 'humanist', monoFont: 'fira', scale: 2, theme: 'dark', contentScheme: 'light', density: 'compact', errorPopups: false })
     expect(DEFAULT_UI_PREFERENCES.scale).toBe(1)
     expect(saved.scale).toBe(1.6)
-    expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('2')
+    expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('2.112')
     expect(document.documentElement.style.getPropertyValue('--ui-font-family')).toContain('Aptos')
     expect(document.documentElement.style.getPropertyValue('--mono-font-family')).toContain('Fira Code')
     expect(document.documentElement.dataset.theme).toBe('dark')
-    expect(document.documentElement.dataset.themePreference).toBe('dark')
+    expect(saved.theme).toBe('jetbrains-darcula')
+    expect(document.documentElement.dataset.uiTheme).toBe('jetbrains-darcula')
+    expect(document.documentElement.dataset.contentSchemePreference).toBe('light')
+    expect(document.documentElement.dataset.contentScheme).toBe('light')
+    expect(document.documentElement.dataset.uiAccent).toBe('brand')
+    expect(document.documentElement.getAttribute('data-tool-window')).toBeNull()
+    expect(document.documentElement.dataset.toolRail).toBe('sides')
+    expect(document.documentElement.dataset.density).toBe('compact')
     expect(document.documentElement.style.colorScheme).toBe('dark')
     expect(saved.errorPopups).toBe(false)
   })
 
-
   it('keeps 100% centered while allowing a 60% reduction from the baseline', () => {
-    const saved = saveUIPreferences({ uiFont: 'elegant', monoFont: 'jetbrains', scale: 0, theme: 'system', errorPopups: true })
+    const saved = saveUIPreferences({ uiFont: 'elegant', monoFont: 'jetbrains', scale: 0, theme: 'original', errorPopups: true })
     expect(saved.scale).toBe(0.4)
-    expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('0.5')
+    expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('0.528')
   })
 
-  it('migrates stored preferences without a theme and follows the operating system', () => {
-    localStorage.setItem('kernl.ui.preferences.v1', JSON.stringify({ uiFont: 'system', monoFont: 'system', scale: 1 }))
-    expect(loadUIPreferences().theme).toBe('system')
-    expect(loadUIPreferences().errorPopups).toBe(true)
-    expect(resolveTheme('light')).toBe('light')
+  it('migrates legacy preferences without reviving floating tool windows', () => {
+    localStorage.setItem('kernl.ui.preferences.v1', JSON.stringify({ uiFont: 'system', monoFont: 'system', scale: 1, theme: 'system', toolWindowMode: 'floating' }))
+    const preferences = loadUIPreferences()
+    expect(preferences.theme).toBe('original')
+    expect(preferences.contentScheme).toBe('follow-ui')
+    expect(preferences.density).toBe('default')
+    expect(preferences.errorPopups).toBe(true)
+    expect('toolWindowMode' in preferences).toBe(false)
+    saveUIPreferences(preferences)
+    expect(document.documentElement.getAttribute('data-tool-window')).toBeNull()
+    expect(resolveTheme('jetbrains-light')).toBe('light')
+  })
+
+  it('resolves a content scheme independently from the shell theme', () => {
+    expect(resolveContentScheme('dark', 'jetbrains-light')).toBe('dark')
+    expect(resolveContentScheme('high-contrast', 'original')).toBe('high-contrast')
+    expect(resolveContentScheme('follow-ui', 'jetbrains-light')).toBe('light')
   })
 })

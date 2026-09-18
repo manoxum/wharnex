@@ -19,7 +19,10 @@
   ],
   "properties": {
     "protocol": {
-      "enum": ["harness.execution/v1", "harness.execution/v2"]
+      "enum": [
+        "harness.execution/v1",
+        "harness.execution/v2"
+      ]
     },
     "base_context_sha256": {
       "type": "string",
@@ -80,14 +83,41 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["scope", "manager", "name", "action", "reason"],
+        "required": [
+          "scope",
+          "manager",
+          "name",
+          "action",
+          "reason"
+        ],
         "properties": {
-          "scope": {"type": "string", "minLength": 1},
-          "manager": {"type": "string", "minLength": 1},
-          "name": {"type": "string", "minLength": 1},
-          "version": {"type": "string"},
-          "action": {"enum": ["install", "update", "remove", "use"]},
-          "reason": {"type": "string", "minLength": 1}
+          "scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "manager": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "install",
+              "update",
+              "remove",
+              "use"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -97,40 +127,178 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target", "name", "action", "reason"],
+        "required": [
+          "target",
+          "name",
+          "action",
+          "reason"
+        ],
         "properties": {
-          "target": {"enum": ["sandbox", "host"]},
-          "name": {"type": "string", "minLength": 1},
-          "action": {"enum": ["install", "update", "configure", "use"]},
-          "lifetime": {"enum": ["temporary", "persistent"]},
-          "reason": {"type": "string", "minLength": 1}
+          "target": {
+            "enum": [
+              "sandbox",
+              "host"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "enum": [
+              "install",
+              "update",
+              "configure",
+              "use"
+            ]
+          },
+          "lifetime": {
+            "enum": [
+              "temporary",
+              "persistent"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
     "approved_chat_plan": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "request_id", "sha256", "document"],
+      "required": [
+        "protocol",
+        "request_id",
+        "sha256",
+        "document"
+      ],
       "properties": {
-        "protocol": {"const": "harness.chat-plan/v1"},
-        "request_id": {"type": "string", "minLength": 1},
-        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-        "document": {"type": "string", "minLength": 1, "maxLength": 262144}
+        "protocol": {
+          "const": "harness.chat-plan/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "document": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 262144
+        }
       },
       "description": "Exact planning-only proposal previously approved by the operator. Required on its linked implementation continuation and verified byte-for-byte by Wharnex."
     },
     "debug": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "target", "rationale"],
+      "required": [
+        "protocol",
+        "target",
+        "rationale"
+      ],
       "properties": {
-        "protocol": {"enum": ["harness.debug/v1", "harness.interactive/v1"]},
-        "target": {"enum": ["sandbox", "host"]},
-		"access": {"enum": ["observe"]},
-		"query": {"enum": ["project_execution_summary"]},
-        "rationale": {"type": "string", "minLength": 1, "maxLength": 4096}
+        "protocol": {
+          "enum": [
+            "harness.debug/v1",
+            "harness.interactive/v1",
+            "harness.interactive/v2"
+          ]
+        },
+        "target": {
+          "enum": [
+            "sandbox",
+            "host"
+          ]
+        },
+        "access": {
+          "enum": [
+            "observe",
+            "modify"
+          ]
+        },
+        "query": {
+          "enum": [
+            "project_execution_summary"
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "command",
+              "shell",
+              "sql",
+              "logs",
+              "filesystem",
+              "process",
+              "network",
+              "container",
+              "service"
+            ]
+          }
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "connections": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "log_sources": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "processes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "services": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "containers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "network_destinations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
       },
-      "description": "Bounded interactive observation protocol for a workflow plan. Legacy debug v1 remains readable; both variants are read-only."
+      "description": "Interactive v1 remains strict read-only compatibility. Interactive v2 uses explicit capabilities, target scope and access; host/sensitive or modifying operations are approval-gated by Policy."
     },
     "version_increment": {
       "type": "object",
@@ -272,15 +440,21 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "type",
-        "patch",
-        "command"
+        "type"
       ],
       "properties": {
         "type": {
           "enum": [
             "apply_patch",
-            "command"
+            "command",
+            "shell",
+            "sql",
+            "logs",
+            "filesystem",
+            "process",
+            "network",
+            "container",
+            "service"
           ]
         },
         "patch": {
@@ -288,6 +462,278 @@
         },
         "command": {
           "$ref": "#/$defs/command"
+        },
+        "shell": {
+          "$ref": "#/$defs/interactiveShell"
+        },
+        "sql": {
+          "$ref": "#/$defs/interactiveSQL"
+        },
+        "logs": {
+          "$ref": "#/$defs/interactiveLogs"
+        },
+        "filesystem": {
+          "$ref": "#/$defs/interactiveFilesystem"
+        },
+        "process": {
+          "$ref": "#/$defs/interactiveProcess"
+        },
+        "network": {
+          "$ref": "#/$defs/interactiveNetwork"
+        },
+        "container": {
+          "$ref": "#/$defs/interactiveContainer"
+        },
+        "service": {
+          "$ref": "#/$defs/interactiveService"
+        }
+      }
+    },
+    "interactiveShell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "script",
+        "shell",
+        "cwd",
+        "timeout_seconds",
+        "network"
+      ],
+      "properties": {
+        "script": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "shell": {
+          "const": "bash"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1800
+        },
+        "network": {
+          "type": "boolean"
+        },
+        "env_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "interactiveSQL": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connection_id",
+        "statement",
+        "mode",
+        "timeout_seconds",
+        "max_rows"
+      ],
+      "properties": {
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "mode": {
+          "enum": [
+            "read_only",
+            "write"
+          ]
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        }
+      }
+    },
+    "interactiveLogs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "limit"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "container": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string"
+        },
+        "until": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        },
+        "filter": {
+          "type": "string"
+        }
+      }
+    },
+    "interactiveFilesystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "path"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "list",
+            "stat",
+            "read",
+            "write",
+            "remove",
+            "rename"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string"
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4194304
+        }
+      }
+    },
+    "interactiveProcess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "list",
+            "signal"
+          ]
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "signal": {
+          "type": "string"
+        }
+      }
+    },
+    "interactiveNetwork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "address",
+        "timeout_seconds"
+      ],
+      "properties": {
+        "action": {
+          "const": "connect"
+        },
+        "address": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        }
+      }
+    },
+    "interactiveContainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "name"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "inspect",
+            "logs",
+            "restart",
+            "exec"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tail": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1800
+        }
+      }
+    },
+    "interactiveService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "name"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "status",
+            "restart"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

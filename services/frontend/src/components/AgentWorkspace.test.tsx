@@ -4,7 +4,8 @@ import { api } from '../lib/api'
 import type { HarnessEvent, Session } from '../types'
 import { useEffect, useState, type ComponentProps } from 'react'
 import { AgentWorkspace } from './AgentWorkspace'
-import { WorkspaceSideRail, type Drawer } from './WorkspaceSideRail'
+import { boundedAgentChatWidth } from '../lib/agentLayout'
+import { WorkspaceSideRail, type Drawer, type WorkspaceSideRailProps } from './WorkspaceSideRail'
 import { collectAttentionItems, type AttentionItem, type AttentionTarget } from '../lib/attentionCenter'
 import { executionQueueActiveCount, type ExecutionFIFOItem } from '../lib/executionQueueView'
 
@@ -41,7 +42,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
   ]
   const archivedChats = [{ id: 'arch-1', title: 'Diagnóstico antigo', sessionId: 'ses-old', createdAt: '2026-09-03T10:00:00.000Z', updatedAt: '2026-09-03T11:00:00.000Z' }]
 
-  function Harness({ session: active = current, attentionSessions = {}, chatgptHumanActions = {}, nonce = human.nonce, recoveryTab, chatProps: chatOverride, inspectorProps: inspectorOverride, executionFIFO = [] }: {
+  function Harness({ session: active = current, attentionSessions = {}, chatgptHumanActions = {}, nonce = human.nonce, recoveryTab, chatProps: chatOverride, inspectorProps: inspectorOverride, executionFIFO = [], railVisible = false, singlePane = false }: {
     session?: Session
     attentionSessions?: Record<string, Session | undefined>
     chatgptHumanActions?: Record<string, DesktopChatGPTHumanAction>
@@ -50,6 +51,8 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
     chatProps?: Record<string, unknown>
     inspectorProps?: Record<string, unknown>
     executionFIFO?: ExecutionFIFOItem[]
+    railVisible?: boolean
+    singlePane?: boolean
   }) {
     const [drawer, setDrawer] = useState<Drawer>('')
     const [inspectorAttention, setInspectorAttention] = useState<{ tab: AttentionTarget; nonce: number }>({ tab: 'terminal', nonce: 0 })
@@ -77,40 +80,43 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
       else if (item.action === 'retry-transport') await (chatOverride?.onRetryTransportFailure as ((id: string) => Promise<void>) | undefined)?.(item.requestId || '')
       else if (item.action === 'retry-host-apply') await onApply()
     }
+    const sharedRailProps = {
+      session: active, busy, chats, archivedChats, activeChatId: 'chat-1', activeEvents: [],
+      attentionItems, executionFIFO, activeExecutionCount: executionQueueActiveCount(executionFIFO),
+      onOpenAttention: openAttention, onAttentionAction: runAttention, onRestoreChat: onRestore, onDeleteArchivedChat: onDelete,
+      onRenameChat: async () => undefined, onGenerateChatTitle: async () => undefined, onOpenFile, onError: vi.fn(),
+      terminalOpen, onToggleTerminal: () => setTerminalOpen((open) => !open),
+    } satisfies Omit<WorkspaceSideRailProps, 'drawer' | 'onDrawer'>
     return <div className="workspace-body">
-      <WorkspaceSideRail
-        session={active} busy={busy} drawer={drawer} onDrawer={setDrawer}
-        chats={chats} archivedChats={archivedChats} activeChatId="chat-1" activeEvents={[]}
-        attentionItems={attentionItems} executionFIFO={executionFIFO} activeExecutionCount={executionQueueActiveCount(executionFIFO)}
-        onOpenAttention={openAttention} onAttentionAction={runAttention}
-        onRestoreChat={onRestore} onDeleteArchivedChat={onDelete}
-        onRenameChat={async () => undefined} onGenerateChatTitle={async () => undefined}
-        onOpenFile={onOpenFile} onError={vi.fn()}
-        terminalOpen={terminalOpen} onToggleTerminal={() => setTerminalOpen((open) => !open)}
-      />
-      <div className="workspace-mode-stack">
-        <AgentWorkspace
-          session={active}
-          busy={busy}
-          attentionItems={attentionItems}
-          chatgptAttentionNonce={nonce}
-          inspectorAttention={inspectorAttention}
-          onOpenAttention={openAttention}
-          onAttentionAction={runAttention}
-          onOpenAttentionDrawer={() => setDrawer('attention')}
-          onExportChat={onExportChat}
-          onReorderChat={onReorderChat}
-          chatProps={{
-            session: active, items: [], chats, archivedChats, activeChatId: 'chat-1', busy,
-            onSend: async () => undefined, onNewChat: async () => undefined, onSelectChat, onArchiveChat: async () => undefined, onRestoreChat: onRestore, onDeleteArchivedChat: onDelete,
-            ...chatOverride,
-          } as ComponentProps<typeof AgentWorkspace>['chatProps']}
-          inspectorProps={{
-            config: { planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }, session: active, events: [], manualPrompt: '', busy,
-            onChatGPTURL: () => true, onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onRejectPendingChanges: async () => undefined, onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
-            ...inspectorOverride,
-          } as ComponentProps<typeof AgentWorkspace>['inspectorProps']}
-        />
+      <div className="workspace-main-row">
+        <WorkspaceSideRail {...sharedRailProps} drawer={drawer} onDrawer={setDrawer}/>
+        <div className="workspace-mode-stack">
+          <AgentWorkspace
+            session={active}
+            busy={busy}
+            attentionItems={attentionItems}
+            chatgptAttentionNonce={nonce}
+            inspectorAttention={inspectorAttention}
+            singlePane={singlePane}
+            onOpenAttention={openAttention}
+            onAttentionAction={runAttention}
+            onOpenAttentionDrawer={() => setDrawer('attention')}
+            railVisible={railVisible}
+            onExportChat={onExportChat}
+            onReorderChat={onReorderChat}
+            chatProps={{
+              session: active, items: [], chats, archivedChats, activeChatId: 'chat-1', busy,
+              onSend: async () => undefined, onNewChat: async () => undefined, onSelectChat, onArchiveChat: async () => undefined, onRestoreChat: onRestore, onDeleteArchivedChat: onDelete,
+              ...chatOverride,
+            } as ComponentProps<typeof AgentWorkspace>['chatProps']}
+            inspectorProps={{
+              config: { planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }, session: active, events: [], manualPrompt: '', busy,
+              onChatGPTURL: () => true, onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onRejectPendingChanges: async () => undefined, onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
+              ...inspectorOverride,
+            } as ComponentProps<typeof AgentWorkspace>['inspectorProps']}
+          />
+        </div>
+        {railVisible && <WorkspaceSideRail {...sharedRailProps} side="right" tools={['project', 'database']} drawer="" onDrawer={() => undefined}/>}
       </div>
     </div>
   }
@@ -131,6 +137,20 @@ describe('AgentWorkspace', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     window.history.replaceState({}, '', '/')
+  })
+
+  it('bounds a restored split so chat and Engine keep their usable minimums', () => {
+    expect(boundedAgentChatWidth(1_400, 1_200)).toBe(794)
+    expect(boundedAgentChatWidth(120, 1_200)).toBe(480)
+    expect(boundedAgentChatWidth(700, 800)).toBe(0)
+  })
+
+  it('keeps the notification center available when there are no alerts', () => {
+    render(props().element)
+    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações, 0 alerta/ }))
+    expect(screen.getByRole('dialog', { name: 'Alertas ativos' }).closest('.workspace-side-rail')).toBeNull()
+    expect(screen.getByText('Nada requer atenção')).toBeTruthy()
+    expect(screen.getByText('Novas notificações deste projeto aparecerão aqui.')).toBeTruthy()
   })
 
   it('migrates the legacy chat width once and leaves a new desktop window on the default split', () => {
@@ -161,6 +181,37 @@ describe('AgentWorkspace', () => {
     expect(await screen.findByRole('group', { name: 'Bundles: 80 enviados ao ChatGPT e 76 recebidos do ChatGPT.' })).toBeTruthy()
     expect(rendered.container.querySelector('.agent-bundle-counters')?.textContent).toBe('↑80↓76')
     expect(rendered.container.querySelector('.agent-bundle-quota.warning')).toBeNull()
+  })
+
+  it('switches between chat and Engine in a single pane when both drawers are open', () => {
+    const view = props()
+    const rendered = render(<view.Harness singlePane />)
+    const areas = screen.getByRole('navigation', { name: 'Áreas do Agent' })
+    const chat = within(areas).getByRole('button', { name: 'Chat' })
+
+    expect(rendered.container.querySelector('.agent-workspace.single-pane')).toBeTruthy()
+    expect(chat.className).toContain('active')
+    expect(rendered.container.querySelector('.agent-inspector-stage.surface-hidden')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Redimensionar chat e Engine' })).toBeNull()
+
+    fireEvent.click(within(areas).getByRole('button', { name: 'Engine' }))
+    expect(rendered.container.querySelector('.agent-chat-stage.surface-hidden')).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-inspector-stage.surface-hidden')).toBeNull()
+  })
+
+  it('mounts Agent shortcuts inside the existing right workspace rail', async () => {
+    const view = props()
+    render(<view.Harness railVisible />)
+    const rightRail = screen.getByRole('complementary', { name: 'Ferramentas laterais direitas' })
+    await waitFor(() => {
+      const commandbar = rightRail.querySelector('.agent-commandbar')
+      expect(commandbar).toBeTruthy()
+      expect(commandbar?.closest('.workspace-agent-rail-slot')).toBeTruthy()
+      expect(commandbar?.closest('.agent-workspace')).toBeNull()
+    })
+    expect(within(rightRail).getByRole('button', { name: 'Explorador do projeto' })).toBeTruthy()
+    expect(within(rightRail).getByRole('navigation', { name: 'Áreas do Agent' })).toBeTruthy()
+    expect(within(rightRail).getByRole('navigation', { name: 'ChatGPT direto' })).toBeTruthy()
   })
 
   it('keeps the chat fixed on the left and uses the right-side tabs for the inspector', () => {
@@ -360,8 +411,7 @@ describe('AgentWorkspace', () => {
     const view = props(current)
     render(<view.Harness attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
     const summary = screen.getByRole('button', { name: /Centro de notificações, 1 alerta/ })
-    expect(summary.textContent).toContain('1 alerta')
-    expect(summary.textContent).toContain('0 urgentes')
+    expect(summary.querySelector('.agent-attention-count')?.textContent).toBe('1')
     fireEvent.click(summary)
     expect(screen.getByRole('dialog', { name: 'Alertas ativos' })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Paralelo.*Aprovação necessária/ })).toBeTruthy()
@@ -653,7 +703,7 @@ describe('AgentWorkspace', () => {
     expect((screen.getByRole('button', { name: /^Paralelo$/ }) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('shows the WHX evolution badge and evidence action only for backend-qualified self-evolution', async () => {
+  it('keeps self-evolution status out of the Agent rail while preserving its evidence action', async () => {
     const normal = props()
     const rendered = render(normal.element)
     expect(screen.queryByText('WHX · AUTO-EVOLUÇÃO')).toBeNull()
@@ -662,15 +712,13 @@ describe('AgentWorkspace', () => {
     const self = { ...session(), self_evolution: true }
     vi.spyOn(api, 'evolutionEvidence').mockResolvedValue({ events: [], counts: {}, projects: [], categories: [], total: 0, truncated: false })
     rendered.rerender(props(self).element)
-    const badge = screen.getByText('WHX · AUTO-EVOLUÇÃO')
+    expect(screen.queryByText('WHX · AUTO-EVOLUÇÃO')).toBeNull()
     const directChatGPT = screen.getByRole('navigation', { name: 'ChatGPT direto' })
     const agentAreas = screen.getByRole('navigation', { name: 'Áreas do Agent' })
-    expect(badge).toBeTruthy()
     const commandbar = directChatGPT.closest('.agent-commandbar')
-    const centeredBadge = badge.closest('.agent-commandbar-center')
-    expect(commandbar?.firstElementChild).toBe(directChatGPT)
-    expect(centeredBadge?.parentElement).toBe(commandbar)
-    expect(commandbar?.lastElementChild).toBe(agentAreas)
+    expect(commandbar?.getAttribute('aria-label')).toBe('Atalhos do Agent')
+    expect(commandbar?.lastElementChild).toBe(directChatGPT)
+    expect(directChatGPT.previousElementSibling).toBe(agentAreas)
     expect(agentAreas.previousElementSibling?.classList.contains('agent-command-actions')).toBe(true)
     expect(directChatGPT.querySelector('[aria-label="ChatGPT"]')).toBeTruthy()
     expect(agentAreas.querySelector('[aria-label="ChatGPT"]')).toBeNull()
@@ -743,13 +791,13 @@ describe('AgentWorkspace', () => {
     fireEvent(window, new Event('pointerup'))
 
     const drawer = container.querySelector('.agent-drawer') as HTMLElement
-    await waitFor(() => expect(drawer.style.getPropertyValue('--workspace-drawer-width')).toBe('458px'))
+    await waitFor(() => expect(drawer.style.getPropertyValue('--workspace-drawer-width')).toBe('456px'))
     // The Agent's own chat/inspector split is a separate measurement and must
     // not be rewritten by a drag of the shell's side panel.
     const workspace = container.querySelector('.agent-workspace') as HTMLElement
     expect(workspace.style.getPropertyValue('--agent-chat-width')).toBe('')
     // Each rail owns its width independently, scoped to the desktop window.
-    expect(localStorage.getItem('whx.workspace.drawer-width:left:primary')).toBe('458')
+    expect(localStorage.getItem('whx.workspace.drawer-width:left:primary')).toBe('456')
   })
 
   it('keeps the left panel open across attention routing and offers every drawer a close control', async () => {

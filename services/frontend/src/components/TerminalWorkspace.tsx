@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Session, TerminalRunRequest } from '../types'
+import type { Session, TerminalRunRequest, TerminalTarget } from '../types'
 import { InteractiveTerminal } from './InteractiveTerminal'
 import { Icon } from './Icon'
 
-type TerminalTab = { id: number; label: string }
+type TerminalTab = { id: number; label: string; session: Session; target: TerminalTarget }
 
 export function TerminalWorkspace({ session, height, visible, runRequest, onHeight, onError }: {
   session: Session
@@ -14,24 +14,37 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
   onError: (message: string) => void
 }) {
   const nextID = useRef(2)
-  const [tabs, setTabs] = useState<TerminalTab[]>([{ id: 1, label: 'Terminal 1' }])
+  const [tabs, setTabs] = useState<TerminalTab[]>([{ id: 1, label: 'Terminal 1', session, target: 'sandbox' }])
   const [activeID, setActiveID] = useState(1)
   const [editingID, setEditingID] = useState<number>()
   const [editingLabel, setEditingLabel] = useState('')
   const runTargetRef = useRef<{ requestID: number; tabID: number } | undefined>(undefined)
-  if (runRequest && runTargetRef.current?.requestID !== runRequest.id) runTargetRef.current = { requestID: runRequest.id, tabID: activeID }
-
+  const projectPathRef = useRef(session.project_path)
   useEffect(() => {
-    setTabs([{ id: 1, label: 'Terminal 1' }])
+    if (projectPathRef.current === session.project_path) return
+    projectPathRef.current = session.project_path
+    setTabs([{ id: 1, label: 'Terminal 1', session, target: 'sandbox' }])
     setActiveID(1)
     setEditingID(undefined)
     setEditingLabel('')
     nextID.current = 2
-  }, [session.id])
+  }, [session])
+
+  useEffect(() => {
+    if (!runRequest || runTargetRef.current?.requestID === runRequest.id) return
+    if (!runRequest.openNew) {
+      runTargetRef.current = { requestID: runRequest.id, tabID: activeID }
+      return
+    }
+    const id = nextID.current++
+    runTargetRef.current = { requestID: runRequest.id, tabID: id }
+    setTabs((items) => [...items, { id, label: runRequest.label || `Terminal ${id}`, session, target: runRequest.target || 'host' }])
+    setActiveID(id)
+  }, [activeID, runRequest, session])
 
   function addTerminal() {
     const id = nextID.current++
-    setTabs((items) => [...items, { id, label: `Terminal ${id}` }])
+    setTabs((items) => [...items, { id, label: `Terminal ${id}`, session, target: 'sandbox' }])
     setActiveID(id)
   }
 
@@ -42,7 +55,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     if (editingID === id) setEditingID(undefined)
     if (!remaining.length) {
       const replacementID = nextID.current++
-      setTabs([{ id: replacementID, label: `Terminal ${replacementID}` }])
+      setTabs([{ id: replacementID, label: `Terminal ${replacementID}`, session, target: 'sandbox' }])
       setActiveID(replacementID)
       return
     }
@@ -100,7 +113,8 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     <div className="terminal-instances">
       {tabs.map((tab) => <div className={`terminal-instance ${tab.id === activeID ? 'active' : ''}`} key={tab.id}>
         <InteractiveTerminal
-          session={session}
+          session={tab.session}
+          initialTarget={tab.target}
           height={Math.max(155, height - 30)}
           visible={visible && tab.id === activeID}
           runRequest={runRequest && runTargetRef.current?.requestID === runRequest.id && runTargetRef.current.tabID === tab.id ? { ...runRequest, command: inDirectory(runRequest.cwd, runRequest.command) } : undefined}

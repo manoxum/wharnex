@@ -32,6 +32,55 @@ describe('WorkspaceShell project actions', () => {
     expect(screen.queryByText('Wharnex')).toBeNull()
   })
 
+  it('leads the title bar with Signal Core while keeping the active project first in the switcher', () => {
+    const { container } = render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/gamma" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    const bar = container.querySelector('.multi-project-bar')
+    const brand = container.querySelector('.multi-project-brand')
+    const switcher = container.querySelector('.project-quick-switch')
+    expect(bar?.firstElementChild).toBe(brand)
+    expect(brand?.nextElementSibling).toBe(switcher)
+    expect(switcher?.firstElementChild?.textContent).toContain('gamma')
+    expect(switcher?.firstElementChild?.classList.contains('active')).toBe(true)
+  })
+
+  it('marks the shell chrome as the desktop window title bar', () => {
+    const { container } = render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    expect(container.querySelector('.multi-project-bar')?.getAttribute('data-window-titlebar')).toBe('true')
+  })
+
+  it('routes themed window chrome controls through the desktop bridge', () => {
+    const minimize = vi.fn().mockResolvedValue({ ok: true })
+    const toggleMaximize = vi.fn().mockResolvedValue({ ok: true, maximized: true })
+    const close = vi.fn().mockResolvedValue({ ok: true })
+    window.wharnessDesktop = { windows: { minimize, toggleMaximize, close } } as unknown as WharnessDesktopBridge
+
+    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Minimizar janela' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Maximizar ou restaurar janela' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar janela' }))
+
+    expect(minimize).toHaveBeenCalledTimes(1)
+    expect(toggleMaximize).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps themed title-bar window controls in the Desktop shell', () => {
+    window.wharnessDesktop = { platform: 'linux', windows: {} } as unknown as WharnessDesktopBridge
+
+    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+
+    expect(screen.getByRole('group', { name: 'Controlos da janela' })).toBeTruthy()
+  })
+
+  it('places the active WHX runtime badge inside the unified window controls', () => {
+    render(<ShellChrome projects={['/tmp/self']} activeProject="/tmp/self" activeRuntime={{ selfEvolution: true, instanceId: '' }} mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+
+    const controls = screen.getByRole('group', { name: 'Controlos da janela' })
+    const badge = screen.getByText('WHX · AUTO-EVOLUÇÃO')
+    expect(badge.parentElement).toBe(controls)
+    expect(controls.firstElementChild).toBe(badge)
+  })
+
   it('binds an additional project from its complete local path', () => {
     const onBindPath = vi.fn()
     render(<ShellChrome projects={['/work/current']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={onBindPath} onNewWindow={vi.fn()} />)
@@ -169,6 +218,26 @@ describe('WorkspaceShell project actions', () => {
 
     await waitFor(() => expect(gitOverview).toHaveBeenCalledWith('ses_shell'))
     expect(await screen.findByLabelText('Git: main, projeto v3.1.0.0')).toBeTruthy()
+  })
+
+  it('accepts runtime identity only from the matching embedded project frame', async () => {
+    vi.spyOn(api, 'config').mockResolvedValue({ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: false, chatgpt_web_embed: true })
+    saveBoundProjects(['/tmp/active-project'])
+    saveBoundActiveProject('/tmp/active-project')
+    window.wharnessDesktop = {
+      projects: { acquire: vi.fn().mockResolvedValue({ ok: true, path: '/tmp/active-project' }) },
+    } as unknown as WharnessDesktopBridge
+
+    render(<WorkspaceShell />)
+    const frame = await screen.findByTitle('Wharnex · active-project') as HTMLIFrameElement
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      source: frame.contentWindow,
+      data: { type: 'wharness:project-runtime', projectPath: '/tmp/active-project', selfEvolution: true, instanceId: '' },
+    }))
+
+    const badge = await screen.findByText('WHX · AUTO-EVOLUÇÃO')
+    expect(badge.parentElement?.classList.contains('window-chrome-controls')).toBe(true)
   })
 
   it('shows when bound projects share analysis context', () => {

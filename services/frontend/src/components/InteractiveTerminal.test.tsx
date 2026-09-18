@@ -76,18 +76,23 @@ describe('InteractiveTerminal PTY', () => {
     expect(screen.getByLabelText('Terminal interactivo')).toBeTruthy()
   })
 
-  it('requires confirmation before opening the full-access Host PTY', async () => {
+  it('switches directly to the explicitly selected full-access Host PTY', async () => {
     vi.mocked(api.openTerminal).mockResolvedValueOnce({ terminal_id: 'pty-sandbox', target: 'sandbox' }).mockResolvedValueOnce({ terminal_id: 'pty-host', target: 'host' })
     render(<InteractiveTerminal session={session} height={245} onHeight={() => undefined} onError={() => undefined} />)
     await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'Host' }))
-    expect(api.openTerminal).toHaveBeenCalledTimes(1)
-    fireEvent.click(await screen.findByRole('button', { name: 'Abrir shell no HOST' }))
     await waitFor(() => expect(api.openTerminal).toHaveBeenLastCalledWith('ses-terminal', expect.objectContaining({ network: false }), 'host', true))
     expect(screen.getByText('HOST DIRECTO')).toBeTruthy()
     expect(screen.getByText(/Sessão real do utilizador do sistema/)).toBeTruthy()
     terminalMock.onData?.('vim src/App.tsx\r')
     await waitFor(() => expect(api.terminalInput).toHaveBeenCalledWith('ses-terminal', 'pty-host', 'vim src/App.tsx\r'))
+  })
+
+  it('opens an editor-created terminal directly on Host', async () => {
+    vi.mocked(api.openTerminal).mockResolvedValueOnce({ terminal_id: 'pty-host', target: 'host' })
+    render(<InteractiveTerminal session={session} height={245} initialTarget="host" onHeight={() => undefined} onError={() => undefined} />)
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledWith('ses-terminal', expect.objectContaining({ network: false }), 'host', true))
+    expect(screen.getByText('HOST DIRECTO')).toBeTruthy()
   })
 
   it('copies selections and pastes clipboard text through desktop shortcuts', async () => {

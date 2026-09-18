@@ -6,10 +6,28 @@ export type CommandSpec = {
   expected_exit_codes: number[]
 }
 
+export type InteractiveScope = {
+  paths?: string[]
+  connections?: string[]
+  log_sources?: string[]
+  processes?: string[]
+  services?: string[]
+  containers?: string[]
+  network_destinations?: string[]
+}
+
 export type Operation = {
-  type: 'apply_patch' | 'command'
-  patch: string
-  command: CommandSpec
+  type: 'apply_patch' | 'command' | 'shell' | 'sql' | 'logs' | 'filesystem' | 'process' | 'network' | 'container' | 'service'
+  patch?: string
+  command?: CommandSpec
+  shell?: { script: string; shell: 'bash'; cwd: string; timeout_seconds: number; network: boolean; env_allowlist?: string[] }
+  sql?: { connection_id: string; statement: string; mode: 'read_only' | 'write'; timeout_seconds: number; max_rows: number }
+  logs?: { source: string; path?: string; unit?: string; container?: string; since?: string; until?: string; limit: number; filter?: string }
+  filesystem?: { action: 'list' | 'stat' | 'read' | 'write' | 'remove' | 'rename'; path: string; content?: string; max_bytes?: number }
+  process?: { action: 'list' | 'signal'; pid?: number; signal?: string }
+  network?: { action: 'connect'; address: string; timeout_seconds: number }
+  container?: { action: 'inspect' | 'logs' | 'restart' | 'exec'; name: string; argv?: string[]; tail?: number; timeout_seconds?: number }
+  service?: { action: 'status' | 'restart'; name: string }
 }
 
 export type ExecutionPlan = {
@@ -26,7 +44,7 @@ export type ExecutionPlan = {
   dependencies?: Array<{ scope: string; manager: string; name: string; version?: string; action: 'install' | 'update' | 'remove' | 'use'; reason: string }>
   system_tools?: Array<{ target: 'sandbox' | 'host'; name: string; action: 'install' | 'update' | 'configure' | 'use'; lifetime?: 'temporary' | 'persistent'; reason: string }>
   approved_chat_plan?: ApprovedChatPlan
-  debug?: { protocol: 'harness.debug/v1'; target: 'sandbox' | 'host'; access?: 'observe' | 'modify'; query?: 'project_execution_summary'; rationale: string }
+  debug?: { protocol: 'harness.debug/v1' | 'harness.interactive/v1' | 'harness.interactive/v2'; target: 'sandbox' | 'host'; access?: 'observe' | 'modify'; query?: 'project_execution_summary'; capabilities?: Array<'command' | 'shell' | 'sql' | 'logs' | 'filesystem' | 'process' | 'network' | 'container' | 'service'>; scope?: InteractiveScope; rationale: string }
   risk: 'low' | 'medium' | 'high'
   requires_approval: boolean
   operations: Operation[]
@@ -61,6 +79,7 @@ export type ExecutionResult = {
   started_at: string
   completed_at: string
   commands: CommandResult[]
+  interactive?: Array<{ operation_id: string; type: string; capability: string; target: string; status: string; started_at: string; completed_at: string; output?: string; error?: string; truncated?: boolean; redacted?: boolean; bytes?: number; rows?: number }>
   error?: string
   warnings?: string[]
 }
@@ -210,7 +229,7 @@ export type TerminalTarget = 'sandbox' | 'host'
 export type TerminalSessionDescriptor = { terminal_id: string; target: TerminalTarget }
 export type TerminalFrame = { type: 'ready' | 'output' | 'exit' | 'error'; data?: string; code?: number; message?: string }
 export type TerminalRunInput = { command: string; cwd: string; label?: string }
-export type TerminalRunRequest = TerminalRunInput & { id: number }
+export type TerminalRunRequest = TerminalRunInput & { id: number; target?: TerminalTarget; openNew?: boolean }
 
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
@@ -267,6 +286,8 @@ export type Session = {
   automation_mode: AutomationMode
   debug_enabled?: boolean
   debug_approved_root_request_id?: string
+  debug_approved_plan_id?: string
+  interactive_grant?: { protocol: 'harness.interactive/v2'; policy_revision: string; root_request_id: string; plan_id?: string; access: 'observe' | 'modify'; target: 'sandbox' | 'host'; capabilities: string[]; scope: InteractiveScope; digest: string; one_shot: boolean; granted_at: string }
   approved_chat_plan?: ApprovedChatPlan
   execution_approved_root_request_id?: string
   approved_execution_boundary_keys?: string[]

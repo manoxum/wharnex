@@ -1,6 +1,7 @@
 const filenameLanguages: Record<string, string> = {
   'dockerfile': 'dockerfile',
   'makefile': 'makefile',
+  'gnumakefile': 'makefile',
   'jenkinsfile': 'groovy',
   '.gitignore': 'plaintext',
   '.dockerignore': 'plaintext',
@@ -23,11 +24,12 @@ const extensionLanguages: Record<string, string> = {
   sh: 'shell', bash: 'shell', zsh: 'shell', fish: 'shell',
   sql: 'sql', graphql: 'graphql', gql: 'graphql',
   toml: 'ini', ini: 'ini', conf: 'ini', properties: 'ini',
-  env: 'plaintext', txt: 'plaintext', log: 'plaintext',
+  env: 'dotenv', mk: 'makefile', txt: 'plaintext', log: 'plaintext',
 }
 
 export function editorLanguageForPath(path: string) {
   const name = path.split('/').pop()?.toLowerCase() || ''
+  if (name === '.env' || name.startsWith('.env.')) return 'dotenv'
   if (filenameLanguages[name]) return filenameLanguages[name]
   const dot = name.lastIndexOf('.')
   if (dot < 0) return 'plaintext'
@@ -40,7 +42,7 @@ export function editorDisplayLanguage(path: string) {
     typescript: 'TypeScript', javascript: 'JavaScript', json: 'JSON', html: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less',
     markdown: 'Markdown', yaml: 'YAML', xml: 'XML', go: 'Go', python: 'Python', ruby: 'Ruby', php: 'PHP', java: 'Java',
     kotlin: 'Kotlin', scala: 'Scala', c: 'C', cpp: 'C++', csharp: 'C#', rust: 'Rust', swift: 'Swift', dart: 'Dart', shell: 'Shell',
-    sql: 'SQL', graphql: 'GraphQL', ini: 'Config', dockerfile: 'Dockerfile', makefile: 'Makefile', groovy: 'Groovy', plaintext: 'Plain Text',
+    sql: 'SQL', graphql: 'GraphQL', ini: 'Config', dotenv: 'Environment', dockerfile: 'Dockerfile', makefile: 'Makefile', groovy: 'Groovy', plaintext: 'Plain Text',
   }
   return labels[language] || language
 }

@@ -10,6 +10,7 @@
     "prompt",
     "context_included",
     "context_root",
+    "context_roots",
     "project_files",
     "knowledge",
     "live_tunnels"
@@ -156,6 +157,46 @@
             "type": "string",
             "pattern": "^https://"
           }
+        }
+      }
+    },
+    "context_roots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary",
+        "references",
+        "attached_paths",
+        "sources_index"
+      ],
+      "properties": {
+        "primary": {
+          "type": "string",
+          "enum": [
+            "",
+            "context/"
+          ]
+        },
+        "references": {
+          "type": "string",
+          "enum": [
+            "",
+            "ref-context/"
+          ]
+        },
+        "attached_paths": {
+          "type": "string",
+          "enum": [
+            "",
+            "att-context/"
+          ]
+        },
+        "sources_index": {
+          "type": "string",
+          "enum": [
+            "",
+            "metadata/context-sources.json"
+          ]
         }
       }
     }

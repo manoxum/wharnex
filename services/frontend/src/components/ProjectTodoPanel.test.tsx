@@ -8,10 +8,11 @@ const mocks = vi.hoisted(() => ({
   updateProjectTodo: vi.fn(),
   classifyProjectTodo: vi.fn(),
   proposeOrchestratorPlan: vi.fn(),
+  desktopBridge: undefined as unknown,
 }))
 
 vi.mock('../lib/api', () => ({ api: mocks }))
-vi.mock('../lib/desktop', () => ({ desktopBridge: () => null }))
+vi.mock('../lib/desktop', () => ({ desktopBridge: () => mocks.desktopBridge }))
 vi.mock('./ChatPanel', () => ({
   ChatPanel: (props: { composerPlaceholder?: string; onSend?: (message: string, attachments: File[], projectFiles: string[]) => Promise<void> }) => <div data-testid="todo-composer">
     <span>{props.composerPlaceholder}</span>
@@ -36,6 +37,7 @@ describe('ProjectTodoPanel', () => {
     mocks.updateProjectTodo.mockReset()
     mocks.classifyProjectTodo.mockReset()
     mocks.proposeOrchestratorPlan.mockReset()
+    mocks.desktopBridge = undefined
   })
 
   it('keeps the composer hidden behind the add FAB and shows worker enrichment', async () => {
@@ -60,4 +62,24 @@ describe('ProjectTodoPanel', () => {
     await waitFor(() => expect(mocks.createProjectTodo).toHaveBeenCalledWith('session-1', expect.objectContaining({ body: 'Nova ideia' })))
     await waitFor(() => expect(screen.queryByTestId('todo-composer')).toBeNull())
   })
+  it('forwards the worker pre-plan to the Orchestrator as a disposable attachment', async () => {
+    const persist = vi.fn().mockResolvedValue({ ok: true, attachments: [{ name: 'wharnex-todo-pre-plan.md', size: 128, mime: 'text/markdown', storageRef: 'orch_todo_test/msg/file', previewKind: 'icon' }] })
+    const removeChat = vi.fn().mockResolvedValue({ ok: true })
+    mocks.desktopBridge = { attachments: { persist, read: vi.fn(), removeChat } }
+    mocks.proposeOrchestratorPlan.mockResolvedValue({ request_id: 'orp_12345678', worker_task_id: 'task-1', delivery_status: 'PENDING' })
+
+    render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
+    await screen.findByText('Melhorar a pesquisa')
+    fireEvent.click(screen.getByRole('button', { name: 'Orchestrator' }))
+
+    await waitFor(() => expect(persist).toHaveBeenCalled())
+    const persistInput = persist.mock.calls[0][0]
+    expect(persistInput.attachments).toHaveLength(1)
+    expect(persistInput.attachments[0].name).toBe('wharnex-todo-pre-plan.md')
+    await waitFor(() => expect(mocks.proposeOrchestratorPlan).toHaveBeenCalledWith('session-1', 'Melhorar a pesquisa', expect.objectContaining({
+      attachments: [expect.objectContaining({ name: 'wharnex-todo-pre-plan.md', storage_ref: 'orch_todo_test/msg/file' })],
+    })))
+    expect(removeChat).not.toHaveBeenCalled()
+  })
+
 })

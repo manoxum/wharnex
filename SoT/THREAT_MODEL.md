@@ -39,3 +39,7 @@ Additional threats include remote ChatGPT renderer compromise, privilege leakage
 Mitigations: no preload or Node integration in the ChatGPT view; sandbox/context isolation/web security enabled; dedicated partition; deny-by-default remote permissions; trusted local frontend origin enforcement; IPC sender validation; session-ID allowlisting; backend URL derived in main process; context bundle size/signature checks; native view hidden outside its reserved tab; no DOM/cookie/output extraction.
 
 Residual risk: ChatGPT and third-party login providers may change their web flows or reject embedded browser user agents. The desktop shell must fail visibly and retain the browser/manual or API-provider fallback rather than weakening isolation settings.
+
+## Interactive v2 threats and mitigations
+
+Interactive v2 adds deliberate host/runtime inspection surfaces and therefore treats every capability as a separate trust boundary. Arbitrary shell composition, SQL credential disclosure, filesystem symlink escape, process signalling, container/service control, network reachability and secret-bearing logs are mitigated with typed payloads, closed capability declaration, explicit scope, runtime scope revalidation, exact-script temporary files instead of shell interpolation, engine-owned database handles, read-only SQL defaults with limits, allowlisted signals/actions, bounded/redacted output, and Policy-gated consent. Modify operations require high-risk one-shot approval tied to the exact plan/digest; outputs remain untrusted and cannot widen subsequent authority.

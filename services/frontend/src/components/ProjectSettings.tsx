@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { bytesToMiB, formatPatternLines, miBToBytes, parsePatternLines } from '../lib/projectConfig'
 import type { BackendStorageUsage, ContextInspection, ProjectConfig, Session, TunnelProviderDocument } from '../types'
 import { ContextInspector, type ContextSelection } from './ContextInspector'
 import { Icon } from './Icon'
 import { desktopBridge, formatBytes } from '../lib/desktop'
-import { loadUIPreferences, saveUIPreferences, subscribeUIPreferences, type UIPreferences } from '../lib/uiPreferences'
+import { UI_ACCENT_REGISTRY, loadUIPreferences, saveUIPreferences, subscribeUIPreferences, type UIPreferences } from '../lib/uiPreferences'
 import { confirmDialog, noticeDialog } from '../lib/appDialog'
 import { ThemePreferenceControl } from './ThemeToggle'
 import { RemoteStorageSettings } from './RemoteStorageSettings'
@@ -39,7 +39,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
   const [artifactRetentionDays, setArtifactRetentionDays] = useState(30)
   const [bundleWindowLimit, setBundleWindowLimit] = useState(80)
   const [uiPreferences, setUIPreferences] = useState<UIPreferences>(() => loadUIPreferences())
-  const [activeSection, setActiveSection] = useState<SettingsSection>('context')
+  const [activeSection, setActiveSection] = useState<SettingsSection>('appearance')
 
   useEffect(() => subscribeUIPreferences(setUIPreferences), [])
 
@@ -199,28 +199,58 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
   return <div className="project-settings-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
     <section className="project-settings-dialog context-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
       <header>
-        <div><span className="eyebrow">Wharnex</span><h2 id="project-settings-title">Configurações</h2><p>Preferências do projeto, transporte de contexto e dados locais num só lugar.</p></div>
+        <div className="settings-dialog-heading"><span className="settings-dialog-symbol"><Icon name="settings" size={18}/></span><div><span className="eyebrow">Preferências</span><h2 id="project-settings-title">Configurações</h2><p>Personalize o workbench e administre contexto, integrações e dados num espaço mais organizado.</p></div></div>
         <button className="icon-button" onClick={onClose} title="Fechar"><Icon name="close" size={16}/></button>
       </header>
       <div className="project-settings-body settings-layout">
         <nav className="settings-navigation" aria-label="Secções das configurações">
-          <SettingsNavButton active={activeSection === 'appearance'} icon="monitor" label="Aparência" detail="Tema e tipografia" onClick={() => setActiveSection('appearance')}/><SettingsNavButton active={activeSection === 'language'} icon="monitor" label="Idioma" detail="Interface e tradução" onClick={() => setActiveSection('language')}/>
-          <SettingsNavButton active={activeSection === 'context'} icon="file" label="Contexto" detail="Recorte do projeto" onClick={() => setActiveSection('context')}/>
-          <SettingsNavButton active={activeSection === 'tunnel-provider'} icon="network" label="Tunnel Provider" detail="Transporte ChatGPT" onClick={() => setActiveSection('tunnel-provider')}/>
-          <SettingsNavButton active={activeSection === 'remote-storage'} icon="network" label="Storage remoto" detail="Contas e limites" onClick={() => setActiveSection('remote-storage')}/>
-          <SettingsNavButton active={activeSection === 'data'} icon="shield" label="Dados locais" detail="Uso e limpeza" onClick={() => setActiveSection('data')}/>
+          <div className="settings-project-summary"><span>Projeto atual</span><strong>{session.project_path.split('/').filter(Boolean).pop() || session.project_path}</strong><small title={session.project_path}>{session.project_path}</small></div>
+          <SettingsNavGroup label="Interface">
+            <SettingsNavButton active={activeSection === 'appearance'} icon="monitor" label="Aparência" detail="Tema, cores e tipografia" onClick={() => setActiveSection('appearance')}/>
+            <SettingsNavButton active={activeSection === 'language'} icon="edit" label="Idioma" detail="Interface e tradução" onClick={() => setActiveSection('language')}/>
+          </SettingsNavGroup>
+          <SettingsNavGroup label="Projeto">
+            <SettingsNavButton active={activeSection === 'context'} icon="file" label="Contexto" detail="Recorte enviado à IA" onClick={() => setActiveSection('context')}/>
+          </SettingsNavGroup>
+          <SettingsNavGroup label="Integrações">
+            <SettingsNavButton active={activeSection === 'tunnel-provider'} icon="network" label="Tunnel Provider" detail="Transporte ChatGPT" onClick={() => setActiveSection('tunnel-provider')}/>
+            <SettingsNavButton active={activeSection === 'remote-storage'} icon="database" label="Storage remoto" detail="Contas e limites" onClick={() => setActiveSection('remote-storage')}/>
+          </SettingsNavGroup>
+          <SettingsNavGroup label="Sistema">
+            <SettingsNavButton active={activeSection === 'data'} icon="shield" label="Dados locais" detail="Uso, retenção e limpeza" onClick={() => setActiveSection('data')}/>
+          </SettingsNavGroup>
         </nav>
         <main className="settings-content">
         {activeSection === 'language' ? <LanguageSettingsPanel onError={onError}/> : null}
         {activeSection === 'appearance' ? <section className="appearance-settings-section">
-          <div className="context-section-title"><div><strong>Aparência e tipografia</strong><span>Ajuste a leitura da interface sem alterar o projeto. As preferências são locais ao Wharnex.</span></div><code>{Math.round(uiPreferences.scale * 100)}%</code></div>
-          <ThemePreferenceControl value={uiPreferences.theme} onChange={(theme) => { const next = saveUIPreferences({ ...uiPreferences, theme }); setUIPreferences(next) }} />
-          <div className="typography-settings-grid">
-            <label><span>Fonte da interface</span><select value={uiPreferences.uiFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, uiFont: event.target.value as UIPreferences['uiFont'] }); setUIPreferences(next) }}><option value="elegant">Elegante · Inter / Manrope</option><option value="system">Sistema · Segoe / nativa</option><option value="humanist">Humanista · Aptos / Calibri</option></select></label>
-            <label><span>Fonte monoespaçada</span><select value={uiPreferences.monoFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, monoFont: event.target.value as UIPreferences['monoFont'] }); setUIPreferences(next) }}><option value="jetbrains">JetBrains Mono</option><option value="system">Sistema Mono</option><option value="fira">Fira Code</option></select></label>
+          <div className="settings-page-hero"><div><span className="eyebrow">Interface</span><strong>Aparência do workbench</strong><p>Tema, contraste, densidade e tipografia com as mesmas cores da interface ativa.</p></div><code>{Math.round(uiPreferences.scale * 100)}%</code></div>
+          <section className="settings-premium-card settings-theme-card">
+            <div className="settings-card-heading"><span><strong>Tema e identidade</strong><small>Escolha o preset visual e a cor de destaque.</small></span><Icon name="monitor" size={16}/></div>
+            <ThemePreferenceControl value={uiPreferences.theme} onChange={(theme) => { const next = saveUIPreferences({ ...uiPreferences, theme }); setUIPreferences(next) }} />
+            <div className="accent-settings" aria-label="Cor de destaque">
+              <span>Cor de destaque</span>
+              <div>{UI_ACCENT_REGISTRY.map((accent) => <button key={accent.id} type="button" className={`accent-choice accent-${accent.id}${uiPreferences.accent === accent.id ? ' active' : ''}`} aria-label={`Destaque: ${accent.label}`} aria-pressed={uiPreferences.accent === accent.id} onClick={() => { const next = saveUIPreferences({ ...uiPreferences, accent: accent.id }); setUIPreferences(next) }}><i/><b>{accent.label}</b></button>)}</div>
+            </div>
+          </section>
+          <div className="settings-premium-grid">
+            <section className="settings-premium-card">
+              <div className="settings-card-heading"><span><strong>Interface</strong><small>Como o conteúdo e as barras ocupam o espaço.</small></span><Icon name="workspace" size={16}/></div>
+              <div className="typography-settings-grid workbench-appearance-grid">
+                <label><span>Esquema do conteúdo</span><select value={uiPreferences.contentScheme} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, contentScheme: event.target.value as UIPreferences['contentScheme'] }); setUIPreferences(next) }}><option value="follow-ui">Seguir interface</option><option value="original">Original</option><option value="dark">Escuro</option><option value="light">Claro</option><option value="high-contrast">Alto contraste</option></select></label>
+                <label><span>Densidade</span><select value={uiPreferences.density} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, density: event.target.value as UIPreferences['density'] }); setUIPreferences(next) }}><option value="default">Normal</option><option value="compact">Compacta</option></select></label>
+                <label><span>Barras de ferramentas</span><select value={uiPreferences.toolRailPlacement} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, toolRailPlacement: event.target.value as UIPreferences['toolRailPlacement'] }); setUIPreferences(next) }}><option value="sides">Laterais</option><option value="bottom">Cantos inferiores</option></select></label>
+              </div>
+            </section>
+            <section className="settings-premium-card">
+              <div className="settings-card-heading"><span><strong>Tipografia e escala</strong><small>Leitura consistente no editor e no chrome.</small></span><Icon name="edit" size={16}/></div>
+              <div className="typography-settings-grid">
+                <label><span>Fonte da interface</span><select value={uiPreferences.uiFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, uiFont: event.target.value as UIPreferences['uiFont'] }); setUIPreferences(next) }}><option value="elegant">Elegante · Inter / Manrope</option><option value="system">Sistema · Segoe / nativa</option><option value="humanist">Humanista · Aptos / Calibri</option></select></label>
+                <label><span>Fonte monoespaçada</span><select value={uiPreferences.monoFont} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, monoFont: event.target.value as UIPreferences['monoFont'] }); setUIPreferences(next) }}><option value="jetbrains">JetBrains Mono</option><option value="system">Sistema Mono</option><option value="fira">Fira Code</option></select></label>
+              </div>
+              <label className="font-scale-setting"><span><strong>Tamanho da interface</strong><small>100% é o centro da escala e usa uma base maior; reduza até 40% ou amplie até 160%.</small></span><input type="range" min="0.4" max="1.6" step="0.05" value={uiPreferences.scale} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, scale: Number(event.target.value) }); setUIPreferences(next) }}/><output>{Math.round(uiPreferences.scale * 100)}%</output></label>
+            </section>
           </div>
-          <label className="font-scale-setting"><span><strong>Tamanho da interface</strong><small>100% é o centro da escala e usa uma base maior; reduza até 40% ou amplie até 160%.</small></span><input type="range" min="0.4" max="1.6" step="0.05" value={uiPreferences.scale} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, scale: Number(event.target.value) }); setUIPreferences(next) }}/><output>{Math.round(uiPreferences.scale * 100)}%</output></label>
-          <label className="settings-toggle"><input type="checkbox" checked={uiPreferences.errorPopups} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, errorPopups: event.target.checked }); setUIPreferences(next) }}/><span><strong>Popups de erro</strong><small>Mostra apenas um aviso compacto e não bloqueante. Os detalhes completos continuam no chat e o aviso pode ser desativado.</small></span></label>
+          <section className="settings-premium-card settings-feedback-card"><div className="settings-card-heading"><span><strong>Feedback de erros</strong><small>Controle a forma como os avisos aparecem sem perder os detalhes no chat.</small></span><Icon name="bell" size={16}/></div><label className="settings-toggle"><input type="checkbox" checked={uiPreferences.errorPopups} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, errorPopups: event.target.checked }); setUIPreferences(next) }}/><span><strong>Popups de erro</strong><small>Mostra apenas um aviso compacto e não bloqueante. Os detalhes completos continuam no chat e o aviso pode ser desativado.</small></span></label></section>
         </section> : null}
         {activeSection === 'context' ? (!config ? (loadingError
           ? <div className="settings-load-error"><Icon name="shield" size={22}/><div><strong>Não foi possível carregar a configuração</strong><p>{loadingError}</p><span>O backend tenta recriar automaticamente <code>whaness.yml</code> quando ele não existe. Pode tentar novamente sem fechar o projeto.</span><button className="secondary-button" onClick={() => setReloadNonce((value) => value + 1)}><Icon name="refresh" size={14}/> Tentar novamente</button></div></div>
@@ -282,7 +312,11 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
 
 function StorageMetric({ label, bytes }: { label: string; bytes: number }) { return <div className="storage-metric"><span>{label}</span><strong>{formatBytes(bytes)}</strong></div> }
 
-function SettingsNavButton({ active, icon, label, detail, onClick }: { active: boolean; icon: 'monitor' | 'file' | 'network' | 'shield'; label: string; detail: string; onClick: () => void }) {
+function SettingsNavGroup({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="settings-nav-group"><span className="settings-nav-group-label">{label}</span>{children}</div>
+}
+
+function SettingsNavButton({ active, icon, label, detail, onClick }: { active: boolean; icon: 'monitor' | 'edit' | 'file' | 'network' | 'database' | 'shield'; label: string; detail: string; onClick: () => void }) {
   return <button className={active ? 'active' : ''} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon name={icon} size={16}/><span><strong>{label}</strong><small>{detail}</small></span></button>
 }
 

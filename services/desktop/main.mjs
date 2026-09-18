@@ -81,6 +81,11 @@ const CHATGPT_AFFINITY_RECOVERY_GRACE_MS = 60_000
 // embedded view loading indefinitely. The local runtime has a verified IPv4
 // path, so keep the desktop browser on it until the host network is fixed.
 app.commandLine.appendSwitch('disable-ipv6')
+// Electron 44 on this Linux/X11 runtime has trapped in the GPU path while the
+// local shell and embedded ChatGPT surfaces are composited together. Wharnex
+// is a productivity UI, not a GPU workload; software compositing keeps the
+// title-bar overlay and workspace stable without changing application features.
+if (process.platform === 'linux') app.disableHardwareAcceleration()
 // Channel choice is explicit configuration, ordered by priority. The managed
 // desktop-direct entry is always present as the safe final fallback.
 const SAFE_ATTACHMENT_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'])
@@ -143,6 +148,7 @@ let chatAgentRuntimeDiagnostics = {
   provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', rate_limit_level: 0, last_rate_limit_at: '', last_rate_limit_source: '', last_valid_bundle_at: '', average_processing_ms: 0, valid_sample_count: 0, initial_wait_ms: 60_000, updated_at: '' },
 }
 let deferredSupervisorNavigation
+let deferredSupervisorNavigationTimer
 const chatGPTAuthBrowsers = new Map()
 const internalChatGPTBrowsers = new Map()
 const desktopWindows = new Map()
@@ -269,9 +275,15 @@ const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = 6_000
 const CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS = 15 * 60_000
 const CHATGPT_DOM_PROBE_FAILURE_LIMIT = 3
 const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
+const DEFERRED_SUPERVISOR_NAVIGATION_RETRY_MS = 250
 // How many times a window's frontend renderer may be restarted after a
 // crash before Wharnex stops and asks for human attention.
 const FRONTEND_RENDERER_RESTART_LIMIT = 5
+// Give the local React shell one quiet paint before allocating hidden Chromium
+// surfaces for autonomous account work. Starting all renderers together has
+// intermittently killed the visible Linux renderer with exitCode=133.
+const CHAT_AGENT_STARTUP_DELAY_MS = 2_500
+const CHAT_AGENT_WORKER_SPAWN_GAP_MS = 1_500
 let chatGPTDownloadPoller
 let recentExpectedDownload
 const chatGPTUploads = new ChatGPTUploadCoordinator()
@@ -597,19 +609,68 @@ function releaseWindowProjects(windowState) {
 
 function windowLayoutPath() { return path.join(app.getPath('userData'), 'wharness-window-layout.json') }
 
-function persistWindowLayout(ids = [...desktopWindows.values()].filter((state) => !state.window.isDestroyed()).map((state) => state.id)) {
-  try {
-    writeFileSync(windowLayoutPath(), JSON.stringify({ version: 1, windows: [...new Set(ids)].slice(0, 12) }), { mode: 0o600 })
-  } catch (error) { console.warn('[windows] layout persistence failed', error) }
+const DEFAULT_DESKTOP_WINDOW_SIZE = Object.freeze({ width: 1540, height: 960 })
+const MIN_DESKTOP_WINDOW_SIZE = Object.freeze({ width: 1100, height: 720 })
+let windowLayoutPersistTimer
+
+function normalizedWindowSize(value) {
+  const width = Number(value?.width)
+  const height = Number(value?.height)
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return undefined
+  if (width < MIN_DESKTOP_WINDOW_SIZE.width || height < MIN_DESKTOP_WINDOW_SIZE.height) return undefined
+  if (width > 8192 || height > 8192) return undefined
+  return { width: Math.round(width), height: Math.round(height) }
 }
 
-function loadWindowLayout() {
+function readWindowLayoutState() {
   try {
     const parsed = JSON.parse(readFileSync(windowLayoutPath(), 'utf8'))
     const windows = Array.isArray(parsed?.windows) ? parsed.windows.filter((item) => typeof item === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(item)) : []
-    return windows.length ? [...new Set(windows)].slice(0, 12) : ['primary']
-  } catch { return ['primary'] }
+    const sizes = {}
+    if (parsed?.sizes && typeof parsed.sizes === 'object') {
+      for (const [id, value] of Object.entries(parsed.sizes)) {
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) continue
+        const size = normalizedWindowSize(value)
+        if (size) sizes[id] = size
+      }
+    }
+    return { windows: windows.length ? [...new Set(windows)].slice(0, 12) : ['primary'], sizes }
+  } catch { return { windows: ['primary'], sizes: {} } }
 }
+
+function persistedWindowSize(windowState) {
+  if (!windowState?.window || windowState.window.isDestroyed()) return undefined
+  try {
+    const bounds = typeof windowState.window.getNormalBounds === 'function' ? windowState.window.getNormalBounds() : windowState.window.getBounds()
+    return normalizedWindowSize(bounds)
+  } catch { return undefined }
+}
+
+function persistWindowLayout(ids = [...desktopWindows.values()].filter((state) => !state.window.isDestroyed()).map((state) => state.id)) {
+  try {
+    const previous = readWindowLayoutState()
+    const windows = [...new Set(ids)].filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id)).slice(0, 12)
+    const sizes = {}
+    for (const id of windows) {
+      const live = desktopWindows.get(id)
+      const size = persistedWindowSize(live) || previous.sizes[id]
+      if (size) sizes[id] = size
+    }
+    writeFileSync(windowLayoutPath(), JSON.stringify({ version: 2, windows, sizes }), { mode: 0o600 })
+  } catch (error) { console.warn('[windows] layout persistence failed', error) }
+}
+
+function scheduleWindowLayoutPersistence() {
+  clearTimeout(windowLayoutPersistTimer)
+  windowLayoutPersistTimer = setTimeout(() => {
+    windowLayoutPersistTimer = undefined
+    persistWindowLayout()
+  }, 180)
+}
+
+function loadWindowLayout() { return readWindowLayoutState().windows }
+
+function loadWindowSize(id) { return readWindowLayoutState().sizes[id] || DEFAULT_DESKTOP_WINDOW_SIZE }
 
 function restartIntentPath() { return path.join(app.getPath('userData'), 'wharness-window-restart-intent.json') }
 
@@ -867,8 +928,10 @@ function rehomeChatGPTWorkers(windowState) {
   if (!replacement) return false
   for (const entry of chatGPTWorkerEntries) {
     if (entry.ownerWindowId !== windowState.id || entry.view.webContents.isDestroyed()) continue
-    try { windowState.window.contentView.removeChildView?.(entry.view) } catch { /* already detached */ }
-    replacement.window.contentView.addChildView(entry.view)
+    if (entry.attached) {
+      try { windowState.window.contentView.removeChildView?.(entry.view) } catch { /* already detached */ }
+      replacement.window.contentView.addChildView(entry.view)
+    }
     entry.ownerWindowId = replacement.id
     entry.interactionWindowId = ''
     entry.parkedLayout = true
@@ -2107,8 +2170,12 @@ function createChatGPTWorkerView(slotId, windowState) {
   if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT worker without a host window')
   const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
   view.setBackgroundColor('#ffffff')
-  const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, interactionWindowId: '', view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, layoutViewportGranted: true, affinity: createChatGPTAffinityTracker() }
-  windowState.window.contentView.addChildView(view)
+  // Hidden Workers do not need to participate in the visible window's native
+  // compositor tree. Keeping them detached avoids the Linux WebContentsView
+  // attachment trap that killed and reloaded the local frontend renderer as
+  // each background slot was created. A Worker is attached only while the
+  // operator explicitly surfaces it, then detached again when that pane closes.
+  const entry = { role: 'worker', slotId, ownerKey: '', ownerWindowId: windowState.id, interactionWindowId: '', attached: false, view, loading: false, lastUsed: Date.now(), lastNetworkActivity: Date.now(), lastConversationActivity: Date.now(), conversationRequests: new Map(), staleConversationRequestIds: new Set(), conversationTransportGeneration: 0, transportPreparationCount: 0, transportRequestId: '', healthProbeFailures: 0, loadingSince: 0, loadingFaultNoted: false, humanAction: undefined, humanNoticeFingerprint: '', lastSurfaceFingerprint: '', externalAuthProvider: '', authMode: 'embedded', embeddedAuthActive: false, embeddedAuthCrossedBoundary: false, authenticated: false, authProbeTimer: undefined, affinitySettleTimer: undefined, navigationPromise: undefined, navigationTarget: '', parkedLayout: true, layoutViewportGranted: true, affinity: createChatGPTAffinityTracker() }
   grantChatGPTLayoutViewport(view)
   chatGPTWorkerEntries.push(entry)
   chatAgentResidency.register(slotId)
@@ -2150,7 +2217,7 @@ function retireChatGPTWorkerView(entry) {
   hideChatAgentInteractionEntry(entry)
   clearTimeout(entry.affinitySettleTimer)
   const state = windowStateForEntry(entry)
-  try { state?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
+  if (entry.attached) try { state?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
   if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
   return true
 }
@@ -2360,6 +2427,18 @@ function ensureChatGPTWorkerPool(windowState) {
   reconcileChatGPTWorkerPool(windowState)
 }
 
+async function primeChatGPTWorkerPool(windowState) {
+  while (!quitting && chatGPTWorkerEntries.length < desiredChatAgentWorkerSlots) {
+    const host = windowState?.window && !windowState.window.isDestroyed()
+      ? windowState
+      : [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+    if (!host) return
+    const index = chatGPTWorkerEntries.length
+    createChatGPTWorkerView(`worker-${index + 1}`, host)
+    if (chatGPTWorkerEntries.length < desiredChatAgentWorkerSlots) await delay(CHAT_AGENT_WORKER_SPAWN_GAP_MS)
+  }
+}
+
 function assignChatGPTWorker(entry, task) {
   if (!entry || entry.role !== 'worker') throw new Error('Chat-agent worker slot is unavailable')
   const chatId = task?.chat_id || task?.chatId
@@ -2418,6 +2497,12 @@ function hideChatAgentInteractionEntry(entry) {
   entry.interactionWindowId = ''
   entry.parkedLayout = true
   try { entry.view.setVisible(false) } catch { /* renderer may already be gone */ }
+  if (entry.attached) {
+    const ownerState = windowStateForEntry(entry)
+    try { ownerState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
+    entry.attached = false
+    grantChatGPTLayoutViewport(entry.view)
+  }
   return true
 }
 
@@ -2445,11 +2530,12 @@ function showChatAgentInteraction(agentID, rawBounds, windowState) {
     const previousState = desktopWindows.get(entry.interactionWindowId)
     if (previousState?.activeAgentInteractionId === entry.slotId) previousState.activeAgentInteractionId = ''
   }
-  if (entry.ownerWindowId !== windowState.id) {
+  if (entry.ownerWindowId !== windowState.id || !entry.attached) {
     const ownerState = windowStateForEntry(entry)
-    try { ownerState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
+    if (entry.attached) try { ownerState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
     windowState.window.contentView.addChildView(entry.view)
     entry.ownerWindowId = windowState.id
+    entry.attached = true
   }
   entry.interactionWindowId = windowState.id
   windowState.activeAgentInteractionId = entry.slotId
@@ -2913,7 +2999,17 @@ function activateChatGPTView(cacheKey, bounds, windowState) {
 function clearDeferredSupervisorNavigation() {
   const pending = deferredSupervisorNavigation
   deferredSupervisorNavigation = undefined
+  clearTimeout(deferredSupervisorNavigationTimer)
+  deferredSupervisorNavigationTimer = undefined
   if (pending?.windowState) pending.windowState.desiredVisibleChatGPTKey = ''
+}
+
+function scheduleDeferredSupervisorNavigation() {
+  if (!deferredSupervisorNavigation || deferredSupervisorNavigationTimer) return
+  deferredSupervisorNavigationTimer = setTimeout(() => {
+    deferredSupervisorNavigationTimer = undefined
+    void applyDeferredSupervisorNavigation()
+  }, DEFERRED_SUPERVISOR_NAVIGATION_RETRY_MS)
 }
 
 function setDeferredSupervisorNavigation(cacheKey, windowState, request = {}, current = supervisorEntry(windowState)) {
@@ -2929,6 +3025,7 @@ function setDeferredSupervisorNavigation(cacheKey, windowState, request = {}, cu
     reconcileChatGPTThrottle(chatGPTKeyForEntry(current), current)
   }
   if (windowState) sendToWindowState(windowState, 'wharness:chatgpt:state', currentChatGPTState(key, windowState))
+  scheduleDeferredSupervisorNavigation()
 }
 
 function differentSupervisorTransport(cacheKey) {
@@ -2967,12 +3064,21 @@ function deferSupervisorNavigationIfBusy(cacheKey, windowState, request = {}) {
 async function applyDeferredSupervisorNavigation() {
   const pending = deferredSupervisorNavigation
   if (!pending) return
-  if (chatgptViews.size >= desiredChatAgentSupervisorSlots && !reusableSupervisor(pending.key, pending.windowState)) return
-  deferredSupervisorNavigation = undefined
   const state = pending.windowState
-  if (!state?.window || state.window.isDestroyed()) return
+  if (!state?.window || state.window.isDestroyed()) {
+    clearDeferredSupervisorNavigation()
+    return
+  }
+  if (differentSupervisorTransport(pending.key)) {
+    scheduleDeferredSupervisorNavigation()
+    return
+  }
+  if (!chatgptViews.has(pending.key) && chatgptViews.size >= desiredChatAgentSupervisorSlots && !reusableSupervisor(pending.key, state)) {
+    scheduleDeferredSupervisorNavigation()
+    return
+  }
+  clearDeferredSupervisorNavigation()
   state.chatgptVisible = pending.visible
-  state.desiredVisibleChatGPTKey = ''
   const entry = activateChatGPTView(pending.key, pending.bounds, state)
   const target = pending.url ? requireTrustedChatGPTURL(pending.url) : CHATGPT_URL
   const currentURL = entry.view.webContents.getURL()
@@ -3020,7 +3126,22 @@ async function fetchContextZip(sessionId) {
   const bytes = Buffer.from(await response.arrayBuffer())
   if (bytes.byteLength > MAX_CONTEXT_BYTES) throw new Error('Context ZIP exceeds 256 MiB desktop limit')
   if (bytes.byteLength < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error('Backend did not return a ZIP bundle')
-  return { id, bytes }
+  const mapsURL = new URL(`/api/sessions/${encodeURIComponent(id)}/context/maps`, BACKEND_URL)
+  const mapsResponse = await fetch(mapsURL, { redirect: 'error' })
+  const maps = await mapsResponse.json().catch(() => ({}))
+  if (!mapsResponse.ok || maps?.protocol !== 'harness.context-map/v1' || !Array.isArray(maps?.files)) {
+    throw new Error(maps?.error?.message || `Context maps HTTP ${mapsResponse.status}`)
+  }
+  return { id, bytes, maps: maps.files }
+}
+
+async function fetchRequestGitContext(sessionId) {
+  const id = sanitizeSessionId(sessionId)
+  const target = new URL(`/api/sessions/${encodeURIComponent(id)}/git/context`, BACKEND_URL)
+  const response = await fetch(target, { redirect: 'error' })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok || body?.protocol !== 'harness.git-context/v1') throw new Error(body?.error?.message || `Git context HTTP ${response.status}`)
+  return body
 }
 
 async function fetchRequestKnowledge(sessionId, requestId) {
@@ -3145,6 +3266,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const knowledge = await fetchRequestKnowledge(sessionId, requestId)
+  const gitContext = await fetchRequestGitContext(sessionId)
   const continuation = await fetchRequestContinuation(sessionId, requestId)
   // A derived request must be self-contained even when the linked ChatGPT
   // conversation forgot or truncated an earlier snapshot. The delta remains
@@ -3158,6 +3280,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
     prompt: promptText,
     context,
     knowledge,
+    gitContext,
     continuation,
     attachments: decoded,
     artifacts: artifacts.decoded,
@@ -3179,8 +3302,9 @@ async function materializeProtocolChatInput(cacheKey, sessionId, requestId, prom
   const archivePath = path.join(dir, archiveName)
   const context = await fetchContextZip(sessionId)
   const knowledge = await fetchRequestKnowledge(sessionId, requestId)
+  const gitContext = await fetchRequestGitContext(sessionId)
   const continuation = await fetchRequestContinuation(sessionId, requestId)
-  const archive = await writeChatInputArchive(archivePath, { requestId, requestMetadata, prompt: promptText, context, knowledge, continuation, attachments: decoded, liveTunnels })
+  const archive = await writeChatInputArchive(archivePath, { requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels })
   return { archivePath, archiveName, attachmentCount: decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes, requestMetadata: archive.requestMetadata }
 }
 
@@ -3736,6 +3860,14 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
   const { wc } = requireOwnedChatGPTEntry(key, entry)
   const result = await pasteWithUploadRetry({
     beforeAttempt: async () => {
+      // A retry is a fresh provider-facing action: without this, two Workers
+      // retiring their own 500ms/1s/2s/4s backoffs independently can still
+      // land their file-selection attempts on ChatGPT within the same couple
+      // of seconds, and live testing showed that contention is exactly what
+      // pushes an upload that would otherwise start past the coordinator's
+      // observation window. The shared gate spaces retries the same way it
+      // already spaces first attempts and navigation.
+      await paceChatGPTWorkerSubmission()
       await waitForChatGPTSurfaceReady(key, entry)
       const ready = await wc.executeJavaScript(chatGPTComposerReadyScript(), true)
       if (!ready) throw new Error('ChatGPT composer DOM was not found before upload')
@@ -3764,7 +3896,7 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
 // that relied on their own try/catch or on the shared DOM-probe-failure
 // counter in pollExpectedChatGPTDownloadKey already handle a thrown error
 // correctly.
-async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined) {
+async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {}) {
   const target = preparedTarget || await targetChatGPTComposer(key, '', false, entryOverride)
   const wc = target.wc
   const reasoningEffort = normalizeChatGPTReasoningEffort(target.reasoningEffort || target.entry.reasoningEffort || 'high')
@@ -3776,15 +3908,33 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
     }
   }
   assertExpectedConversation()
-  const effort = await ensureChatGPTReasoningEffort({
-    target: reasoningEffort,
-    observe: () => executeChatGPTDOMScript(key, target.entry, 'reasoning-effort-state', reasoningEffortStateScript(CHATGPT_BEHAVIOR)),
-    cycle: async () => {
-      const owned = requireOwnedChatGPTEntry(key, target.entry)
-      assertExpectedConversation()
-      withPreservedLocalFocus(() => dispatchChatGPTEffortCycle(owned.wc))
-    },
-  })
+  let effort
+  try {
+    effort = await ensureChatGPTReasoningEffort({
+      target: reasoningEffort,
+      observe: () => executeChatGPTDOMScript(key, target.entry, 'reasoning-effort-state', reasoningEffortStateScript(CHATGPT_BEHAVIOR)),
+      cycle: async () => {
+        const owned = requireOwnedChatGPTEntry(key, target.entry)
+        assertExpectedConversation()
+        withPreservedLocalFocus(() => dispatchChatGPTEffortCycle(owned.wc))
+      },
+    })
+  } catch (error) {
+    // Live testing showed ChatGPT's own Ctrl+Shift+M effort-cycle shortcut
+    // can simply stop registering (observed stuck on "high" through every
+    // bounded cycle) independently of anything this submission is doing.
+    // Every other caller here treats the requested reasoning effort as a
+    // hard precondition for a correctness-sensitive planning exchange, so it
+    // must keep failing closed. A background classification/translation
+    // worker only ever requests 'instant' as a latency/cost preference, not
+    // a correctness requirement, so for those callers a submission that
+    // never reaches ChatGPT because of an unrelated effort-picker regression
+    // is strictly worse than one delivered at whatever effort level the
+    // account is already on.
+    if (requireReasoningEffort) throw error
+    console.warn(`[chatgpt-effort] key=${key} could not reach ${reasoningEffort}, submitting at whatever level ChatGPT is currently on instead: ${error instanceof Error ? error.message : String(error)}`)
+    effort = { effort: `unconfirmed(wanted ${reasoningEffort})`, changed: false, cycles: 0 }
+  }
   console.log(`[chatgpt-effort] key=${key} target=${effort.effort} changed=${effort.changed} cycles=${effort.cycles}`)
   markChatGPTAffinitySubmitted(target.entry.affinity)
   let method = 'dom-click'
@@ -4906,6 +5056,14 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
   }
   expectedChatGPTTranslations.set(filename, expected)
 
+  // See the matching comment in executeChatAgentTodoClassification: a
+  // retried attempt must not reuse a page whose composer may already hold
+  // the file a previous attempt attached before failing later in the flow.
+  if (Number(task.attempt || 0) > 0) {
+    const { wc: staleWc } = requireOwnedChatGPTEntry(key, entry)
+    staleWc.reload()
+    await waitForChatGPTSurfaceReady(key, entry)
+  }
   let conversationUrl = ''
   try {
     const target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
@@ -4915,7 +5073,11 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
     await wait(chatInputSettleDelay(archive.byteLength, 1))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
+    // 'instant' is a latency/cost preference for this background transport,
+    // not a correctness requirement: live testing found the effort-cycle
+    // shortcut can stop registering, and a translation delivered at whatever
+    // level the account is already on beats one that never submits at all.
+    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort: false })
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT translation submission has no stable conversation id')
 
@@ -4992,6 +5154,19 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
   download.catch(() => undefined)
   const expected = { taskId: task.task_id, key, filename, armedAt: Date.now(), resolve: resolveDownload, reject: rejectDownload }
   expectedChatGPTTodoClassifications.set(filename, expected)
+  // A retried attempt reuses whatever page this exact function left behind
+  // when an earlier attempt got past a successful upload and then failed
+  // later in the flow (submission, reasoning effort, no response). ChatGPT
+  // silently no-ops re-selecting a file its composer already holds, so every
+  // upload attempt against that stale page "never starts" — live testing
+  // against the real account reproduced this deterministically on the very
+  // first retry after a confirmed upload. A hard reload guarantees the next
+  // attempt begins from an empty composer instead of a stuck one.
+  if (Number(task.attempt || 0) > 0) {
+    const { wc: staleWc } = requireOwnedChatGPTEntry(key, entry)
+    staleWc.reload()
+    await waitForChatGPTSurfaceReady(key, entry)
+  }
   let conversationUrl = ''
   try {
     const target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
@@ -5001,7 +5176,9 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
     await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
     await wait(chatInputSettleDelay(archive.byteLength, 1))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
+    // See the matching comment in executeChatAgentMarkdownTranslation:
+    // 'instant' is a preference here, not a precondition for submitting.
+    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort: false })
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT TODO classification submission has no stable conversation id')
     const deadline = Date.now() + TODO_CLASSIFICATION_TIMEOUT_MS
@@ -5884,17 +6061,22 @@ function openInternalChatGPTBrowser(windowState, value) {
 
 function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true) {
   const id = /^[A-Za-z0-9_-]{1,80}$/.test(String(windowId || '')) ? String(windowId) : `window-${randomUUID()}`
+  const initialWindowSize = loadWindowSize(id)
   const win = new BrowserWindow({
-    width: 1540,
-    height: 960,
-    minWidth: 1100,
-    minHeight: 720,
+    width: initialWindowSize.width,
+    height: initialWindowSize.height,
+    minWidth: MIN_DESKTOP_WINDOW_SIZE.width,
+    minHeight: MIN_DESKTOP_WINDOW_SIZE.height,
     title: desktopWindowTitle('', DESKTOP_INSTANCE),
     icon: DESKTOP_ICON,
     name: `wharness-${id}`,
-    windowStatePersistence: true,
     backgroundColor: '#eceee7',
     autoHideMenuBar: true,
+    // The themed shell owns every visible pixel of window chrome, including
+    // minimize, maximize and close. This keeps the controls consistent with
+    // the selected Wharnex theme instead of mixing native window buttons into
+    // the project header.
+    frame: false,
     webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
   })
   const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '' }
@@ -5952,6 +6134,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
   win.webContents.on('responsive', () => console.log(`[frontend-renderer] window=${id} responsive`))
   win.on('focus', () => { mainWindow = win; win.flashFrame(false); publishChatGPTState(state.activeChatGPTKey) })
   win.on('blur', () => publishChatGPTState(state.activeChatGPTKey))
+  win.on('resize', scheduleWindowLayoutPersistence)
   win.on('close', () => { hideChatAgentInteractionsForWindow(state); if (!quitting) rehomeChatGPTWorkers(state) })
   win.on('closed', () => {
     closeInternalChatGPTBrowserForWindow(state)
@@ -6020,6 +6203,24 @@ function registerIPC() {
     const windowState = createWindow()
     windowState.window.show(); windowState.window.focus()
     return { ok: true, windowId: windowState.id }
+  })
+  ipcMain.handle('wharness:windows:minimize', (event) => {
+    const windowState = trustedSender(event)
+    windowState.window.minimize()
+    return { ok: true }
+  })
+  ipcMain.handle('wharness:windows:toggle-maximize', (event) => {
+    const windowState = trustedSender(event)
+    if (windowState.window.isMaximized()) windowState.window.unmaximize()
+    else windowState.window.maximize()
+    return { ok: true, maximized: windowState.window.isMaximized() }
+  })
+  ipcMain.handle('wharness:windows:close', (event) => {
+    const windowState = trustedSender(event)
+    setTimeout(() => {
+      if (!windowState.window.isDestroyed()) windowState.window.close()
+    }, 0)
+    return { ok: true }
   })
   ipcMain.handle('wharness:windows:prepare-restart', (event, request) => {
     const windowState = trustedSender(event)
@@ -6690,7 +6891,6 @@ app.whenReady().then(async () => {
   }
 
   const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
-  ensureChatGPTWorkerPool(workerHost)
   chatAgentScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: executeChatAgentTask,
     // The Worker pool takes only small account-lifecycle and utility work. The
@@ -6765,7 +6965,15 @@ app.whenReady().then(async () => {
       void refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState).catch(() => undefined)
     },
   })
-  chatAgentScheduler.start()
+  // Do not compete with the first local frontend paint. The queue is durable,
+  // so this short delay does not discard work; it prevents the visible app
+  // from being reloaded while hidden WebContents are starting.
+  setTimeout(async () => {
+    if (quitting) return
+    await primeChatGPTWorkerPool(workerHost)
+    if (quitting) return
+    chatAgentScheduler.start()
+  }, CHAT_AGENT_STARTUP_DELAY_MS)
   // The Supervisor pool draws from the same durable queue with the complementary
   // role: opening the chat, submitting the request bundle, following the remote
   // instance and collecting the response bundle. One loop per Supervisor slot,

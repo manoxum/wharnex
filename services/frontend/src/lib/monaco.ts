@@ -63,6 +63,50 @@ export function configureMonaco() {
   configured = true
   monaco.typescript.typescriptDefaults.setEagerModelSync(true)
   monaco.typescript.javascriptDefaults.setEagerModelSync(true)
+  monaco.languages.register({ id: 'dotenv' })
+  monaco.languages.setMonarchTokensProvider('dotenv', {
+    tokenizer: {
+      root: [
+        [/^\s*#.*$/, 'comment'],
+        [/^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*(?=\s*=)/, 'variable'],
+        [/=/, 'delimiter'],
+        [/#.*$/, 'comment'],
+        [/"(?:[^"\\]|\\.)*"/, 'string'],
+        [/'(?:[^'\\]|\\.)*'/, 'string'],
+        [/\b(?:true|false|null)\b/i, 'keyword'],
+        [/\b\d+(?:\.\d+)?\b/, 'number'],
+      ],
+    },
+  })
+  monaco.languages.register({ id: 'makefile' })
+  monaco.languages.setLanguageConfiguration('makefile', {
+    comments: { lineComment: '#' },
+    brackets: [['(', ')'], ['{', '}']],
+    autoClosingPairs: [
+      { open: '(', close: ')' },
+      { open: '{', close: '}' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+    ],
+  })
+  monaco.languages.setMonarchTokensProvider('makefile', {
+    tokenizer: {
+      root: [
+        [/^\s*#.*$/, 'comment'],
+        [/^\t[@+-]?/, 'keyword'],
+        [/\$\([^)]+\)|\$\{[^}]+\}/, 'variable'],
+        [/\$\$[@%<?^+*|]/, 'variable.predefined'],
+        [/\b(?:include|-include|sinclude|define|endef|ifdef|ifndef|ifeq|ifneq|else|endif|override|export|unexport|private|vpath)\b/, 'keyword'],
+        [/^[A-Za-z0-9_][A-Za-z0-9_.%/@+-]*(?=\s*::?(?!=))/, 'type.identifier'],
+        [/^[A-Za-z_][A-Za-z0-9_]*(?=\s*(?:[:+?]?=))/, 'variable'],
+        [/"(?:[^"\\]|\\.)*"/, 'string'],
+        [/'(?:[^'\\]|\\.)*'/, 'string'],
+        [/#.*$/, 'comment'],
+        [/\b\d+(?:\.\d+)?\b/, 'number'],
+        [/::?|[:+?]?=/, 'delimiter'],
+      ],
+    },
+  })
   for (const language of ['javascript', 'typescript']) {
     monaco.languages.registerCompletionItemProvider(language, {
       triggerCharacters: ['<', ' ', '.', '('],
@@ -120,11 +164,48 @@ export function configureMonaco() {
       'scrollbarSlider.hoverBackground': '#626d5f55',
     },
   })
+  defineWorkbenchTheme('wharness-jetbrains-darcula', 'vs-dark', '#1e1f22', '#bcbec4', '#2b2d30', '#3574f0', '#2b2d30')
+  defineWorkbenchTheme('wharness-jetbrains-light', 'vs', '#ffffff', '#1f2329', '#f2f3f5', '#3574f0', '#f7f8fa')
+  defineWorkbenchTheme('wharness-vscode-dark', 'vs-dark', '#1e1e1e', '#d4d4d4', '#252526', '#007acc', '#1e1e1e')
+  defineWorkbenchTheme('wharness-vscode-light', 'vs', '#ffffff', '#333333', '#f3f3f3', '#007acc', '#ffffff')
 }
 
 export function activeMonacoTheme() {
-  return document.documentElement.dataset.theme === 'dark' ? 'wharness-dark' : 'wharness-light'
+  const root = document.documentElement
+  const scheme = root.dataset.contentScheme
+  if (scheme === 'high-contrast') return 'hc-black'
+  if (root.dataset.contentSchemePreference === 'follow-ui') {
+    if (root.dataset.uiTheme === 'jetbrains-darcula') return 'wharness-jetbrains-darcula'
+    if (root.dataset.uiTheme === 'jetbrains-light') return 'wharness-jetbrains-light'
+    if (root.dataset.uiTheme === 'vscode-dark') return 'wharness-vscode-dark'
+    if (root.dataset.uiTheme === 'vscode-light') return 'wharness-vscode-light'
+  }
+  return scheme === 'dark' || (!scheme && root.dataset.theme === 'dark') ? 'wharness-dark' : 'wharness-light'
 }
+
+function defineWorkbenchTheme(name: string, base: 'vs' | 'vs-dark', background: string, foreground: string, chrome: string, accent: string, gutter: string) {
+  monaco.editor.defineTheme(name, {
+    base,
+    inherit: true,
+    rules: [
+      { token: 'variable', foreground: base === 'vs-dark' ? 'C77DBB' : '7A3E9D' },
+      { token: 'delimiter', foreground: base === 'vs-dark' ? 'A7A7A7' : '666666' },
+    ],
+    colors: {
+      'editor.background': background,
+      'editor.foreground': foreground,
+      'editorGutter.background': gutter,
+      'editor.lineHighlightBackground': chrome,
+      'editor.selectionBackground': `${accent}55`,
+      'editor.inactiveSelectionBackground': `${accent}28`,
+      'editorCursor.foreground': accent,
+      'editorLineNumber.activeForeground': foreground,
+      'focusBorder': accent,
+      'minimap.background': gutter,
+    },
+  })
+}
+
 
 export function editorModelURI(path: string) {
   return monaco.Uri.from({ scheme: 'file', path: `/${path.replace(/^\/+/, '')}` })
