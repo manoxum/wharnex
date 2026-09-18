@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import type { HarnessEvent, Session } from '../types'
 import { useEffect, useState, type ComponentProps } from 'react'
 import { AgentWorkspace } from './AgentWorkspace'
+import { boundedAgentChatWidth } from '../lib/agentLayout'
 import { WorkspaceSideRail, type Drawer, type WorkspaceSideRailProps } from './WorkspaceSideRail'
 import { collectAttentionItems, type AttentionItem, type AttentionTarget } from '../lib/attentionCenter'
 import { executionQueueActiveCount, type ExecutionFIFOItem } from '../lib/executionQueueView'
@@ -134,6 +135,20 @@ describe('AgentWorkspace', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     window.history.replaceState({}, '', '/')
+  })
+
+  it('bounds a restored split so chat and Engine keep their usable minimums', () => {
+    expect(boundedAgentChatWidth(1_400, 1_200)).toBe(794)
+    expect(boundedAgentChatWidth(120, 1_200)).toBe(480)
+    expect(boundedAgentChatWidth(700, 800)).toBe(0)
+  })
+
+  it('keeps the notification center available when there are no alerts', () => {
+    render(props().element)
+    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações, 0 alerta/ }))
+    expect(screen.getByRole('dialog', { name: 'Alertas ativos' }).closest('.workspace-side-rail')).toBeNull()
+    expect(screen.getByText('Nada requer atenção')).toBeTruthy()
+    expect(screen.getByText('Novas notificações deste projeto aparecerão aqui.')).toBeTruthy()
   })
 
   it('migrates the legacy chat width once and leaves a new desktop window on the default split', () => {
@@ -758,13 +773,13 @@ describe('AgentWorkspace', () => {
     fireEvent(window, new Event('pointerup'))
 
     const drawer = container.querySelector('.agent-drawer') as HTMLElement
-    await waitFor(() => expect(drawer.style.getPropertyValue('--workspace-drawer-width')).toBe('458px'))
+    await waitFor(() => expect(drawer.style.getPropertyValue('--workspace-drawer-width')).toBe('456px'))
     // The Agent's own chat/inspector split is a separate measurement and must
     // not be rewritten by a drag of the shell's side panel.
     const workspace = container.querySelector('.agent-workspace') as HTMLElement
     expect(workspace.style.getPropertyValue('--agent-chat-width')).toBe('')
     // Each rail owns its width independently, scoped to the desktop window.
-    expect(localStorage.getItem('whx.workspace.drawer-width:left:primary')).toBe('458')
+    expect(localStorage.getItem('whx.workspace.drawer-width:left:primary')).toBe('456')
   })
 
   it('keeps the left panel open across attention routing and offers every drawer a close control', async () => {

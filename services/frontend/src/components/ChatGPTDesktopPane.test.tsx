@@ -123,9 +123,11 @@ describe('ChatGPTDesktopPane', () => {
     dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true')
     document.body.appendChild(dialog)
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
+    expect(await screen.findByText('ChatGPT preservado')).toBeTruthy()
     const before = vi.mocked(desktop.chatgpt.show).mock.calls.length
     dialog.remove()
     await waitFor(() => expect(vi.mocked(desktop.chatgpt.show).mock.calls.length).toBeGreaterThan(before))
+    await waitFor(() => expect(screen.queryByText('ChatGPT preservado')).toBeNull())
   })
 
   it('includes blocking overlays owned by the same-origin parent WorkspaceShell', () => {
