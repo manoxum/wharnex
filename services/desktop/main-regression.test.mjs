@@ -11,6 +11,26 @@ test('workspace toolbar owns the themed title bar and window controls', async ()
   assert.doesNotMatch(create, /titleBarOverlay/)
 })
 
+
+test('desktop windows restore their last normal size per window id', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const persistenceStart = source.indexOf('function windowLayoutPath()')
+  const persistenceEnd = source.indexOf('\nfunction restartIntentPath()', persistenceStart)
+  const persistence = source.slice(persistenceStart, persistenceEnd)
+  const createStart = source.indexOf('function createWindow(')
+  const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
+  const create = source.slice(createStart, registerStart)
+
+  assert.match(persistence, /JSON\.stringify\(\{ version: 2, windows, sizes \}\)/)
+  assert.match(persistence, /getNormalBounds/)
+  assert.match(persistence, /function loadWindowSize\(id\)/)
+  assert.match(create, /const initialWindowSize = loadWindowSize\(id\)/)
+  assert.match(create, /width: initialWindowSize\.width/)
+  assert.match(create, /height: initialWindowSize\.height/)
+  assert.match(create, /win\.on\('resize', scheduleWindowLayoutPersistence\)/)
+  assert.doesNotMatch(create, /windowStatePersistence/)
+})
+
 test('Linux Desktop uses software compositing to avoid GPU renderer traps', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /if \(process\.platform === 'linux'\) app\.disableHardwareAcceleration\(\)/)
