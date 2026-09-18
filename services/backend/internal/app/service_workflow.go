@@ -17,7 +17,7 @@ const maxWorkflowRounds = 6
 const maxInteractiveWorkflowRounds = maxWorkflowRounds * 4
 
 func workflowRoundLimit(plan *domain.ExecutionPlan) int {
-	if plan != nil && plan.Debug != nil && plan.Debug.Protocol == domain.InteractiveProtocolV1 {
+	if plan != nil && plan.Debug != nil && (plan.Debug.Protocol == domain.InteractiveProtocolV1 || plan.Debug.Protocol == domain.InteractiveProtocolV2) {
 		return maxInteractiveWorkflowRounds
 	}
 	return maxWorkflowRounds
@@ -126,6 +126,9 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 }
 
 func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, plan domain.ExecutionPlan, decision domain.PolicyDecision, transport string) (domain.ExecutionResult, error) {
+	if plan.Debug != nil && plan.Debug.Protocol == domain.InteractiveProtocolV2 {
+		return s.executeInteractiveV2Plan(ctx, sessionID, plan, decision, transport)
+	}
 	current, err := s.store.Get(sessionID)
 	if err != nil {
 		return domain.ExecutionResult{}, err
@@ -226,6 +229,9 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 		// Any continuation that wants to touch the host again must present its
 		// own exact plan for approval, even when Debug mode is enabled.
 		item.DebugApprovedPlanID = ""
+		if item.InteractiveGrant != nil && item.InteractiveGrant.OneShot {
+			item.InteractiveGrant = nil
+		}
 		// A workflow round is evidence gathering, not a failure, but it is
 		// still a round the planner spent: recording it stops the next round
 		// re-running probes whose answers are already in hand.

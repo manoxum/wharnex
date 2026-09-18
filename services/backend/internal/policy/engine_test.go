@@ -158,3 +158,34 @@ func TestInteractiveTerminalStillDeniesShellAndHostManagement(t *testing.T) {
 		}
 	}
 }
+
+func TestInteractiveV2TypedShellUsesCapabilityPolicyInsteadOfCommandShellDeny(t *testing.T) {
+	plan := basePlan()
+	plan.Risk = "medium"
+	plan.RequiresApproval = true
+	plan.Debug = &domain.DebugSpec{
+		Protocol: domain.InteractiveProtocolV2, Target: "host", Access: domain.DebugAccessObserve,
+		Rationale: "inspect the live TODO worker", Capabilities: []string{domain.InteractiveCapabilityShell},
+	}
+	plan.Operations = []domain.Operation{{Type: "shell", Shell: &domain.InteractiveShellSpec{Script: "printf 'ok\\n'", Shell: "bash", Cwd: ".", TimeoutSeconds: 30}}}
+	decision := NewEngine().Evaluate(plan)
+	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "medium" {
+		t.Fatalf("typed v2 shell should be allowed only through the explicit approval boundary: %#v", decision)
+	}
+}
+
+func TestInteractiveV2ModifyAlwaysBecomesHighRisk(t *testing.T) {
+	plan := basePlan()
+	plan.Risk = "high"
+	plan.RequiresApproval = true
+	plan.Debug = &domain.DebugSpec{
+		Protocol: domain.InteractiveProtocolV2, Target: "host", Access: domain.DebugAccessModify,
+		Rationale: "restart the stuck worker", Capabilities: []string{domain.InteractiveCapabilityService},
+		Scope: domain.InteractiveScope{Services: []string{"wharnex-worker.service"}},
+	}
+	plan.Operations = []domain.Operation{{Type: "service", Service: &domain.InteractiveServiceSpec{Action: "restart", Name: "wharnex-worker.service"}}}
+	decision := NewEngine().Evaluate(plan)
+	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
+		t.Fatalf("interactive modify must stay high-risk and approval-gated: %#v", decision)
+	}
+}

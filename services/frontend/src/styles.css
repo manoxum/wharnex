@@ -4535,3 +4535,5 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .plan-adjustment-context button { border:0; background:transparent; color:var(--muted); cursor:pointer; padding:5px; }
 .plan-adjustment-mode { box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
 .plan-adjustment-state { color:var(--accent); }
+.plan-interactive-payload { margin:4px 0 0; max-height:220px; overflow:auto; padding:8px 9px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-subtle); white-space:pre-wrap; overflow-wrap:anywhere; }
+.plan-interactive-payload code { font:500 10px/1.45 ui-monospace,'SFMono-Regular',Consolas,'Liberation Mono',monospace; color:var(--theme-text); }

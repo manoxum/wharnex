@@ -128,8 +128,17 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 		"--workdir", containerCwd,
 		r.image,
 	}
+	imageIndex := len(args) - 1
 	if !command.Network {
-		args = append(args[:len(args)-1], "--env", "GOPROXY=off", args[len(args)-1])
+		args = append(args[:imageIndex], "--env", "GOPROXY=off", args[imageIndex])
+		imageIndex = len(args) - 1
+	}
+	for _, name := range command.EnvAllowlist {
+		if _, ok := os.LookupEnv(name); !ok {
+			continue
+		}
+		args = append(args[:imageIndex], append([]string{"--env", name}, args[imageIndex:]...)...)
+		imageIndex += 2
 	}
 	args = append(args, command.Argv...)
 	cmd := exec.CommandContext(runCtx, "docker", args...)

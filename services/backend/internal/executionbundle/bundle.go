@@ -29,10 +29,18 @@ const (
 )
 
 type operationWire struct {
-	Type      string             `json:"type"`
-	Patch     string             `json:"patch,omitempty"`
-	PatchFile string             `json:"patch_file,omitempty"`
-	Command   domain.CommandSpec `json:"command"`
+	Type       string                            `json:"type"`
+	Patch      string                            `json:"patch,omitempty"`
+	PatchFile  string                            `json:"patch_file,omitempty"`
+	Command    domain.CommandSpec                `json:"command"`
+	Shell      *domain.InteractiveShellSpec      `json:"shell,omitempty"`
+	SQL        *domain.InteractiveSQLSpec        `json:"sql,omitempty"`
+	Logs       *domain.InteractiveLogsSpec       `json:"logs,omitempty"`
+	Filesystem *domain.InteractiveFilesystemSpec `json:"filesystem,omitempty"`
+	Process    *domain.InteractiveProcessSpec    `json:"process,omitempty"`
+	Network    *domain.InteractiveNetworkSpec    `json:"network,omitempty"`
+	Container  *domain.InteractiveContainerSpec  `json:"container,omitempty"`
+	Service    *domain.InteractiveServiceSpec    `json:"service,omitempty"`
 }
 
 type planWire struct {
@@ -205,7 +213,10 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 		resolveOperations := func(label string, wired []operationWire) ([]domain.Operation, error) {
 			operations := make([]domain.Operation, 0, len(wired))
 			for index, op := range wired {
-				resolved := domain.Operation{Type: op.Type, Patch: op.Patch, Command: op.Command}
+				resolved := domain.Operation{
+					Type: op.Type, Patch: op.Patch, Command: op.Command, Shell: op.Shell, SQL: op.SQL, Logs: op.Logs,
+					Filesystem: op.Filesystem, Process: op.Process, Network: op.Network, Container: op.Container, Service: op.Service,
+				}
 				if op.Type == "apply_patch" && op.PatchFile != "" {
 					if strings.TrimSpace(op.Patch) != "" {
 						return nil, fmt.Errorf("%soperation %d cannot contain both patch and patch_file", label, index)

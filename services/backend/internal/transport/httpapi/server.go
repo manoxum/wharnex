@@ -129,6 +129,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/request/cancel", a.cancelPendingRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
 	mux.HandleFunc("POST /api/sessions/{id}/debug/approve", a.approveDebug)
+	mux.HandleFunc("POST /api/sessions/{id}/interactive/cancel", a.cancelInteractive)
 	mux.HandleFunc("POST /api/sessions/{id}/dependency-network-retry", a.retryDependencyNetwork)
 	mux.HandleFunc("POST /api/sessions/{id}/host-dependency-repair", a.retryHostDependencyRepair)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/resume", a.resumeInterruptedExecution)
@@ -1372,6 +1373,14 @@ func (a *API) retryHostDependencyRepair(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) cancelInteractive(w http.ResponseWriter, r *http.Request) {
+	if !a.service.CancelInteractiveV2(r.PathValue("id")) {
+		writeError(w, http.StatusConflict, "interactive_cancel_unavailable", "no interactive v2 round is running")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]bool{"cancelled": true})
 }
 
 func (a *API) resumeInterruptedExecution(w http.ResponseWriter, r *http.Request) {

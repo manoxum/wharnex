@@ -348,7 +348,8 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
       <div className="plan-control-primary">
         <div className="plan-control-copy"><span className="plan-control-mark"><Icon name="plan" size={15}/></span><div><span className="panel-kicker">Contrato de execução</span><strong>{canExecute ? 'Aguardando a sua decisão' : pendingCount ? 'Integração pendente de recuperação' : 'Plano registado'}</strong><span>{needsApproval ? 'Uma aprovação cobre a execução Protected e a integração automática no host; correções só voltam a pedir decisão quando introduzem novo impacto.' : pendingCount ? 'A aplicação ao host já foi autorizada pelo plano. Não existe uma segunda aprovação de Apply; apenas a recuperação do bloqueio pendente.' : 'Depois de uma execução Protected autorizada e verificada, a integração no host acontece sem uma segunda aprovação.'}</span></div></div>
         <div className="plan-decision-actions">
-          {session.state === 'debug_approval_required' && session.plan.debug && <button type="button" className="apply-button" disabled={busy} onClick={() => void onApproveDebug?.()}><Icon name="terminal" size={14}/> {session.plan.debug.target === 'host' && session.plan.debug.access === 'modify' ? 'Autorizar alteração de debug no host' : `Autorizar debug ${session.plan.debug.target}`}</button>}
+          {session.state === 'debug_approval_required' && session.plan.debug && <button type="button" className="apply-button" disabled={busy} onClick={() => void onApproveDebug?.()}><Icon name="terminal" size={14}/> {session.plan.debug.protocol === 'harness.interactive/v2' ? `Autorizar Interactive v2 · ${session.plan.debug.target} · ${session.plan.debug.access || 'observe'}` : session.plan.debug.target === 'host' && session.plan.debug.access === 'modify' ? 'Autorizar alteração de debug no host' : `Autorizar debug ${session.plan.debug.target}`}</button>}
+          {busy && session.plan.debug?.protocol === 'harness.interactive/v2' && <button type="button" className="danger-button" onClick={() => void api.cancelInteractive(session.id).then(() => setManualNotice('Cancelamento da ronda Interactive v2 solicitado.')).catch((error) => setManualNotice(error instanceof Error ? error.message : String(error)))}><Icon name="close" size={13}/> Parar ronda</button>}
           {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><button type="button" className="secondary-button" disabled={busy} onClick={() => onAdjustExecutionPlan?.()}><Icon name="edit" size={13}/> Ajustar</button><button type="button" className={session.execution_mode === 'unprotected' ? 'danger-button' : 'apply-button'} disabled={busy} onClick={() => void onExecute?.(true)}><Icon name="check" size={14}/> {session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
           {canRejectPending && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={13}/> Rejeitar</button>}
         </div>
@@ -357,7 +358,7 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
     </div>
     {manualNotice && <p className="plan-manual-notice" role="status">{manualNotice}</p>}
     <div className="section-heading plan-heading"><div><span className="panel-kicker">{plan.debug ? `Debug ${plan.debug.target} · ${session.workflow_round || 0}/6` : workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><h3>{plan.summary}</h3></div><StatusPill tone={policyTone}>{policyStatus}</StatusPill></div>
-    {plan.debug && <div className="policy-box"><Icon name="terminal" size={17}/><div><strong>{plan.debug.target === 'host' && plan.debug.access === 'modify' ? 'Ação de debug no host' : `Probe de debug · ${plan.debug.target}`}</strong><span>{plan.debug.rationale}</span><span>{plan.debug.target === 'host' && plan.debug.access === 'modify' ? 'Pode alterar o host somente após aprovação deste plano; patches continuam proibidos e rede/ferramentas seguem a Policy.' : 'Somente observação validada; sem patches, rede ou alterações no host.'}</span></div></div>}
+    {plan.debug && <div className="policy-box"><Icon name="terminal" size={17}/><div><strong>{plan.debug.protocol === 'harness.interactive/v2' ? `Interactive v2 · ${plan.debug.target} · ${plan.debug.access || 'observe'}` : plan.debug.target === 'host' && plan.debug.access === 'modify' ? 'Ação de debug no host' : `Probe de debug · ${plan.debug.target}`}</strong><span>{plan.debug.rationale}</span>{plan.debug.protocol === 'harness.interactive/v2' ? <><span>Capacidades: {(plan.debug.capabilities || []).join(', ') || 'nenhuma'}.</span><span>Escopo: {interactiveScopeSummary(plan.debug.scope)}</span><span>{plan.debug.access === 'modify' ? 'A autorização é one-shot e vinculada ao plano/digest; qualquer novo impacto exige nova decisão.' : 'A autorização fica limitada ao Main Request, target, capacidades e escopo apresentados.'}</span></> : <span>{plan.debug.target === 'host' && plan.debug.access === 'modify' ? 'Pode alterar o host somente após aprovação deste plano; patches continuam proibidos e rede/ferramentas seguem a Policy.' : 'Somente observação validada; sem patches, rede ou alterações no host.'}</span>}</div></div>}
     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
     <div className="metric-row plan-metrics"><Metric label="Operações" value={String(operations.length)}/><Metric label="Verificações" value={String(verification.length)}/><Metric label="Ficheiros previstos" value={String(plan.impact_files?.length || patches.length)}/><Metric label="Dependências" value={String(dependencies.length)}/><Metric label="Ferramentas SO" value={String(systemTools.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
     {plan.approved_chat_plan && <section className="plan-document"><div className="plan-section-title"><span>00</span><div><strong>Plano do Chat aprovado</strong><small>Vínculo verificado · {plan.approved_chat_plan.sha256.slice(0, 12)}…</small></div></div><MarkdownContent markdown={plan.approved_chat_plan.document}/></section>}
@@ -369,10 +370,47 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
     {session.last_bundle && <details className="bundle-readme"><summary>Resultado: {session.last_bundle.filename} · {session.last_bundle.patches?.length || 0} patch(es) · {session.last_bundle.files?.length || 0} ficheiro(s)</summary><div className="bundle-readme-body"><TranslatableMarkdown sessionId={session.id} markdown={session.last_bundle.readme} /></div></details>}
     <div className="plan-section-title plan-changes-title"><span>04</span><div><strong>Alterações previstas</strong><small>Diffs exatos incluídos no bundle</small></div></div>
     <div className="operation-list">
-      {operations.map((op, index) => <div className="operation" key={`${op.type}-${index}`}><div className="operation-index">{String(index + 1).padStart(2, '0')}</div><div className="operation-body"><strong>{op.type === 'apply_patch' ? 'Aplicar patch' : (op.command.argv || []).join(' ')}</strong><span>{op.type === 'apply_patch' ? patchFiles(op.patch || '') : `${op.command.cwd || '.'} · ${op.command.timeout_seconds}s${op.command.network ? ' · network' : ''}`}</span>{op.type === 'apply_patch' && <PlanPatchDiff sessionId={session.id} patch={op.patch || ''}/>}</div></div>)}
+      {operations.map((op, index) => <div className="operation" key={`${op.type}-${index}`}><div className="operation-index">{String(index + 1).padStart(2, '0')}</div><div className="operation-body"><strong>{interactiveOperationLabel(op)}</strong><span>{interactiveOperationDetail(op)}</span>{op.type === 'shell' && op.shell?.script && <pre className="plan-interactive-payload"><code>{op.shell.script}</code></pre>}{op.type === 'sql' && op.sql?.statement && <pre className="plan-interactive-payload"><code>{op.sql.statement}</code></pre>}{op.type === 'apply_patch' && <PlanPatchDiff sessionId={session.id} patch={op.patch || ''}/>}</div></div>)}
       {verification.map((command, index) => <div className="operation verification" key={`v-${index}`}><div className="operation-index"><Icon name="check" size={15}/></div><div className="operation-body"><strong>{(command.argv || []).join(' ')}</strong><span>Verification · {command.cwd || '.'}</span></div></div>)}
     </div>
   </div>
+}
+
+
+function interactiveScopeSummary(scope?: NonNullable<import('../types').ExecutionPlan['debug']>['scope']) {
+  if (!scope) return 'nenhum escopo declarado'
+  const groups = [
+    ['paths', scope.paths], ['db', scope.connections], ['logs', scope.log_sources], ['processes', scope.processes],
+    ['services', scope.services], ['containers', scope.containers], ['network', scope.network_destinations],
+  ] as const
+  const parts = groups.filter(([, values]) => values?.length).map(([name, values]) => `${name}=${values!.join(',')}`)
+  return parts.length ? parts.join(' · ') : 'nenhum escopo declarado'
+}
+
+function interactiveOperationLabel(op: Operation) {
+  if (op.type === 'apply_patch') return 'Aplicar patch'
+  if (op.type === 'command') return (op.command?.argv || []).join(' ') || 'Comando'
+  if (op.type === 'shell') return `${op.shell?.shell || 'shell'} · script exato`
+  if (op.type === 'sql') return `SQL · ${op.sql?.connection_id || 'conexão'} · ${op.sql?.mode || ''}`
+  if (op.type === 'logs') return `Logs · ${op.logs?.source || 'fonte'}`
+  if (op.type === 'filesystem') return `Filesystem · ${op.filesystem?.action || ''} ${op.filesystem?.path || ''}`
+  if (op.type === 'process') return `Processo · ${op.process?.action || ''}${op.process?.pid ? ` ${op.process.pid}` : ''}`
+  if (op.type === 'network') return `Rede · ${op.network?.address || ''}`
+  if (op.type === 'container') return `Container · ${op.container?.action || ''} ${op.container?.name || ''}`
+  return `Serviço · ${op.service?.action || ''} ${op.service?.name || ''}`
+}
+
+function interactiveOperationDetail(op: Operation) {
+  if (op.type === 'apply_patch') return patchFiles(op.patch || '')
+  if (op.type === 'command') return `${op.command?.cwd || '.'} · ${op.command?.timeout_seconds || 0}s${op.command?.network ? ' · network' : ''}`
+  if (op.type === 'shell') return `${op.shell?.cwd || '.'} · ${op.shell?.timeout_seconds || 0}s${op.shell?.network ? ' · network' : ''}`
+  if (op.type === 'sql') return `${op.sql?.timeout_seconds || 0}s · max ${op.sql?.max_rows || 0} rows`
+  if (op.type === 'logs') return `limit ${op.logs?.limit || 0}${op.logs?.filter ? ' · filtro declarado' : ''}`
+  if (op.type === 'filesystem') return op.filesystem?.action === 'write' ? `${op.filesystem.content?.length || 0} bytes` : `max ${op.filesystem?.max_bytes || 0} bytes`
+  if (op.type === 'process') return op.process?.signal ? `signal ${op.process.signal}` : 'lista limitada'
+  if (op.type === 'network') return `TCP connect · ${op.network?.timeout_seconds || 0}s`
+  if (op.type === 'container') return `${op.container?.timeout_seconds || 60}s`
+  return 'systemd scoped action'
 }
 
 
@@ -380,9 +418,9 @@ type ManualPatch = { path: string; content: string }
 
 function manualPatchEntries(planId: string, operations: Operation[]): ManualPatch[] {
   const stem = planId.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'plan'
-  return operations.filter((operation) => operation.type === 'apply_patch' && operation.patch.trim()).map((operation, index) => ({
+  return operations.filter((operation) => operation.type === 'apply_patch' && Boolean(operation.patch?.trim())).map((operation, index) => ({
     path: `patches/${stem}-${String(index + 1).padStart(2, '0')}.patch`,
-    content: operation.patch.endsWith('\n') ? operation.patch : `${operation.patch}\n`,
+    content: operation.patch!.endsWith('\n') ? operation.patch! : `${operation.patch!}\n`,
   }))
 }
 
@@ -396,7 +434,7 @@ function buildManualCommandBatch(patches: ManualPatch[], operations: Operation[]
   const lines = ['set -eu', '', '# Validar e aplicar os patches guardados pelo Wharnex.']
   for (const patch of patches) lines.push(`git apply --check -- ${shellQuote(patch.path)}`)
   for (const patch of patches) lines.push(`git apply -- ${shellQuote(patch.path)}`)
-  const commands = operations.filter((operation) => operation.type === 'command').map((operation) => manualCommand(operation.command)).filter(Boolean)
+  const commands = operations.filter((operation) => operation.type === 'command').map((operation) => operation.command ? manualCommand(operation.command) : '').filter(Boolean)
   if (commands.length) lines.push('', '# Operações declaradas no plano.', ...commands)
   const checks = verification.map(manualCommand).filter(Boolean)
   if (checks.length) lines.push('', '# Verificações declaradas no plano.', ...checks)

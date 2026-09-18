@@ -129,6 +129,10 @@ type Service struct {
 	gitSettingsFile         string
 	gitSettingsMu           sync.Mutex
 	pendingCommits          *pendingcommit.Store
+	interactiveDBMu         sync.RWMutex
+	interactiveDB           map[string]PostgresConnection
+	interactiveCancelMu     sync.Mutex
+	interactiveCancels      map[string]context.CancelFunc
 }
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
@@ -285,7 +289,7 @@ func (s *Service) TunnelProviders() []TunnelProviderDescriptor {
 
 func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
 	manager := selfevolution.New(selfevolution.DiscoverRoot())
-	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), terminals: make(map[string]*terminalSessionState), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
+	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), terminals: make(map[string]*terminalSessionState), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState), interactiveDB: make(map[string]PostgresConnection), interactiveCancels: make(map[string]context.CancelFunc)}
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
 	service.normalizeKnowledgeReviewSessions()
