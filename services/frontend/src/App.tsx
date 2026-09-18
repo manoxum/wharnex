@@ -445,10 +445,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   useEffect(() => {
     let alive = true
     async function initialize() {
-      try {
-        const value = await api.config()
-        if (alive) setConfig(value)
-      } catch (e) { if (alive) setError(messageOf(e)) }
+      // Nothing below this point reads `config` - it only feeds Bootstrap and
+      // the main workspace props, both of which already treat it as optional
+      // async state (it starts undefined on the very first render, before
+      // this effect even runs). Awaiting it here served only to serialize a
+      // network round-trip in front of the much slower workspace/session/
+      // transcript hydration that follows; let it resolve in parallel.
+      void api.config().then((value) => { if (alive) setConfig(value) }).catch((e) => { if (alive) setError(messageOf(e)) })
 
       if (embeddedProject) {
         try {
@@ -3306,6 +3309,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           chatProps={sharedChatProps}
           onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
           focusNonce={orchestratorFocusNonce}
+          active={mode === 'orchestrator'}
           onError={setError}
         />
       </div>

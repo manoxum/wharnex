@@ -8,7 +8,7 @@ import { OrchestratorTasks } from './OrchestratorTasks'
 import type { ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 import { ChatPanel } from '../ChatPanel'
 
-export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToChat, focusNonce, onError }: {
+export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToChat, focusNonce, active = true, onError }: {
   session: Session
   // Minimal id/sessionId pairs only: enough to resolve a planning request's
   // owning Harness chat without threading the full workspace-chat record in.
@@ -19,6 +19,12 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
   // sent the operator here always lands back on the planning queue instead of
   // whichever section Orchestrator happened to be left on.
   focusNonce?: number
+  // This workspace stays mounted (CSS-hidden) while another mode is active,
+  // the same way EditorWorkspace does, so its local state (section, selected
+  // task) survives switching away and back. Polling every 5s regardless kept
+  // a network+render cost running forever for a panel the operator was not
+  // looking at; only poll while it is actually the visible mode.
+  active?: boolean
   onError: (message?: string) => void
 }) {
   const [section, setSection] = useState<'overview' | 'tasks'>('overview')
@@ -47,10 +53,11 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
   }, [onError, session.id, session.project_path])
 
   useEffect(() => {
+    if (!active) return
     void refresh()
     const timer = window.setInterval(() => void refresh(true), 5000)
     return () => window.clearInterval(timer)
-  }, [refresh])
+  }, [refresh, active])
 
   useEffect(() => {
     if (!focusNonce) return

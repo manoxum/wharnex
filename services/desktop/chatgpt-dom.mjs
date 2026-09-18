@@ -176,9 +176,11 @@ export function chatGPTDownloadDiagnosticScript(filename, assistantBaseline = 0)
       };
     });
     const decision = choose(candidates, expected);
+    const inTurn = candidates.filter((c) => c.latestAssistant || c.latestTurn);
     return {
       assistantTurnCount: assistantTurns.length, hasLatestAssistant: Boolean(latestAssistant), hasLatestTurn: Boolean(latestTurn),
-      nodeCount: nodes.length, decision, candidates: candidates.slice(0, 20),
+      nodeCount: nodes.length, decision, inTurnCount: inTurn.length, inTurnCandidates: inTurn.slice(0, 30),
+      latestAssistantOuterHTML: latestAssistant ? String(latestAssistant.outerHTML || '').slice(0, 2000) : '',
     };
   })()`
 }

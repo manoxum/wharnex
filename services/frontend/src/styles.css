@@ -1365,8 +1365,11 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .workspace-body.drawer-open .agent-workspace { --agent-chat-width: calc((100% - 6px) / 2); }
 .workspace-mode-surface { flex: 1; min-height: 0; min-width: 0; display: none; }
 .workspace-mode-surface.active { display: flex; }
-.workspace-mode-surface > .editor-workspace,
-.workspace-mode-surface > .agent-workspace { flex: 1; min-height: 0; min-width: 0; }
+.workspace-mode-surface > .editor-workspace { flex: 1; min-height: 0; min-width: 0; }
+/* More specific than the bare .agent-workspace rule below, so it was
+   winning and silently zeroing out that rule's third-of-the-screen floor
+   for the one nesting that actually occurs in the DOM. */
+.workspace-mode-surface > .agent-workspace { flex: 1; min-height: 0; min-width: calc(100vw / 3); }
 .agent-empty-workspace { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 24px; text-align: center; color: var(--theme-text-muted); background: var(--theme-bg); }
 .agent-empty-workspace strong { color: var(--theme-text); font-size: calc(13px * var(--ui-font-scale)); }
 .agent-empty-workspace span { max-width: 360px; font-size: calc(10px * var(--ui-font-scale)); }
