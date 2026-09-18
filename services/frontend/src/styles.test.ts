@@ -320,7 +320,7 @@ describe('attention center CSS', () => {
   it('keeps the compact popover flat, readable and width-safe', () => {
     const attention = css.slice(css.lastIndexOf('/* Centro de Alertas'))
 
-    expect(attention).toContain('.agent-attention-popover { width:min(520px,calc(100vw - 20px))')
+    expect(attention).toContain('.agent-attention-popover { width:min(420px,calc(100vw - 20px)); position:fixed; z-index:13020')
     expect(attention).toContain('.agent-attention-popover-metrics span { min-width:0; min-height:44px;')
     expect(attention).toContain('border:0; border-radius:0; background:transparent')
     expect(attention).toContain('.attention-list.compact .attention-card { position:relative; border:0;')
@@ -361,8 +361,8 @@ describe('configurable workbench CSS', () => {
     const verticalRail = lastRule('.workspace-main-row > .workspace-side-rail')
     const bottomRail = lastRule(":root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail")
     expect(css).not.toContain("data-tool-window='floating'")
-    expect(verticalRail).toContain('overflow-x:hidden')
-    expect(verticalRail).toContain('overflow-y:auto')
+    expect(verticalRail).toContain('overflow:hidden')
+    expect(verticalRail).not.toContain('overflow-y:auto')
     expect(verticalRail).toContain('scrollbar-width:none')
     expect(css).toContain('.workspace-main-row > .workspace-side-rail::-webkit-scrollbar { display:none; }')
     expect(bottomRail).toContain('position:absolute')
@@ -379,7 +379,7 @@ describe('configurable workbench CSS', () => {
   })
 
   it('uses a theme-aware scrollbar and keeps the terminal between vertical rails', () => {
-    expect(lastRule('*::-webkit-scrollbar')).toContain('width: 10px')
+    expect(lastRule('*::-webkit-scrollbar')).toContain('width: 6px')
     expect(lastRule('*::-webkit-scrollbar-thumb')).toContain('border-radius: 999px')
     expect(firstRule('.terminal-workspace')).toContain('width: auto')
     expect(firstRule('.workspace-center-column')).toContain('overflow: hidden')
@@ -459,7 +459,7 @@ describe('workbench rail and theme integrity CSS', () => {
   it('removes the extra Agent column when shortcuts use the existing workspace rail', () => {
     const unified = firstRule('.agent-workspace.agent-rail-unified')
     const slot = firstRule('.workspace-agent-rail-slot')
-    expect(unified).toContain('grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr)')
+    expect(lastRule('.agent-workspace.agent-rail-unified')).toContain('grid-template-columns:minmax(480px,var(--agent-chat-width)) 6px minmax(400px,1fr)')
     expect(unified).not.toContain('var(--agent-tools-width)')
     expect(slot).toContain('flex: 1 1 auto')
     expect(slot).toContain('border-top: 1px solid var(--theme-border)')

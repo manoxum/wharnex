@@ -20,11 +20,11 @@
   --ui-font-scale: 1.32;
 }
 
-* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--theme-accent, #79a947) 64%, var(--theme-text-muted, #70746b)) color-mix(in srgb, var(--theme-bg, #eeefe9) 88%, transparent); }
-*::-webkit-scrollbar { width: 10px; height: 10px; }
-*::-webkit-scrollbar-track { background: color-mix(in srgb, var(--theme-bg, #eeefe9) 90%, transparent); }
-*::-webkit-scrollbar-thumb { min-height: 34px; border: 2px solid transparent; border-radius: 999px; background: color-mix(in srgb, var(--theme-text-muted, #70746b) 62%, var(--theme-accent, #79a947)); background-clip: padding-box; }
-*::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--theme-accent, #79a947) 72%, var(--theme-text, #252820)); background-clip: padding-box; }
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--theme-text-muted, #70746b) 58%, transparent) transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { min-height: 34px; border: 1px solid transparent; border-radius: 999px; background: color-mix(in srgb, var(--theme-text-muted, #70746b) 52%, transparent); background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--theme-text-muted, #70746b) 78%, var(--theme-text, #252820)); background-clip: padding-box; }
 *::-webkit-scrollbar-corner { background: var(--theme-bg, #eeefe9); }
 html, body, #root { margin: 0; min-width: 320px; min-height: 100%; height: 100%; }
 body { overflow: hidden; font-size: calc(15px * var(--ui-font-scale)); }
@@ -4561,7 +4561,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .workspace-center-column { flex: 1 1 760px; min-width: 560px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--theme-bg); }
 .workspace-mode-stack { flex: 1 1 auto; min-width: 0; min-height: 0; background: var(--theme-bg); }
 .workspace-main-row > .agent-activity-bar { flex-basis: 44px; width: 44px; padding: 6px 4px; background: color-mix(in srgb, var(--theme-surface) 88%, var(--theme-bg)); border-color: var(--theme-border); }
-.workspace-main-row > .workspace-side-rail { overflow-x:hidden; overflow-y:auto; scrollbar-width:none; }
+.workspace-main-row > .workspace-side-rail { overflow:hidden; scrollbar-width:none; }
 .workspace-main-row > .workspace-side-rail::-webkit-scrollbar { display:none; }
 .workspace-main-row > .agent-activity-bar button { width: 35px; height: 36px; border-radius: 6px; }
 .workspace-main-row > .agent-drawer { max-width: min(48vw, 840px); background: var(--theme-surface); color: var(--theme-text-soft); border-color: var(--theme-border); }
@@ -5034,7 +5034,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .settings-dialog-heading { min-width:0; display:flex; align-items:center; gap:12px; }
 .settings-dialog-symbol { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; border:1px solid color-mix(in srgb,var(--theme-accent) 28%,var(--theme-border)); border-radius:11px; background:var(--theme-accent-soft); color:var(--theme-accent); }
 .settings-dialog-heading > div { min-width:0; }
-.context-settings-dialog .project-settings-body { background:var(--theme-elevated); }
+.context-settings-dialog .project-settings-body { overflow:hidden; background:var(--theme-elevated); }
 .context-settings-dialog .settings-layout { grid-template-columns:238px minmax(0,1fr); }
 .settings-navigation { padding:12px 10px; gap:11px; border-right:1px solid var(--theme-border-soft); background:color-mix(in srgb,var(--theme-bg) 76%,var(--theme-elevated)); }
 .settings-project-summary { padding:10px 11px; display:grid; gap:3px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
@@ -5102,6 +5102,121 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 :root[data-tool-rail='bottom'] .workspace-rail-pin-target { width:5px; height:22px; flex-basis:5px; }
 :root[data-tool-rail='bottom'] .workspace-side-rail:has(button[draggable='true']) .workspace-rail-pinned:hover .workspace-rail-pin-target { width:5px; height:28px; }
 
+/* The center is persistent workbench content. Its two Agent surfaces retain a
+   professional working width; secondary tool windows collapse in React before
+   they can squeeze this grid or leave a native ChatGPT view beside dead space. */
+.workspace-center-column { min-width:886px; }
+.workspace-main-row > .workspace-side-rail .workspace-rail-primary,
+.workspace-main-row > .workspace-side-rail .workspace-rail-pinned { gap:6px; }
+.workspace-main-row > .agent-activity-bar button { height:40px; }
+.agent-workspace.agent-rail-unified {
+  grid-template-columns:minmax(480px,var(--agent-chat-width)) 6px minmax(400px,1fr);
+}
+.agent-splitter,.agent-drawer-splitter {
+  border-left-color:transparent;
+  background:transparent;
+  transition:background .14s ease,border-color .14s ease;
+}
+.agent-attention-summary:not(.urgent) {
+  border-color:transparent;
+  background:transparent;
+  color:var(--theme-text-muted);
+}
+.agent-attention-summary:not(.urgent):hover {
+  background:var(--theme-hover);
+  color:var(--theme-text);
+}
+.workspace-main-row > .workspace-side-rail button::before,
+.workspace-main-row > .workspace-side-rail-right button::before {
+  width:2px;
+  left:0;
+  right:auto;
+  top:7px;
+  bottom:7px;
+  border-radius:0 2px 2px 0;
+}
+
+/* A native WebContentsView must briefly yield to trusted renderer overlays.
+   Keep its footprint themed and explicit instead of exposing a black native
+   host while the exact same conversation remains resident underneath. */
+.desktop-chatgpt-suspended {
+  position:absolute;
+  inset:0;
+  z-index:4;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  padding:24px;
+  background:var(--theme-bg);
+  color:var(--theme-text-muted);
+  text-align:center;
+}
+.desktop-chatgpt-suspended::before {
+  content:'';
+  width:min(320px,70%);
+  height:1px;
+  position:absolute;
+  top:calc(50% - 54px);
+  background:linear-gradient(90deg,transparent,var(--theme-border),transparent);
+}
+.desktop-chatgpt-suspended svg { color:var(--theme-accent); }
+.desktop-chatgpt-suspended strong { color:var(--theme-text); font-size:calc(10px * var(--ui-font-scale)); font-weight:650; }
+.desktop-chatgpt-suspended span { max-width:360px; font-size:calc(7.6px * var(--ui-font-scale)); line-height:1.45; }
+
+/* Settings use the selected IDE palette throughout. The original rules above
+   remain structural; these declarations remove the last fixed dark surfaces. */
+.context-settings-dialog .remote-storage-settings,
+.context-settings-dialog .context-config-section,
+.context-settings-dialog .context-explorer-section,
+.context-settings-dialog .wharness-data-section,
+.context-settings-dialog .language-settings-section { background:var(--theme-bg); color:var(--theme-text-soft); border-color:var(--theme-border-soft); }
+.context-settings-dialog .remote-storage-hero h3,
+.context-settings-dialog .provider-catalog strong,
+.context-settings-dialog .remote-instance-card > header strong,
+.context-settings-dialog .remote-storage-empty strong,
+.context-settings-dialog .connect-provider-row strong,
+.context-settings-dialog .wharness-data-section > header strong { color:var(--theme-text); }
+.context-settings-dialog .remote-storage-hero p,
+.context-settings-dialog .provider-catalog > header span,
+.context-settings-dialog .provider-catalog button small,
+.context-settings-dialog .remote-instance-card > header span,
+.context-settings-dialog .remote-storage-empty,
+.context-settings-dialog .connect-provider-row span,
+.context-settings-dialog .remote-storage-actions > span,
+.context-settings-dialog .wharness-data-section > header span { color:var(--theme-text-muted); }
+.context-settings-dialog .provider-catalog,
+.context-settings-dialog .remote-instance-card,
+.context-settings-dialog .remote-storage-empty,
+.context-settings-dialog .language-settings-section,
+.context-settings-dialog .storage-metric { border-color:var(--theme-border-soft); background:var(--theme-elevated); }
+.context-settings-dialog .provider-catalog > header,
+.context-settings-dialog .remote-instance-card > header,
+.context-settings-dialog .provider-connection-panel,
+.context-settings-dialog .remote-auth-note { border-color:var(--theme-border-soft); background:var(--theme-surface); }
+.context-settings-dialog .provider-catalog button { color:var(--theme-text-muted); }
+.context-settings-dialog .provider-catalog button:hover:not(:disabled) { border-color:var(--theme-border); background:var(--theme-hover); color:var(--theme-text); }
+.context-settings-dialog .remote-instance-grid label,
+.context-settings-dialog .remote-limit-grid label,
+.context-settings-dialog .remote-limits summary { color:var(--theme-text-soft); }
+.context-settings-dialog .remote-instance-grid label > small,
+.context-settings-dialog .remote-limit-grid label small,
+.context-settings-dialog .remote-limits summary small { color:var(--theme-text-muted); }
+.context-settings-dialog .remote-instance-grid input,
+.context-settings-dialog .remote-instance-grid select,
+.context-settings-dialog .remote-limit-grid input,
+.context-settings-dialog .danger-zone input { border-color:var(--theme-border); background:var(--theme-surface); color:var(--theme-text); }
+.context-settings-dialog .remote-limits { border-color:var(--theme-border-soft); }
+.context-settings-dialog .remote-storage-actions { border-color:var(--theme-border-soft); background:color-mix(in srgb,var(--theme-elevated) 94%,transparent); }
+.context-settings-dialog .remote-storage-retention { border-color:color-mix(in srgb,var(--success) 28%,var(--theme-border-soft)); background:color-mix(in srgb,var(--success) 7%,var(--theme-surface)); color:var(--theme-text-soft); }
+.context-settings-dialog .remote-storage-restart { border-color:color-mix(in srgb,var(--warning) 34%,var(--theme-border-soft)); background:color-mix(in srgb,var(--warning) 8%,var(--theme-surface)); }
+.context-settings-dialog .remote-storage-restart strong { color:color-mix(in srgb,var(--warning) 76%,var(--theme-text)); }
+.context-settings-dialog .remote-storage-restart small { color:var(--theme-text-muted); }
+.context-settings-dialog .language-target-option { border-color:var(--theme-border-soft); background:var(--theme-surface); }
+.context-settings-dialog .language-target-option:has(input:checked) { border-color:color-mix(in srgb,var(--theme-accent) 48%,var(--theme-border)); background:var(--theme-accent-soft); box-shadow:inset 2px 0 var(--theme-accent); }
+.context-settings-dialog .language-target-option small { color:var(--theme-text-muted); }
+
 /* Centro de Alertas: tokenized hierarchy, clearer metrics and quieter premium cards. */
 .attention-center-drawer { background:var(--theme-bg); color:var(--theme-text); }
 .attention-center-drawer > .agent-drawer-heading { height:auto; min-height:62px; padding:10px 11px 10px 14px; border-bottom:1px solid var(--theme-border-soft); background:color-mix(in srgb,var(--theme-elevated) 94%,var(--theme-accent) 2%); }
@@ -5140,7 +5255,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .attention-card-next { color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); }
 .attention-card-action { min-height:32px; padding:0 10px; border-color:color-mix(in srgb,var(--theme-accent) 32%,var(--theme-border)); border-radius:8px; background:var(--theme-accent-soft); color:var(--theme-text); font-size:calc(7.8px * var(--ui-font-scale)); }
 .attention-card-action:hover:not(:disabled) { border-color:color-mix(in srgb,var(--theme-accent) 56%,var(--theme-border)); background:color-mix(in srgb,var(--theme-accent-soft) 70%,var(--theme-hover)); color:var(--theme-text); }
-.agent-attention-popover { width:min(520px,calc(100vw - 20px)); border-color:var(--theme-border); border-radius:12px; background:var(--theme-elevated); color:var(--theme-text-soft); box-shadow:0 18px 48px color-mix(in srgb,var(--theme-shadow) 72%,transparent); }
+.agent-attention-popover { width:min(420px,calc(100vw - 20px)); position:fixed; z-index:13020; border-color:var(--theme-border); border-radius:12px; background:var(--theme-elevated); color:var(--theme-text-soft); box-shadow:0 18px 48px color-mix(in srgb,var(--theme-shadow) 72%,transparent); }
 .agent-attention-popover > header { min-height:68px; padding:11px 11px 10px 13px; align-items:center; border-color:var(--theme-border-soft); background:var(--theme-elevated); }
 .agent-attention-popover-heading { min-width:0; display:flex; align-items:center; gap:10px; }
 .agent-attention-popover-heading > .agent-attention-popover-symbol { width:30px; height:30px; flex:0 0 30px; display:grid; place-items:center; border:1px solid color-mix(in srgb,var(--theme-accent) 18%,var(--theme-border-soft)); border-radius:8px; background:color-mix(in srgb,var(--theme-accent-soft) 64%,transparent); color:var(--theme-accent); letter-spacing:0; text-transform:none; }

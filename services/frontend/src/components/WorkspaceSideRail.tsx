@@ -30,7 +30,10 @@ const WORKSPACE_SPLITTER_PX = 6
 const WORKSPACE_DRAWER_MIN_PX = 240
 const WORKSPACE_RIGHT_DRAWER_MIN_PX = 360
 const WORKSPACE_RIGHT_DRAWER_DEFAULT_PX = 460
-const WORKSPACE_STACK_MIN_PX = 560
+// The persistent Agent center contains a 480px Harness chat, a 6px divider
+// and a 400px Engine/ChatGPT surface. Tool windows yield before that center is
+// compressed below a usable width.
+const WORKSPACE_STACK_MIN_PX = 886
 const TOOL_DRAG_TYPE = 'application/x-wharnex-workspace-tool'
 const EMPTY_WORKSPACE_RAIL_TOOLS: WorkspaceTool[] = []
 const DEFAULT_STANDALONE_RAIL_TOOLS: WorkspaceTool[] = (() => {
@@ -145,7 +148,10 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     event.currentTarget.setPointerCapture(event.pointerId)
     const update = (clientX: number) => {
       const minimum = side === 'right' ? WORKSPACE_RIGHT_DRAWER_MIN_PX : WORKSPACE_DRAWER_MIN_PX
-      const ceiling = Math.max(minimum, rect.width - (WORKSPACE_RAIL_PX * 2) - WORKSPACE_SPLITTER_PX - WORKSPACE_STACK_MIN_PX)
+      const opposite = body.querySelector(`.workspace-side-drawer-${side === 'left' ? 'right' : 'left'}`) as HTMLElement | null
+      const oppositeWidth = opposite?.getBoundingClientRect().width || 0
+      const splitterWidth = body.querySelectorAll('.workspace-side-splitter').length * WORKSPACE_SPLITTER_PX
+      const ceiling = Math.max(minimum, rect.width - (WORKSPACE_RAIL_PX * 2) - splitterWidth - oppositeWidth - WORKSPACE_STACK_MIN_PX)
       const raw = side === 'left' ? clientX - rect.left - WORKSPACE_RAIL_PX : rect.right - clientX - WORKSPACE_RAIL_PX
       const next = Math.round(Math.max(minimum, Math.min(ceiling, raw)))
       setLocalDrawerWidth(next); saveWorkspaceDrawerWidth(side, next); props.onDrawerWidth?.(next)
