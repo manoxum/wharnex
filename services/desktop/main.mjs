@@ -275,6 +275,10 @@ const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = 6_000
 const CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS = 15 * 60_000
 const CHATGPT_DOM_PROBE_FAILURE_LIMIT = 3
 const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
+// A trusted click on the conversation-options trigger has no confirmation the
+// Radix menu actually rendered; live task history showed it deterministically
+// not opening under worker-pool contention with nothing ever re-clicking it.
+const CHATGPT_MENU_REOPEN_ATTEMPTS = 3
 const DEFERRED_SUPERVISOR_NAVIGATION_RETRY_MS = 250
 // How many times a window's frontend renderer may be restarted after a
 // crash before Wharnex stops and asks for human attention.
@@ -2435,7 +2439,7 @@ async function primeChatGPTWorkerPool(windowState) {
     if (!host) return
     const index = chatGPTWorkerEntries.length
     createChatGPTWorkerView(`worker-${index + 1}`, host)
-    if (chatGPTWorkerEntries.length < desiredChatAgentWorkerSlots) await delay(CHAT_AGENT_WORKER_SPAWN_GAP_MS)
+    if (chatGPTWorkerEntries.length < desiredChatAgentWorkerSlots) await wait(CHAT_AGENT_WORKER_SPAWN_GAP_MS)
   }
 }
 
@@ -3458,9 +3462,14 @@ async function commitChatGPTAccountControl(key, entry, stage, script, { attempts
 async function chooseChatGPTConversationAction(key, entry, action, conversationId = '') {
   const providerAction = action === 'move-project' ? 'move-conversation' : `${action}-conversation`
   return runChatGPTAccountAction(providerAction, { key }, async () => {
-    const opened = await commitChatGPTAccountControl(key, entry, `${action}-menu`, chatGPTOpenConversationMenuScript(conversationId))
-    if (!opened.ok) return opened
-    return commitChatGPTAccountControl(key, entry, action, chatGPTMenuItemRectScript(action))
+    let located = { ok: false, state: 'menu-not-open' }
+    for (let attempt = 0; attempt < CHATGPT_MENU_REOPEN_ATTEMPTS; attempt += 1) {
+      const opened = await commitChatGPTAccountControl(key, entry, `${action}-menu`, chatGPTOpenConversationMenuScript(conversationId))
+      if (!opened.ok) return opened
+      located = await commitChatGPTAccountControl(key, entry, action, chatGPTMenuItemRectScript(action))
+      if (located.state !== 'menu-not-open') return located
+    }
+    return located
   })
 }
 

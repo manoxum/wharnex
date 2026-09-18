@@ -41,7 +41,7 @@ test('agent Chromium workers start after the first local shell paint', async () 
   const delay = source.indexOf('CHAT_AGENT_STARTUP_DELAY_MS')
   assert.ok(delay !== -1)
   assert.match(source, /setTimeout\(async \(\) => \{[\s\S]*await primeChatGPTWorkerPool\(workerHost\)[\s\S]*chatAgentScheduler\.start\(\)[\s\S]*CHAT_AGENT_STARTUP_DELAY_MS/)
-  assert.match(source, /createChatGPTWorkerView\(`worker-\$\{index \+ 1\}`, host\)[\s\S]*await delay\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
+  assert.match(source, /createChatGPTWorkerView\(`worker-\$\{index \+ 1\}`, host\)[\s\S]*await wait\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
 })
 
 test('hidden Worker views stay out of the local shell compositor until explicitly surfaced', async () => {
@@ -2427,4 +2427,38 @@ test('a held Supervisor reports as occupied rather than as available between obs
   assert.match(fn, /: hold \? 'claimed'\s*\n\s*: entry \? 'idle' : 'stopped'/)
   assert.match(fn, /occupied: Boolean\(own\.task \|\| hold\)/)
   assert.match(fn, /project_id: chatAgentAgentProject\(own\.task, own\.lastTask, Boolean\(hold\)\)/)
+})
+
+// harness_chat_agent_tasks showed 124/124 RENAME_CHAT/ARCHIVE_CHAT/
+// DELETE_TEMP_CHAT attempts failing with last_error 'menu-not-open' since
+// 2026-09-15, every task-level retry (up to 8 attempts) hitting the identical
+// outcome: the trigger was clicked exactly once and only the menu-item lookup
+// was ever retried, so a menu that failed to render on that single click could
+// never be reopened.
+test('a conversation menu that fails to render is reopened before the action gives up', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function chooseChatGPTConversationAction(')
+  assert.notEqual(start, -1)
+  const fn = source.slice(start, source.indexOf('\n}', start) + 2)
+
+  assert.match(fn, /for \(let attempt = 0; attempt < CHATGPT_MENU_REOPEN_ATTEMPTS; attempt \+= 1\)/)
+  const loopStart = fn.indexOf('for (')
+  const loop = fn.slice(loopStart, fn.indexOf('\n  }', loopStart))
+  assert.match(loop, /chatGPTOpenConversationMenuScript\(conversationId\)/)
+  assert.match(loop, /if \(!opened\.ok\) return opened/)
+  assert.match(loop, /if \(located\.state !== 'menu-not-open'\) return located/)
+})
+
+// primeChatGPTWorkerPool called an undefined `delay`, which threw as an
+// unhandled rejection after creating exactly one worker slot - captured live
+// in .harness/logs/desktop.log - silently abandoning the paced startup
+// priming loop for every slot after the first.
+test('primeChatGPTWorkerPool paces worker creation with a defined helper', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function primeChatGPTWorkerPool(')
+  assert.notEqual(start, -1)
+  const fn = source.slice(start, source.indexOf('\n}', start) + 2)
+
+  assert.match(fn, /await wait\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
+  assert.doesNotMatch(fn, /await delay\(/)
 })
