@@ -23,9 +23,21 @@ func (s *Service) projectApplyLock(projectPath string) *sync.Mutex {
 
 func (s *Service) normalizeBaselineConcurrencySessions() {
 	for _, item := range s.store.List() {
+		// FailureKind is only ever set by an explicit terminal-failure path
+		// (e.g. FailRemoteInputRequestWithKind) and is never touched by a
+		// crash. A non-empty FailureKind therefore means this exact round
+		// was already delivered, evaluated and rejected — most importantly
+		// including a bundle_validation rejection such as "conflict
+		// resolution path is outside the capsule" — so resending the same
+		// unmodified LastManualPrompt on every subsequent restart would
+		// only reproduce the identical rejection forever instead of routing
+		// through the bounded prepareConflictResolutionRetry path. Only a
+		// round that never reached that explicit handling (FailureKind
+		// still empty) is genuinely stranded by a crash and safe to revive.
 		strandedConflict := item.IntegrationConflict != nil &&
 			item.IntegrationConflict.RequestID == item.LastRequestID &&
 			strings.TrimSpace(item.LastManualPrompt) != "" &&
+			strings.TrimSpace(item.FailureKind) == "" &&
 			!containsString(item.PendingManualRequestIDs, item.LastRequestID)
 		if !item.PlannerInFlight && !strandedConflict {
 			continue

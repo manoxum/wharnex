@@ -86,6 +86,32 @@ func TestStartupRestoresStrandedFocusedConflictRequest(t *testing.T) {
 	}
 }
 
+func TestStartupDoesNotResurrectTerminallyRejectedConflictRequest(t *testing.T) {
+	store := session.NewStore()
+	const requestID = "req_conflict_rejected"
+	item := domain.Session{
+		ID: "ses_conflict_rejected", ProjectPath: t.TempDir(), State: "awaiting_plan", LastRequestID: requestID,
+		LastManualPrompt:        "focused conflict prompt",
+		PendingManualRequestIDs: []string{requestID},
+		IntegrationConflict:     &domain.ConflictResolution{ID: "conflict_rejected", RequestID: requestID, Paths: []string{"copy.go"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	if _, err := service.FailRemoteInputRequestWithKind(context.Background(), item.ID, requestID, "conflict resolution path is outside the capsule: SoT/AI_PROTOCOL.md", "bundle_validation"); err != nil {
+		t.Fatal(err)
+	}
+	service.normalizeBaselineConcurrencySessions()
+	restored, err := store.Get(item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.State != "failed" || containsString(restored.PendingManualRequestIDs, requestID) {
+		t.Fatalf("a terminally rejected conflict resolution must not be resurrected with the same unmodified prompt on restart: %#v", restored)
+	}
+}
+
 func TestPatchTouchedPathsIncludesCreateDeleteAndUpdate(t *testing.T) {
 	patch := "diff --git a/old.txt b/old.txt\n--- a/old.txt\n+++ /dev/null\n" +
 		"diff --git a/new.txt b/new.txt\n--- /dev/null\n+++ b/new.txt\n" +
