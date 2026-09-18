@@ -128,3 +128,31 @@ func (s *Store) SaveProjectTodo(item domain.ProjectTodo) (domain.ProjectTodo, er
 	}
 	return item, nil
 }
+
+func (s *Store) DeleteProjectTodo(id string) error {
+	todoID := strings.TrimSpace(id)
+	if todoID == "" {
+		return fmt.Errorf("project todo id is required")
+	}
+	if s.db == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for project, items := range s.projectTodoFallback() {
+			for index, item := range items {
+				if item.ID == todoID {
+					s.projectTodoFallback()[project] = append(items[:index:index], items[index+1:]...)
+					return nil
+				}
+			}
+		}
+		return sql.ErrNoRows
+	}
+	result, err := s.db.Exec(`DELETE FROM harness_project_todos WHERE id=$1`, todoID)
+	if err != nil {
+		return fmt.Errorf("delete project todo: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
