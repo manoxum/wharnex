@@ -344,11 +344,17 @@ describe('configurable workbench CSS', () => {
   })
 
   it('keeps tool drawers integrated while supporting bottom-corner tool rails', () => {
+    const verticalRail = lastRule('.workspace-main-row > .workspace-side-rail')
     const bottomRail = lastRule(":root[data-tool-rail='bottom'] .workspace-main-row > .workspace-side-rail")
     expect(css).not.toContain("data-tool-window='floating'")
+    expect(verticalRail).toContain('overflow-x:hidden')
+    expect(verticalRail).toContain('overflow-y:auto')
+    expect(verticalRail).toContain('scrollbar-width:none')
+    expect(css).toContain('.workspace-main-row > .workspace-side-rail::-webkit-scrollbar { display:none; }')
     expect(bottomRail).toContain('position:absolute')
     expect(bottomRail).toContain('flex-direction:row')
     expect(bottomRail).toContain('overflow-x:auto')
+    expect(bottomRail).toContain('overflow-y:hidden')
   })
 
   it('uses a theme-aware scrollbar and keeps the terminal between vertical rails', () => {
