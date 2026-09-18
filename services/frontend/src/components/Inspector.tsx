@@ -11,7 +11,7 @@ import { MarkdownContent } from './MarkdownContent'
 import { TranslatableMarkdown } from './TranslatableMarkdown'
 import { ConflictResolverModal } from './ConflictResolverModal'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
-import { buildExecutionTimeline } from '../lib/executionTimeline'
+import { buildExecutionTimeline, executionTimelineOverview } from '../lib/executionTimeline'
 import { requestIdFromBundleName } from '../lib/bundlename'
 import { sessionHostResolutionBlocked } from '../lib/attentionCenter'
 import { activePendingRequestId } from '../lib/pendingRequest'
@@ -485,12 +485,15 @@ export function TerminalView({ events }: { events: HarnessEvent[] }) {
   useEffect(() => { endRef.current?.scrollIntoView?.({ block: 'end' }) }, [events.length])
 
   if (!events.length) return <Empty title="Execução limpa" text="Operações, verificações, aplicação no host, stdout e stderr aparecerão aqui em tempo real. O terminal interativo continua no modo Editor." />
-  const active = entries.some((entry) => entry.running)
-  const failed = [...entries].reverse().find((entry) => entry.tone === 'fail')
+  const overview = executionTimelineOverview(entries)
+  const active = overview === 'active'
+  const failed = overview === 'failed'
+  const recovered = overview === 'recovered'
+  const succeeded = overview === 'success'
   return <div className="execution-view">
     <div className="execution-overview">
-      <div><span className="panel-kicker">Execução observável</span><h3>{active ? 'Operação em curso' : failed ? 'Execução com falha' : 'Atividade de execução'}</h3><p>Cada comando é um único item: a saída fica agrupada sem prefixos repetitivos; stderr recebe realce de fundo, com data/hora, duração e expansão sob demanda. A vista acompanha o fim enquanto esta aba estiver ativa.</p></div>
-      <StatusPill tone={failed ? 'danger' : active ? 'warning' : 'success'}>{active ? 'LIVE' : failed ? 'Falhou' : 'Atualizada'}</StatusPill>
+      <div><span className="panel-kicker">Execução observável</span><h3>{active ? 'Operação em curso' : failed ? 'Execução com falha' : recovered ? 'Execução recuperada' : succeeded ? 'Execução concluída' : 'Atividade de execução'}</h3><p>Cada comando é um único item: a saída fica agrupada sem prefixos repetitivos; stderr recebe realce de fundo, com data/hora, duração e expansão sob demanda. A vista acompanha o fim enquanto esta aba estiver ativa.</p></div>
+      <StatusPill tone={failed ? 'danger' : active ? 'warning' : 'success'}>{active ? 'LIVE' : failed ? 'Falhou' : recovered ? 'Recuperada' : succeeded ? 'Concluída' : 'Atualizada'}</StatusPill>
     </div>
     <div className="execution-timeline">
       {entries.map((entry, index) => {

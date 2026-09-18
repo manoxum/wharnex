@@ -116,7 +116,7 @@ func describePolicy() PolicySummary {
 			"commands are argv arrays; there is no shell, so pipes, redirects, globbing, command substitution and chaining are unavailable — express them as separate operations or as a tool's own flags",
 			"a denied executable rejects the whole plan before anything executes",
 			"an elevated executable is allowed but raises plan risk to at least medium",
-			"a git subcommand outside the read-only list requires explicit user approval; one outside both lists is denied",
+			"a git subcommand outside the read-only list requires explicit user approval; one outside both lists is denied; dual-mode read-only entries remain argument-checked (symbolic-ref is query-only)",
 			"remote git (fetch/pull/push) additionally requires network=true and is high risk",
 			"npm install/i/publish require approval; go generate/install/env are denied",
 		},

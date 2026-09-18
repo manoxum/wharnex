@@ -62,6 +62,7 @@ Editor file saves and Explorer create/rename/delete actions are explicit human m
 - Protected host apply and Unprotected direct execution MUST re-check Git readiness before patching.
 - Every isolated sandbox copy MUST initialize its own Git repository and baseline commit after filtering excluded/secrets. Host `.git` metadata is never copied into the sandbox.
 - Read-only verification such as `git diff --check` therefore runs against the sandbox baseline in Protected mode and against the project's own repository in Unprotected mode.
+- Git Policy classification is argument-sensitive for dual-mode commands. A `git symbolic-ref` invocation with exactly one ref name and only query flags (`--quiet`/`-q`, `--short`, `--no-recurse`) is read-only and MAY be used by planner verification without an extra approval; forms that write, delete, or provide a replacement ref remain denied. Supported Git mutations such as `switch -c` keep their explicit approval boundary and, in Protected mode, are replayed on the host only after sandbox verification.
 
 ## Human project provisioning (v1.2.17)
 
