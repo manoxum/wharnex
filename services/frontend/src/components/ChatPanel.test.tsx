@@ -510,6 +510,46 @@ describe('ChatPanel', () => {
     expect(screen.getByText('FULL_MARKDOWN_TAIL')).toBeTruthy()
   })
 
+  it('truncates very large user prompts until the operator expands them', () => {
+    const longPrompt = `Primeira linha do prompt\n${'contexto muito grande '.repeat(90)}\nFULL_PROMPT_TAIL`
+    render(
+      <ChatPanel session={session} items={[{ id: 'user-prompt-long', role: 'user', text: longPrompt }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    const toggle = screen.getByRole('button', { name: 'Expandir prompt' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('.chat-prompt-disclosure.collapsible:not(.expanded)')).toBeTruthy()
+    expect(screen.queryByText(/FULL_PROMPT_TAIL/)).toBeNull()
+
+    fireEvent.click(toggle)
+    expect(screen.getByRole('button', { name: 'Mostrar menos' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText(/FULL_PROMPT_TAIL/)).toBeTruthy()
+  })
+
+  it('coalesces rapid transcript scroll window updates to one animation frame', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const items = Array.from({ length: 120 }, (_, index) => ({ id: `scroll-frame-${index + 1}`, role: 'user' as const, text: `mensagem frame ${index + 1}` }))
+    const view = render(
+      <ChatPanel session={session} items={items} chats={[]} activeChatId="scroll-frame-chat" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const stream = view.container.querySelector('.chat-stream') as HTMLDivElement
+    Object.defineProperty(stream, 'scrollHeight', { configurable: true, value: 21600 })
+    Object.defineProperty(stream, 'clientHeight', { configurable: true, value: 360 })
+
+    stream.scrollTop = 10 * 180
+    fireEvent.scroll(stream)
+    stream.scrollTop = 20 * 180
+    fireEvent.scroll(stream)
+    stream.scrollTop = 30 * 180
+    fireEvent.scroll(stream)
+
+    expect(frames).toHaveLength(1)
+    await act(async () => { frames.shift()?.(performance.now()) })
+    await waitFor(() => expect(screen.getByText('mensagem frame 31')).toBeTruthy())
+  })
+
   it('shows only the latest consecutive WHX notice until the ellipsis control is expanded', () => {
     const view = render(
       <ChatPanel session={session} items={[

@@ -2837,6 +2837,12 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .whx-notice-stack-toggle:hover { border-color: color-mix(in srgb, var(--theme-accent) 44%, var(--theme-border)); background: var(--theme-hover); color: var(--theme-text); }
 .chat-markdown-toggle > span { min-width: 18px; color: var(--theme-accent); font: 800 12px/1 var(--mono-font-family); letter-spacing: .08em; }
 
+.chat-prompt-disclosure { min-width: 0; }
+.chat-prompt-window { min-width: 0; }
+.message-user .chat-prompt-toggle { border-color: color-mix(in srgb, #f2f4ed 22%, transparent); background: color-mix(in srgb, #f2f4ed 9%, transparent); color: #e2e6dc; }
+.message-user .chat-prompt-toggle:hover { border-color: color-mix(in srgb, var(--acid) 52%, transparent); background: color-mix(in srgb, #f2f4ed 14%, transparent); color: #fff; }
+.message-user .chat-prompt-toggle > span { color: var(--acid); }
+
 .whx-notice-run { display: grid; gap: 7px; }
 .whx-notice-stack-toggle {
   justify-self: center;

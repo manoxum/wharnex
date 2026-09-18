@@ -45,6 +45,8 @@ const COMPOSER_MIN_HEIGHT = 118
 const COMPOSER_MAX_HEIGHT = 420
 const LONG_CHAT_MARKDOWN_CHARS = 1400
 const LONG_CHAT_MARKDOWN_LINES = 18
+const LONG_USER_PROMPT_CHARS = 900
+const LONG_USER_PROMPT_LINES = 12
 const CHANGE_DIFF_PREVIEW_COUNT = 4
 
 function clampComposerHeight(height: number) {
@@ -1064,7 +1066,7 @@ function ChatItemView({ item, copied, onCopy, onApprovePlan, onCorrectPlan, onRe
   const label = source === 'user' ? 'Você' : source === 'chatgpt' ? 'ChatGPT' : 'Wharnex'
   return <article id={`chat-item-${item.id}`} tabIndex={-1} className={`message message-${source} ${presentation === 'plan' ? 'message-plan' : ''}`}>
     <div className="message-heading"><div className="message-label">{label}</div><div className="message-tools"><time dateTime={item.createdAt || ''}>{formatMessageTime(item.createdAt)}</time><button type="button" onClick={() => void onCopy(item)} title="Copiar mensagem" aria-label="Copiar mensagem"><Icon name={copied ? 'check' : 'copy'} size={12}/></button></div></div>
-    <div className="message-body">{item.role === 'harness' ? <ExpandableMarkdown markdown={visibleText || 'Atualização de tarefas.'} /> : visibleText}</div>
+    <div className="message-body">{item.role === 'harness' ? <ExpandableMarkdown markdown={visibleText || 'Atualização de tarefas.'} /> : <ExpandableUserPrompt text={visibleText} />}</div>
     {item.interview && <InterviewCard interview={item.interview} disabled={busy || taskInFlight} onChoose={onInterviewChoice}/>}
     {item.attachments?.length ? <div className="message-attachments">{item.attachments.map((file, index) => <MessageAttachmentCard key={file.storageRef || `${file.name}-${file.size}-${index}`} attachment={file}/>)}</div> : null}
     {item.iteration && <IterationReference item={item} onInspectArtifact={onInspectArtifact} artifactContent={artifactContent} />}
@@ -1077,6 +1079,25 @@ function ChatItemView({ item, copied, onCopy, onApprovePlan, onCorrectPlan, onRe
 
 function InterviewCard({ interview, disabled, onChoose }: { interview: Interview; disabled: boolean; onChoose?: (interview: Interview, question: InterviewQuestion, option: { id: string; label: string }) => void }) {
   return <section className="plan-approval plan-pending" aria-label="Entrevista do Wharnex"><div><Icon name="chatgpt" size={13}/><span>Entrevista · escolha uma opção para preparar a resposta no compositor.</span></div>{interview.questions.map((question) => <div key={question.id}><strong>{question.prompt}</strong><div>{question.options.map((option) => <button type="button" className="text-button" key={option.id} disabled={disabled} onClick={() => onChoose?.(interview, question, option)}>{option.label}</button>)}</div></div>)}</section>
+}
+
+function ExpandableUserPrompt({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const collapsible = text.length > LONG_USER_PROMPT_CHARS || text.split('\n', LONG_USER_PROMPT_LINES + 1).length > LONG_USER_PROMPT_LINES
+  const visibleText = collapsible && !expanded ? collapsedUserPromptPreview(text) : text
+  return <div className={`chat-prompt-disclosure${collapsible ? ' collapsible' : ''}${expanded ? ' expanded' : ''}`}>
+    <div className="chat-prompt-window">{visibleText}</div>
+    {collapsible && <button type="button" className="chat-markdown-toggle chat-prompt-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+      <span aria-hidden="true">{expanded ? '−' : '···'}</span>{expanded ? 'Mostrar menos' : 'Expandir prompt'}
+    </button>}
+  </div>
+}
+
+function collapsedUserPromptPreview(text: string) {
+  const firstLines = text.split('\n', LONG_USER_PROMPT_LINES + 1)
+  const lineBounded = firstLines.length > LONG_USER_PROMPT_LINES ? firstLines.slice(0, LONG_USER_PROMPT_LINES).join('\n') : text
+  const preview = lineBounded.slice(0, LONG_USER_PROMPT_CHARS).trimEnd()
+  return `${preview}\n\n…`
 }
 
 function ExpandableMarkdown({ markdown }: { markdown: string }) {
