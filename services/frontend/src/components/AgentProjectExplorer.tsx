@@ -129,10 +129,11 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose }: {
 
   return <section className="agent-project-explorer" aria-label="Explorador do projeto">
     <header className="agent-drawer-heading">
-      <div><span className="panel-kicker">Project</span><strong>{projectName(session.project_path)}</strong></div>
+      <div><span className="panel-kicker">Workspace</span><strong>Explorer</strong></div>
       <div className="agent-runtime-heading-actions">
         <button type="button" className="agent-drawer-icon" onClick={() => void create('file')} aria-label="Novo ficheiro" title="Novo ficheiro"><Icon name="new-file" size={14}/></button>
         <button type="button" className="agent-drawer-icon" onClick={() => void create('directory')} aria-label="Nova pasta" title="Nova pasta"><Icon name="new-folder" size={14}/></button>
+        <button type="button" className="agent-drawer-icon" onClick={() => setExpanded(new Set())} disabled={!expanded.size} aria-label="Recolher todas as pastas" title="Recolher todas as pastas"><Icon name="collapse" size={14}/></button>
         <button type="button" className="agent-drawer-icon" onClick={() => void refresh()} disabled={loading} aria-label="Atualizar ficheiros" title="Atualizar ficheiros"><Icon name="refresh" size={14}/></button>
         <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar explorador" title="Fechar explorador"><Icon name="close" size={13}/></button>
       </div>
@@ -241,5 +242,4 @@ function validateLeafName(value: string) {
   return undefined
 }
 function sortTree(node: TreeNode) { node.children.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'directory' ? -1 : 1); node.children.forEach(sortTree) }
-function projectName(path: string) { return path.split('/').filter(Boolean).at(-1) || path }
 function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }

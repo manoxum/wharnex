@@ -32,6 +32,15 @@ describe('WorkspaceShell project actions', () => {
     expect(screen.queryByText('Wharnex')).toBeNull()
   })
 
+  it('leads the title bar with the active project and keeps it first in the switcher', () => {
+    const { container } = render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/gamma" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    const bar = container.querySelector('.multi-project-bar')
+    const switcher = container.querySelector('.project-quick-switch')
+    expect(bar?.firstElementChild).toBe(switcher)
+    expect(switcher?.firstElementChild?.textContent).toContain('gamma')
+    expect(switcher?.firstElementChild?.classList.contains('active')).toBe(true)
+  })
+
   it('marks the shell chrome as the desktop window title bar', () => {
     const { container } = render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
     expect(container.querySelector('.multi-project-bar')?.getAttribute('data-window-titlebar')).toBe('true')

@@ -289,9 +289,9 @@ describe('multi-project shell CSS', () => {
     const activeUnderline = lastRule('.project-quick-switch button.active::after')
     const activeMark = lastRule('.project-quick-switch button.active .project-color-mark')
 
-    expect(activeProject).toContain('box-shadow: 0 0 0 1px hsl(var(--project-hue) 76% 52% / .08), 0 2px 8px hsl(var(--project-hue) 70% 38% / .11)')
-    expect(activeUnderline).toContain('box-shadow: 0 0 5px hsl(var(--project-hue) 84% 54% / .28)')
-    expect(activeMark).toContain('box-shadow: 0 0 6px hsl(var(--project-hue) 72% 48% / .10)')
+    expect(activeProject).toContain('box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent)')
+    expect(activeUnderline).not.toContain('box-shadow')
+    expect(activeMark).toContain('box-shadow: none')
   })
 })
 
