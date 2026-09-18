@@ -12,6 +12,8 @@ describe('Monaco build surface', () => {
     expect(source).toContain("defineTheme('wharness-light'")
     expect(source).toContain("defineTheme('wharness-dark'")
     expect(source).toContain("languages.register({ id: 'dotenv' })")
+    expect(source).toContain("languages.register({ id: 'makefile' })")
+    expect(source).toContain("setMonarchTokensProvider('makefile'")
     expect(source).toContain("defineWorkbenchTheme('wharness-jetbrains-darcula'")
     expect(source).toContain("defineWorkbenchTheme('wharness-vscode-dark'")
 

@@ -1,6 +1,7 @@
 const filenameLanguages: Record<string, string> = {
   'dockerfile': 'dockerfile',
   'makefile': 'makefile',
+  'gnumakefile': 'makefile',
   'jenkinsfile': 'groovy',
   '.gitignore': 'plaintext',
   '.dockerignore': 'plaintext',
@@ -23,7 +24,7 @@ const extensionLanguages: Record<string, string> = {
   sh: 'shell', bash: 'shell', zsh: 'shell', fish: 'shell',
   sql: 'sql', graphql: 'graphql', gql: 'graphql',
   toml: 'ini', ini: 'ini', conf: 'ini', properties: 'ini',
-  env: 'dotenv', txt: 'plaintext', log: 'plaintext',
+  env: 'dotenv', mk: 'makefile', txt: 'plaintext', log: 'plaintext',
 }
 
 export function editorLanguageForPath(path: string) {

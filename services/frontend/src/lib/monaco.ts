@@ -78,6 +78,35 @@ export function configureMonaco() {
       ],
     },
   })
+  monaco.languages.register({ id: 'makefile' })
+  monaco.languages.setLanguageConfiguration('makefile', {
+    comments: { lineComment: '#' },
+    brackets: [['(', ')'], ['{', '}']],
+    autoClosingPairs: [
+      { open: '(', close: ')' },
+      { open: '{', close: '}' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+    ],
+  })
+  monaco.languages.setMonarchTokensProvider('makefile', {
+    tokenizer: {
+      root: [
+        [/^\s*#.*$/, 'comment'],
+        [/^\t[@+-]?/, 'keyword'],
+        [/\$\([^)]+\)|\$\{[^}]+\}/, 'variable'],
+        [/\$\$[@%<?^+*|]/, 'variable.predefined'],
+        [/\b(?:include|-include|sinclude|define|endef|ifdef|ifndef|ifeq|ifneq|else|endif|override|export|unexport|private|vpath)\b/, 'keyword'],
+        [/^[A-Za-z0-9_][A-Za-z0-9_.%/@+-]*(?=\s*::?(?!=))/, 'type.identifier'],
+        [/^[A-Za-z_][A-Za-z0-9_]*(?=\s*(?:[:+?]?=))/, 'variable'],
+        [/"(?:[^"\\]|\\.)*"/, 'string'],
+        [/'(?:[^'\\]|\\.)*'/, 'string'],
+        [/#.*$/, 'comment'],
+        [/\b\d+(?:\.\d+)?\b/, 'number'],
+        [/::?|[:+?]?=/, 'delimiter'],
+      ],
+    },
+  })
   for (const language of ['javascript', 'typescript']) {
     monaco.languages.registerCompletionItemProvider(language, {
       triggerCharacters: ['<', ' ', '.', '('],
