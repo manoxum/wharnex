@@ -78,8 +78,8 @@ describe('complete colour themes', () => {
     expect(theme).toContain('background: #303030;\n  color: #cecece !important;')
   })
   it('keeps the active linked-project accent restrained in dark mode', () => {
-    expect(theme).toContain('box-shadow: 0 0 0 1px hsl(var(--project-hue) 70% 58% / .08), 0 2px 8px hsl(var(--project-hue) 70% 48% / .14);')
-    expect(theme).toContain('box-shadow: 0 0 0 2px hsl(var(--project-hue) 70% 56% / .10), 0 0 7px hsl(var(--project-hue) 76% 54% / .24);')
+    expect(theme).toContain('box-shadow: 0 1px 3px rgba(0,0,0,.24);')
+    expect(theme).toContain(":root[data-theme='dark'] .project-quick-switch button.active .project-color-mark { box-shadow: none; }")
   })
 
   it('gives the integrated chat header and every bundle stage a distinct dark treatment', () => {
