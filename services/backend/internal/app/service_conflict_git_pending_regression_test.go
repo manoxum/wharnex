@@ -26,7 +26,7 @@ func TestArchivedGitConflictResolutionPreservesOriginalCandidate(t *testing.T) {
 	apiPath := filepath.Join(root, "api.go")
 	typesPath := filepath.Join(root, "types.go")
 	for path, contents := range map[string]string{
-		filepath.Join(root, "go.mod"):    "module example.test/replay\n\ngo 1.25\n",
+		filepath.Join(root, "go.mod"):    "module example.test/replay\n\ngo 1.23\n",
 		filepath.Join(root, "drift.txt"): "first host state\n",
 		apiPath:                          "package replay\n\nconst API = \"base\"\n",
 		typesPath:                        "package replay\n",
