@@ -233,7 +233,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [inspectedArtifact, setInspectedArtifact] = useState<ChatArtifactKind | ''>('')
   const [inspectedChangeFile, setInspectedChangeFile] = useState<ChatChangeFile>()
 
-  const draftInterviewReply = (reply: string) => {
+  const draftInterviewReply = (interview: Interview, question: InterviewQuestion, option: { id: string; label: string }) => {
+    const reply = `Resposta da entrevista (${interview.protocol})\n- ${question.prompt}\n  - ${option.label}`
     composerMessageRef.current = reply
     setMessage(reply)
     setPendingCaret({ index: reply.length, token: Date.now() })
@@ -646,7 +647,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     composerMessageRef.current = applied.text
     setMessage(applied.text)
     setKindQuery(undefined)
-    setFileQuery(suggestion.kind === 'interview' ? undefined : directiveQuery(applied.text, applied.caret))
+    setFileQuery(directiveQuery(applied.text, applied.caret))
     setActiveSuggestionIndex(0)
     focusCaretAt(applied.caret)
   }
@@ -656,10 +657,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // that created it, positioned to replace exactly this occurrence and no
   // other — two directives can share a value with different surrounding text.
   function editDirective(directive: ComposerDirective) {
-    if (directive.kind === 'interview') {
-      setOpenDirective(undefined)
-      return
-    }
     if (directive.kind === 'attach' || directive.kind === 'ref') {
       setAttachmentsPanelPath(directive.kind === 'ref' ? directive.project : directive.path)
       setAttachmentsPanelKind(directive.kind)
@@ -1016,7 +1013,7 @@ function DeferredTranscriptEntry({ streamRef, defer, children }: { streamRef: Re
   </div>
 }
 
-function ChatItemView({ item, copied, onCopy, onApprovePlan, onCorrectPlan, onRejectPlan, onInspectArtifact, onInspectChange, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock, onRepairWithGPT, canRepairWithGPT, requiresOperatorGuidance, onRetryDependencyNetwork, canRetryDependencyNetwork, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, busy, taskInFlight, artifactContent, onInterviewChoice }: { item: ChatItem; copied: boolean; onCopy: (item: ChatItem) => Promise<void>; onApprovePlan?: (item: ChatItem) => Promise<void>; onCorrectPlan?: (item: ChatItem, guidance: string) => Promise<void>; onRejectPlan?: (item: ChatItem) => void; onInspectArtifact: (kind: ChatArtifactKind) => void; onInspectChange: (file: ChatChangeFile) => void; onOpenFile?: (path: string) => void; onRevertChange?: (item: ChatItem) => Promise<void>; onReprocessPolicyBlock?: () => Promise<void>; canReprocessPolicyBlock: boolean; onRepairWithGPT?: (detail: string) => Promise<void>; canRepairWithGPT: boolean; requiresOperatorGuidance: boolean; onRetryDependencyNetwork?: () => Promise<void>; canRetryDependencyNetwork: boolean; onRetryTransportFailure?: (requestId: string) => Promise<void>; onResendPendingRequest?: (requestId: string) => Promise<void>; onCancelPendingRequest?: (requestId: string) => Promise<void>; busy: boolean; taskInFlight: boolean; artifactContent?: Partial<Record<ChatArtifactKind, string>>; onInterviewChoice?: (reply: string) => void }) {
+function ChatItemView({ item, copied, onCopy, onApprovePlan, onCorrectPlan, onRejectPlan, onInspectArtifact, onInspectChange, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock, onRepairWithGPT, canRepairWithGPT, requiresOperatorGuidance, onRetryDependencyNetwork, canRetryDependencyNetwork, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, busy, taskInFlight, artifactContent, onInterviewChoice }: { item: ChatItem; copied: boolean; onCopy: (item: ChatItem) => Promise<void>; onApprovePlan?: (item: ChatItem) => Promise<void>; onCorrectPlan?: (item: ChatItem, guidance: string) => Promise<void>; onRejectPlan?: (item: ChatItem) => void; onInspectArtifact: (kind: ChatArtifactKind) => void; onInspectChange: (file: ChatChangeFile) => void; onOpenFile?: (path: string) => void; onRevertChange?: (item: ChatItem) => Promise<void>; onReprocessPolicyBlock?: () => Promise<void>; canReprocessPolicyBlock: boolean; onRepairWithGPT?: (detail: string) => Promise<void>; canRepairWithGPT: boolean; requiresOperatorGuidance: boolean; onRetryDependencyNetwork?: () => Promise<void>; canRetryDependencyNetwork: boolean; onRetryTransportFailure?: (requestId: string) => Promise<void>; onResendPendingRequest?: (requestId: string) => Promise<void>; onCancelPendingRequest?: (requestId: string) => Promise<void>; busy: boolean; taskInFlight: boolean; artifactContent?: Partial<Record<ChatArtifactKind, string>>; onInterviewChoice?: (interview: Interview, question: InterviewQuestion, option: { id: string; label: string }) => void }) {
   const source = chatItemSource(item)
   const presentation = item.presentation || 'message'
   const visibleText = item.role === 'harness' ? stripTodoSection(item.text) : item.text
@@ -1038,29 +1035,8 @@ function ChatItemView({ item, copied, onCopy, onApprovePlan, onCorrectPlan, onRe
   </article>
 }
 
-function InterviewCard({ interview, disabled, onChoose }: { interview: Interview; disabled: boolean; onChoose?: (reply: string) => void }) {
-  const [selected, setSelected] = useState<Record<string, string[]>>({})
-  const [other, setOther] = useState<Record<string, string>>({})
-  const supportsOther = (question: InterviewQuestion) => interview.protocol === 'harness.interview/v2' || question.allow_other
-  const answered = (question: InterviewQuestion) => Boolean(selected[question.id]?.length || (supportsOther(question) && other[question.id]?.trim()))
-  const toggle = (question: InterviewQuestion, optionId: string) => setSelected((current) => {
-    const values = current[question.id] || []
-    const next = question.allow_multiple ? (values.includes(optionId) ? values.filter((value) => value !== optionId) : [...values, optionId]) : [optionId]
-    return { ...current, [question.id]: next }
-  })
-  const prepare = () => {
-    const lines = [`Resposta da entrevista (${interview.protocol})`]
-    for (const question of interview.questions) {
-      const labels = (selected[question.id] || []).map((id) => question.options.find((option) => option.id === id)?.label).filter(Boolean)
-      const freeform = other[question.id]?.trim()
-      lines.push(`- ${question.prompt}`)
-      for (const label of labels) lines.push(`  - ${label}`)
-      if (freeform) lines.push(`  - Outro: ${freeform}`)
-    }
-    onChoose?.(lines.join('\n'))
-  }
-  const complete = interview.questions.every(answered)
-  return <section className="plan-approval plan-pending" aria-label="Entrevista do Wharnex"><div><Icon name="chatgpt" size={13}/><span>Entrevista · responda às decisões abaixo; nada é enviado automaticamente.</span></div>{interview.questions.map((question) => <div key={question.id}><strong>{question.prompt}</strong><div>{question.options.map((option) => { const active = (selected[question.id] || []).includes(option.id); return <button type="button" className="text-button" aria-pressed={active} key={option.id} disabled={disabled} onClick={() => toggle(question, option.id)}>{option.label}</button> })}</div>{supportsOther(question) && <input aria-label={`Outro — ${question.prompt}`} disabled={disabled} value={other[question.id] || ''} onChange={(event) => setOther((current) => ({ ...current, [question.id]: event.target.value }))} placeholder="Outro…" />}</div>)}<div><button type="button" className="apply-button" disabled={disabled || !complete} onClick={prepare}>Preparar resposta</button></div></section>
+function InterviewCard({ interview, disabled, onChoose }: { interview: Interview; disabled: boolean; onChoose?: (interview: Interview, question: InterviewQuestion, option: { id: string; label: string }) => void }) {
+  return <section className="plan-approval plan-pending" aria-label="Entrevista do Wharnex"><div><Icon name="chatgpt" size={13}/><span>Entrevista · escolha uma opção para preparar a resposta no compositor.</span></div>{interview.questions.map((question) => <div key={question.id}><strong>{question.prompt}</strong><div>{question.options.map((option) => <button type="button" className="text-button" key={option.id} disabled={disabled} onClick={() => onChoose?.(interview, question, option)}>{option.label}</button>)}</div></div>)}</section>
 }
 
 function ExpandableMarkdown({ markdown }: { markdown: string }) {
@@ -1241,6 +1217,5 @@ function directiveKindIcon(kind: ComposerDirective['kind']) {
   if (kind === 'attach') return 'folder'
   if (kind === 'file') return 'file'
   if (kind === 'see') return 'link'
-  if (kind === 'interview') return 'chatgpt'
   return 'workspace'
 }

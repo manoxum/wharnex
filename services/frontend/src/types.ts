@@ -234,8 +234,8 @@ export type TerminalRunRequest = TerminalRunInput & { id: number }
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
 export type InterviewOption = { id: string; label: string }
-export type InterviewQuestion = { id: string; prompt: string; allow_multiple?: boolean; allow_other?: boolean; options: InterviewOption[] }
-export type Interview = { protocol: 'harness.interview/v1' | 'harness.interview/v2'; questions: InterviewQuestion[] }
+export type InterviewQuestion = { id: string; prompt: string; allow_multiple?: boolean; options: InterviewOption[] }
+export type Interview = { protocol: 'harness.interview/v1'; questions: InterviewQuestion[] }
 
 export type AgentTurn = {
   protocol: 'harness.turn/v1'

@@ -63,7 +63,7 @@ func ValidateTurn(turn domain.AgentTurn) error {
 	if turn.Kind != domain.TurnKindClarification {
 		return errors.New("interview is valid only on a clarification turn")
 	}
-	if turn.Interview.Protocol != domain.InterviewProtocolV1 && turn.Interview.Protocol != domain.InterviewProtocolV2 {
+	if turn.Interview.Protocol != domain.InterviewProtocolV1 {
 		return fmt.Errorf("unsupported interview protocol %q", turn.Interview.Protocol)
 	}
 	if len(turn.Interview.Questions) == 0 || len(turn.Interview.Questions) > 8 {
@@ -80,9 +80,6 @@ func ValidateTurn(turn domain.AgentTurn) error {
 		questionIDs[question.ID] = struct{}{}
 		if prompt := strings.TrimSpace(question.Prompt); prompt == "" || len(prompt) > 1024 {
 			return fmt.Errorf("interview question %d prompt must be 1..1024 bytes", index)
-		}
-		if turn.Interview.Protocol == domain.InterviewProtocolV2 && !question.AllowOther {
-			return fmt.Errorf("interview v2 question %d must allow an open Other answer", index)
 		}
 		if len(question.Options) < 2 || len(question.Options) > 8 {
 			return fmt.Errorf("interview question %d requires 2..8 options", index)
