@@ -28,22 +28,22 @@ export function AttentionPopover({ items, activeChatId, busy, onOpen, onAction, 
       <div className="agent-attention-popover-heading">
         <span className="agent-attention-popover-symbol" aria-hidden="true"><Icon name={summary.urgent ? 'shield' : 'bell'} size={16}/></span>
         <div className="agent-attention-popover-heading-copy">
-          <span>Triagem do Projeto</span>
+          <span>Atenção do projeto</span>
           <h2 id="agent-attention-popover-title">Centro de Alertas</h2>
-          <p id="agent-attention-popover-description">Ações concretas primeiro; abra um alerta para ver todo o contexto.</p>
+          <p id="agent-attention-popover-description">O que precisa de atenção agora, sem ruído.</p>
         </div>
       </div>
       <button ref={closeRef} type="button" className="agent-attention-popover-close" onClick={onClose} aria-label="Fechar Centro de Alertas" title="Fechar"><Icon name="close" size={13}/></button>
     </header>
     <div className="agent-attention-popover-metrics" aria-label="Resumo dos alertas">
-      <span><b>{countFormat.format(summary.total)}</b><small>{summary.total === 1 ? 'Alerta' : 'Alertas'}</small></span>
+      <span><b>{countFormat.format(summary.total)}</b><small>{summary.total === 1 ? 'Ativo' : 'Ativos'}</small></span>
       <span className={summary.urgent ? 'danger' : ''}><b>{countFormat.format(summary.urgent)}</b><small>{summary.urgent === 1 ? 'Urgente' : 'Urgentes'}</small></span>
-      <span><b>{countFormat.format(summary.actionable)}</b><small>com ação</small></span>
+      <span><b>{countFormat.format(summary.actionable)}</b><small>Com ação</small></span>
     </div>
     <div className="agent-attention-popover-list">
       <AttentionList items={preview} activeChatId={activeChatId} busy={busy} density="compact" onOpen={onOpen} onAction={onAction}/>
       {hiddenCount > 0 ? <p className="agent-attention-popover-overflow">Mais {countFormat.format(hiddenCount)} {hiddenCount === 1 ? 'alerta está disponível' : 'alertas estão disponíveis'} no painel completo.</p> : null}
     </div>
-    <footer><button type="button" onClick={onOpenAll} aria-label="Ver todos os alertas"><Icon name="bell" size={13}/> Ver todos os {countFormat.format(summary.total)} alertas <Icon name="arrow-right" size={12}/></button></footer>
+    <footer><button type="button" onClick={onOpenAll} aria-label="Ver todos os alertas"><span>Abrir centro de alertas</span><span className="agent-attention-popover-footer-count">{countFormat.format(summary.total)}</span><Icon name="arrow-right" size={12}/></button></footer>
   </section>
 }

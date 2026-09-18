@@ -316,6 +316,20 @@ describe('split Agent layout CSS', () => {
   })
 })
 
+describe('attention center CSS', () => {
+  it('keeps the compact popover flat, readable and width-safe', () => {
+    const attention = css.slice(css.lastIndexOf('/* Centro de Alertas'))
+
+    expect(attention).toContain('.agent-attention-popover { width:min(520px,calc(100vw - 20px))')
+    expect(attention).toContain('.agent-attention-popover-metrics span { min-width:0; min-height:44px;')
+    expect(attention).toContain('border:0; border-radius:0; background:transparent')
+    expect(attention).toContain('.attention-list.compact .attention-card { position:relative; border:1px solid var(--theme-border-soft);')
+    expect(attention).toContain('box-shadow:none;')
+    expect(attention).toContain('overflow-wrap:normal; word-break:normal; hyphens:none;')
+    expect(attention).toContain('grid-template-columns:minmax(0,1fr) auto;')
+  })
+})
+
 describe('terminal and editor execution CSS', () => {
   it('keeps terminal tabs compact without exposing the horizontal scrollbar', () => {
     const tabs = lastRule('.terminal-tabs')
