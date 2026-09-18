@@ -19,6 +19,7 @@ type WorkspaceChat struct {
 	RemoteProjectRef string     `json:"remote_project_ref,omitempty"`
 	RemoteTitle      string     `json:"remote_title,omitempty"`
 	RemoteState      string     `json:"remote_state,omitempty"`
+	SavedAt          *time.Time `json:"saved_at,omitempty"`
 	ArchivedAt       *time.Time `json:"archived_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
@@ -42,4 +43,5 @@ type WorkspaceChatItem struct {
 	Payload   map[string]any `json:"payload"`
 }
 
+func (c WorkspaceChat) Saved() bool    { return c.SavedAt != nil && !c.SavedAt.IsZero() }
 func (c WorkspaceChat) Archived() bool { return c.ArchivedAt != nil && !c.ArchivedAt.IsZero() }

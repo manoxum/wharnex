@@ -70,6 +70,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/workspace-chats/{id}", a.saveWorkspaceChat)
 	mux.HandleFunc("PATCH /api/workspace-chats/{id}/remote", a.updateWorkspaceChatRemote)
 	mux.HandleFunc("GET /api/workspace-chats/{id}/binding-recovery", a.recoverWorkspaceChatBinding)
+	mux.HandleFunc("PATCH /api/workspace-chats/{id}/saved", a.setWorkspaceChatSaved)
 	mux.HandleFunc("PATCH /api/workspace-chats/{id}/archived", a.setWorkspaceChatArchived)
 	mux.HandleFunc("DELETE /api/workspace-chats/{id}", a.deleteWorkspaceChat)
 	mux.HandleFunc("GET /api/workspace-chats/{id}/items", a.listWorkspaceChatItems)

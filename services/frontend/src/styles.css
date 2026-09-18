@@ -5587,3 +5587,12 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-workspace.single-pane .surface-hidden { display: none; }
 .plan-interactive-payload { margin:4px 0 0; max-height:220px; overflow:auto; padding:8px 9px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-subtle); white-space:pre-wrap; overflow-wrap:anywhere; }
 .plan-interactive-payload code { font:500 10px/1.45 ui-monospace,'SFMono-Regular',Consolas,'Liberation Mono',monospace; color:var(--theme-text); }
+
+/* Saved chats are suspended work: visually distinct from destructive close/archive. */
+.chat-tab-save:hover { background: var(--theme-accent-soft); color: var(--theme-accent); }
+.agent-chat-management-tabs { flex: 0 0 38px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--theme-border-soft); background: var(--theme-surface); }
+.agent-chat-management-tabs button { min-width: 0; height: 26px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--theme-text-muted); font: 650 calc(7.5px * var(--ui-font-scale))/1 var(--ui-font-family); cursor: pointer; }
+.agent-chat-management-tabs button:hover { background: var(--theme-hover); color: var(--theme-text); }
+.agent-chat-management-tabs button[aria-selected='true'] { border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border)); background: var(--theme-accent-soft); color: var(--theme-accent); }
+.agent-chat-management-tabs b { min-width: 16px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; border-radius: 999px; background: color-mix(in srgb, currentColor 9%, transparent); font: 700 calc(6.3px * var(--ui-font-scale))/1 var(--mono-font-family); }
+.agent-chat-management-preview-actions { display: flex; align-items: center; gap: 7px; }

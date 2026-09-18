@@ -652,6 +652,14 @@ describe('AgentWorkspace', () => {
     expect(view.onExportChat).toHaveBeenCalledTimes(1)
   })
 
+  it('offers saving an active chat without archiving it', () => {
+    const view = props()
+    const onSaveChat = vi.fn(async () => undefined)
+    render(<view.Harness chatProps={{ onSaveChat }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar chat Principal' }))
+    expect(onSaveChat).toHaveBeenCalledWith('chat-1')
+  })
+
   it('reopens the latest closed chat directly from the Agent chat switcher', () => {
     const view = props()
     render(view.element)
@@ -664,7 +672,7 @@ describe('AgentWorkspace', () => {
   it('opens archived chats from the left activity drawer', () => {
     const view = props()
     render(view.element)
-    fireEvent.click(screen.getByRole('button', { name: 'Chats arquivados' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Gestão de chats' }))
     expect(screen.getByText('Diagnóstico antigo')).toBeTruthy()
     fireEvent.click(screen.getByText('Diagnóstico antigo'))
     fireEvent.click(screen.getByRole('button', { name: 'Restaurar chat' }))

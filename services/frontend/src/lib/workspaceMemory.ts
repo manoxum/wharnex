@@ -6,6 +6,7 @@ const RECENT_KEY = 'kernl.workspace.recent.v1'
 const LEGACY_CHAT_PREFIX = 'kernl.workspace.chat.v1:'
 const CHAT_INDEX_PREFIX = 'kernl.workspace.chats.v2:'
 const CHAT_ITEMS_PREFIX = 'kernl.workspace.chat.v2:'
+const SAVED_CHAT_INDEX_PREFIX = 'kernl.workspace.chats.saved.v1:'
 const ARCHIVED_CHAT_INDEX_PREFIX = 'kernl.workspace.chats.archived.v1:'
 const EXECUTION_MODE_PREFIX = 'kernl.workspace.execution-mode.v1:'
 const AUTOMATION_MODE_PREFIX = 'kernl.workspace.automation-mode.v1:'
@@ -67,6 +68,7 @@ export type WorkspaceChat = {
   purpose?: 'standard' | 'self-evolution'
   createdAt: string
   updatedAt: string
+  savedAt?: string
   archivedAt?: string
 }
 
@@ -80,6 +82,7 @@ export type DurableWorkspaceChatRecord = {
   session_id: string
   title: string
   chatgpt_url?: string
+  saved_at?: string
   archived_at?: string
   created_at: string
   updated_at: string
@@ -88,7 +91,7 @@ export type DurableWorkspaceChatRecord = {
 
 export function durableWorkspaceChat(projectPath: string, chat: WorkspaceChat): DurableWorkspaceChatRecord {
   const {
-    id, title, sessionId, chatgptUrl, createdAt, updatedAt, archivedAt,
+    id, title, sessionId, chatgptUrl, createdAt, updatedAt, savedAt, archivedAt,
     ...extra
   } = normalizeWorkspaceChatAffinity(chat)
   return {
@@ -97,6 +100,7 @@ export function durableWorkspaceChat(projectPath: string, chat: WorkspaceChat): 
     session_id: sessionId,
     title,
     ...(chatgptUrl ? { chatgpt_url: chatgptUrl } : {}),
+    ...(savedAt ? { saved_at: savedAt } : {}),
     ...(archivedAt ? { archived_at: archivedAt } : {}),
     created_at: createdAt,
     updated_at: updatedAt,
@@ -113,6 +117,7 @@ function workspaceChatFromDurable(record: DurableWorkspaceChatRecord): Workspace
     ...((record.extra && typeof record.extra === 'object') ? record.extra : {}),
     createdAt: record.created_at,
     updatedAt: record.updated_at,
+    ...(record.saved_at ? { savedAt: record.saved_at } : {}),
     ...(record.archived_at ? { archivedAt: record.archived_at } : {}),
   } as WorkspaceChat
   return validChat(candidate) ? normalizeWorkspaceChatAffinity(candidate) : undefined
@@ -256,6 +261,20 @@ export function reorderWorkspaceChats(chats: WorkspaceChat[], sourceChatId: stri
 }
 
 
+export function loadSavedWorkspaceChats(projectPath: string): WorkspaceChat[] {
+  try {
+    const raw = localStorage.getItem(SAVED_CHAT_INDEX_PREFIX + projectPath)
+    const parsed = raw ? JSON.parse(raw) as WorkspaceChat[] : []
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(validChat).map(normalizeWorkspaceChatAffinity).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30)
+  } catch { return [] }
+}
+
+export function saveSavedWorkspaceChats(projectPath: string, chats: WorkspaceChat[]) {
+  const normalized = chats.filter(validChat).map(normalizeWorkspaceChatAffinity).slice(0, 30)
+  try { localStorage.setItem(SAVED_CHAT_INDEX_PREFIX + projectPath, JSON.stringify(normalized)) } catch { /* storage unavailable/full */ }
+}
+
 export function loadArchivedWorkspaceChats(projectPath: string): WorkspaceChat[] {
   try {
     const raw = localStorage.getItem(ARCHIVED_CHAT_INDEX_PREFIX + projectPath)
@@ -290,13 +309,50 @@ export function saveChat(projectPath: string, chatId: string, items: ChatItem[])
   try { localStorage.setItem(`${CHAT_ITEMS_PREFIX}${projectPath}:${chatId}`, JSON.stringify(compact)) } catch { /* storage unavailable/full */ }
 }
 
+export function saveChatForLater(projectPath: string, chatId: string) {
+  const active = loadWorkspaceChats(projectPath)
+  const target = active.find((chat) => chat.id === chatId)
+  if (!target) return { active, saved: loadSavedWorkspaceChats(projectPath) }
+  const remaining = active.filter((chat) => chat.id !== chatId)
+  const savedAt = new Date().toISOString()
+  const moved: WorkspaceChat = { ...target, updatedAt: savedAt, savedAt, archivedAt: undefined }
+  const saved = [moved, ...loadSavedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
+  saveWorkspaceChats(projectPath, remaining)
+  saveSavedWorkspaceChats(projectPath, saved)
+  return { active: remaining, saved }
+}
+
+export function restoreSavedChat(projectPath: string, chatId: string) {
+  const saved = loadSavedWorkspaceChats(projectPath)
+  const target = saved.find((chat) => chat.id === chatId)
+  if (!target) return { active: loadWorkspaceChats(projectPath), saved }
+  const remainingSaved = saved.filter((chat) => chat.id !== chatId)
+  const active = [{ ...target, savedAt: undefined, archivedAt: undefined, updatedAt: new Date().toISOString() }, ...loadWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
+  saveSavedWorkspaceChats(projectPath, remainingSaved)
+  saveWorkspaceChats(projectPath, active)
+  return { active, saved: remainingSaved }
+}
+
+export function archiveSavedChat(projectPath: string, chatId: string, remoteArchive?: RemoteArchive) {
+  const saved = loadSavedWorkspaceChats(projectPath)
+  const target = saved.find((chat) => chat.id === chatId)
+  if (!target) return { saved, archived: loadArchivedWorkspaceChats(projectPath) }
+  const remainingSaved = saved.filter((chat) => chat.id !== chatId)
+  const archivedAt = new Date().toISOString()
+  const moved: WorkspaceChat = { ...target, savedAt: undefined, updatedAt: archivedAt, archivedAt, ...(remoteArchive ? { remoteArchive } : {}) }
+  const archived = [moved, ...loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
+  saveSavedWorkspaceChats(projectPath, remainingSaved)
+  saveArchivedWorkspaceChats(projectPath, archived)
+  return { saved: remainingSaved, archived }
+}
+
 export function archiveChat(projectPath: string, chatId: string, remoteArchive?: RemoteArchive) {
   const active = loadWorkspaceChats(projectPath)
   const target = active.find((chat) => chat.id === chatId)
   if (!target) return { active, archived: loadArchivedWorkspaceChats(projectPath) }
   const remaining = active.filter((chat) => chat.id !== chatId)
   const archivedAt = new Date().toISOString()
-  const moved: WorkspaceChat = { ...target, updatedAt: archivedAt, archivedAt, ...(remoteArchive ? { remoteArchive } : {}) }
+  const moved: WorkspaceChat = { ...target, savedAt: undefined, updatedAt: archivedAt, archivedAt, ...(remoteArchive ? { remoteArchive } : {}) }
   const archived = [moved, ...loadArchivedWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
   saveWorkspaceChats(projectPath, remaining)
   saveArchivedWorkspaceChats(projectPath, archived)
@@ -327,7 +383,7 @@ export function restoreArchivedChat(projectPath: string, chatId: string) {
   const target = archived.find((chat) => chat.id === chatId)
   if (!target) return { active: loadWorkspaceChats(projectPath), archived }
   const remainingArchived = archived.filter((chat) => chat.id !== chatId)
-  const active = [{ ...target, updatedAt: new Date().toISOString() }, ...loadWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
+  const active = [{ ...target, archivedAt: undefined, savedAt: undefined, updatedAt: new Date().toISOString() }, ...loadWorkspaceChats(projectPath).filter((chat) => chat.id !== chatId)].slice(0, 30)
   saveArchivedWorkspaceChats(projectPath, remainingArchived)
   saveWorkspaceChats(projectPath, active)
   return { active, archived: remainingArchived }

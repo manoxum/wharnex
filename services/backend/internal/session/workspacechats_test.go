@@ -59,6 +59,28 @@ func TestSaveWorkspaceChatIsAnUpsert(t *testing.T) {
 
 // Archiving is a state change, not a delete: an archived chat must remain
 // listable so it can be restored.
+func TestSavedChatsRemainStoredAndReportStandby(t *testing.T) {
+	store := NewStore()
+	project := "/home/u/project"
+	chat := chatFixture("saved", project)
+	savedAt := time.Now().UTC()
+	chat.SavedAt = &savedAt
+	if err := store.SaveWorkspaceChat(chat); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	stored, err := store.GetWorkspaceChat(chat.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !stored.Saved() || stored.Archived() {
+		t.Fatalf("expected saved non-archived chat, got %+v", stored)
+	}
+	saved, err := store.IsWorkspaceChatSaved(chat.ID)
+	if err != nil || !saved {
+		t.Fatalf("saved=%v err=%v", saved, err)
+	}
+}
+
 func TestArchivedChatsRemainStored(t *testing.T) {
 	store := NewStore()
 	project := "/home/u/project"

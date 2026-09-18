@@ -171,6 +171,8 @@ export const api = {
   // archived chat the next time the instance started.
   setWorkspaceChatArchived: (chatId: string, archived: boolean) =>
     request<DurableWorkspaceChatRecord>(`/api/workspace-chats/${encodeURIComponent(chatId)}/archived`, { method: 'PATCH', body: JSON.stringify({ archived }) }),
+  setWorkspaceChatSaved: (chatId: string, saved: boolean) =>
+    request<DurableWorkspaceChatRecord>(`/api/workspace-chats/${encodeURIComponent(chatId)}/saved`, { method: 'PATCH', body: JSON.stringify({ saved }) }),
   workspaceChatBindingRecovery: (chatId: string) => request<WorkspaceChatBindingRecovery>(`/api/workspace-chats/${encodeURIComponent(chatId)}/binding-recovery`),
   updateWorkspaceChatRemote: (chatId: string, remote: { chatgpt_url?: string; remote_project_ref?: string; remote_title?: string; remote_state?: string }) =>
     request<{ ok: boolean }>(`/api/workspace-chats/${encodeURIComponent(chatId)}/remote`, { method: 'PATCH', body: JSON.stringify(remote) }),

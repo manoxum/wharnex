@@ -207,6 +207,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	query := `WITH candidate AS (
 		SELECT t.task_id FROM harness_chat_agent_tasks t
 		WHERE t.status IN ('PENDING','WAITING') AND t.not_before<=now() AND t.attempt<t.max_attempts
+		  AND NOT EXISTS (SELECT 1 FROM harness_workspace_chats c WHERE c.id=t.chat_id AND c.saved_at IS NOT NULL)
 		  AND (t.assigned_worker='' OR (t.assigned_worker=$5 AND $5<>''))
 		  AND (
 			$4='any'

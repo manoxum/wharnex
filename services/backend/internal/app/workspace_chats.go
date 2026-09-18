@@ -22,7 +22,10 @@ const (
 	maxChatURLLength   = 2048
 )
 
-var ErrInvalidWorkspaceChat = errors.New("invalid workspace chat")
+var (
+	ErrInvalidWorkspaceChat = errors.New("invalid workspace chat")
+	ErrWorkspaceChatSaved   = errors.New("workspace chat is saved and execution is on standby")
+)
 
 func normalizeProjectPath(value string) (string, error) {
 	project := strings.TrimSpace(value)
@@ -74,16 +77,16 @@ func (s *Service) SaveWorkspaceChat(chat domain.WorkspaceChat) (domain.Workspace
 	// an explicit rebind or an explicit Send against a different conversation
 	// counts as intent.
 	//
-	// Archive state is omitted by the same serializer for the same reason and
-	// is protected the same way. Archiving was renderer-local plus a session
-	// archive call, so the durable row still said "active"; on restart the
-	// durable record wins the merge and every chat archived since it became
-	// durable came back open. Both fields now survive a save that simply does
-	// not mention them.
-	if chat.ChatGPTURL == "" || chat.ArchivedAt == nil {
+	// Saved/archive lifecycle state is omitted by the same serializer for the
+	// same reason and is protected the same way. Those transitions have explicit
+	// endpoints; an ordinary title/transcript save must never reactivate a chat.
+	if chat.ChatGPTURL == "" || chat.SavedAt == nil || chat.ArchivedAt == nil {
 		if existing, err := s.store.GetWorkspaceChat(chat.ID); err == nil {
 			if chat.ChatGPTURL == "" {
 				chat.ChatGPTURL = normalizeChatGPTConversationURL(existing.ChatGPTURL)
+			}
+			if chat.SavedAt == nil {
+				chat.SavedAt = existing.SavedAt
 			}
 			if chat.ArchivedAt == nil {
 				chat.ArchivedAt = existing.ArchivedAt
@@ -133,18 +136,63 @@ func (s *Service) SetWorkspaceChatArchived(chatID string, archived bool) (domain
 	if err != nil {
 		return domain.WorkspaceChat{}, err
 	}
+	now := time.Now().UTC()
 	if archived {
 		if chat.ArchivedAt == nil {
-			at := time.Now().UTC()
-			chat.ArchivedAt = &at
+			chat.ArchivedAt = &now
 		}
+		chat.SavedAt = nil
 	} else {
 		chat.ArchivedAt = nil
 	}
+	chat.UpdatedAt = now
 	if err := s.store.SaveWorkspaceChat(chat); err != nil {
 		return domain.WorkspaceChat{}, err
 	}
 	return chat, nil
+}
+
+// SetWorkspaceChatSaved moves a chat into or out of the suspended/saved state.
+// A saved chat is deliberately different from an archive: its session and
+// remote ChatGPT conversation remain intact, but execution is parked until the
+// operator explicitly reactivates or archives it.
+func (s *Service) SetWorkspaceChatSaved(chatID string, saved bool) (domain.WorkspaceChat, error) {
+	id := strings.TrimSpace(chatID)
+	if id == "" {
+		return domain.WorkspaceChat{}, ErrInvalidWorkspaceChat
+	}
+	chat, err := s.store.GetWorkspaceChat(id)
+	if err != nil {
+		return domain.WorkspaceChat{}, err
+	}
+	now := time.Now().UTC()
+	if saved {
+		if chat.SavedAt == nil {
+			chat.SavedAt = &now
+		}
+		chat.ArchivedAt = nil
+	} else {
+		chat.SavedAt = nil
+	}
+	chat.UpdatedAt = now
+	if err := s.store.SaveWorkspaceChat(chat); err != nil {
+		return domain.WorkspaceChat{}, err
+	}
+	return chat, nil
+}
+
+func (s *Service) ensureWorkspaceChatExecutable(item domain.Session) error {
+	if strings.TrimSpace(item.ChatID) == "" {
+		return nil
+	}
+	saved, err := s.store.IsWorkspaceChatSaved(item.ChatID)
+	if err != nil {
+		return err
+	}
+	if saved {
+		return ErrWorkspaceChatSaved
+	}
+	return nil
 }
 
 func (s *Service) DeleteWorkspaceChat(chatID string) error {

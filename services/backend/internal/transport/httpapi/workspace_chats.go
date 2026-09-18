@@ -77,6 +77,22 @@ func (a *API) recoverWorkspaceChatBinding(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, recovery)
 }
 
+func (a *API) setWorkspaceChatSaved(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Saved bool `json:"saved"`
+	}
+	if err := decodeChatBody(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	chat, err := a.service.SetWorkspaceChatSaved(r.PathValue("id"), body.Saved)
+	if err != nil {
+		writeWorkspaceChatError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, chat)
+}
+
 // setWorkspaceChatArchived is the explicit archive/restore action. Archiving
 // used to live only in the browser and in the session's own archive state, so
 // the durable chat row still read as active and every archived chat reopened on
