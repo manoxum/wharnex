@@ -12,7 +12,8 @@ describe('QuickSwitcher', () => {
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Tema da interface' }), { target: { value: 'jetbrains-darcula' } })
     fireEvent.click(screen.getByRole('button', { name: 'Destaque: Azul' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Flutuantes' }))
+    expect(screen.queryByText('Janelas')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Flutuantes' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Densidade: Compacta' }))
 
     fireEvent.click(screen.getByText('Mais opções'))
@@ -22,7 +23,7 @@ describe('QuickSwitcher', () => {
     const preferences = loadUIPreferences()
     expect(preferences.theme).toBe('jetbrains-darcula')
     expect(preferences.accent).toBe('blue')
-    expect(preferences.toolWindowMode).toBe('floating')
+    expect('toolWindowMode' in preferences).toBe(false)
     expect(preferences.toolRailPlacement).toBe('bottom')
     expect(preferences.contentScheme).toBe('light')
     expect(preferences.density).toBe('compact')

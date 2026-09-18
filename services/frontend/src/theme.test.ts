@@ -120,4 +120,11 @@ describe('workbench theme registry', () => {
     expect(theme).toContain("[data-ui-accent='rose']")
     expect(theme).toContain("[data-ui-accent='cyan']")
   })
+
+  it('keeps settings cards and native select menus on the selected IDE palette', () => {
+    expect(theme).toContain(':root[data-ui-theme] .settings-premium-card')
+    expect(theme).toContain(':root[data-ui-theme] .settings-navigation button.active')
+    expect(theme).toContain(':root[data-ui-theme] .quick-switcher-select-shell select option')
+    expect(theme).toContain('background: var(--theme-elevated); color: var(--theme-text);')
+  })
 })

@@ -276,6 +276,7 @@ export function ShellChrome({ projects, activeProject, activeSessionID, activeRu
   const orderedProjects = activeProject ? [activeProject, ...projects.filter((projectPath) => projectPath !== activeProject)] : projects
 
   return <header className="multi-project-bar" data-window-titlebar="true">
+    <div className="multi-project-brand"><SignalCore size="compact" /></div>
     <nav className="project-quick-switch" aria-label="Projetos vinculados">
       {orderedProjects.map((projectPath) => {
         const active = projectPath === activeProject
@@ -284,7 +285,6 @@ export function ShellChrome({ projects, activeProject, activeSessionID, activeRu
         </button>
       })}
     </nav>
-    <div className="multi-project-brand"><SignalCore size="compact" /></div>
     {activeProject && <ProjectGitBadge sessionID={activeSessionID} busy={busy} onSync={onGitSync} />}
     {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button><button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => onMode('orchestrator')}><Icon name="plan" size={14}/> Orchestrator</button></div>}
     {projects.length > 1 && <span className="multi-project-context" title="O Agent recebe contexto separado de todos os projetos vinculados; execução e Apply continuam isolados por projeto."><Icon name="bridge" size={12}/>{projects.length} projetos no contexto</span>}

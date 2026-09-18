@@ -57,6 +57,7 @@ describe('ProjectSettings loading', () => {
     })
     render(<ProjectSettings session={session} onClose={() => undefined} onSession={() => undefined} onError={() => undefined} />)
 
+    fireEvent.click(screen.getByRole('button', { name: /Contexto/i }))
     expect(screen.getByText('A carregar configuração…')).toBeTruthy()
     expect(await screen.findByText('Não foi possível carregar a configuração')).toBeTruthy()
     expect(screen.queryByText('A carregar configuração…')).toBeNull()
@@ -75,6 +76,10 @@ describe('ProjectSettings loading', () => {
     render(<ProjectSettings session={session} onClose={() => undefined} onSession={() => undefined} onError={() => undefined} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Aparência/i }))
+    expect(screen.getByText('Tema e identidade')).toBeTruthy()
+    expect(screen.getByText('Integrações')).toBeTruthy()
+    expect(screen.queryByText('Tool windows')).toBeNull()
+    expect(screen.queryByText('Flutuantes e redimensionáveis')).toBeNull()
     const slider = screen.getByRole('slider', { name: /Tamanho da interface/i })
     expect(slider.getAttribute('min')).toBe('0.4')
     expect(slider.getAttribute('max')).toBe('1.6')
@@ -114,6 +119,7 @@ describe('ProjectSettings loading', () => {
     vi.mocked(api.updateProjectConfig).mockImplementation(async (_id, next) => ({ config: next, session }))
     render(<ProjectSettings session={session} onClose={() => undefined} onSession={() => undefined} onError={() => undefined} />)
 
+    fireEvent.click(screen.getByRole('button', { name: /Contexto/i }))
     fireEvent.click(await screen.findByTitle('Excluir src/large.ts'))
     await waitFor(() => expect(api.updateProjectConfig).toHaveBeenCalledWith('ses-config', expect.objectContaining({
       context: expect.objectContaining({ exclude: ['src/large.ts'], include_overrides: [] }),

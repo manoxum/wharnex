@@ -1675,3 +1675,27 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   border-left-color: transparent;
   border-bottom-color: transparent;
 }
+
+/* Settings and native controls inherit the complete selected IDE palette. */
+:root[data-ui-theme] .context-settings-dialog,
+:root[data-ui-theme] .context-settings-dialog .project-settings-body,
+:root[data-ui-theme] .context-settings-dialog > header,
+:root[data-ui-theme] .context-settings-dialog > footer {
+  border-color: var(--theme-border);
+  background: var(--theme-elevated);
+  color: var(--theme-text);
+}
+:root[data-ui-theme] .settings-navigation {
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-bg) 76%, var(--theme-elevated));
+}
+:root[data-ui-theme] .settings-content,
+:root[data-ui-theme] .appearance-settings-section { background: var(--theme-bg); color: var(--theme-text); }
+:root[data-ui-theme] .settings-premium-card,
+:root[data-ui-theme] .settings-project-summary { border-color: var(--theme-border-soft); background: var(--theme-elevated); color: var(--theme-text); }
+:root[data-ui-theme] .settings-navigation button:hover { background: var(--theme-hover); color: var(--theme-text); }
+:root[data-ui-theme] .settings-navigation button.active { border-color: color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border)); background: var(--theme-accent-soft); color: var(--theme-text); box-shadow: inset 2px 0 var(--theme-accent); }
+:root[data-ui-theme] .context-settings-dialog select,
+:root[data-ui-theme] .quick-switcher-select-shell select { color: var(--theme-text); }
+:root[data-ui-theme] .context-settings-dialog select option,
+:root[data-ui-theme] .quick-switcher-select-shell select option { background: var(--theme-elevated); color: var(--theme-text); }
