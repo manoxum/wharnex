@@ -223,6 +223,17 @@ const chatGPTAccountProviders = new ChatGPTAccountProviderChain({})
 const EXPECTED_BUNDLE_TTL_MS = 60 * 60 * 1000
 const DOM_DOWNLOAD_POLL_MS = 2_000
 const DOM_DOWNLOAD_RETRY_MS = 5_000
+// Live-observed on a large draining backlog: due-task demand flapped above
+// and below zero from one 2s poll to the next, so a pool grown for a burst
+// of demand was torn back down before that demand's own next tick, then
+// regrown moments later - each cycle creating and destroying real
+// WebContentsViews (a navigation to chatgpt.com apiece), which is what
+// turned a noisy demand signal into runaway resource churn severe enough to
+// crash the desktop. A drain may only fire once a pool has held its grown
+// size for a bit, giving genuinely transient demand time to resolve first.
+const CHAT_AGENT_AUTO_SCALE_DRAIN_COOLDOWN_MS = 20_000
+let chatAgentWorkerLastGrowAt = 0
+let chatAgentSupervisorLastGrowAt = 0
 const BUNDLE_COMPLETION_GRACE_MS = 4_000
 const BUNDLE_CONTINUATION_BASE_MS = 5_000
 // How long a structural completion must keep holding, with the bundle still
@@ -2398,8 +2409,13 @@ async function reconcileChatAgentAutoScale() {
     })
     if (grow > desiredChatAgentWorkerSlots) {
       console.log(`[chat-agent] auto-scale grow from=${desiredChatAgentWorkerSlots} to=${grow} due=${queue.due_worker}`)
+      chatAgentWorkerLastGrowAt = Date.now()
       setChatAgentWorkerTarget(grow)
       publishChatAgentRuntimeState()
+      return
+    }
+    if (Date.now() - chatAgentWorkerLastGrowAt < CHAT_AGENT_AUTO_SCALE_DRAIN_COOLDOWN_MS) {
+      if (supervisorChanged) publishChatAgentRuntimeState()
       return
     }
     const drain = autoScaleDrainTarget({
@@ -2430,9 +2446,11 @@ function reconcileChatAgentSupervisorAutoScale(queue) {
   })
   if (grow > desiredChatAgentSupervisorSlots) {
     console.log(`[chat-agent] supervisor auto-scale grow from=${desiredChatAgentSupervisorSlots} to=${grow} lanes=${queue.due_supervisor_lanes}`)
+    chatAgentSupervisorLastGrowAt = Date.now()
     setChatAgentSupervisorTarget(grow)
     return true
   }
+  if (Date.now() - chatAgentSupervisorLastGrowAt < CHAT_AGENT_AUTO_SCALE_DRAIN_COOLDOWN_MS) return false
   const drain = autoScaleSupervisorDrainTarget({
     enabled: true, dueLanes: queue.due_supervisor_lanes, configured: configuredChatAgentSupervisorSlots,
     current: desiredChatAgentSupervisorSlots, boundSupervisors: chatgptViews.size,

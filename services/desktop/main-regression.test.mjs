@@ -2541,3 +2541,34 @@ test('the ChatGPT cache is only cleared when the spoofed Chromium UA has changed
   const helper = source.slice(helperStart, source.indexOf('\n}', helperStart))
   assert.match(helper, /chromiumVersion === CHATGPT_CHROMIUM_VERSION/)
 })
+
+// Live-observed on a large draining backlog: due-task demand flapped above
+// and below zero from one 2s auto-scale poll to the next, so a grow was torn
+// back down before its own demand's next tick, then regrown moments later -
+// each cycle creating and destroying real WebContentsViews (a navigation to
+// chatgpt.com apiece). That churn was severe enough to crash the desktop.
+// Both pools must hold a recent grow for a cooldown window before a drain on
+// the same tick shape is allowed to act.
+test('the worker and supervisor pools cannot drain immediately after growing', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const workerStart = source.indexOf('async function reconcileChatAgentAutoScale(')
+  assert.notEqual(workerStart, -1)
+  const worker = source.slice(workerStart, source.indexOf('\n// Auto scale for the Supervisor pool.', workerStart))
+  assert.match(worker, /chatAgentWorkerLastGrowAt = Date\.now\(\)/)
+  const workerGrowIndex = worker.indexOf('chatAgentWorkerLastGrowAt = Date.now()')
+  const workerCooldownIndex = worker.indexOf('Date.now() - chatAgentWorkerLastGrowAt < CHAT_AGENT_AUTO_SCALE_DRAIN_COOLDOWN_MS')
+  assert.notEqual(workerCooldownIndex, -1)
+  assert.ok(workerGrowIndex < workerCooldownIndex, 'worker grow must be recorded before the cooldown check')
+  const workerDrainIndex = worker.indexOf('autoScaleDrainTarget(')
+  assert.ok(workerCooldownIndex < workerDrainIndex, 'worker cooldown must gate the drain check')
+
+  const supervisorStart = source.indexOf('function reconcileChatAgentSupervisorAutoScale(')
+  assert.notEqual(supervisorStart, -1)
+  const supervisor = source.slice(supervisorStart, source.indexOf('\nfunction reconcileChatGPTWorkerPool(', supervisorStart))
+  assert.match(supervisor, /chatAgentSupervisorLastGrowAt = Date\.now\(\)/)
+  const supervisorCooldownIndex = supervisor.indexOf('Date.now() - chatAgentSupervisorLastGrowAt < CHAT_AGENT_AUTO_SCALE_DRAIN_COOLDOWN_MS')
+  assert.notEqual(supervisorCooldownIndex, -1)
+  const supervisorDrainIndex = supervisor.indexOf('autoScaleSupervisorDrainTarget(')
+  assert.ok(supervisorCooldownIndex < supervisorDrainIndex, 'supervisor cooldown must gate the drain check')
+})
