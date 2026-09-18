@@ -1025,6 +1025,22 @@ test('a busy Supervisor hides its old surface and publishes the deferred target 
   assert.doesNotMatch(navigate, /return currentChatGPTState\(supervisorKey\(\), windowState\)/)
 })
 
+test('deferred Supervisor navigation retries until its gate is actually clear', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const scheduleStart = source.indexOf('function scheduleDeferredSupervisorNavigation()')
+  const scheduleEnd = source.indexOf('\nfunction setDeferredSupervisorNavigation', scheduleStart)
+  const schedule = source.slice(scheduleStart, scheduleEnd)
+  const applyStart = source.indexOf('async function applyDeferredSupervisorNavigation()')
+  const applyEnd = source.indexOf('\nfunction wait(ms)', applyStart)
+  const apply = source.slice(applyStart, applyEnd)
+
+  assert.match(schedule, /setTimeout\([\s\S]*applyDeferredSupervisorNavigation\(\)/)
+  assert.match(apply, /differentSupervisorTransport\(pending\.key\)[\s\S]*scheduleDeferredSupervisorNavigation\(\)[\s\S]*return/)
+  assert.match(apply, /!chatgptViews\.has\(pending\.key\) && chatgptViews\.size >= desiredChatAgentSupervisorSlots/)
+  assert.match(apply, /!reusableSupervisor\(pending\.key, state\)[\s\S]*scheduleDeferredSupervisorNavigation\(\)[\s\S]*return/)
+  assert.match(apply, /clearDeferredSupervisorNavigation\(\)[\s\S]*activateChatGPTView\(pending\.key/)
+})
+
 test('direct Supervisor writes serialize across chats and preserve the selected surface', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const helperStart = source.indexOf('async function withChatGPTSupervisorTransport(')

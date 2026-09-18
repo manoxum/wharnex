@@ -143,6 +143,7 @@ let chatAgentRuntimeDiagnostics = {
   provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', rate_limit_level: 0, last_rate_limit_at: '', last_rate_limit_source: '', last_valid_bundle_at: '', average_processing_ms: 0, valid_sample_count: 0, initial_wait_ms: 60_000, updated_at: '' },
 }
 let deferredSupervisorNavigation
+let deferredSupervisorNavigationTimer
 const chatGPTAuthBrowsers = new Map()
 const internalChatGPTBrowsers = new Map()
 const desktopWindows = new Map()
@@ -269,6 +270,7 @@ const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = 6_000
 const CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS = 15 * 60_000
 const CHATGPT_DOM_PROBE_FAILURE_LIMIT = 3
 const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
+const DEFERRED_SUPERVISOR_NAVIGATION_RETRY_MS = 250
 // How many times a window's frontend renderer may be restarted after a
 // crash before Wharnex stops and asks for human attention.
 const FRONTEND_RENDERER_RESTART_LIMIT = 5
@@ -2913,7 +2915,17 @@ function activateChatGPTView(cacheKey, bounds, windowState) {
 function clearDeferredSupervisorNavigation() {
   const pending = deferredSupervisorNavigation
   deferredSupervisorNavigation = undefined
+  clearTimeout(deferredSupervisorNavigationTimer)
+  deferredSupervisorNavigationTimer = undefined
   if (pending?.windowState) pending.windowState.desiredVisibleChatGPTKey = ''
+}
+
+function scheduleDeferredSupervisorNavigation() {
+  if (!deferredSupervisorNavigation || deferredSupervisorNavigationTimer) return
+  deferredSupervisorNavigationTimer = setTimeout(() => {
+    deferredSupervisorNavigationTimer = undefined
+    void applyDeferredSupervisorNavigation()
+  }, DEFERRED_SUPERVISOR_NAVIGATION_RETRY_MS)
 }
 
 function setDeferredSupervisorNavigation(cacheKey, windowState, request = {}, current = supervisorEntry(windowState)) {
@@ -2929,6 +2941,7 @@ function setDeferredSupervisorNavigation(cacheKey, windowState, request = {}, cu
     reconcileChatGPTThrottle(chatGPTKeyForEntry(current), current)
   }
   if (windowState) sendToWindowState(windowState, 'wharness:chatgpt:state', currentChatGPTState(key, windowState))
+  scheduleDeferredSupervisorNavigation()
 }
 
 function differentSupervisorTransport(cacheKey) {
@@ -2967,12 +2980,21 @@ function deferSupervisorNavigationIfBusy(cacheKey, windowState, request = {}) {
 async function applyDeferredSupervisorNavigation() {
   const pending = deferredSupervisorNavigation
   if (!pending) return
-  if (chatgptViews.size >= desiredChatAgentSupervisorSlots && !reusableSupervisor(pending.key, pending.windowState)) return
-  deferredSupervisorNavigation = undefined
   const state = pending.windowState
-  if (!state?.window || state.window.isDestroyed()) return
+  if (!state?.window || state.window.isDestroyed()) {
+    clearDeferredSupervisorNavigation()
+    return
+  }
+  if (differentSupervisorTransport(pending.key)) {
+    scheduleDeferredSupervisorNavigation()
+    return
+  }
+  if (!chatgptViews.has(pending.key) && chatgptViews.size >= desiredChatAgentSupervisorSlots && !reusableSupervisor(pending.key, state)) {
+    scheduleDeferredSupervisorNavigation()
+    return
+  }
+  clearDeferredSupervisorNavigation()
   state.chatgptVisible = pending.visible
-  state.desiredVisibleChatGPTKey = ''
   const entry = activateChatGPTView(pending.key, pending.bounds, state)
   const target = pending.url ? requireTrustedChatGPTURL(pending.url) : CHATGPT_URL
   const currentURL = entry.view.webContents.getURL()
