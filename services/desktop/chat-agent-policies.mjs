@@ -31,7 +31,7 @@ export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, 
     ? Math.min(supervisorLimit, Math.max(1, Math.floor(requestedAutoScaleMaxSupervisors)))
     : Math.min(supervisorLimit, DEFAULT_CHAT_AGENT_POLICIES.auto_scale_max_supervisors)
   return {
-    auto_scale: value?.auto_scale === true,
+    auto_scale: value?.auto_scale == null ? DEFAULT_CHAT_AGENT_POLICIES.auto_scale : value.auto_scale === true,
     auto_scale_max_workers: autoScaleMaxWorkers,
     auto_scale_max_supervisors: autoScaleMaxSupervisors,
     keep_flowing_global: value?.keep_flowing_global === true,
@@ -48,8 +48,11 @@ export function keepFlowingForWorker(policies, worker) {
 export function autoScaleTarget({ enabled, due = 0, available = 0, current, maxWorkers = HARD_MAX_WORKER_SLOTS } = {}) {
   const currentWorkers = Math.max(1, Math.floor(Number(current) || 1))
   const hardMax = Math.max(currentWorkers, Math.floor(Number(maxWorkers) || HARD_MAX_WORKER_SLOTS))
-  if (enabled !== true || Number(due || 0) <= 0 || Number(available || 0) > 0 || currentWorkers >= hardMax) return currentWorkers
-  return Math.min(hardMax, currentWorkers + 1)
+  const demand = Math.max(0, Math.floor(Number(due) || 0))
+  const free = Math.max(0, Math.floor(Number(available) || 0))
+  const shortage = Math.max(0, demand - free)
+  if (enabled !== true || shortage <= 0 || currentWorkers >= hardMax) return currentWorkers
+  return Math.min(hardMax, currentWorkers + shortage)
 }
 
 export function autoScaleDrainTarget({ enabled, due = 0, configured, current, keepFlowingFloor = 0 } = {}) {
@@ -70,8 +73,11 @@ export function autoScaleDrainTarget({ enabled, due = 0, configured, current, ke
 export function autoScaleSupervisorTarget({ enabled, dueLanes = 0, available = 0, current, maxSupervisors = HARD_MAX_SUPERVISOR_SLOTS } = {}) {
   const currentSupervisors = Math.max(1, Math.floor(Number(current) || 1))
   const hardMax = Math.max(currentSupervisors, Math.floor(Number(maxSupervisors) || HARD_MAX_SUPERVISOR_SLOTS))
-  if (enabled !== true || Number(dueLanes || 0) <= 0 || Number(available || 0) > 0 || currentSupervisors >= hardMax) return currentSupervisors
-  return Math.min(hardMax, currentSupervisors + 1)
+  const demand = Math.max(0, Math.floor(Number(dueLanes) || 0))
+  const free = Math.max(0, Math.floor(Number(available) || 0))
+  const shortage = Math.max(0, demand - free)
+  if (enabled !== true || shortage <= 0 || currentSupervisors >= hardMax) return currentSupervisors
+  return Math.min(hardMax, currentSupervisors + shortage)
 }
 
 // Retiring an auto-scaled Supervisor is not free: the slot above the configured
