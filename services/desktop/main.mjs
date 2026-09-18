@@ -613,6 +613,25 @@ function releaseWindowProjects(windowState) {
 
 function windowLayoutPath() { return path.join(app.getPath('userData'), 'wharness-window-layout.json') }
 
+function chatGPTCacheMarkerPath() { return path.join(app.getPath('userData'), 'wharness-chatgpt-cache-marker.json') }
+
+// The spoofed Chrome UA (CHATGPT_CHROMIUM_VERSION) is what the startup cache
+// clear actually guards: assets cached under a different UA than the one
+// about to make requests could be served back mismatched. That risk exists
+// only when the UA itself changes between runs, not on an ordinary restart
+// running the same build - which is what made every restart force every
+// Supervisor/Worker to refetch ChatGPT's entire SPA bundle over the network
+// instead of from disk, a large share of what made startup feel heavy.
+function chatGPTCacheMarkerCurrent() {
+  try { return JSON.parse(readFileSync(chatGPTCacheMarkerPath(), 'utf8'))?.chromiumVersion === CHATGPT_CHROMIUM_VERSION }
+  catch { return false }
+}
+
+function writeChatGPTCacheMarker() {
+  try { writeFileSync(chatGPTCacheMarkerPath(), JSON.stringify({ chromiumVersion: CHATGPT_CHROMIUM_VERSION }), { mode: 0o600 }) }
+  catch (error) { console.warn(`[chatgpt-cache] marker write failed: ${error instanceof Error ? error.message : String(error)}`) }
+}
+
 const DEFAULT_DESKTOP_WINDOW_SIZE = Object.freeze({ width: 1540, height: 960 })
 const MIN_DESKTOP_WINDOW_SIZE = Object.freeze({ width: 1100, height: 720 })
 let windowLayoutPersistTimer
@@ -6925,8 +6944,14 @@ app.whenReady().then(async () => {
   } catch (error) { console.warn('[spellcheck] dictionary configuration failed', error) }
 
   // Cache only: preserve cookies/login while forcing current ChatGPT assets to reload
-  // under the Chrome-compatible UA. Failures here must not prevent startup.
-  try { await chatSession.clearCache() } catch (error) { console.error('[chatgpt-cache] clear failed', error) }
+  // under the Chrome-compatible UA. Only needed when that UA actually changed
+  // since the last run; an ordinary restart on the same build reuses the warm
+  // cache instead of forcing every Supervisor/Worker to refetch ChatGPT's
+  // entire SPA bundle over the network. Failures here must not prevent startup.
+  if (!chatGPTCacheMarkerCurrent()) {
+    try { await chatSession.clearCache() } catch (error) { console.error('[chatgpt-cache] clear failed', error) }
+    writeChatGPTCacheMarker()
+  }
 
   console.log(`ChatGPT compatibility UA: Chrome/${CHATGPT_CHROMIUM_VERSION}`)
   chatAgentPolicies = loadChatAgentPolicies()

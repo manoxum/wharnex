@@ -2518,3 +2518,26 @@ test('registerChatGPTTodoClassificationDownload and registerChatGPTMarkdownTrans
   const helper = source.slice(helperStart, source.indexOf('\n}', helperStart))
   assert.match(helper, /\[1-9\]\[0-9\]\{0,3\}/)
 })
+
+// Clearing the whole ChatGPT session cache on every startup forced every
+// Supervisor/Worker to refetch ChatGPT's entire SPA bundle over the network
+// on the very next navigation instead of using the warm disk cache - a large,
+// entirely avoidable share of what made ordinary restarts feel heavy. The
+// clear only guards against a UA that changed since the marker was written.
+test('the ChatGPT cache is only cleared when the spoofed Chromium UA has changed since last run', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('app.whenReady().then(async () => {')
+  assert.notEqual(start, -1)
+  const boot = source.slice(start, source.indexOf('\n  const layout = loadWindowLayout()', start))
+
+  assert.match(boot, /if \(!chatGPTCacheMarkerCurrent\(\)\) \{/)
+  const guardStart = boot.indexOf('if (!chatGPTCacheMarkerCurrent())')
+  const guard = boot.slice(guardStart, boot.indexOf('\n  }', guardStart))
+  assert.match(guard, /await chatSession\.clearCache\(\)/)
+  assert.match(guard, /writeChatGPTCacheMarker\(\)/)
+
+  const helperStart = source.indexOf('function chatGPTCacheMarkerCurrent(')
+  assert.notEqual(helperStart, -1)
+  const helper = source.slice(helperStart, source.indexOf('\n}', helperStart))
+  assert.match(helper, /chromiumVersion === CHATGPT_CHROMIUM_VERSION/)
+})
