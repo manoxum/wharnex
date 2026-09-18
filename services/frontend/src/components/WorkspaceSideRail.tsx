@@ -25,16 +25,18 @@ import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTo
 export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | ProjectActivityKind | ''
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
-const WORKSPACE_RAIL_PX = 42
+const WORKSPACE_RAIL_PX = 44
 const WORKSPACE_SPLITTER_PX = 6
 const WORKSPACE_DRAWER_MIN_PX = 240
 const WORKSPACE_RIGHT_DRAWER_MIN_PX = 360
 const WORKSPACE_RIGHT_DRAWER_DEFAULT_PX = 460
 const WORKSPACE_STACK_MIN_PX = 560
 const TOOL_DRAG_TYPE = 'application/x-wharnex-workspace-tool'
-const DEFAULT_STANDALONE_RAIL_TOOLS: WorkspaceTool[] = DEFAULT_WORKSPACE_RAIL_LAYOUT.left.includes('project')
-  ? DEFAULT_WORKSPACE_RAIL_LAYOUT.left
-  : [...DEFAULT_WORKSPACE_RAIL_LAYOUT.left.slice(0, 2), 'project', ...DEFAULT_WORKSPACE_RAIL_LAYOUT.left.slice(2)]
+const EMPTY_WORKSPACE_RAIL_TOOLS: WorkspaceTool[] = []
+const DEFAULT_STANDALONE_RAIL_TOOLS: WorkspaceTool[] = (() => {
+  const base = [...DEFAULT_WORKSPACE_RAIL_LAYOUT.left, ...DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.left]
+  return base.includes('project') ? base : [...base.slice(0, 2), 'project', ...base.slice(2)]
+})()
 
 function scopedKey(prefix: string, side: WorkspaceRailSide) { return `${prefix}:${side}:${desktopWindowScope()}` }
 
@@ -73,7 +75,8 @@ export type WorkspaceSideRailProps = {
   onFocusProject?: (projectPath: string) => void
   side?: WorkspaceRailSide
   tools?: WorkspaceTool[]
-  onMoveTool?: (tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool) => void
+  pinnedTools?: WorkspaceTool[]
+  onMoveTool?: (tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool, pinned?: boolean) => void
   drawerWidth?: number
   onDrawerWidth?: (width: number) => void
 }
@@ -84,20 +87,22 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const { session, busy, drawer, onDrawer, archivedChats, attentionItems, executionFIFO, activeExecutionCount, onError } = props
   const side = props.side || 'left'
   const tools = props.tools || DEFAULT_STANDALONE_RAIL_TOOLS
+  const pinnedTools = props.pinnedTools || EMPTY_WORKSPACE_RAIL_TOOLS
   const [localDrawerWidth, setLocalDrawerWidth] = useState(() => loadWorkspaceDrawerWidth(side))
   const drawerWidth = props.drawerWidth || localDrawerWidth
   const [pendingCommitCount, setPendingCommitCount] = useState(0)
   const visibleTools = useMemo(() => tools.filter((tool) => tool !== 'evolution' || session.self_evolution), [session.self_evolution, tools])
+  const visiblePinnedTools = useMemo(() => pinnedTools.filter((tool) => tool !== 'evolution' || session.self_evolution), [pinnedTools, session.self_evolution])
 
   useEffect(() => {
-    if (!tools.includes('git') && drawer !== 'git') return
+    if (!tools.includes('git') && !pinnedTools.includes('git') && drawer !== 'git') return
     let cancelled = false
     void (async () => {
       try { const overview = await api.gitOverview(session.id); if (!cancelled) setPendingCommitCount(overview.pending.length) }
       catch { if (!cancelled) setPendingCommitCount(0) }
     })()
     return () => { cancelled = true }
-  }, [session.id, session.last_host_applied_at, drawer, tools])
+  }, [session.id, session.last_host_applied_at, drawer, pinnedTools, tools])
 
   const toggle = (next: Exclude<Drawer, ''>) => onDrawer(drawer === next ? '' : next)
   const close = () => onDrawer('')
@@ -125,12 +130,12 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     event.dataTransfer.setData('text/plain', tool)
   }
 
-  function droppedTool(event: React.DragEvent, before?: WorkspaceTool) {
+  function droppedTool(event: React.DragEvent, before?: WorkspaceTool, pinned = false) {
     if (!props.onMoveTool) return
     event.preventDefault()
     event.stopPropagation()
     const value = event.dataTransfer.getData(TOOL_DRAG_TYPE) || event.dataTransfer.getData('text/plain')
-    if (isWorkspaceTool(value)) props.onMoveTool(value, side, before)
+    if (isWorkspaceTool(value)) props.onMoveTool(value, side, before, pinned)
   }
 
   function beginDrawerResize(event: React.PointerEvent<HTMLButtonElement>) {
@@ -150,13 +155,19 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish)
   }
 
+  const renderTool = (tool: WorkspaceTool, pinned: boolean) => {
+    const meta = toolMeta(tool)
+    const active = tool === 'terminal' ? props.terminalOpen : meta.drawer === drawer
+    return <button key={tool} type="button" draggable={Boolean(props.onMoveTool)} data-workspace-tool={tool} data-pinned={pinned ? 'true' : 'false'} className={`${active ? 'active' : ''} ${tool === 'terminal' ? 'workspace-rail-terminal' : ''}`.trim()} onDragStart={(event) => beginToolDrag(event, tool)} onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event, tool, pinned)} onClick={() => tool === 'terminal' ? props.onToggleTerminal() : meta.drawer && toggle(meta.drawer)} aria-pressed={tool === 'terminal' ? props.terminalOpen : undefined} aria-label={meta.label} title={`${meta.title}${props.onMoveTool ? pinned ? ' · fixado em baixo · arraste para mover' : ' · arraste para reorganizar ou fixe em baixo' : ''}`}><Icon name={meta.icon} size={20}/>{Boolean(meta.badge) && <b>{meta.badge}</b>}</button>
+  }
+
   const rail = <aside className={`agent-activity-bar workspace-side-rail workspace-side-rail-${side}`} aria-label={side === 'left' ? 'Ferramentas do workspace' : 'Ferramentas laterais direitas'} onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event)}>
-    {visibleTools.map((tool) => {
-      const meta = toolMeta(tool)
-      const active = tool === 'terminal' ? props.terminalOpen : meta.drawer === drawer
-      return <button key={tool} type="button" draggable={Boolean(props.onMoveTool)} data-workspace-tool={tool} className={`${active ? 'active' : ''} ${tool === 'terminal' ? 'workspace-rail-terminal' : ''}`.trim()} onDragStart={(event) => beginToolDrag(event, tool)} onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event, tool)} onClick={() => tool === 'terminal' ? props.onToggleTerminal() : meta.drawer && toggle(meta.drawer)} aria-pressed={tool === 'terminal' ? props.terminalOpen : undefined} aria-label={meta.label} title={`${meta.title}${props.onMoveTool ? ' · arraste para reorganizar' : ''}`}><Icon name={meta.icon} size={18}/>{Boolean(meta.badge) && <b>{meta.badge}</b>}</button>
-    })}
+    <div className="workspace-rail-primary">{visibleTools.map((tool) => renderTool(tool, false))}</div>
     {side === 'right' && <div className="workspace-agent-rail-slot" aria-label="Atalhos do Agent integrados"/>}
+    <div className={`workspace-rail-pinned ${visiblePinnedTools.length ? 'has-tools' : ''}`} aria-label="Ferramentas fixadas no canto inferior" title="Arraste um ícone para aqui para o fixar no canto inferior" onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event, undefined, true)}>
+      {visiblePinnedTools.map((tool) => renderTool(tool, true))}
+      {props.onMoveTool && <span className="workspace-rail-pin-target" aria-hidden="true"/>}
+    </div>
   </aside>
 
   const drawerPanel = drawer ? <aside className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } as React.CSSProperties : undefined}>
@@ -187,7 +198,13 @@ function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, on
   const summary = summarizeAttention(items)
   const filteredItems = filter === 'urgent' ? items.filter((item) => item.tone === 'danger') : filter === 'actionable' ? items.filter((item) => Boolean(item.action)) : items
   return <section className="attention-center-drawer" aria-label="Centro de notificações">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Atenção Global</span><strong>Centro de Alertas</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar Centro de Alertas"><Icon name="close" size={13}/></button></header>
+    <header className="agent-drawer-heading">
+      <div className="attention-center-heading">
+        <span className="attention-center-symbol" aria-hidden="true"><Icon name="bell" size={17}/></span>
+        <div><span className="panel-kicker">Atenção global</span><strong>Centro de Alertas</strong><small>Priorize bloqueios e ações sem sair do projeto.</small></div>
+      </div>
+      <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar Centro de Alertas"><Icon name="close" size={13}/></button>
+    </header>
     <div className="attention-center-summary" role="status" aria-live="polite" aria-atomic="true">
       <span><b>{summary.total}</b> {summary.total === 1 ? 'alerta ativo' : 'alertas ativos'}</span>
       <span className={summary.urgent ? 'danger' : ''}><b>{summary.urgent}</b> {summary.urgent === 1 ? 'urgente' : 'urgentes'}</span>

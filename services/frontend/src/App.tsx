@@ -3094,9 +3094,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
   }
 
-  function moveRailTool(tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool) {
-    const source: WorkspaceRailSide = railLayout.left.includes(tool) ? 'left' : 'right'
-    const next = saveWorkspaceRailLayout(moveWorkspaceTool(railLayout, tool, side, before), workspaceProjectPath)
+  function moveRailTool(tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool, pinned = false) {
+    const source: WorkspaceRailSide = railLayout.left.includes(tool) || railLayout.pinned.left.includes(tool) ? 'left' : 'right'
+    const next = saveWorkspaceRailLayout(moveWorkspaceTool(railLayout, tool, side, before, pinned), workspaceProjectPath)
     setRailLayout(next)
     if (source === side || tool === 'terminal') return
     if (source === 'left' && sideDrawer === tool) { setSideDrawer(''); setRightDrawer(tool) }
@@ -3146,6 +3146,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onDrawer={openLeftDrawer}
         side="left"
         tools={railLayout.left}
+        pinnedTools={railLayout.pinned.left}
         onMoveTool={moveRailTool}
         drawerWidth={leftDrawerWidth}
         onDrawerWidth={setLeftDrawerWidth}
@@ -3223,6 +3224,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onDrawer={openRightDrawer}
         side="right"
         tools={railLayout.right}
+        pinnedTools={railLayout.pinned.right}
         onMoveTool={moveRailTool}
         drawerWidth={rightDrawerWidth}
         onDrawerWidth={setRightDrawerWidth}

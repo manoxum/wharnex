@@ -340,7 +340,7 @@ describe('configurable workbench CSS', () => {
     expect(css).toContain('.workspace-mode-stack { flex: 1 1 760px; min-width: 560px;')
     expect(css).toContain('.workspace-main-row { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }')
     expect(css).toContain('.workbench-status-bar { height: 24px; flex: 0 0 24px;')
-    expect(compactRail).toContain('width: 36px')
+    expect(compactRail).toContain('width: 40px')
   })
 
   it('keeps tool drawers integrated while supporting bottom-corner tool rails', () => {
@@ -351,10 +351,12 @@ describe('configurable workbench CSS', () => {
     expect(bottomRail).toContain('overflow-x:auto')
   })
 
-  it('uses a theme-aware scrollbar and a full-width bottom terminal', () => {
+  it('uses a theme-aware scrollbar and keeps the terminal between vertical rails', () => {
     expect(lastRule('*::-webkit-scrollbar')).toContain('width: 10px')
     expect(lastRule('*::-webkit-scrollbar-thumb')).toContain('border-radius: 999px')
-    expect(firstRule('.terminal-workspace')).toContain('width: 100%')
+    expect(firstRule('.terminal-workspace')).toContain('width: auto')
+    expect(css).toContain('.workspace-body > .terminal-workspace { margin-left:44px; margin-right:44px; }')
+    expect(css).toContain(":root[data-tool-rail='bottom'] .workspace-body > .terminal-workspace { margin-left:0; margin-right:0; }")
     expect(lastRule('.terminal-resizer')).toContain('cursor: ns-resize')
   })
 
