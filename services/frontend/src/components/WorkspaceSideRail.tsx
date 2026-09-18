@@ -11,6 +11,7 @@ import { api } from '../lib/api'
 import { summarizeAttention, type AttentionItem } from '../lib/attentionCenter'
 import type { ExecutionFIFOItem } from '../lib/executionQueueView'
 import { AttentionList } from './AttentionList'
+import { PanelSkeleton } from './Skeleton'
 import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../lib/workspaceRailLayout'
 
 // Every drawer below is only ever rendered once the operator opens it, and
@@ -31,7 +32,7 @@ const DatabaseExplorerPanel = lazy(() => import('./DatabaseExplorerPanel').then(
 const ProjectTodoPanel = lazy(() => import('./ProjectTodoPanel').then((m) => ({ default: m.ProjectTodoPanel })))
 
 function DrawerFallback() {
-  return <div className="agent-drawer-empty" aria-busy="true"><Icon name="agent" size={18}/><strong>A carregar…</strong></div>
+  return <PanelSkeleton/>
 }
 
 export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | ProjectActivityKind | ''
