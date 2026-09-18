@@ -170,7 +170,7 @@ describe('BundleExchangeBar', () => {
       }],
     })
 
-    render(<ReturnedArtifactGallery sessionId="ses_1" artifacts={[bundle]} requestId={requestId} />)
+    const view = render(<ReturnedArtifactGallery sessionId="ses_1" artifacts={[bundle]} requestId={requestId} />)
 
     expect(await screen.findByText('Artefactos devolvidos')).toBeTruthy()
     expect(screen.getByText('Resultados')).toBeTruthy()
@@ -178,6 +178,8 @@ describe('BundleExchangeBar', () => {
     expect(screen.getByText('report.md')).toBeTruthy()
     expect(screen.getByText('Imagem gerada')).toBeTruthy()
     expect(mocks.artifactPresentation).toHaveBeenCalledWith('ses_1', 'response-artifacts')
+    view.rerender(<ReturnedArtifactGallery sessionId="ses_1" artifacts={[{ ...bundle }]} requestId={requestId} />)
+    expect(mocks.artifactPresentation).toHaveBeenCalledTimes(1)
     expect(document.querySelector('img')?.getAttribute('src')).toContain('artifacts%2Fpreview.png')
   })
 

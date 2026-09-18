@@ -450,17 +450,19 @@ describe('ChatPanel', () => {
     expect(screen.queryByText('**Perfil Inteligente**')).toBeNull()
   })
 
-  it('collapses long Markdown responses behind an explicit preview control', () => {
-    const longBody = `## Resultado\n\n${'Detalhe operacional importante. '.repeat(70)}`
+  it('bounds long Markdown DOM until the operator expands the full response', () => {
+    const longBody = `## Resultado\n\n${'Detalhe operacional importante. '.repeat(70)}\n\nFULL_MARKDOWN_TAIL`
     render(
       <ChatPanel session={session} items={[{ id: 'md-long', role: 'harness', source: 'chatgpt', text: longBody }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
     const toggle = screen.getByRole('button', { name: 'Expandir conteúdo' })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(document.querySelector('.chat-markdown-disclosure.collapsible:not(.expanded)')).toBeTruthy()
+    expect(screen.queryByText('FULL_MARKDOWN_TAIL')).toBeNull()
     fireEvent.click(toggle)
     expect(screen.getByRole('button', { name: 'Mostrar menos' }).getAttribute('aria-expanded')).toBe('true')
     expect(document.querySelector('.chat-markdown-disclosure.expanded')).toBeTruthy()
+    expect(screen.getByText('FULL_MARKDOWN_TAIL')).toBeTruthy()
   })
 
   it('shows only the latest consecutive WHX notice until the ellipsis control is expanded', () => {
@@ -472,12 +474,27 @@ describe('ChatPanel', () => {
       ]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
     expect(view.container.querySelectorAll('.chat-notice')).toHaveLength(1)
-    expect(screen.getAllByText('Última atualização.')).toHaveLength(2)
+    expect(screen.getAllByText('Última atualização.')).toHaveLength(1)
     const toggle = screen.getByRole('button', { name: 'Mostrar 2 notificações WHX anteriores' })
     fireEvent.click(toggle)
     expect(view.container.querySelectorAll('.chat-notice')).toHaveLength(3)
-    expect(screen.getAllByText('Primeira atualização.')).toHaveLength(2)
+    expect(screen.getAllByText('Primeira atualização.')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Ocultar notificações WHX anteriores' })).toBeTruthy()
+  })
+
+  it('defers rich notice Markdown until the native disclosure is opened', () => {
+    const noticeText = `${'Atualização extensa para diagnóstico. '.repeat(60)}\n\n**FULL_NOTICE_TAIL**`
+    const view = render(
+      <ChatPanel session={session} items={[{ id: 'notice-heavy', role: 'harness', source: 'wharness', presentation: 'notice', text: noticeText }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    expect(view.container.querySelector('.chat-markdown-disclosure')).toBeNull()
+    const summary = view.container.querySelector<HTMLElement>('.chat-notice > summary')
+    expect(summary).toBeTruthy()
+    fireEvent.click(summary!)
+    expect(view.container.querySelector('.chat-markdown-disclosure')).toBeTruthy()
+    expect(screen.queryByText('FULL_NOTICE_TAIL')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expandir conteúdo' }))
+    expect(screen.getByText('FULL_NOTICE_TAIL')).toBeTruthy()
   })
 
   it('offers reprocessing for a persisted policy-blocked notice', async () => {

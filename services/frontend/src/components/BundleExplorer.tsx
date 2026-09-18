@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ArtifactEntry, ArtifactPresentationGallery, ArtifactRecord, ChatFileRecord, Session } from '../types'
 import { api } from '../lib/api'
@@ -23,7 +23,7 @@ const BUNDLE_PRESENTATIONS: Record<string, BundlePresentation> = {
 }
 const EMPTY_ARTIFACTS: ArtifactRecord[] = []
 
-export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages = {} }: { sessionId: string; artifacts?: ArtifactRecord[]; requestLineages?: RequestLineages }) {
+export const BundleExchangeBar = memo(function BundleExchangeBar({ sessionId, artifacts = [], requestLineages = {} }: { sessionId: string; artifacts?: ArtifactRecord[]; requestLineages?: RequestLineages }) {
   const bundles = useMemo(() => artifacts.filter(isTransportBundleArtifact).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [artifacts])
   const [selected, setSelected] = useState<ArtifactRecord>()
   if (!bundles.length) return null
@@ -37,26 +37,27 @@ export function BundleExchangeBar({ sessionId, artifacts = [], requestLineages =
       </button>
     })}</div>
   </section>{selected && <BundleExplorer sessionId={sessionId} bundle={selected} bundles={bundles} requestLineages={requestLineages} onBundle={setSelected} onClose={() => setSelected(undefined)}/>}</>
-}
+})
 
-export function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }: { sessionId: string; artifacts?: ArtifactRecord[]; requestId: string }) {
+export const ReturnedArtifactGallery = memo(function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }: { sessionId: string; artifacts?: ArtifactRecord[]; requestId: string }) {
   const bundle = useMemo(() => artifacts.filter((item) => isTransportBundleArtifact(item) && item.direction === 'output' && item.request_id === requestId).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0], [artifacts, requestId])
   const [galleries, setGalleries] = useState<ArtifactPresentationGallery[]>([])
   const [warning, setWarning] = useState('')
   const [error, setError] = useState('')
   const [actionNotice, setActionNotice] = useState('')
   const [viewer, setViewer] = useState<{ items: ArtifactViewerItem[]; index: number }>()
+  const bundleId = bundle?.id
   useEffect(() => {
-    if (!bundle) { setGalleries([]); setWarning(''); setError(''); return }
+    if (!bundleId) { setGalleries([]); setWarning(''); setError(''); return }
     let alive = true
     setGalleries([]); setWarning(''); setError('')
-    void api.artifactPresentation(sessionId, bundle.id).then((result) => {
+    void api.artifactPresentation(sessionId, bundleId).then((result) => {
       if (!alive) return
       setGalleries(result.galleries)
       setWarning(result.warning || '')
     }).catch((reason) => { if (alive) setError(reason instanceof Error ? reason.message : 'Não foi possível abrir os artefactos devolvidos.') })
     return () => { alive = false }
-  }, [bundle, sessionId])
+  }, [bundleId, sessionId])
   const count = galleries.reduce((total, gallery) => total + gallery.items.length, 0)
   if (!bundle || (!count && !error)) return null
   return <><section className="returned-artifact-gallery" aria-label="Artefactos devolvidos pelo ChatGPT">
@@ -76,7 +77,7 @@ export function ReturnedArtifactGallery({ sessionId, artifacts = [], requestId }
       })}</div>
     </section>)}</div>}
   </section>{viewer && <ArtifactViewerModal sessionId={sessionId} bundleId={bundle.id} items={viewer.items} initialIndex={viewer.index} onClose={() => setViewer(undefined)}/>}</>
-}
+})
 
 
 type ChatFileView = 'cards' | 'table'
