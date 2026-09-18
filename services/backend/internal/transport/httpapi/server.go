@@ -170,6 +170,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/presentation", a.artifactPresentation)
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/entry", a.artifactEntry)
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
+	mux.HandleFunc("GET /api/sessions/{id}/context/maps", a.contextMaps)
 	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/attachment/inspection", a.attachmentInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/reference/inspection", a.referenceInspection)
@@ -1757,6 +1758,19 @@ func (a *API) bundle(w http.ResponseWriter, r *http.Request) {
 	}
 	serveDownload(w, r, item.Context.ZipPath, "wharness-context-"+item.ID+".zip", "application/zip")
 }
+func (a *API) contextMaps(w http.ResponseWriter, r *http.Request) {
+	maps, err := a.service.RequestContextMaps(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, session.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "session_not_found", "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "context_maps_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, maps)
+}
+
 func (a *API) contextInspection(w http.ResponseWriter, r *http.Request) {
 	inspection, err := a.service.ContextInspection(r.PathValue("id"))
 	if err != nil {

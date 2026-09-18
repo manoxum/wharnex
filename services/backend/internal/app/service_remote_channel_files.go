@@ -110,6 +110,15 @@ func buildRemoteFileMapResources(dir, contextPath string, manifest domain.Contex
 			return nil, nil, err
 		}
 	}
+	mapFiles, err := requestContextMapFiles(contextPath, manifest)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, entry := range mapFiles {
+		if err := addBytes("context-map", entry.Path, []byte(entry.Content), true); err != nil {
+			return nil, nil, err
+		}
+	}
 	for _, file := range manifest.Files {
 		if !safeRemoteMapPath(file.Path) || file.SHA256 == "" {
 			continue
