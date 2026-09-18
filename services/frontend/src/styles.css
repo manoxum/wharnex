@@ -1350,11 +1350,15 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 /* Drawer open: the drawer takes a third of the shell, leaving the mode stack
    two thirds — which the Agent then splits evenly, so chat and inspector each
    land on a third of the whole as well. */
-/* flex-shrink:1 (not the previous 0 0, rigid) so a drawer gives up its
-   preferred width once both side drawers plus the center no longer fit the
-   viewport, instead of overflowing the row and pushing the other drawer
-   (and its own content) off-screen with nothing left to shrink. */
-.workspace-main-row > .agent-drawer { flex: 1 1 var(--workspace-drawer-width, calc((100% - 54px) / 3)); min-width: 240px; grid-column: auto; grid-row: auto; border-right: 0; }
+/* flex-grow stays 0: a drawer's splitter is the only thing that should ever
+   widen it, and the center pane (the only flex-grow:1 sibling) is what
+   absorbs extra viewport space by design - growing the drawers too would let
+   dragging one splitter visibly resize the far drawer as well, since grown
+   space is distributed across every flex-grow item, not just the dragged
+   pair. flex-shrink is 1 (not the previous 0), so a drawer still gives up
+   its preferred width, without ever exceeding it, once both side drawers
+   plus the center no longer fit the viewport. */
+.workspace-main-row > .agent-drawer { flex: 0 1 var(--workspace-drawer-width, calc((100% - 54px) / 3)); min-width: 240px; grid-column: auto; grid-row: auto; border-right: 0; }
 .workspace-main-row > .agent-drawer-splitter { flex: 0 0 6px; grid-column: auto; grid-row: auto; }
 .workspace-mode-stack { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .workspace-rail-terminal { margin-top: 0; }
