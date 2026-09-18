@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { buildExecutionTimeline } from './executionTimeline'
+import { buildExecutionTimeline, executionTimelineOverview } from './executionTimeline'
 import type { HarnessEvent } from '../types'
 
 it('groups one command with all of its streamed output and duration', () => {
@@ -96,4 +96,30 @@ it('keeps generic audit events inspectable with structured payload and severity'
   expect(entries[0].detail).toContain('request_id=req-main')
   expect(entries[0].output).toContain('[erro] upload timeout')
   expect(entries[0].output).toContain('"attempt": 2')
+})
+
+it('reports recovery after a blocked execution is repaired and applied on the host', () => {
+  const event = (id: string, type: string, data: Record<string, unknown>): HarnessEvent => ({ id, session_id: 's', type, timestamp: '2026-09-18T12:00:00Z', data })
+  const entries = buildExecutionTimeline([
+    event('1', 'automation.policy_blocked', { request_id: 'req-main', root_request_id: 'req-main' }),
+    event('2', 'repair.started', { request_id: 'req-repair', root_request_id: 'req-main', iteration_kind: 'repair', attempt: 1 }),
+    event('3', 'execution.started', { request_id: 'req-repair', root_request_id: 'req-main', target: 'sandbox' }),
+    event('4', 'execution.completed', { request_id: 'req-repair', root_request_id: 'req-main', target: 'sandbox' }),
+    event('5', 'host.apply_started', { request_id: 'req-repair', root_request_id: 'req-main', patch_count: 1 }),
+    event('6', 'host.applied', { request_id: 'req-repair', root_request_id: 'req-main' }),
+  ])
+  expect(entries[0]).toMatchObject({ tone: 'fail', lifecycleState: 'failure' })
+  expect(executionTimelineOverview(entries)).toBe('recovered')
+})
+
+it('uses the latest terminal lifecycle result instead of any historical failure', () => {
+  const event = (id: string, type: string): HarnessEvent => ({ id, session_id: 's', type, timestamp: '2026-09-18T12:00:00Z', data: {} })
+  expect(executionTimelineOverview(buildExecutionTimeline([
+    event('1', 'host.applied'),
+    event('2', 'host.apply_failed'),
+  ]))).toBe('failed')
+  expect(executionTimelineOverview(buildExecutionTimeline([
+    event('1', 'execution.failed'),
+    event('2', 'execution.started'),
+  ]))).toBe('active')
 })

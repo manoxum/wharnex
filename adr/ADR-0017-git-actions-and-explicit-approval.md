@@ -10,7 +10,7 @@ Users need Wharness to handle repository operations such as commit, branch, merg
 
 ## Decision
 
-1. Read-only Git inspection remains low-risk. A bounded allowlist of Git mutations is recognized as CHANGE intent and always requires explicit user approval.
+1. Read-only Git inspection remains low-risk. Dual-mode commands are classified by arguments: a `git symbolic-ref` invocation with exactly one ref name and only query flags (`--quiet`/`-q`, `--short`, `--no-recurse`) is inspection, while write/delete forms of `symbolic-ref` remain denied. A bounded allowlist of Git mutations is recognized as CHANGE intent and always requires explicit user approval.
 2. `fetch`, `pull` and `push` must declare network access and are high risk. `clean`, `reset --hard`, force/force-with-lease, destructive delete flags, credential/config manipulation and unsupported subcommands remain denied.
 3. For an existing Git project, Protected workspace creation uses a local no-hardlink clone to preserve commits/branches, removes the clone worktree content, then overlays the current eligible source working tree. This preserves dirty/untracked project state while keeping Git history meaningful.
 4. Source hooks and arbitrary local Git config are never copied. Repository signing is disabled in Protected. Only HTTPS remotes without embedded userinfo/credentials may be reconstructed.

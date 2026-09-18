@@ -27,6 +27,12 @@ func TestManifestPublishesPolicyAndBudgetsTheEngineActuallyEnforces(t *testing.T
 	if !contains(manifest.Policy.DeniedExecutables, "python3") {
 		t.Fatal("python3 must appear in the published denied set")
 	}
+	if !contains(manifest.Policy.GitReadOnly, "symbolic-ref") {
+		t.Fatal("symbolic-ref query support must appear in the published read-only Git set")
+	}
+	if rules := strings.Join(manifest.Policy.Rules, "\n"); !strings.Contains(rules, "symbolic-ref is query-only") {
+		t.Fatalf("published Git rules must describe the symbolic-ref argument guard, got:\n%s", rules)
+	}
 	if manifest.Budgets.CommandTimeoutSecondsMax != protocol.MaxCommandTimeoutSeconds {
 		t.Fatalf("timeout ceiling = %d, want %d", manifest.Budgets.CommandTimeoutSecondsMax, protocol.MaxCommandTimeoutSeconds)
 	}

@@ -35,6 +35,36 @@ func TestGitMutationRequiresApproval(t *testing.T) {
 	}
 }
 
+func TestGitSymbolicRefReadOnlyQueryIsAllowed(t *testing.T) {
+	for _, argv := range [][]string{
+		{"git", "symbolic-ref", "--quiet", "HEAD"},
+		{"git", "symbolic-ref", "--short", "HEAD"},
+		{"git", "symbolic-ref", "--no-recurse", "HEAD"},
+	} {
+		plan := basePlan()
+		plan.Verification = []domain.CommandSpec{cmd(argv...)}
+		decision := NewEngine().Evaluate(plan)
+		if !decision.Allowed || decision.RequiresApproval {
+			t.Fatalf("read-only symbolic-ref query %v should be allowed without approval: %#v", argv, decision)
+		}
+	}
+}
+
+func TestGitSymbolicRefMutationIsDenied(t *testing.T) {
+	for _, argv := range [][]string{
+		{"git", "symbolic-ref", "HEAD", "refs/heads/main"},
+		{"git", "symbolic-ref", "--delete", "HEAD"},
+		{"git", "symbolic-ref", "-m", "reason", "HEAD", "refs/heads/main"},
+	} {
+		plan := basePlan()
+		plan.Operations = []domain.Operation{{Type: "command", Command: cmd(argv...)}}
+		decision := NewEngine().Evaluate(plan)
+		if decision.Allowed {
+			t.Fatalf("symbolic-ref mutation %v must remain denied", argv)
+		}
+	}
+}
+
 func TestDestructiveGitStillDenied(t *testing.T) {
 	plan := basePlan()
 	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("git", "reset", "--hard")}}

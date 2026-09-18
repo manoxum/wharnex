@@ -186,7 +186,7 @@ var denied = map[string]bool{
 }
 
 var elevated = map[string]bool{"make": true, "cmake": true, "ninja": true, "npm": true, "node": true, "npx": true}
-var readOnlyGit = map[string]bool{"status": true, "diff": true, "grep": true, "ls-files": true, "rev-parse": true, "show": true, "log": true}
+var readOnlyGit = map[string]bool{"status": true, "diff": true, "grep": true, "ls-files": true, "rev-parse": true, "show": true, "log": true, "symbolic-ref": true}
 var mutableGit = map[string]bool{"add": true, "commit": true, "branch": true, "checkout": true, "switch": true, "merge": true, "rebase": true, "revert": true, "restore": true, "tag": true, "stash": true, "fetch": true, "pull": true, "push": true}
 
 func classifyGit(command domain.CommandSpec, decision *domain.PolicyDecision) {
@@ -198,6 +198,11 @@ func classifyGit(command domain.CommandSpec, decision *domain.PolicyDecision) {
 	}
 	sub := strings.ToLower(command.Argv[1])
 	if readOnlyGit[sub] {
+		if sub == "symbolic-ref" && !readOnlySymbolicRef(command.Argv[2:]) {
+			decision.Allowed = false
+			decision.Risk = "high"
+			decision.Reasons = append(decision.Reasons, "git symbolic-ref mutation is denied in model plan")
+		}
 		return
 	}
 	if !mutableGit[sub] {
@@ -227,6 +232,26 @@ func classifyGit(command domain.CommandSpec, decision *domain.PolicyDecision) {
 		}
 		decision.Risk = "high"
 	}
+}
+
+func readOnlySymbolicRef(args []string) bool {
+	positionals := 0
+	for _, raw := range args {
+		arg := strings.ToLower(raw)
+		switch arg {
+		case "--quiet", "-q", "--short", "--no-recurse":
+			continue
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return false
+			}
+			positionals++
+			if positionals > 1 {
+				return false
+			}
+		}
+	}
+	return positionals == 1
 }
 
 // HostReplayGitCommand identifies mutation commands that were safely exercised in
@@ -327,7 +352,7 @@ func DeniedExecutables() []string { return sortedSetKeys(denied) }
 // the plan's risk to at least medium.
 func ElevatedExecutables() []string { return sortedSetKeys(elevated) }
 
-// GitReadOnlySubcommands may run in a model plan with no approval.
+// GitReadOnlySubcommands lists read-only Git command families; dual-mode commands remain argument-checked.
 func GitReadOnlySubcommands() []string { return sortedSetKeys(readOnlyGit) }
 
 // GitMutableSubcommands are permitted but require explicit user approval; any

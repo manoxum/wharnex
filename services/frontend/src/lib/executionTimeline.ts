@@ -17,9 +17,26 @@ export type ExecutionTimelineEntry = {
   running: boolean
   output: string
   outputSegments: ExecutionOutputSegment[]
+  lifecycleState?: 'active' | 'success' | 'failure'
 	requestId: string
 	rootRequestId: string
 	iterationKind: 'standard' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict'
+}
+
+export type ExecutionTimelineOverview = 'active' | 'failed' | 'recovered' | 'success' | 'neutral'
+
+export function executionTimelineOverview(entries: ExecutionTimelineEntry[]): ExecutionTimelineOverview {
+  if (entries.some((entry) => entry.running)) return 'active'
+  let latest: ExecutionTimelineEntry['lifecycleState']
+  let hadFailure = false
+  for (const entry of entries) {
+    if (entry.lifecycleState === 'failure') hadFailure = true
+    if (entry.lifecycleState) latest = entry.lifecycleState
+  }
+  if (latest === 'active') return 'active'
+  if (latest === 'failure') return 'failed'
+  if (latest === 'success') return hadFailure ? 'recovered' : 'success'
+  return 'neutral'
 }
 
 export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelineEntry[] {
@@ -70,7 +87,7 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       } else if (event.type === 'self_evolution.host_build_completed') {
         entry.title = 'Build do Wharnex concluído'; entry.badge = 'OK'; entry.tone = 'ok'; entry.running = false
       } else if (event.type === 'self_evolution.host_build_failed') {
-        entry.title = 'Build do Wharnex falhou'; entry.badge = 'FAIL'; entry.tone = 'fail'; entry.running = false
+        entry.title = 'Build do Wharnex falhou'; entry.badge = 'FAIL'; entry.tone = 'fail'; entry.running = false; entry.lifecycleState = 'failure'
         if (!entry.output) setFallbackOutput(entry, event)
       }
       continue
@@ -145,20 +162,20 @@ function statusMeta(event: HarnessEvent) {
   const target = String(event.data.target || '')
   const exit = event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : ''
   switch (event.type) {
-    case 'execution.started': return { title: 'Execução iniciada', detail: target || String(event.data.execution_mode || ''), badge: 'RUN', tone: 'warning' as const }
-    case 'execution.completed': return { title: 'Execução concluída', detail: target, badge: 'OK', tone: 'ok' as const }
-    case 'execution.failed': case 'automation.execution_failed': return { title: 'Execução falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const }
+    case 'execution.started': return { title: 'Execução iniciada', detail: target || String(event.data.execution_mode || ''), badge: 'RUN', tone: 'warning' as const, lifecycleState: 'active' as const }
+    case 'execution.completed': return { title: 'Execução concluída', detail: target, badge: 'OK', tone: 'ok' as const, lifecycleState: 'success' as const }
+    case 'execution.failed': case 'automation.execution_failed': return { title: 'Execução falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const, lifecycleState: 'failure' as const }
     case 'execution.duplicate_blocked': return { title: 'Reexecução bloqueada', detail: `Plano ${String(event.data.plan_id || '')} já concluído`, badge: 'DONE', tone: 'warning' as const }
-    case 'host.apply_started': return { title: 'Aplicação no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'HOST', tone: 'warning' as const }
-    case 'host.apply_failed': return { title: 'Aplicação no host falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const }
-    case 'host.applied': return { title: 'Alterações aplicadas no host', detail: '', badge: 'HOST', tone: 'ok' as const }
+    case 'host.apply_started': return { title: 'Aplicação no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'HOST', tone: 'warning' as const, lifecycleState: 'active' as const }
+    case 'host.apply_failed': return { title: 'Aplicação no host falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const, lifecycleState: 'failure' as const }
+    case 'host.applied': return { title: 'Alterações aplicadas no host', detail: '', badge: 'HOST', tone: 'ok' as const, lifecycleState: 'success' as const }
     case 'host.pending_rejected': return { title: 'Alterações pendentes rejeitadas', detail: `${String(event.data.plan_count || 0)} plano(s) descartado(s)`, badge: 'REJECT', tone: 'warning' as const }
-    case 'host.revert_started': return { title: 'Reversão no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'REVERT', tone: 'warning' as const }
-    case 'host.reverted': return { title: 'Alterações revertidas no host', detail: '', badge: 'REVERT', tone: 'ok' as const }
-    case 'host.restore_started': return { title: 'Reposição no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'RESTORE', tone: 'warning' as const }
-    case 'host.restore_failed': return { title: 'Reposição direta falhou', detail: String(event.data.error || ''), badge: 'RESTORE', tone: 'fail' as const }
-    case 'host.restore_recovery_started': return { title: 'Conciliação da reposição iniciada', detail: String(event.data.error || ''), badge: 'GPT', tone: 'warning' as const }
-    case 'host.restored': return { title: 'Alteração reposta no host', detail: '', badge: 'RESTORE', tone: 'ok' as const }
+    case 'host.revert_started': return { title: 'Reversão no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'REVERT', tone: 'warning' as const, lifecycleState: 'active' as const }
+    case 'host.reverted': return { title: 'Alterações revertidas no host', detail: '', badge: 'REVERT', tone: 'ok' as const, lifecycleState: 'success' as const }
+    case 'host.restore_started': return { title: 'Reposição no host iniciada', detail: `${String(event.data.patch_count || 0)} patch(es)`, badge: 'RESTORE', tone: 'warning' as const, lifecycleState: 'active' as const }
+    case 'host.restore_failed': return { title: 'Reposição direta falhou', detail: String(event.data.error || ''), badge: 'RESTORE', tone: 'fail' as const, lifecycleState: 'failure' as const }
+    case 'host.restore_recovery_started': return { title: 'Conciliação da reposição iniciada', detail: String(event.data.error || ''), badge: 'GPT', tone: 'warning' as const, lifecycleState: 'active' as const }
+    case 'host.restored': return { title: 'Alteração reposta no host', detail: '', badge: 'RESTORE', tone: 'ok' as const, lifecycleState: 'success' as const }
     case 'host_dependency_repair.started': return { title: 'Reinstalação de dependências do host iniciada', detail: String(event.data.cwd || ''), badge: 'REPAIR', tone: 'warning' as const }
     case 'host_dependency_repair.command_started': return { title: 'Comando de reparo iniciado', detail: (event.data.argv as string[] | undefined)?.join(' ') || '', badge: 'REPAIR', tone: 'warning' as const }
     case 'host_dependency_repair.command_completed': return { title: 'Comando de reparo concluído', detail: (event.data.argv as string[] | undefined)?.join(' ') || '', badge: exit, tone: event.data.success ? 'ok' as const : 'fail' as const }
@@ -170,10 +187,10 @@ function statusMeta(event: HarnessEvent) {
     case 'verification.baseline_unchanged': return { title: 'Falha pré-existente inalterada', detail: 'baseline unchanged', badge: exit, tone: 'warning' as const }
     case 'verification.baseline_changed': return { title: 'Baseline alterada', detail: 'verification drift', badge: 'WARN', tone: 'warning' as const }
     case 'automation.approval_required': return { title: 'Aprovação necessária', detail: String(event.data.risk || ''), badge: 'APPROVE', tone: 'warning' as const }
-    case 'automation.policy_blocked': case 'workflow.policy_blocked': return { title: 'Policy bloqueou a execução', detail: '', badge: 'BLOCK', tone: 'fail' as const }
-    case 'repair.started': return { title: event.data.iteration_kind === 'revert_restore' ? 'Conciliação da reposição iniciada' : 'Correção automática iniciada', detail: '', badge: `#${String(event.data.attempt || '')}`, tone: 'warning' as const }
+    case 'automation.policy_blocked': case 'workflow.policy_blocked': return { title: 'Policy bloqueou a execução', detail: '', badge: 'BLOCK', tone: 'fail' as const, lifecycleState: 'failure' as const }
+    case 'repair.started': return { title: event.data.iteration_kind === 'revert_restore' ? 'Conciliação da reposição iniciada' : 'Correção automática iniciada', detail: '', badge: `#${String(event.data.attempt || '')}`, tone: 'warning' as const, lifecycleState: 'active' as const }
     case 'repair.prompt_ready': return { title: event.data.iteration_kind === 'revert_restore' ? 'Pedido de reposição pronto' : 'Prompt de correção pronto', detail: '', badge: 'READY', tone: 'warning' as const }
-    case 'repair.prepare_failed': return { title: 'Falha ao preparar correção', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const }
+    case 'repair.prepare_failed': return { title: 'Falha ao preparar correção', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const, lifecycleState: 'failure' as const }
     case 'workflow.started': return { title: 'Investigação local iniciada', detail: '', badge: event.data.round ? `${String(event.data.round)}/6` : 'RUN', tone: 'warning' as const }
     case 'workflow.completed': return { title: 'Passo local concluído', detail: '', badge: 'OK', tone: 'ok' as const }
     case 'workflow.step_failed': return { title: 'Passo local produziu diagnóstico', detail: '', badge: 'WARN', tone: 'warning' as const }
