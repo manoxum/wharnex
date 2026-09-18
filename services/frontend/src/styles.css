@@ -2789,8 +2789,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
     color-mix(in srgb, var(--theme-elevated) 4%, transparent),
     color-mix(in srgb, var(--theme-elevated) 58%, transparent) 56%,
     color-mix(in srgb, var(--theme-elevated) 94%, transparent));
-  -webkit-backdrop-filter: blur(1.4px);
-  backdrop-filter: blur(1.4px);
 }
 .chat-markdown-toggle,
 .change-file-toggle,

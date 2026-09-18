@@ -420,7 +420,10 @@ function compactEventData(data: Record<string, unknown>) {
 const COMPOSER_DRAFT_PREFIX = 'kernl.workspace.composer-draft.v1:'
 const COMPOSER_STORED_FILE_DRAFT_PREFIX = 'kernl.workspace.composer-file-draft.v1:'
 const composerFileDrafts = new Map<string, ComposerFileDraft>()
+const COMPOSER_DRAFT_SAVE_DELAY_MS = 180
 export type ComposerDraft = { message: string; height: number }
+type PendingComposerDraft = { draft: ComposerDraft; timer: ReturnType<typeof setTimeout> }
+const pendingComposerDrafts = new Map<string, PendingComposerDraft>()
 export type ComposerFileDraft = { attachments: File[]; projectFiles: string[] }
 export type ComposerStoredAttachmentDraft = {
   name: string
@@ -434,15 +437,54 @@ export type ComposerStoredAttachmentDraft = {
 function composerDraftKey(projectPath: string, chatId: string) { return `${projectPath}:${chatId}` }
 
 export function loadComposerDraft(projectPath: string, chatId: string): ComposerDraft {
+  const key = composerDraftKey(projectPath, chatId)
+  const pending = pendingComposerDrafts.get(key)
+  if (pending) return { ...pending.draft }
   try {
-    const raw = localStorage.getItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`)
+    const raw = localStorage.getItem(`${COMPOSER_DRAFT_PREFIX}${key}`)
     const value = raw ? JSON.parse(raw) as Partial<ComposerDraft> : {}
-    return { message: typeof value.message === 'string' ? value.message : '', height: normalizeComposerHeight(value.height) }
+    return normalizeComposerDraft(value)
   } catch { return { message: '', height: 156 } }
 }
 
+function writeComposerDraft(projectPath: string, chatId: string, draft: ComposerDraft) {
+  try { localStorage.setItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`, JSON.stringify(normalizeComposerDraft(draft))) } catch { /* best effort */ }
+}
+
 export function saveComposerDraft(projectPath: string, chatId: string, draft: ComposerDraft) {
-  try { localStorage.setItem(`${COMPOSER_DRAFT_PREFIX}${composerDraftKey(projectPath, chatId)}`, JSON.stringify({ message: draft.message.slice(0, 20000), height: normalizeComposerHeight(draft.height) })) } catch { /* best effort */ }
+  cancelComposerDraftSave(projectPath, chatId)
+  writeComposerDraft(projectPath, chatId, draft)
+}
+
+export function scheduleComposerDraftSave(projectPath: string, chatId: string, draft: ComposerDraft) {
+  const key = composerDraftKey(projectPath, chatId)
+  const current = pendingComposerDrafts.get(key)
+  if (current) clearTimeout(current.timer)
+  const normalized = normalizeComposerDraft(draft)
+  const timer = setTimeout(() => {
+    const pending = pendingComposerDrafts.get(key)
+    if (!pending || pending.timer !== timer) return
+    pendingComposerDrafts.delete(key)
+    writeComposerDraft(projectPath, chatId, pending.draft)
+  }, COMPOSER_DRAFT_SAVE_DELAY_MS)
+  pendingComposerDrafts.set(key, { draft: normalized, timer })
+}
+
+export function flushComposerDraftSave(projectPath: string, chatId: string) {
+  const key = composerDraftKey(projectPath, chatId)
+  const pending = pendingComposerDrafts.get(key)
+  if (!pending) return
+  clearTimeout(pending.timer)
+  pendingComposerDrafts.delete(key)
+  writeComposerDraft(projectPath, chatId, pending.draft)
+}
+
+export function cancelComposerDraftSave(projectPath: string, chatId: string) {
+  const key = composerDraftKey(projectPath, chatId)
+  const pending = pendingComposerDrafts.get(key)
+  if (!pending) return
+  clearTimeout(pending.timer)
+  pendingComposerDrafts.delete(key)
 }
 
 export function loadComposerFileDraft(projectPath: string, chatId: string): ComposerFileDraft {
@@ -484,6 +526,7 @@ export function saveComposerStoredFileDraft(projectPath: string, chatId: string,
 
 export function clearComposerDraft(projectPath: string, chatId: string) {
   const key = composerDraftKey(projectPath, chatId)
+  cancelComposerDraftSave(projectPath, chatId)
   try {
     localStorage.removeItem(`${COMPOSER_DRAFT_PREFIX}${key}`)
     localStorage.removeItem(`${COMPOSER_STORED_FILE_DRAFT_PREFIX}${key}`)
@@ -492,6 +535,10 @@ export function clearComposerDraft(projectPath: string, chatId: string) {
 }
 
 export function clearEphemeralComposerDrafts() { composerFileDrafts.clear() }
+
+function normalizeComposerDraft(value: Partial<ComposerDraft>): ComposerDraft {
+  return { message: typeof value.message === 'string' ? value.message.slice(0, 20000) : '', height: normalizeComposerHeight(value.height) }
+}
 
 function normalizeComposerHeight(value: unknown) {
   const number = Number(value)

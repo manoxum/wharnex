@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	archiveChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
   durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
@@ -195,6 +195,27 @@ describe('composer draft memory', () => {
     expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'Olá mundo', height: 420 })
     memory.clearComposerDraft('/p', 'chat-a')
     expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: '', height: 156 })
+  })
+
+  it('coalesces rapid composer draft writes while keeping the latest draft readable', async () => {
+    const memory = await import('./workspaceMemory')
+    vi.useFakeTimers()
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    try {
+      memory.scheduleComposerDraftSave('/p', 'chat-a', { message: 'primeiro', height: 150 })
+      memory.scheduleComposerDraftSave('/p', 'chat-a', { message: 'segundo', height: 160 })
+      expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'segundo', height: 160 })
+      expect(setItem).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(179)
+      expect(setItem).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1)
+      expect(setItem).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(localStorage.getItem('kernl.workspace.composer-draft.v1:/p:chat-a') || '{}')).toEqual({ message: 'segundo', height: 160 })
+    } finally {
+      memory.clearComposerDraft('/p', 'chat-a')
+      setItem.mockRestore()
+      vi.useRealTimers()
+    }
   })
 
   it('keeps unsent attachment selections scoped to each chat for the current app runtime', async () => {
