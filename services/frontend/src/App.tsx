@@ -68,11 +68,6 @@ function attentionSessionFrom(record: AttentionRecord, projectPath: string): Ses
 }
 
 const ATTENTION_REFRESH_INTERVAL_MS = 15_000
-const WORKBENCH_CENTER_MIN_PX = 886
-const WORKBENCH_RAILS_AND_SPLITTERS_PX = 100
-function workbenchDrawersFit(left: number, right: number, viewportWidth = window.innerWidth) {
-  return viewportWidth >= left + right + WORKBENCH_CENTER_MIN_PX + WORKBENCH_RAILS_AND_SPLITTERS_PX
-}
 
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
@@ -250,14 +245,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     })
   }, [session?.project_path, sideDrawer, rightDrawer, leftDrawerWidth, rightDrawerWidth, terminalOpen, terminalHeight])
 
-  useEffect(() => {
-    const reconcile = () => {
-      if (sideDrawer && rightDrawer && !workbenchDrawersFit(leftDrawerWidth, rightDrawerWidth)) setRightDrawer('')
-    }
-    reconcile()
-    window.addEventListener('resize', reconcile)
-    return () => window.removeEventListener('resize', reconcile)
-  }, [sideDrawer, rightDrawer, leftDrawerWidth, rightDrawerWidth])
 
   const activeChatRecord = chats.find((chat) => chat.id === activeChatId)
   const activeChatOwnsSession = Boolean(activeChatRecord && session && activeChatRecord.sessionId === session.id)
@@ -3231,14 +3218,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (source === 'right' && rightDrawer === tool) { setRightDrawer(''); setSideDrawer(tool) }
   }
 
-  const openLeftDrawer = (next: Drawer) => {
-    if (next && rightDrawer && !workbenchDrawersFit(leftDrawerWidth, rightDrawerWidth)) setRightDrawer('')
-    setSideDrawer(next)
-  }
-  const openRightDrawer = (next: Drawer) => {
-    if (next && sideDrawer && !workbenchDrawersFit(leftDrawerWidth, rightDrawerWidth)) setSideDrawer('')
-    setRightDrawer(next)
-  }
+  const openLeftDrawer = (next: Drawer) => { setSideDrawer(next) }
+  const openRightDrawer = (next: Drawer) => { setRightDrawer(next) }
 
   const sharedChatProps: ComponentProps<typeof ChatPanel> = {
     session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, reasoningEffort: session.reasoning_effort || 'high', chatTransportMode,
