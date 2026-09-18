@@ -129,6 +129,10 @@ type Service struct {
 	gitSettingsFile         string
 	gitSettingsMu           sync.Mutex
 	pendingCommits          *pendingcommit.Store
+	interactiveDBMu         sync.RWMutex
+	interactiveDB           map[string]PostgresConnection
+	interactiveCancelMu     sync.Mutex
+	interactiveCancels      map[string]context.CancelFunc
 }
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
@@ -285,7 +289,7 @@ func (s *Service) TunnelProviders() []TunnelProviderDescriptor {
 
 func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Builder, planner planner.Planner, policies *policy.Engine, runner sandbox.Runner) *Service {
 	manager := selfevolution.New(selfevolution.DiscoverRoot())
-	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), terminals: make(map[string]*terminalSessionState), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState)}
+	service := &Service{store: store, bus: bus, context: builder, planner: planner, policy: policies, runner: runner, hostRunner: sandbox.NewHostRunner(), selfEvolution: manager, devspaces: make(map[string]sandbox.Workspace), terminals: make(map[string]*terminalSessionState), projectApplyLocks: make(map[string]*sync.Mutex), executionQueue: newProjectExecutionQueue(), orchestrator: orchestrator.NewMemoryStore(), orchestratorLocks: make(map[string]*sync.Mutex), remoteLeases: make(map[string]map[string]remoteInputLease), remoteChannels: make(map[string]*remoteInputChannelState), interactiveDB: make(map[string]PostgresConnection), interactiveCancels: make(map[string]context.CancelFunc)}
 	service.normalizeBaselineConcurrencySessions()
 	service.normalizeSelfEvolutionSessions()
 	service.normalizeKnowledgeReviewSessions()
@@ -1044,9 +1048,9 @@ func messageWithRelatedProjects(message, primary string, related []domain.Relate
 	builder.WriteString("\n\nMULTI-PROJECT WORKSPACE (Wharnex-owned scope metadata):\n")
 	builder.WriteString("Primary project and execution root: ")
 	builder.WriteString(primary)
-	builder.WriteString("\nRelated project contexts are available under their RELATED_PROJECTS namespaces:\n")
+	builder.WriteString("\nRelated project contexts are available under ref-context/ namespaces in the request bundle:\n")
 	for _, project := range related {
-		fmt.Fprintf(&builder, "- %s (%s): %s\n", project.Name, project.ProjectPath, project.Prefix)
+		fmt.Fprintf(&builder, "- %s (%s): %s\n", project.Name, project.ProjectPath, requestArchiveRelatedPrefix(project.Prefix))
 	}
 	builder.WriteString("Analyze cross-project contracts and dependencies as needed.")
 	// Which of these contexts may be changed is decided by the request's own

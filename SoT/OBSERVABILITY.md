@@ -59,3 +59,7 @@ Ledger bodies are published through the ordinary audit path precisely so redacti
 ## Unresolved evidence ledger (v1.3.1)
 
 Canonical WHX self-evolution exposes unresolved, redacted evidence across every opened project. Filters cover date/time, project, exact/partial event type and stable category, and only the explicit selection enters an AI analysis request. **Analyze with AI** always creates or reuses a dedicated self-evolution Harness chat and never takes over the user's currently active conversation. Resolution is stored by immutable event ID across all canonical self-evolution sessions and occurs only after a verified/applied implementation reports IDs belonging to that review selection; restart time and the currently selected analysis chat are not resolution boundaries.
+
+## Interactive v2 evidence
+
+Interactive v2 publishes `interactive.operation_started` and `interactive.operation_completed` around every typed operation. Completion evidence includes only bounded/redacted metadata and result content; secrets and unbounded stdout/stderr are not audit state. Workflow observations sent back to the planner include the structured interactive result list so a diagnosis can correlate a SQL/log/shell probe with its capability and target without scraping localized prose. The persisted grant identifies the approved protocol, root request, target, access, capabilities, scope and digest so a later audit can explain why an operation was allowed.

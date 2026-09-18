@@ -4,7 +4,7 @@ import { createRef, type RefObject } from 'react'
 import QuillDelta from 'quill-delta'
 import { ChatPanel, type ChatPanelHandle } from './ChatPanel'
 import type { Session } from '../types'
-import { clearEphemeralComposerDrafts } from '../lib/workspaceMemory'
+import { clearComposerDraft, clearEphemeralComposerDrafts, loadComposerStoredFileDraft, saveComposerStoredFileDraft } from '../lib/workspaceMemory'
 import { api } from '../lib/api'
 import { deltaToCanonicalText, directivesToDelta, textOffsetToQuillIndex } from '../lib/composerRichText'
 import { requestArtifactIndex } from '../lib/artifactIndexing'
@@ -65,7 +65,7 @@ describe('ChatPanel', () => {
   // it open by design — leaves it for the next test to match. Cancelling rather
   // than dropping the node also settles its promise, which is what releases the
   // serialized dialog queue so the following test's dialog can still open.
-  afterEach(() => { clearEphemeralComposerDrafts(); vi.restoreAllMocks(); vi.unstubAllGlobals(); if (document.querySelector('.app-dialog-backdrop')) fireEvent.keyDown(document, { key: 'Escape' }); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
+  afterEach(() => { clearEphemeralComposerDrafts(); delete window.wharnessDesktop; vi.restoreAllMocks(); vi.unstubAllGlobals(); if (document.querySelector('.app-dialog-backdrop')) fireEvent.keyDown(document, { key: 'Escape' }); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
 
   it('prepares, but does not submit, a selected structured interview answer', () => {
     const ref = panelRef()
@@ -714,6 +714,45 @@ describe('ChatPanel', () => {
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="other-chat" busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
     )
     expect(other.container.textContent).not.toContain('rascunho.txt')
+  })
+
+  it('restores persisted draft attachments after a full renderer reload', async () => {
+    const chatId = 'durable-draft-files'
+    const stored = { name: 'persistido.txt', size: 5, mime: 'text/plain', storageRef: `${chatId}/composer_draft/0`, previewKind: 'icon' as const }
+    const lastModified = 1_700_000_000_000
+    const persist = vi.fn().mockResolvedValue({ ok: true, attachments: [stored] })
+    const read = vi.fn().mockResolvedValue({ name: stored.name, mime: stored.mime, contentBase64: btoa('draft') })
+    Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: { attachments: { persist, read } } })
+
+    const first = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId={chatId} busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
+    )
+    const file = new File(['draft'], stored.name, { type: stored.mime, lastModified })
+    fireEvent.change(first.container.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } })
+    await waitFor(() => expect(loadComposerStoredFileDraft(session.project_path, chatId)).toEqual([{ ...stored, lastModified }]))
+    first.unmount()
+    clearEphemeralComposerDrafts()
+
+    const restored = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId={chatId} busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
+    )
+    await waitFor(() => expect(restored.container.textContent).toContain(stored.name))
+    expect(read).toHaveBeenCalledWith({ storageRef: stored.storageRef })
+    clearComposerDraft(session.project_path, chatId)
+  })
+
+  it('drops a persisted draft attachment when its stored bytes cannot be recovered', async () => {
+    const chatId = 'missing-draft-file'
+    const stored = { name: 'perdido.txt', size: 7, mime: 'text/plain', storageRef: `${chatId}/composer_draft/0`, previewKind: 'none' as const, lastModified: 1_700_000_000_000 }
+    saveComposerStoredFileDraft(session.project_path, chatId, [stored])
+    Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: { attachments: { persist: vi.fn(), read: vi.fn().mockRejectedValue(new Error('missing')) } } })
+
+    const view = render(
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId={chatId} busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
+    )
+    await waitFor(() => expect(loadComposerStoredFileDraft(session.project_path, chatId)).toEqual([]))
+    expect(view.container.textContent).not.toContain(stored.name)
+    expect(view.container.textContent).toContain('já não estavam disponíveis')
   })
 
   it('persists a selected file before a keyed chat switch can unmount the composer', () => {

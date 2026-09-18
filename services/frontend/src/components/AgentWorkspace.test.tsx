@@ -42,7 +42,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
   ]
   const archivedChats = [{ id: 'arch-1', title: 'Diagnóstico antigo', sessionId: 'ses-old', createdAt: '2026-09-03T10:00:00.000Z', updatedAt: '2026-09-03T11:00:00.000Z' }]
 
-  function Harness({ session: active = current, attentionSessions = {}, chatgptHumanActions = {}, nonce = human.nonce, recoveryTab, chatProps: chatOverride, inspectorProps: inspectorOverride, executionFIFO = [], railVisible = false }: {
+  function Harness({ session: active = current, attentionSessions = {}, chatgptHumanActions = {}, nonce = human.nonce, recoveryTab, chatProps: chatOverride, inspectorProps: inspectorOverride, executionFIFO = [], railVisible = false, singlePane = false }: {
     session?: Session
     attentionSessions?: Record<string, Session | undefined>
     chatgptHumanActions?: Record<string, DesktopChatGPTHumanAction>
@@ -52,6 +52,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
     inspectorProps?: Record<string, unknown>
     executionFIFO?: ExecutionFIFOItem[]
     railVisible?: boolean
+    singlePane?: boolean
   }) {
     const [drawer, setDrawer] = useState<Drawer>('')
     const [inspectorAttention, setInspectorAttention] = useState<{ tab: AttentionTarget; nonce: number }>({ tab: 'terminal', nonce: 0 })
@@ -96,6 +97,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
             attentionItems={attentionItems}
             chatgptAttentionNonce={nonce}
             inspectorAttention={inspectorAttention}
+            singlePane={singlePane}
             onOpenAttention={openAttention}
             onAttentionAction={runAttention}
             onOpenAttentionDrawer={() => setDrawer('attention')}
@@ -179,6 +181,22 @@ describe('AgentWorkspace', () => {
     expect(await screen.findByRole('group', { name: 'Bundles: 80 enviados ao ChatGPT e 76 recebidos do ChatGPT.' })).toBeTruthy()
     expect(rendered.container.querySelector('.agent-bundle-counters')?.textContent).toBe('↑80↓76')
     expect(rendered.container.querySelector('.agent-bundle-quota.warning')).toBeNull()
+  })
+
+  it('switches between chat and Engine in a single pane when both drawers are open', () => {
+    const view = props()
+    const rendered = render(<view.Harness singlePane />)
+    const areas = screen.getByRole('navigation', { name: 'Áreas do Agent' })
+    const chat = within(areas).getByRole('button', { name: 'Chat' })
+
+    expect(rendered.container.querySelector('.agent-workspace.single-pane')).toBeTruthy()
+    expect(chat.className).toContain('active')
+    expect(rendered.container.querySelector('.agent-inspector-stage.surface-hidden')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Redimensionar chat e Engine' })).toBeNull()
+
+    fireEvent.click(within(areas).getByRole('button', { name: 'Engine' }))
+    expect(rendered.container.querySelector('.agent-chat-stage.surface-hidden')).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-inspector-stage.surface-hidden')).toBeNull()
   })
 
   it('mounts Agent shortcuts inside the existing right workspace rail', async () => {

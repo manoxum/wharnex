@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { desktopBridge } from '../lib/desktop'
 import { encodeChatAttachments } from '../lib/chatAttachments'
 import { errorMessage } from '../lib/errorMessage'
+import { storedAttachmentFile, withProjectTodoPrePlan } from '../lib/projectTodoForwarding'
 import { ChatPanel } from './ChatPanel'
 import { Icon } from './Icon'
 
@@ -79,14 +80,39 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
 
   async function promoteToOrchestrator(todo: ProjectTodo) {
     setBusy(true)
+    const bridge = desktopBridge()
+    const sourceFiles: File[] = []
+    const cacheKey = `orch_todo_${crypto.randomUUID().replaceAll('-', '_')}`
+    let ownsCache = false
     try {
-      await api.proposeOrchestratorPlan(session.id, todo.body, {
-        include_context: false, project_files: todo.project_files || [], attachment_cache_key: todo.attachment_cache_key || undefined,
-        attachments: (todo.attachments || []).map(({ name, size, mime, storage_ref }) => ({ name, size, mime, storage_ref })),
+      for (const attachment of todo.attachments || []) {
+        if (!bridge) throw new Error('Encaminhar anexos do TODO requer o Wharnex Desktop.')
+        const stored = await bridge.attachments.read({ storageRef: attachment.storage_ref })
+        sourceFiles.push(storedAttachmentFile(stored, attachment.mime || 'application/octet-stream'))
+      }
+      const files = withProjectTodoPrePlan(todo, sourceFiles)
+      if (files.length && !bridge) throw new Error('Encaminhar o pré-plano do TODO requer o Wharnex Desktop.')
+
+      let attachments: Array<{ name: string; size: number; mime: string; storage_ref: string }> | undefined
+      if (files.length && bridge) {
+        const encoded = await encodeChatAttachments(files)
+        const stored = await bridge.attachments.persist({ cacheKey, messageId: crypto.randomUUID(), attachments: encoded })
+        ownsCache = true
+        attachments = stored.attachments.map((file) => ({ name: file.name, size: file.size, mime: file.mime, storage_ref: file.storageRef }))
+      }
+
+      const result = await api.proposeOrchestratorPlan(session.id, todo.body, {
+        include_context: false, project_files: todo.project_files || [], attachment_cache_key: attachments?.length ? cacheKey : undefined, attachments,
       })
+      if (!result.worker_task_id && ownsCache && bridge) {
+        await bridge.attachments.removeChat({ cacheKey }).catch(() => undefined)
+        ownsCache = false
+      }
       onGoToOrchestrator?.()
-    } catch (reason) { onError(errorMessage(reason, 'Não foi possível enviar o TODO para o Orchestrator.')) }
-    finally { setBusy(false) }
+    } catch (reason) {
+      if (ownsCache && bridge) await bridge.attachments.removeChat({ cacheKey }).catch(() => undefined)
+      onError(errorMessage(reason, 'Não foi possível enviar o TODO para o Orchestrator.'))
+    } finally { setBusy(false) }
   }
 
   const visible = useMemo(() => items.filter((item) => item.status === filter), [items, filter])

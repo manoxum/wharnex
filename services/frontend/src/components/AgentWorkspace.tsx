@@ -38,12 +38,13 @@ function saveAgentChatWidth(width: number) {
 // Kept in step with the grid in styles.css: the splitter width and the minimum
 // a panel may be squeezed to. The activity rail is no longer part of this grid
 // — it belongs to the shell, beside every mode surface.
-export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAttentionNonce = 0, inspectorAttention, onOpenAttention, onAttentionAction, onOpenAttentionDrawer, chatProps, inspectorProps, onExportChat, onReorderChat, railVisible = false }: {
+export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAttentionNonce = 0, inspectorAttention, singlePane = false, onOpenAttention, onAttentionAction, onOpenAttentionDrawer, chatProps, inspectorProps, onExportChat, onReorderChat, railVisible = false }: {
   session: Session
   busy: boolean
   attentionItems?: AttentionItem[]
   chatgptAttentionNonce?: number
   inspectorAttention?: { tab: InspectorTab; nonce: number }
+  singlePane?: boolean
   onOpenAttention: (item: AttentionItem) => Promise<void>
   onAttentionAction: (item: AttentionItem) => Promise<void>
   onOpenAttentionDrawer: () => void
@@ -54,6 +55,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   railVisible?: boolean
 }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>(inspectorProps.config?.planner === 'manual' ? 'chatgpt' : 'plan')
+  const [singlePaneSurface, setSinglePaneSurface] = useState<'chat' | 'inspector'>('chat')
   const [attentionPopoverOpen, setAttentionPopoverOpen] = useState(false)
   const [attentionPopoverPosition, setAttentionPopoverPosition] = useState<React.CSSProperties>()
   const workspaceRef = useRef<HTMLElement>(null)
@@ -130,6 +132,8 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
       window.removeEventListener('resize', positionPopover)
     }
   }, [attentionPopoverOpen])
+  useEffect(() => { if (!attentionItems.length) setAttentionPopoverOpen(false) }, [attentionItems.length])
+  useEffect(() => { if (singlePane) setSinglePaneSurface('chat') }, [singlePane])
   // Attention routing switches the inspector to the surface that needs a human,
   // but it never dismisses the left panel: the drawer closes only when the
   // operator asks it to, so incoming attention cannot pull away the plans,
@@ -137,13 +141,16 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   useEffect(() => {
     if (!chatgptAttentionNonce) return
     setInspectorTab('chatgpt')
-  }, [chatgptAttentionNonce])
+    if (singlePane) setSinglePaneSurface('inspector')
+  }, [chatgptAttentionNonce, singlePane])
   useEffect(() => {
     if (!inspectorAttention?.nonce) return
     setInspectorTab(inspectorAttention.tab)
-  }, [inspectorAttention])
+    if (singlePane) setSinglePaneSurface('inspector')
+  }, [inspectorAttention, singlePane])
   function openInspector(tab: InspectorTab) {
     setInspectorTab(tab)
+    if (singlePane) setSinglePaneSurface('inspector')
   }
 
   async function openAttention(item: AttentionItem) {
@@ -257,6 +264,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
             </div>
           </div>
           <nav className="agent-surface-tabs" aria-label="Áreas do Agent">
+            {singlePane && <button className={singlePaneSurface === 'chat' ? 'active' : ''} onClick={() => setSinglePaneSurface('chat')} title="Chat" aria-label="Chat"><Icon name="send" size={15}/></button>}
             <button className={inspectorTab === 'files' ? 'active' : ''} onClick={() => openInspector('files')} title="Ficheiros" aria-label="Ficheiros"><Icon name="folder" size={15}/></button>
             <button className={surfaceTabClass('plan')} onClick={() => openInspector('plan')} title={surfaceTabTitle('plan', 'Plano')} aria-label={surfaceTabTitle('plan', 'Plano')}><Icon name="plan" size={15}/>{surfaceAttention('plan').length > 0 && <span className="surface-attention-count">{surfaceAttention('plan').length}</span>}</button>
             <button className={surfaceTabClass('terminal')} onClick={() => openInspector('terminal')} title={surfaceTabTitle('terminal', 'Execução')} aria-label={surfaceTabTitle('terminal', 'Execução')}><Icon name="terminal" size={15}/>{surfaceAttention('terminal').length > 0 && <span className="surface-attention-count">{surfaceAttention('terminal').length}</span>}</button>
@@ -270,10 +278,10 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
 
   // The Agent shortcuts reuse the shell's existing right tool rail in the real
   // workbench. Standalone consumers keep the inline rail as a safe fallback.
-  return <section ref={workspaceRef} className={`agent-workspace ${railVisible ? 'agent-rail-unified' : ''}`.trim()} style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
+  return <section ref={workspaceRef} className={`agent-workspace${singlePane ? ' single-pane' : ''} ${railVisible ? 'agent-rail-unified' : ''}`.trim()} style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
     {railVisible ? (railTarget ? createPortal(commandbar, railTarget) : null) : commandbar}
     {attentionPopoverOpen && createPortal(<AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} position={attentionPopoverPosition} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention} onClose={closeAttentionPopover}/>, document.body)}
-    <nav className="agent-chat-switcher" aria-label="Conversas do Harness">
+    <nav className={`agent-chat-switcher${singlePane && singlePaneSurface !== 'chat' ? ' surface-hidden' : ''}`} aria-label="Conversas do Harness">
       <button className="chat-new-button" onClick={() => void chatProps.onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>
       {archived.length > 0 && <button className="chat-new-button chat-reopen-button" disabled={busy} onClick={() => void chatProps.onRestoreChat(archived[0].id)} title={`Reabrir último chat fechado: ${archived[0].title}`} aria-label="Reabrir último chat fechado"><Icon name="refresh" size={13}/></button>}
       <div className="chat-tabs">
@@ -293,9 +301,11 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
       </div>
     </nav>
 
-    <div className="agent-chat-stage"><ChatPanel ref={chatPanelRef} key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
-    <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
-    <div className="agent-inspector-stage"><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} onAdjustExecutionPlan={() => { if (session.plan) chatPanelRef.current?.prepareExecutionPlanAdjustment(session.plan) }} /></div>
+    <div className={`agent-chat-stage${singlePane && singlePaneSurface !== 'chat' ? ' surface-hidden' : ''}`}><ChatPanel ref={chatPanelRef} key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
+    {!singlePane && (
+      <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
+    )}
+    <div className={`agent-inspector-stage${singlePane && singlePaneSurface === 'chat' ? ' surface-hidden' : ''}`}><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} onAdjustExecutionPlan={() => { if (session.plan) chatPanelRef.current?.prepareExecutionPlanAdjustment(session.plan) }} /></div>
   </section>
 }
 

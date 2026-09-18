@@ -72,10 +72,10 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 		builder.WriteString("- @{[file]…} is a path in this project's own context snapshot, relative to the primary project root.\n")
 	}
 	if len(refs) > 0 {
-		builder.WriteString("- @{[ref]…} is another project this workspace knows, whose context is under its RELATED_PROJECTS namespace; with a path, it is one file inside that project.\n")
+		builder.WriteString("- @{[ref]…} is another project this workspace knows, whose request-bundle context is under ref-context/<project>/; with a path, it is one file inside that project.\n")
 	}
 	if len(attached) > 0 {
-		builder.WriteString("- @{[attach]…} is a file or directory outside every project, placed under an ATTACHMENTS namespace. It is read-only reference material and never a patch target; a trailing |+pattern / |-pattern selection in the marker is what the operator chose to include or exclude from it.\n")
+		builder.WriteString("- @{[attach]…} is a file or directory outside every project, placed under att-context/attach-<slot>/. It is read-only reference material and never a patch target; a trailing |+pattern / |-pattern selection in the marker is what the operator chose to include or exclude from it.\n")
 	}
 	if len(seen) > 0 {
 		builder.WriteString("- @{[see]…} spotlights one exact file or directory already carried by the primary project, a referenced project, an external path, or a direct upload. Its source-qualified target is resolved below; the marker changes reading priority, never write authority. A legacy bare value means a direct upload.\n")
@@ -123,12 +123,12 @@ func resolveSeeTarget(marker directives.Directive, context domain.ContextBundle)
 			for _, file := range project.Manifest.Files {
 				paths = append(paths, file.Path)
 			}
-			return resolveSeePath(project.Prefix, marker.Path, paths)
+			return resolveSeePath(requestArchiveRelatedPrefix(project.Prefix), marker.Path, paths)
 		}
 	case "attach":
 		for _, attachment := range context.Attachments {
 			if attachment.Root == marker.Project {
-				return resolveSeePath(attachment.Prefix, marker.Path, attachment.IncludedPaths)
+				return resolveSeePath(requestArchiveAttachmentPrefix(attachment.Prefix), marker.Path, attachment.IncludedPaths)
 			}
 		}
 	}

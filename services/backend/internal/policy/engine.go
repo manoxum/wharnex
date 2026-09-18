@@ -26,8 +26,11 @@ func (e *Engine) Evaluate(plan domain.ExecutionPlan) domain.PolicyDecision {
 		decision.RequiresApproval = true
 		decision.Reasons = append(decision.Reasons, "planner requested explicit approval")
 	}
+	if plan.Debug != nil && plan.Debug.Protocol == domain.InteractiveProtocolV2 {
+		return e.evaluateInteractiveV2(plan, decision)
+	}
 	if plan.Debug != nil && plan.Debug.Target == "host" && plan.Debug.EffectiveAccess() == domain.DebugAccessModify {
-		return domain.PolicyDecision{Allowed: false, RequiresApproval: true, Risk: "high", Reasons: []string{"host-modifying debug workflow is retired; use a dedicated typed operation"}}
+		return domain.PolicyDecision{Allowed: false, RequiresApproval: true, Risk: "high", Reasons: []string{"host-modifying debug workflow requires harness.interactive/v2"}}
 	}
 	for _, tool := range plan.SystemTools {
 		if tool.Target == "host" && tool.Action != "use" {
@@ -48,6 +51,69 @@ func (e *Engine) Evaluate(plan domain.ExecutionPlan) domain.PolicyDecision {
 	}
 	if decision.Risk == "high" {
 		decision.RequiresApproval = true
+	}
+	return decision
+}
+
+func (e *Engine) evaluateInteractiveV2(plan domain.ExecutionPlan, decision domain.PolicyDecision) domain.PolicyDecision {
+	debug := plan.Debug
+	decision.Risk = maxRisk(decision.Risk, "medium")
+	if debug.Target == "host" {
+		decision.RequiresApproval = true
+		decision.Reasons = append(decision.Reasons, "interactive v2 host scope requires explicit consent")
+	}
+	if debug.EffectiveAccess() == domain.DebugAccessModify {
+		decision.RequiresApproval = true
+		decision.Risk = "high"
+		decision.Reasons = append(decision.Reasons, "interactive v2 host modification is one-shot and plan-bound")
+	}
+	for _, capability := range debug.Capabilities {
+		switch capability {
+		case domain.InteractiveCapabilitySQL, domain.InteractiveCapabilityLogs, domain.InteractiveCapabilityFilesystem, domain.InteractiveCapabilityProcess, domain.InteractiveCapabilityContainer, domain.InteractiveCapabilityService, domain.InteractiveCapabilityNetwork, domain.InteractiveCapabilityShell:
+			decision.RequiresApproval = true
+			decision.Reasons = append(decision.Reasons, fmt.Sprintf("interactive capability %q exposes scoped host/runtime state", capability))
+		}
+	}
+	for _, op := range plan.Operations {
+		switch op.Type {
+		case "command":
+			classifyCommand(op.Command, &decision)
+		case "shell":
+			decision.Risk = maxRisk(decision.Risk, "medium")
+			if op.Shell != nil && op.Shell.Network {
+				decision.RequiresApproval = true
+				decision.Risk = "high"
+				decision.Reasons = append(decision.Reasons, "interactive shell requests network access")
+			}
+		case "sql":
+			if op.SQL != nil && op.SQL.Mode == "write" {
+				decision.RequiresApproval = true
+				decision.Risk = "high"
+			}
+		case "filesystem":
+			if op.Filesystem != nil && (op.Filesystem.Action == "write" || op.Filesystem.Action == "remove" || op.Filesystem.Action == "rename") {
+				decision.RequiresApproval = true
+				decision.Risk = "high"
+			}
+		case "process":
+			if op.Process != nil && op.Process.Action == "signal" {
+				decision.RequiresApproval = true
+				decision.Risk = "high"
+			}
+		case "container":
+			if op.Container != nil && (op.Container.Action == "restart" || op.Container.Action == "exec") {
+				decision.RequiresApproval = true
+				decision.Risk = "high"
+			}
+		case "service":
+			if op.Service != nil && op.Service.Action == "restart" {
+				decision.RequiresApproval = true
+				decision.Risk = "high"
+			}
+		case "network":
+			decision.RequiresApproval = true
+			decision.Risk = "high"
+		}
 	}
 	return decision
 }

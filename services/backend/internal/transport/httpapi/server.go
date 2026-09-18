@@ -129,6 +129,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/request/cancel", a.cancelPendingRequest)
 	mux.HandleFunc("POST /api/sessions/{id}/execute", a.execute)
 	mux.HandleFunc("POST /api/sessions/{id}/debug/approve", a.approveDebug)
+	mux.HandleFunc("POST /api/sessions/{id}/interactive/cancel", a.cancelInteractive)
 	mux.HandleFunc("POST /api/sessions/{id}/dependency-network-retry", a.retryDependencyNetwork)
 	mux.HandleFunc("POST /api/sessions/{id}/host-dependency-repair", a.retryHostDependencyRepair)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/resume", a.resumeInterruptedExecution)
@@ -169,6 +170,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/presentation", a.artifactPresentation)
 	mux.HandleFunc("GET /api/sessions/{id}/artifacts/{artifact_id}/entry", a.artifactEntry)
 	mux.HandleFunc("GET /api/sessions/{id}/context", a.contextFile)
+	mux.HandleFunc("GET /api/sessions/{id}/context/maps", a.contextMaps)
 	mux.HandleFunc("GET /api/sessions/{id}/context/inspection", a.contextInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/attachment/inspection", a.attachmentInspection)
 	mux.HandleFunc("POST /api/sessions/{id}/reference/inspection", a.referenceInspection)
@@ -1374,6 +1376,14 @@ func (a *API) retryHostDependencyRepair(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (a *API) cancelInteractive(w http.ResponseWriter, r *http.Request) {
+	if !a.service.CancelInteractiveV2(r.PathValue("id")) {
+		writeError(w, http.StatusConflict, "interactive_cancel_unavailable", "no interactive v2 round is running")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]bool{"cancelled": true})
+}
+
 func (a *API) resumeInterruptedExecution(w http.ResponseWriter, r *http.Request) {
 	result, err := a.service.ResumeInterruptedExecution(r.PathValue("id"))
 	if err != nil {
@@ -1748,6 +1758,19 @@ func (a *API) bundle(w http.ResponseWriter, r *http.Request) {
 	}
 	serveDownload(w, r, item.Context.ZipPath, "wharness-context-"+item.ID+".zip", "application/zip")
 }
+func (a *API) contextMaps(w http.ResponseWriter, r *http.Request) {
+	maps, err := a.service.RequestContextMaps(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, session.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "session_not_found", "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "context_maps_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, maps)
+}
+
 func (a *API) contextInspection(w http.ResponseWriter, r *http.Request) {
 	inspection, err := a.service.ContextInspection(r.PathValue("id"))
 	if err != nil {

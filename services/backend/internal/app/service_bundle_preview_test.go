@@ -63,7 +63,7 @@ func TestPreviewComposerBundleBuildsDisposableNextRequestWithoutAllocatingIt(t *
 	for _, entry := range entries {
 		paths[entry.Path] = true
 	}
-	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "context/main.txt", "references/project-files.json", "attachments/notes.txt", "attempts/state.json"} {
+	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "context/main.txt", "references/project-files.json", "attachments/notes.txt", "attempts/state.json", "git-context/index.json"} {
 		if !paths[expected] {
 			t.Errorf("preview bundle missing %s", expected)
 		}

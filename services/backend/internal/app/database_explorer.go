@@ -112,6 +112,10 @@ func (s *Service) InspectPostgres(ctx context.Context, connection PostgresConnec
 }
 
 func (s *Service) QueryPostgres(ctx context.Context, connection PostgresConnection, statement string, readOnly bool) (PostgresQueryResult, error) {
+	return s.queryPostgresWithLimits(ctx, connection, statement, readOnly, 30*time.Second, 500)
+}
+
+func (s *Service) queryPostgresWithLimits(ctx context.Context, connection PostgresConnection, statement string, readOnly bool, timeout time.Duration, maxRows int) (PostgresQueryResult, error) {
 	statement = strings.TrimSpace(statement)
 	if statement == "" {
 		return PostgresQueryResult{}, errors.New("SQL statement is required")
@@ -119,18 +123,35 @@ func (s *Service) QueryPostgres(ctx context.Context, connection PostgresConnecti
 	if len(statement) > 64<<10 {
 		return PostgresQueryResult{}, errors.New("SQL statement exceeds 64 KiB limit")
 	}
+	if timeout <= 0 || timeout > 5*time.Minute {
+		return PostgresQueryResult{}, errors.New("SQL timeout must be between 1s and 5m")
+	}
+	if maxRows < 1 || maxRows > 5000 {
+		return PostgresQueryResult{}, errors.New("SQL max rows must be between 1 and 5000")
+	}
 	db, err := openPostgres(connection)
 	if err != nil {
 		return PostgresQueryResult{}, err
 	}
 	defer db.Close()
-	queryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	queryCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	tx, err := db.BeginTx(queryCtx, &sql.TxOptions{ReadOnly: readOnly})
 	if err != nil {
 		return PostgresQueryResult{}, err
 	}
 	defer tx.Rollback()
+	if readOnly {
+		if _, err := tx.ExecContext(queryCtx, `SET LOCAL default_transaction_read_only = on`); err != nil {
+			return PostgresQueryResult{}, err
+		}
+	}
+	if _, err := tx.ExecContext(queryCtx, fmt.Sprintf(`SET LOCAL statement_timeout = %d`, timeout.Milliseconds())); err != nil {
+		return PostgresQueryResult{}, err
+	}
+	if _, err := tx.ExecContext(queryCtx, `SET LOCAL lock_timeout = 3000`); err != nil {
+		return PostgresQueryResult{}, err
+	}
 	started := time.Now()
 	rows, err := tx.QueryContext(queryCtx, statement)
 	if err != nil {
@@ -143,7 +164,7 @@ func (s *Service) QueryPostgres(ctx context.Context, connection PostgresConnecti
 	}
 	result := PostgresQueryResult{Columns: columns, Rows: [][]any{}}
 	for rows.Next() {
-		if len(result.Rows) >= 500 {
+		if len(result.Rows) >= maxRows {
 			result.Truncated = true
 			break
 		}
@@ -172,6 +193,54 @@ func (s *Service) QueryPostgres(ctx context.Context, connection PostgresConnecti
 	result.RowCount = len(result.Rows)
 	result.DurationMS = time.Since(started).Milliseconds()
 	return result, nil
+}
+
+// SetInternalPostgresConnectionURL exposes the engine-owned Wharnex database to
+// interactive/v2 through a stable handle. The DSN and password never cross the
+// planner protocol; only the literal handle "wharnex-internal" does.
+func (s *Service) SetInternalPostgresConnectionURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return err
+	}
+	password, _ := parsed.User.Password()
+	port, _ := strconv.Atoi(parsed.Port())
+	ssl := parsed.Query().Get("sslmode")
+	if ssl == "" {
+		ssl = "prefer"
+	}
+	connection := PostgresConnection{
+		Host: parsed.Hostname(), Port: port, Database: strings.TrimPrefix(parsed.Path, "/"),
+		User: parsed.User.Username(), Password: password, SSLMode: ssl,
+	}
+	if _, err := postgresDSN(connection); err != nil {
+		return fmt.Errorf("internal postgres handle: %w", err)
+	}
+	s.interactiveDBMu.Lock()
+	s.interactiveDB["wharnex-internal"] = connection
+	s.interactiveDBMu.Unlock()
+	return nil
+}
+
+func (s *Service) registerInteractivePostgresConnection(id string, connection PostgresConnection) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("connection id is required")
+	}
+	if _, err := postgresDSN(connection); err != nil {
+		return err
+	}
+	s.interactiveDBMu.Lock()
+	s.interactiveDB[id] = connection
+	s.interactiveDBMu.Unlock()
+	return nil
+}
+
+func (s *Service) interactivePostgresConnection(id string) (PostgresConnection, bool) {
+	s.interactiveDBMu.RLock()
+	defer s.interactiveDBMu.RUnlock()
+	connection, ok := s.interactiveDB[strings.TrimSpace(id)]
+	return connection, ok
 }
 
 func openPostgres(connection PostgresConnection) (*sql.DB, error) {

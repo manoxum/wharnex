@@ -3223,6 +3223,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           attentionItems={attentionItems}
           chatgptAttentionNonce={chatgptAttentionNonce}
           inspectorAttention={inspectorAttention}
+          singlePane={Boolean(sideDrawer && rightDrawer)}
           onOpenAttention={openAttentionItem}
           onAttentionAction={runAttentionItemAction}
           onOpenAttentionDrawer={() => openLeftDrawer('attention')}

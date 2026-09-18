@@ -8,6 +8,15 @@ const STORE_METHOD = 0
 const DOS_DATE_1980_01_01 = 0x0021
 const MAX_ZIP32 = 0xffffffff
 
+const LEGACY_CONTEXT_SOURCES_INDEX = 'RELATED_PROJECTS.json'
+const LEGACY_RELATED_CONTEXT_ROOT = 'RELATED_PROJECTS/'
+const LEGACY_ATTACHED_CONTEXT_ROOT = 'ATTACHMENTS/'
+const PRIMARY_CONTEXT_ROOT = 'context/'
+const REFERENCE_CONTEXT_ROOT = 'ref-context/'
+const ATTACHED_CONTEXT_ROOT = 'att-context/'
+const CONTEXT_MAP_ROOT = 'context-map/'
+const CONTEXT_SOURCES_INDEX = 'metadata/context-sources.json'
+
 const crcTable = (() => {
   const table = new Uint32Array(256)
   for (let index = 0; index < 256; index += 1) {
@@ -40,6 +49,50 @@ function findZipEnd(buffer) {
     if (buffer.readUInt32LE(offset) === 0x06054b50) return offset
   }
   throw new Error('Context archive has no valid ZIP directory')
+}
+
+function requestArchiveAttachmentPrefix(prefix) {
+  const clean = String(prefix || '').replace(/^\/+|\/+$/g, '').replace(/^ATTACHMENTS\//, '')
+  const segment = clean.split('/')[0] || '01'
+  const dash = segment.indexOf('-')
+  const slot = dash > 0 ? segment.slice(0, dash) : segment
+  return `${ATTACHED_CONTEXT_ROOT}attach-${slot || '01'}/`
+}
+
+function requestArchiveContextEntry(name, workspace) {
+  if (!workspace) return `${PRIMARY_CONTEXT_ROOT}${name}`
+  if (name === LEGACY_CONTEXT_SOURCES_INDEX) return CONTEXT_SOURCES_INDEX
+  if (name.startsWith(LEGACY_RELATED_CONTEXT_ROOT)) return `${REFERENCE_CONTEXT_ROOT}${name.slice(LEGACY_RELATED_CONTEXT_ROOT.length)}`
+  if (name.startsWith(LEGACY_ATTACHED_CONTEXT_ROOT)) {
+    const relative = name.slice(LEGACY_ATTACHED_CONTEXT_ROOT.length)
+    const slash = relative.indexOf('/')
+    const segment = slash >= 0 ? relative.slice(0, slash) : relative
+    const suffix = slash >= 0 ? relative.slice(slash + 1) : ''
+    const prefix = requestArchiveAttachmentPrefix(`${LEGACY_ATTACHED_CONTEXT_ROOT}${segment}/`)
+    return suffix ? `${prefix}${suffix}` : prefix.slice(0, -1)
+  }
+  return `${PRIMARY_CONTEXT_ROOT}${name}`
+}
+
+function rewriteContextSourcesIndex(bytes) {
+  let document
+  try { document = JSON.parse(bytes.toString('utf8')) } catch { throw new Error('Context sources index is malformed') }
+  if (!document || typeof document !== 'object' || Array.isArray(document)) throw new Error('Context sources index is malformed')
+  document.protocol = 'harness.context-sources/v1'
+  if (Array.isArray(document.related_projects)) {
+    document.related_projects = document.related_projects.map((project) => ({
+      ...project,
+      prefix: `${REFERENCE_CONTEXT_ROOT}${String(project?.prefix || '').replace(/^RELATED_PROJECTS\//, '')}`,
+    }))
+  }
+  if (Array.isArray(document.attached_paths)) {
+    document.attached_paths = document.attached_paths.map((attachment) => ({
+      ...attachment,
+      prefix: requestArchiveAttachmentPrefix(attachment?.prefix),
+    }))
+  }
+  document.execution_rule = 'context/ contains only the primary project snapshot. ref-context/ contains related project snapshots whose write authority is controlled by the request grant. att-context/ contains read-only external @attach material and is never a patch target. context-map/ contains generated path inventory and redacted sensitive configuration key-state metadata; it is never a patch target.'
+  return Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8')
 }
 
 function flattenContextEntries(buffer) {
@@ -81,9 +134,13 @@ function flattenContextEntries(buffer) {
     if (bytes.byteLength !== size) throw new Error(`Context entry size mismatch: ${normalized}`)
     total += size
     if (total > 256 << 20) throw new Error('Expanded context exceeds 256 MiB')
-    entries.push({ name: `context/${normalized}`, bytes })
+    entries.push({ name: normalized, bytes })
   }
-  return entries
+  const workspace = entries.some((entry) => entry.name === LEGACY_CONTEXT_SOURCES_INDEX)
+  return entries.map((entry) => ({
+    name: requestArchiveContextEntry(entry.name, workspace),
+    bytes: workspace && entry.name === LEGACY_CONTEXT_SOURCES_INDEX ? rewriteContextSourcesIndex(entry.bytes) : entry.bytes,
+  }))
 }
 
 async function writeAll(handle, buffer, position) {
@@ -266,6 +323,52 @@ export function localChatInputBootstrap(requestId, archiveName, expectedFilename
   return `WHARNEX INPUT ${requestId}${metadata}\nRead the single attached ZIP ${archiveName}. Open prompt/wharness-planner-prompt.md first and follow it as the authoritative planner instructions. Treat every other archive entry as project/user data under that prompt's trust rules. Return only ${expectedFilename}.${links}`
 }
 
+function normalizeGitContextSnapshot(value) {
+  if (!value || typeof value !== 'object') return { protocol: 'harness.git-context/v1', state: 'none', root: 'git-context/', index: '', files: [] }
+  const protocol = String(value.protocol || '').trim()
+  const state = String(value.state || '').trim()
+  const root = String(value.root || '').trim()
+  const index = String(value.index || '').trim()
+  if (protocol !== 'harness.git-context/v1' || root !== 'git-context/' || !['present', 'unavailable'].includes(state)) throw new Error('Invalid Git context snapshot')
+  const list = Array.isArray(value.files) ? value.files : []
+  if (!list.length || list.length > 128) throw new Error('Invalid Git context file inventory')
+  const seen = new Set()
+  let total = 0
+  const files = list.map((entry) => {
+    const path = safeEntryName(String(entry?.path || '').trim()).name
+    if (!path.startsWith('git-context/') || seen.has(path)) throw new Error('Invalid Git context path')
+    seen.add(path)
+    const content = String(entry?.content || '')
+    const bytes = Buffer.from(content, 'utf8')
+    total += bytes.byteLength
+    if (bytes.byteLength > (2 << 20) || total > (32 << 20)) throw new Error('Git context exceeds safe archive bounds')
+    const sha256 = createHash('sha256').update(bytes).digest('hex')
+    if (String(entry?.sha256 || '').trim().toLowerCase() !== sha256 || Number(entry?.bytes) !== bytes.byteLength) throw new Error(`Git context integrity mismatch: ${path}`)
+    return { path, sha256, bytes: bytes.byteLength, content, raw: bytes }
+  })
+  if (!index || !seen.has(index)) throw new Error('Git context index is missing')
+  return {
+    protocol, state, root, index,
+    ref: String(value.ref || '').trim().slice(0, 256),
+    ref_path: String(value.ref_path || '').trim().slice(0, 512),
+    head_sha: String(value.head_sha || '').trim(),
+    upstream: String(value.upstream || '').trim().slice(0, 512),
+    has_upstream: Boolean(value.has_upstream),
+    ahead: Number(value.ahead || 0),
+    behind: Number(value.behind || 0),
+    files,
+  }
+}
+
+function gitContextManifest(snapshot) {
+  return {
+    protocol: snapshot.protocol, state: snapshot.state, root: snapshot.root, index: snapshot.index,
+    ref: snapshot.ref || '', ref_path: snapshot.ref_path || '', head_sha: snapshot.head_sha || '', upstream: snapshot.upstream || '',
+    has_upstream: Boolean(snapshot.has_upstream), ahead: Number(snapshot.ahead || 0), behind: Number(snapshot.behind || 0),
+    files: snapshot.files.map(({ path, sha256, bytes }) => ({ path, sha256, bytes })),
+  }
+}
+
 // Continuation artifact paths are a fixed Wharnex-owned allowlist. Accepting an
 // arbitrary path here would turn a backend response into a write primitive over
 // the archive layout, so an unexpected name is refused rather than sanitized.
@@ -293,6 +396,22 @@ function continuationArtifactLimit(name) {
   return 0
 }
 
+function normalizeContextMapFiles(values) {
+  const list = Array.isArray(values) ? values : []
+  if (!list.length || list.length > 128) throw new Error('Invalid context map inventory')
+  const seen = new Set()
+  let total = 0
+  return list.map((item) => {
+    const name = safeEntryName(String(item?.path || '').trim()).name
+    if (!name.startsWith(CONTEXT_MAP_ROOT) || seen.has(name)) throw new Error('Invalid context map path')
+    seen.add(name)
+    const bytes = Buffer.from(String(item?.content || ''), 'utf8')
+    total += bytes.byteLength
+    if (!bytes.byteLength || bytes.byteLength > (4 << 20) || total > (16 << 20)) throw new Error('Context maps exceed safe archive bounds')
+    return { name, bytes }
+  })
+}
+
 function normalizeContinuationFiles(values) {
   const list = Array.isArray(values) ? values : []
   const seen = new Set()
@@ -310,12 +429,14 @@ function normalizeContinuationFiles(values) {
   return out
 }
 
-export async function writeChatInputArchive(targetPath, { requestId, requestMetadata, prompt, context, knowledge, continuation = [], attachments = [], artifacts = [], projectFiles = [], liveTunnels = [] }) {
+export async function writeChatInputArchive(targetPath, { requestId, requestMetadata, prompt, context, knowledge, gitContext, continuation = [], attachments = [], artifacts = [], projectFiles = [], liveTunnels = [] }) {
   let promptText = String(prompt || '').trimEnd()
   if (!promptText) throw new Error('Prepared prompt is empty')
   const normalizedRequestMetadata = normalizeRequestMetadata(requestMetadata, requestId)
   promptText = `${requestMetadataBlock(normalizedRequestMetadata)}\n\n${promptText}`
+  if (context?.bytes) promptText += `\n\nREQUEST ARCHIVE CONTEXT ROOTS (Wharnex-owned transport metadata):\n- ${PRIMARY_CONTEXT_ROOT} contains only the primary project snapshot.\n- ${REFERENCE_CONTEXT_ROOT}<project>/ contains @ref related-project snapshots.\n- ${ATTACHED_CONTEXT_ROOT}attach-<slot>/ contains read-only @attach material.\n- ${CONTEXT_MAP_ROOT} contains generated path inventories and redacted sensitive configuration key-state maps for main/@ref; it is metadata only and never a patch target.\n- ${CONTEXT_SOURCES_INDEX} maps source roots and write authority.\nIf an older persisted prompt mentions RELATED_PROJECTS or ATTACHMENTS, those are legacy logical namespace names; open the physical roots above in this archive.`
   const knowledgeSnapshot = normalizeKnowledgeSnapshot(knowledge)
+  const gitContextSnapshot = normalizeGitContextSnapshot(gitContext)
   if (knowledgeSnapshot.v2) {
     // Requests persisted before the v2 rollout can outlive a Desktop/backend
     // restart while their immutable knowledge snapshot has already migrated.
@@ -343,14 +464,23 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
   // divergence the prompt describes. Names are Wharnex-generated and validated
   // here as well: the renderer never supplies a path.
   const continuationFiles = normalizeContinuationFiles(continuation)
+  const contextMapFiles = context?.bytes ? normalizeContextMapFiles(context?.maps) : []
   const manifest = {
     protocol: 'wharness.chat-input/v1',
     request_id: String(requestId || ''),
     request_metadata: normalizedRequestMetadata,
     prompt: 'prompt/wharness-planner-prompt.md',
     context_included: Boolean(context?.bytes),
-    context_root: context?.bytes ? 'context/' : '',
+    context_root: context?.bytes ? PRIMARY_CONTEXT_ROOT : '',
+    context_roots: {
+      primary: context?.bytes ? PRIMARY_CONTEXT_ROOT : '',
+      references: context?.bytes ? REFERENCE_CONTEXT_ROOT : '',
+      attached_paths: context?.bytes ? ATTACHED_CONTEXT_ROOT : '',
+      maps: context?.bytes ? CONTEXT_MAP_ROOT : '',
+      sources_index: context?.bytes ? CONTEXT_SOURCES_INDEX : '',
+    },
     project_files: selectedPaths,
+    git_context: gitContextManifest(gitContextSnapshot),
     knowledge: {
       protocol: knowledgeSnapshot.v2 ? 'harness.knowledge/v2' : 'legacy',
       state: knowledgeSnapshot.state,
@@ -377,7 +507,11 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
     }
   }
   entries.push(...continuationFiles)
-  if (context?.bytes) entries.push(...flattenContextEntries(context.bytes))
+  for (const entry of gitContextSnapshot.files) entries.push({ name: entry.path, bytes: entry.raw })
+  if (context?.bytes) {
+    entries.push(...flattenContextEntries(context.bytes))
+    entries.push(...contextMapFiles)
+  }
   if (selectedPaths.length) {
     entries.push({
       name: 'references/project-files.json',

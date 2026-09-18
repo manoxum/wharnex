@@ -54,13 +54,19 @@ func normalizePlannerResult(requestID string, result *planner.Result) error {
 func buildWorkflowObservationMessage(result domain.ExecutionResult, round, limit int) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "LOCAL WORKFLOW OBSERVATIONS — round %d of %d\n\n", round, limit)
-	out.WriteString("Wharnex executed the previous bounded, observation-only workflow step on the target selected by the validated protocol. Nothing from this workflow step was applied to the host project. Treat the following as execution evidence for the ORIGINAL user request in this same conversation.\n\n")
+	out.WriteString("Wharnex executed the previous bounded workflow step on the target selected by the validated protocol. Legacy workflow rounds are observation-only; harness.interactive/v2 may contain explicitly approved scoped side effects. Treat the following as execution evidence for the ORIGINAL user request in this same conversation.\n\n")
 	fmt.Fprintf(&out, "PREVIOUS WORKFLOW PLAN: %s\nSUCCESS: %t\n", result.PlanID, result.Success)
 	if result.Error != "" {
 		fmt.Fprintf(&out, "ERROR: %s\n", truncateRepairText(result.Error, 6000))
 	}
 	for index, command := range result.Commands {
 		fmt.Fprintf(&out, "\n[%d] argv=%q cwd=%q exit=%d success=%t\nSTDOUT:\n%s\nSTDERR:\n%s\n", index+1, command.Argv, command.Cwd, command.ExitCode, command.Success, truncateRepairText(command.Stdout, 6000), truncateRepairText(command.Stderr, 6000))
+	}
+	for index, operation := range result.Interactive {
+		fmt.Fprintf(&out, "\n[interactive %d] id=%s capability=%s target=%s status=%s rows=%d bytes=%d truncated=%t redacted=%t\nOUTPUT:\n%s\n", index+1, operation.OperationID, operation.Capability, operation.Target, operation.Status, operation.Rows, operation.Bytes, operation.Truncated, operation.Redacted, truncateRepairText(operation.Output, 6000))
+		if operation.Error != "" {
+			fmt.Fprintf(&out, "ERROR: %s\n", truncateRepairText(operation.Error, 3000))
+		}
 	}
 	out.WriteString("\nNEXT DECISION:\n- If the evidence is sufficient, return a terminal answer or investigation with the complete useful conclusion.\n- If the original user explicitly requested mutation and the evidence is sufficient, return change with the final execution plan.\n- If another local probe is truly necessary, return workflow with a materially different targeted command plan.\n- Do not turn an ASK/advice request into a change.\n")
 	if round >= limit {

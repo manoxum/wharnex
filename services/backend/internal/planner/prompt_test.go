@@ -423,3 +423,19 @@ func TestBuildManualPromptMakesVersionEngineOwned(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildManualPromptDocumentsInteractiveV2CapabilityContract(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-interactive-v2", Message: "diagnosticar o worker ao vivo", AutomationMode: domain.AutomationModeAuto})
+	for _, want := range []string{
+		"INTERACTIVE PROTOCOL — harness.interactive/v2",
+		"command|shell|sql|logs|filesystem|process|network|container|service",
+		"explicit target, access, capabilities and scope",
+		"Credentials and DSNs never belong in planner output",
+		"modify requires target=host, risk=high and requires_approval=true",
+		"verification must be empty",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("interactive-v2 prompt missing %q", want)
+		}
+	}
+}

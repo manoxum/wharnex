@@ -15,6 +15,8 @@ const DebugProtocolV1 = "harness.debug/v1"
 // InteractiveProtocolV1 is the public successor to the legacy debug label.
 // DebugProtocolV1 remains readable for durable/in-flight compatibility.
 const InteractiveProtocolV1 = "harness.interactive/v1"
+const InteractiveProtocolV2 = "harness.interactive/v2"
+const InteractivePolicyRevisionV2 = "interactive-v2-policy/1"
 const InterviewProtocolV1 = "harness.interview/v1"
 
 const DebugQueryProjectExecutionSummary = "project_execution_summary"
@@ -23,6 +25,27 @@ const (
 	DebugAccessObserve = "observe"
 	DebugAccessModify  = "modify"
 )
+
+const (
+	InteractiveCapabilityCommand    = "command"
+	InteractiveCapabilityShell      = "shell"
+	InteractiveCapabilitySQL        = "sql"
+	InteractiveCapabilityLogs       = "logs"
+	InteractiveCapabilityFilesystem = "filesystem"
+	InteractiveCapabilityProcess    = "process"
+	InteractiveCapabilityNetwork    = "network"
+	InteractiveCapabilityContainer  = "container"
+	InteractiveCapabilityService    = "service"
+)
+
+func ValidInteractiveCapability(value string) bool {
+	switch value {
+	case InteractiveCapabilityCommand, InteractiveCapabilityShell, InteractiveCapabilitySQL, InteractiveCapabilityLogs, InteractiveCapabilityFilesystem, InteractiveCapabilityProcess, InteractiveCapabilityNetwork, InteractiveCapabilityContainer, InteractiveCapabilityService:
+		return true
+	default:
+		return false
+	}
+}
 
 const (
 	ToolLifetimeTemporary  = "temporary"
@@ -314,12 +337,83 @@ type CommandSpec struct {
 	TimeoutSeconds    int      `json:"timeout_seconds"`
 	Network           bool     `json:"network"`
 	ExpectedExitCodes []int    `json:"expected_exit_codes"`
+	// EnvAllowlist is executor-owned metadata and is never planner-authored.
+	// A non-nil value constrains child-process inheritance to these names.
+	EnvAllowlist []string `json:"-"`
 }
 
 type Operation struct {
-	Type    string      `json:"type"`
-	Patch   string      `json:"patch"`
-	Command CommandSpec `json:"command"`
+	Type       string                     `json:"type"`
+	Patch      string                     `json:"patch"`
+	Command    CommandSpec                `json:"command"`
+	Shell      *InteractiveShellSpec      `json:"shell,omitempty"`
+	SQL        *InteractiveSQLSpec        `json:"sql,omitempty"`
+	Logs       *InteractiveLogsSpec       `json:"logs,omitempty"`
+	Filesystem *InteractiveFilesystemSpec `json:"filesystem,omitempty"`
+	Process    *InteractiveProcessSpec    `json:"process,omitempty"`
+	Network    *InteractiveNetworkSpec    `json:"network,omitempty"`
+	Container  *InteractiveContainerSpec  `json:"container,omitempty"`
+	Service    *InteractiveServiceSpec    `json:"service,omitempty"`
+}
+
+type InteractiveShellSpec struct {
+	Script         string   `json:"script"`
+	Shell          string   `json:"shell"`
+	Cwd            string   `json:"cwd"`
+	TimeoutSeconds int      `json:"timeout_seconds"`
+	Network        bool     `json:"network"`
+	EnvAllowlist   []string `json:"env_allowlist,omitempty"`
+}
+
+type InteractiveSQLSpec struct {
+	ConnectionID   string `json:"connection_id"`
+	Statement      string `json:"statement"`
+	Mode           string `json:"mode"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	MaxRows        int    `json:"max_rows"`
+}
+
+type InteractiveLogsSpec struct {
+	Source    string `json:"source"`
+	Path      string `json:"path,omitempty"`
+	Unit      string `json:"unit,omitempty"`
+	Container string `json:"container,omitempty"`
+	Since     string `json:"since,omitempty"`
+	Until     string `json:"until,omitempty"`
+	Limit     int    `json:"limit"`
+	Filter    string `json:"filter,omitempty"`
+}
+
+type InteractiveFilesystemSpec struct {
+	Action   string `json:"action"`
+	Path     string `json:"path"`
+	Content  string `json:"content,omitempty"`
+	MaxBytes int    `json:"max_bytes,omitempty"`
+}
+
+type InteractiveProcessSpec struct {
+	Action string `json:"action"`
+	PID    int    `json:"pid,omitempty"`
+	Signal string `json:"signal,omitempty"`
+}
+
+type InteractiveNetworkSpec struct {
+	Action         string `json:"action"`
+	Address        string `json:"address"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
+type InteractiveContainerSpec struct {
+	Action         string   `json:"action"`
+	Name           string   `json:"name"`
+	Argv           []string `json:"argv,omitempty"`
+	Tail           int      `json:"tail,omitempty"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
+}
+
+type InteractiveServiceSpec struct {
+	Action string `json:"action"`
+	Name   string `json:"name"`
 }
 
 type VersionIncrement struct {
@@ -398,8 +492,34 @@ type DebugSpec struct {
 	// Query selects an engine-owned, read-only diagnostic. Unlike a command it
 	// never crosses the process boundary and cannot acquire shell/filesystem
 	// authority from model-controlled argv. Queries are observe-only.
-	Query     string `json:"query,omitempty"`
-	Rationale string `json:"rationale"`
+	Query        string           `json:"query,omitempty"`
+	Capabilities []string         `json:"capabilities,omitempty"`
+	Scope        InteractiveScope `json:"scope,omitempty"`
+	Rationale    string           `json:"rationale"`
+}
+
+type InteractiveScope struct {
+	Paths               []string `json:"paths,omitempty"`
+	Connections         []string `json:"connections,omitempty"`
+	LogSources          []string `json:"log_sources,omitempty"`
+	Processes           []string `json:"processes,omitempty"`
+	Services            []string `json:"services,omitempty"`
+	Containers          []string `json:"containers,omitempty"`
+	NetworkDestinations []string `json:"network_destinations,omitempty"`
+}
+
+type InteractiveGrant struct {
+	Protocol       string           `json:"protocol"`
+	PolicyRevision string           `json:"policy_revision"`
+	RootRequestID  string           `json:"root_request_id"`
+	PlanID         string           `json:"plan_id,omitempty"`
+	Access         string           `json:"access"`
+	Target         string           `json:"target"`
+	Capabilities   []string         `json:"capabilities"`
+	Scope          InteractiveScope `json:"scope"`
+	Digest         string           `json:"digest"`
+	OneShot        bool             `json:"one_shot"`
+	GrantedAt      time.Time        `json:"granted_at"`
 }
 
 func (d DebugSpec) EffectiveAccess() string {
@@ -744,14 +864,31 @@ type ContextDelta struct {
 	PatchOmittedReason string `json:"patch_omitted_reason,omitempty"`
 }
 
+type InteractiveOperationResult struct {
+	OperationID string    `json:"operation_id"`
+	Type        string    `json:"type"`
+	Capability  string    `json:"capability"`
+	Target      string    `json:"target"`
+	Status      string    `json:"status"`
+	StartedAt   time.Time `json:"started_at"`
+	CompletedAt time.Time `json:"completed_at"`
+	Output      string    `json:"output,omitempty"`
+	Error       string    `json:"error,omitempty"`
+	Truncated   bool      `json:"truncated,omitempty"`
+	Redacted    bool      `json:"redacted,omitempty"`
+	Bytes       int       `json:"bytes,omitempty"`
+	Rows        int       `json:"rows,omitempty"`
+}
+
 type ExecutionResult struct {
-	PlanID      string          `json:"plan_id"`
-	Success     bool            `json:"success"`
-	StartedAt   time.Time       `json:"started_at"`
-	CompletedAt time.Time       `json:"completed_at"`
-	Commands    []CommandResult `json:"commands"`
-	Error       string          `json:"error,omitempty"`
-	Warnings    []string        `json:"warnings,omitempty"`
+	PlanID      string                       `json:"plan_id"`
+	Success     bool                         `json:"success"`
+	StartedAt   time.Time                    `json:"started_at"`
+	CompletedAt time.Time                    `json:"completed_at"`
+	Commands    []CommandResult              `json:"commands"`
+	Interactive []InteractiveOperationResult `json:"interactive,omitempty"`
+	Error       string                       `json:"error,omitempty"`
+	Warnings    []string                     `json:"warnings,omitempty"`
 }
 
 func (r ExecutionResult) MarshalJSON() ([]byte, error) {
@@ -1101,6 +1238,7 @@ type Session struct {
 	DebugEnabled            bool                 `json:"debug_enabled,omitempty"`
 	DebugApprovedRootID     string               `json:"debug_approved_root_request_id,omitempty"`
 	DebugApprovedPlanID     string               `json:"debug_approved_plan_id,omitempty"`
+	InteractiveGrant        *InteractiveGrant    `json:"interactive_grant,omitempty"`
 	ApprovedChatPlan        *ApprovedChatPlan    `json:"approved_chat_plan,omitempty"`
 	ExecutionApprovedRootID string               `json:"execution_approved_root_request_id,omitempty"`
 	ApprovedBoundaryKeys    []string             `json:"approved_execution_boundary_keys,omitempty"`

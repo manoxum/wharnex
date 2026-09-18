@@ -5572,3 +5572,13 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   color: var(--theme-text);
   box-shadow: none;
 }
+
+/* When both side drawers are open, Agent switches between its two working
+   surfaces instead of reducing either below a usable width. */
+.agent-workspace.single-pane { grid-template-columns: minmax(0, 1fr); }
+.agent-workspace.single-pane .agent-chat-switcher,
+.agent-workspace.single-pane .agent-chat-stage { grid-column: 1; }
+.agent-workspace.single-pane .agent-inspector-stage { grid-column: 1; grid-row: 2 / 4; }
+.agent-workspace.single-pane .surface-hidden { display: none; }
+.plan-interactive-payload { margin:4px 0 0; max-height:220px; overflow:auto; padding:8px 9px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-subtle); white-space:pre-wrap; overflow-wrap:anywhere; }
+.plan-interactive-payload code { font:500 10px/1.45 ui-monospace,'SFMono-Regular',Consolas,'Liberation Mono',monospace; color:var(--theme-text); }

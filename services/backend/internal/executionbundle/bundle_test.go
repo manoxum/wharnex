@@ -348,3 +348,22 @@ func TestParsePreservesVersionIncrementMetadata(t *testing.T) {
 		t.Fatalf("version increment metadata was not preserved: %#v", parsed.Plan)
 	}
 }
+
+func TestParseInteractiveV2TypedOperation(t *testing.T) {
+	files := map[string]string{
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_interactive_12345678","kind":"workflow","chat_title":"Diagnóstico interativo","message":"inspect","outcome":{"status":"completed","reason_code":"","message":"","retryable":false}}`,
+		"plan.json": `{"protocol":"harness.execution/v2","plan_id":"iv2","request_id":"req_interactive_12345678","status":"ready","summary":"Inspeciona o runtime com shell tipado e escopo explícito.","risk":"medium","requires_approval":true,"debug":{"protocol":"harness.interactive/v2","target":"host","access":"observe","capabilities":["shell"],"rationale":"inspect runtime"},"operations":[{"type":"shell","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]},"shell":{"script":"printf ok","shell":"bash","cwd":".","timeout_seconds":10,"network":false,"env_allowlist":["PATH"]}}],"verification":[]}`,
+		"README.md": "interactive v2",
+	}
+	raw := zipBytes(t, files)
+	parsed, err := Parse("bundle.zip", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Plan == nil || len(parsed.Plan.Operations) != 1 || parsed.Plan.Operations[0].Shell == nil {
+		t.Fatalf("typed shell operation was not preserved: %#v", parsed.Plan)
+	}
+	if got := parsed.Plan.Operations[0].Shell.Script; got != "printf ok" {
+		t.Fatalf("unexpected shell script %q", got)
+	}
+}

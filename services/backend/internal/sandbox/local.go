@@ -62,6 +62,7 @@ func (r *LocalRunner) RunStreaming(ctx context.Context, workspace Workspace, com
 	}
 	cmd := exec.CommandContext(runCtx, command.Argv[0], command.Argv[1:]...)
 	cmd.Dir = cwd
+	cmd.Env = commandEnvironment(command)
 	stdout := newStreamCapture("stdout", onOutput)
 	stderr := newStreamCapture("stderr", onOutput)
 	cmd.Stdout = stdout

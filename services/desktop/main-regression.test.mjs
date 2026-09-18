@@ -1094,6 +1094,22 @@ test('a busy Supervisor hides its old surface and publishes the deferred target 
   assert.doesNotMatch(navigate, /return currentChatGPTState\(supervisorKey\(\), windowState\)/)
 })
 
+test('deferred Supervisor navigation retries until its gate is actually clear', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const scheduleStart = source.indexOf('function scheduleDeferredSupervisorNavigation()')
+  const scheduleEnd = source.indexOf('\nfunction setDeferredSupervisorNavigation', scheduleStart)
+  const schedule = source.slice(scheduleStart, scheduleEnd)
+  const applyStart = source.indexOf('async function applyDeferredSupervisorNavigation()')
+  const applyEnd = source.indexOf('\nfunction wait(ms)', applyStart)
+  const apply = source.slice(applyStart, applyEnd)
+
+  assert.match(schedule, /setTimeout\([\s\S]*applyDeferredSupervisorNavigation\(\)/)
+  assert.match(apply, /differentSupervisorTransport\(pending\.key\)[\s\S]*scheduleDeferredSupervisorNavigation\(\)[\s\S]*return/)
+  assert.match(apply, /!chatgptViews\.has\(pending\.key\) && chatgptViews\.size >= desiredChatAgentSupervisorSlots/)
+  assert.match(apply, /!reusableSupervisor\(pending\.key, state\)[\s\S]*scheduleDeferredSupervisorNavigation\(\)[\s\S]*return/)
+  assert.match(apply, /clearDeferredSupervisorNavigation\(\)[\s\S]*activateChatGPTView\(pending\.key/)
+})
+
 test('direct Supervisor writes serialize across chats and preserve the selected surface', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const helperStart = source.indexOf('async function withChatGPTSupervisorTransport(')
@@ -1182,6 +1198,25 @@ test('ChatGPT request archive upload uses the dedicated file input instead of cl
   assert.doesNotMatch(upload, /wc\.paste\(\)/)
 })
 
+// Live testing against the real ChatGPT account (two concurrent hidden
+// Workers each classifying a TODO) reproduced "did not start the file
+// upload before timeout" on effectively every attempt: the provider did
+// confirm most uploads eventually, just not inside the 8s observation
+// window while a second Worker's own retry landed on ChatGPT around the
+// same moment. Every attempt after the first is exactly the case the
+// process-wide provider pacing gate exists for, so a retry that skips it
+// reintroduces that contention.
+test('every ChatGPT upload attempt, not only the first, is paced against the shared provider gate', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count)')
+  const end = source.indexOf('\nasync function submitChatGPTDraft', start)
+  const upload = source.slice(start, end)
+  const beforeAttemptStart = upload.indexOf('beforeAttempt: async () => {')
+  const beforeAttemptEnd = upload.indexOf('beginUpload:', beforeAttemptStart)
+  const beforeAttempt = upload.slice(beforeAttemptStart, beforeAttemptEnd)
+  assert.match(beforeAttempt, /await paceChatGPTWorkerSubmission\(\)/)
+})
+
 test('task comments are sent as a single protocol ZIP containing the guidance and attachments', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const materializeStart = source.indexOf('async function materializeProtocolChatInput')
@@ -1189,10 +1224,11 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
   assert.match(materialize, /const context = await fetchContextZip\(sessionId\)/)
-  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, requestMetadata, prompt: promptText, context, knowledge, continuation, attachments: decoded, liveTunnels \}\)/)
+  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels \}\)/)
   // The attempt ledger and divergence report must ride in the same single
   // protocol ZIP; fetching them separately at send time would let a comment
   // reach ChatGPT without the evidence the prompt says is attached.
+  assert.match(materialize, /const gitContext = await fetchRequestGitContext\(sessionId\)/)
   assert.match(materialize, /const continuation = await fetchRequestContinuation\(sessionId, requestId\)/)
 
   const flushStart = source.indexOf('async function flushQueuedChatGPTComments')
@@ -1205,7 +1241,7 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
 
 test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of returning a silently ignorable failure', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined)")
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   assert.notEqual(start, -1)
   assert.notEqual(end, -1)
@@ -1229,7 +1265,7 @@ test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of 
 
 test('every ChatGPT submit verifies the requested reasoning effort before starting its POST observation', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined)")
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   const body = source.slice(start, end)
   const ensure = body.indexOf('await ensureChatGPTReasoningEffort({')
@@ -1238,6 +1274,34 @@ test('every ChatGPT submit verifies the requested reasoning effort before starti
   const submit = body.indexOf('submitWithRetry({')
   assert.ok(ensure >= 0 && observe > ensure && cycle > observe && submit > cycle)
   assert.match(body, /normalizeChatGPTReasoningEffort\(target\.reasoningEffort \|\| target\.entry\.reasoningEffort \|\| 'high'\)/)
+})
+
+// Live testing against the real ChatGPT account showed the effort-cycle
+// keyboard shortcut can stop registering entirely (observed stuck on "high"
+// through every bounded cycle), and that this is unrelated to anything the
+// submission itself is doing. `submitChatGPTDraft`'s default behavior must
+// stay fail-closed for correctness-sensitive planning exchanges, so this
+// bypass has to be explicit per caller, not a change to the default.
+test('an unreachable reasoning effort still blocks submission unless a caller explicitly opts out', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
+  const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
+  assert.notEqual(start, -1)
+  const body = source.slice(start, end)
+  assert.match(body, /if \(requireReasoningEffort\) throw error/)
+
+  // Only the two background bundle-only workers (TODO classification and
+  // markdown translation) may opt out; every other caller keeps the default.
+  const classifyStart = source.indexOf('async function executeChatAgentTodoClassification(task, entry, key, payload)')
+  const classifyEnd = source.indexOf('\nasync function chatAgentLifecycleRetry', classifyStart)
+  assert.match(source.slice(classifyStart, classifyEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false \}\)/)
+
+  const translateStart = source.indexOf('async function executeChatAgentMarkdownTranslation(task, entry, key, payload)')
+  const translateEnd = source.indexOf('\nasync function executeChatAgentTodoClassification', translateStart)
+  assert.match(source.slice(translateStart, translateEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false \}\)/)
+
+  const botWriteCount = (body.match(/requireReasoningEffort: false/g) || []).length
+  assert.equal(botWriteCount, 0, 'submitChatGPTDraft itself must keep failing closed by default')
 })
 
 test('expected bundle supervision is armed only around submissions that can leave stale state', async () => {
