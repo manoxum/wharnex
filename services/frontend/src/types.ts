@@ -717,6 +717,7 @@ export type ProjectTodo = {
   attachment_cache_key?: string
   attachments?: ProjectTodoAttachment[]
   project_files?: string[]
+  archived_at?: string
   created_at: string
   updated_at: string
 }

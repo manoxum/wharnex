@@ -185,6 +185,10 @@ export const api = {
     request<ProjectTodo>(`/api/sessions/${id}/todos/${encodeURIComponent(todoId)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   classifyProjectTodo: (id: string, todoId: string) =>
     request<ProjectTodo>(`/api/sessions/${id}/todos/${encodeURIComponent(todoId)}/classify`, { method: 'POST', body: '{}' }),
+  archiveProjectTodo: (id: string, todoId: string, archived: boolean) =>
+    request<ProjectTodo>(`/api/sessions/${id}/todos/${encodeURIComponent(todoId)}/archived`, { method: 'PATCH', body: JSON.stringify({ archived }) }),
+  deleteProjectTodo: (id: string, todoId: string) =>
+    request<void>(`/api/sessions/${id}/todos/${encodeURIComponent(todoId)}`, { method: 'DELETE' }),
   deleteSession: (id: string) => request<void>(`/api/sessions/${id}`, { method: 'DELETE' }),
   setExecutionMode: (id: string, executionMode: ExecutionMode) =>
     request<Session>(`/api/sessions/${id}/execution-mode`, { method: 'PUT', body: JSON.stringify({ execution_mode: executionMode }) }),

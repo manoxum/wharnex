@@ -7,12 +7,16 @@ const mocks = vi.hoisted(() => ({
   createProjectTodo: vi.fn(),
   updateProjectTodo: vi.fn(),
   classifyProjectTodo: vi.fn(),
+  archiveProjectTodo: vi.fn(),
+  deleteProjectTodo: vi.fn(),
   proposeOrchestratorPlan: vi.fn(),
   desktopBridge: undefined as unknown,
+  confirmDialog: vi.fn(),
 }))
 
 vi.mock('../lib/api', () => ({ api: mocks }))
 vi.mock('../lib/desktop', () => ({ desktopBridge: () => mocks.desktopBridge }))
+vi.mock('../lib/appDialog', () => ({ confirmDialog: mocks.confirmDialog }))
 vi.mock('./ChatPanel', () => ({
   ChatPanel: (props: { composerPlaceholder?: string; onSend?: (message: string, attachments: File[], projectFiles: string[]) => Promise<void> }) => <div data-testid="todo-composer">
     <span>{props.composerPlaceholder}</span>
@@ -36,7 +40,10 @@ describe('ProjectTodoPanel', () => {
     mocks.createProjectTodo.mockReset().mockResolvedValue({ ...classified, id: 'todo-2', body: 'Nova ideia', classification_status: 'queued', description: undefined, pre_plan: undefined })
     mocks.updateProjectTodo.mockReset()
     mocks.classifyProjectTodo.mockReset()
+    mocks.archiveProjectTodo.mockReset()
+    mocks.deleteProjectTodo.mockReset().mockResolvedValue(undefined)
     mocks.proposeOrchestratorPlan.mockReset()
+    mocks.confirmDialog.mockReset().mockResolvedValue(true)
     mocks.desktopBridge = undefined
   })
 
@@ -80,6 +87,40 @@ describe('ProjectTodoPanel', () => {
       attachments: [expect.objectContaining({ name: 'wharnex-todo-pre-plan.md', storage_ref: 'orch_todo_test/msg/file' })],
     })))
     expect(removeChat).not.toHaveBeenCalled()
+  })
+
+  it('archives a TODO and moves it into the Arquivados tab', async () => {
+    mocks.archiveProjectTodo.mockResolvedValue({ ...classified, archived_at: '2026-09-18T12:00:00Z' })
+    render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
+    await screen.findByText('Melhorar a pesquisa')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Arquivar TODO' }))
+    await waitFor(() => expect(mocks.archiveProjectTodo).toHaveBeenCalledWith('session-1', 'todo-1', true))
+
+    await waitFor(() => expect(screen.queryByText('Melhorar a pesquisa')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: /Arquivados/ }))
+    expect(await screen.findByText('Melhorar a pesquisa')).toBeTruthy()
+  })
+
+  it('asks for confirmation before deleting a TODO, and removes it once confirmed', async () => {
+    render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
+    await screen.findByText('Melhorar a pesquisa')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar TODO' }))
+    await waitFor(() => expect(mocks.confirmDialog).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.deleteProjectTodo).toHaveBeenCalledWith('session-1', 'todo-1'))
+    await waitFor(() => expect(screen.queryByText('Melhorar a pesquisa')).toBeNull())
+  })
+
+  it('does not delete a TODO when the confirmation is declined', async () => {
+    mocks.confirmDialog.mockResolvedValue(false)
+    render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
+    await screen.findByText('Melhorar a pesquisa')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eliminar TODO' }))
+    await waitFor(() => expect(mocks.confirmDialog).toHaveBeenCalled())
+    expect(mocks.deleteProjectTodo).not.toHaveBeenCalled()
+    expect(screen.getByText('Melhorar a pesquisa')).toBeTruthy()
   })
 
 })
