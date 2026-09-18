@@ -156,6 +156,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       const active = tool === 'terminal' ? props.terminalOpen : meta.drawer === drawer
       return <button key={tool} type="button" draggable={Boolean(props.onMoveTool)} data-workspace-tool={tool} className={`${active ? 'active' : ''} ${tool === 'terminal' ? 'workspace-rail-terminal' : ''}`.trim()} onDragStart={(event) => beginToolDrag(event, tool)} onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event, tool)} onClick={() => tool === 'terminal' ? props.onToggleTerminal() : meta.drawer && toggle(meta.drawer)} aria-pressed={tool === 'terminal' ? props.terminalOpen : undefined} aria-label={meta.label} title={`${meta.title}${props.onMoveTool ? ' · arraste para reorganizar' : ''}`}><Icon name={meta.icon} size={18}/>{Boolean(meta.badge) && <b>{meta.badge}</b>}</button>
     })}
+    {side === 'right' && <div className="workspace-agent-rail-slot" aria-label="Atalhos do Agent integrados"/>}
   </aside>
 
   const drawerPanel = drawer ? <aside className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } as React.CSSProperties : undefined}>

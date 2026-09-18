@@ -20,7 +20,7 @@ export function TunnelOverviewModal({ onClose }: { onClose: () => void }) {
   return <div className="modal-backdrop tunnel-overview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section className="tunnel-overview" role="dialog" aria-modal="true" aria-labelledby="tunnel-overview-title">
       <header><div><span className="panel-kicker">Infraestrutura remota</span><h2 id="tunnel-overview-title">Túneis ativos</h2><p>Rotas públicas ordenadas pela prioridade efetiva do WHX.</p></div><button className="icon-button light" onClick={onClose} aria-label="Fechar túneis"><Icon name="close" size={14}/></button></header>
-      {error && <div className="tunnel-empty danger-text">{error}</div>}
+      {error && <div className="tunnel-empty tunnel-empty-error danger-text" role="alert"><span className="tunnel-empty-icon"><Icon name="alert" size={18}/></span><strong>Não foi possível carregar os túneis</strong><span>{error}</span></div>}
       <div className="tunnel-overview-list">{tunnels.map((tunnel, index) => {
         const result = results[tunnel.id]
         return <article key={tunnel.id}>
@@ -28,7 +28,7 @@ export function TunnelOverviewModal({ onClose }: { onClose: () => void }) {
           <div><strong>{tunnel.provider}</strong><code>{tunnel.public_url || 'URL pública ainda não publicada'}</code><small>{tunnel.available ? 'Ativo' : tunnel.error || 'Indisponível'} · prioridade {tunnel.priority}</small>{result && <em className={typeof result === 'string' ? 'failed' : ''}>{typeof result === 'string' ? result : `Ligação confirmada em ${result.latency_ms} ms`}</em>}</div>
           <button className="secondary-button" disabled={!tunnel.public_url || testing === tunnel.id} onClick={() => void test(tunnel.id)}>{testing === tunnel.id ? 'A testar…' : 'Testar'}</button>
         </article>
-      })}{config && !tunnels.length && <div className="tunnel-empty">Nenhum túnel ativo. Configure um provedor nas definições do projeto.</div>}</div>
+      })}{config && !tunnels.length && <div className="tunnel-empty tunnel-empty-state"><span className="tunnel-empty-icon"><Icon name="network" size={18}/></span><strong>Nenhum túnel ativo</strong><span>Configure um provedor nas definições do projeto para publicar uma rota remota.</span></div>}</div>
     </section>
   </div>
 }

@@ -2157,19 +2157,23 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .evolution-event-list time { min-width: 70px; display: grid; gap: 2px; color: var(--theme-text-muted); font-size: 7px; text-align: right; }
 .evolution-event-list time b { color: var(--theme-text-soft); font-weight: 600; }
 
-.tunnel-overview { width: min(760px, 94vw); max-height: min(720px, 88vh); display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; border: 1px solid var(--theme-border); border-radius: 18px; background: var(--theme-surface); color: var(--theme-text); box-shadow: 0 30px 110px var(--theme-shadow); }
-.tunnel-overview > header { padding: 20px; display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--theme-border); background: var(--theme-elevated); }
-.tunnel-overview h2 { margin: 3px 0; font-size: calc(22px * var(--ui-font-scale)); }
-.tunnel-overview p { margin: 0; color: var(--theme-text-muted); font-size: calc(9px * var(--ui-font-scale)); }
-.tunnel-overview-list { min-height: 0; overflow: auto; padding: 12px; display: grid; align-content: start; gap: 8px; }
-.tunnel-overview-list article { display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 11px; padding: 12px; border: 1px solid var(--theme-border-soft); border-radius: 11px; background: var(--theme-elevated); }
-.tunnel-priority { color: var(--theme-accent); font: 700 15px var(--mono-font-family); }
-.tunnel-overview-list article > div { min-width: 0; display: grid; gap: 3px; }
-.tunnel-overview-list code { overflow: hidden; color: var(--theme-text-soft); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.tunnel-overview-list small, .tunnel-overview-list em { color: var(--theme-text-muted); font-size: 8px; font-style: normal; }
+.tunnel-overview { width: min(560px, calc(100vw - 32px)); max-height: min(610px, calc(100dvh - 48px)); display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; border: 1px solid var(--theme-border); border-radius: 12px; background: var(--theme-surface); color: var(--theme-text); box-shadow: 0 24px 72px var(--theme-shadow); }
+.tunnel-overview > header { min-height: 74px; padding: 14px 15px 13px 16px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--theme-border); background: var(--theme-elevated); }
+.tunnel-overview h2 { margin: 2px 0 3px; font-size: calc(17px * var(--ui-font-scale)); line-height: 1.2; }
+.tunnel-overview p { max-width: 44ch; margin: 0; color: var(--theme-text-muted); font-size: calc(8px * var(--ui-font-scale)); line-height: 1.4; }
+.tunnel-overview-list { min-height: 0; overflow: auto; padding: 9px; display: grid; align-content: start; gap: 7px; }
+.tunnel-overview-list article { display: grid; grid-template-columns: 32px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: var(--theme-elevated); }
+.tunnel-priority { color: var(--theme-accent); font: 700 12px var(--mono-font-family); }
+.tunnel-overview-list article > div { min-width: 0; display: grid; gap: 2px; }
+.tunnel-overview-list code { overflow: hidden; color: var(--theme-text-soft); font-size: 8.5px; text-overflow: ellipsis; white-space: nowrap; }
+.tunnel-overview-list small, .tunnel-overview-list em { color: var(--theme-text-muted); font-size: 7.5px; font-style: normal; }
 .tunnel-overview-list em { color: var(--success); }
 .tunnel-overview-list em.failed { color: var(--danger); }
-.tunnel-empty { padding: 28px; color: var(--theme-text-muted); text-align: center; }
+.tunnel-empty { min-height: 138px; padding: 22px 18px; display: grid; place-items: center; align-content: center; gap: 5px; color: var(--theme-text-muted); text-align: center; }
+.tunnel-empty-icon { width: 34px; height: 34px; margin-bottom: 3px; display: grid; place-items: center; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: var(--theme-elevated); color: var(--theme-text-muted); }
+.tunnel-empty strong { color: var(--theme-text-soft); font-size: calc(9px * var(--ui-font-scale)); font-weight: 650; }
+.tunnel-empty > span:last-child { max-width: 330px; font-size: calc(7.8px * var(--ui-font-scale)); line-height: 1.45; }
+.tunnel-empty-error .tunnel-empty-icon { color: var(--danger); }
 .project-activity-drawer { height: 100%; min-height: 0; display: flex; flex-direction: column; }
 .project-activity-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(190px, 31%) minmax(0, 1fr); }
 .project-activity-list { min-height: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--theme-border); background: var(--theme-surface); }
@@ -4719,6 +4723,11 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr) var(--agent-tools-width);
   grid-template-rows: 42px minmax(0, 1fr);
 }
+.agent-workspace.agent-rail-unified {
+  --agent-chat-width: calc((100% - 6px) * 0.6);
+  grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr);
+}
+.workspace-body.drawer-open .agent-workspace.agent-rail-unified { --agent-chat-width: calc((100% - 6px) / 2); }
 .agent-commandbar {
   grid-column: 4;
   grid-row: 1 / 3;
@@ -4811,6 +4820,81 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-chat-stage { grid-column: 1; grid-row: 2; }
 .agent-splitter { grid-column: 2; grid-row: 2; }
 .agent-inspector-stage { grid-column: 3; grid-row: 2; }
+
+.workspace-agent-rail-slot {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  margin-top: 3px;
+  padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border-top: 1px solid var(--theme-border);
+}
+.workspace-agent-rail-slot:empty { display: none; }
+.workspace-agent-rail-slot .agent-commandbar {
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.workspace-agent-rail-slot .agent-command-actions { width: 100%; padding: 0 0 4px; flex-direction: column; align-items: center; gap: 4px; }
+.workspace-agent-rail-slot .agent-bundle-counters { width: 31px; min-height: 29px; padding: 4px 2px; border-color: var(--theme-border-soft); background: var(--theme-muted); color: var(--theme-text-muted); }
+.workspace-agent-rail-slot .agent-bundle-counters span + span { border-color: var(--theme-border-soft); }
+.workspace-agent-rail-slot .agent-bundle-counters b { color: var(--theme-text-soft); }
+.workspace-agent-rail-slot .agent-surface-tabs {
+  width: 100%;
+  grid-template-columns: 1fr;
+  grid-template-rows: repeat(4, 33px);
+  padding-top: 4px;
+  border: 0;
+  border-top: 1px solid var(--theme-border-soft);
+}
+.workspace-agent-rail-slot .agent-direct-chatgpt-tab {
+  width: 100%;
+  margin-top: auto;
+  grid-template-columns: 1fr;
+  padding-top: 4px;
+  border: 0;
+  border-top: 1px solid var(--theme-border-soft);
+}
+.workspace-agent-rail-slot .agent-direct-chatgpt-tab button,
+.workspace-agent-rail-slot .agent-surface-tabs button {
+  width: 31px;
+  height: 33px;
+  justify-self: center;
+  border: 0;
+  border-radius: 4px;
+}
+.workspace-agent-rail-slot .agent-direct-chatgpt-tab button.active,
+.workspace-agent-rail-slot .agent-surface-tabs button.active { border-left-color: transparent; border-bottom-color: transparent; }
+
+:root[data-tool-rail='bottom'] .workspace-agent-rail-slot {
+  width: auto;
+  height: 100%;
+  min-height: 0;
+  flex: 0 0 auto;
+  margin: 0 0 0 3px;
+  padding: 0 0 0 3px;
+  flex-direction: row;
+  border-top: 0;
+  border-left: 1px solid var(--theme-border);
+}
+:root[data-tool-rail='bottom'] .workspace-agent-rail-slot .agent-commandbar { width: auto; height: 100%; flex: 0 0 auto; flex-direction: row; align-items: center; }
+:root[data-tool-rail='bottom'] .workspace-agent-rail-slot .agent-command-actions { width: auto; padding: 0 3px 0 0; flex-direction: row; }
+:root[data-tool-rail='bottom'] .workspace-agent-rail-slot .agent-bundle-counters { width: auto; height: 28px; min-height: 28px; padding: 0 6px; flex-direction: row; }
+:root[data-tool-rail='bottom'] .workspace-agent-rail-slot .agent-bundle-counters span + span { padding: 0 0 0 6px; border-top: 0; border-left: 1px solid var(--theme-border-soft); }
+:root[data-tool-rail='bottom'] .workspace-agent-rail-slot .agent-surface-tabs { width: auto; grid-template-columns: repeat(4, 30px); grid-template-rows: 28px; padding: 0 0 0 3px; border-top: 0; border-left: 1px solid var(--theme-border-soft); }
+:root[data-tool-rail='bottom'] .workspace-agent-rail-slot .agent-direct-chatgpt-tab { width: auto; margin-top: 0; grid-template-columns: 30px; padding: 0 0 0 3px; border-top: 0; border-left: 1px solid var(--theme-border-soft); }
+:root[data-tool-rail='bottom'] .workspace-agent-rail-slot .agent-direct-chatgpt-tab button,
+:root[data-tool-rail='bottom'] .workspace-agent-rail-slot .agent-surface-tabs button { width: 30px; height: 28px; }
 
 .multi-project-actions {
   height: 48px;
@@ -4915,6 +4999,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 42px 42px minmax(360px, 1fr) minmax(360px, 1fr);
   }
+  .agent-workspace.agent-rail-unified { grid-template-rows: 42px minmax(360px, 1fr) minmax(360px, 1fr); }
   .agent-chat-switcher { grid-column: 1; grid-row: 1; }
   .agent-commandbar {
     grid-column: 1;
@@ -4937,3 +5022,19 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .agent-commandbar .agent-attention-popover { right: auto; left: 0; top: calc(100% + 7px); }
   .agent-chat-stage { grid-column: 1; grid-row: 3; }
   .agent-inspector-stage { grid-column: 1; grid-row: 4; }
+  .agent-workspace.agent-rail-unified .agent-chat-stage { grid-row: 2; }
+  .agent-workspace.agent-rail-unified .agent-inspector-stage { grid-row: 3; }
+  .workspace-agent-rail-slot {
+    width: auto;
+    height: 100%;
+    min-height: 0;
+    flex: 0 0 auto;
+    margin: 0 0 0 3px;
+    padding: 0 0 0 3px;
+    flex-direction: row;
+    border-top: 0;
+    border-left: 1px solid var(--theme-border);
+  }
+  .workspace-agent-rail-slot .agent-commandbar { width: auto; height: 100%; flex: 0 0 auto; }
+  .workspace-side-rail-right button::before { left: 5px; right: 5px; top: auto; bottom: -5px; width: auto; height: 2px; }
+}

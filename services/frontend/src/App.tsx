@@ -3204,6 +3204,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           onOpenAttention={openAttentionItem}
           onAttentionAction={runAttentionItemAction}
           onOpenAttentionDrawer={() => openLeftDrawer('attention')}
+          railVisible={mode === 'agent'}
           onExportChat={exportActiveChat}
           onReorderChat={reorderChat}
           chatProps={sharedChatProps}
