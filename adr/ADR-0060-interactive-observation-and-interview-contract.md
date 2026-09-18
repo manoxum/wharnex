@@ -48,3 +48,7 @@ validated like all turn data and cannot carry execution semantics.
   execution intent.
 - Git release, Docker, remote SSH, package repair and destructive storage work
   remain unavailable until each has a reviewed typed capability.
+
+## Historical note
+
+The observation-only restriction in this ADR remains the permanent contract of `harness.interactive/v1`. ADR-0063 introduces a distinct `harness.interactive/v2` protocol for typed, scoped runtime capabilities with explicit consent; v2 does not reinterpret or broaden a v1 grant.

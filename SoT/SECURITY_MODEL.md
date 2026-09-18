@@ -162,3 +162,9 @@ untrusted and never become project files merely because they can be previewed
 or downloaded. Retention cleanup and explicit data/session deletion may delete
 only non-empty server-owned object keys; missing private object locations fail
 closed rather than issuing bucket-level operations.
+
+## Interactive v2 capability boundary
+
+`harness.interactive/v2` does not restore generic host debug authority. It replaces it with typed, separately validated capabilities and explicit target scope. Host/sensitive observation requires informed consent; host modification is `risk=high`, `requires_approval=true`, one-shot, and bound to the exact plan digest. Shell execution writes the exact approved script to a temporary file outside the project on host execution and invokes the declared shell by argv rather than `bash -c`. Filesystem access resolves symlinks before enforcing approved roots. SQL uses registered connection handles, read-only transactions by default, statement/lock timeouts and row limits. Log output and other interactive results are bounded, redacted before publication, and always treated as untrusted evidence.
+
+Network destinations, service names, container names, database handles, log sources, process identifiers and filesystem roots are all explicit scope dimensions. An operation that names something outside them fails closed. Writes, signals, restarts, container exec, SQL writes and filesystem mutation require modify access and a fresh high-risk approval boundary.

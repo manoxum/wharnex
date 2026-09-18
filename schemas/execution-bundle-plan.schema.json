@@ -2,84 +2,614 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://wharness.local/schemas/execution-bundle-plan.schema.json",
   "type": "object",
-  "required": ["protocol", "base_context_sha256", "impact_files", "plan_id", "request_id", "status", "summary", "risk", "requires_approval", "operations", "verification"],
+  "required": [
+    "protocol",
+    "base_context_sha256",
+    "impact_files",
+    "plan_id",
+    "request_id",
+    "status",
+    "summary",
+    "risk",
+    "requires_approval",
+    "operations",
+    "verification"
+  ],
   "properties": {
-    "protocol": {"enum": ["harness.execution/v1", "harness.execution/v2"]},
-    "base_context_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "impact_files": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
-    "read_files": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
-    "barrier_files": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
-    "plan_id": {"type": "string", "minLength": 1},
-    "request_id": {"type": "string", "minLength": 1},
-    "status": {"enum": ["ready", "blocked"]},
-    "summary": {"type": "string"},
-    "document": {"type": "string", "maxLength": 262144},
-    "dependencies": {
-      "type": "array", "maxItems": 128,
+    "protocol": {
+      "enum": [
+        "harness.execution/v1",
+        "harness.execution/v2"
+      ]
+    },
+    "base_context_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "impact_files": {
+      "type": "array",
+      "maxItems": 256,
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["scope", "manager", "name", "action", "reason"],
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "read_files": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "barrier_files": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "blocked"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "document": {
+      "type": "string",
+      "maxLength": 262144
+    },
+    "dependencies": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "manager",
+          "name",
+          "action",
+          "reason"
+        ],
         "properties": {
-          "scope": {"type": "string", "minLength": 1},
-          "manager": {"type": "string", "minLength": 1},
-          "name": {"type": "string", "minLength": 1},
-          "version": {"type": "string"},
-          "action": {"enum": ["install", "update", "remove", "use"]},
-          "reason": {"type": "string", "minLength": 1}
+          "scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "manager": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "install",
+              "update",
+              "remove",
+              "use"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
     "system_tools": {
-      "type": "array", "maxItems": 64,
+      "type": "array",
+      "maxItems": 64,
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["target", "name", "action", "reason"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "name",
+          "action",
+          "reason"
+        ],
         "properties": {
-          "target": {"enum": ["sandbox", "host"]},
-          "name": {"type": "string", "minLength": 1},
-          "action": {"enum": ["install", "update", "configure", "use"]},
-          "reason": {"type": "string", "minLength": 1}
+          "target": {
+            "enum": [
+              "sandbox",
+              "host"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "enum": [
+              "install",
+              "update",
+              "configure",
+              "use"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
     "approved_chat_plan": {
-      "type": "object", "additionalProperties": false,
-      "required": ["protocol", "request_id", "sha256", "document"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "request_id",
+        "sha256",
+        "document"
+      ],
       "properties": {
-        "protocol": {"const": "harness.chat-plan/v1"},
-        "request_id": {"type": "string", "minLength": 1},
-        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-        "document": {"type": "string", "minLength": 1, "maxLength": 262144}
+        "protocol": {
+          "const": "harness.chat-plan/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "document": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 262144
+        }
       }
     },
     "debug": {
-      "type": "object", "additionalProperties": false,
-      "required": ["protocol", "target", "rationale"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "target",
+        "rationale"
+      ],
       "properties": {
-		"protocol": {"enum": ["harness.debug/v1", "harness.interactive/v1"]},
-		"access": {"enum": ["observe"]},
-        "target": {"enum": ["sandbox", "host"]},
-		"query": {"enum": ["project_execution_summary"]},
-        "rationale": {"type": "string", "minLength": 1, "maxLength": 4096}
-      }
+        "protocol": {
+          "enum": [
+            "harness.debug/v1",
+            "harness.interactive/v1",
+            "harness.interactive/v2"
+          ]
+        },
+        "target": {
+          "enum": [
+            "sandbox",
+            "host"
+          ]
+        },
+        "access": {
+          "enum": [
+            "observe",
+            "modify"
+          ]
+        },
+        "query": {
+          "enum": [
+            "project_execution_summary"
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "command",
+              "shell",
+              "sql",
+              "logs",
+              "filesystem",
+              "process",
+              "network",
+              "container",
+              "service"
+            ]
+          }
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "connections": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "log_sources": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "processes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "services": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "containers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "network_destinations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "description": "Interactive v1 remains strict read-only compatibility. Interactive v2 uses explicit capabilities, target scope and access; host/sensitive or modifying operations are approval-gated by Policy."
     },
-    "risk": {"enum": ["low", "medium", "high"]},
-    "requires_approval": {"type": "boolean"},
+    "risk": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "requires_approval": {
+      "type": "boolean"
+    },
     "operations": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["type", "command"],
+        "required": [
+          "type"
+        ],
         "properties": {
-          "type": {"enum": ["apply_patch", "command"]},
-          "patch": {"type": "string"},
-          "patch_file": {"type": "string", "pattern": "^patches/[^/]+\\.patch$"},
-          "command": {"type": "object"}
+          "type": {
+            "enum": [
+              "apply_patch",
+              "command",
+              "shell",
+              "sql",
+              "logs",
+              "filesystem",
+              "process",
+              "network",
+              "container",
+              "service"
+            ]
+          },
+          "patch": {
+            "type": "string"
+          },
+          "patch_file": {
+            "type": "string",
+            "pattern": "^patches/[^/]+\\.patch$"
+          },
+          "command": {
+            "type": "object"
+          },
+          "shell": {
+            "$ref": "#/$defs/interactiveShell"
+          },
+          "sql": {
+            "$ref": "#/$defs/interactiveSQL"
+          },
+          "logs": {
+            "$ref": "#/$defs/interactiveLogs"
+          },
+          "filesystem": {
+            "$ref": "#/$defs/interactiveFilesystem"
+          },
+          "process": {
+            "$ref": "#/$defs/interactiveProcess"
+          },
+          "network": {
+            "$ref": "#/$defs/interactiveNetwork"
+          },
+          "container": {
+            "$ref": "#/$defs/interactiveContainer"
+          },
+          "service": {
+            "$ref": "#/$defs/interactiveService"
+          }
         },
         "additionalProperties": false
       }
     },
-    "verification": {"type": "array"}
+    "verification": {
+      "type": "array"
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "interactiveShell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "script",
+        "shell",
+        "cwd",
+        "timeout_seconds",
+        "network"
+      ],
+      "properties": {
+        "script": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "shell": {
+          "const": "bash"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1800
+        },
+        "network": {
+          "type": "boolean"
+        },
+        "env_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "interactiveSQL": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connection_id",
+        "statement",
+        "mode",
+        "timeout_seconds",
+        "max_rows"
+      ],
+      "properties": {
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "mode": {
+          "enum": [
+            "read_only",
+            "write"
+          ]
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        }
+      }
+    },
+    "interactiveLogs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "limit"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "container": {
+          "type": "string"
+        },
+        "since": {
+          "type": "string"
+        },
+        "until": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        },
+        "filter": {
+          "type": "string"
+        }
+      }
+    },
+    "interactiveFilesystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "path"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "list",
+            "stat",
+            "read",
+            "write",
+            "remove",
+            "rename"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string"
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4194304
+        }
+      }
+    },
+    "interactiveProcess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "list",
+            "signal"
+          ]
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "signal": {
+          "type": "string"
+        }
+      }
+    },
+    "interactiveNetwork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "address",
+        "timeout_seconds"
+      ],
+      "properties": {
+        "action": {
+          "const": "connect"
+        },
+        "address": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        }
+      }
+    },
+    "interactiveContainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "name"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "inspect",
+            "logs",
+            "restart",
+            "exec"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tail": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1800
+        }
+      }
+    },
+    "interactiveService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "name"
+      ],
+      "properties": {
+        "action": {
+          "enum": [
+            "status",
+            "restart"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
 }

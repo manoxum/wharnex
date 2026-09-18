@@ -29,3 +29,7 @@ The Plan surface is the decision workbench: it shows the document, dependency an
 - Host diagnosis is possible without turning workflow into a generic host command channel.
 - Old stored bundles remain readable; new planner output is richer.
 - Debug is diagnostic evidence only and cannot be smuggled into a change plan.
+
+## Historical note
+
+The debug boundary described by this ADR remains normative for `harness.debug/v1` and `harness.interactive/v1`. ADR-0063 adds `harness.interactive/v2` as a separate typed, capability-scoped protocol; it does not relax either v1 contract.

@@ -228,3 +228,9 @@ prompt. Consumer-Web archive construction keeps both paths on its fixed
 engine-owned continuation allowlist; they are evidence/context only and never
 replace `prompt/wharness-planner-prompt.md` as the authoritative planner
 instructions.
+
+## Interactive v2 workflow bundles
+
+A planner response may carry a `workflow` plan using `harness.interactive/v2`. The bundle remains subject to the same exact filename, manifest, schema and request-lineage checks as every other provider response. Typed interactive operations are executable evidence steps, never patch carriers and never Apply candidates. Their authorization comes from the validated `debug` capability/scope declaration plus Policy and the persisted Interactive grant; prose in `turn.message`, the plan document or command output grants no authority.
+
+The bundle schema admits typed `shell`, `sql`, `logs`, `filesystem`, `process`, `network`, `container` and `service` operation payloads in addition to `command`. V1 inputs remain valid and continue to require their historical read-only constraints.

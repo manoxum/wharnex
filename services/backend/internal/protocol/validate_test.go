@@ -293,3 +293,88 @@ func TestValidateWorkflowPlanAcceptsEngineOwnedProjectExecutionSummary(t *testin
 		t.Fatalf("host-owned execution ledger query was accepted for sandbox target: %v", err)
 	}
 }
+
+func TestValidateInteractiveV2RejectsInvalidShellEnvironmentName(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "interactive-v2-shell-env", RequestID: "req_12345678", Status: "ready", Summary: "inspect worker", Risk: "medium", RequiresApproval: true,
+		Debug:      &domain.DebugSpec{Protocol: domain.InteractiveProtocolV2, Target: "host", Access: domain.DebugAccessObserve, Rationale: "inspect worker", Capabilities: []string{domain.InteractiveCapabilityShell}},
+		Operations: []domain.Operation{{Type: "shell", Shell: &domain.InteractiveShellSpec{Script: "printf ok", Shell: "bash", Cwd: ".", TimeoutSeconds: 10, EnvAllowlist: []string{"--privileged"}}}},
+	}
+	if err := ValidateWorkflowPlan(plan); err == nil || !strings.Contains(err.Error(), "invalid variable name") {
+		t.Fatalf("invalid environment name must be rejected: %v", err)
+	}
+}
+
+func TestValidateInteractiveV2RejectsEngineHostAdapterForSandboxTarget(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "interactive-v2-sandbox-logs", RequestID: "req_12345678", Status: "ready", Summary: "inspect logs", Risk: "medium",
+		Debug:      &domain.DebugSpec{Protocol: domain.InteractiveProtocolV2, Target: "sandbox", Access: domain.DebugAccessObserve, Rationale: "inspect sandbox logs", Capabilities: []string{domain.InteractiveCapabilityLogs}, Scope: domain.InteractiveScope{LogSources: []string{"audit"}}},
+		Operations: []domain.Operation{{Type: "logs", Logs: &domain.InteractiveLogsSpec{Source: "audit", Limit: 10}}},
+	}
+	err := ValidateWorkflowPlan(plan)
+	if err == nil || !strings.Contains(err.Error(), "requires host target") {
+		t.Fatalf("sandbox target must not route engine/host adapters onto the host: %v", err)
+	}
+}
+
+func TestValidateInteractiveV2RequiresDeclaredCapabilityAndScope(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "interactive-v2", RequestID: "req_12345678", Status: "ready", Summary: "inspect TODO worker logs", Risk: "medium", RequiresApproval: true,
+		Debug:      &domain.DebugSpec{Protocol: domain.InteractiveProtocolV2, Target: "host", Access: domain.DebugAccessObserve, Rationale: "inspect worker state", Capabilities: []string{domain.InteractiveCapabilityLogs}, Scope: domain.InteractiveScope{LogSources: []string{"audit"}}},
+		Operations: []domain.Operation{{Type: "logs", Logs: &domain.InteractiveLogsSpec{Source: "audit", Limit: 100}}},
+	}
+	if err := ValidateWorkflowPlan(plan); err != nil {
+		t.Fatalf("valid interactive v2 logs probe rejected: %v", err)
+	}
+	plan.Debug.Capabilities = []string{domain.InteractiveCapabilitySQL}
+	if err := ValidateWorkflowPlan(plan); err == nil || !strings.Contains(err.Error(), "undeclared capability") {
+		t.Fatalf("undeclared capability should fail, got %v", err)
+	}
+}
+
+func TestValidateInteractiveV2RejectsScopeEscapeAndObserveWrites(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "interactive-v2", RequestID: "req_12345678", Status: "ready", Summary: "inspect database", Risk: "medium", RequiresApproval: true,
+		Debug:      &domain.DebugSpec{Protocol: domain.InteractiveProtocolV2, Target: "host", Rationale: "inspect TODO records", Capabilities: []string{domain.InteractiveCapabilitySQL}, Scope: domain.InteractiveScope{Connections: []string{"wharnex-internal"}}},
+		Operations: []domain.Operation{{Type: "sql", SQL: &domain.InteractiveSQLSpec{ConnectionID: "other", Statement: "select 1", Mode: "read_only", TimeoutSeconds: 5, MaxRows: 10}}},
+	}
+	if err := ValidateWorkflowPlan(plan); err == nil || !strings.Contains(err.Error(), "outside approved scope") {
+		t.Fatalf("connection scope escape should fail, got %v", err)
+	}
+	plan.Operations[0].SQL.ConnectionID = "wharnex-internal"
+	plan.Operations[0].SQL.Mode = "write"
+	if err := ValidateWorkflowPlan(plan); err == nil || !strings.Contains(err.Error(), "write requires modify") {
+		t.Fatalf("observe SQL write should fail, got %v", err)
+	}
+}
+
+func TestValidateInteractiveV2ModifyIsHighRiskApprovalGated(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "interactive-v2", RequestID: "req_12345678", Status: "ready", Summary: "restart worker", Risk: "medium", RequiresApproval: false,
+		Debug:      &domain.DebugSpec{Protocol: domain.InteractiveProtocolV2, Target: "host", Access: domain.DebugAccessModify, Rationale: "restart stuck worker", Capabilities: []string{domain.InteractiveCapabilityService}, Scope: domain.InteractiveScope{Services: []string{"wharnex-worker.service"}}},
+		Operations: []domain.Operation{{Type: "service", Service: &domain.InteractiveServiceSpec{Action: "restart", Name: "wharnex-worker.service"}}},
+	}
+	if err := ValidateWorkflowPlan(plan); err == nil || !strings.Contains(err.Error(), "risk=high") {
+		t.Fatalf("modify without high-risk approval should fail, got %v", err)
+	}
+	plan.Risk, plan.RequiresApproval = "high", true
+	if err := ValidateWorkflowPlan(plan); err != nil {
+		t.Fatalf("approved high-risk modify rejected: %v", err)
+	}
+}
+
+func TestInteractiveV2CommandNetworkRequiresNetworkCapability(t *testing.T) {
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV2, PlanID: "iv2-command-network", RequestID: "req_12345678", Status: "ready",
+		Summary: "probe a scoped endpoint", Risk: "medium", RequiresApproval: true,
+		Debug: &domain.DebugSpec{
+			Protocol: domain.InteractiveProtocolV2, Target: "host", Access: domain.DebugAccessObserve,
+			Rationale: "probe runtime health", Capabilities: []string{domain.InteractiveCapabilityCommand},
+		},
+		Operations:   []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"curl", "http://127.0.0.1:3260/health"}, Cwd: ".", TimeoutSeconds: 10, Network: true, ExpectedExitCodes: []int{0}}}},
+		Verification: []domain.CommandSpec{},
+	}
+	if err := ValidateWorkflowPlan(plan); err == nil || !strings.Contains(err.Error(), "network capability") {
+		t.Fatalf("expected command network capability rejection, got %v", err)
+	}
+}
