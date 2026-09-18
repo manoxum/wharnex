@@ -118,7 +118,12 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
         latestAssistant: Boolean(latestAssistant && latestAssistant.contains(node)),
         latestTurn: Boolean(latestTurn && latestTurn.contains(node)),
         nested: nodes.some((other, otherIndex) => otherIndex !== index && node.contains?.(other)),
-        downloadSemantic: /(download|baixar|descarregar)/i.test(normalized),
+        // European Portuguese ChatGPT accounts label the download control
+        // "Transferir" (a Brazilian account uses "Baixar"), which this
+        // pattern did not cover - the control existed and was visible but
+        // never matched, so the result card sat there unclicked until the
+        // task timed out.
+        downloadSemantic: /(download|baixar|descarregar|transferir)/i.test(normalized),
         fileLike: Boolean(node.hasAttribute?.('download') || /(^|[\\/])(download|downloads|file|files|attachment|attachments)([\\/?#]|$)/i.test(href) || /^sandbox:/i.test(href)),
         iconOnly: /^(?:⬇️?|📥|⤓|↓)$/u.test(ownText),
       };

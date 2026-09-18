@@ -2462,3 +2462,59 @@ test('primeChatGPTWorkerPool paces worker creation with a defined helper', async
   assert.match(fn, /await wait\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
   assert.doesNotMatch(fn, /await delay\(/)
 })
+
+// Clicking the result-download control on every poll tick fired a real
+// ChatGPT download each time a tick elapsed before will-download resolved
+// the previous one, and the browser's own duplicate-name suffix on the
+// later downloads was not recognised by the strict exact-filename match in
+// registerChatGPTTodoClassificationDownload/registerChatGPTMarkdownTranslationDownload,
+// so those extra downloads fell through to a native, undismissable OS save
+// dialog - live-observed as the desktop UI becoming unresponsive.
+test('the TODO classification and translation download loops click at most once per response', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  for (const [open, close] of [
+    ['async function executeChatAgentTodoClassification(', '\nasync function chatAgentLifecycleRetry'],
+    ['async function executeChatAgentMarkdownTranslation(', '\nasync function executeChatAgentTodoClassification'],
+  ]) {
+    const start = source.indexOf(open)
+    assert.notEqual(start, -1, open)
+    const fn = source.slice(start, source.indexOf(close, start))
+    assert.match(fn, /let downloadTriggered = false/, open)
+    assert.match(fn, /if \(!downloadTriggered && Number\(completion\?\.assistantCount \|\| 0\) > assistantBaseline\)/, open)
+    assert.match(fn, /if \(clicked\) downloadTriggered = true/, open)
+  }
+})
+
+test('the TODO classification and translation flows reassert composer text before submitting', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  for (const [open, close] of [
+    ['async function executeChatAgentTodoClassification(', '\nasync function chatAgentLifecycleRetry'],
+    ['async function executeChatAgentMarkdownTranslation(', '\nasync function executeChatAgentTodoClassification'],
+  ]) {
+    const start = source.indexOf(open)
+    assert.notEqual(start, -1, open)
+    const fn = source.slice(start, source.indexOf(close, start))
+    const fillCount = (fn.match(/chatGPTFillComposerScript\(bootstrap\)/g) || []).length
+    assert.equal(fillCount, 2, `${open} must fill the composer once and reassert it once before submit`)
+    const refillIndex = fn.lastIndexOf('chatGPTFillComposerScript(bootstrap)')
+    const submitIndex = fn.indexOf('submitChatGPTDraft(')
+    assert.ok(refillIndex < submitIndex, `${open} must reassert composer text before submitting`)
+  }
+})
+
+test('registerChatGPTTodoClassificationDownload and registerChatGPTMarkdownTranslationDownload tolerate a browser duplicate-name suffix', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  for (const [open, close] of [
+    ['function registerChatGPTTodoClassificationDownload(', '\nfunction orchestratorPlanInboxDirectory'],
+    ['function registerChatGPTMarkdownTranslationDownload(', '\nfunction registerChatGPTOrchestratorPlanDownload'],
+  ]) {
+    const start = source.indexOf(open)
+    assert.notEqual(start, -1, open)
+    const fn = source.slice(start, source.indexOf(close, start))
+    assert.match(fn, /stripChatGPTDownloadDuplicateSuffix\(rawFilename\)/, open)
+  }
+  const helperStart = source.indexOf('function stripChatGPTDownloadDuplicateSuffix(')
+  assert.notEqual(helperStart, -1)
+  const helper = source.slice(helperStart, source.indexOf('\n}', helperStart))
+  assert.match(helper, /\[1-9\]\[0-9\]\{0,3\}/)
+})

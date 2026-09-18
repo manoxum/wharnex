@@ -101,7 +101,10 @@ test('composer probes and mutations never request renderer focus', () => {
 test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {
   const script = chatGPTExpectedDownloadScript('wharness-bundle-req_12345678.zip', 3)
   assert.match(script, /wharness-bundle-req_12345678\.zip/)
-  assert.match(script, /download\|baixar\|descarregar/)
+  // European Portuguese ChatGPT accounts label the control "Transferir"
+  // (Brazilian accounts use "Baixar"); the control was visible and unclicked
+  // every time until this term was added.
+  assert.match(script, /download\|baixar\|descarregar\|transferir/)
   assert.match(script, /data-message-author-role=\"assistant\"/)
   assert.match(script, /latest-assistant-unique/)
   assert.match(script, /const baseline = 3/)

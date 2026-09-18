@@ -1426,11 +1426,25 @@ function publishBundleDownloadError(message, filename = '', cacheKey = '') {
   sendToChatGPTKey(cacheKey, 'wharness:chatgpt:bundle-download-error', { message, filename, cacheKey, requestId })
 }
 
+// Chromium appends its own browser-side duplicate-name suffix ("(2)") when a
+// name it already has a download for is offered again - exactly what happens
+// when a worker clicks the same result card more than once. The Supervisor's
+// canonicalWharnessBundleDownload already tolerates this (bundlename.mjs's
+// parseBundleNameWithDuplicateSuffix); these background-worker downloads used
+// a strict exact-match instead, so a suffixed repeat fell through every
+// recognizer here and reached the OS as an ordinary, undismissable download
+// prompt.
+function stripChatGPTDownloadDuplicateSuffix(filename) {
+  return String(filename || '').replace(/ \([1-9][0-9]{0,3}\)(?=\.[^.]+$)/, '')
+}
+
 function registerChatGPTMarkdownTranslationDownload(item, sourceFilename) {
-  const filename = path.basename(String(sourceFilename || ''))
+  const rawFilename = path.basename(String(sourceFilename || ''))
+  const filename = stripChatGPTDownloadDuplicateSuffix(rawFilename)
   const expected = expectedChatGPTTranslations.get(filename)
   const looksInternal = /^whx_translation_res_cat_[a-f0-9]{20}\.zip$/.test(filename)
   if (!expected && !looksInternal) return false
+  if (rawFilename !== filename) console.warn(`[translation] normalized duplicate-suffixed download name=${rawFilename} -> ${filename}`)
   if (!expected || Date.now() - expected.armedAt > MARKDOWN_TRANSLATION_TIMEOUT_MS + 60_000) {
     item.cancel()
     return true
@@ -1480,10 +1494,12 @@ function registerChatGPTMarkdownTranslationDownload(item, sourceFilename) {
 }
 
 function registerChatGPTTodoClassificationDownload(item, sourceFilename) {
-  const filename = path.basename(String(sourceFilename || ''))
+  const rawFilename = path.basename(String(sourceFilename || ''))
+  const filename = stripChatGPTDownloadDuplicateSuffix(rawFilename)
   const expected = expectedChatGPTTodoClassifications.get(filename)
   const looksInternal = /^whx_todo_classification_res_cat_[a-f0-9]{20}\.zip$/.test(filename)
   if (!expected && !looksInternal) return false
+  if (rawFilename !== filename) console.warn(`[todo-classification] normalized duplicate-suffixed download name=${rawFilename} -> ${filename}`)
   if (!expected || Date.now() - expected.armedAt > TODO_CLASSIFICATION_TIMEOUT_MS + 60_000) {
     item.cancel()
     return true
@@ -5081,6 +5097,13 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     if (!filled) throw new Error('ChatGPT translation composer could not be populated')
     await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
     await wait(chatInputSettleDelay(archive.byteLength, 1))
+    // A fresh chat's landing-page composer is a different mounted element
+    // from the one the active conversation ends up with once an attachment
+    // lands; the bootstrap text set on the earlier instance does not travel
+    // to its replacement, so the request reached ChatGPT as a bare file with
+    // no accompanying text. Re-asserting it now targets whichever composer
+    // is live at this point, right before it matters for submission.
+    await executeChatGPTDOMScript(key, target.entry, 'translation-refill-composer', chatGPTFillComposerScript(bootstrap))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
     // 'instant' is a latency/cost preference for this background transport,
     // not a correctness requirement: live testing found the effort-cycle
@@ -5091,6 +5114,11 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     if (!conversationUrl) throw new Error('ChatGPT translation submission has no stable conversation id')
 
     const deadline = Date.now() + MARKDOWN_TRANSLATION_TIMEOUT_MS
+    // See the matching comment in executeChatAgentTodoClassification: clicking
+    // the download control on every poll tick fired a real duplicate download
+    // per tick, and ChatGPT's own browser-side duplicate-name suffix on the
+    // later ones was not recognised by this task's strict filename match.
+    let downloadTriggered = false
     while (Date.now() < deadline) {
       const outcome = await Promise.race([
         download.then((value) => ({ done: true, value }), (error) => ({ done: true, error })),
@@ -5116,8 +5144,9 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
         return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(kind) }
       }
       const completion = await executeChatGPTDOMScript(key, target.entry, 'translation-completion', chatGPTResponseCompletionScript(assistantBaseline))
-      if (Number(completion?.assistantCount || 0) > assistantBaseline) {
-        await executeChatGPTDOMScript(key, target.entry, 'translation-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
+      if (!downloadTriggered && Number(completion?.assistantCount || 0) > assistantBaseline) {
+        const clicked = await executeChatGPTDOMScript(key, target.entry, 'translation-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
+        if (clicked) downloadTriggered = true
       }
     }
     throw new Error(`ChatGPT did not provide ${filename} before the translation timeout`)
@@ -5184,6 +5213,11 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
     if (!filled) throw new Error('ChatGPT TODO classification composer could not be populated')
     await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
     await wait(chatInputSettleDelay(archive.byteLength, 1))
+    // See the matching comment in executeChatAgentMarkdownTranslation: the
+    // landing-page composer this was filled on is not necessarily the one
+    // the conversation ends up with once the attachment lands, so the
+    // bootstrap text needs reasserting against whatever composer is live now.
+    await executeChatGPTDOMScript(key, target.entry, 'todo-classification-refill-composer', chatGPTFillComposerScript(bootstrap))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
     // See the matching comment in executeChatAgentMarkdownTranslation:
     // 'instant' is a preference here, not a precondition for submitting.
@@ -5191,6 +5225,15 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT TODO classification submission has no stable conversation id')
     const deadline = Date.now() + TODO_CLASSIFICATION_TIMEOUT_MS
+    // Clicking the download control fires a real ChatGPT download every time.
+    // Re-clicking it on every poll tick while the response sits there (the
+    // download can take longer than one tick to reach will-download) queued
+    // dozens of real downloads for one response - each later one landing on
+    // ChatGPT's own browser-side duplicate-name suffix, which this task's
+    // strict exact-filename match then failed to recognise as ours, letting
+    // it fall through to a native OS save dialog. One click per response is
+    // enough; only try again if that click found nothing to click yet.
+    let downloadTriggered = false
     while (Date.now() < deadline) {
       const outcome = await Promise.race([
         download.then((value) => ({ done: true, value }), (error) => ({ done: true, error })),
@@ -5208,7 +5251,10 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
         return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(kind) }
       }
       const completion = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-completion', chatGPTResponseCompletionScript(assistantBaseline))
-      if (Number(completion?.assistantCount || 0) > assistantBaseline) await executeChatGPTDOMScript(key, target.entry, 'todo-classification-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
+      if (!downloadTriggered && Number(completion?.assistantCount || 0) > assistantBaseline) {
+        const clicked = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
+        if (clicked) downloadTriggered = true
+      }
     }
     throw new Error(`ChatGPT did not provide ${filename} before the TODO classification timeout`)
   } finally {
