@@ -26,16 +26,19 @@ export function AttentionPopover({ items, activeChatId, busy, onOpen, onAction, 
   return <section id="agent-attention-popover" className="agent-attention-popover" role="dialog" aria-modal="false" aria-label="Alertas ativos" aria-describedby="agent-attention-popover-description" data-chatgpt-overlay-blocker="true">
     <header>
       <div className="agent-attention-popover-heading">
-        <span>Triagem do Projeto</span>
-        <h2 id="agent-attention-popover-title">Centro de Alertas</h2>
-        <p id="agent-attention-popover-description">Ações concretas primeiro; abra um alerta para ver todo o contexto.</p>
+        <span className="agent-attention-popover-symbol" aria-hidden="true"><Icon name={summary.urgent ? 'shield' : 'bell'} size={16}/></span>
+        <div className="agent-attention-popover-heading-copy">
+          <span>Triagem do Projeto</span>
+          <h2 id="agent-attention-popover-title">Centro de Alertas</h2>
+          <p id="agent-attention-popover-description">Ações concretas primeiro; abra um alerta para ver todo o contexto.</p>
+        </div>
       </div>
       <button ref={closeRef} type="button" className="agent-attention-popover-close" onClick={onClose} aria-label="Fechar Centro de Alertas" title="Fechar"><Icon name="close" size={13}/></button>
     </header>
     <div className="agent-attention-popover-metrics" aria-label="Resumo dos alertas">
-      <span><b>{countFormat.format(summary.total)}</b> {summary.total === 1 ? 'Alerta' : 'Alertas'}</span>
-      <span className={summary.urgent ? 'danger' : ''}><b>{countFormat.format(summary.urgent)}</b> {summary.urgent === 1 ? 'Urgente' : 'Urgentes'}</span>
-      <span><b>{countFormat.format(summary.actionable)}</b> com ação</span>
+      <span><b>{countFormat.format(summary.total)}</b><small>{summary.total === 1 ? 'Alerta' : 'Alertas'}</small></span>
+      <span className={summary.urgent ? 'danger' : ''}><b>{countFormat.format(summary.urgent)}</b><small>{summary.urgent === 1 ? 'Urgente' : 'Urgentes'}</small></span>
+      <span><b>{countFormat.format(summary.actionable)}</b><small>com ação</small></span>
     </div>
     <div className="agent-attention-popover-list">
       <AttentionList items={preview} activeChatId={activeChatId} busy={busy} density="compact" onOpen={onOpen} onAction={onAction}/>

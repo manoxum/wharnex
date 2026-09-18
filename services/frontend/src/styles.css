@@ -5150,6 +5150,43 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-attention-popover > footer { padding:9px; border-color:var(--theme-border-soft); background:var(--theme-elevated); }
 .agent-attention-popover > footer button { min-height:36px; border-color:var(--theme-border); border-radius:9px; background:var(--theme-surface); color:var(--theme-text-soft); font-size:calc(8.2px * var(--ui-font-scale)); }
 .agent-attention-popover > footer button:hover { border-color:color-mix(in srgb,var(--theme-accent) 34%,var(--theme-border)); background:var(--theme-hover); color:var(--theme-text); }
+
+.agent-attention-popover { width:min(600px,calc(100vw - 20px)); }
+.agent-attention-popover-heading { min-width:0; display:flex; align-items:flex-start; gap:10px; }
+.agent-attention-popover-heading > .agent-attention-popover-symbol { width:34px; height:34px; flex:0 0 34px; display:grid; place-items:center; border:1px solid color-mix(in srgb,var(--theme-accent) 24%,var(--theme-border-soft)); border-radius:9px; background:var(--theme-accent-soft); color:var(--theme-accent); letter-spacing:0; text-transform:none; }
+.agent-attention-popover-heading-copy { min-width:0; display:grid; gap:2px; }
+.agent-attention-popover-heading-copy > span { color:var(--theme-text-muted); font:700 calc(7px * var(--ui-font-scale))/1.2 var(--mono-font-family); letter-spacing:.07em; text-transform:uppercase; }
+.agent-attention-popover-heading-copy h2,
+.agent-attention-popover-heading-copy p { min-width:0; }
+.agent-attention-popover-metrics { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.agent-attention-popover-metrics span { min-width:0; min-height:46px; flex-direction:column; align-items:flex-start; justify-content:center; gap:3px; }
+.agent-attention-popover-metrics b { font-size:calc(11px * var(--ui-font-scale)); }
+.agent-attention-popover-metrics small { color:inherit; font:650 calc(7.2px * var(--ui-font-scale))/1.2 var(--ui-font-family); }
+.attention-list.compact .attention-card { position:relative; border-left-width:1px; }
+.attention-list.compact .attention-card::before { content:''; position:absolute; z-index:1; inset:0 auto 0 0; width:3px; background:var(--theme-border); }
+.attention-list.compact .attention-card.danger::before { background:color-mix(in srgb,var(--danger) 78%,var(--theme-border)); }
+.attention-list.compact .attention-card.warning::before { background:color-mix(in srgb,#d3a64a 76%,var(--theme-border)); }
+.attention-list.compact .attention-card.success::before { background:color-mix(in srgb,#80b557 72%,var(--theme-border)); }
+.attention-list.compact .attention-card-main { padding:11px 12px 10px 13px; grid-template-columns:minmax(0,1fr) 18px; align-items:start; gap:9px; }
+.attention-list.compact .attention-card-marker { display:none; }
+.attention-list.compact .attention-card-main > svg { margin-top:4px; color:var(--theme-text-muted); }
+.attention-list.compact .attention-card-copy { width:100%; min-width:0; gap:4px; }
+.attention-list.compact .attention-card-meta { flex-wrap:wrap; row-gap:4px; }
+.attention-list.compact .attention-card-copy > strong { max-width:100%; overflow-wrap:break-word; word-break:normal; hyphens:none; font-size:calc(10.2px * var(--ui-font-scale)); line-height:1.34; }
+.attention-list.compact .attention-card-detail { overflow-wrap:break-word; word-break:normal; }
+.attention-list.compact .attention-card-footer { padding:9px 11px 9px 13px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; }
+.attention-list.compact .attention-card-next { overflow-wrap:break-word; word-break:normal; }
+.attention-list.compact .attention-card-action { width:auto; max-width:min(230px,48%); min-height:31px; white-space:normal; line-height:1.25; }
+@media (max-width: 460px) {
+  .agent-attention-popover { width:calc(100vw - 12px); }
+  .agent-attention-popover > header { padding-left:11px; }
+  .agent-attention-popover-heading { gap:8px; }
+  .agent-attention-popover-heading > .agent-attention-popover-symbol { width:30px; height:30px; flex-basis:30px; }
+  .agent-attention-popover-metrics { grid-template-columns:1fr 1fr; }
+  .agent-attention-popover-metrics span:last-child { grid-column:1 / -1; }
+  .attention-list.compact .attention-card-footer { grid-template-columns:minmax(0,1fr); align-items:stretch; }
+  .attention-list.compact .attention-card-action { width:100%; max-width:none; }
+}
 .workspace-agent-rail-slot .agent-bundle-counters { width:35px; }
 .workspace-agent-rail-slot .agent-direct-chatgpt-tab button,
 .workspace-agent-rail-slot .agent-surface-tabs button { width:35px; height:36px; }

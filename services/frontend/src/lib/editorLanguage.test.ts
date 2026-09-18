@@ -7,6 +7,8 @@ describe('editor language detection', () => {
     expect(editorLanguageForPath('services/backend/main.go')).toBe('go')
     expect(editorLanguageForPath('Dockerfile')).toBe('dockerfile')
     expect(editorLanguageForPath('Makefile')).toBe('makefile')
+    expect(editorLanguageForPath('GNUmakefile')).toBe('makefile')
+    expect(editorLanguageForPath('build/rules.mk')).toBe('makefile')
   })
 
   it('recognizes environment files with their own syntax mode', () => {

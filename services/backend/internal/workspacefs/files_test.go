@@ -31,13 +31,61 @@ func TestReadWriteAndConflict(t *testing.T) {
 	}
 }
 
-func TestTraversalAndSecretsDenied(t *testing.T) {
+func TestTraversalAndEnvironmentCreationDenied(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Write(root, "../escape.txt", "x", ""); err == nil {
 		t.Fatal("expected traversal rejection")
 	}
 	if _, err := Write(root, ".env", "TOKEN=x", ""); err == nil {
-		t.Fatal("expected secret path rejection")
+		t.Fatal("expected environment-file creation rejection")
+	}
+}
+
+func TestEditorListsReadsAndUpdatesExistingEnvironmentFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".harnessignore"), []byte(".env\n*.env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		".env":       "TOKEN=one\n",
+		".env.main":  "MODE=main\n",
+		"config.env": "PORT=8080\n",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entries, err := List(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, entry := range entries {
+		paths[entry.Path] = true
+	}
+	for _, name := range []string{".env", ".env.main", "config.env"} {
+		if !paths[name] {
+			t.Fatalf("expected %s in editor listing: %#v", name, entries)
+		}
+	}
+
+	current, err := Read(root, ".env.main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := Write(root, ".env.main", "MODE=updated\n", current.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Content != "MODE=updated\n" {
+		t.Fatalf("content=%q", saved.Content)
+	}
+	if _, err := Write(root, ".env.missing", "TOKEN=x\n", ""); err == nil {
+		t.Fatal("expected a new environment file to stay protected")
+	}
+	if _, _, err := OpenPreview(root, ".env"); err == nil {
+		t.Fatal("expected environment files to stay unavailable through preview")
 	}
 }
 
