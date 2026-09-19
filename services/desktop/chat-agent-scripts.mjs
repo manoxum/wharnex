@@ -102,7 +102,11 @@ export function reasoningEffortAdjustScript(behavior) {
     const button = all(__whx.optionalSelectors.effortPicker)
       .filter((node) => usable(node) && surface.contains(node));
     if (button.length !== 1) return { ok: false, state: button.length ? 'effort-control-ambiguous' : 'effort-control-unavailable' };
-    if (button[0].getAttribute('aria-expanded') !== 'true') {
+    // Current ChatGPT rollouts may render the open effort popover without
+    // reflecting aria-expanded on its trigger. The slider itself is the
+    // stronger structural evidence: consume it first whenever it is usable.
+    const slider = pick(__whx.optionalSelectors.effortSlider);
+    if (!slider) {
       const target = rect(button[0]);
       if (!target) return { ok: false, state: 'effort-control-offscreen', viewport: viewport() };
       // What actually sits under the point a native press would land on. A
@@ -117,8 +121,6 @@ export function reasoningEffortAdjustScript(behavior) {
         hit: shape(hit), hitIsControl: Boolean(hit && (hit === button[0] || button[0].contains(hit) || hit.contains(button[0]))),
       };
     }
-    const slider = pick(__whx.optionalSelectors.effortSlider);
-    if (!slider) return { ok: false, state: 'effort-slider-unavailable' };
     const valueNow = Number(slider.getAttribute('aria-valuenow'));
     const valueMax = Number(slider.getAttribute('aria-valuemax'));
     if (!Number.isInteger(valueNow) || !Number.isInteger(valueMax)) return { ok: false, state: 'effort-slider-value-unknown' };

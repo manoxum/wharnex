@@ -52,10 +52,9 @@ func TestChatAgentValidBundleSamplesAreBoundedAndDeduplicated(t *testing.T) {
 	}
 }
 
-func TestChatAgentRateLimitBackoffIsProgressive(t *testing.T) {
+func TestEveryChatAgentRateLimitPausesForFiveMinutes(t *testing.T) {
 	store := NewStore()
-	want := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 5 * time.Minute, 5 * time.Minute}
-	for index, pause := range want {
+	for index := range 5 {
 		before := time.Now().UTC()
 		state, err := store.RecordChatAgentRateLimit("conversation_transport", ChatAgentRateLimitTransport)
 		if err != nil {
@@ -65,8 +64,8 @@ func TestChatAgentRateLimitBackoffIsProgressive(t *testing.T) {
 			t.Fatalf("level %d state=%#v", index+1, state)
 		}
 		got := state.PausedUntil.Sub(before)
-		if got < pause-time.Second || got > pause+time.Second {
-			t.Fatalf("pause level %d=%v want about %v", index+1, got, pause)
+		if got < chatAgentRateLimitGatePause-time.Second || got > chatAgentRateLimitGatePause+time.Second {
+			t.Fatalf("pause level %d=%v want about %v", index+1, got, chatAgentRateLimitGatePause)
 		}
 	}
 }
@@ -137,8 +136,8 @@ func TestChatAgentRateLimitKindDefaultsToTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.PausedUntil == nil || state.PausedUntil.Sub(before) > 2*time.Minute {
-		t.Fatalf("unknown kind did not fall back to the transport ladder: %#v", state)
+	if state.PausedUntil == nil || state.PausedUntil.Sub(before) < chatAgentRateLimitGatePause-time.Second {
+		t.Fatalf("unknown kind did not fall back to the five-minute transport pause: %#v", state)
 	}
 }
 

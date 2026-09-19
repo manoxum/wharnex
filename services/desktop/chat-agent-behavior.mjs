@@ -18,7 +18,7 @@ export const BEHAVIOR_SCHEMA = 'harness.chat-agent-behavior/v1'
 export const CHATGPT_BEHAVIOR = Object.freeze({
   schema: BEHAVIOR_SCHEMA,
   provider: 'chatgpt',
-  revision: '2026-09-10.1',
+  revision: '2026-09-19.1',
   origin: 'builtin',
   baseURL: 'https://chatgpt.com',
   trustedHosts: ['chatgpt.com'],

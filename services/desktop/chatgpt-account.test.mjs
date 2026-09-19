@@ -61,6 +61,12 @@ test('account scripts remain typed and avoid assistant response selectors', () =
   }
 })
 
+test('every generated account script is valid JavaScript', () => {
+  for (const script of ALL_SCRIPTS) {
+    assert.doesNotThrow(() => new Function(`return ${script}`))
+  }
+})
+
 test('stop action confirms idle only from a usable composer and otherwise stays ambiguous', () => {
   const script = chatGPTStopConversationScript()
   assert.match(script, /querySelectorAll/)
@@ -75,10 +81,12 @@ test('stop action confirms idle only from a usable composer and otherwise stays 
 // The conversation menu must be addressed by the conversation's own id: a
 // sidebar reorder between locating and clicking would otherwise open the menu
 // of a neighbouring conversation.
-test('conversation menu binds to its own conversation id before falling back to the thread header', () => {
+test('conversation menu prefers the exact loaded thread header and otherwise binds to its own history id', () => {
   const script = chatGPTOpenConversationMenuScript('6aa1cb9b-e968-83ea-ab1a-eaaeda5dda4f')
   assert.match(script, /data-conversation-options-trigger/)
   assert.match(script, /conversation-options-button/)
+  assert.match(script, /current === id/)
+  assert.match(script, /\[exactHeader, owned\]/)
   assert.match(script, /boundToConversation/)
   assert.match(script, /rect\(trigger\)/)
   assert.doesNotMatch(script, /trigger\.click\(\)/)

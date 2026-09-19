@@ -82,7 +82,7 @@ test('local frontend navigation uses a per-runtime cache token', async () => {
 
 test('prepare-prompt uses the background composer targeting helper', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function submitPreparedChatGPTDraft', start)
 
   assert.notEqual(start, -1)
@@ -109,7 +109,7 @@ test('a prepared upload is submitted atomically without retargeting or reloading
 
 test('manual preparation records the supplied title and cannot leave an orphan draft through an undefined variable', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function queuePreparedPromptForWorker', start)
   const prepare = source.slice(start, end)
 
@@ -133,7 +133,7 @@ test('background planner continuations use hidden Workers and cannot focus or re
   const writeStart = source.indexOf('async function executeChatAgentWrite(')
   const write = source.slice(writeStart, source.indexOf('\nasync function enqueueOrganizeFromTitle', writeStart))
   assert.match(write, /payload\.operation === 'PREPARE_PROMPT'/)
-  assert.match(write, /preparePromptForChatGPT\(safeRequest, entry\)/)
+  assert.match(write, /preparePromptForChatGPT\(safeRequest, entry, \{ pacedWorker \}\)/)
 
   const executionStart = source.indexOf('async function executeChatAgentTask(')
   const execution = source.slice(executionStart, source.indexOf('\n  switch \(task\.type\)', executionStart))
@@ -200,7 +200,7 @@ test('linked projects expose owning windows and can bring an existing owner forw
 
 test('a failed prompt delivery remains retryable without asking the planner for a new prompt', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
   const retryStart = source.indexOf('async function retryPreparedChatGPTPrompt(request, entryOverride = undefined)')
   const retryEnd = source.indexOf('\nasync function attachContextToChatGPT', retryStart)
@@ -211,7 +211,7 @@ test('a failed prompt delivery remains retryable without asking the planner for 
 
 test('observing a submit does not erase the retryable prompt, only a real terminal outcome does', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const retryDeclStart = source.indexOf('\nasync function retryPersistedChatGPTPrompt(request, entryOverride = undefined)')
   const prepareOwnBody = source.slice(prepareStart, retryDeclStart)
   // A conversation POST being observed only confirms transport, not that
@@ -344,7 +344,7 @@ test('dual ChatGPT auth uses a real managed browser and never forwards an in-fli
 
 test('bundle fallback snapshots assistant-turn baseline before each planner submit', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
   const prepare = source.slice(prepareStart, prepareEnd)
   const baseline = prepare.indexOf('await chatGPTAssistantTurnCount(target.wc)')
@@ -388,7 +388,7 @@ test('desktop owns the new-chat affinity handshake and renderer only confirms or
   assert.match(source, /wharness:chatgpt:reject-affinity/)
   assert.match(source, /rejectChatGPTAffinity\(entry\.affinity, rejectedURL\)/)
   assert.match(source, /markChatGPTAffinitySubmitted\(target\.entry\.affinity\)/)
-  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
   const prepare = source.slice(prepareStart, prepareEnd)
   assert.match(prepare, /linkedConversation \|\| CHATGPT_URL/)
@@ -398,7 +398,7 @@ test('desktop owns the new-chat affinity handshake and renderer only confirms or
 test('Desktop always sends one request ZIP and selected tunnels only augment the direct bootstrap', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /function normalizeTunnelInstanceIDs\(value\)/)
-  const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function attachContextToChatGPT', start)
   const prepare = source.slice(start, end)
   assert.match(prepare, /const tunnelInstanceIds = normalizeTunnelInstanceIDs\(request\?\.tunnelInstanceIds\)/)
@@ -420,11 +420,11 @@ test('Desktop direct transport collapses prompt, context and attachments into on
   assert.match(materialize, /writeChatInputArchive\(archivePath/)
   assert.doesNotMatch(materialize, /paths\.push/)
 
-  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
   const prepare = source.slice(prepareStart, prepareEnd)
   assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, remoteInput\?\.tunnels \|\| \[\], input\.requestMetadata\)/)
-  assert.match(prepare, /await pasteChatGPTFile\(target\.entry, input\.archivePath, 1, 1\)/)
+  assert.match(prepare, /await pasteChatGPTFile\(target\.entry, input\.archivePath, 1, 1, \{ pacedWorker \}\)/)
   assert.match(prepare, /attachmentCount: 1/)
   assert.doesNotMatch(prepare, /transport=remote[^\n]+tunnels=/)
   assert.match(prepare, /return \{ ok: true, cacheKey: key, attachmentCount: 1/)
@@ -443,7 +443,7 @@ test('automatic and confirmed submissions wait for a stable loaded definitive Ch
   assert.doesNotMatch(waiter, /finalURL \|\| canonicalChatGPTConversationURL/)
   assert.match(source, /return \/\^WEB\(\?:\:\|%3A\)\/i\.test\(id\) \? '' : id/)
 
-  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
   const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(')
   const preparedEnd = source.indexOf('\nasync function', preparedStart + 20)
@@ -691,10 +691,11 @@ test('the two pools partition the durable queue: Supervisors take chat-bound wor
   for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'TRANSLATE_MARKDOWN', 'TODO_CLASSIFY', 'TITLE_DISCOVER']) {
     assert.doesNotMatch(execute, new RegExp(`case '${type}'`), `${type} is small Worker work and must never reach a Supervisor`)
   }
-  // Navigation is the exception, not the rule: the bound renderer is normally
-  // already on the conversation, and a navigation that does happen is paced by
-  // the same process-wide provider gate every Worker action uses.
-  assert.match(execute, /if \(conversationURL && !sameConversationURL\(current, conversationURL\)\) \{\n\s+await paceChatGPTWorkerNavigation\(\)/)
+  // The Worker cadence must not serialize Supervisors. Provider-wide suspension
+  // remains checked above and after navigation, but no Worker pacer is touched.
+  assert.doesNotMatch(execute, /paceChatGPTWorker(?:Navigation|Submission)/)
+  assert.match(execute, /executeChatAgentWrite\(task, entry, key, payload, conversationURL, \{ pacedWorker: false \}\)/)
+  assert.match(execute, /executeChatAgentOrchestratorPlan\(task, entry, key, payload, owner, \{ pacedWorker: false \}\)/)
   // Every slot still finishing a request is a free wait, never a charged attempt.
   assert.match(execute, /status: 'waiting', delayMs: CHAT_SUPERVISOR_SLOT_WAIT_MS, observation: true/)
 })
@@ -738,7 +739,7 @@ test('background ChatGPT views disable renderer throttling and escalate structur
   assert.match(source, /humanAction: entry\?\.humanAction\?\.active/)
   assert.match(source, /new Notification\(\{ title: 'Ação necessária no ChatGPT'/)
   assert.match(source, /window\.flashFrame\(true\)/)
-  assert.match(source, /CHATGPT_RATE_LIMIT_BACKOFF_MS = 60_000/)
+  assert.match(source, /CHATGPT_RATE_LIMIT_BACKOFF_MS = 5 \* 60_000/)
   assert.match(source, /conversationRequests: new Map\(\)/)
   assert.match(source, /conversationTransportGeneration: 0/)
   assert.match(source, /recordChatGPTConversationTransport\(entry\.conversationRequests, requestKey, entry\.conversationTransportGeneration, phase, now\)/)
@@ -1221,7 +1222,7 @@ test('direct Supervisor writes serialize across chats and preserve the selected 
 
 test('auto submit persists binding and delegates response supervision to workers', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function retryPersistedChatGPTPrompt', start)
   const prepare = source.slice(start, end)
 
@@ -1282,7 +1283,7 @@ test('bundle download failures remain correlated to a strict late filename inste
 
 test('ChatGPT request archive upload uses the dedicated file input instead of clipboard paste', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count, { translation = false } = {})')
+  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count, { translation = false, pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function submitChatGPTDraft', start)
   const upload = source.slice(start, end)
   assert.match(upload, /selectChatGPTUploadFile\(wc, filePath\)/)
@@ -1300,13 +1301,13 @@ test('ChatGPT request archive upload uses the dedicated file input instead of cl
 // reintroduces that contention.
 test('every ChatGPT upload attempt, not only the first, is paced against the shared provider gate', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count, { translation = false } = {})')
+  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count, { translation = false, pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function submitChatGPTDraft', start)
   const upload = source.slice(start, end)
   const beforeAttemptStart = upload.indexOf('beforeAttempt: async () => {')
   const beforeAttemptEnd = upload.indexOf('beginUpload:', beforeAttemptStart)
   const beforeAttempt = upload.slice(beforeAttemptStart, beforeAttemptEnd)
-  assert.match(beforeAttempt, /await paceChatGPTWorkerSubmission\(\{ translation \}\)/)
+  assert.match(beforeAttempt, /if \(pacedWorker\) await paceChatGPTWorkerSubmission\(\{ translation \}\)/)
 })
 
 test('task comments are sent as a single protocol ZIP containing the guidance and attachments', async () => {
@@ -1435,6 +1436,8 @@ test('reasoning effort is stepped through the composer slider, not a keyboard sh
   assert.doesNotMatch(script, /\.click\(\)/)
   assert.match(script, /getAttribute\('aria-valuenow'\)/)
   assert.match(script, /getAttribute\('aria-valuemax'\)/)
+  assert.ok(script.indexOf('const slider = pick(__whx.optionalSelectors.effortSlider)') < script.indexOf('const target = rect(button[0])'))
+  assert.doesNotMatch(script, /getAttribute\('aria-expanded'\)/)
 
   const behavior = await readFile(new URL('./chat-agent-behavior.mjs', import.meta.url), 'utf8')
   assert.match(behavior, /effortSlider: \[.*role="slider".*\]/)
@@ -1471,7 +1474,7 @@ test('an unreachable reasoning effort still blocks submission unless a caller ex
 
 test('expected bundle supervision is armed only around submissions that can leave stale state', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const prepareEnd = source.indexOf('\nasync function retryPersistedChatGPTPrompt', prepareStart)
   assert.notEqual(prepareStart, -1)
   assert.notEqual(prepareEnd, -1)
@@ -2243,7 +2246,8 @@ test('auxiliary conflict surfaces never overwrite the primary durable chat affin
   assert.match(helper, /_cf_/)
   assert.match(helper, /return ''/)
 
-  const prepare = source.slice(source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)'), source.indexOf('\nasync function retryPersistedChatGPTPrompt', source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined)')))
+  const prepareSignature = 'async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})'
+  const prepare = source.slice(source.indexOf(prepareSignature), source.indexOf('\nasync function retryPersistedChatGPTPrompt', source.indexOf(prepareSignature)))
   assert.match(prepare, /durableWorkspaceChatID\(key, request\?\.workspaceChatId\)/)
   assert.match(prepare, /if \(workspaceChatId\) await persistWorkspaceChatRemoteBestEffort/)
 
@@ -2285,6 +2289,7 @@ test('any trusted ChatGPT backend 429 is provider-wide evidence, not just the co
 test('an account-wide rate-limit gate suspends the provider for the fixed window', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /const CHATGPT_RATE_LIMIT_GATE_MS = 5 \* 60_000/)
+  assert.match(source, /Toda a automação fica suspensa por 5 minutos/)
 
   const start = source.indexOf('function applyChatGPTRateLimit(')
   const apply = source.slice(start, source.indexOf('\nfunction noteChatGPTRateLimitGate(', start))
@@ -2293,6 +2298,17 @@ test('an account-wide rate-limit gate suspends the provider for the fixed window
   // The kind has to reach the durable store, or the backend keeps applying the
   // five-minute ladder step to an account-wide block.
   assert.match(apply, /recordRateLimit\(source, classification\.kind\)/)
+})
+
+test('upload and submit recheck a provider suspension at the last provider-facing boundary', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const pasteStart = source.indexOf('async function pasteChatGPTFile(')
+  const paste = source.slice(pasteStart, source.indexOf('\n// Submission has two different facts', pasteStart))
+  assert.match(paste, /if \(pacedWorker\) await paceChatGPTWorkerSubmission\(\{ translation \}\)[\s\S]*chatAgentRateLimitDelayMs\(\)[\s\S]*throw new ChatGPTRateLimitDeferral/)
+
+  const submitStart = source.indexOf('async function submitChatGPTDraft(')
+  const submit = source.slice(submitStart, source.indexOf('\nasync function preparePromptForChatGPT(', submitStart))
+  assert.match(submit, /beforeSubmit:[\s\S]*chatAgentRateLimitDelayMs\(\)[\s\S]*throw new ChatGPTRateLimitDeferral/)
 })
 
 test('workers stop claiming while the provider cooldown is active', async () => {
@@ -2505,7 +2521,7 @@ test('orchestrator planning carries shared-composer context and attachments into
   assert.match(worker, /const includeContext = payload\.include_context === true/)
   assert.match(worker, /storedAttachmentPath\(chatAttachmentRoot\(\), String\(attachment\?\.storage_ref \|\| ''\)\)/)
   assert.match(worker, /const context = await fetchContextZip\(sessionId\)/)
-  assert.match(worker, /await pasteChatGPTFile\(target\.entry, uploadPaths\[index\], index \+ 1, uploadPaths\.length\)/)
+  assert.match(worker, /await pasteChatGPTFile\(target\.entry, uploadPaths\[index\], index \+ 1, uploadPaths\.length, \{ pacedWorker \}\)/)
   assert.match(worker, /removeStoredChatAttachments\(chatAttachmentRoot\(\), attachmentCacheKey\)/)
 })
 
@@ -2651,7 +2667,7 @@ test('a conversation menu that fails to render is reopened before the action giv
   const loopStart = fn.indexOf('for (')
   const loop = fn.slice(loopStart, fn.indexOf('\n  }', loopStart))
   assert.match(loop, /chatGPTOpenConversationMenuScript\(conversationId\)/)
-  assert.match(loop, /if \(!opened\.ok\) \{[\s\S]*return opened\s*\}/)
+  assert.match(loop, /if \(!opened\.ok\) return opened/)
   assert.match(loop, /if \(located\.state !== 'menu-not-open'\) return located/)
 })
 
@@ -2689,6 +2705,13 @@ test('the TODO classification and translation download loops click at most once 
     assert.match(fn, /if \(!downloadTriggered && Number\(completion\?\.assistantCount \|\| 0\) > assistantBaseline\)/, open)
     assert.match(fn, /if \(clicked\) downloadTriggered = true/, open)
   }
+})
+
+test('TODO download diagnostics never export assistant HTML or prose', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const dom = await readFile(new URL('./chatgpt-dom.mjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /diag-download|chatGPTDownloadDiagnosticScript/)
+  assert.doesNotMatch(dom, /latestAssistantOuterHTML|\.outerHTML/)
 })
 
 test('the TODO classification and translation flows reassert composer text before submitting', async () => {

@@ -15,12 +15,9 @@ const (
 	chatAgentSampleWindowSize  = 50
 	chatAgentMinSamples        = 3
 	chatAgentMaxRateLimitLevel = 4
-	// A structural "too many requests" gate is not one throttled request. It is
-	// ChatGPT closing the account's own submission surface, so every worker that
-	// keeps claiming against it turns a single gate into the retry storm that
-	// earned it. A transport 429 stays on the progressive ladder below, because
-	// there the next request may well succeed; the gate instead suspends the
-	// whole provider long enough for the account's own window to reopen.
+	// Every provider 429 and structural "too many requests" gate stops the whole
+	// account for one fixed window. Retrying after only the former one-minute
+	// first ladder step reproduced the refusal immediately in live operation.
 	chatAgentRateLimitGatePause = 5 * time.Minute
 )
 
@@ -60,19 +57,7 @@ func chatAgentInitialWait(average time.Duration, samples int) time.Duration {
 }
 
 func chatAgentRateLimitPause(level int, kind string) time.Duration {
-	if normalizeChatAgentRateLimitKind(kind) == ChatAgentRateLimitGate {
-		return chatAgentRateLimitGatePause
-	}
-	switch {
-	case level <= 1:
-		return time.Minute
-	case level == 2:
-		return 2 * time.Minute
-	case level == 3:
-		return 4 * time.Minute
-	default:
-		return 5 * time.Minute
-	}
+	return chatAgentRateLimitGatePause
 }
 
 // The gate is the provider's strongest evidence, so it pins the level at its
@@ -94,7 +79,7 @@ func chatAgentRateLimitReason(source, kind string, level int) string {
 	if normalizeChatAgentRateLimitKind(kind) == ChatAgentRateLimitGate {
 		return fmt.Sprintf("ChatGPT rate-limit gate (%s, suspended %s)", source, chatAgentRateLimitGatePause)
 	}
-	return fmt.Sprintf("ChatGPT HTTP 429 rate limit (%s, level %d)", source, level)
+	return fmt.Sprintf("ChatGPT HTTP 429 rate limit (%s, suspended %s)", source, chatAgentRateLimitGatePause)
 }
 
 // A pause is a floor, never a reassignment. A transport 429 observed while an

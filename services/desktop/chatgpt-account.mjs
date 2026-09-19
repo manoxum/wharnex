@@ -109,8 +109,10 @@ export function chatGPTStopConversationScript() {
 
 // The conversation options trigger is addressed by its own conversation id
 // (`data-conversation-options-trigger`) so a sidebar reorder can never point the
-// menu at a neighbouring conversation. The thread-header trigger is the fallback
-// used when the conversation is open but not present in the visible history.
+// menu at a neighbouring conversation. When the exact requested conversation is
+// already loaded, its thread-header trigger is preferred: unlike the virtualized
+// history row it cannot drift to a recycled `history-item-N`/`undefined-options`
+// control while the sidebar list reconciles.
 export function chatGPTOpenConversationMenuScript(conversationId = '') {
   const wanted = encode(conversationId)
   return `(() => {${PRELUDE}
@@ -120,11 +122,13 @@ export function chatGPTOpenConversationMenuScript(conversationId = '') {
     // failure mode when an exact string comparison is available.
     const owned = id ? [...document.querySelectorAll('[data-conversation-options-trigger]')].find((node) => node.getAttribute('data-conversation-options-trigger') === id) : null;
     const header = document.querySelector('button[data-testid="conversation-options-button"]');
-    const trigger = [owned, header].find((node) => node && usable(node) && visible(node));
-    if (!trigger) return { ok: false, state: 'menu-unavailable', boundToConversation: Boolean(owned) };
+    const current = String(location.pathname || '').match(/\\/c\\/([^/?#]+)/)?.[1] || '';
+    const exactHeader = id && current === id ? header : null;
+    const trigger = [exactHeader, owned].find((node) => node && usable(node) && visible(node));
+    if (!trigger) return { ok: false, state: 'menu-unavailable', boundToConversation: false };
     const point = rect(trigger);
-    if (!point) return { ok: false, state: 'menu-offscreen', viewport: viewport(), boundToConversation: trigger === owned };
-    return { ok: true, state: 'menu-opened', rect: point, boundToConversation: trigger === owned };
+    if (!point) return { ok: false, state: 'menu-offscreen', viewport: viewport(), boundToConversation: true };
+    return { ok: true, state: 'menu-opened', rect: point, boundToConversation: true, source: trigger === exactHeader ? 'header' : 'history' };
   })()`
 }
 

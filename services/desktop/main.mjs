@@ -9,7 +9,7 @@ import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPoi
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
-import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTDownloadDiagnosticScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { behaviorProbeScript, isBehaviorProbeEnabled, normalizeBehaviorProbeResult, sanitizeBehaviorProbeControl, BEHAVIOR_PROBE_CONTROLS } from './chatgpt-behavior-probe.mjs'
@@ -275,7 +275,7 @@ const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
 // generating/complete/download signal resets it. A visibly working model is
 // therefore never interrupted, while a genuinely stuck surface still stops.
 const AWAIT_STALL_ATTENTION_MS = 10 * 60_000
-const CHATGPT_RATE_LIMIT_BACKOFF_MS = 60_000
+const CHATGPT_RATE_LIMIT_BACKOFF_MS = 5 * 60_000
 // Local mirror of the backend's account-wide gate suspension, applied on the
 // tick the gate is observed so workers stop before the round-trip returns. The
 // persisted value from the backend is authoritative and wins on arrival.
@@ -1327,9 +1327,8 @@ function clearChatGPTHumanAction(cacheKey, reason = '') {
 
 // Register provider rate-limit evidence and suspend the pool accordingly.
 //
-// The two shapes are answered differently: one throttled request takes the
-// progressive ladder, while ChatGPT's account-wide gate suspends every claim
-// and submission for a fixed window. The local clock is set optimistically so
+// Both provider shapes stop the account for the same fixed window. The kind is
+// still preserved as diagnostic evidence, while the local clock is set optimistically so
 // workers stop on this tick rather than after the backend round-trip, and the
 // durable value from the backend then takes over.
 function applyChatGPTRateLimit(cacheKey, { source = 'unknown', domGate = false } = {}) {
@@ -1372,8 +1371,8 @@ function applyChatGPTRateLimit(cacheKey, { source = 'unknown', domGate = false }
       cacheKey,
       state: 'thinking',
       text: gate
-        ? 'O ChatGPT bloqueou a conta por excesso de pedidos. Os workers ficam suspensos cerca de 30 minutos e retomam de forma escalonada, sem perder tarefas nem tentativas.'
-        : 'O ChatGPT aplicou limitação temporária. Os workers entram em cooldown progressivo e retomam com navegação global espaçada.',
+        ? 'O ChatGPT bloqueou a conta por excesso de pedidos. Toda a automação fica suspensa por 5 minutos e retoma do nível saudável, sem perder tarefas nem tentativas.'
+        : 'O ChatGPT devolveu HTTP 429. Toda a automação fica suspensa por 5 minutos e depois retoma do nível saudável.',
       capturedAt: new Date().toISOString(),
     })
   }
@@ -3791,14 +3790,7 @@ async function chooseChatGPTConversationAction(key, entry, action, conversationI
     let located = { ok: false, state: 'menu-not-open' }
     for (let attempt = 0; attempt < CHATGPT_MENU_REOPEN_ATTEMPTS; attempt += 1) {
       const opened = await commitChatGPTAccountControl(key, entry, `${action}-menu`, chatGPTOpenConversationMenuScript(conversationId))
-      if (!opened.ok) {
-        if (isBehaviorProbeEnabled()) {
-          const raw = await executeChatGPTDOMScript(key, entry, 'debug-conversation-menu', behaviorProbeScript('conversation-menu')).catch(() => ({}))
-          const diagnostic = normalizeBehaviorProbeResult('conversation-menu', raw)
-          console.warn(`[DEBUG-menu-map] ${JSON.stringify(diagnostic)}`)
-        }
-        return opened
-      }
+      if (!opened.ok) return opened
       located = await commitChatGPTAccountControl(key, entry, action, chatGPTMenuItemRectScript(action))
       if (located.state !== 'menu-not-open') return located
     }
@@ -4238,7 +4230,7 @@ async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationUR
   }
 }
 
-async function pasteChatGPTFile(entry, filePath, index, count, { translation = false } = {}) {
+async function pasteChatGPTFile(entry, filePath, index, count, { translation = false, pacedWorker = false } = {}) {
   const key = chatGPTKeyForEntry(entry)
   const { wc } = requireOwnedChatGPTEntry(key, entry)
   const result = await pasteWithUploadRetry({
@@ -4250,7 +4242,9 @@ async function pasteChatGPTFile(entry, filePath, index, count, { translation = f
       // pushes an upload that would otherwise start past the coordinator's
       // observation window. The shared gate spaces retries the same way it
       // already spaces first attempts and navigation.
-      await paceChatGPTWorkerSubmission({ translation })
+      if (pacedWorker) await paceChatGPTWorkerSubmission({ translation })
+      const suspension = chatAgentRateLimitDelayMs()
+      if (suspension > 0) throw new ChatGPTRateLimitDeferral(suspension)
       await waitForChatGPTSurfaceReady(key, entry)
       const ready = await wc.executeJavaScript(chatGPTComposerReadyScript(), true)
       if (!ready) throw new Error('ChatGPT composer DOM was not found before upload')
@@ -4365,6 +4359,8 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
   const result = await submitWithoutReplay({
     beforeSubmit: async () => {
       assertExpectedConversation()
+      const suspension = chatAgentRateLimitDelayMs()
+      if (suspension > 0) throw new ChatGPTRateLimitDeferral(suspension)
     },
     beginObservation: () => chatGPTSubmissions.expect(wc.id),
     submit: async () => {
@@ -4381,7 +4377,7 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
   return result
 }
 
-async function preparePromptForChatGPT(request, entryOverride = undefined) {
+async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {}) {
   const signal = entryOverride?.transportAbortSignal
   throwIfChatGPTTransportAborted(signal)
   const text = String(request?.text || '').trim()
@@ -4437,7 +4433,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-composer', chatGPTFillComposerScript(bootstrap))
   throwIfChatGPTTransportAborted(signal)
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated with local input bootstrap')
-  await pasteChatGPTFile(target.entry, input.archivePath, 1, 1)
+  await pasteChatGPTFile(target.entry, input.archivePath, 1, 1, { pacedWorker })
   throwIfChatGPTTransportAborted(signal)
   let conversationUrl = target.conversationUrl
   if (autoSubmit) {
@@ -5009,8 +5005,8 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
   return { status: 'done' }
 }
 
-async function executeChatAgentWrite(task, entry, key, payload, conversationURL) {
-  await paceChatGPTWorkerSubmission()
+async function executeChatAgentWrite(task, entry, key, payload, conversationURL, { pacedWorker = true } = {}) {
+  if (pacedWorker) await paceChatGPTWorkerSubmission()
   // The cooldown may have opened while this submission waited its turn in the
   // queue above; submitting into an active provider pause is the one thing that
   // reliably escalates it to the next level.
@@ -5032,7 +5028,7 @@ async function executeChatAgentWrite(task, entry, key, payload, conversationURL)
       url: targetURL,
       autoSubmit: true,
     }
-    const prepared = await withChatGPTTransportPreparation(key, entry, requestId, () => preparePromptForChatGPT(safeRequest, entry))
+    const prepared = await withChatGPTTransportPreparation(key, entry, requestId, () => preparePromptForChatGPT(safeRequest, entry, { pacedWorker }))
     return { status: 'done', payload: { operation: 'PREPARE_PROMPT', conversation_url: prepared.conversationUrl || targetURL, expected_filename: prepared.expectedFilename } }
   }
   const prompt = String(payload.prompt || payload.original_prompt || '').trim()
@@ -5247,7 +5243,7 @@ async function importRetainedOrchestratorPlan(sessionId, requestId, delivery, va
   }
 }
 
-async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner) {
+async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner, { pacedWorker = true } = {}) {
   if (payload?.protocol !== 'harness.orchestrator-planning/v1') {
     return { status: 'failed', error: 'invalid orchestrator planning worker protocol payload' }
   }
@@ -5312,7 +5308,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       assistantBaseline = Number.isFinite(checkpointBaseline) && checkpointBaseline >= 0 ? checkpointBaseline : await chatGPTAssistantTurnCount(wc)
       console.log(`[orchestrator-worker] resumed task=${task.task_id} request=${requestId} conversation=${sanitizeDiagnosticURL(checkpointURL)}`)
     } else {
-      await paceChatGPTWorkerSubmission()
+      if (pacedWorker) await paceChatGPTWorkerSubmission()
       const rateLimitDelay = chatAgentRateLimitDelayMs()
       if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
       target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
@@ -5334,7 +5330,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         uploadBytes += Math.max(0, Number(attachment?.size || 0))
       }
       for (let index = 0; index < uploadPaths.length; index += 1) {
-        await pasteChatGPTFile(target.entry, uploadPaths[index], index + 1, uploadPaths.length)
+        await pasteChatGPTFile(target.entry, uploadPaths[index], index + 1, uploadPaths.length, { pacedWorker })
       }
       if (uploadPaths.length) await wait(chatInputSettleDelay(uploadBytes, uploadPaths.length))
       else await wait(150)
@@ -5397,7 +5393,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         rerequests += 1
         lastRequestedAt = Date.now()
         console.warn(`[orchestrator-worker] artifact expired task=${task.task_id} request=${requestId} re-request=${rerequests}`)
-        await paceChatGPTWorkerSubmission()
+        if (pacedWorker) await paceChatGPTWorkerSubmission()
         const refilled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-refill-composer', chatGPTFillComposerScript(orchestratorPlanInstruction(prompt, filename, true)))
         if (!refilled) throw new Error('ChatGPT orchestrator composer could not be populated for the re-request')
         await wait(150)
@@ -5511,7 +5507,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     target.reasoningEffort = 'instant'
     const filled = await executeChatGPTDOMScript(key, target.entry, 'translation-fill-composer', chatGPTFillComposerScript(bootstrap))
     if (!filled) throw new Error('ChatGPT translation composer could not be populated')
-    await pasteChatGPTFile(target.entry, sourcePath, 1, 1, { translation: true })
+    await pasteChatGPTFile(target.entry, sourcePath, 1, 1, { translation: true, pacedWorker: true })
     await wait(chatInputSettleDelay(archive.byteLength, 1))
     // A fresh chat's landing-page composer is a different mounted element
     // from the one the active conversation ends up with once an attachment
@@ -5629,7 +5625,7 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
     target.reasoningEffort = 'instant'
     const filled = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-fill', chatGPTFillComposerScript(bootstrap))
     if (!filled) throw new Error('ChatGPT TODO classification composer could not be populated')
-    await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
+    await pasteChatGPTFile(target.entry, sourcePath, 1, 1, { pacedWorker: true })
     await wait(chatInputSettleDelay(archive.byteLength, 1))
     // See the matching comment in executeChatAgentMarkdownTranslation: the
     // landing-page composer this was filled on is not necessarily the one
@@ -5672,10 +5668,6 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
       if (!downloadTriggered && Number(completion?.assistantCount || 0) > assistantBaseline) {
         const clicked = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
         if (clicked) downloadTriggered = true
-        else {
-          const diag = await executeChatGPTDOMScript(key, target.entry, 'todo-classification-download-diag', chatGPTDownloadDiagnosticScript(filename, assistantBaseline))
-          console.log(`[diag-download] key=${key} filename=${filename} ${JSON.stringify(diag)}`)
-        }
       }
     }
     throw new Error(`ChatGPT did not provide ${filename} before the TODO classification timeout`)
@@ -5849,21 +5841,19 @@ async function executeChatSupervisorTask(task, { worker, owner }) {
   // The normal case is no navigation at all: this Supervisor sent the request and
   // has not left the conversation since.
   if (conversationURL && !sameConversationURL(current, conversationURL)) {
-    await paceChatGPTWorkerNavigation()
     await loadOwnedChatGPTURL(key, entry, conversationURL, reason)
     await waitForChatGPTSurfaceReady(key, entry)
     const afterNavigation = chatAgentRateLimitDelayMs()
     if (afterNavigation > 0) return { status: 'waiting', delayMs: afterNavigation, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
   } else if (!conversationURL && !isTrustedChatGPTOrigin(current)) {
-    await paceChatGPTWorkerNavigation()
     await loadOwnedChatGPTURL(key, entry, CHATGPT_URL, `${reason}-bootstrap`)
     await waitForChatGPTSurfaceReady(key, entry)
   }
   switch (task.type) {
     case 'AWAIT_RESPONSE': return superviseChatAgentResponse(task, entry, key, payload)
     case 'BOT_WRITE':
-    case 'RECOVERY_WRITE': return executeChatAgentWrite(task, entry, key, payload, conversationURL)
-    case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan(task, entry, key, payload, owner)
+    case 'RECOVERY_WRITE': return executeChatAgentWrite(task, entry, key, payload, conversationURL, { pacedWorker: false })
+    case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan(task, entry, key, payload, owner, { pacedWorker: false })
     default: return { status: 'failed', error: `O pool de Supervisores não executa ${task.type}` }
   }
 }

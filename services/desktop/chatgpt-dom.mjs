@@ -164,56 +164,6 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
   })()`
 }
 
-// Diagnostic-only counterpart of chatGPTExpectedDownloadScript: builds the
-// identical candidate list and choice, but never clicks. Temporary
-// instrumentation for live investigation of why the real script sometimes
-// finds nothing to click; not meant to stay wired into a call site.
-export function chatGPTDownloadDiagnosticScript(filename, assistantBaseline = 0) {
-  const expected = encode(filename)
-  const baseline = Math.max(0, Number(assistantBaseline) || 0)
-  const choose = chooseChatGPTDownloadCandidate.toString()
-  return `(() => {
-    const expected = ${expected};
-    const baseline = ${baseline};
-    const choose = ${choose};
-    const assistantTurns = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
-    const latestAssistant = assistantTurns.length > baseline ? assistantTurns[assistantTurns.length - 1] : null;
-    const turns = [...document.querySelectorAll('[data-turn-id]')];
-    const latestTurn = latestAssistant?.closest?.('[data-turn-id]') || (assistantTurns.length > baseline ? turns[turns.length - 1] : null);
-    const nodes = [...document.querySelectorAll('a[download], a[href], button, [role="button"], [data-testid*="download"], [data-testid*="file"], [data-testid*="attachment"]')];
-    const visible = (node) => {
-      const rects = typeof node.getClientRects === 'function' ? node.getClientRects() : [];
-      return Boolean(node.offsetWidth || node.offsetHeight || rects?.length);
-    };
-    const candidates = nodes.map((node, index) => {
-      const href = String(node.getAttribute?.('href') || '');
-      const ownText = String(node.textContent || '').trim();
-      const card = node.closest?.('[data-testid*="file"], [data-testid*="attachment"], [class*="file"], [class*="attachment"]');
-      const nearbyText = card && (latestAssistant?.contains(card) || latestTurn?.contains(card)) ? String(card.textContent || '').trim().slice(0, 1200) : '';
-      const metadata = [node.getAttribute?.('download'), node.getAttribute?.('aria-label'), node.getAttribute?.('title'), node.getAttribute?.('data-testid'), href, ownText, nearbyText].filter(Boolean).join(' ');
-      const normalized = metadata.toLowerCase();
-      return {
-        index, metadata: metadata.slice(0, 200),
-        visible: visible(node),
-        disabled: Boolean(node.disabled || node.getAttribute?.('aria-disabled') === 'true'),
-        latestAssistant: Boolean(latestAssistant && latestAssistant.contains(node)),
-        latestTurn: Boolean(latestTurn && latestTurn.contains(node)),
-        nested: nodes.some((other, otherIndex) => otherIndex !== index && node.contains?.(other)),
-        downloadSemantic: /(download|baixar|descarregar|transferir)/i.test(normalized),
-        fileLike: Boolean(node.hasAttribute?.('download') || /(^|[\\/])(download|downloads|file|files|attachment|attachments)([\\/?#]|$)/i.test(href) || /^sandbox:/i.test(href)),
-        iconOnly: /^(?:⬇️?|📥|⤓|↓)$/u.test(ownText),
-      };
-    });
-    const decision = choose(candidates, expected);
-    const inTurn = candidates.filter((c) => c.latestAssistant || c.latestTurn);
-    return {
-      assistantTurnCount: assistantTurns.length, hasLatestAssistant: Boolean(latestAssistant), hasLatestTurn: Boolean(latestTurn),
-      nodeCount: nodes.length, decision, inTurnCount: inTurn.length, inTurnCandidates: inTurn.slice(0, 30),
-      latestAssistantOuterHTML: latestAssistant ? String(latestAssistant.outerHTML || '').slice(0, 2000) : '',
-    };
-  })()`
-}
-
 export function chatGPTComposerReadyScript() {
   return `(() => {
     ${composerLookupSource()}
