@@ -208,6 +208,26 @@ describe('WorkspaceShell project actions', () => {
     ))
   })
 
+  it('emphasizes the active project when its embedded composer reports typing', async () => {
+    vi.spyOn(api, 'config').mockResolvedValue({ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: false, chatgpt_web_embed: true })
+    saveBoundProjects(['/tmp/active-project'])
+    saveBoundActiveProject('/tmp/active-project')
+    window.wharnessDesktop = {
+      projects: { acquire: vi.fn().mockResolvedValue({ ok: true, path: '/tmp/active-project' }) },
+    } as unknown as WharnessDesktopBridge
+
+    render(<WorkspaceShell />)
+    const frame = await screen.findByTitle('Wharnex · active-project') as HTMLIFrameElement
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      source: frame.contentWindow,
+      data: { type: 'wharness:composer-typing', projectPath: '/tmp/active-project' },
+    }))
+
+    const activeProject = screen.getByTitle('/tmp/active-project · clique para ver projetos abertos')
+    await waitFor(() => expect(activeProject.classList.contains('composer-typing-attention')).toBe(true))
+  })
+
   it('binds the active embedded session to the shell Git badge', async () => {
     vi.spyOn(api, 'config').mockResolvedValue({ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: false, chatgpt_web_embed: true })
     const gitOverview = vi.spyOn(api, 'gitOverview').mockResolvedValue({

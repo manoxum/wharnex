@@ -1735,6 +1735,14 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .project-quick-switch button > span:not(.project-color-mark) { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-color-mark { width: 20px; height: 20px; display: inline-grid; place-items: center; flex: 0 0 20px; border: 1px solid color-mix(in srgb, hsl(var(--project-hue) 62% 48%) 16%, var(--theme-border)); border-radius: 5px; background: color-mix(in srgb, hsl(var(--project-hue) 70% 50%) 7%, var(--theme-muted)); color: hsl(var(--project-hue) 62% 42%); }
 .project-quick-switch button.active .project-color-mark { border-color: hsl(var(--project-hue) 72% 48% / .28); background: hsl(var(--project-hue) 82% 52% / .09); color: hsl(var(--project-hue) 72% 40%); box-shadow: none; }
+.project-quick-switch button.active.composer-typing-attention { animation: current-project-composer-pulse .9s ease-in-out infinite; }
+@keyframes current-project-composer-pulse {
+  0%, 100% { border-color: color-mix(in srgb, hsl(var(--project-hue) 78% 52%) 30%, var(--theme-border)); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent), 0 0 0 0 hsl(var(--project-hue) 78% 52% / .1); }
+  50% { border-color: hsl(var(--project-hue) 78% 52% / .72); background: color-mix(in srgb, hsl(var(--project-hue) 82% 54%) 13%, var(--theme-surface)); box-shadow: 0 2px 8px color-mix(in srgb, var(--theme-shadow) 38%, transparent), 0 0 0 4px hsl(var(--project-hue) 78% 52% / .15), 0 0 18px hsl(var(--project-hue) 78% 52% / .16); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-quick-switch button.active.composer-typing-attention { animation: none; border-color: hsl(var(--project-hue) 78% 52% / .72); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent), 0 0 0 3px hsl(var(--project-hue) 78% 52% / .14); outline: 2px solid hsl(var(--project-hue) 78% 52% / .58); outline-offset: 2px; }
+}
 .multi-project-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .multi-project-actions button { border-color: #d6dbd0; background: #fafbf7; }
 .project-actions-menu { position: relative; flex: 0 0 auto; }

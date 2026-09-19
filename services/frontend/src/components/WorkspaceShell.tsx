@@ -21,6 +21,7 @@ type ProjectRuntimeState = { selfEvolution: boolean; instanceId: string }
 type ProjectAttentionState = { total: number; urgent: number; actionable: number }
 
 const MAX_BOUND_PROJECTS = 12
+const COMPOSER_TYPING_PULSE_MS = 1600
 export function WorkspaceShell() {
   const [config, setConfig] = useState<AppConfig>()
   const [projects, setProjects] = useState<string[]>([])
@@ -29,12 +30,14 @@ export function WorkspaceShell() {
   const [projectSessions, setProjectSessions] = useState<Record<string, string>>({})
   const [projectRuntime, setProjectRuntime] = useState<Record<string, ProjectRuntimeState>>({})
   const [projectAttention, setProjectAttention] = useState<Record<string, ProjectAttentionState>>({})
+  const [composerTypingProject, setComposerTypingProject] = useState('')
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [busy, setBusy] = useState(true)
   const [initialized, setInitialized] = useState(false)
   const [linkModalOpen, setLinkModalOpen] = useState(false)
   const [error, setError] = useState<string>()
   const frames = useRef(new Map<string, HTMLIFrameElement>())
+  const composerTypingTimerRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     let alive = true
@@ -102,6 +105,18 @@ export function WorkspaceShell() {
           setProjectAttention((current) => ({ ...current, [projectPath]: { total: count(event.data.total), urgent: count(event.data.urgent), actionable: count(event.data.actionable) } }))
         }
       }
+      if (event.data?.type === 'wharness:composer-typing') {
+        const projectPath = String(event.data.projectPath || '')
+        const frame = frames.current.get(projectPath)
+        if (projectPath && projectPath === activeProject && frame?.contentWindow === event.source) {
+          setComposerTypingProject(projectPath)
+          if (composerTypingTimerRef.current !== undefined) window.clearTimeout(composerTypingTimerRef.current)
+          composerTypingTimerRef.current = window.setTimeout(() => {
+            setComposerTypingProject((current) => current === projectPath ? '' : current)
+            composerTypingTimerRef.current = undefined
+          }, COMPOSER_TYPING_PULSE_MS)
+        }
+      }
       if (event.data?.type === 'wharness:unbind-project') {
         const projectPath = String(event.data.projectPath || '')
         if (projectPath) void unbindProject(projectPath)
@@ -125,6 +140,10 @@ export function WorkspaceShell() {
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
   })
+
+  useEffect(() => () => {
+    if (composerTypingTimerRef.current !== undefined) window.clearTimeout(composerTypingTimerRef.current)
+  }, [])
 
   useEffect(() => {
     const windows = desktopBridge()?.windows
@@ -211,7 +230,7 @@ export function WorkspaceShell() {
     } catch (reason) { setError(messageOf(reason)); setBusy(false); return false }
   }
 
-  const chrome = <ShellChrome projects={projects} activeProject={activeProject} activeSessionID={projectSessions[activeProject] || ''} activeRuntime={projectRuntime[activeProject]} activeAttention={projectAttention[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onAttention={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-attention' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
+  const chrome = <ShellChrome projects={projects} activeProject={activeProject} composerTypingProject={composerTypingProject} activeSessionID={projectSessions[activeProject] || ''} activeRuntime={projectRuntime[activeProject]} activeAttention={projectAttention[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onAttention={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-attention' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
   const linkModal = linkModalOpen ? <ProjectLinkModal recent={recent} boundProjects={projects} busy={busy} error={error} onOpen={bindProject} onBrowse={chooseAndBind} onCreate={createProject} onClone={cloneProject} onClose={() => setLinkModalOpen(false)} /> : null
 
   if (!projects.length) return <div className="desktop-shell-root">
@@ -237,8 +256,8 @@ export function WorkspaceShell() {
   </main>
 }
 
-export function ShellChrome({ projects, activeProject, activeSessionID, activeRuntime, activeAttention, mode, busy, onActivate, onMode, onGitSync, onAttention, onSettings, onUnbind, onBind, onBindPath, onNewWindow }: {
-  projects: string[]; activeProject: string; activeSessionID?: string; activeRuntime?: ProjectRuntimeState; activeAttention?: ProjectAttentionState; busy: boolean
+export function ShellChrome({ projects, activeProject, composerTypingProject, activeSessionID, activeRuntime, activeAttention, mode, busy, onActivate, onMode, onGitSync, onAttention, onSettings, onUnbind, onBind, onBindPath, onNewWindow }: {
+  projects: string[]; activeProject: string; composerTypingProject?: string; activeSessionID?: string; activeRuntime?: ProjectRuntimeState; activeAttention?: ProjectAttentionState; busy: boolean
   mode: WorkspaceMode
   onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onGitSync?: () => void; onAttention?: () => void; onSettings: () => void; onUnbind: (projectPath: string) => void; onBind: () => void; onBindPath: (projectPath: string) => void; onNewWindow: () => void
 }) {
@@ -290,7 +309,8 @@ export function ShellChrome({ projects, activeProject, activeSessionID, activeRu
     <nav className="project-quick-switch" aria-label="Projetos vinculados">
       {orderedProjects.map((projectPath) => {
         const active = projectPath === activeProject
-        return <button key={projectPath} ref={active ? activeProjectButtonRef : undefined} style={projectAccentStyle(projectPath)} className={active ? 'active' : ''} onClick={(event) => active ? void toggleProjectWindowMenu(event.currentTarget) : onActivate(projectPath)} title={active ? `${projectPath} · clique para ver projetos abertos` : projectPath} aria-expanded={active ? projectWindowOpen : undefined}>
+        const composerTyping = active && composerTypingProject === projectPath
+        return <button key={projectPath} ref={active ? activeProjectButtonRef : undefined} style={projectAccentStyle(projectPath)} className={`${active ? 'active' : ''}${composerTyping ? ' composer-typing-attention' : ''}`.trim()} onClick={(event) => active ? void toggleProjectWindowMenu(event.currentTarget) : onActivate(projectPath)} title={active ? `${projectPath} · clique para ver projetos abertos` : projectPath} aria-expanded={active ? projectWindowOpen : undefined}>
           <span className="project-color-mark"><Icon name="workspace" size={13}/></span><span>{projectName(projectPath)}</span>{active && <Icon name="chevron" size={11}/>}
         </button>
       })}

@@ -3202,6 +3202,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (embeddedProject && !shellActive) setAttentionPreviewOpen(false)
   }, [embeddedProject, shellActive])
 
+  const notifyComposerTyping = useCallback(() => {
+    if (!embeddedProject) return
+    window.parent.postMessage({ type: 'wharness:composer-typing', projectPath: embeddedProject }, window.location.origin)
+  }, [embeddedProject])
+
   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
   const workspaceProjectPath = session.project_path
   const activeChat = chats.find((chat) => chat.id === activeChatId)
@@ -3324,6 +3329,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '', transportRequestId: busyChats[activeChatId] ? activePendingRequestId(session) : '',
     onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onDebugMode: changeDebugMode, onEffortLevel: changeEffortLevel, onReasoningEffort: changeReasoningEffort, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
     onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
+    onComposerTyping: notifyComposerTyping,
     onSend: enqueueMainRequest, onAdjustExecutionPlan: adjustExecutionPlan, onPreviewBundle: previewComposerBundle, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
     onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
     onRepairWithGPT: repairFailureWithGPT, canRepairWithGPT: canRepairFailureWithGPT(session), onRetryDependencyNetwork: retryDependencyNetwork, canRetryDependencyNetwork: canRetryDependencyNetwork(session), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
