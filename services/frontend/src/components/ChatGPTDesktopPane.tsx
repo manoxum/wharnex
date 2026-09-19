@@ -392,6 +392,19 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     }
   }
 
+  const visibleBrowserURL = followedWorker?.browser.url || state.url
+  const visibleConversation = chatgptConversationURL(visibleBrowserURL)
+  const copyVisibleConversationLink = async () => {
+    if (!visibleConversation) return
+    try {
+      if (bridge?.clipboard.writeText) await bridge.clipboard.writeText(visibleConversation)
+      else await navigator.clipboard.writeText(visibleConversation)
+      setNotice('Link da conversa visível copiado.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Não foi possível copiar o link da conversa visível')
+    }
+  }
+
   const currentConversation = chatgptConversationURL(state.url)
   const linkedConversation = chatgptConversationURL(chatgptUrl || '')
   const sameConversation = sameChatGPTConversation(currentConversation, linkedConversation)
@@ -407,8 +420,10 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
         <button className="icon-button light" title="Abrir no navegador do sistema" onClick={() => void bridge?.chatgpt.openExternal(linkedConversation || CHATGPT_HOME)}><Icon name="external" size={15}/></button>
         <button className="icon-button light" title="Abrir no navegador interno" onClick={() => void bridge?.chatgpt.openInternal(linkedConversation || CHATGPT_HOME)}><Icon name="monitor" size={15}/></button>
         <button className="icon-button light" title="Colar clipboard no campo focado" onClick={() => void bridge?.chatgpt.paste(chatId)}><Icon name="clipboard" size={15}/></button>
+        <button className="icon-button light desktop-engine-devtools" type="button" aria-label="Abrir DevTools da instância atual" title={`Abrir DevTools · ${followedAgentId ? followedAgentId.replace('worker-', 'Worker ') : 'Supervisor'}`} onClick={() => void openCurrentDevTools()}><Icon name="code" size={15}/></button>
+        <button className="icon-button light" type="button" aria-label="Copiar link da conversa visível" title={visibleConversation ? 'Copiar link da conversa visível' : 'Nenhuma conversa ChatGPT visível para copiar'} disabled={!visibleConversation} onClick={() => void copyVisibleConversationLink()}><Icon name="link" size={15}/></button>
       </div>
-      <div className="desktop-browser-address" title={state.url}><span className={state.loading ? 'browser-lamp loading' : 'browser-lamp'} /><strong>{chatTitle}</strong><span>{safeHost(state.url)}</span></div>
+      <div className="desktop-browser-address" title={visibleBrowserURL}><span className={state.loading ? 'browser-lamp loading' : 'browser-lamp'} /><strong>{chatTitle}</strong><span>{safeHost(visibleBrowserURL)}</span></div>
       <div className="desktop-chatgpt-toolbar-status">
         <label className="desktop-engine-instance" title="Escolher a instância mostrada no Engine">
           <span>Instância</span>
@@ -418,7 +433,6 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
             {workerAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
           </select>
         </label>
-        <button className="icon-button light desktop-engine-devtools" type="button" aria-label="Abrir DevTools da instância atual" title={`Abrir DevTools · ${followedAgentId ? followedAgentId.replace('worker-', 'Worker ') : 'Supervisor'}`} onClick={() => void openCurrentDevTools()}><Icon name="code" size={15}/></button>
         <StatusPill tone={!externalAuth && linkedConversation && (!currentConversation || sameConversation) ? 'success' : 'neutral'}>{externalAuth ? 'Login externo' : linkedConversation ? (mismatch ? 'Outra conversa' : 'Vinculado') : 'A vincular'}</StatusPill>
         <button className={`chatgpt-auth-indicator ${authenticated ? 'authenticated' : 'attention'}`} type="button" aria-label={authenticated ? 'Sessão ChatGPT autenticada' : 'Autenticação ChatGPT necessária'} title={authenticated ? 'Sessão ChatGPT autenticada · clique para opções' : 'Autenticar ChatGPT'} onClick={toggleControls}><Icon name={authenticated ? 'check' : 'shield'} size={15}/></button>
       </div>
