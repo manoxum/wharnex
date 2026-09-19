@@ -54,6 +54,6 @@ describe('workspaceRailLayout', () => {
     expect(layout.right).toContain('project')
     expect(layout.right).toContain('database')
     expect(layout.pinned.left).toContain('terminal')
-    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(14)
+    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(15)
   })
 })

@@ -14,6 +14,9 @@ describe('workbenchPreferences', () => {
     })
     expect(loadWorkbenchState('/projects/a').left).toEqual({ open: true, collapsed: false, size: 380, tool: 'project' })
     expect(loadWorkbenchState('/projects/a').bottom.size).toBe(330)
+
+    const errorsPanel = normalizeWorkbenchState({ left: { open: true, collapsed: false, size: 380, tool: 'errors' } })
+    expect(errorsPanel.left.tool).toBe('errors')
     const fresh = loadWorkbenchState('/projects/b')
     expect({ ...fresh, left: { ...fresh.left, size: 0 }, right: { ...fresh.right, size: 0 } })
       .toEqual({ ...DEFAULT_WORKBENCH_STATE, left: { ...DEFAULT_WORKBENCH_STATE.left, size: 0 }, right: { ...DEFAULT_WORKBENCH_STATE.right, size: 0 } })
