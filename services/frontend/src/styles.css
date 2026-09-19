@@ -179,10 +179,12 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .bootstrap-restore-preview { flex: 1; min-height: 320px; margin-top: 24px; border: 1px solid var(--theme-border-soft, #d4d7cd); border-radius: 14px; overflow: hidden; }
 .composer { flex: 0 0 auto; margin: 0 16px 16px; border: 1px solid #d2d5cb; background: #fff; border-radius: 13px; box-shadow: 0 8px 24px rgba(22,25,18,.05); }
 .composer-attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 10px 0; }
-.composer-attachment-chip { min-width: 190px; max-width: 280px; display: grid; grid-template-columns: 46px minmax(0,1fr) auto; align-items: center; gap: 7px; padding: 5px 6px; border: 1px solid #d3d8cb; border-radius: 9px; background: #f1f4ec; color: #4d5248; }
-.composer-attachment-chip > button { width: 20px; height: 20px; border: 0; border-radius: 5px; background: transparent; color: #787d73; cursor: pointer; }
-.composer-attachment-chip > button:hover { background: #dfe4d7; color: #30342e; }
-.composer-attachment-chip .attachment-visual { width: 46px; height: 34px; }
+.composer-attachment-chip { min-width: 190px; max-width: 280px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 7px; padding: 5px 6px; border: 1px solid #d3d8cb; border-radius: 9px; background: #f1f4ec; color: #4d5248; }
+.composer-attachment-open { min-width:0; padding:0; display:grid; grid-template-columns:46px minmax(0,1fr); align-items:center; gap:7px; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+.composer-attachment-open:hover .attachment-visual { border-color:#adb8a7; }
+.composer-attachment-remove { width:20px; height:20px; border:0; border-radius:5px; background:transparent; color:#787d73; cursor:pointer; }
+.composer-attachment-remove:hover { background:#dfe4d7; color:#30342e; }
+.composer-attachment-chip .attachment-visual { width:46px; height:34px; }
 .composer-error { margin: 8px 11px 0; padding: 7px 9px; border-left: 2px solid var(--danger); background: #faecea; color: #853a33; font-size: calc(9px * var(--ui-font-scale)); }
 .composer textarea { width: 100%; min-height: 74px; max-height: 180px; resize: vertical; border: 0; background: transparent; padding: 13px 14px 6px; font-size: calc(12px * var(--ui-font-scale)); line-height: 1.5; outline: 0; }
 .composer textarea:disabled { color: #8b8e87; }
