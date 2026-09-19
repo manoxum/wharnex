@@ -4321,7 +4321,7 @@ async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
     // Control geometry and the state it reported, never page content. Without
     // this the failure reads only "effort-menu-closed", which cannot separate
     // a press that missed the control from one that landed and was ignored.
-    console.log(`[chatgpt-effort] key=${key} open-attempt=${attempt + 1} pressed=${pressed.x},${pressed.y} rect=${JSON.stringify(before.rect)} viewport=${JSON.stringify(before.viewport || null)} -> ${String(staged?.state || 'unknown')}`)
+    console.log(`[chatgpt-effort] key=${key} open-attempt=${attempt + 1} pressed=${pressed.x},${pressed.y} rect=${JSON.stringify(before.rect)} viewport=${JSON.stringify(before.viewport || null)} hit=${JSON.stringify(before.hit || null)} hitIsControl=${before.hitIsControl === true} -> ${String(staged?.state || 'unknown')}`)
   }
   if (!staged?.ok || staged.state !== 'effort-slider-ready') {
     throw new Error(`ChatGPT reasoning-effort slider is unavailable (${String(staged?.state || 'unknown')})`)

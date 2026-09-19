@@ -104,7 +104,18 @@ export function reasoningEffortAdjustScript(behavior) {
     if (button.length !== 1) return { ok: false, state: button.length ? 'effort-control-ambiguous' : 'effort-control-unavailable' };
     if (button[0].getAttribute('aria-expanded') !== 'true') {
       const target = rect(button[0]);
-      return target ? { ok: true, state: 'effort-menu-closed', rect: target, viewport: viewport() } : { ok: false, state: 'effort-control-offscreen', viewport: viewport() };
+      if (!target) return { ok: false, state: 'effort-control-offscreen', viewport: viewport() };
+      // What actually sits under the point a native press would land on. A
+      // located rect only proves where the control is; it cannot show an
+      // overlay, backdrop or transformed ancestor intercepting the press,
+      // which is indistinguishable from "the menu ignored the click" in the
+      // state alone. Structural identity of the hit node only - never text.
+      const hit = document.elementFromPoint(target.x, target.y);
+      const shape = (n) => n ? { tag: n.tagName, role: n.getAttribute('role') || '', testid: n.getAttribute('data-testid') || '' } : null;
+      return {
+        ok: true, state: 'effort-menu-closed', rect: target, viewport: viewport(),
+        hit: shape(hit), hitIsControl: Boolean(hit && (hit === button[0] || button[0].contains(hit) || hit.contains(button[0]))),
+      };
     }
     const slider = pick(__whx.optionalSelectors.effortSlider);
     if (!slider) return { ok: false, state: 'effort-slider-unavailable' };
