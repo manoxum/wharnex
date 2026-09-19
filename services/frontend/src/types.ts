@@ -676,7 +676,7 @@ export type AttentionRecord = {
   interrupted_execution?: { plan_id: string; status: string }
 }
 
-export type ChatGPTActivity = { cacheKey?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
+export type ChatGPTActivity = { cacheKey?: string; requestId?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
 export type ChatIterationRef = {
   id: string
   requestId: string

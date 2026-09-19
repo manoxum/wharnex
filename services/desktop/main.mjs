@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TextDecoder } from 'node:util'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, submitWithRetry } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, submitWithoutReplay } from './chatgpt-input.mjs'
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
@@ -4180,18 +4180,13 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
   console.log(`[chatgpt-upload] confirmed wc=${wc.id} file=${index}/${count} observed=${result.observed}`)
 }
 
-// A single click/Enter dispatch can silently fail to actually submit — a
-// disabled send button, a focus loss, a stray newline instead of a submit,
-// or a page still settling after navigation. Every caller here treats a
-// confirmed submission as a precondition for what it does next (arming an
-// expected bundle, waiting for the conversation URL, clearing a human-action
-// flag, ...), so a dispatch that never reaches ChatGPT's own POST must
-// surface as a real failure — via submitWithRetry, not a value callers can
-// silently ignore. Callers that already checked `.accepted` (kept as
-// harmless redundant defense) now simply never see a falsy value; callers
-// that relied on their own try/catch or on the shared DOM-probe-failure
-// counter in pollExpectedChatGPTDownloadKey already handle a thrown error
-// correctly.
+// Submission has two different facts that must not be collapsed: whether the
+// DOM send action itself failed, and whether our network observer happened to
+// see ChatGPT's POST. The first is a safe delivery failure. The second can be
+// ambiguous while the remote model is already reasoning, so automatic flows
+// dispatch once and keep supervising the armed request instead of replaying a
+// potentially duplicate submit. Manual one-shot actions may still require the
+// stronger observed-POST signal before reporting success.
 // Moves the reasoning-effort slider exactly one step toward `wanted`.
 //
 // The control is two things in sequence, both Radix and both requiring a
@@ -4266,27 +4261,23 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
   }
   console.log(`[chatgpt-effort] key=${key} target=${effort.effort} changed=${effort.changed} cycles=${effort.cycles}`)
   markChatGPTAffinitySubmitted(target.entry.affinity)
-  let method = 'dom-click'
-  const result = await submitWithRetry({
-    beforeAttempt: async (attempt) => {
-      if (attempt > 1) {
-        await waitForChatGPTSurfaceReady(key, target.entry)
-        const ready = await wc.executeJavaScript(chatGPTComposerReadyScript(), true)
-        if (!ready) throw new Error('ChatGPT composer DOM was not found before submit retry')
-      }
+  const method = 'dom-click'
+  const result = await submitWithoutReplay({
+    beforeSubmit: async () => {
       assertExpectedConversation()
     },
-    beginSubmission: () => chatGPTSubmissions.expect(wc.id),
+    beginObservation: () => chatGPTSubmissions.expect(wc.id),
     submit: async () => {
       assertExpectedConversation()
       const clicked = await wc.executeJavaScript(chatGPTSubmitScript(), true)
       if (!clicked) throw new Error('ChatGPT send button is unavailable')
     },
-    onRetry: ({ attempt, nextAttempt, error }) => {
-      console.warn(`[chatgpt-submit] retry key=${key} attempt=${attempt} next=${nextAttempt} error=${error?.message || error}`)
-    },
   })
-  console.log(`[chatgpt-submit] accepted key=${key} method=${method} request=${result.requestId}`)
+  if (result.accepted) {
+    console.log(`[chatgpt-submit] accepted key=${key} method=${method} request=${result.requestId}`)
+  } else {
+    console.warn(`[chatgpt-submit] dispatched-unconfirmed key=${key} method=${method} error=${result.observationError || 'network observation timeout'}; continuing supervision without replay`)
+  }
   return result
 }
 
@@ -4490,6 +4481,14 @@ async function retryPersistedChatGPTPrompt(request, entryOverride = undefined) {
 async function retryPreparedChatGPTPrompt(request, entryOverride = undefined) {
   const key = sanitizeChatCacheKey(request?.cacheKey)
   const requestId = String(request?.expectedRequestId || '').trim()
+  // A stale renderer-side retry banner must never be able to replay a request
+  // that Desktop is already supervising. An armed expectation means the send
+  // action crossed the point where delivery became ambiguous or confirmed; the
+  // only safe action is to keep waiting for that exact response.
+  const supervised = expectedChatGPTBundles.get(key)
+  if (requestId && supervised?.requestId === requestId) {
+    return { ok: true, cacheKey: key, requestId, alreadySupervised: true, submitted: true, expectedFilename: supervised.filename }
+  }
   // A response bundle already validated and acknowledged for this exact
   // request id is a completed round trip, whether or not a retryable draft
   // still lingers in memory (its TTL is independent of delivery). Checking
@@ -4566,7 +4565,7 @@ async function submitPreparedChatGPTDraft(cacheKey, entryOverride = undefined) {
   const expectedFilename = authoritativeBundleFilename(prepared.expectedFilename, prepared.requestId, key)
   entry.reasoningEffort = normalizeChatGPTReasoningEffort(prepared.reasoningEffort)
   const submission = await submitChatGPTDraft(key, entry, prepared.conversationUrl || entry.affinity.boundURL)
-  if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
+  if (!submission.accepted && !submission.dispatched) throw new Error('ChatGPT prompt submission was not dispatched')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, entry)
   if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
   armExpectedChatGPTBundle(key, prepared.requestId, assistantBaseline, prepared.recoveryBootstrap, prepared.liveTunnels || [], prepared.originalPrompt || '', prepared.sessionId || '', expectedFilename, prepared.requestMetadata || {})
@@ -4602,9 +4601,9 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   const bundled = await fillBundledChatGPTComposer(key, target.entry, sessionId, requestId, text, expectedFilename, [], liveTunnels, requestMetadata)
   await wait(100)
   const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
-  if (!submission.accepted) throw new Error('ChatGPT prompt submission was dispatched but could not be confirmed')
+  if (!submission.accepted && !submission.dispatched) throw new Error('ChatGPT prompt submission was not dispatched')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
-  if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
+  if (!conversationUrl) throw new Error('ChatGPT submission did not produce a stable conversation id')
   armExpectedChatGPTBundle(key, requestId, assistantBaseline, bundled.bootstrap, liveTunnels, text, sessionId, expectedFilename, requestMetadata)
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-repair] submitted key=${key} chars=${text.length} method=dom`)
@@ -6005,11 +6004,11 @@ async function pollChatGPTVisibleActivity() {
       else if (entry.humanAction?.active && ['surface', 'authentication', 'access'].includes(entry.humanAction.kind) && health?.composerReady === true) clearChatGPTHumanAction(key, 'compositor voltou a responder')
 
       const activity = await wc.executeJavaScript(chatGPTVisibleActivityScript(), true)
-      const normalized = { cacheKey: key, state: activity?.state === 'thinking' ? 'thinking' : 'idle', text: String(activity?.text || '').trim(), capturedAt: String(activity?.capturedAt || new Date().toISOString()) }
-      const fingerprint = `${normalized.state}:${normalized.text}`
+      const expected = expectedChatGPTBundles.get(key)
+      const normalized = { cacheKey: key, requestId: expected?.requestId || '', state: activity?.state === 'thinking' ? 'thinking' : 'idle', text: String(activity?.text || '').trim(), capturedAt: String(activity?.capturedAt || new Date().toISOString()) }
+      const fingerprint = `${normalized.requestId}:${normalized.state}:${normalized.text}`
       if (chatGPTActivityFingerprints.get(key) === fingerprint) continue
       chatGPTActivityFingerprints.set(key, fingerprint)
-      const expected = expectedChatGPTBundles.get(key)
       if (expected?.recovery) noteChatGPTRecoveryProgress(expected.recovery, `activity:${fingerprint}`, Date.now())
       sendToChatGPTKey(key, 'wharness:chatgpt:activity', normalized)
     } catch (error) {
@@ -6040,7 +6039,7 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
           : action.reason === 'silent'
             ? 'O ChatGPT deixou de mostrar processamento sem produzir nova resposta. A conversa foi recarregada uma vez para recuperar o pedido.'
             : 'A resposta terminou sem o bundle esperado. A conversa foi recarregada uma vez antes da continuação automática.'
-    sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, state: 'thinking', text, capturedAt: new Date().toISOString() })
+    sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, requestId: expected.requestId, state: 'thinking', text, capturedAt: new Date().toISOString() })
     return true
   }
   if (action.type === 'human') {
@@ -6069,7 +6068,7 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
   expected.settledAt = 0
   expected.lastDOMClick = 0
   console.warn(`[chatgpt-recovery] prompt key=${key} request=${expected.requestId} accepted=true`)
-  sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, state: 'thinking', text: 'O ChatGPT continuou parado após a recarga. O Wharnex enviou uma instrução automática para retomar o pedido original e concluir a entrega.', capturedAt: new Date().toISOString() })
+  sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, requestId: expected.requestId, state: 'thinking', text: 'O ChatGPT continuou parado após a recarga. O Wharnex enviou uma instrução automática para retomar o pedido original e concluir a entrega.', capturedAt: new Date().toISOString() })
   return true
 }
 

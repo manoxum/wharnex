@@ -1914,6 +1914,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         appendChatItem(targetChat, session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'O bundle deste pedido já tinha sido recebido; não foi feita uma entrega duplicada.', meta: 'Entrega já concluída' })
         return
       }
+      if (prepared.alreadySupervised) {
+        setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
+        for (const key of [...failedPromptDeliveryKeysRef.current]) if (requestId && key.includes(`:${requestId}:`)) failedPromptDeliveryKeysRef.current.delete(key)
+        appendChatItem(targetChat, session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'Este pedido já está entregue e sob supervisão no ChatGPT; nenhum reenvio foi feito.', meta: 'Aguardando resposta do ChatGPT' })
+        return
+      }
       if (prepared.conversationUrl) bindChatGPTURL(prepared.conversationUrl)
       if (!prepared.submitted && prepared.attachmentCount) setPreparedDrafts((current) => ({ ...current, [activeChatId]: prepared.attachmentCount! }))
       setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
@@ -2917,6 +2923,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	const activeSurfaceKeys = active ? [active.id] : []
 	if (!active || (activity.cacheKey && !activeSurfaceKeys.includes(activity.cacheKey))) return
     const requestId = session ? activePendingRequestId(session) || session.last_request_id || '' : ''
+    if (activity.state === 'thinking' && activity.requestId) {
+      setFailedPromptDeliveries((current) => {
+        if (current[active.id]?.requestId !== activity.requestId) return current
+        const next = { ...current }; delete next[active.id]; return next
+      })
+      for (const key of [...failedPromptDeliveryKeysRef.current]) if (key.includes(`:${activity.requestId}:`)) failedPromptDeliveryKeysRef.current.delete(key)
+    }
     const thoughtId = `chatgpt-thought:${requestId || active.id}`
     setItems((current) => {
       const without = current.filter((item) => item.id !== thoughtId)

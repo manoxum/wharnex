@@ -117,12 +117,20 @@ export async function submitWithoutReplay({
 }) {
   await beforeSubmit()
   const observed = beginObservation()
-  submit()
+  // Observe before dispatch so a fast POST cannot race past us, but attach a
+  // rejection handler immediately: a synchronous/async DOM dispatch failure
+  // must not leave the timeout promise as an unhandled rejection.
+  void observed.catch(() => undefined)
+  await submit()
   try {
     return await observed
   } catch (error) {
     const observationError = error instanceof Error ? error.message : String(error)
-    return { accepted: false, requestId: '', observationError }
+    // The send action was dispatched successfully. Missing our network probe is
+    // therefore ambiguous, not proof that ChatGPT never received the request.
+    // Callers with an armed expected response can keep supervising this exact
+    // request without replaying a potentially duplicate submission.
+    return { accepted: false, dispatched: true, requestId: '', observationError }
   }
 }
 
