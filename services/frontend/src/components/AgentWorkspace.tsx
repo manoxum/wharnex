@@ -281,7 +281,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   return <section ref={workspaceRef} className={`agent-workspace${singlePane ? ' single-pane' : ''} ${railVisible ? 'agent-rail-unified' : ''}`.trim()} style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
     {railVisible ? (railTarget ? createPortal(commandbar, railTarget) : null) : commandbar}
     {attentionPopoverOpen && createPortal(<AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} position={attentionPopoverPosition} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention} onClose={closeAttentionPopover}/>, document.body)}
-    <nav className={`agent-chat-switcher${singlePane && singlePaneSurface !== 'chat' ? ' surface-hidden' : ''}`} aria-label="Conversas do Harness">
+    <nav className="agent-chat-switcher" aria-label="Conversas do Harness">
       <button className="chat-new-button" onClick={() => void chatProps.onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>
       {archived.length > 0 && <button className="chat-new-button chat-reopen-button" disabled={busy} onClick={() => void chatProps.onRestoreChat(archived[0].id)} title={`Reabrir último chat fechado: ${archived[0].title}`} aria-label="Reabrir último chat fechado"><Icon name="refresh" size={13}/></button>}
       <div className="chat-tabs">
