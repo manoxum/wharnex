@@ -1,12 +1,10 @@
 // Provider-wide ChatGPT rate-limit evidence.
 //
-// Two different conditions wear the same HTTP status. A single throttled
-// request is ordinary backpressure: the next one may well succeed, so it
-// belongs on the progressive 60/120/240/300-second ladder. A burst of them — or
-// ChatGPT's own account-wide block, the "too many requests" gate it renders in
-// its surface — means the account itself is closed to new work. Answering that
-// with a one-minute pause is what turns one gate into the retry storm that
-// earned it: every worker wakes, claims, submits and is refused again.
+// Two conditions wear the same HTTP status: one throttled request and the
+// account-wide block ChatGPT renders in its surface. Both stop the whole
+// automation for the same fixed seven-and-a-half-minute window; retaining the distinction
+// still explains whether the evidence came from transport or the structural
+// gate without allowing the shorter old retry ladder to recreate a storm.
 //
 // The signals below are deliberately structural. The gate is recognised by the
 // shape of the evidence (which endpoint, how many refusals, which control

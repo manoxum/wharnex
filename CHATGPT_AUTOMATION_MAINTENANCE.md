@@ -7,7 +7,7 @@ Use este procedimento quando uma mudança da interface ChatGPT quebrar um Worker
 - Trabalhe somente com operações nomeadas do Desktop e recursos temporários Wharnex.
 - Não leia prosa do assistente, cookies, storage, credenciais, corpos/headers de rede ou DOM bruto.
 - Scripts retornam somente estado e geometria estruturais; o processo principal faz o input confiável. Não acrescente clicks DOM para operações de conta.
-- Pare em autenticação, CAPTCHA, acesso negado, gate estrutural ou rate limit. Não faça retries para “destravar”; o gate automático dura cinco minutos.
+- Pare em autenticação, CAPTCHA, acesso negado, gate estrutural ou rate limit. Não faça retries para “destravar”; o gate automático usa a duração configurada em **Políticas** (7 minutos e 30 segundos por padrão; limite de 1 a 60 minutos). Ao expirar, mantenha ambos os pools bloqueados: um único Worker deve recarregar sua URL confiável atual e só liberar a fila depois de confirmar estruturalmente `rateLimited=false`, sem gate de autenticação, verificação ou acesso. Novo 429/gate inicia outra suspensão configurada; página ambígua adia a confirmação sem consumir tentativa de tarefa.
 
 ## Cadência
 
@@ -28,11 +28,12 @@ Use este procedimento quando uma mudança da interface ChatGPT quebrar um Worker
 - O histórico expõe `data-conversation-options-trigger`; o `data-testid` visual pode ser `history-item-<n>-options` ou `undefined-options` e não deve ser usado como identidade durável.
 - O menu da conversa atualmente aberta expõe `button[data-testid="conversation-options-button"]`; use-o somente como fallback da conversa carregada.
 - O botão do cabeçalho pode ter `aria-label="Mais"` e não declarar `aria-haspopup`; sua identidade vem do `data-testid`, não do texto localizado.
-- Itens de ação continuam sendo controles `[role="menuitem"]`; prefira os `data-testid` específicos e use labels localizados apenas como fallback fechado.
+- Itens de ação expõem `data-testid` específicos; o `role="menuitem"` pode estar no mesmo nó ou num ancestral. Resolva primeiro o `data-testid`, suba apenas até o controle acionável e use labels localizados somente como fallback fechado.
 - O popover de esforço pode expor o slider utilizável sem refletir `aria-expanded="true"` no gatilho. A presença de um único slider composer-scoped definido em `effortSlider` é a evidência de menu aberto; `aria-expanded` não é precondição.
 - Um Worker oculto não pode depender de `webContents.sendInputEvent` para controles que exigem hit-testing. Localize e valide o retângulo no renderer e entregue o press confiável ao widget oculto pela operação estreita já implementada em `pressChatGPTControl`; nunca substitua isso por `HTMLElement.click()`.
 
 Ao atualizar este mapa, incremente `CHATGPT_BEHAVIOR.revision`, acrescente uma regressão e remova toda instrumentação temporária marcada com `[DEBUG-...]` antes de concluir.
+Todo gerador de script de conta deve entrar na lista `ALL_SCRIPTS` e passar pelo teste de compilação com `new Function`; regex dentro de template strings precisam preservar dupla fuga (`\\/`).
 
 ## Aceitação por tipo
 
@@ -57,4 +58,4 @@ npm run build
 
 Antes de aceitar, confira ausência de novo `429`, cumprimento da cadência e ausência de conteúdo remoto nos diagnósticos.
 
-Se um 429 ocorrer durante a rodada, encerre a medição como inconclusiva. Confirme no estado durável que `paused_until` está cinco minutos à frente, que nenhum pool reivindica trabalho novo durante a janela e que, ao expirar, `rate_limit_level`, `last_rate_limit_at` e `last_rate_limit_source` voltam ao estado saudável antes de iniciar cinco casos novos.
+Se um 429 ocorrer durante a rodada, encerre a medição como inconclusiva. Confirme no estado durável que `paused_until` está à frente pela duração configurada, que nenhum pool reivindica trabalho novo durante a janela e que, ao expirar, exatamente um Worker recarrega a URL confiável e confirma a ausência estrutural do gate antes de qualquer pool voltar a reivindicar trabalho. Um novo 429 deve abrir outra janela completa. Só então verifique que o estado volta ao nível saudável antes de iniciar cinco casos novos.

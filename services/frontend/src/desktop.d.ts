@@ -46,7 +46,7 @@ type DesktopAgentRuntimeAgent = {
   binding_hold?: string
 }
 type DesktopAgentRuntimeState = {
-  instance_id: string; desired_supervisors: number; configured_supervisors: number; desired_workers: number; configured_workers: number; policies: { auto_scale: boolean; auto_scale_max_supervisors: number; auto_scale_max_workers: number; keep_flowing_global: boolean; keep_flowing_workers: string[]; workers_suspended: boolean; workers_suspended_until: string; auto_scaled_supervisors: number; auto_scaled_workers: number }; limits: { min_supervisors: number; max_supervisors: number; min_workers: number; max_workers: number }
+  instance_id: string; desired_supervisors: number; configured_supervisors: number; desired_workers: number; configured_workers: number; policies: { auto_scale: boolean; auto_scale_max_supervisors: number; auto_scale_max_workers: number; keep_flowing_global: boolean; keep_flowing_workers: string[]; workers_suspended: boolean; workers_suspended_until: string; rate_limit_cooldown_minutes: number; auto_scaled_supervisors: number; auto_scaled_workers: number }; limits: { min_supervisors: number; max_supervisors: number; min_workers: number; max_workers: number }
   scheduler: { running: boolean; backend_reachable: boolean; last_refresh_at: string; last_error: string }
   queue: { queued: number; counts: Record<string, number>; due: number; due_supervisor_lanes?: number; due_worker?: number; scheduled: number; guarded?: number; blocked: number; oldest_due_created_at: string; next_not_before: string }
   provider: { provider: string; paused: boolean; paused_until: string; reason: string; updated_at: string; rate_limit_level?: number; last_rate_limit_at?: string; last_rate_limit_source?: string; last_valid_bundle_at?: string; average_processing_ms?: number; valid_sample_count?: number; initial_wait_ms?: number }
@@ -140,7 +140,7 @@ interface WharnessDesktopBridge {
     state(): Promise<DesktopAgentRuntimeState>
     setSupervisorCount(count: number): Promise<DesktopAgentRuntimeState>
     setWorkerCount(count: number): Promise<DesktopAgentRuntimeState>
-    setPolicies(policies: { auto_scale?: boolean; auto_scale_max_supervisors?: number; auto_scale_max_workers?: number; keep_flowing_global?: boolean }): Promise<DesktopAgentRuntimeState>
+    setPolicies(policies: { auto_scale?: boolean; auto_scale_max_supervisors?: number; auto_scale_max_workers?: number; keep_flowing_global?: boolean; rate_limit_cooldown_minutes?: number }): Promise<DesktopAgentRuntimeState>
     setWorkerKeepFlowing(agentId: string, enabled: boolean): Promise<DesktopAgentRuntimeState>
     pauseWorkers(pausedUntil?: string): Promise<DesktopAgentRuntimeState>
     resumeWorkers(): Promise<DesktopAgentRuntimeState>

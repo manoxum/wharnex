@@ -18,7 +18,9 @@ const (
 	// Every provider 429 and structural "too many requests" gate stops the whole
 	// account for one fixed window. Retrying after only the former one-minute
 	// first ladder step reproduced the refusal immediately in live operation.
-	chatAgentRateLimitGatePause = 5 * time.Minute
+	chatAgentRateLimitGatePause = 7*time.Minute + 30*time.Second
+	chatAgentMinRateLimitPause  = time.Minute
+	chatAgentMaxRateLimitPause  = time.Hour
 )
 
 // Rate-limit evidence kinds. Transport is a single throttled HTTP response;
@@ -56,8 +58,17 @@ func chatAgentInitialWait(average time.Duration, samples int) time.Duration {
 	return wait
 }
 
-func chatAgentRateLimitPause(level int, kind string) time.Duration {
-	return chatAgentRateLimitGatePause
+func chatAgentRateLimitPause(level int, kind string, requested ...time.Duration) time.Duration {
+	if len(requested) == 0 || requested[0] == 0 {
+		return chatAgentRateLimitGatePause
+	}
+	if requested[0] < chatAgentMinRateLimitPause {
+		return chatAgentMinRateLimitPause
+	}
+	if requested[0] > chatAgentMaxRateLimitPause {
+		return chatAgentMaxRateLimitPause
+	}
+	return requested[0]
 }
 
 // The gate is the provider's strongest evidence, so it pins the level at its
@@ -75,16 +86,17 @@ func chatAgentNextRateLimitLevel(current int, kind string) int {
 	return next
 }
 
-func chatAgentRateLimitReason(source, kind string, level int) string {
+func chatAgentRateLimitReason(source, kind string, level int, requestedPause ...time.Duration) string {
+	pause := chatAgentRateLimitPause(level, kind, requestedPause...)
 	if normalizeChatAgentRateLimitKind(kind) == ChatAgentRateLimitGate {
-		return fmt.Sprintf("ChatGPT rate-limit gate (%s, suspended %s)", source, chatAgentRateLimitGatePause)
+		return fmt.Sprintf("ChatGPT rate-limit gate (%s, suspended %s)", source, pause)
 	}
-	return fmt.Sprintf("ChatGPT HTTP 429 rate limit (%s, suspended %s)", source, chatAgentRateLimitGatePause)
+	return fmt.Sprintf("ChatGPT HTTP 429 rate limit (%s, suspended %s)", source, pause)
 }
 
 // A pause is a floor, never a reassignment. A transport 429 observed while an
 // account-wide gate is still counting down must not shorten that suspension to
-// its own five-minute ladder step.
+// its own shorter pause.
 func chatAgentPauseUntil(existing *time.Time, candidate time.Time) time.Time {
 	if existing != nil && existing.After(candidate) {
 		return *existing
@@ -123,7 +135,7 @@ func (s *Store) enrichChatAgentProviderState(state ChatAgentProviderState) (Chat
 // the resulting durable pause. kind is ChatAgentRateLimitTransport for a single
 // throttled HTTP response and ChatAgentRateLimitGate for the account-wide block
 // ChatGPT presents in its own surface; anything else is read as transport.
-func (s *Store) RecordChatAgentRateLimit(source, kind string) (ChatAgentProviderState, error) {
+func (s *Store) RecordChatAgentRateLimit(source, kind string, requestedPause ...time.Duration) (ChatAgentProviderState, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		source = "unknown"
@@ -153,8 +165,8 @@ func (s *Store) RecordChatAgentRateLimit(source, kind string) (ChatAgentProvider
 		if pausedUntil.Valid {
 			priorPause = &pausedUntil.Time
 		}
-		until := chatAgentPauseUntil(priorPause, now.Add(chatAgentRateLimitPause(level, kind)))
-		reason := chatAgentRateLimitReason(source, kind, level)
+		until := chatAgentPauseUntil(priorPause, now.Add(chatAgentRateLimitPause(level, kind, requestedPause...)))
+		reason := chatAgentRateLimitReason(source, kind, level, requestedPause...)
 		if _, err := tx.Exec(`UPDATE harness_chat_agent_provider_state SET paused=true,paused_until=$1,reason=$2,
 			rate_limit_level=$3,last_rate_limit_at=$4,last_rate_limit_source=$5,updated_at=$4 WHERE provider='chatgpt'`,
 			until, reason, level, now, source); err != nil {
@@ -175,10 +187,10 @@ func (s *Store) RecordChatAgentRateLimit(source, kind string) (ChatAgentProvider
 		state.RateLimitLevel = 0
 	}
 	state.RateLimitLevel = chatAgentNextRateLimitLevel(state.RateLimitLevel, kind)
-	until := chatAgentPauseUntil(state.PausedUntil, now.Add(chatAgentRateLimitPause(state.RateLimitLevel, kind)))
+	until := chatAgentPauseUntil(state.PausedUntil, now.Add(chatAgentRateLimitPause(state.RateLimitLevel, kind, requestedPause...)))
 	state.Paused = true
 	state.PausedUntil = &until
-	state.Reason = chatAgentRateLimitReason(source, kind, state.RateLimitLevel)
+	state.Reason = chatAgentRateLimitReason(source, kind, state.RateLimitLevel, requestedPause...)
 	state.LastRateLimitAt = &now
 	state.LastRateLimitSource = source
 	state.UpdatedAt = now

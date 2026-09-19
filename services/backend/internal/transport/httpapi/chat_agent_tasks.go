@@ -276,13 +276,14 @@ func (a *API) updateChatAgentProviderState(w http.ResponseWriter, r *http.Reques
 
 func (a *API) recordChatAgentRateLimit(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Source string `json:"source"`
-		Kind   string `json:"kind"`
+		Source          string `json:"source"`
+		Kind            string `json:"kind"`
+		CooldownSeconds int64  `json:"cooldown_seconds"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	state, err := a.store.RecordChatAgentRateLimit(body.Source, body.Kind)
+	state, err := a.store.RecordChatAgentRateLimit(body.Source, body.Kind, time.Duration(body.CooldownSeconds)*time.Second)
 	if err != nil {
 		writeChatAgentTaskError(w, err)
 		return

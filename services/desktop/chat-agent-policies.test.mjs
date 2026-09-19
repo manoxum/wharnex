@@ -5,14 +5,17 @@ import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervis
 
 test('defaults global flow protection on and normalizes its bounded policy', () => {
   assert.deepEqual(normalizeChatAgentPolicies(), {
-    auto_scale: true, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: HARD_MAX_WORKER_SLOTS, keep_flowing_global: true, keep_flowing_workers: [], workers_suspended: false, workers_suspended_until: '',
+    auto_scale: true, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: HARD_MAX_WORKER_SLOTS, keep_flowing_global: true, keep_flowing_workers: [], workers_suspended: false, workers_suspended_until: '', rate_limit_cooldown_minutes: 7.5,
   })
   assert.equal(normalizeChatAgentPolicies({ keep_flowing_global: false }).auto_scale, true)
   assert.deepEqual(normalizeChatAgentPolicies({ auto_scale: false, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-3', 'worker-2', 'worker-2', 'worker-99', 'bad'] }), {
-    auto_scale: false, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-2', 'worker-3'], workers_suspended: false, workers_suspended_until: '',
+    auto_scale: false, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-2', 'worker-3'], workers_suspended: false, workers_suspended_until: '', rate_limit_cooldown_minutes: 7.5,
   })
   assert.equal(normalizeChatAgentPolicies({ auto_scale_max_workers: 99 }).auto_scale_max_workers, HARD_MAX_WORKER_SLOTS)
   assert.equal(normalizeChatAgentPolicies({ auto_scale_max_workers: 0 }).auto_scale_max_workers, 1)
+  assert.equal(normalizeChatAgentPolicies({ rate_limit_cooldown_minutes: 12.4 }).rate_limit_cooldown_minutes, 12.5)
+  assert.equal(normalizeChatAgentPolicies({ rate_limit_cooldown_minutes: 0 }).rate_limit_cooldown_minutes, 1)
+  assert.equal(normalizeChatAgentPolicies({ rate_limit_cooldown_minutes: 90 }).rate_limit_cooldown_minutes, 60)
   assert.equal(keepFlowingForWorker({ keep_flowing_workers: ['worker-2'] }, 2), true)
   assert.equal(keepFlowingForWorker({ keep_flowing_global: true }, 'worker-3'), true)
 })

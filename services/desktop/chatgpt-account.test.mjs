@@ -116,6 +116,14 @@ test('menu item lookup reports the available labels when an action is missing', 
   assert.match(script, /arquivar/)
 })
 
+test('stable lifecycle testids do not depend on the role living on the same node', () => {
+  const script = chatGPTMenuItemRectScript('delete')
+  assert.match(script, /querySelector\('\[data-testid='/)
+  assert.match(script, /closest\?\.\('\[role="menuitem"\], button'\)/)
+  assert.match(script, /rows: candidates\.length, matches: preferredRaw \? 1 : 0/)
+  assert.doesNotMatch(script, /\[role="menuitem"\]\[data-testid=/)
+})
+
 // The rename control is an inline sidebar input; the previous implementation
 // waited for a dialog ChatGPT never renders.
 test('rename targets the inline title editor rather than a dialog', () => {

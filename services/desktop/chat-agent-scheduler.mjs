@@ -134,12 +134,11 @@ export class ChatAgentSchedulerClient {
   }
 
 
-  // kind is 'transport' for one throttled response and 'gate' for ChatGPT's
-  // account-wide block; the backend maps them to the progressive ladder and the
-  // fixed suspension respectively.
-  async recordRateLimit(source, kind = 'transport') {
+  // kind preserves the evidence shape; cooldownSeconds is the bounded policy
+  // selected by the operator and applied durably by the backend.
+  async recordRateLimit(source, kind = 'transport', cooldownSeconds = 450) {
     return requestJSON(this.fetchImpl, this.baseURL, '/api/chat-agent/provider/rate-limit', {
-      method: 'POST', body: JSON.stringify({ source, kind }),
+      method: 'POST', body: JSON.stringify({ source, kind, cooldown_seconds: cooldownSeconds }),
     })
   }
 

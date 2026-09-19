@@ -8,7 +8,11 @@ export const DEFAULT_CHAT_AGENT_POLICIES = Object.freeze({
   keep_flowing_workers: Object.freeze([]),
   workers_suspended: false,
   workers_suspended_until: '',
+  rate_limit_cooldown_minutes: 7.5,
 })
+
+export const MIN_RATE_LIMIT_COOLDOWN_MINUTES = 1
+export const MAX_RATE_LIMIT_COOLDOWN_MINUTES = 60
 
 function workerNumber(value) {
   const match = String(value || '').trim().match(/^worker-([1-9][0-9]*)$/)
@@ -35,6 +39,10 @@ export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, 
   const rawSuspendedUntil = String(value?.workers_suspended_until || '').trim()
   const suspendedDeadline = rawSuspendedUntil ? Date.parse(rawSuspendedUntil) : NaN
   const workersSuspendedUntil = Number.isFinite(suspendedDeadline) ? new Date(suspendedDeadline).toISOString() : ''
+  const requestedRateLimitCooldown = Number(value?.rate_limit_cooldown_minutes)
+  const rateLimitCooldownMinutes = Number.isFinite(requestedRateLimitCooldown)
+    ? Math.min(MAX_RATE_LIMIT_COOLDOWN_MINUTES, Math.max(MIN_RATE_LIMIT_COOLDOWN_MINUTES, Math.round(requestedRateLimitCooldown * 2) / 2))
+    : DEFAULT_CHAT_AGENT_POLICIES.rate_limit_cooldown_minutes
   return {
     auto_scale: value?.auto_scale == null ? DEFAULT_CHAT_AGENT_POLICIES.auto_scale : value.auto_scale === true,
     auto_scale_max_workers: autoScaleMaxWorkers,
@@ -43,6 +51,7 @@ export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, 
     keep_flowing_workers: keepFlowingWorkers,
     workers_suspended: value?.workers_suspended === true,
     workers_suspended_until: workersSuspendedUntil,
+    rate_limit_cooldown_minutes: rateLimitCooldownMinutes,
   }
 }
 

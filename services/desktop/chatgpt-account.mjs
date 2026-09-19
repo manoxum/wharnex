@@ -147,10 +147,14 @@ export function chatGPTMenuItemRectScript(action) {
   const testid = action === 'archive' ? 'archive-chat-menu-item' : action === 'rename' ? 'rename-chat-menu-item' : action === 'delete' ? 'delete-chat-menu-item' : ''
   return `(() => {${PRELUDE}
     const wanted = JSON.parse(${labels});
-    const preferred = ${encode(testid)} ? document.querySelector('[role="menuitem"][data-testid=' + JSON.stringify(${encode(testid)}) + ']') : null;
-    const items = [...document.querySelectorAll('[role="menuitem"]')].filter((node) => usable(node) && visible(node));
-    if (!items.length) return { ok: false, state: 'menu-not-open' };
-    const item = (preferred && items.includes(preferred) ? preferred : null)
+    const preferredRaw = ${encode(testid)} ? document.querySelector('[data-testid=' + JSON.stringify(${encode(testid)}) + ']') : null;
+    const preferred = preferredRaw?.closest?.('[role="menuitem"], button') || preferredRaw;
+    const candidates = [...document.querySelectorAll('[role="menuitem"]')];
+    const items = candidates.filter((node) => usable(node) && visible(node));
+    if (!items.length && !(preferred && usable(preferred) && visible(preferred))) {
+      return { ok: false, state: 'menu-not-open', rows: candidates.length, matches: preferredRaw ? 1 : 0, viewport: viewport() };
+    }
+    const item = (preferred && usable(preferred) && visible(preferred) ? preferred : null)
       || items.find((node) => { const text = label(node).toLocaleLowerCase(); return wanted.some((value) => text === value); })
       || items.find((node) => { const text = label(node).toLocaleLowerCase(); return wanted.some((value) => text.startsWith(value)); });
     if (!item) return { ok: false, state: 'action-unavailable', available: items.map(label).slice(0, 12) };

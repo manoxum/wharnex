@@ -15,7 +15,7 @@ function runtime(desiredWorkers = 6, desiredSupervisors = 3): DesktopAgentRuntim
     configured_supervisors: desiredSupervisors,
     desired_workers: desiredWorkers,
     configured_workers: desiredWorkers,
-    policies: { auto_scale: false, auto_scale_max_supervisors: 12, auto_scale_max_workers: 6, keep_flowing_global: false, keep_flowing_workers: [], workers_suspended: false, workers_suspended_until: '', auto_scaled_supervisors: 0, auto_scaled_workers: 0 },
+    policies: { auto_scale: false, auto_scale_max_supervisors: 12, auto_scale_max_workers: 6, keep_flowing_global: false, keep_flowing_workers: [], workers_suspended: false, workers_suspended_until: '', rate_limit_cooldown_minutes: 7.5, auto_scaled_supervisors: 0, auto_scaled_workers: 0 },
     limits: { min_supervisors: 1, max_supervisors: 12, min_workers: 1, max_workers: 6 },
     scheduler: { running: true, backend_reachable: true, last_refresh_at: '2026-09-11T10:00:00Z', last_error: '' },
     queue: { queued: 2, counts: { RUNNING: 1, WAITING: 1 }, due: 1, scheduled: 0, blocked: 0, oldest_due_created_at: '2026-09-11T09:55:00Z', next_not_before: '2026-09-11T10:00:10Z' },
@@ -36,7 +36,7 @@ function agentsBridge(state: DesktopAgentRuntimeState = runtime()) {
     state: vi.fn(async () => state),
     setSupervisorCount: vi.fn(async (count: number) => runtime(count, count)),
     setWorkerCount: vi.fn(async (count: number) => runtime(count)),
-    setPolicies: vi.fn(async (policies: { auto_scale?: boolean; auto_scale_max_supervisors?: number; auto_scale_max_workers?: number; keep_flowing_global?: boolean }) => ({ ...state, policies: { ...state.policies, ...policies } })),
+    setPolicies: vi.fn(async (policies: { auto_scale?: boolean; auto_scale_max_supervisors?: number; auto_scale_max_workers?: number; keep_flowing_global?: boolean; rate_limit_cooldown_minutes?: number }) => ({ ...state, policies: { ...state.policies, ...policies } })),
     setWorkerKeepFlowing: vi.fn(async (agentId: string, enabled: boolean) => ({ ...state, agents: state.agents.map((agent) => agent.id === agentId ? { ...agent, keep_flowing: enabled } : agent) })),
     pauseWorkers: vi.fn(async (pausedUntil?: string) => ({ ...state, worker_pause: { paused: true, paused_until: pausedUntil || '' } })),
     resumeWorkers: vi.fn(async () => ({ ...state, worker_pause: { paused: false, paused_until: '' } })),
@@ -136,6 +136,19 @@ describe('AgentRuntimeDrawer', () => {
     fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Diminuir teto Auto scale' }))
     await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ auto_scale_max_workers: 5 }))
+  })
+
+  it('persists the automatic rate-limit suspension from the Policies tab', async () => {
+    const agents = agentsBridge()
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
+    const input = screen.getByRole('spinbutton', { name: 'Minutos de suspensão automática por rate limit' })
+    expect((input as HTMLInputElement).valueAsNumber).toBe(7.5)
+    fireEvent.change(input, { target: { value: '12.5' } })
+    fireEvent.blur(input)
+    await waitFor(() => expect(agents.setPolicies).toHaveBeenCalledWith({ rate_limit_cooldown_minutes: 12.5 }))
   })
 
   it('configures Keep flowing for one Worker when global mode is disabled', async () => {

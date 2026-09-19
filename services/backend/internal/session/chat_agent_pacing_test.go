@@ -52,7 +52,7 @@ func TestChatAgentValidBundleSamplesAreBoundedAndDeduplicated(t *testing.T) {
 	}
 }
 
-func TestEveryChatAgentRateLimitPausesForFiveMinutes(t *testing.T) {
+func TestEveryChatAgentRateLimitPausesForSevenAndAHalfMinutes(t *testing.T) {
 	store := NewStore()
 	for index := range 5 {
 		before := time.Now().UTC()
@@ -70,10 +70,28 @@ func TestEveryChatAgentRateLimitPausesForFiveMinutes(t *testing.T) {
 	}
 }
 
+func TestChatAgentRateLimitUsesBoundedConfiguredPause(t *testing.T) {
+	for _, test := range []struct {
+		requested time.Duration
+		want      time.Duration
+	}{{30 * time.Second, time.Minute}, {12*time.Minute + 30*time.Second, 12*time.Minute + 30*time.Second}, {2 * time.Hour, time.Hour}} {
+		store := NewStore()
+		before := time.Now().UTC()
+		state, err := store.RecordChatAgentRateLimit("backend_api", ChatAgentRateLimitTransport, test.requested)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := state.PausedUntil.Sub(before)
+		if got < test.want-time.Second || got > test.want+time.Second {
+			t.Fatalf("requested=%v pause=%v want about %v", test.requested, got, test.want)
+		}
+	}
+}
+
 // The incident this covers: workers kept claiming and submitting straight into
 // ChatGPT's account-wide "too many requests" block, because the only response
 // available was the transport ladder, whose first step is one minute.
-func TestChatAgentRateLimitGateSuspendsProviderForFiveMinutes(t *testing.T) {
+func TestChatAgentRateLimitGateSuspendsProviderForSevenAndAHalfMinutes(t *testing.T) {
 	store := NewStore()
 	before := time.Now().UTC()
 	state, err := store.RecordChatAgentRateLimit("dom_gate", ChatAgentRateLimitGate)
@@ -97,7 +115,7 @@ func TestChatAgentRateLimitGateSuspendsProviderForFiveMinutes(t *testing.T) {
 }
 
 // A transport 429 observed during the gate's countdown must not shorten the
-// suspension to its own five-minute ladder step.
+// suspension to a shorter pause.
 func TestChatAgentTransportRateLimitNeverShortensAnActiveGate(t *testing.T) {
 	store := NewStore()
 	gate, err := store.RecordChatAgentRateLimit("dom_gate", ChatAgentRateLimitGate)
@@ -137,7 +155,7 @@ func TestChatAgentRateLimitKindDefaultsToTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state.PausedUntil == nil || state.PausedUntil.Sub(before) < chatAgentRateLimitGatePause-time.Second {
-		t.Fatalf("unknown kind did not fall back to the five-minute transport pause: %#v", state)
+		t.Fatalf("unknown kind did not fall back to the seven-and-a-half-minute transport pause: %#v", state)
 	}
 }
 

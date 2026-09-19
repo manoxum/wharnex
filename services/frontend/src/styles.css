@@ -3279,6 +3279,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-scale { padding:10px 12px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
 .agent-runtime-scale-card { min-width:0; padding:9px 11px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:9px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
 .agent-runtime-scale-card > div:first-child { min-width:0; display:grid; gap:3px; }
+.agent-runtime-number-policy { display:flex; align-items:center; gap:5px; color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); }
+.agent-runtime-number-policy input { width:82px; min-height:32px; padding:0 7px; border:1px solid var(--theme-border); border-radius:8px; background:var(--theme-elevated); color:var(--theme-text); font:600 calc(9px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
+.agent-runtime-number-policy input:disabled { opacity:.45; }
 .agent-runtime-scale strong { color:var(--theme-text); font-size:calc(10.5px * var(--ui-font-scale)); }
 .agent-runtime-scale small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
 .agent-runtime-stepper { display:grid; grid-template-columns:31px 40px 31px; height:32px; border:1px solid var(--theme-border); border-radius:8px; overflow:hidden; background:var(--theme-bg); }
