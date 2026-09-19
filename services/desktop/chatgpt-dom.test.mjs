@@ -107,16 +107,17 @@ test('composer probes and mutations never request renderer focus', () => {
 test('composer text is written through the editor model and keeps its line structure', () => {
   const script = chatGPTFillComposerScript('WHARNEX INPUT req_1\nChatId: abc\nRead the ZIP.')
 
-  // Offered as a paste first: a rich editor handles paste through its own
-  // model, which is what survives the attachment re-render.
-  assert.match(script, /new ClipboardEvent\('paste'/)
-  assert.match(script, /setData\('text\/plain', value\)/)
-  // Still no focus and no selection API - the transport must never touch the
-  // remote renderer's focus (AGENTS.md section 8).
+  // Never a paste: ChatGPT turns long pasted text into an attachment of its
+  // own, and the composer then had a spurious pasted-text file to process
+  // before it could start uploading the request ZIP - the bundle upload,
+  // previously immediate, took a long time to begin.
+  assert.doesNotMatch(script, /ClipboardEvent|DataTransfer/)
+  // No focus and no selection API - the transport must never touch the remote
+  // renderer's focus (AGENTS.md section 8).
   assert.doesNotMatch(script, /\.focus\(|activeElement|createRange|getSelection|execCommand/)
 
-  // The direct-write fallback is block-structured rather than a flat
-  // textContent assignment, so the lines survive there too.
+  // Block-structured rather than a flat textContent assignment, so the lines
+  // survive instead of collapsing into one run-on line.
   assert.match(script, /split\('\\n'\)/)
   assert.match(script, /createElement\('p'\)/)
   assert.doesNotMatch(script, /composer\.textContent = value/)
@@ -129,8 +130,6 @@ test('composer text is written through the editor model and keeps its line struc
   // children with no separator, so a collapsed comparison could never match a
   // block-structured write and failed every such fill.
   assert.match(script, /squash\(composer\.textContent\)\.includes\(wanted\)/)
-  assert.match(script, /if \(!holdsWanted\(\)\)/)
-  assert.match(script, /return holdsWanted\(\)/)
 })
 
 test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {

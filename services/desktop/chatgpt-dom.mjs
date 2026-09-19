@@ -47,43 +47,28 @@ export function chatGPTFillComposerScript(text) {
     // survive arrived as one run-on line because textContent carries no block
     // structure - every "\\n" collapsed to a space.
     //
-    // It is offered as a paste first, because a rich editor takes a paste
-    // through its own model - and it needs no focus, so the transport still
-    // never touches the remote renderer's focus (AGENTS.md §8).
-    //
-    // Whether the editor accepted it is decided by reading the composer back,
-    // never by the event's own return value: cancelling a paste says the page
-    // handled the event, not that the text landed.
-    // Whitespace is removed entirely on both sides rather than collapsed. The
-    // editor decides how line boundaries read back, and textContent joins
-    // block children with no separator at all - so a collapsed-whitespace
-    // comparison could never match a block-structured write, and reported
-    // every such fill as failed.
+    // Deliberately NOT offered as a paste. ChatGPT turns a long pasted text
+    // into an attachment of its own, so the composer then had a spurious
+    // pasted-text file to process before it could even start uploading the
+    // request ZIP - live-reported as the bundle upload, previously immediate,
+    // taking a long time to begin. One paragraph per line writes the same text
+    // with the block structure textContent cannot carry, and nothing else
+    // about the previous, working behaviour changes.
+    composer.textContent = '';
+    for (const line of String(value).split('\\n')) {
+      const paragraph = document.createElement('p');
+      paragraph.textContent = line;
+      composer.appendChild(paragraph);
+    }
+    composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+    composer.dispatchEvent(new Event('change', { bubbles: true }));
+    // Confirmed from what the composer holds, with whitespace removed on both
+    // sides rather than collapsed: textContent joins block children with no
+    // separator at all, so a collapsed comparison could never match this write
+    // and reported every such fill as failed.
     const squash = (candidate) => String(candidate || '').replace(/\\s+/g, '');
     const wanted = squash(value);
-    const holdsWanted = () => wanted.length > 0 && squash(composer.textContent).includes(wanted);
-    try {
-      const transfer = new DataTransfer();
-      transfer.setData('text/plain', value);
-      composer.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
-    } catch { /* editor does not take a synthetic paste; fall through */ }
-    if (!holdsWanted()) {
-      // Direct write, but block-structured: one paragraph per line. Assigning
-      // textContent carries no block structure at all, so every "\\n"
-      // collapsed and the whole prompt arrived as one run-on line.
-      composer.textContent = '';
-      for (const line of String(value).split('\\n')) {
-        const paragraph = document.createElement('p');
-        paragraph.textContent = line;
-        composer.appendChild(paragraph);
-      }
-      composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: value }));
-      composer.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    // Confirmed from what the editor actually holds, and by containment rather
-    // than equality: the editor may legitimately add structure of its own, and
-    // demanding an exact match failed a fill that had in fact landed.
-    return holdsWanted();
+    return wanted.length > 0 && squash(composer.textContent).includes(wanted);
   })()`
 }
 
