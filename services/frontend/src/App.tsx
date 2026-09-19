@@ -828,7 +828,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const title = `TODO · ${deriveChatTitle(todo.body)}`
       const chat = newWorkspaceChat(created.id, title, chatId)
       await api.saveWorkspaceChat(durableWorkspaceChat(created.project_path, chat))
-      saveComposerDraft(created.project_path, chat.id, { message: todo.body, height: 156 })
+      saveComposerDraft(created.project_path, chat.id, { message: `@{[todo]${todo.id}} ${todo.body}`, height: 156 })
       saveComposerFileDraft(created.project_path, chat.id, { attachments: files, projectFiles: todo.project_files || [] })
       const next = [chat, ...chats]
       persistChats(created.project_path, next)
@@ -836,6 +836,30 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
       setEvents([]); setManualPrompt(''); setChatTransportMode(created.chat_transport_mode || 'scraper'); setMode('agent'); connectEvents(created.id, created.project_path, chat.id)
     } catch (reason) { setError(messageOf(reason)) } finally { creatingChatRef.current = false }
+  }
+
+  async function promoteTodoToCurrentChat(todo: ProjectTodo) {
+    if (!session || !activeChatId) return
+    const marker = `@{[todo]${todo.id}} ${todo.body}`
+    window.dispatchEvent(new CustomEvent('wharnex:todo-insert', { detail: { chatId: activeChatId, text: marker } }))
+  }
+
+  async function locateTodoChat(chatId: string) {
+    setMode('agent')
+    if (chatId === activeChatId) return
+    if (chats.some((chat) => chat.id === chatId)) {
+      await selectChat(chatId)
+      return
+    }
+    if (savedChats.some((chat) => chat.id === chatId)) {
+      await restoreSavedChat(chatId)
+      return
+    }
+    if (archivedChats.some((chat) => chat.id === chatId)) {
+      await restoreArchivedChat(chatId)
+      return
+    }
+    setError('O chat associado a este TODO já não está disponível.')
   }
 
   async function exportActiveChat() {
@@ -3329,6 +3353,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         chats={chats}
         chatProps={sharedChatProps}
         onPromoteTodoToChat={promoteTodoToChat}
+        onPromoteTodoToCurrentChat={promoteTodoToCurrentChat}
+        onLocateTodoChat={locateTodoChat}
         onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
         onGoToOrchestrator={goToOrchestratorFromTask}
         onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}
@@ -3416,6 +3442,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         chats={chats}
         chatProps={sharedChatProps}
         onPromoteTodoToChat={promoteTodoToChat}
+        onPromoteTodoToCurrentChat={promoteTodoToCurrentChat}
+        onLocateTodoChat={locateTodoChat}
         onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
         onGoToOrchestrator={goToOrchestratorFromTask}
         onFollowInstance={(agentId, chatId, sessionId) => void followRuntimeTaskInstance(agentId, chatId, sessionId)}

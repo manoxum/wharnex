@@ -9,6 +9,11 @@ const (
 	ProjectTodoClassificationQueued     = "queued"
 	ProjectTodoClassificationClassified = "classified"
 	ProjectTodoClassificationFailed     = "failed"
+
+	ProjectTodoExecutionOpen       = "open"
+	ProjectTodoExecutionProcessing = "processing"
+	ProjectTodoExecutionDone       = "done"
+	ProjectTodoExecutionFailed     = "failed"
 )
 
 type ProjectTodoAttachment struct {
@@ -34,6 +39,13 @@ type ProjectTodo struct {
 	AttachmentCacheKey   string                  `json:"attachment_cache_key,omitempty"`
 	Attachments          []ProjectTodoAttachment `json:"attachments,omitempty"`
 	ProjectFiles         []string                `json:"project_files,omitempty"`
+	ExecutionStatus      string                  `json:"execution_status,omitempty"`
+	ExecutionRequestID   string                  `json:"execution_request_id,omitempty"`
+	ExecutionSessionID   string                  `json:"execution_session_id,omitempty"`
+	ExecutionChatID      string                  `json:"execution_chat_id,omitempty"`
+	ExecutionTarget      string                  `json:"execution_target,omitempty"`
+	ExecutionPlanID      string                  `json:"execution_plan_id,omitempty"`
+	ExecutionError       string                  `json:"execution_error,omitempty"`
 	ArchivedAt           *time.Time              `json:"archived_at,omitempty"`
 	CreatedAt            time.Time               `json:"created_at"`
 	UpdatedAt            time.Time               `json:"updated_at"`

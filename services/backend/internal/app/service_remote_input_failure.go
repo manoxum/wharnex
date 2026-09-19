@@ -73,6 +73,9 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 	if err != nil {
 		return domain.Session{}, err
 	}
+	if !knowledgeReviewFailure {
+		s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionFailed, reason)
+	}
 	if knowledgeReviewFailure {
 		s.releaseRemoteInputLease(sessionID, requestID)
 		s.closeRemoteInputChannel(sessionID, "knowledge_review_delivery_failed")
@@ -91,6 +94,7 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 			s.bus.Publish(sessionID, "request.auto_recovery_failed", map[string]any{"replaces_request_id": requestID, "error": retryErr.Error()})
 			return updated, nil
 		}
+		s.setProjectTodosByRequestLineage(recovered, recovered.LastRequestID, domain.ProjectTodoExecutionProcessing, "")
 		s.bus.Publish(sessionID, "request.auto_recovery_prepared", map[string]any{"request_id": recovered.LastRequestID, "replaces_request_id": requestID, "attempt": recovered.RemoteRecoveryAttempt})
 		return recovered, nil
 	}

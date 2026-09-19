@@ -20,7 +20,7 @@
 // Keep this in step with the Go parser: it is the same language, and the half
 // that renders chips must agree with the half that resolves them.
 
-export type DirectiveKind = 'file' | 'ref' | 'attach' | 'see' | 'chat' | 'lib'
+export type DirectiveKind = 'file' | 'ref' | 'attach' | 'see' | 'chat' | 'lib' | 'todo'
 
 /**
  * The typed vocabulary: one canonical keyword per kind, plus the alternate
@@ -35,6 +35,7 @@ export const KEYWORDS: { kind: DirectiveKind; keyword: string; label: string; al
   { kind: 'see', keyword: 'see', label: 'Ficheiro ou diretório visível', aliases: ['look'] },
   { kind: 'chat', keyword: 'chat', label: 'Ficheiro deste chat', aliases: [] },
   { kind: 'lib', keyword: 'lib', label: 'Ficheiro da biblioteca', aliases: ['library'] },
+  { kind: 'todo', keyword: 'todo', label: 'TODO do projeto', aliases: ['TODO'] },
 ]
 
 const KIND_ALIASES: Record<string, DirectiveKind> = Object.fromEntries(
@@ -86,7 +87,7 @@ const PROJECT_NAME = /^[A-Za-z0-9._-]+$/
 // group accepts every alias; the bracketed canonical form accepts only the
 // three real kind names, since nothing ever writes an alias into it.
 const VALUE_CHARS = '[^\\s<>{}(),;:!?"\'`]*'
-const DIRECTIVE = new RegExp(`@\\{\\[(file|ref|attach|see|chat|lib)\\]([^{}\\n]*)\\}|@(${typedKeywordAlternation()}):(?:<<([^<>\\n]*)>>|(${VALUE_CHARS}))`, 'g')
+const DIRECTIVE = new RegExp(`@\\{\\[(file|ref|attach|see|chat|lib|todo)\\]([^{}\\n]*)\\}|@(${typedKeywordAlternation()}):(?:<<([^<>\\n]*)>>|(${VALUE_CHARS}))`, 'g')
 
 export function validProjectName(name: string) {
   const trimmed = name.trim()
@@ -190,6 +191,7 @@ function build(kind: DirectiveKind, raw: string): Omit<ComposerDirective, 'start
   }
   if (kind === 'chat') return buildChatValue(raw.trim())
   if (kind === 'lib') return buildLibraryValue(raw.trim())
+  if (kind === 'todo') return /^[A-Za-z0-9._-]+$/.test(value) ? { kind, value, project: '', path: value } : undefined
   const separator = value.indexOf('/')
   const project = separator >= 0 ? value.slice(0, separator) : value
   let path = separator >= 0 ? value.slice(separator + 1).trim() : ''
@@ -426,6 +428,7 @@ export function directiveSuggestions(
   attachedPathFiles: Array<{ root: string; files: string[] }> = [],
   chatFiles: ArtifactDirectiveCandidate[] = [],
   libraryFiles: ArtifactDirectiveCandidate[] = [],
+  todoItems: ArtifactDirectiveCandidate[] = [],
 ): DirectiveSuggestion[] {
   // An attachment names a path outside every project, so there is nothing for
   // Wharnex to complete from: the operator picks it, and the picker is offered
@@ -433,6 +436,7 @@ export function directiveSuggestions(
   if (query.kind === 'attach') return []
   if (query.kind === 'chat') return rankArtifactCandidates(chatFiles, query.query)
   if (query.kind === 'lib') return rankArtifactCandidates(libraryFiles, query.query)
+  if (query.kind === 'todo') return rankArtifactCandidates(todoItems, query.query)
   if (query.kind === 'file') {
     return matchingProjectFiles(projectFiles, query.query).map((path) => ({ value: path, label: path }))
   }
@@ -655,6 +659,7 @@ export function directiveChipLabel(directive: Pick<ComposerDirective, 'kind' | '
   if (directive.kind === 'see') return directive.path.split('/').pop() || directive.path
   if (directive.kind === 'chat') return directive.path.split('/').pop() || directive.path
   if (directive.kind === 'lib') return `Biblioteca · ${directive.path}`
+  if (directive.kind === 'todo') return `TODO · ${directive.path}`
   if (!directive.path) return directive.project
   return `${directive.project}/${directive.path.split('/').pop()}`
 }

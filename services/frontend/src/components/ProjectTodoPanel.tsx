@@ -14,6 +14,8 @@ type Props = {
   chatProps: ComponentProps<typeof ChatPanel>
   onClose: () => void
   onPromoteToChat?: (todo: ProjectTodo) => Promise<void>
+  onPromoteToCurrentChat?: (todo: ProjectTodo) => Promise<void>
+  onLocateChat?: (chatId: string) => void
   onGoToOrchestrator?: () => void
   onError: (message: string) => void
 }
@@ -21,9 +23,19 @@ type Props = {
 const KIND_LABEL: Record<string, string> = { feature: 'Funcionalidade', improvement: 'Melhoria', error: 'Erro' }
 const URGENCY_LABEL: Record<string, string> = { very_urgent: 'Muito urgente', urgent: 'Urgente', normal: 'Normal', no_urgency: 'Sem urgência' }
 
-export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat, onGoToOrchestrator, onError }: Props) {
+type TodoFilter = 'open' | 'pending' | 'executed' | 'failed' | 'completed'
+
+function todoFilter(todo: ProjectTodo): TodoFilter {
+  if (todo.status === 'done' || todo.archived_at) return 'completed'
+  if (todo.execution_status === 'done') return 'executed'
+  if (todo.execution_status === 'failed') return 'failed'
+  if (todo.execution_status === 'processing') return 'pending'
+  return 'open'
+}
+
+export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat, onPromoteToCurrentChat, onLocateChat, onGoToOrchestrator, onError }: Props) {
   const [items, setItems] = useState<ProjectTodo[]>([])
-  const [filter, setFilter] = useState<'open' | 'done' | 'archived'>('open')
+  const [filter, setFilter] = useState<TodoFilter>('open')
   const [busy, setBusy] = useState(false)
   const [composerOpen, setComposerOpen] = useState(false)
 
@@ -79,14 +91,6 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
     finally { setBusy(false) }
   }
 
-  async function archiveTodo(todo: ProjectTodo, archived: boolean) {
-    setBusy(true)
-    try {
-      const updated = await api.archiveProjectTodo(session.id, todo.id, archived)
-      setItems((current) => current.map((item) => item.id === updated.id ? updated : item))
-    } catch (reason) { onError(errorMessage(reason, archived ? 'Não foi possível arquivar o TODO.' : 'Não foi possível restaurar o TODO.')) }
-    finally { setBusy(false) }
-  }
 
   async function deleteTodo(todo: ProjectTodo) {
     const confirmed = await confirmDialog({
@@ -127,12 +131,13 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
       }
 
       const result = await api.proposeOrchestratorPlan(session.id, todo.body, {
-        include_context: false, project_files: todo.project_files || [], attachment_cache_key: attachments?.length ? cacheKey : undefined, attachments,
+        include_context: false, project_files: todo.project_files || [], attachment_cache_key: attachments?.length ? cacheKey : undefined, attachments, todo_ids: [todo.id],
       })
       if (!result.worker_task_id && ownsCache && bridge) {
         await bridge.attachments.removeChat({ cacheKey }).catch(() => undefined)
         ownsCache = false
       }
+      await refresh()
       onGoToOrchestrator?.()
     } catch (reason) {
       if (ownsCache && bridge) await bridge.attachments.removeChat({ cacheKey }).catch(() => undefined)
@@ -140,30 +145,36 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
     } finally { setBusy(false) }
   }
 
-  const active = useMemo(() => items.filter((item) => !item.archived_at), [items])
-  const archivedItems = useMemo(() => items.filter((item) => Boolean(item.archived_at)), [items])
-  const visible = useMemo(() => filter === 'archived' ? archivedItems : active.filter((item) => item.status === filter), [active, archivedItems, filter])
-  const openCount = active.filter((item) => item.status === 'open').length
-  const doneCount = active.length - openCount
-  const archivedCount = archivedItems.length
-  const emptyCopy: Record<typeof filter, { title: string; detail: string }> = {
-    open: { title: 'Tudo organizado por aqui', detail: 'Adicione uma ideia quando precisar. O Worker trata da análise em segundo plano.' },
-    done: { title: 'Ainda não há TODOs concluídos', detail: 'Os itens concluídos ficam guardados aqui para consulta.' },
-    archived: { title: 'Ainda não há TODOs arquivados', detail: 'Arquivar tira o TODO das listas ativas sem o eliminar.' },
+  const visible = useMemo(() => items.filter((item) => todoFilter(item) === filter), [items, filter])
+  const counts = useMemo(() => ({
+    open: items.filter((item) => todoFilter(item) === 'open').length,
+    pending: items.filter((item) => todoFilter(item) === 'pending').length,
+    executed: items.filter((item) => todoFilter(item) === 'executed').length,
+    failed: items.filter((item) => todoFilter(item) === 'failed').length,
+    completed: items.filter((item) => todoFilter(item) === 'completed').length,
+  }), [items])
+  const emptyCopy: Record<TodoFilter, { title: string; detail: string }> = {
+    open: { title: 'Tudo organizado por aqui', detail: 'TODOs ainda não enviados para chat ou Orchestrator aparecem aqui.' },
+    pending: { title: 'Nada em execução', detail: 'TODOs enviados ficam aqui enquanto o pedido ou plano está a ser processado.' },
+    executed: { title: 'Ainda não há TODOs feitos', detail: 'Execuções terminadas com sucesso aparecem aqui.' },
+    failed: { title: 'Sem falhas', detail: 'TODOs cuja execução falhou aparecem aqui com a ligação ao chat de origem.' },
+    completed: { title: 'Ainda não há TODOs concluídos', detail: 'Itens concluídos manualmente ficam guardados aqui.' },
   }
 
   return <section className={`project-todo-panel ${composerOpen ? 'composer-open' : ''}`} aria-label="TODO do projeto">
     <header className="agent-drawer-heading project-todo-heading">
-      <div><span className="panel-kicker">Inbox do projeto</span><strong>TODO</strong><small>{openCount} em aberto · {doneCount} concluído{doneCount === 1 ? '' : 's'}</small></div>
+      <div><span className="panel-kicker">Inbox do projeto</span><strong>TODO</strong><small>{counts.open} abertos · {counts.pending} em execução · {counts.executed} feitos</small></div>
       <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar TODO"><Icon name="close" size={13}/></button>
     </header>
     <nav className="project-todo-tabs" aria-label="Estado dos TODOs">
-      <button type="button" aria-pressed={filter === 'open'} onClick={() => setFilter('open')}><span>Abertos</span><b>{openCount}</b></button>
-      <button type="button" aria-pressed={filter === 'done'} onClick={() => setFilter('done')}><span>Concluídos</span><b>{doneCount}</b></button>
-      <button type="button" aria-pressed={filter === 'archived'} onClick={() => setFilter('archived')}><span>Arquivados</span><b>{archivedCount}</b></button>
+      <button type="button" aria-pressed={filter === 'open'} onClick={() => setFilter('open')}><span>Abertos</span><b>{counts.open}</b></button>
+      <button type="button" aria-pressed={filter === 'pending'} onClick={() => setFilter('pending')}><span>Pendente/Execução</span><b>{counts.pending}</b></button>
+      <button type="button" aria-pressed={filter === 'executed'} onClick={() => setFilter('executed')}><span>Feito</span><b>{counts.executed}</b></button>
+      <button type="button" aria-pressed={filter === 'failed'} onClick={() => setFilter('failed')}><span>Falha</span><b>{counts.failed}</b></button>
+      <button type="button" aria-pressed={filter === 'completed'} onClick={() => setFilter('completed')}><span>Concluídos</span><b>{counts.completed}</b></button>
     </nav>
     <div className="project-todo-list">
-      {visible.length ? visible.map((todo) => <TodoCard key={todo.id} todo={todo} busy={busy} onStatus={() => void updateStatus(todo)} onRetry={() => void retryClassification(todo)} onChat={() => void onPromoteToChat?.(todo)} onOrchestrator={() => void promoteToOrchestrator(todo)} onArchive={() => void archiveTodo(todo, !todo.archived_at)} onDelete={() => void deleteTodo(todo)}/>) : <div className="agent-drawer-empty project-todo-empty"><Icon name="check" size={18}/><strong>{emptyCopy[filter].title}</strong><span>{emptyCopy[filter].detail}</span></div>}
+      {visible.length ? visible.map((todo) => <TodoCard key={todo.id} todo={todo} busy={busy} onStatus={() => void updateStatus(todo)} onRetry={() => void retryClassification(todo)} onChat={() => void onPromoteToChat?.(todo)} onCurrentChat={() => void onPromoteToCurrentChat?.(todo)} onLocate={() => todo.execution_chat_id && onLocateChat?.(todo.execution_chat_id)} onOrchestrator={() => void promoteToOrchestrator(todo)} onDelete={() => void deleteTodo(todo)}/>) : <div className="agent-drawer-empty project-todo-empty"><Icon name="check" size={18}/><strong>{emptyCopy[filter].title}</strong><span>{emptyCopy[filter].detail}</span></div>}
     </div>
     {composerOpen ? <div className="project-todo-composer" aria-label="Nova ideia">
       <header><div><span>Nova ideia</span><strong>Registar TODO</strong></div><button type="button" onClick={() => setComposerOpen(false)} aria-label="Fechar nova ideia"><Icon name="close" size={13}/></button></header>
@@ -174,16 +185,19 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
   </section>
 }
 
-function TodoCard({ todo, busy, onStatus, onRetry, onChat, onOrchestrator, onArchive, onDelete }: { todo: ProjectTodo; busy: boolean; onStatus: () => void; onRetry: () => void; onChat: () => void; onOrchestrator: () => void; onArchive: () => void; onDelete: () => void }) {
+function TodoCard({ todo, busy, onStatus, onRetry, onChat, onCurrentChat, onLocate, onOrchestrator, onDelete }: { todo: ProjectTodo; busy: boolean; onStatus: () => void; onRetry: () => void; onChat: () => void; onCurrentChat: () => void; onLocate: () => void; onOrchestrator: () => void; onDelete: () => void }) {
   const classified = todo.classification_status === 'classified'
   const classification = classified
     ? <><span className={`todo-badge kind-${todo.kind || 'unknown'}`}>{KIND_LABEL[todo.kind || ''] || todo.kind}</span><span className={`todo-badge urgency-${todo.urgency || 'normal'}`}>{URGENCY_LABEL[todo.urgency || ''] || todo.urgency}</span></>
     : todo.classification_status === 'failed'
       ? <><span className="todo-badge classification-failed">Análise pendente</span><button type="button" className="todo-inline-action" disabled={busy} onClick={onRetry}><Icon name="refresh" size={11}/> Tentar novamente</button></>
       : <span className="todo-badge classification-queued"><Icon name="agent" size={11}/> Worker na fila</span>
+  const execution = todo.execution_status === 'processing' ? <span className="todo-badge classification-queued">Em execução</span>
+    : todo.execution_status === 'done' ? <span className="todo-badge kind-improvement">Feito</span>
+      : todo.execution_status === 'failed' ? <span className="todo-badge classification-failed">Falha</span> : null
 
   return <article className={`project-todo-card ${todo.status}`}>
-    <div className="project-todo-meta"><div className="project-todo-badges">{classification}</div><time dateTime={todo.created_at}>{new Date(todo.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</time></div>
+    <div className="project-todo-meta"><div className="project-todo-badges">{classification}{execution}</div><time dateTime={todo.created_at}>{new Date(todo.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</time></div>
     <p className="project-todo-body">{todo.body}</p>
     {classified && (todo.description || todo.pre_plan?.length) ? <section className="project-todo-worker-detail">
       <header><span><Icon name="agent" size={12}/></span><div><small>Análise do Worker</small><strong>Contexto preparado para execução</strong></div></header>
@@ -196,9 +210,10 @@ function TodoCard({ todo, busy, onStatus, onRetry, onChat, onOrchestrator, onArc
     </div> : null}
     <div className="project-todo-actions">
       <button type="button" className="primary" disabled={busy} onClick={onChat}><Icon name="chatgpt" size={12}/> Novo chat</button>
+      <button type="button" disabled={busy} onClick={onCurrentChat}><Icon name="chatgpt" size={12}/> Chat atual</button>
       <button type="button" disabled={busy} onClick={onOrchestrator}><Icon name="plan" size={12}/> Orchestrator</button>
+      {todo.execution_chat_id ? <button type="button" disabled={busy} onClick={onLocate}><Icon name="link" size={12}/> Localizar chat</button> : null}
       <button type="button" disabled={busy} onClick={onStatus}><Icon name="check" size={12}/>{todo.status === 'done' ? 'Reabrir' : 'Concluir'}</button>
-      <button type="button" disabled={busy} onClick={onArchive} aria-label={todo.archived_at ? 'Restaurar TODO' : 'Arquivar TODO'} title={todo.archived_at ? 'Restaurar' : 'Arquivar'}><Icon name={todo.archived_at ? 'refresh' : 'archive'} size={12}/>{todo.archived_at ? 'Restaurar' : 'Arquivar'}</button>
       <button type="button" className="danger" disabled={busy} onClick={onDelete} aria-label="Eliminar TODO" title="Eliminar definitivamente"><Icon name="trash" size={12}/> Eliminar</button>
     </div>
   </article>

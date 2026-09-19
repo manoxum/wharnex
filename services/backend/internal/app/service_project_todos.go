@@ -71,7 +71,7 @@ func (s *Service) CreateProjectTodo(sessionID string, input ProjectTodoCreateInp
 	}
 	item := domain.ProjectTodo{
 		ID: newProjectTodoID(), ProjectPath: current.ProjectPath, Body: input.Body,
-		Status: domain.ProjectTodoOpen, ClassificationStatus: domain.ProjectTodoClassificationQueued,
+		Status: domain.ProjectTodoOpen, ClassificationStatus: domain.ProjectTodoClassificationQueued, ExecutionStatus: domain.ProjectTodoExecutionOpen,
 		AttachmentCacheKey: input.AttachmentCacheKey, Attachments: append([]domain.ProjectTodoAttachment(nil), input.Attachments...),
 		ProjectFiles: append([]string(nil), input.ProjectFiles...),
 	}

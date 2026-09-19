@@ -719,6 +719,13 @@ export type ProjectTodo = {
   attachment_cache_key?: string
   attachments?: ProjectTodoAttachment[]
   project_files?: string[]
+  execution_status?: 'open' | 'processing' | 'done' | 'failed'
+  execution_request_id?: string
+  execution_session_id?: string
+  execution_chat_id?: string
+  execution_target?: 'chat' | 'orchestrator' | string
+  execution_plan_id?: string
+  execution_error?: string
   archived_at?: string
   created_at: string
   updated_at: string

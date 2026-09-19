@@ -30,13 +30,14 @@ func (a *API) orchestratorProposePlan(w http.ResponseWriter, r *http.Request) {
 		ProjectFiles       []string                             `json:"project_files,omitempty"`
 		AttachmentCacheKey string                               `json:"attachment_cache_key,omitempty"`
 		Attachments        []app.OrchestratorPlanningAttachment `json:"attachments,omitempty"`
+		TodoIDs            []string                             `json:"todo_ids,omitempty"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
 	result, err := a.service.ProposeOrchestratorPlan(r.Context(), r.PathValue("id"), body.Objective, app.OrchestratorComposerContext{
 		IncludeContext: body.IncludeContext, ProjectFiles: body.ProjectFiles,
-		AttachmentCacheKey: body.AttachmentCacheKey, Attachments: body.Attachments,
+		AttachmentCacheKey: body.AttachmentCacheKey, Attachments: body.Attachments, TodoIDs: body.TodoIDs,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "orchestrator_plan_failed", err.Error())
