@@ -996,8 +996,34 @@ test('agent browser snapshots park hidden workers into a real layout viewport', 
   assert.notEqual(start, -1)
   const snapshot = source.slice(start, end)
   assert.match(snapshot, /ensureChatGPTLayoutViewport\(layoutKey, entry\)/)
-  assert.match(snapshot, /await wc\.capturePage\(\)/)
+  assert.match(snapshot, /await captureChatGPTAgentPage\(wc\)/)
   assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor' \? supervisorKey/)
+})
+
+// capturePage() reads the compositor's last presented frame, and a view that
+// is never visible never presents one: Viz answers UnknownVizError, which is
+// every hidden Worker and every non-painted Supervisor - exactly the agents an
+// operator asks to see when one looks stuck. Forcing a frame by showing the
+// view is forbidden (a parked surface carries layout-only bounds at the window
+// origin and would paint over the workspace - see the parked-surface
+// invariant), so the fallback rasterizes through the renderer instead.
+test('an agent snapshot of a never-painted view rasterizes instead of forcing it visible', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function captureChatGPTAgentPage(wc)')
+  assert.notEqual(start, -1)
+  const capture = source.slice(start, source.indexOf('\nasync function chatAgentBrowserSnapshot', start))
+
+  // Fast path first: a visible surface still comes straight from the compositor.
+  assert.match(capture, /await wc\.capturePage\(\)/)
+  assert.match(capture, /Page\.captureScreenshot/)
+  assert.match(capture, /captureBeyondViewport: true/)
+  // The debugger is borrowed, never left attached, and never taken from a
+  // caller that already owns it.
+  assert.match(capture, /const attachedHere = !wc\.debugger\.isAttached\(\)/)
+  assert.match(capture, /if \(attachedHere\) wc\.debugger\.attach/)
+  assert.match(capture, /finally \{\s*if \(attachedHere\) try \{ wc\.debugger\.detach\(\)/)
+  // Never resorts to showing the surface or moving its bounds.
+  assert.doesNotMatch(capture, /setVisible\(true\)|setBounds\(/)
 })
 
 test('agent runtime reconciles Worker occupancy from durable lease owners', async () => {
@@ -1936,8 +1962,10 @@ test('autonomous submissions are spaced process-wide and re-check the provider c
 
   // The spacing is now derived rather than fixed, so a resumed pool does not
   // rebuild the burst; the healthy floor is still CHAT_AGENT_SUBMIT_GAP_MS.
+  // Passed as a function, not a value: the gap is measured after the queue
+  // wait so a 429 raised while this caller was queued widens its own spacing.
   const pacer = source.slice(source.indexOf('async function paceChatGPTWorkerSubmission('))
-  assert.match(pacer.slice(0, 600), /chatAgentSubmissionGapMs\(\)/)
+  assert.match(pacer.slice(0, 600), /paceChatGPTWorkerRequest\(chatAgentSubmissionGapMs\)/)
   const gapStart = source.indexOf('function chatAgentSubmissionGapMs(')
   const gap = source.slice(gapStart, source.indexOf('\nasync function paceChatGPTWorkerSubmission(', gapStart))
   assert.match(gap, /CHAT_AGENT_SUBMIT_GAP_MS/)
@@ -2102,7 +2130,7 @@ test('the cross-chat navigation gate follows the provider instead of one fixed c
   assert.match(source, /const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = 6_000/)
 
   const pacer = source.slice(source.indexOf('async function paceChatGPTWorkerNavigation('))
-  assert.match(pacer.slice(0, 600), /chatAgentNavigationGapMs\(\)/)
+  assert.match(pacer.slice(0, 600), /paceChatGPTWorkerRequest\(chatAgentNavigationGapMs\)/)
   assert.doesNotMatch(pacer.slice(0, 600), /CHATGPT_WORKER_NAVIGATION_GAP_MS -/)
 })
 
@@ -2237,11 +2265,30 @@ test('submission pacing widens after rate-limit pressure and decays back on its 
   assert.match(gap, /if \(level <= 0 && !recentlyLimited\) return CHAT_AGENT_SUBMIT_GAP_MS/)
 
   const pace = source.slice(source.indexOf('async function paceChatGPTWorkerRequest('), source.indexOf('async function loadAndSettleChatGPTWorkerConversation('))
-  assert.match(pace, /Math\.max\(CHAT_AGENT_SUBMIT_GAP_MS, Number\(gapMs\) \|\| 0\)/)
+  // Measured after the queue wait, never captured before it: several Workers
+  // pass their own pre-flight check in the same instant and queue here, the
+  // first one through earns the 429, and a value captured on entry would spend
+  // the old narrow width for everyone still queued behind it - which is how
+  // the burst that caused the rate limit carried straight on through the gate.
+  assert.match(pace, /Math\.max\(CHAT_AGENT_SUBMIT_GAP_MS, Number\(measureGapMs\(\)\) \|\| 0\)/)
+  assert.doesNotMatch(pace, /Number\(gapMs\)/)
   assert.match(pace, /chatGPTWorkerRequestTail/)
   assert.match(pace, /chatGPTWorkerLastRequestAt/)
-  assert.match(pace, /paceChatGPTWorkerNavigation\(\)[\s\S]*paceChatGPTWorkerRequest\(chatAgentNavigationGapMs\(\)\)/)
-  assert.match(pace, /paceChatGPTWorkerSubmission\(\)[\s\S]*paceChatGPTWorkerRequest\(chatAgentSubmissionGapMs\(\)\)/)
+  assert.match(pace, /paceChatGPTWorkerNavigation\(\)[\s\S]*paceChatGPTWorkerRequest\(chatAgentNavigationGapMs\)/)
+  assert.match(pace, /paceChatGPTWorkerSubmission\(\)[\s\S]*paceChatGPTWorkerRequest\(chatAgentSubmissionGapMs\)/)
+
+  // A suspension raised while this navigation sat in the queue must stop it:
+  // AGENTS.md §8 requires a suspended provider to stop receiving actions, not
+  // to receive the ones already in flight. Nothing was attempted, so the task
+  // comes back as a free observation instead of spending an attempt.
+  const settle = source.slice(source.indexOf('async function loadAndSettleChatGPTWorkerConversation('))
+  assert.match(settle.slice(0, 900), /await paceChatGPTWorkerNavigation\(\)[\s\S]*chatAgentRateLimitDelayMs\(\)[\s\S]*throw new ChatGPTRateLimitDeferral/)
+  const deferralIndex = settle.indexOf('ChatGPTRateLimitDeferral')
+  const loadIndex = settle.indexOf('loadOwnedChatGPTURL(')
+  assert.ok(deferralIndex > 0 && loadIndex > deferralIndex, 'the deferral must be checked before the navigation')
+
+  const execute = source.slice(source.indexOf('async function executeChatAgentTask('))
+  assert.match(execute.slice(0, 4000), /error instanceof ChatGPTRateLimitDeferral[\s\S]*observation: true/)
 })
 
 test('task-scoped Keep flowing survives WAITING and ends when that task is terminal', async () => {

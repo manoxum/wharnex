@@ -3034,6 +3034,38 @@ function publishChatAgentRuntimeState() {
   return state
 }
 
+// Captures an agent's page even when nothing is painting it.
+//
+// `capturePage()` asks Chromium's Viz compositor for the view's last presented
+// frame. A view that is not visible never presents one, so Viz answers
+// `UnknownVizError` - "Não foi possível capturar o navegador" - and that is
+// every hidden Worker and every non-painted Supervisor, i.e. exactly the
+// agents an operator asks to see when something looks stuck. A granted layout
+// viewport does not help: it gives the renderer a size, not a presented frame.
+//
+// Showing the view to force a frame is not an option: a parked surface carries
+// layout-only bounds at the window origin, so showing it would paint ChatGPT
+// over the operator's workspace - the invariant `chatGPTSurfaceShouldBeVisible`
+// exists to prevent exactly that. `Page.captureScreenshot` over the
+// WebContents' own debugger asks the *renderer* to rasterize instead of
+// reading the compositor's presented frame, so it needs no visibility and no
+// bounds change. The debugger is attached only for the capture and detached
+// immediately, and it stays entirely in the main process - nothing about it
+// reaches the renderer or widens what IPC exposes.
+async function captureChatGPTAgentPage(wc) {
+  try { return (await wc.capturePage()).toDataURL() } catch { /* not presenting a frame; rasterize instead */ }
+  const attachedHere = !wc.debugger.isAttached()
+  if (attachedHere) wc.debugger.attach('1.3')
+  try {
+    await wc.debugger.sendCommand('Page.enable')
+    const shot = await wc.debugger.sendCommand('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+    if (!shot?.data) throw new Error('ChatGPT renderer returned no screenshot data')
+    return `data:image/png;base64,${shot.data}`
+  } finally {
+    if (attachedHere) try { wc.debugger.detach() } catch { /* already detached */ }
+  }
+}
+
 async function chatAgentBrowserSnapshot(agentID) {
   const id = String(agentID || '').trim()
   const entry = id === 'supervisor' ? supervisorEntry() : /^supervisor-[1-9][0-9]?$/.test(id) ? supervisorEntryForSlot(id) : chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
@@ -3041,8 +3073,8 @@ async function chatAgentBrowserSnapshot(agentID) {
   if (!wc || wc.isDestroyed()) throw new Error('Agent browser instance is not available')
   const layoutKey = entry.ownerKey || (entry.role === 'supervisor' ? supervisorKey(windowStateForEntry(entry)) : entry.slotId || id)
   ensureChatGPTLayoutViewport(layoutKey, entry)
-  const image = await wc.capturePage()
-  return { agentId: id, dataUrl: image.toDataURL(), capturedAt: new Date().toISOString() }
+  const dataUrl = await captureChatGPTAgentPage(wc)
+  return { agentId: id, dataUrl, capturedAt: new Date().toISOString() }
 }
 
 function retireChatGPTSupervisorSurface(cacheKey) {
@@ -4043,7 +4075,18 @@ function chatAgentNavigationGapMs() {
   return steps[Math.min(steps.length - 1, Math.max(0, level - 1))]
 }
 
-async function paceChatGPTWorkerRequest(gapMs) {
+// A provider action that reached the front of the pacing queue only to find a
+// suspension raised while it waited. Nothing was attempted, so the task that
+// carried it must come back as a free observation rather than spend an attempt.
+class ChatGPTRateLimitDeferral extends Error {
+  constructor(delayMs) {
+    super('ChatGPT rate-limit cooldown is active')
+    this.name = 'ChatGPTRateLimitDeferral'
+    this.delayMs = Math.max(0, Number(delayMs) || 0)
+  }
+}
+
+async function paceChatGPTWorkerRequest(measureGapMs) {
   let release
   const previous = chatGPTWorkerRequestTail
   chatGPTWorkerRequestTail = new Promise((resolve) => { release = resolve })
@@ -4052,7 +4095,16 @@ async function paceChatGPTWorkerRequest(gapMs) {
     // Navigation and submission share one authenticated provider account. A
     // single process-wide gate prevents every resumed Worker from issuing its
     // next provider-facing action at once; 10s is the hard healthy floor.
-    const effectiveGap = Math.max(CHAT_AGENT_SUBMIT_GAP_MS, Number(gapMs) || 0)
+    //
+    // The gap is measured after the queue wait, never captured before it.
+    // Several Workers pass their own pre-flight rate-limit check within the
+    // same instant and all queue here; the first one through then earns the
+    // account a 429, which widens the gap. Reading a value captured on entry
+    // spent the old, narrow width for everyone already queued behind it - so
+    // the burst that caused the rate limit continued straight through it, at
+    // the healthy floor, which is what put ChatGPT's own "Demasiados pedidos"
+    // gate in front of the account.
+    const effectiveGap = Math.max(CHAT_AGENT_SUBMIT_GAP_MS, Number(measureGapMs()) || 0)
     const remaining = effectiveGap - (Date.now() - chatGPTWorkerLastRequestAt)
     if (remaining > 0) await wait(remaining)
     chatGPTWorkerLastRequestAt = Date.now()
@@ -4062,7 +4114,7 @@ async function paceChatGPTWorkerRequest(gapMs) {
 }
 
 async function paceChatGPTWorkerNavigation() {
-  await paceChatGPTWorkerRequest(chatAgentNavigationGapMs())
+  await paceChatGPTWorkerRequest(chatAgentNavigationGapMs)
 }
 
 // Process-wide spacing for autonomous prompt submissions, sharing the same
@@ -4079,11 +4131,19 @@ function chatAgentSubmissionGapMs() {
 }
 
 async function paceChatGPTWorkerSubmission() {
-  await paceChatGPTWorkerRequest(chatAgentSubmissionGapMs())
+  await paceChatGPTWorkerRequest(chatAgentSubmissionGapMs)
 }
 
 async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, reason, assignment) {
   await paceChatGPTWorkerNavigation()
+  // The caller's pre-flight rate-limit check ran before this action joined the
+  // process-wide queue, and a suspension raised while it waited there is the
+  // common case rather than the rare one - the Worker that went first is
+  // exactly what raised it. AGENTS.md §8 requires a suspended provider to stop
+  // receiving actions, not to receive the ones already in flight, so the last
+  // point every navigation passes through re-reads it and defers.
+  const suspension = chatAgentRateLimitDelayMs()
+  if (suspension > 0) throw new ChatGPTRateLimitDeferral(suspension)
   await loadOwnedChatGPTURL(key, entry, conversationURL, reason)
   await waitForChatGPTSurfaceReady(key, entry)
   if (assignment?.rebind && !chatAgentResidency.settleAssignment(entry.slotId, assignment.epoch, assignment.lane)) {
@@ -5745,6 +5805,12 @@ async function executeChatAgentTask(task, { worker, owner }) {
     chatAgentResidency.noteAssignment(entry.slotId)
   } catch (error) {
     chatAgentResidency.cancelAssignment(entry.slotId, assigned.assignment.epoch)
+    // Same reasoning as the stale-assignment branch below: the navigation was
+    // abandoned at the pacing gate because the provider is suspended, so
+    // nothing reached ChatGPT and the attempt budget must not be charged.
+    if (error instanceof ChatGPTRateLimitDeferral) {
+      return { status: 'waiting', delayMs: error.delayMs, observation: true, error: error.message }
+    }
     // A slot rebound before execution began is a Wharnex-side race: nothing
     // reached ChatGPT, so this is one of the outcomes AGENTS.md requires to be
     // free. Rethrowing charged the attempt budget of a task that never made a
