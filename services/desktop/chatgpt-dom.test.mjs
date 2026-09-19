@@ -122,14 +122,13 @@ test('composer text is written through the editor model and keeps its line struc
   assert.match(script, /createElement\('p'\)/)
   assert.doesNotMatch(script, /composer\.textContent = value/)
 
-  // Confirmed by reading the composer back, never from the paste event's own
-  // return value: cancelling a paste says the page handled the event, not that
-  // the text landed - and an exact-match check failed a fill that had landed,
-  // because the editor adds structure of its own.
-  // Whitespace removed entirely, not collapsed: textContent joins block
-  // children with no separator, so a collapsed comparison could never match a
-  // block-structured write and failed every such fill.
-  assert.match(script, /squash\(composer\.textContent\)\.includes\(wanted\)/)
+  // A missing composer stays the one failure this script reports, as in the
+  // long-working version. Verifying the write by reading the composer back
+  // added a second way to fail that the working version never had, and it
+  // fired on writes that had in fact landed - every caller treats a false as
+  // fatal to the request.
+  assert.match(script, /if \(!composer\) return false;/)
+  assert.doesNotMatch(script, /includes\(wanted\)|holdsWanted/)
 })
 
 test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {
