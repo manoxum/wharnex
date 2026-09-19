@@ -44,7 +44,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
       {automationMode === 'auto' && <TopbarIndicator tone="success" label="Automação automática" icon="play" />}
       <TopbarIndicator tone={automaticPlanner ? 'success' : 'neutral'} label={config?.planner === 'openai' ? 'AI automático' : 'AI manual'} icon={config?.planner === 'openai' ? 'chatgpt' : 'agent'} />
       <QuickSwitcher compact />
-      <button className={`icon-button workspace-attention-button${attention?.urgent ? ' urgent' : ''}`} type="button" aria-label={notificationLabel} title="Centro de notificações" onClick={onAttention}><Icon name="bell" size={16}/>{Boolean(attention?.total) && <b className="workspace-attention-count" aria-hidden="true">{attention!.total}</b>}</button>
+      <button className={`icon-button workspace-attention-button${attention?.total ? ' has-alerts' : ''}${attention?.urgent ? ' urgent' : ''}`} data-attention-trigger="true" type="button" aria-label={notificationLabel} title="Notificações · ver alertas recentes" onClick={onAttention}><Icon name="bell" size={17}/>{Boolean(attention?.total) && <b className="workspace-attention-count" aria-hidden="true">{attention!.total > 99 ? '99+' : attention!.total}</b>}</button>
       <button className="icon-button" aria-label="Configuração do projeto" title="Configuração do projeto" onClick={onSettings}><Icon name="settings" size={16}/></button>
       <button className="icon-button" aria-label="Fechar workspace" title="Fechar workspace" onClick={onClose}><Icon name="close" size={16}/></button>
     </div>

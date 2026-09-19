@@ -14,6 +14,7 @@ import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from '.
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { OrchestratorWorkspace } from './components/orchestrator/OrchestratorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
+import { AttentionPopover } from './components/AttentionPopover'
 import { WorkbenchStatusBar } from './components/WorkbenchStatusBar'
 import { WorkspaceShell } from './components/WorkspaceShell'
 import { ProjectSettings } from './components/ProjectSettings'
@@ -142,6 +143,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [attentionSessions, setAttentionSessions] = useState<Record<string, Session | undefined>>({})
   const [chatgptAttentionNonce, setChatgptAttentionNonce] = useState(0)
   const [inspectorAttention, setInspectorAttention] = useState<{ tab: AttentionTarget; nonce: number }>({ tab: 'terminal', nonce: 0 })
+  const [attentionPreviewOpen, setAttentionPreviewOpen] = useState(false)
   // Bumped whenever a runtime task's "Ver orquestração" action lands the
   // operator in Orchestrator, so it always opens on the planning queue that
   // sent them there instead of whichever section was last left open.
@@ -572,7 +574,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       }
       if (event.data?.type === 'wharness:set-workspace-mode' && (event.data.mode === 'editor' || event.data.mode === 'agent' || event.data.mode === 'orchestrator')) setMode(event.data.mode)
       if (event.data?.type === 'wharness:open-project-settings') setProjectSettingsOpen(true)
-      if (event.data?.type === 'wharness:open-attention') { setMode('agent'); window.dispatchEvent(new CustomEvent('wharnex:open-attention-drawer')) }
+      if (event.data?.type === 'wharness:open-attention') setAttentionPreviewOpen((open) => !open)
     }
     window.addEventListener('message', handler)
     window.parent.postMessage({ type: 'wharness:project-ready', projectPath: embeddedProject }, window.location.origin)
@@ -3196,6 +3198,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!embeddedProject) return
     window.parent.postMessage({ type: 'wharness:project-attention', projectPath: embeddedProject, total: attentionSummary.total, urgent: attentionSummary.urgent, actionable: attentionSummary.actionable }, window.location.origin)
   }, [embeddedProject, attentionSummary.total, attentionSummary.urgent, attentionSummary.actionable])
+  useEffect(() => {
+    if (embeddedProject && !shellActive) setAttentionPreviewOpen(false)
+  }, [embeddedProject, shellActive])
 
   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
   const workspaceProjectPath = session.project_path
@@ -3326,7 +3331,17 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   return <main className="workspace-root">
-    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} attention={attentionSummary} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onAttention={() => { setMode('agent'); window.dispatchEvent(new CustomEvent('wharnex:open-attention-drawer')) }} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
+    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} attention={attentionSummary} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onAttention={() => setAttentionPreviewOpen((open) => !open)} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
+    {attentionPreviewOpen && <AttentionPopover
+      items={attentionItems}
+      activeChatId={activeChatId}
+      busy={activeBusy}
+      position={{ top: embeddedProject ? 10 : 56, right: 10, maxHeight: embeddedProject ? 'calc(100dvh - 20px)' : 'calc(100dvh - 66px)' }}
+      onOpen={async (item) => { setAttentionPreviewOpen(false); await openAttentionItem(item) }}
+      onAction={async (item) => { setAttentionPreviewOpen(false); await runAttentionItemAction(item) }}
+      onOpenAll={() => { setAttentionPreviewOpen(false); setMode('agent'); openLeftDrawer('attention') }}
+      onClose={() => setAttentionPreviewOpen(false)}
+    />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} onTunnelConfigSaved={(document) => setConfig((current) => reconcileTunnelConfig(current, document))} />}
     {restartModalOpen && restartPresentationKey && <RestartConfirmation sessionId={session.id} change={buildAppliedChangeSummary(session)} busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery

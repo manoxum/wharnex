@@ -377,6 +377,8 @@ describe('attention center CSS', () => {
     expect(attention).toContain('box-shadow:none;')
     expect(attention).toContain('overflow-wrap:normal; word-break:normal; hyphens:none;')
     expect(attention).toContain('grid-template-columns:minmax(0,1fr) auto;')
+    expect(css).toContain('.workspace-attention-button.has-alerts { border-color:color-mix(in srgb,var(--theme-accent) 26%,var(--theme-border))')
+    expect(css).toContain('.workspace-attention-button.urgent .workspace-attention-count { background:var(--theme-danger,#b34f45); }')
   })
 })
 
