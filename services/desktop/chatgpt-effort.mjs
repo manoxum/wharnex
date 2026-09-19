@@ -8,10 +8,13 @@ export function normalizeChatGPTReasoningEffort(value, fallback = 'high') {
   throw new Error('Invalid fallback ChatGPT reasoning effort')
 }
 
-// Ctrl+Shift+M is advertised by ChatGPT's own effort control. Cycling the
-// closed three-value set is less fragile than guessing a coordinate inside its
-// custom slider, and every cycle is verified from the composer pill before a
-// prompt is allowed to submit.
+// Provider-agnostic by design: `observe` reads the current level and `cycle`
+// moves it one step, however the caller's UI represents that (main.mjs's
+// stepChatGPTReasoningEffortToward currently drives ChatGPT's own ARIA slider
+// control). Every step is re-verified through `observe` before a prompt is
+// allowed to submit, and the whole exchange is bounded to one pass over the
+// closed value set - if ChatGPT changes that control again, this stays
+// correct and only the caller's `cycle` needs to change.
 export async function ensureChatGPTReasoningEffort({
   target,
   observe,

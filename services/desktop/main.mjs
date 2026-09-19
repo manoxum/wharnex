@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TextDecoder } from 'node:util'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTEffortCycle, dispatchChatGPTPointerClick, submitWithRetry } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, submitWithRetry } from './chatgpt-input.mjs'
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
@@ -31,8 +31,8 @@ import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
-import { reasoningEffortStateScript } from './chat-agent-scripts.mjs'
-import { ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort } from './chatgpt-effort.mjs'
+import { reasoningEffortAdjustScript, reasoningEffortStateScript } from './chat-agent-scripts.mjs'
+import { CHATGPT_REASONING_EFFORTS, ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort } from './chatgpt-effort.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
@@ -3942,21 +3942,15 @@ async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentCo
   // non-painted chat) is never given bounds by the window layout, which
   // leaves its renderer at a zero-sized viewport. DOM script execution
   // (fill/click-via-JS) still works there, so ordinary composer prep and
-  // `chatGPTSubmitScript`'s DOM-click submission never surfaced this. The
-  // reasoning-effort cycle does not: it commits Ctrl+Shift+M with a trusted
-  // native `sendInputEvent`, and live testing showed that native event is
-  // silently swallowed on a 0x0 viewport - observed as
-  // "did not reach instant after bounded cycling (high -> high -> high ->
-  // high)" on every single attempt. TODO_CLASSIFY/TRANSLATE_MARKDOWN tolerate
-  // that failure by design (see submitChatGPTDraft) and submit at whatever
-  // level ChatGPT is already on, but "whatever level" was always the
-  // account's last-used level, never the requested 'instant' - so a thinking
-  // model spent its full reasoning budget on a trivial classification and
-  // blew through the 4-minute timeout on every attempt. Granting the
-  // viewport here, before any composer interaction, is a no-op for a surface
-  // the window is actually showing (see ensureChatGPTLayoutViewport's own
-  // guard) and fixes every native-input consumer downstream, not only this
-  // one.
+  // `chatGPTSubmitScript`'s DOM-click submission never surfaced this.
+  // Anything committed with a trusted native `sendInputEvent` - which the
+  // reasoning-effort slider is, see stepChatGPTReasoningEffortToward - needs
+  // a real, rendered widget to land on; live CDP testing against a 0x0
+  // viewport reproduced exactly this: a native key event dispatched to the
+  // page had no effect at all. Granting the viewport here, before any
+  // composer interaction, is a no-op for a surface the window is actually
+  // showing (see ensureChatGPTLayoutViewport's own guard) and fixes every
+  // native-input consumer downstream, not only this one.
   ensureChatGPTLayoutViewport(key, entry)
   if (entry.externalAuthProvider) throw new Error(`ChatGPT está em autenticação externa via ${entry.externalAuthProvider}. Use o navegador do sistema e importe o bundle ZIP pelo Wharnex.`)
   if (expectedURL) {
@@ -4138,6 +4132,42 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
 // that relied on their own try/catch or on the shared DOM-probe-failure
 // counter in pollExpectedChatGPTDownloadKey already handle a thrown error
 // correctly.
+// Moves the reasoning-effort slider exactly one step toward `wanted`.
+//
+// The control is two things in sequence, both Radix and both requiring a
+// trusted native event (ADR-0037): a composer button that opens a menu, and
+// an ARIA slider inside it driven by ArrowLeft/ArrowRight once focused. One
+// call here performs the whole open-move-close sequence so the caller's
+// bounded observe/cycle loop sees a clean, readable button label again
+// immediately afterward - the slider's own label reads "Esforço de
+// raciocínio" (generic) while open, not a level name, so leaving the menu
+// open would make the very next observe() report effort-level-unknown.
+async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
+  const wantedIndex = CHATGPT_REASONING_EFFORTS.indexOf(wanted)
+  if (wantedIndex < 0) throw new Error(`Unsupported ChatGPT reasoning effort ${wanted}`)
+  const current = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-state', reasoningEffortStateScript(CHATGPT_BEHAVIOR))
+  if (!current?.ok) throw new Error(`ChatGPT reasoning effort is unavailable (${String(current?.state || 'unknown')})`)
+  if (current.effort === wanted) return
+  const direction = CHATGPT_REASONING_EFFORTS.indexOf(current.effort) < wantedIndex ? 'Right' : 'Left'
+
+  let staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
+  if (staged?.ok && staged.state === 'effort-menu-closed') {
+    const { wc } = requireOwnedChatGPTEntry(key, entry)
+    withPreservedLocalFocus(() => dispatchChatGPTPointerClick(wc, staged.rect))
+    await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
+    staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
+  }
+  if (!staged?.ok || staged.state !== 'effort-slider-ready') {
+    throw new Error(`ChatGPT reasoning-effort slider is unavailable (${String(staged?.state || 'unknown')})`)
+  }
+  const { wc } = requireOwnedChatGPTEntry(key, entry)
+  withPreservedLocalFocus(() => {
+    dispatchChatGPTAccountKey(wc, direction)
+    dispatchChatGPTAccountKey(wc, 'Escape')
+  })
+  await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
+}
+
 async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {}) {
   const target = preparedTarget || await targetChatGPTComposer(key, '', false, entryOverride)
   const wc = target.wc
@@ -4156,23 +4186,20 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
       target: reasoningEffort,
       observe: () => executeChatGPTDOMScript(key, target.entry, 'reasoning-effort-state', reasoningEffortStateScript(CHATGPT_BEHAVIOR)),
       cycle: async () => {
-        const owned = requireOwnedChatGPTEntry(key, target.entry)
+        requireOwnedChatGPTEntry(key, target.entry)
         assertExpectedConversation()
-        withPreservedLocalFocus(() => dispatchChatGPTEffortCycle(owned.wc))
+        await stepChatGPTReasoningEffortToward(key, target.entry, reasoningEffort)
       },
     })
   } catch (error) {
-    // Live testing showed ChatGPT's own Ctrl+Shift+M effort-cycle shortcut
-    // can simply stop registering (observed stuck on "high" through every
-    // bounded cycle) independently of anything this submission is doing.
-    // Every other caller here treats the requested reasoning effort as a
-    // hard precondition for a correctness-sensitive planning exchange, so it
-    // must keep failing closed. A background classification/translation
-    // worker only ever requests 'instant' as a latency/cost preference, not
-    // a correctness requirement, so for those callers a submission that
-    // never reaches ChatGPT because of an unrelated effort-picker regression
-    // is strictly worse than one delivered at whatever effort level the
-    // account is already on.
+    // A background classification/translation worker only ever requests
+    // 'instant' as a latency/cost preference, not a correctness requirement,
+    // so for those callers a submission that never reaches ChatGPT because of
+    // an unrelated effort-picker regression is strictly worse than one
+    // delivered at whatever effort level the account is already on. Every
+    // other caller here treats the requested reasoning effort as a hard
+    // precondition for a correctness-sensitive planning exchange, so it must
+    // keep failing closed.
     if (requireReasoningEffort) throw error
     console.warn(`[chatgpt-effort] key=${key} could not reach ${reasoningEffort}, submitting at whatever level ChatGPT is currently on instead: ${error instanceof Error ? error.message : String(error)}`)
     effort = { effort: `unconfirmed(wanted ${reasoningEffort})`, changed: false, cycles: 0 }

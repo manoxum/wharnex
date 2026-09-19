@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTComposerClick, dispatchChatGPTEffortCycle, dispatchChatGPTPointerClick, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTComposerClick, dispatchChatGPTPointerClick, dispatchChatGPTSubmit, submitWithRetry, submitWithoutReplay } from './chatgpt-input.mjs'
 
 const conversationURL = 'https://chatgpt.com/backend-api/f/conversation/prepare'
 
@@ -22,14 +22,19 @@ test('ChatGPT submit uses a layout-independent native Enter key without stealing
   ])
 })
 
-test('reasoning effort uses only ChatGPT own bounded native shortcut', () => {
-  const events = []
-  const result = dispatchChatGPTEffortCycle({ sendInputEvent: (event) => events.push(event) })
-  assert.deepEqual(result, { method: 'native-reasoning-effort-cycle' })
-  assert.deepEqual(events, [
-    { type: 'keyDown', keyCode: 'M', modifiers: ['control', 'shift'] },
-    { type: 'keyUp', keyCode: 'M', modifiers: ['control', 'shift'] },
-  ])
+// The reasoning-effort control is a Radix slider, not a global shortcut (see
+// the matching comment above dispatchChatGPTAccountKey): stepping it reuses
+// that same trusted-native-event primitive with 'Left'/'Right'/'Escape'.
+test('reasoning effort steps reuse the generic account-key native dispatch', () => {
+  for (const key of ['Left', 'Right', 'Escape']) {
+    const events = []
+    const result = dispatchChatGPTAccountKey({ sendInputEvent: (event) => events.push(event) }, key)
+    assert.deepEqual(result, { method: `native-${key.toLowerCase()}` })
+    assert.deepEqual(events, [
+      { type: 'keyDown', keyCode: key },
+      { type: 'keyUp', keyCode: key },
+    ])
+  }
 })
 
 test('automatic submit retries until ChatGPT starts the conversation request', async () => {

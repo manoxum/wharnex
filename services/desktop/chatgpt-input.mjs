@@ -23,7 +23,10 @@ export function dispatchChatGPTPointerClick(webContents, point) {
 // ChatGPT's account menus are Radix `div[role="menuitem"]` nodes whose select
 // handlers ignore a synthetic HTMLElement.click(). Account automation therefore
 // locates the control in the page and commits it with a trusted native event,
-// exactly as the composer transport already does.
+// exactly as the composer transport already does. The reasoning-effort slider
+// (reasoningEffortAdjustScript) reuses this same primitive with 'Left'/'Right'/
+// 'Escape': it is a Radix control too, and a synthetic key event is exactly as
+// inert against it as a synthetic click.
 export function dispatchChatGPTAccountKey(webContents, keyCode) {
   if (!webContents || typeof webContents.sendInputEvent !== 'function') throw new Error('ChatGPT web contents are unavailable')
   const key = String(keyCode || '')
@@ -45,13 +48,15 @@ export function dispatchChatGPTSubmit(webContents) {
   return { method: 'native-enter' }
 }
 
-export function dispatchChatGPTEffortCycle(webContents) {
-  if (!webContents || typeof webContents.sendInputEvent !== 'function') throw new Error('ChatGPT web contents are unavailable')
-  const modifiers = ['control', 'shift']
-  webContents.sendInputEvent({ type: 'keyDown', keyCode: 'M', modifiers })
-  webContents.sendInputEvent({ type: 'keyUp', keyCode: 'M', modifiers })
-  return { method: 'native-reasoning-effort-cycle' }
-}
+// Live-captured 2026-09: ChatGPT replaced the effort control's own dedicated
+// Ctrl+Shift+M shortcut with a genuine ARIA slider reached by focus plus
+// ArrowLeft/ArrowRight (see reasoningEffortAdjustScript). A real
+// Chromium-level key dispatch to the old shortcut lands on the page - this
+// was confirmed live via CDP, ruling out a WebContentsView layout/focus gap -
+// and still does nothing, because nothing listens for it any more. Effort
+// adjustment now goes through dispatchChatGPTAccountKey with 'Left'/'Right',
+// the same trusted-native-event primitive account automation already uses
+// for its own Radix menu controls.
 
 function isConversationSubmission(details) {
   try {

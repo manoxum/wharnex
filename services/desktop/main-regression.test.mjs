@@ -1310,18 +1310,74 @@ test('every ChatGPT submit verifies the requested reasoning effort before starti
   const body = source.slice(start, end)
   const ensure = body.indexOf('await ensureChatGPTReasoningEffort({')
   const observe = body.indexOf("executeChatGPTDOMScript(key, target.entry, 'reasoning-effort-state'")
-  const cycle = body.indexOf('dispatchChatGPTEffortCycle(owned.wc)')
+  const cycle = body.indexOf('await stepChatGPTReasoningEffortToward(key, target.entry, reasoningEffort)')
   const submit = body.indexOf('submitWithRetry({')
   assert.ok(ensure >= 0 && observe > ensure && cycle > observe && submit > cycle)
   assert.match(body, /normalizeChatGPTReasoningEffort\(target\.reasoningEffort \|\| target\.entry\.reasoningEffort \|\| 'high'\)/)
 })
 
-// Live testing against the real ChatGPT account showed the effort-cycle
-// keyboard shortcut can stop registering entirely (observed stuck on "high"
-// through every bounded cycle), and that this is unrelated to anything the
-// submission itself is doing. `submitChatGPTDraft`'s default behavior must
-// stay fail-closed for correctness-sensitive planning exchanges, so this
-// bypass has to be explicit per caller, not a change to the default.
+// Live-captured 2026-09: ChatGPT replaced the effort control's dedicated
+// Ctrl+Shift+M shortcut with a genuine ARIA slider inside the picker menu.
+// A real Chromium-level key dispatch to the old shortcut reaches the page
+// (confirmed live via CDP, ruling out a WebContentsView focus/layout gap) and
+// still does nothing, because nothing listens for it any more - every
+// TODO_CLASSIFY attempt that tolerated the resulting failure submitted at
+// whatever level the account was already on instead of the requested
+// 'instant', and a thinking model given a trivial classification at a high
+// effort level blew through the 4-minute response timeout on every attempt.
+test('reasoning effort is stepped through the composer slider, not a keyboard shortcut', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function stepChatGPTReasoningEffortToward(')
+  const end = source.indexOf('\nasync function submitChatGPTDraft(', start)
+  assert.notEqual(start, -1)
+  const body = source.slice(start, end)
+
+  // Direction is computed from the two ordinal positions in the closed value
+  // set, never assumed from a fixed rotation.
+  assert.match(body, /CHATGPT_REASONING_EFFORTS\.indexOf\(wanted\)/)
+  assert.match(body, /CHATGPT_REASONING_EFFORTS\.indexOf\(current\.effort\) < wantedIndex \? 'Right' : 'Left'/)
+  // Already-converged is a real return path, not just the outer loop's
+  // concern: this function is also usable standalone.
+  assert.match(body, /if \(current\.effort === wanted\) return/)
+
+  // The control is opened first (a trusted native click on the located
+  // button rect) if the picker menu isn't already open...
+  assert.match(body, /reasoningEffortAdjustScript\(CHATGPT_BEHAVIOR\)/)
+  assert.match(body, /staged\?\.ok && staged\.state === 'effort-menu-closed'/)
+  assert.match(body, /dispatchChatGPTPointerClick\(wc, staged\.rect\)/)
+  // ...then the slider is stepped exactly once and the menu is closed again,
+  // so the very next observe() in the caller's bounded loop reads a clean
+  // collapsed-button label instead of the menu's generic open-state title.
+  assert.match(body, /dispatchChatGPTAccountKey\(wc, direction\)/)
+  assert.match(body, /dispatchChatGPTAccountKey\(wc, 'Escape'\)/)
+  assert.doesNotMatch(body, /dispatchChatGPTEffortCycle/)
+
+  const adjustStart = source.indexOf('export function reasoningEffortAdjustScript(', 0)
+  assert.equal(adjustStart, -1, 'reasoningEffortAdjustScript belongs in chat-agent-scripts.mjs, not main.mjs')
+
+  const scripts = await readFile(new URL('./chat-agent-scripts.mjs', import.meta.url), 'utf8')
+  const scriptStart = scripts.indexOf('export function reasoningEffortAdjustScript(')
+  assert.notEqual(scriptStart, -1)
+  const script = scripts.slice(scriptStart, scripts.indexOf('\nexport function', scriptStart + 1))
+  // Scripts observe and stage; they never click (ADR-0037). Focusing the
+  // slider is staging - it cannot itself change the value - not a bypass of
+  // that rule.
+  assert.match(script, /slider\.focus\(\)/)
+  assert.doesNotMatch(script, /\.click\(\)/)
+  assert.match(script, /getAttribute\('aria-valuenow'\)/)
+  assert.match(script, /getAttribute\('aria-valuemax'\)/)
+
+  const behavior = await readFile(new URL('./chat-agent-behavior.mjs', import.meta.url), 'utf8')
+  assert.match(behavior, /effortSlider: \[.*role="slider".*\]/)
+})
+
+// Live testing against the real ChatGPT account has already found the
+// effort control unreachable once (a dead keyboard shortcut, fixed by
+// stepChatGPTReasoningEffortToward) and could again - a future UI change is
+// not something this test predicts. `submitChatGPTDraft`'s default behavior
+// must stay fail-closed for correctness-sensitive planning exchanges
+// regardless of why the effort is unreachable, so the bypass has to be
+// explicit per caller, not a change to the default.
 test('an unreachable reasoning effort still blocks submission unless a caller explicitly opts out', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
@@ -1804,9 +1860,10 @@ test('background native input preserves the already-focused local composer', asy
   const account = source.slice(accountStart, source.indexOf('\nasync function chooseChatGPTConversationAction', accountStart))
   assert.match(account, /withPreservedLocalFocus\(\(\) => dispatchChatGPTPointerClick/)
 
-  const submitStart = source.indexOf('async function submitChatGPTDraft(')
-  const submit = source.slice(submitStart, source.indexOf('\nasync function preparePromptForChatGPT', submitStart))
-  assert.match(submit, /withPreservedLocalFocus\(\(\) => dispatchChatGPTEffortCycle/)
+  const effortStepStart = source.indexOf('async function stepChatGPTReasoningEffortToward(')
+  const effortStep = source.slice(effortStepStart, source.indexOf('\nasync function submitChatGPTDraft(', effortStepStart))
+  assert.match(effortStep, /withPreservedLocalFocus\(\(\) => dispatchChatGPTPointerClick\(wc, staged\.rect\)\)/)
+  assert.match(effortStep, /withPreservedLocalFocus\(\(\) => \{\s*dispatchChatGPTAccountKey\(wc, direction\)\s*dispatchChatGPTAccountKey\(wc, 'Escape'\)/)
 })
 
 test('the layout viewport guard does not read native bounds as renderer evidence', async () => {

@@ -59,10 +59,14 @@ export const CHATGPT_BEHAVIOR = Object.freeze({
     modelPicker: ['[data-composer-surface] button[aria-haspopup="menu"]:not([data-testid])'],
     modelOption: ['[role="menuitemradio"]'],
     effortPicker: ['[data-composer-surface] button[aria-haspopup="menu"]:not([data-testid])'],
-    // The effort control is a slider driven by arrow keys, identified by the
-    // keyboard shortcuts it advertises.
-    effortSlider: ['[role="menuitem"][aria-keyshortcuts]'],
-    effortToggle: ['[role="menuitem"][aria-expanded]'],
+    // Live-captured 2026-09: ChatGPT replaced the effort control's own global
+    // keyboard shortcut (previously a fixed cycle) with a genuine ARIA slider
+    // living inside the picker menu opened by effortPicker above. It is
+    // reached by ArrowLeft/ArrowRight once focused, never by a shortcut that
+    // bypasses opening the menu - a real Chromium-level key dispatch to the
+    // old shortcut landed on the page (confirmed live via CDP) and still did
+    // nothing, because nothing was listening for it any more.
+    effortSlider: ['[data-model-reasoning-effort-slider] [role="slider"]', '[role="slider"][aria-valuenow]'],
     // Completed reasoning collapses behind a disclosure ("Processou durante
     // 5m 23s"). Expanding it is what makes the summary rows readable at all,
     // which is why a retroactive scrape of a finished conversation found

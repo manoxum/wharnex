@@ -82,6 +82,41 @@ export function reasoningEffortStateScript(behavior) {
   `)
 }
 
+/**
+ * Locates the reasoning-effort control's next actionable step and stages it.
+ *
+ * The control is two things in sequence: a composer button that must be
+ * opened (a trusted native click, like every other account/menu control -
+ * ADR-0037), and then an ARIA slider inside the opened menu that is driven by
+ * ArrowLeft/ArrowRight once focused. Focusing here is staging, not
+ * activation - the same class of inert DOM action `rect()`'s own
+ * `scrollIntoView` already performs - and it never itself changes the
+ * reasoning-effort value; only the native key press the main process sends
+ * next does that.
+ */
+export function reasoningEffortAdjustScript(behavior) {
+  return script(behavior, `
+    const composer = pick(S.composer);
+    const surface = composer?.closest?.('[data-composer-surface]');
+    if (!surface) return { ok: false, state: 'effort-composer-unavailable' };
+    const button = all(__whx.optionalSelectors.effortPicker)
+      .filter((node) => usable(node) && surface.contains(node));
+    if (button.length !== 1) return { ok: false, state: button.length ? 'effort-control-ambiguous' : 'effort-control-unavailable' };
+    if (button[0].getAttribute('aria-expanded') !== 'true') {
+      const target = rect(button[0]);
+      return target ? { ok: true, state: 'effort-menu-closed', rect: target } : { ok: false, state: 'effort-control-offscreen', viewport: viewport() };
+    }
+    const slider = pick(__whx.optionalSelectors.effortSlider);
+    if (!slider) return { ok: false, state: 'effort-slider-unavailable' };
+    const valueNow = Number(slider.getAttribute('aria-valuenow'));
+    const valueMax = Number(slider.getAttribute('aria-valuemax'));
+    if (!Number.isInteger(valueNow) || !Number.isInteger(valueMax)) return { ok: false, state: 'effort-slider-value-unknown' };
+    slider.focus();
+    if (document.activeElement !== slider) return { ok: false, state: 'effort-slider-not-focusable' };
+    return { ok: true, state: 'effort-slider-ready', valueNow, valueMax };
+  `)
+}
+
 /** Structural readiness: is this a usable chat surface right now? */
 export function readinessScript(behavior) {
   return script(behavior, `
