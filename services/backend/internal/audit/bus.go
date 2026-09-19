@@ -81,6 +81,12 @@ func sanitizeData(data map[string]any) map[string]any {
 	return result
 }
 
+// SanitizeText applies the audit log redaction and bounded-string rule to a
+// string before it is written to any other durable operational ledger.
+func SanitizeText(value string) string {
+	return sanitizeValue(value).(string)
+}
+
 func sanitizeValue(value any) any {
 	switch typed := value.(type) {
 	case string:

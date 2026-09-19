@@ -73,6 +73,16 @@ the file the plan already promised. Measured across the archived bundles, two
 incomplete bundles produced exactly that outcome and no complete bundle was
 misread as incomplete.
 
+## Durable execution-error ledger
+
+Failed executions routed through the canonical execution failure path are persisted in the structured `harness_execution_errors` table in addition to the append-only audit stream. Each failed `ExecutionResult` records the session/chat identity, root/request/plan correlation, execution stage, sanitized error and cause, normalized `FailureKind`, the first failed process exit code when one exists, and the specific failed command or interactive-operation logs. Records start with status `open` and are returned newest-first by `GET /api/sessions/{id}/execution-errors`.
+
+The ledger is an operational error-history surface, not a replacement for `harness_events`. Before database persistence, error text, command arguments, working directories, stdout/stderr, and interactive output are passed through the same bounded secret-redaction rule used by the audit bus. Raw credentials or unbounded command output MUST NOT be written to this table.
+
+When a successful execution belongs to a GPT correction lineage (`repair`, `revert_restore`, `improvement`, or `conflict`), all still-open error rows for the same `root_request_id` are marked `resolved`. The resolution stores the correction request ID, plan ID, sanitized plan summary, and sanitized commit message as the structured GPT solution, together with `resolved_at`. This root-request correlation preserves the complete failure chain when more than one repair attempt failed before the final correction succeeded.
+
+Archive compaction may remove archived rows from `harness_events`; it does not remove structured execution-error rows. A full session-store clear truncates the error ledger with the other durable session data.
+
 ## Session failure classification (`FailureKind`)
 
 A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set classification (`domain.FailureKind*`), always derived by Wharness itself from a local/sandbox error or a structured planner outcome — never copied verbatim from planner-supplied text. Frontend recovery affordances MUST key off this field, never off error-message substrings.

@@ -147,6 +147,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/self-evolution/block/release", a.releaseSelfEvolutionBlock)
 	mux.HandleFunc("GET /api/sessions/{id}/events", a.events)
 	mux.HandleFunc("GET /api/sessions/{id}/events/history", a.eventHistory)
+	mux.HandleFunc("GET /api/sessions/{id}/execution-errors", a.executionErrors)
 	mux.HandleFunc("GET /api/sessions/{id}/knowledge", a.projectKnowledge)
 	mux.HandleFunc("GET /api/sessions/{id}/knowledge/catalog", a.knowledgeCatalog)
 	mux.HandleFunc("POST /api/sessions/{id}/knowledge/export", a.knowledgeExport)
@@ -1519,6 +1520,19 @@ func (a *API) selfEvolutionResolveEvidence(w http.ResponseWriter, r *http.Reques
 // burst - 3159 frames / 4.7 MB measured on one ordinary session here - which
 // the renderer has to absorb before it can paint anything at all.
 const maxHistoryEvents = 2000
+
+func (a *API) executionErrors(w http.ResponseWriter, r *http.Request) {
+	items, err := a.service.ExecutionErrors(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, session.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "execution_errors_read_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"errors": items})
+}
 
 func (a *API) eventHistory(w http.ResponseWriter, r *http.Request) {
 	events := a.bus.History(r.PathValue("id"))

@@ -146,6 +146,10 @@ type Store struct {
 	chatAgentTasks             map[string]ChatAgentTask
 	chatAgentProvider          ChatAgentProviderState
 	chatAgentProcessingSamples []ChatAgentProcessingSample
+	// executionErrors is the non-Postgres fallback for the structured execution
+	// error ledger. Production persists the same records in
+	// harness_execution_errors.
+	executionErrors map[string]domain.ExecutionErrorRecord
 }
 
 func NewStore() *Store {
@@ -283,12 +287,16 @@ func (s *Store) Clear() error {
 			return err
 		}
 		s.items = make(map[string]domain.Session)
+		s.executionErrors = make(map[string]domain.ExecutionErrorRecord)
 		return nil
 	}
 	original := s.items
+	originalExecutionErrors := s.executionErrors
 	s.items = make(map[string]domain.Session)
+	s.executionErrors = make(map[string]domain.ExecutionErrorRecord)
 	if err := s.persistLocked(); err != nil {
 		s.items = original
+		s.executionErrors = originalExecutionErrors
 		return err
 	}
 	return nil
