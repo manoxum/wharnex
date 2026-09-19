@@ -68,6 +68,8 @@ function attentionSessionFrom(record: AttentionRecord, projectPath: string): Ses
 }
 
 const ATTENTION_REFRESH_INTERVAL_MS = 15_000
+const EXECUTION_ACTIVE_EVENT_TYPES = new Set(['execution.queued', 'execution.dequeued', 'execution.started'])
+const EXECUTION_TERMINAL_EVENT_TYPES = new Set(['execution.completed', 'execution.failed', 'execution.duplicate_blocked'])
 
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
@@ -90,6 +92,7 @@ import { expectedResponseBundleName } from './lib/bundlename'
 import { reconcileTunnelConfig } from './lib/tunnelConfigState'
 import { mergeDurableChatItems } from './lib/chatHistory'
 import { executionStartedNotice } from './lib/executionNotice'
+import { createEventStreamCoalescer, type EventStreamCoalescer } from './lib/eventStream'
 import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
 import { loadWorkbenchState, saveWorkbenchState } from './lib/workbenchPreferences'
 
@@ -171,6 +174,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [editorOpenPath, setEditorOpenPath] = useState<string>()
   const [editorOpenNonce, setEditorOpenNonce] = useState(0)
   const sourceRef = useRef<EventSource | null>(null)
+  // Owns the event stream's deduplication, retained window and flush/persist
+  // cadence, so a catch-up burst costs a handful of renders instead of one
+  // render (and one persisted window) per frame - see lib/eventStream.
+  const coalescerRef = useRef<EventStreamCoalescer | undefined>(undefined)
   const [hostAppliedPresentation, setHostAppliedPresentation] = useState<{ eventId: string; sessionId: string; projectPath: string; chatId: string }>()
   const presentedHostAppliedEventsRef = useRef(new Set<string>())
   const activeChatIdRef = useRef(activeChatId)
@@ -351,40 +358,62 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (activeChatIdRef.current === targetChat.id) setSession(updated)
   }
 
+  // Opening the stream replays the session's whole catch-up at once. Handling
+  // one frame at a time made every frame its own React state update, and the
+  // `setEvents` updater additionally persisted the entire 500-event window -
+  // from inside the updater, which React is free to re-run for every queued
+  // update on every render pass, so the cost was quadratic in the size of the
+  // burst. One ordinary session's 3159-frame catch-up (4.7 MB) therefore
+  // became thousands of 500-event JSON.stringify + localStorage writes: the
+  // renderer's main thread never yielded (nothing could paint, no input was
+  // handled) and its heap passed the V8 limit in ~25 s, which is the
+  // `render-process-gone reason=crashed exitCode=133` restart loop. Frames are
+  // coalesced into one batch per flush, the state update is a plain value, and
+  // persistence is debounced and happens outside React's update queue.
   const connectEvents = useCallback((id: string, projectPath: string, chatId: string) => {
     sourceRef.current?.close()
-    setEvents(loadExecutionHistory(projectPath, chatId))
+    coalescerRef.current?.dispose()
+    const restored = loadExecutionHistory(projectPath, chatId)
+    setEvents(restored)
+
     const source = new EventSource(api.eventsURL(id))
+    const coalescer = createEventStreamCoalescer({
+      restored,
+      // A timer that outlives its stream must not write another chat's window;
+      // every disconnect path replaces or clears `sourceRef`, so that identity
+      // is the authority on whether this stream is still the live one.
+      isCurrent: () => sourceRef.current === source,
+      onPersist: (eventWindow) => saveExecutionHistory(projectPath, chatId, eventWindow),
+      onFlush: (batch, eventWindow) => {
+        // One workspace-chat read for the whole batch, not two per frame.
+        const needsOwner = batch.some((parsed) => parsed.type === 'execution.started' || (parsed.data.plan_id && EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)))
+        const owner = needsOwner ? loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId) : undefined
+        for (const parsed of batch) {
+          if (parsed.type === 'host.applied') setHostAppliedPresentation({ eventId: parsed.id, sessionId: id, projectPath, chatId })
+          if (parsed.type === 'execution.started' && owner) appendChatItem(owner, projectPath, executionStartedNotice(parsed))
+          const planId = String(parsed.data.plan_id || '')
+          if (!planId) continue
+          if (EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)) {
+            const status: FrontendExecutionQueueItem['status'] = parsed.type === 'execution.queued' ? 'queued' : 'running'
+            setExecutionFIFO((current) => {
+              const key = `${id}:${planId}`
+              const existing = current.find((item) => item.key === key)
+              const next: FrontendExecutionQueueItem = { key, chatId, chatTitle: owner?.title || 'Harness Chat', planId, status, position: Number(parsed.data.position) || existing?.position, addedAt: existing?.addedAt || Date.now() }
+              return upsertExecutionQueueItem(current, next)
+            })
+          } else if (EXECUTION_TERMINAL_EVENT_TYPES.has(parsed.type)) {
+            const terminalStatus = parsed.type === 'execution.completed' ? 'completed' : 'failed'
+            setExecutionFIFO((current) => finishExecutionQueueItem(current, `${id}:${planId}`, terminalStatus))
+          }
+        }
+        setEvents(eventWindow)
+      },
+    })
     source.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data) as HarnessEvent
-        const planId = String(parsed.data.plan_id || '')
-        if (parsed.type === 'host.applied') setHostAppliedPresentation({ eventId: parsed.id, sessionId: id, projectPath, chatId })
-        if (parsed.type === 'execution.started') {
-          const owner = loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId)
-          if (owner) appendChatItem(owner, projectPath, executionStartedNotice(parsed))
-        }
-        if (planId && ['execution.queued', 'execution.dequeued', 'execution.started'].includes(parsed.type)) {
-          const status: FrontendExecutionQueueItem['status'] = parsed.type === 'execution.queued' ? 'queued' : 'running'
-          const owner = loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId)
-          setExecutionFIFO((current) => {
-            const key = `${id}:${planId}`
-            const existing = current.find((item) => item.key === key)
-            const next: FrontendExecutionQueueItem = { key, chatId, chatTitle: owner?.title || 'Harness Chat', planId, status, position: Number(parsed.data.position) || existing?.position, addedAt: existing?.addedAt || Date.now() }
-            return upsertExecutionQueueItem(current, next)
-          })
-        } else if (planId && ['execution.completed', 'execution.failed', 'execution.duplicate_blocked'].includes(parsed.type)) {
-          const terminalStatus = parsed.type === 'execution.completed' ? 'completed' : 'failed'
-          setExecutionFIFO((current) => finishExecutionQueueItem(current, `${id}:${planId}`, terminalStatus))
-        }
-        setEvents((current) => {
-          if (current.some((item) => item.id === parsed.id)) return current
-          const next = [...current, parsed].slice(-500)
-          saveExecutionHistory(projectPath, chatId, next)
-          return next
-        })
-      } catch { /* ignore malformed SSE frame */ }
+      try { coalescer.accept(JSON.parse(event.data) as HarnessEvent) }
+      catch { /* ignore malformed SSE frame */ }
     }
+    coalescerRef.current = coalescer
     sourceRef.current = source
   }, [])
 
@@ -507,7 +536,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     return () => { alive = false }
   }, [connectEvents, embeddedProject])
 
-  useEffect(() => () => { sourceRef.current?.close(); sourceRef.current = null }, [])
+  useEffect(() => () => {
+    sourceRef.current?.close(); sourceRef.current = null
+    coalescerRef.current?.dispose(); coalescerRef.current = undefined
+  }, [])
 
   useEffect(() => {
     if (!session || !activeChatOwnsSession) return

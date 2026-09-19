@@ -1511,8 +1511,16 @@ func (a *API) selfEvolutionResolveEvidence(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, evidence)
 }
 
+// maxHistoryEvents bounds every catch-up replay of a session's event ledger,
+// for the REST history endpoint and for the SSE stream alike. The durable
+// ledger is deliberately unbounded (see AGENTS.md §3), but a catch-up is a
+// live client's starting picture, not the record: an unbounded one made every
+// SSE connect replay the whole ledger of a long-lived session as a single
+// burst - 3159 frames / 4.7 MB measured on one ordinary session here - which
+// the renderer has to absorb before it can paint anything at all.
+const maxHistoryEvents = 2000
+
 func (a *API) eventHistory(w http.ResponseWriter, r *http.Request) {
-	const maxHistoryEvents = 2000
 	events := a.bus.History(r.PathValue("id"))
 	total := len(events)
 	truncated := total > maxHistoryEvents
@@ -1533,7 +1541,11 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	for _, event := range a.bus.History(r.PathValue("id")) {
+	history := a.bus.History(r.PathValue("id"))
+	if len(history) > maxHistoryEvents {
+		history = history[len(history)-maxHistoryEvents:]
+	}
+	for _, event := range history {
 		writeSSE(w, event)
 		flusher.Flush()
 	}
