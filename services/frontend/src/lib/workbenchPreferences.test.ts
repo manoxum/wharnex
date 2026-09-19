@@ -30,11 +30,17 @@ describe('workbenchPreferences', () => {
     expect(defaultSidePanelWidth(0)).toBe(0)
   })
 
-  // A static ceiling would stop a wide screen from ever reaching that quarter,
-  // and would stop the operator squeezing the centre deliberately.
-  it('lets a side panel grow past its static ceiling on a wide screen', () => {
-    const wide = normalizeWorkbenchState({ right: { open: true, collapsed: false, size: 1500 } })
-    expect(wide.right.size).toBe(Math.max(840, Math.round(window.innerWidth * 0.45)))
+  // A width accepted by the live splitter must survive persistence. The old
+  // 45vw/static ceiling silently reduced a wide drawer after reload.
+  it('preserves a splitter-accepted wide panel instead of reapplying a 45vw cap', () => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1920 })
+    try {
+      const wide = normalizeWorkbenchState({ right: { open: true, collapsed: false, size: 1500 } })
+      expect(wide.right.size).toBe(1500)
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    }
   })
 
 

@@ -26,17 +26,19 @@ describe('drawerResizeCeiling', () => {
   // overflowed, and because the centre is flex-basis 0 it takes no share of
   // the shrinking - so the overflow came out of the *other* drawer, which read
   // as one panel pushing the panel on the far side.
-  it('counts every sibling in the row except the centre and the dragged panel', () => {
+  it('counts every sibling except the production centre wrapper and dragged panel', () => {
     const { body, main } = row([
       { cls: 'agent-activity-bar', width: 44 },
       { cls: 'agent-drawer workspace-side-drawer workspace-side-drawer-left', width: 400 },
       { cls: 'agent-drawer-splitter', width: 6 },
-      { cls: 'workspace-mode-stack', width: 900 },
+      { cls: 'workspace-center-column', width: 900 },
       { cls: 'workspace-right-splitter', width: 6 },
       { cls: 'workspace-right-drawer', width: 500 },
       { cls: 'workspace-right-rail', width: 44 },
     ], 1900)
     const left = main.querySelector('.workspace-side-drawer-left') as HTMLElement
+    // `.workspace-center-column` is the direct flex child in App. Counting its
+    // live width here would turn the current centre size into a false drag cap.
     // Everything except the centre and the dragged left drawer: 44+6+6+500+44.
     expect(drawerResizeCeiling(body, left, 240)).toBe(1900 - 600 - WORKBENCH_CENTRE_MIN_PX)
 
@@ -53,7 +55,7 @@ describe('drawerResizeCeiling', () => {
   it('never returns less than the panel minimum', () => {
     const { body, main } = row([
       { cls: 'workspace-side-drawer-left', width: 400 },
-      { cls: 'workspace-mode-stack', width: 100 },
+      { cls: 'workspace-center-column', width: 100 },
       { cls: 'workspace-right-drawer', width: 900 },
     ], 1000)
     const left = main.querySelector('.workspace-side-drawer-left') as HTMLElement
@@ -63,7 +65,7 @@ describe('drawerResizeCeiling', () => {
   it('leaves the centre exactly its reserve and no more', () => {
     const { body, main } = row([
       { cls: 'workspace-side-drawer-left', width: 300 },
-      { cls: 'workspace-mode-stack', width: 700 },
+      { cls: 'workspace-center-column', width: 700 },
     ], 1000)
     const left = main.querySelector('.workspace-side-drawer-left') as HTMLElement
     // The centre must be free to shrink all the way down to the reserve, which

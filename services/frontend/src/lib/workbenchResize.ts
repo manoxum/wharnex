@@ -20,7 +20,10 @@
 export const WORKBENCH_SIDE_PANEL_MIN_PX = 160
 export const WORKBENCH_CENTRE_MIN_PX = 160
 
-const CENTRE_SELECTOR = '.workspace-mode-stack'
+// The production flex child is `.workspace-center-column`; older focused
+// harnesses mounted `.workspace-mode-stack` directly. Treat either as the
+// elastic centre so its current width never becomes part of the drawer cap.
+const CENTRE_SELECTOR = '.workspace-center-column, .workspace-mode-stack'
 
 /**
  * The widest `panel` may become without pushing the centre below its reserve.
