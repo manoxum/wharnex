@@ -321,6 +321,15 @@ describe('multi-project shell CSS', () => {
     expect(activeUnderline).not.toContain('box-shadow')
     expect(activeMark).toContain('box-shadow: none')
   })
+
+  it('pulses the active project while a composer is being edited', () => {
+    const typingProject = firstRule('.project-quick-switch button.active.composer-typing-attention')
+    expect(typingProject).toContain('animation: current-project-composer-pulse .9s ease-in-out infinite')
+    expect(css).toContain('@keyframes current-project-composer-pulse')
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)')
+    expect(css).toContain('.project-quick-switch button.active.composer-typing-attention { animation: none;')
+    expect(css).toContain('outline: 2px solid hsl(var(--project-hue) 78% 52% / .58)')
+  })
 })
 
 describe('split Agent layout CSS', () => {

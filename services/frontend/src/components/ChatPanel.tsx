@@ -153,6 +153,7 @@ export type ChatPanelProps = {
   onToggleArtifact?: (kind: ChatArtifactKind) => void
   onRequestMode?: (mode: ChatRequestMode) => void
   onChatTransport?: (transport?: TransportOptions) => void
+  onComposerTyping?: () => void
   onSend: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode) => Promise<void>
   onAdjustExecutionPlan?: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) => Promise<void>
   onPreviewBundle?: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode) => Promise<ArtifactRecord>
@@ -190,7 +191,7 @@ export type ChatPanelProps = {
   onGenerateChatTitle?: (chatId: string) => Promise<void>
 }
 
-export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, compactComposer = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, reasoningEffort, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', transportRequestId = '', onExecutionMode, onAutomationMode, onDebugMode, onEffortLevel, onReasoningEffort, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onSend, onAdjustExecutionPlan, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onSaveChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, compactComposer = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, reasoningEffort, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', transportRequestId = '', onExecutionMode, onAutomationMode, onDebugMode, onEffortLevel, onReasoningEffort, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onComposerTyping, onSend, onAdjustExecutionPlan, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onSaveChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
   const [initialDraft] = useState(() => loadComposerDraft(session.project_path, activeChatId))
   const [initialFileDraft] = useState(() => loadComposerFileDraft(session.project_path, activeChatId))
   const [message, setMessage] = useState(initialDraft.message)
@@ -656,10 +657,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // (drafts, submission and autocomplete) keeps reading and writing that same
   // plain string exactly as it did before the rich editor.
   function updateMessage(value: string, caret: number) {
+    const textChanged = value !== composerMessageRef.current
     composerMessageRef.current = value
     composerCaretRef.current = caret
     setMessage(value)
     syncDirectiveQueries(value, caret)
+    if (textChanged) onComposerTyping?.()
   }
 
   function startComposerResize(event: ReactPointerEvent<HTMLDivElement>) {

@@ -783,6 +783,17 @@ describe('ChatPanel', () => {
     expect(writeText).toHaveBeenCalledWith('mensagem anterior')
   })
 
+  it('reports real composer text edits for active-project attention', () => {
+    const onComposerTyping = vi.fn()
+    const ref = panelRef()
+    render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="typing" busy={false} onSend={async () => undefined} onComposerTyping={onComposerTyping} {...chatActions} />,
+    )
+
+    typeInComposer(ref, 'confirmar projeto atual', 'confirmar projeto atual'.length)
+    expect(onComposerTyping).toHaveBeenCalledTimes(1)
+  })
+
   it('selects files and submits them with the message', async () => {
     const onSend = vi.fn(async () => undefined)
     const ref = panelRef()
