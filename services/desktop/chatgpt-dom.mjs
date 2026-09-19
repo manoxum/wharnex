@@ -47,20 +47,22 @@ export function chatGPTFillComposerScript(text) {
     // survive arrived as one run-on line because textContent carries no block
     // structure - every "\\n" collapsed to a space.
     //
-    // insertText is the same path a paste takes, so the editor builds its own
-    // paragraphs and keeps its model in step. Replace rather than append: the
-    // composer may still hold a previous attempt's text.
-    // Offered as a paste first. A rich editor handles paste through its own
-    // model, which is what keeps the text alive across the re-render the
-    // attachment triggers - and it needs no focus, so the transport still
+    // It is offered as a paste first, because a rich editor takes a paste
+    // through its own model - and it needs no focus, so the transport still
     // never touches the remote renderer's focus (AGENTS.md §8).
-    let pasted = false;
+    //
+    // Whether the editor accepted it is decided by reading the composer back,
+    // never by the event's own return value: cancelling a paste says the page
+    // handled the event, not that the text landed.
+    const normalize = (candidate) => String(candidate || '').replace(/\\s+/g, ' ').trim();
+    const wanted = normalize(value);
+    const holdsWanted = () => normalize(composer.textContent).includes(wanted);
     try {
       const transfer = new DataTransfer();
       transfer.setData('text/plain', value);
-      pasted = !composer.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
-    } catch { pasted = false }
-    if (!pasted) {
+      composer.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+    } catch { /* editor does not take a synthetic paste; fall through */ }
+    if (!holdsWanted()) {
       // Direct write, but block-structured: one paragraph per line. Assigning
       // textContent carries no block structure at all, so every "\\n"
       // collapsed and the whole prompt arrived as one run-on line.
@@ -73,12 +75,10 @@ export function chatGPTFillComposerScript(text) {
       composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: value }));
       composer.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    // The editor owns the rendering; confirm from it rather than from what we
-    // asked for. Whitespace is normalized because block structure legitimately
-    // changes how the text reads back.
-    const wrote = String(composer.textContent || '').replace(/\\s+/g, ' ').trim();
-    const wanted = String(value).replace(/\\s+/g, ' ').trim();
-    return wrote.length > 0 && wrote === wanted;
+    // Confirmed from what the editor actually holds, and by containment rather
+    // than equality: the editor may legitimately add structure of its own, and
+    // demanding an exact match failed a fill that had in fact landed.
+    return holdsWanted();
   })()`
 }
 

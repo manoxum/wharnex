@@ -121,8 +121,13 @@ test('composer text is written through the editor model and keeps its line struc
   assert.match(script, /createElement\('p'\)/)
   assert.doesNotMatch(script, /composer\.textContent = value/)
 
-  // Confirmed from what the editor actually holds, not from what we asked for.
-  assert.match(script, /composer\.textContent \|\| ''/)
+  // Confirmed by reading the composer back, never from the paste event's own
+  // return value: cancelling a paste says the page handled the event, not that
+  // the text landed - and an exact-match check failed a fill that had landed,
+  // because the editor adds structure of its own.
+  assert.match(script, /const holdsWanted = \(\) => normalize\(composer\.textContent\)\.includes\(wanted\)/)
+  assert.match(script, /if \(!holdsWanted\(\)\)/)
+  assert.match(script, /return holdsWanted\(\)/)
 })
 
 test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {
