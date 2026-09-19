@@ -806,6 +806,14 @@ describe('AgentWorkspace', () => {
     expect(workspace.style.getPropertyValue('--agent-chat-width')).toBe('')
     // Each rail owns its width independently, scoped to the desktop window.
     expect(localStorage.getItem('whx.workspace.drawer-width:left:primary')).toBe('456')
+
+    // The divider must also travel below the old 240px drawer floor. A narrow
+    // drawer remains recoverable because its rail and splitter stay mounted.
+    fireEvent.pointerDown(splitter, { pointerId: 2, clientX: 500 })
+    fireEvent(window, Object.assign(new Event('pointermove'), { clientX: 80 }))
+    fireEvent(window, new Event('pointerup'))
+    await waitFor(() => expect(drawer.style.getPropertyValue('--workspace-drawer-width')).toBe('160px'))
+    expect(localStorage.getItem('whx.workspace.drawer-width:left:primary')).toBe('160')
   })
 
   it('keeps the left panel open across attention routing and offers every drawer a close control', async () => {

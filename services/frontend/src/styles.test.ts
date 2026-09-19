@@ -370,9 +370,11 @@ describe('terminal and editor execution CSS', () => {
 
 
 describe('configurable workbench CSS', () => {
-  it('keeps the central workspace dominant and exposes compact chrome tokens', () => {
+  it('keeps the central workspace elastic and exposes compact chrome tokens', () => {
     const compactRail = lastRule(":root[data-density='compact'] .workspace-main-row > .agent-activity-bar")
-    expect(css).toContain('.workspace-center-column { flex: 1 1 760px; min-width: 560px;')
+    expect(css).toContain('.workspace-center-column { flex: 1 1 0; min-width: 0;')
+    expect(lastRule('.workspace-center-column')).toContain('min-width: 0')
+    expect(css).not.toContain('max-width: 42vw')
     expect(css).toContain('.workspace-main-row { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }')
     expect(css).toContain('.workbench-status-bar { height: 24px; flex: 0 0 24px;')
     expect(compactRail).toContain('width: 40px')

@@ -14,7 +14,7 @@ import { AttentionList } from './AttentionList'
 import { PanelSkeleton } from './Skeleton'
 import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../lib/workspaceRailLayout'
 import { defaultSidePanelWidth } from '../lib/workbenchPreferences'
-import { drawerResizeCeiling } from '../lib/workbenchResize'
+import { drawerResizeCeiling, WORKBENCH_SIDE_PANEL_MIN_PX } from '../lib/workbenchResize'
 
 // Every drawer below is only ever rendered once the operator opens it, and
 // most (Git graph, Postgres browser, artifact/knowledge explorers, runtime
@@ -41,8 +41,6 @@ export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 44
-const WORKSPACE_DRAWER_MIN_PX = 240
-const WORKSPACE_RIGHT_DRAWER_MIN_PX = 360
 // A quarter of the workbench, so opening both side panels lands on the
 // 25% / 50% / 25% split (see lib/workbenchPreferences) rather than on a fixed
 // pixel width that means a different share on every screen.
@@ -164,7 +162,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     const rect = body.getBoundingClientRect()
     event.currentTarget.setPointerCapture(event.pointerId)
     const update = (clientX: number) => {
-      const minimum = side === 'right' ? WORKSPACE_RIGHT_DRAWER_MIN_PX : WORKSPACE_DRAWER_MIN_PX
+      const minimum = WORKBENCH_SIDE_PANEL_MIN_PX
       const panel = body.querySelector(`.workspace-side-drawer-${side}`) as HTMLElement | null
       // Measures every sibling in the live row rather than assuming two rails
       // and one opposite drawer of a known class - the assumption that let one

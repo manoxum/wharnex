@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { drawerResizeCeiling, WORKBENCH_CENTRE_MIN_PX } from './workbenchResize'
+import { drawerResizeCeiling, WORKBENCH_CENTRE_MIN_PX, WORKBENCH_SIDE_PANEL_MIN_PX } from './workbenchResize'
 
 // jsdom reports every rect as zero, so widths are stubbed per element.
 function row(widths: { cls: string; width: number }[], available: number) {
@@ -43,6 +43,11 @@ describe('drawerResizeCeiling', () => {
     const right = main.querySelector('.workspace-right-drawer') as HTMLElement
     // The Database splitter now counts the left drawer, which it never did.
     expect(drawerResizeCeiling(body, right, 360)).toBe(1900 - (44 + 400 + 6 + 6 + 44) - WORKBENCH_CENTRE_MIN_PX)
+  })
+
+  it('keeps only a small recoverable reserve for centre and side panels', () => {
+    expect(WORKBENCH_SIDE_PANEL_MIN_PX).toBe(160)
+    expect(WORKBENCH_CENTRE_MIN_PX).toBe(160)
   })
 
   it('never returns less than the panel minimum', () => {
