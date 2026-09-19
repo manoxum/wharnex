@@ -467,7 +467,7 @@ describe('canonical workbench tab CSS', () => {
     expect(canonical).toContain('.chat-tab-group.active {')
     expect(canonical).toContain('.editor-tab.active {')
     expect(canonical).toContain('.terminal-tab-shell.active {')
-    expect(canonical).toContain('.agent-surface-tabs button.active {')
+    expect(canonical).toContain('.agent-chat-surface-tabs button.active {')
     expect(canonical).toContain('background: var(--theme-accent)')
     expect(gitTabs).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
     expect(gitTabs).toContain('overflow: visible')

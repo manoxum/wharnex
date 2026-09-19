@@ -1,14 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from 'react'
 import { createPortal } from 'react-dom'
-import type { BundleQuota, Session } from '../types'
+import type { Session } from '../types'
 import { ChatPanel, type ChatPanelHandle } from './ChatPanel'
 import type { ChatViewportStore } from './useProgressiveChatHistory'
 import { Inspector, type InspectorTab } from './Inspector'
 import { Icon } from './Icon'
 import { desktopWindowScope } from '../lib/projectBindings'
-import { summarizeAttention, type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
-import { AttentionPopover } from './AttentionPopover'
-import { api } from '../lib/api'
+import { type AttentionItem, type AttentionTarget, type AttentionTone } from '../lib/attentionCenter'
 import { boundedAgentChatWidth } from '../lib/agentLayout'
 
 const AGENT_CHAT_WIDTH_KEY = 'whx.agent.chat-width'
@@ -38,7 +36,7 @@ function saveAgentChatWidth(width: number) {
 // Kept in step with the grid in styles.css: the splitter width and the minimum
 // a panel may be squeezed to. The activity rail is no longer part of this grid
 // — it belongs to the shell, beside every mode surface.
-export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAttentionNonce = 0, inspectorAttention, singlePane = false, onOpenAttention, onAttentionAction, onOpenAttentionDrawer, chatProps, inspectorProps, onExportChat, onReorderChat, railVisible = false }: {
+export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAttentionNonce = 0, inspectorAttention, singlePane = false, onOpenAttentionDrawer, chatProps, inspectorProps, onExportChat, onReorderChat, railVisible = false }: {
   session: Session
   busy: boolean
   attentionItems?: AttentionItem[]
@@ -56,20 +54,20 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
 }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>(inspectorProps.config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [singlePaneSurface, setSinglePaneSurface] = useState<'chat' | 'inspector'>('chat')
-  const [attentionPopoverOpen, setAttentionPopoverOpen] = useState(false)
-  const [attentionPopoverPosition, setAttentionPopoverPosition] = useState<React.CSSProperties>()
   const workspaceRef = useRef<HTMLElement>(null)
   const [railTarget, setRailTarget] = useState<HTMLElement | null>(null)
-  const attentionClusterRef = useRef<HTMLDivElement>(null)
-  const attentionTriggerRef = useRef<HTMLButtonElement>(null)
+  const chatTabsRef = useRef<HTMLDivElement>(null)
+  const overflowRef = useRef<HTMLDivElement>(null)
+  const overflowTriggerRef = useRef<HTMLButtonElement>(null)
   const chatViewportStoreRef = useRef<ChatViewportStore>(new Map())
   const chatPanelRef = useRef<ChatPanelHandle>(null)
   const [chatWidth, setChatWidth] = useState(loadAgentChatWidth)
   const [draggedChatId, setDraggedChatId] = useState('')
   const [dropTargetChatId, setDropTargetChatId] = useState('')
-  const [bundleQuota, setBundleQuota] = useState<BundleQuota>()
+  const [hiddenChatIds, setHiddenChatIds] = useState<string[]>([])
+  const [overflowOpen, setOverflowOpen] = useState(false)
   const archived = chatProps.archivedChats || []
-  const attentionSummary = summarizeAttention(attentionItems)
+  const hiddenChats = chatProps.chats.filter((chat) => hiddenChatIds.includes(chat.id))
   useLayoutEffect(() => {
     if (!railVisible) { setRailTarget(null); return }
     const target = workspaceRef.current?.closest('.workspace-main-row')?.querySelector<HTMLElement>('.workspace-agent-rail-slot') || null
@@ -92,48 +90,49 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
     window.addEventListener('resize', reconcile)
     return () => window.removeEventListener('resize', reconcile)
   }, [chatWidth])
-  useEffect(() => {
-    let alive = true
-    const refresh = () => { void api.bundleQuota().then((value) => { if (alive) setBundleQuota(value) }).catch(() => {}) }
-    refresh()
-    const timer = window.setInterval(refresh, 60_000)
-    return () => { alive = false; window.clearInterval(timer) }
-  }, [session.id, session.artifacts?.length])
-  useEffect(() => {
-    if (!attentionPopoverOpen) return
-    const positionPopover = () => {
-      const rect = attentionTriggerRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const top = Math.max(10, Math.min(rect.top, window.innerHeight - 320))
-      setAttentionPopoverPosition({
-        position: 'fixed',
-        right: Math.max(10, window.innerWidth - rect.left + 8),
-        top,
-        maxHeight: Math.max(300, window.innerHeight - top - 10),
-      })
-    }
-    positionPopover()
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      const target = event.target as Element
-      if (!attentionClusterRef.current?.contains(target) && !target.closest?.('#agent-attention-popover')) setAttentionPopoverOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      setAttentionPopoverOpen(false)
-      attentionTriggerRef.current?.focus()
-    }
-    document.addEventListener('pointerdown', closeOnOutsidePointer)
-    document.addEventListener('keydown', closeOnEscape)
-    window.addEventListener('resize', positionPopover)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer)
-      document.removeEventListener('keydown', closeOnEscape)
-      window.removeEventListener('resize', positionPopover)
-    }
-  }, [attentionPopoverOpen])
-  useEffect(() => { if (!attentionItems.length) setAttentionPopoverOpen(false) }, [attentionItems.length])
   useEffect(() => { if (singlePane) setSinglePaneSurface('chat') }, [singlePane])
+  useEffect(() => {
+    const openDrawer = () => onOpenAttentionDrawer()
+    window.addEventListener('wharnex:open-attention-drawer', openDrawer)
+    return () => window.removeEventListener('wharnex:open-attention-drawer', openDrawer)
+  }, [onOpenAttentionDrawer])
+  useLayoutEffect(() => {
+    const root = chatTabsRef.current
+    if (!root) return
+    const measure = () => {
+      const bounds = root.getBoundingClientRect()
+      const hidden = Array.from(root.querySelectorAll<HTMLElement>('.chat-tab-group[data-chat-id]'))
+        .filter((node) => { const rect = node.getBoundingClientRect(); return rect.left < bounds.left - 1 || rect.right > bounds.right + 1 })
+        .map((node) => node.dataset.chatId || '')
+        .filter(Boolean)
+      setHiddenChatIds((current) => current.length === hidden.length && current.every((id, index) => id === hidden[index]) ? current : hidden)
+    }
+    const frame = window.requestAnimationFrame(measure)
+    const ResizeObserverCtor = window.ResizeObserver
+    if (ResizeObserverCtor) {
+      const observer = new ResizeObserverCtor(measure)
+      observer.observe(root)
+      Array.from(root.children).forEach((child) => observer.observe(child))
+      return () => { window.cancelAnimationFrame(frame); observer.disconnect() }
+    }
+    window.addEventListener('resize', measure)
+    return () => { window.cancelAnimationFrame(frame); window.removeEventListener('resize', measure) }
+  }, [chatProps.chats])
+  useEffect(() => {
+    if (!overflowOpen) return
+    const close = (event: PointerEvent) => {
+      if (event.target instanceof Node && !overflowRef.current?.contains(event.target)) setOverflowOpen(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setOverflowOpen(false)
+      overflowTriggerRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', escape) }
+  }, [overflowOpen])
+  useEffect(() => { if (!hiddenChats.length) setOverflowOpen(false) }, [hiddenChats.length])
   // Attention routing switches the inspector to the surface that needs a human,
   // but it never dismisses the left panel: the drawer closes only when the
   // operator asks it to, so incoming attention cannot pull away the plans,
@@ -151,41 +150,6 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   function openInspector(tab: InspectorTab) {
     setInspectorTab(tab)
     if (singlePane) setSinglePaneSurface('inspector')
-  }
-
-  async function openAttention(item: AttentionItem) {
-    setAttentionPopoverOpen(false)
-    await onOpenAttention(item)
-  }
-
-  async function runAttentionAction(item: AttentionItem) {
-    setAttentionPopoverOpen(false)
-    await onAttentionAction(item)
-  }
-
-  function openAllAttention() {
-    setAttentionPopoverOpen(false)
-    onOpenAttentionDrawer()
-  }
-
-  function closeAttentionPopover() {
-    setAttentionPopoverOpen(false)
-    attentionTriggerRef.current?.focus()
-  }
-
-  function toggleAttentionPopover() {
-    if (attentionPopoverOpen) { setAttentionPopoverOpen(false); return }
-    const rect = attentionTriggerRef.current?.getBoundingClientRect()
-    if (rect) {
-      const top = Math.max(10, Math.min(rect.top, window.innerHeight - 320))
-      setAttentionPopoverPosition({
-        position: 'fixed',
-        right: Math.max(10, window.innerWidth - rect.left + 8),
-        top,
-        maxHeight: Math.max(300, window.innerHeight - top - 10),
-      })
-    }
-    setAttentionPopoverOpen(true)
   }
 
   function attentionTone(target: AttentionTarget): AttentionTone | undefined {
@@ -222,6 +186,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
     const sourceChatId = draggedChatId || event.dataTransfer.getData('text/plain')
     setDraggedChatId('')
     setDropTargetChatId('')
+    setOverflowOpen(false)
     if (sourceChatId && sourceChatId !== targetChatId) onReorderChat(sourceChatId, targetChatId)
   }
 
@@ -254,39 +219,32 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
     })
   }
 
-  const commandbar = (
-    <header className="agent-commandbar" aria-label="Atalhos do Agent">
-          <div className="agent-command-actions">
-            {bundleQuota && <AgentBundleCounters quota={bundleQuota}/>}
-            <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{attentionSummary.total} {attentionSummary.total === 1 ? 'alerta ativo' : 'alertas ativos'}; {attentionSummary.urgent} {attentionSummary.urgent === 1 ? 'urgente' : 'urgentes'}; {attentionSummary.actionable} com ação disponível.</span>
-            <div className="agent-attention-cluster" ref={attentionClusterRef}>
-              <button ref={attentionTriggerRef} type="button" className={`agent-attention-summary ${attentionSummary.urgent ? 'urgent' : ''}`} onClick={toggleAttentionPopover} aria-expanded={attentionPopoverOpen} aria-haspopup="dialog" aria-controls="agent-attention-popover" aria-label={`Centro de notificações, ${attentionSummary.total} alerta(s), ${attentionSummary.urgent} urgente(s), ${attentionSummary.actionable} com ação`} title="Centro de Alertas · todos os chats deste projeto"><Icon name="bell" size={14}/>{attentionSummary.total > 0 && <span className="agent-attention-count" aria-hidden="true">{attentionSummary.total}</span>}</button>
-            </div>
-          </div>
-          <nav className="agent-surface-tabs" aria-label="Áreas do Agent">
-            {singlePane && <button className={singlePaneSurface === 'chat' ? 'active' : ''} onClick={() => setSinglePaneSurface('chat')} title="Chat" aria-label="Chat"><Icon name="send" size={15}/></button>}
-            <button className={inspectorTab === 'files' ? 'active' : ''} onClick={() => openInspector('files')} title="Ficheiros" aria-label="Ficheiros"><Icon name="folder" size={15}/></button>
-            <button className={surfaceTabClass('plan')} onClick={() => openInspector('plan')} title={surfaceTabTitle('plan', 'Plano')} aria-label={surfaceTabTitle('plan', 'Plano')}><Icon name="plan" size={15}/>{surfaceAttention('plan').length > 0 && <span className="surface-attention-count">{surfaceAttention('plan').length}</span>}</button>
-            <button className={surfaceTabClass('terminal')} onClick={() => openInspector('terminal')} title={surfaceTabTitle('terminal', 'Execução')} aria-label={surfaceTabTitle('terminal', 'Execução')}><Icon name="terminal" size={15}/>{surfaceAttention('terminal').length > 0 && <span className="surface-attention-count">{surfaceAttention('terminal').length}</span>}</button>
-            <button className={surfaceTabClass('chatgpt')} onClick={() => openInspector('chatgpt')} title={surfaceTabTitle('chatgpt', session.integration_conflict ? 'Conflito Engine' : 'Engine')} aria-label={surfaceTabTitle('chatgpt', session.integration_conflict ? 'Conflito Engine' : 'Engine')}><Icon name="agent" size={15}/>{surfaceAttention('chatgpt').length > 0 && <span className="surface-attention-count">{surfaceAttention('chatgpt').length}</span>}</button>
-          </nav>
-          <nav className="agent-direct-chatgpt-tab" aria-label="ChatGPT direto">
-            <button className={inspectorTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => openInspector('direct-chatgpt')} title="ChatGPT" aria-label="ChatGPT"><Icon name="chatgpt" size={15}/></button>
-          </nav>
-        </header>
-  )
+  const surfaceTabs = <nav className="agent-chat-surface-tabs" aria-label="Áreas do Agent">
+    {singlePane && <button className={singlePaneSurface === 'chat' ? 'active' : ''} onClick={() => setSinglePaneSurface('chat')} title="Chat" aria-label="Chat"><Icon name="send" size={15}/></button>}
+    <button className={inspectorTab === 'files' ? 'active' : ''} onClick={() => openInspector('files')} title="Ficheiros" aria-label="Ficheiros"><Icon name="folder" size={15}/></button>
+    <button className={surfaceTabClass('plan')} onClick={() => openInspector('plan')} title={surfaceTabTitle('plan', 'Plano')} aria-label={surfaceTabTitle('plan', 'Plano')}><Icon name="plan" size={15}/>{surfaceAttention('plan').length > 0 && <span className="surface-attention-count">{surfaceAttention('plan').length}</span>}</button>
+    <button className={surfaceTabClass('terminal')} onClick={() => openInspector('terminal')} title={surfaceTabTitle('terminal', 'Execução')} aria-label={surfaceTabTitle('terminal', 'Execução')}><Icon name="terminal" size={15}/>{surfaceAttention('terminal').length > 0 && <span className="surface-attention-count">{surfaceAttention('terminal').length}</span>}</button>
+    <button className={surfaceTabClass('chatgpt')} onClick={() => openInspector('chatgpt')} title={surfaceTabTitle('chatgpt', session.integration_conflict ? 'Conflito Engine' : 'Engine')} aria-label={surfaceTabTitle('chatgpt', session.integration_conflict ? 'Conflito Engine' : 'Engine')}><Icon name="agent" size={15}/>{surfaceAttention('chatgpt').length > 0 && <span className="surface-attention-count">{surfaceAttention('chatgpt').length}</span>}</button>
+  </nav>
+
+  const commandbar = <header className="agent-commandbar" aria-label="Atalhos do Agent">
+    <nav className="agent-direct-chatgpt-tab" aria-label="ChatGPT direto">
+      <button className={inspectorTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => openInspector('direct-chatgpt')} title="ChatGPT" aria-label="ChatGPT"><Icon name="chatgpt" size={15}/></button>
+    </nav>
+  </header>
+
 
   // The Agent shortcuts reuse the shell's existing right tool rail in the real
   // workbench. Standalone consumers keep the inline rail as a safe fallback.
   return <section ref={workspaceRef} className={`agent-workspace${singlePane ? ' single-pane' : ''} ${railVisible ? 'agent-rail-unified' : ''}`.trim()} style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
     {railVisible ? (railTarget ? createPortal(commandbar, railTarget) : null) : commandbar}
-    {attentionPopoverOpen && createPortal(<AttentionPopover items={attentionItems} activeChatId={chatProps.activeChatId} busy={busy} position={attentionPopoverPosition} onOpen={openAttention} onAction={runAttentionAction} onOpenAll={openAllAttention} onClose={closeAttentionPopover}/>, document.body)}
     <nav className="agent-chat-switcher" aria-label="Conversas do Harness">
       <button className="chat-new-button" onClick={() => void chatProps.onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>
       {archived.length > 0 && <button className="chat-new-button chat-reopen-button" disabled={busy} onClick={() => void chatProps.onRestoreChat(archived[0].id)} title={`Reabrir último chat fechado: ${archived[0].title}`} aria-label="Reabrir último chat fechado"><Icon name="refresh" size={13}/></button>}
-      <div className="chat-tabs">
+      <div className="chat-tabs" ref={chatTabsRef} onScroll={() => { const root = chatTabsRef.current; if (!root) return; const bounds = root.getBoundingClientRect(); setHiddenChatIds(Array.from(root.querySelectorAll<HTMLElement>('.chat-tab-group[data-chat-id]')).filter((node) => { const rect = node.getBoundingClientRect(); return rect.left < bounds.left - 1 || rect.right > bounds.right + 1 }).map((node) => node.dataset.chatId || '').filter(Boolean)) }}>
         {chatProps.chats.map((chat) => <div
           key={chat.id}
+          data-chat-id={chat.id}
           draggable
           className={[chat.id === chatProps.activeChatId ? 'chat-tab-group active' : 'chat-tab-group', chat.id === draggedChatId ? 'dragging' : '', chat.id === dropTargetChatId ? 'drop-target' : ''].filter(Boolean).join(' ')}
           onDragStart={(event) => beginChatDrag(event, chat.id)}
@@ -300,6 +258,19 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
           <button className="chat-tab-remove" disabled={busy} onClick={() => void chatProps.onArchiveChat(chat.id)} title={`Fechar e arquivar ${chat.title}`} aria-label={`Fechar e arquivar chat ${chat.title}`}><Icon name="close" size={11}/></button>
         </div>)}
       </div>
+      <div className="agent-chat-fixed-tools">
+        {hiddenChats.length > 0 && <div className="chat-overflow-control" ref={overflowRef}>
+          <button ref={overflowTriggerRef} type="button" className="chat-overflow-trigger" aria-haspopup="menu" aria-expanded={overflowOpen} aria-label={`Chats fora da área visível, ${hiddenChats.length}`} title={`${hiddenChats.length} chat(s) fora da área visível`} onClick={() => setOverflowOpen((current) => !current)}><Icon name="list" size={15}/><span>{hiddenChats.length}</span></button>
+          {overflowOpen && <div className="chat-overflow-menu" role="menu" aria-label="Chats não visíveis">
+            {hiddenChats.map((chat) => <div key={chat.id} data-chat-id={chat.id} draggable className={[chat.id === chatProps.activeChatId ? 'chat-overflow-row active' : 'chat-overflow-row', chat.id === draggedChatId ? 'dragging' : '', chat.id === dropTargetChatId ? 'drop-target' : ''].filter(Boolean).join(' ')} onDragStart={(event) => beginChatDrag(event, chat.id)} onDragEnter={() => { if (draggedChatId && draggedChatId !== chat.id) setDropTargetChatId(chat.id) }} onDragOver={(event) => { if (draggedChatId && draggedChatId !== chat.id) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } }} onDrop={(event) => dropChat(event, chat.id)} onDragEnd={() => { setDraggedChatId(''); setDropTargetChatId('') }}>
+              <button type="button" role="menuitem" className="chat-overflow-open" onClick={() => { setOverflowOpen(false); void chatProps.onSelectChat(chat.id); window.requestAnimationFrame(() => Array.from(chatTabsRef.current?.querySelectorAll<HTMLElement>('.chat-tab-group[data-chat-id]') || []).find((node) => node.dataset.chatId === chat.id)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })) }} title={chat.title} aria-label={`Abrir chat ${chat.title}`}><span>{chat.title}</span><i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true"/></button>
+              {chatProps.onSaveChat && <button type="button" className="chat-overflow-action" disabled={busy} onClick={() => void chatProps.onSaveChat?.(chat.id)} title={`Guardar ${chat.title} em standby`} aria-label={`Guardar chat ${chat.title}`}><Icon name="save" size={12}/></button>}
+              <button type="button" className="chat-overflow-action" disabled={busy} onClick={() => void chatProps.onArchiveChat(chat.id)} title={`Fechar e arquivar ${chat.title}`} aria-label={`Fechar e arquivar chat ${chat.title}`}><Icon name="close" size={12}/></button>
+            </div>)}
+          </div>}
+        </div>}
+        {surfaceTabs}
+      </div>
     </nav>
 
     <div className={`agent-chat-stage${singlePane && singlePaneSurface !== 'chat' ? ' surface-hidden' : ''}`}><ChatPanel ref={chatPanelRef} key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
@@ -308,12 +279,4 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
     )}
     <div className={`agent-inspector-stage${singlePane && singlePaneSurface === 'chat' ? ' surface-hidden' : ''}`}><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} onAdjustExecutionPlan={() => { if (session.plan) chatPanelRef.current?.prepareExecutionPlanAdjustment(session.plan) }} /></div>
   </section>
-}
-
-function AgentBundleCounters({ quota }: { quota: BundleQuota }) {
-  const detail = `Bundles: ${quota.sent} enviados ao ChatGPT e ${quota.received} recebidos do ChatGPT.`
-  return <div className="agent-bundle-counters" role="group" aria-label={detail} title={detail}>
-    <span title="Bundles enviados"><i aria-hidden="true">↑</i><b>{quota.sent}</b></span>
-    <span title="Bundles recebidos"><i aria-hidden="true">↓</i><b>{quota.received}</b></span>
-  </div>
 }
