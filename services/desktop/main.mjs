@@ -4205,8 +4205,13 @@ async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
   if (current.effort === wanted) return
   const direction = CHATGPT_REASONING_EFFORTS.indexOf(current.effort) < wantedIndex ? 'Right' : 'Left'
 
+  // The picker does not always open on the first press - live testing saw the
+  // very first click land with `aria-expanded` still false and the second one
+  // open it, the same flakiness chooseChatGPTConversationAction already
+  // absorbs for ChatGPT's other Radix menus. Retry the open rather than
+  // reporting the control missing.
   let staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
-  if (staged?.ok && staged.state === 'effort-menu-closed') {
+  for (let attempt = 0; attempt < CHATGPT_MENU_REOPEN_ATTEMPTS && staged?.ok && staged.state === 'effort-menu-closed'; attempt += 1) {
     const { wc } = requireOwnedChatGPTEntry(key, entry)
     withPreservedLocalFocus(() => dispatchChatGPTPointerClick(wc, staged.rect))
     await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
