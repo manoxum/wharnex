@@ -41,8 +41,8 @@ export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 44
-// A quarter of the workbench, so opening both side panels lands on the
-// 25% / 50% / 25% split (see lib/workbenchPreferences) rather than on a fixed
+// A fifth of the usable workbench, so opening both side panels lands near the
+// 20% / 60% / 20% split (see lib/workbenchPreferences) rather than on a fixed
 // pixel width that means a different share on every screen.
 const WORKSPACE_RIGHT_DRAWER_DEFAULT_PX = 460
 const TOOL_DRAG_TYPE = 'application/x-wharnex-workspace-tool'
