@@ -3526,24 +3526,29 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   return { archivePath, archiveName, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes, requestMetadata: archive.requestMetadata }
 }
 
-async function materializeProtocolChatInput(cacheKey, sessionId, requestId, promptText, values = [], liveTunnels = [], requestMetadata = {}) {
+async function materializeProtocolChatInput(cacheKey, sessionId, requestId, promptText, values = [], liveTunnels = [], requestMetadata = {}, signal) {
+  throwIfChatGPTTransportAborted(signal)
   const { decoded } = decodeChatAttachmentSet(values)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-protocol', cacheKey, `${Date.now()}-${randomUUID()}`)
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const archiveName = chatInputArchiveFilename(cacheKey, requestId)
   const archivePath = path.join(dir, archiveName)
-  const context = await fetchContextZip(sessionId)
-  const knowledge = await fetchRequestKnowledge(sessionId, requestId)
-  const gitContext = await fetchRequestGitContext(sessionId)
-  const continuation = await fetchRequestContinuation(sessionId, requestId)
-  const archive = await writeChatInputArchive(archivePath, { requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels })
+  const context = await fetchContextZip(sessionId, signal)
+  const knowledge = await fetchRequestKnowledge(sessionId, requestId, signal)
+  const gitContext = await fetchRequestGitContext(sessionId, signal)
+  const continuation = await fetchRequestContinuation(sessionId, requestId, signal)
+  const archive = await writeChatInputArchive(archivePath, { requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels, signal })
+  throwIfChatGPTTransportAborted(signal)
+  await persistChatArtifact(sessionId, requestId, 'input', 'bundle', archiveName, 'application/zip', await readFile(archivePath), signal)
   return { archivePath, archiveName, attachmentCount: decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes, requestMetadata: archive.requestMetadata }
 }
 
 async function fillBundledChatGPTComposer(key, entry, sessionId, requestId, promptText, expectedFilename, attachments = [], liveTunnels = [], requestMetadata = {}) {
-  const input = await materializeProtocolChatInput(key, sessionId, requestId, promptText, attachments, liveTunnels, requestMetadata)
+  const signal = entry?.transportAbortSignal
+  const input = await materializeProtocolChatInput(key, sessionId, requestId, promptText, attachments, liveTunnels, requestMetadata, signal)
   const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, liveTunnels, input.requestMetadata)
   try {
+    throwIfChatGPTTransportAborted(signal)
     const filled = await entry.view.webContents.executeJavaScript(chatGPTFillComposerScript(bootstrap), true)
     if (!filled) throw new Error('ChatGPT composer DOM could not be populated with bundled protocol input')
     await pasteChatGPTFile(entry, input.archivePath, 1, 1)

@@ -1289,13 +1289,24 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   const materializeEnd = source.indexOf('\nasync function fillBundledChatGPTComposer', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
-  assert.match(materialize, /const context = await fetchContextZip\(sessionId\)/)
-  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels \}\)/)
+  assert.match(materialize, /const context = await fetchContextZip\(sessionId, signal\)/)
+  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels, signal \}\)/)
   // The attempt ledger and divergence report must ride in the same single
   // protocol ZIP; fetching them separately at send time would let a comment
   // reach ChatGPT without the evidence the prompt says is attached.
-  assert.match(materialize, /const gitContext = await fetchRequestGitContext\(sessionId\)/)
-  assert.match(materialize, /const continuation = await fetchRequestContinuation\(sessionId, requestId\)/)
+  assert.match(materialize, /const gitContext = await fetchRequestGitContext\(sessionId, signal\)/)
+  assert.match(materialize, /const continuation = await fetchRequestContinuation\(sessionId, requestId, signal\)/)
+  // Comment/continuation protocol ZIPs are real outbound transport artifacts,
+  // so persist the archive before the transient local copy is removed. This
+  // keeps them visible in the same sent-bundle surfaces as the initial request.
+  assert.match(materialize, /persistChatArtifact\(sessionId, requestId, 'input', 'bundle', archiveName, 'application\/zip', await readFile\(archivePath\), signal\)/)
+
+  const fillStart = source.indexOf('async function fillBundledChatGPTComposer')
+  const fillEnd = source.indexOf('\nasync function executeChatGPTDOMScript', fillStart)
+  const fill = source.slice(fillStart, fillEnd)
+  assert.match(fill, /const signal = entry\?\.transportAbortSignal/)
+  assert.match(fill, /materializeProtocolChatInput\([^\n]+requestMetadata, signal\)/)
+  assert.match(fill, /throwIfChatGPTTransportAborted\(signal\)/)
 
   const flushStart = source.indexOf('async function flushQueuedChatGPTComments')
   const flushEnd = source.indexOf('\nasync function publishRemoteChannelComment', flushStart)
