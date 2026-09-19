@@ -187,7 +187,8 @@ Durante a correção que originou este procedimento:
 - uma suspensão real por gate estrutural começou em `2026-09-19T18:43:41Z`;
 - a duração persistida foi 7 minutos e 30 segundos, com expiração em `18:51:11Z`;
 - uma continuação já existente revelou quatro retries locais de upload e atenção humana, embora nenhuma dessas tentativas tivesse alcançado o provedor;
-- o retry genérico foi ajustado para propagar `ChatGPTRateLimitDeferral` imediatamente, e comentários/recuperações/continuações passaram a respeitar o bloqueio global;
+- o retry genérico foi ajustado para propagar `ChatGPTRateLimitDeferral` imediatamente; essa regra permanece exclusiva das ações de Worker;
+- o retry manual de uma entrega preparada passa por `withChatGPTSupervisorTransport` e chama upload/submit com `pacedWorker=false` e `rateLimitExempt=true`, portanto uma pausa dos Workers nunca pode produzir `ChatGPTRateLimitDeferral` nessa operação;
 - o Desktop foi reiniciado antes da expiração e adotou a pausa durável;
 - depois da expiração, `worker-1` recarregou `https://chatgpt.com/` e registrou `rate-limit resume confirmed` antes dos novos claims;
 - após a expiração, o backend limpou o estado temporal para `paused=false` e `rate_limit_level=0`, enquanto o Desktop manteve os claims bloqueados até concluir a confirmação;
@@ -198,7 +199,7 @@ Esses horários são evidência histórica, não constantes de teste.
 Resultados observados na mesma intervenção:
 
 - testes focados finais do contrato de pacing/rate limit: **178/178**;
-- suíte completa do Desktop após a correção: **428/428**;
+- suíte completa do Desktop após a correção e a regressão do retry manual: **430/430**;
 - backend, incluindo `go test -race ./...`: aprovado;
 - teste focado da aba Políticas e build frontend de produção: aprovados;
 - lifecycle e export: aprovados;
