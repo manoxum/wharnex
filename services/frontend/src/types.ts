@@ -4,6 +4,7 @@ export type CommandSpec = {
   timeout_seconds: number
   network: boolean
   expected_exit_codes: number[]
+  rationale?: string
 }
 
 export type InteractiveScope = {
@@ -19,6 +20,7 @@ export type InteractiveScope = {
 export type Operation = {
   type: 'apply_patch' | 'command' | 'shell' | 'sql' | 'logs' | 'filesystem' | 'process' | 'network' | 'container' | 'service'
   patch?: string
+  rationale?: string
   command?: CommandSpec
   shell?: { script: string; shell: 'bash'; cwd: string; timeout_seconds: number; network: boolean; env_allowlist?: string[] }
   sql?: { connection_id: string; statement: string; mode: 'read_only' | 'write'; timeout_seconds: number; max_rows: number }

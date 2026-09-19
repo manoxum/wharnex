@@ -318,7 +318,7 @@ func TestAutoExecutionCannotBeExecutedAgain(t *testing.T) {
 
 func TestExecutionPublishesLiveCommandOutput(t *testing.T) {
 	root := t.TempDir()
-	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "stream-plan", Status: "ready", Summary: "stream", Risk: "low", Operations: []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"printf", "live"}, Cwd: ".", TimeoutSeconds: 5, ExpectedExitCodes: []int{0}}}}}
+	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "stream-plan", Status: "ready", Summary: "stream", Risk: "low", Operations: []domain.Operation{{Type: "command", Command: domain.CommandSpec{Argv: []string{"printf", "live"}, Cwd: ".", TimeoutSeconds: 5, ExpectedExitCodes: []int{0}, Rationale: "Confirm live execution output."}}}}
 	bus := audit.NewBus()
 	service := NewService(session.NewStore(), bus, contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), streamingEventRunner{})
 	s, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
@@ -333,10 +333,38 @@ func TestExecutionPublishesLiveCommandOutput(t *testing.T) {
 	}
 	for _, event := range bus.History(s.ID) {
 		if event.Type == "command.output" && event.Data["stream"] == "stdout" && event.Data["text"] == "live output\n" {
+			if event.Data["rationale"] != "Confirm live execution output." {
+				t.Fatalf("command rationale missing from live event: %#v", event.Data)
+			}
 			return
 		}
 	}
 	t.Fatal("expected live command.output event")
+}
+
+func TestInteractiveV2CommandPublishesLiveOutputAndRationale(t *testing.T) {
+	bus := audit.NewBus()
+	runner := streamingEventRunner{}
+	service := NewService(session.NewStore(), bus, contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), runner)
+	command := domain.CommandSpec{Argv: []string{"printf", "live"}, Cwd: ".", TimeoutSeconds: 5, ExpectedExitCodes: []int{0}, Rationale: "Recolher a saída ao vivo da operação interativa."}
+	if _, err := service.runInteractiveCommandWithRunner(context.Background(), "ses-interactive-live", runner, sandbox.Workspace{Path: "/tmp/streaming"}, command, "interactive-sandbox"); err != nil {
+		t.Fatal(err)
+	}
+	var sawOutput, sawCompleted bool
+	for _, event := range bus.History("ses-interactive-live") {
+		if event.Data["rationale"] != command.Rationale {
+			continue
+		}
+		if event.Type == "command.output" && event.Data["text"] == "live output\n" {
+			sawOutput = true
+		}
+		if event.Type == "command.completed" && event.Data["stdout"] == "live output\n" {
+			sawCompleted = true
+		}
+	}
+	if !sawOutput || !sawCompleted {
+		t.Fatalf("interactive command observability incomplete: output=%v completed=%v events=%#v", sawOutput, sawCompleted, bus.History("ses-interactive-live"))
+	}
 }
 
 func TestVerifiedPatchDoesNotTouchHostUntilApply(t *testing.T) {

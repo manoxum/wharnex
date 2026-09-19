@@ -170,7 +170,7 @@ EXECUTION PLAN WIRE CONTRACT — MANDATORY FOR WORKFLOW AND CHANGE TURNS ONLY:
 - approved_chat_plan is omitted for an ordinary direct change. For an APPROVE_PLAN continuation it is MANDATORY and must echo the exact operator-approved proposal and supplied identity: protocol=harness.chat-plan/v1, parent request_id, supplied sha256, and the exact approved document. Wharnex rejects a missing or altered binding before Policy or execution.
 - For a change plan, commit_message is MANDATORY and validated before execution. It MUST classify the change accurately, describe the concrete implemented outcome in a subject of at most 72 characters, and carry a body — after one blank line — explaining why, whenever the change is not self-evident. Wharnex commits your verified patch to its own integration branch using this message, then merges that branch into the host, so it becomes the real commit message in the project's Git history. Encode the line breaks as \n inside the JSON string. Omit it (or leave empty) for workflow, which never reaches the host.
 - For a change plan, version_increment is MANDATORY and has exactly {"component":"major|medium|minor|patch","amount":N}, where N is 1..1000. VERSION itself MUST NOT appear in planner mutations. Wharnex owns that file and performs the increment only after successful host integration. Workflow plans omit version_increment.
-- Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes.
+- Every command object MUST contain: argv, cwd, timeout_seconds, network, expected_exit_codes, plus a concise rationale explaining to the operator why this command is needed and what evidence/effect it should produce. This rationale is user-facing intent, never private chain-of-thought.
 - verification is an array of command objects directly. Do NOT wrap verification commands as operations.
 - The execution-plan payload contains JSON only. In manual Desktop mode the plan metadata belongs inside plan.json in the requested ZIP bundle, not inline in the chat.
 - The response MUST be syntactically valid JSON. EVERY double quote inside ANY JSON string value must be JSON-escaped as \".
@@ -204,14 +204,15 @@ Exact change-plan shape:
         "cwd": ".",
         "timeout_seconds": 60,
         "network": false,
-        "expected_exit_codes": [0]
+        "expected_exit_codes": [0],
+        "rationale": "Validate the affected component before host integration."
       }
     }
   ],
   "verification": []
 }
 
-For ordinary workflow and harness.interactive/v1, use the same shape but OMIT version_increment, EVERY operation.type MUST be command, EVERY patch MUST be empty, network=false, risk=low|medium and requires_approval=false. For harness.interactive/v2, OMIT version_increment and patches, set debug.protocol=harness.interactive/v2, declare target/access/capabilities/scope/rationale, use 1..16 matching typed operations from command|shell|sql|logs|filesystem|process|network|container|service, and keep verification empty. Interactive v2 host/sensitive observation is approval-gated by Policy; modify requires target=host, risk=high and requires_approval=true. No workflow is Apply-integrated.
+For ordinary workflow and harness.interactive/v1, use the same shape but OMIT version_increment, EVERY operation.type MUST be command, EVERY patch MUST be empty, network=false, risk=low|medium and requires_approval=false. For harness.interactive/v2, OMIT version_increment and patches, set debug.protocol=harness.interactive/v2, declare target/access/capabilities/scope/rationale, use 1..16 matching typed operations from command|shell|sql|logs|filesystem|process|network|container|service, give EVERY typed operation its own concise rationale, and keep verification empty. Interactive v2 host/sensitive observation is approval-gated by Policy; modify requires target=host, risk=high and requires_approval=true. No workflow is Apply-integrated.
 
 INTERACTIVE PROTOCOL — harness.interactive/v1:
 - When local runtime evidence is genuinely necessary, a workflow plan MAY include debug={"protocol":"harness.interactive/v1","target":"sandbox|host","access":"observe","rationale":"why this local step is necessary"}. The field remains named debug only for durable compatibility; the user-facing mode is Interativo.

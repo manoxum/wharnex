@@ -433,6 +433,12 @@
           "items": {
             "type": "integer"
           }
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Concise user-facing explanation of why this command is needed and what evidence or effect it should produce; never private chain-of-thought."
         }
       }
     },
@@ -486,6 +492,12 @@
         },
         "service": {
           "$ref": "#/$defs/interactiveService"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Concise operator-facing purpose for this typed operation. Interactive v2 planners should provide it for every operation."
         }
       }
     },

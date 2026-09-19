@@ -2380,12 +2380,13 @@ func normalizedVerificationOutput(result domain.CommandResult) string {
 func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
 	command = repositoryTreeCommand(ctx, workspace.Path, command)
 	runID := ids.New("run")
-	s.bus.Publish(sessionID, "command.started", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "timeout_seconds": command.TimeoutSeconds, "target": target})
+	rationale := executionCommandRationale(command, target)
+	s.bus.Publish(sessionID, "command.started", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "timeout_seconds": command.TimeoutSeconds, "target": target, "rationale": rationale})
 	var result domain.CommandResult
 	var err error
 	if streaming, ok := runner.(sandbox.StreamingRunner); ok {
 		result, err = streaming.RunStreaming(ctx, workspace, command, func(stream, text string) {
-			s.bus.Publish(sessionID, "command.output", map[string]any{"run_id": runID, "stream": stream, "text": text, "target": target})
+			s.bus.Publish(sessionID, "command.output", map[string]any{"run_id": runID, "stream": stream, "text": text, "target": target, "rationale": rationale})
 		})
 	} else {
 		result, err = runner.Run(ctx, workspace, command)
@@ -2398,8 +2399,18 @@ func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, ru
 		// mistaken for a source regression and routed into the GPT repair loop.
 		err = ctx.Err()
 	}
-	s.bus.Publish(sessionID, "command.completed", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "duration_ms": result.DurationMS, "target": target})
+	s.bus.Publish(sessionID, "command.completed", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": result.Stdout, "stderr": result.Stderr, "duration_ms": result.DurationMS, "target": target, "rationale": rationale})
 	return result, err
+}
+
+func executionCommandRationale(command domain.CommandSpec, target string) string {
+	if rationale := strings.TrimSpace(command.Rationale); rationale != "" {
+		return rationale
+	}
+	if strings.HasPrefix(target, "interactive-") {
+		return "Executar esta etapa interativa local e devolver stdout, stderr e exit code para decidir o próximo passo."
+	}
+	return "Executar esta etapa local do plano e usar stdout, stderr e exit code para validar o resultado antes de continuar."
 }
 
 func normalizePreflightCommandFailure(command domain.CommandSpec, result domain.CommandResult, runErr error) domain.CommandResult {

@@ -319,6 +319,12 @@
               "service"
             ]
           },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "description": "Concise operator-facing purpose for this operation; must not expose private chain-of-thought."
+          },
           "patch": {
             "type": "string"
           },

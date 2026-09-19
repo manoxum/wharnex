@@ -5,13 +5,13 @@ import type { HarnessEvent } from '../types'
 it('groups one command with all of its streamed output and duration', () => {
   const event = (id: string, type: string, data: Record<string, unknown>): HarnessEvent => ({ id, session_id: 's', type, timestamp: '2026-09-04T06:00:00Z', data })
   const entries = buildExecutionTimeline([
-    event('1', 'command.started', { run_id: 'r', argv: ['go', 'test', './...'], cwd: '.', target: 'sandbox' }),
+    event('1', 'command.started', { run_id: 'r', argv: ['go', 'test', './...'], cwd: '.', target: 'sandbox', rationale: 'Confirmar que os testes afetados continuam a passar.' }),
     event('2', 'command.output', { run_id: 'r', stream: 'stdout', text: 'one\n' }),
     event('3', 'command.output', { run_id: 'r', stream: 'stderr', text: 'two\n' }),
     event('4', 'command.completed', { run_id: 'r', argv: ['go', 'test', './...'], exit_code: 0, success: true, duration_ms: 321 }),
   ])
   expect(entries).toHaveLength(1)
-  expect(entries[0]).toMatchObject({ id: 'r', running: false, durationMs: 321, badge: 'exit 0' })
+  expect(entries[0]).toMatchObject({ id: 'r', running: false, durationMs: 321, badge: 'exit 0', rationale: 'Confirmar que os testes afetados continuam a passar.' })
   expect(entries[0].output).toBe('one\ntwo\n')
   expect(entries[0].output).not.toContain('[stdout]')
   expect(entries[0].output).not.toContain('[stderr]')
@@ -60,6 +60,16 @@ it('marks a self-evolution host build failed while keeping whatever output alrea
   expect(entries).toHaveLength(1)
   expect(entries[0]).toMatchObject({ id: 'txn-2', running: false, badge: 'FAIL', tone: 'fail' })
   expect(entries[0].output).toContain('ERR_REQUIRE_ESM')
+})
+
+it('keeps Interactive v2 operation purpose and output inspectable', () => {
+  const event = (id: string, type: string, data: Record<string, unknown>): HarnessEvent => ({ id, session_id: 's', type, timestamp: '2026-09-18T04:00:00Z', data })
+  const entries = buildExecutionTimeline([
+    event('op-1', 'interactive.operation_completed', { operation_id: 'op-01', capability: 'sql', status: 'completed', output: '2 rows', rationale: 'Confirmar o estado persistido antes de continuar.' }),
+  ])
+  expect(entries).toHaveLength(1)
+  expect(entries[0]).toMatchObject({ rationale: 'Confirmar o estado persistido antes de continuar.' })
+  expect(entries[0].output).toContain('2 rows')
 })
 
 it('renders duplicate execution protection as a warning status', () => {

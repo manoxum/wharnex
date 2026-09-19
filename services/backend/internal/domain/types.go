@@ -337,14 +337,21 @@ type CommandSpec struct {
 	TimeoutSeconds    int      `json:"timeout_seconds"`
 	Network           bool     `json:"network"`
 	ExpectedExitCodes []int    `json:"expected_exit_codes"`
+	// Rationale is a concise user-facing explanation of why the planner chose
+	// this command and what evidence or effect it is expected to produce. It is
+	// deliberately not private chain-of-thought.
+	Rationale string `json:"rationale,omitempty"`
 	// EnvAllowlist is executor-owned metadata and is never planner-authored.
 	// A non-nil value constrains child-process inheritance to these names.
 	EnvAllowlist []string `json:"-"`
 }
 
 type Operation struct {
-	Type       string                     `json:"type"`
-	Patch      string                     `json:"patch"`
+	Type  string `json:"type"`
+	Patch string `json:"patch"`
+	// Rationale carries the same concise operator-facing purpose for typed
+	// interactive operations that are not represented directly by CommandSpec.
+	Rationale  string                     `json:"rationale,omitempty"`
 	Command    CommandSpec                `json:"command"`
 	Shell      *InteractiveShellSpec      `json:"shell,omitempty"`
 	SQL        *InteractiveSQLSpec        `json:"sql,omitempty"`
