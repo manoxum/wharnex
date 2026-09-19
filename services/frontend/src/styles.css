@@ -4556,7 +4556,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .project-todo-heading .panel-kicker { grid-column:1 / -1; }
 .project-todo-heading strong { font-size:13px; letter-spacing:.01em; }
 .project-todo-heading small { color:var(--theme-text-muted); font-size:9.5px; font-weight:520; }
-.project-todo-tabs { display:grid; grid-template-columns:1fr 1fr; gap:5px; padding:8px 10px; border-bottom:1px solid var(--theme-border); background:color-mix(in srgb, var(--theme-surface) 76%, transparent); }
+.project-todo-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; padding:8px 10px; border-bottom:1px solid var(--theme-border); background:color-mix(in srgb, var(--theme-surface) 76%, transparent); }
 .project-todo-tabs button { min-width:0; height:34px; padding:0 9px; display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid transparent; border-radius:9px; background:transparent; color:var(--theme-text-muted); font:inherit; font-size:11px; font-weight:620; cursor:pointer; transition:background .16s ease,border-color .16s ease,color .16s ease; }
 .project-todo-tabs button:hover { background:var(--theme-hover); color:var(--theme-text-soft); }
 .project-todo-tabs button[aria-pressed="true"] { border-color:color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border)); background:var(--theme-accent-soft); color:var(--theme-text); box-shadow:0 1px 4px color-mix(in srgb, var(--theme-shadow) 55%, transparent); }
@@ -5399,7 +5399,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .database-workspace-tabs,
 .database-object-kind-tabs,
 .file-library-tabs,
-.project-todo-tabs {
+.project-todo-tabs,
+.agent-chat-management-tabs {
   min-height: 40px;
   padding: 0 6px;
   gap: 2px;
@@ -5421,7 +5422,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .database-workspace-tabs button,
 .database-object-kind-tabs button,
 .file-library-tabs button,
-.project-todo-tabs button {
+.project-todo-tabs button,
+.agent-chat-management-tabs button {
   min-width: 0;
   min-height: 39px;
   height: auto;
@@ -5454,7 +5456,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .database-workspace-tabs button:hover,
 .database-object-kind-tabs button:hover,
 .file-library-tabs button:hover,
-.project-todo-tabs button:hover {
+.project-todo-tabs button:hover,
+.agent-chat-management-tabs button:hover {
   background: color-mix(in srgb, var(--theme-hover) 64%, transparent);
   color: var(--theme-text-soft);
 }
@@ -5469,7 +5472,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .database-workspace-tabs button.active,
 .database-object-kind-tabs button.active,
 .file-library-tabs button.active,
-.project-todo-tabs button[aria-pressed='true'] {
+.project-todo-tabs button[aria-pressed='true'],
+.agent-chat-management-tabs button[aria-selected='true'] {
   border-color: transparent;
   background: transparent;
   color: var(--theme-text);
@@ -5487,7 +5491,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .database-workspace-tabs button.active::after,
 .database-object-kind-tabs button.active::after,
 .file-library-tabs button.active::after,
-.project-todo-tabs button[aria-pressed='true']::after {
+.project-todo-tabs button[aria-pressed='true']::after,
+.agent-chat-management-tabs button[aria-selected='true']::after {
   content: '';
   height: 2px;
   position: absolute;
@@ -5500,7 +5505,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .git-tab-count,
 .tabs .tab-count,
 .agent-runtime-tabs button small,
-.project-todo-tabs b {
+.project-todo-tabs b,
+.agent-chat-management-tabs b {
   min-width: 17px;
   height: 17px;
   padding: 0 5px;
@@ -5516,7 +5522,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .git-tabs button.active .git-tab-count,
 .git-changes-tabs button.active .git-tab-count,
 .agent-runtime-tabs button.active small,
-.project-todo-tabs button[aria-pressed='true'] b {
+.project-todo-tabs button[aria-pressed='true'] b,
+.agent-chat-management-tabs button[aria-selected='true'] b {
   background: var(--theme-accent-soft);
   color: var(--theme-text);
 }
@@ -5661,7 +5668,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   overflow: visible;
 }
 .database-workspace-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.project-todo-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.project-todo-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .project-source-tabs { margin-top: 28px; align-self: flex-start; }
 .composer-attachment-tabs { flex-wrap: wrap; }
 .database-object-kind-tabs { overflow-x: auto; }
@@ -5767,9 +5774,5 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 
 /* Saved chats are suspended work: visually distinct from destructive close/archive. */
 .chat-tab-save:hover { background: var(--theme-accent-soft); color: var(--theme-accent); }
-.agent-chat-management-tabs { flex: 0 0 38px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--theme-border-soft); background: var(--theme-surface); }
-.agent-chat-management-tabs button { min-width: 0; height: 26px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--theme-text-muted); font: 650 calc(7.5px * var(--ui-font-scale))/1 var(--ui-font-family); cursor: pointer; }
-.agent-chat-management-tabs button:hover { background: var(--theme-hover); color: var(--theme-text); }
-.agent-chat-management-tabs button[aria-selected='true'] { border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border)); background: var(--theme-accent-soft); color: var(--theme-accent); }
-.agent-chat-management-tabs b { min-width: 16px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; border-radius: 999px; background: color-mix(in srgb, currentColor 9%, transparent); font: 700 calc(6.3px * var(--ui-font-scale))/1 var(--mono-font-family); }
+.agent-chat-management-tabs { flex: 0 0 40px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .agent-chat-management-preview-actions { display: flex; align-items: center; gap: 7px; }
