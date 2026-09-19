@@ -104,7 +104,7 @@ export function reasoningEffortAdjustScript(behavior) {
     if (button.length !== 1) return { ok: false, state: button.length ? 'effort-control-ambiguous' : 'effort-control-unavailable' };
     if (button[0].getAttribute('aria-expanded') !== 'true') {
       const target = rect(button[0]);
-      return target ? { ok: true, state: 'effort-menu-closed', rect: target } : { ok: false, state: 'effort-control-offscreen', viewport: viewport() };
+      return target ? { ok: true, state: 'effort-menu-closed', rect: target, viewport: viewport() } : { ok: false, state: 'effort-control-offscreen', viewport: viewport() };
     }
     const slider = pick(__whx.optionalSelectors.effortSlider);
     if (!slider) return { ok: false, state: 'effort-slider-unavailable' };

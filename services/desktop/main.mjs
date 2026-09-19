@@ -4226,9 +4226,14 @@ async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
     // closed when both events land in the same tick, which is what left the
     // slider unreachable behind "effort-menu-closed" on every attempt (see
     // dispatchChatGPTPointerPress).
-    await dispatchChatGPTPointerPress(wc, staged.rect, { wait, guard: withPreservedLocalFocus })
+    const pressed = await dispatchChatGPTPointerPress(wc, staged.rect, { wait, guard: withPreservedLocalFocus })
     await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
+    const before = staged
     staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
+    // Control geometry and the state it reported, never page content. Without
+    // this the failure reads only "effort-menu-closed", which cannot separate
+    // a press that missed the control from one that landed and was ignored.
+    console.log(`[chatgpt-effort] key=${key} open-attempt=${attempt + 1} pressed=${pressed.x},${pressed.y} rect=${JSON.stringify(before.rect)} viewport=${JSON.stringify(before.viewport || null)} -> ${String(staged?.state || 'unknown')}`)
   }
   if (!staged?.ok || staged.state !== 'effort-slider-ready') {
     throw new Error(`ChatGPT reasoning-effort slider is unavailable (${String(staged?.state || 'unknown')})`)
