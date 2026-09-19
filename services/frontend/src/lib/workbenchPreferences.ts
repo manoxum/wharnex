@@ -22,13 +22,13 @@ export const DEFAULT_WORKBENCH_STATE: WorkbenchState = {
 
 // Both 44px activity rails plus the two 6px side splitters are fixed chrome,
 // not part of the three resizable surfaces. Keeping this geometry accurate is
-// what makes the initial 25% / 50% / 25% split real when both drawers are open.
+// what makes the initial 20% / 60% / 20% split real when both drawers are open.
 const WORKBENCH_CHROME_WIDTH = 100
-const SIDE_PANEL_FRACTION = 0.25
+const SIDE_PANEL_FRACTION = 0.20
 
-// With both side panels open the workbench opens as 25% / 50% / 25%: each
-// drawer takes a quarter of what is left once the chrome is removed, so the
-// centre keeps the remaining half. This is only the starting point — the
+// With both side panels open the workbench opens as 20% / 60% / 20%: each
+// drawer takes a fifth of what is left once the chrome is removed, so the
+// centre keeps the remaining three fifths. This is only the starting point — the
 // operator may drag either splitter freely afterwards, and no CSS floor pins
 // the centre panel to a minimum width any more.
 export function defaultSidePanelWidth(viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth) {

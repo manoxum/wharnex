@@ -327,6 +327,7 @@ describe('split Agent layout CSS', () => {
     expect(lastRule('.workspace-mode-surface > .agent-workspace')).toContain('min-width: 0')
     expect(lastRule('.workspace-mode-surface > .agent-workspace')).not.toContain('100vw / 3')
     expect(css).not.toContain('min-width: calc(100vw / 3)')
+    expect(firstRule('.workspace-main-row > .agent-drawer')).toContain('calc((100% - 100px) / 5)')
     expect(lastRule('.agent-workspace.agent-rail-unified')).toContain('grid-template-columns:minmax(0,var(--agent-chat-width)) 6px minmax(0,1fr)')
     // The right drawer refused to shrink at all, so the centre absorbed every
     // pixel of layout pressure by itself.

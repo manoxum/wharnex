@@ -784,8 +784,8 @@ describe('AgentWorkspace', () => {
     expect(knowledge.className).toContain('agent-drawer')
     expect(knowledge.className).toContain('workspace-side-drawer-left')
 
-    // Untouched widths publish no inline override: the stylesheet's equal
-    // thirds stay in charge until the operator drags a splitter.
+    // Untouched widths publish no inline override: the stylesheet's default
+    // side-panel share stays in charge until the operator drags a splitter.
     const workspace = container.querySelector('.agent-workspace') as HTMLElement
     expect(workspace.getAttribute('style')).toBeNull()
   })

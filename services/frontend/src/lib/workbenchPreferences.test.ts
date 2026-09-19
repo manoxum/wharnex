@@ -19,14 +19,14 @@ describe('workbenchPreferences', () => {
       .toEqual({ ...DEFAULT_WORKBENCH_STATE, left: { ...DEFAULT_WORKBENCH_STATE.left, size: 0 }, right: { ...DEFAULT_WORKBENCH_STATE.right, size: 0 } })
   })
 
-  // Opening both side panels must land on 25% / 50% / 25% of the workbench,
-  // not on a fixed pixel width that means a different share on every screen.
-  it('opens each side panel at a quarter of the workbench', () => {
-    expect(defaultSidePanelWidth(1920)).toBe(Math.round((1920 - 100) * 0.25))
-    expect(defaultSidePanelWidth(3840)).toBe(Math.round((3840 - 100) * 0.25))
-    // Centre keeps the other half, give or take the rounding of one pixel.
+  // Opening both side panels must land on 20% / 60% / 20% of the workbench,
+  // keeping the centre visually dominant while preserving equal side drawers.
+  it('opens both side panels around a 20/60/20 workbench split', () => {
+    expect(defaultSidePanelWidth(1920)).toBe(Math.round((1920 - 100) * 0.20))
+    expect(defaultSidePanelWidth(3840)).toBe(Math.round((3840 - 100) * 0.20))
+    // Centre keeps the other three fifths, give or take the rounding of one pixel.
     const usable = 1920 - 100
-    expect(Math.abs((usable - defaultSidePanelWidth(1920) * 2) - usable * 0.5)).toBeLessThanOrEqual(1)
+    expect(Math.abs((usable - defaultSidePanelWidth(1920) * 2) - usable * 0.6)).toBeLessThanOrEqual(1)
     expect(defaultSidePanelWidth(0)).toBe(0)
   })
 
