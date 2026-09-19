@@ -9,7 +9,7 @@ import { ChatPanel } from './components/ChatPanel'
 import { WorkspaceSideRail, type Drawer } from './components/WorkspaceSideRail'
 import { TerminalWorkspace } from './components/TerminalWorkspace'
 import { executionQueueActiveCount, executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, visibleExecutionQueueItems, type ExecutionFIFOItem } from './lib/executionQueueView'
-import { collectAttentionItems, type AttentionItem, type AttentionTarget } from './lib/attentionCenter'
+import { collectAttentionItems, summarizeAttention, type AttentionItem, type AttentionTarget } from './lib/attentionCenter'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
 import { EditorWorkspace } from './components/EditorWorkspace'
 import { OrchestratorWorkspace } from './components/orchestrator/OrchestratorWorkspace'
@@ -572,6 +572,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       }
       if (event.data?.type === 'wharness:set-workspace-mode' && (event.data.mode === 'editor' || event.data.mode === 'agent' || event.data.mode === 'orchestrator')) setMode(event.data.mode)
       if (event.data?.type === 'wharness:open-project-settings') setProjectSettingsOpen(true)
+      if (event.data?.type === 'wharness:open-attention') { setMode('agent'); window.dispatchEvent(new CustomEvent('wharnex:open-attention-drawer')) }
     }
     window.addEventListener('message', handler)
     window.parent.postMessage({ type: 'wharness:project-ready', projectPath: embeddedProject }, window.location.origin)
@@ -3189,6 +3190,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   submitBundleFileRef.current = submitBundleFile
 
+  const attentionItems = collectAttentionItems(chats, attentionSessions, chatgptHumanActions)
+  const attentionSummary = summarizeAttention(attentionItems)
+  useEffect(() => {
+    if (!embeddedProject) return
+    window.parent.postMessage({ type: 'wharness:project-attention', projectPath: embeddedProject, total: attentionSummary.total, urgent: attentionSummary.urgent, actionable: attentionSummary.actionable }, window.location.origin)
+  }, [embeddedProject, attentionSummary.total, attentionSummary.urgent, attentionSummary.actionable])
+
   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
   const workspaceProjectPath = session.project_path
   const activeChat = chats.find((chat) => chat.id === activeChatId)
@@ -3211,12 +3219,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const recoveryBlocksActiveChat = interruptedExecutions.some((target) => target.chat.id === activeChatId)
   const taskInFlight = requestChainActive(session) || restartModalOpen || recoveryBlocksActiveChat
   const restartPending = isRestartPending(session)
-  // Attention routing and the side rail are shell-level, because the rail's
-  // attention drawer and the Agent command bar's popover are two views of the
-  // same list and must not drift into two implementations. Routing the
-  // inspector goes through the existing inspectorAttention channel, which the
-  // Agent workspace already consumes.
-  const attentionItems = collectAttentionItems(chats, attentionSessions, chatgptHumanActions)
+  // Attention routing and the side rail are shell-level. The shell owns the
+  // notification entry point, while inspector routing stays on the existing
+  // inspectorAttention channel consumed by the Agent workspace.
   const visibleExecutionFIFO = visibleExecutionQueueItems(executionFIFO, chats.map((chat) => chat.id))
   const activeExecutionCount = executionQueueActiveCount(visibleExecutionFIFO)
 
@@ -3321,7 +3326,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   return <main className="workspace-root">
-    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
+    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} attention={attentionSummary} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onAttention={() => { setMode('agent'); window.dispatchEvent(new CustomEvent('wharnex:open-attention-drawer')) }} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} onTunnelConfigSaved={(document) => setConfig((current) => reconcileTunnelConfig(current, document))} />}
     {restartModalOpen && restartPresentationKey && <RestartConfirmation sessionId={session.id} change={buildAppliedChangeSummary(session)} busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery
@@ -3471,7 +3476,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />
       </div>
-      <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} />
+      <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} bundleRefreshKey={`${session.id}:${session.artifacts?.length || 0}`} />
     </div>
   </main>
 }

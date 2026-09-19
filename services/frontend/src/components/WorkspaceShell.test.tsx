@@ -81,6 +81,16 @@ describe('WorkspaceShell project actions', () => {
     expect(controls.firstElementChild).toBe(badge)
   })
 
+  it('places the active project notification control in the desktop title bar', () => {
+    const onAttention = vi.fn()
+    const { container } = render(<ShellChrome projects={['/tmp/alpha']} activeProject="/tmp/alpha" activeAttention={{ total: 4, urgent: 1, actionable: 2 }} mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onAttention={onAttention} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    const button = screen.getByRole('button', { name: /Centro de notificações, 4 alerta\(s\), 1 urgente\(s\), 2 com ação/ })
+    expect(button.closest('.multi-project-actions')).toBeTruthy()
+    expect(container.querySelector('.workspace-attention-count')?.textContent).toBe('4')
+    fireEvent.click(button)
+    expect(onAttention).toHaveBeenCalledTimes(1)
+  })
+
   it('binds an additional project from its complete local path', () => {
     const onBindPath = vi.fn()
     render(<ShellChrome projects={['/work/current']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={onBindPath} onNewWindow={vi.fn()} />)

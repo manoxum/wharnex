@@ -18,6 +18,7 @@ type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; me
 type OpenProjectWindow = { windowId: string; projectPath: string; focused: boolean }
 type ProjectWindowSnapshot = { currentWindowId: string; items: OpenProjectWindow[] }
 type ProjectRuntimeState = { selfEvolution: boolean; instanceId: string }
+type ProjectAttentionState = { total: number; urgent: number; actionable: number }
 
 const MAX_BOUND_PROJECTS = 12
 export function WorkspaceShell() {
@@ -27,6 +28,7 @@ export function WorkspaceShell() {
   const [projectModes, setProjectModes] = useState<Record<string, WorkspaceMode>>({})
   const [projectSessions, setProjectSessions] = useState<Record<string, string>>({})
   const [projectRuntime, setProjectRuntime] = useState<Record<string, ProjectRuntimeState>>({})
+  const [projectAttention, setProjectAttention] = useState<Record<string, ProjectAttentionState>>({})
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [busy, setBusy] = useState(true)
   const [initialized, setInitialized] = useState(false)
@@ -90,6 +92,14 @@ export function WorkspaceShell() {
               instanceId: String(event.data.instanceId || ''),
             },
           }))
+        }
+      }
+      if (event.data?.type === 'wharness:project-attention') {
+        const projectPath = String(event.data.projectPath || '')
+        const frame = frames.current.get(projectPath)
+        if (projectPath && frame?.contentWindow === event.source) {
+          const count = (value: unknown) => Math.max(0, Number.isFinite(Number(value)) ? Math.floor(Number(value)) : 0)
+          setProjectAttention((current) => ({ ...current, [projectPath]: { total: count(event.data.total), urgent: count(event.data.urgent), actionable: count(event.data.actionable) } }))
         }
       }
       if (event.data?.type === 'wharness:unbind-project') {
@@ -201,7 +211,7 @@ export function WorkspaceShell() {
     } catch (reason) { setError(messageOf(reason)); setBusy(false); return false }
   }
 
-  const chrome = <ShellChrome projects={projects} activeProject={activeProject} activeSessionID={projectSessions[activeProject] || ''} activeRuntime={projectRuntime[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
+  const chrome = <ShellChrome projects={projects} activeProject={activeProject} activeSessionID={projectSessions[activeProject] || ''} activeRuntime={projectRuntime[activeProject]} activeAttention={projectAttention[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onAttention={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-attention' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onBindPath={(path) => void bindProject(path)} onNewWindow={() => void desktopBridge()?.windows.open()} />
   const linkModal = linkModalOpen ? <ProjectLinkModal recent={recent} boundProjects={projects} busy={busy} error={error} onOpen={bindProject} onBrowse={chooseAndBind} onCreate={createProject} onClone={cloneProject} onClose={() => setLinkModalOpen(false)} /> : null
 
   if (!projects.length) return <div className="desktop-shell-root">
@@ -227,10 +237,10 @@ export function WorkspaceShell() {
   </main>
 }
 
-export function ShellChrome({ projects, activeProject, activeSessionID, activeRuntime, mode, busy, onActivate, onMode, onGitSync, onSettings, onUnbind, onBind, onBindPath, onNewWindow }: {
-  projects: string[]; activeProject: string; activeSessionID?: string; activeRuntime?: ProjectRuntimeState; busy: boolean
+export function ShellChrome({ projects, activeProject, activeSessionID, activeRuntime, activeAttention, mode, busy, onActivate, onMode, onGitSync, onAttention, onSettings, onUnbind, onBind, onBindPath, onNewWindow }: {
+  projects: string[]; activeProject: string; activeSessionID?: string; activeRuntime?: ProjectRuntimeState; activeAttention?: ProjectAttentionState; busy: boolean
   mode: WorkspaceMode
-  onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onGitSync?: () => void; onSettings: () => void; onUnbind: (projectPath: string) => void; onBind: () => void; onBindPath: (projectPath: string) => void; onNewWindow: () => void
+  onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onGitSync?: () => void; onAttention?: () => void; onSettings: () => void; onUnbind: (projectPath: string) => void; onBind: () => void; onBindPath: (projectPath: string) => void; onNewWindow: () => void
 }) {
   const [projectActionsOpen, setProjectActionsOpen] = useState(false)
   const [projectWindowOpen, setProjectWindowOpen] = useState(false)
@@ -299,6 +309,7 @@ export function ShellChrome({ projects, activeProject, activeSessionID, activeRu
           <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onNewWindow() }}><Icon name="external" size={14}/><span><strong>Nova janela</strong><small>Workspace independente</small></span></button>
         </div>}
       </div>
+      {activeProject && <button type="button" className={`workspace-attention-button${activeAttention?.urgent ? ' urgent' : ''}`} onClick={onAttention} aria-label={`Centro de notificações, ${activeAttention?.total || 0} alerta(s), ${activeAttention?.urgent || 0} urgente(s), ${activeAttention?.actionable || 0} com ação`} title="Centro de notificações"><Icon name="bell" size={14}/>{Boolean(activeAttention?.total) && <b className="workspace-attention-count" aria-hidden="true">{activeAttention!.total}</b>}</button>}
       {activeProject && <button type="button" disabled={busy} onClick={onSettings} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
       {activeProject && <button type="button" disabled={busy} onClick={() => onUnbind(activeProject)} aria-label="Desvincular projeto" title="Desvincular projeto desta janela"><Icon name="close" size={14}/></button>}
     </div>

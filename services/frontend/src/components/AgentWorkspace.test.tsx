@@ -134,7 +134,6 @@ describe('AgentWorkspace', () => {
   beforeEach(() => {
     localStorage.clear()
     window.history.replaceState({}, '', '/?wharnessWindow=primary')
-    vi.spyOn(api, 'bundleQuota').mockResolvedValue({ window_hours: 3, limit: 80, sent: 12, received: 10, total: 22, warning: false, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -147,12 +146,12 @@ describe('AgentWorkspace', () => {
     expect(boundedAgentChatWidth(700, 800)).toBe(0)
   })
 
-  it('keeps the notification center available when there are no alerts', () => {
+  it('opens the notification center when the project chrome requests it', () => {
     render(props().element)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações, 0 alerta/ }))
-    expect(screen.getByRole('dialog', { name: 'Alertas ativos' }).closest('.workspace-side-rail')).toBeNull()
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
+    expect(screen.getByRole('region', { name: 'Centro de notificações' })).toBeTruthy()
     expect(screen.getByText('Nada requer atenção')).toBeTruthy()
-    expect(screen.getByText('Novas notificações deste projeto aparecerão aqui.')).toBeTruthy()
+    expect(screen.getByText('Alertas de todos os chats abertos deste projeto aparecerão aqui.')).toBeTruthy()
   })
 
   it('migrates the legacy chat width once and leaves a new desktop window on the default split', () => {
@@ -168,22 +167,6 @@ describe('AgentWorkspace', () => {
     expect((secondary.container.querySelector('.agent-workspace') as HTMLElement).style.getPropertyValue('--agent-chat-width')).toBe('')
   })
 
-  it('keeps only compact sent and received bundle counters in embedded Agent chrome', async () => {
-    vi.mocked(api.bundleQuota).mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 24, received: 21, total: 45, warning: false, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
-    const rendered = render(props().element)
-    expect(await screen.findByRole('group', { name: 'Bundles: 24 enviados ao ChatGPT e 21 recebidos do ChatGPT.' })).toBeTruthy()
-    expect(rendered.container.querySelector('.agent-bundle-counters')?.textContent).toBe('↑24↓21')
-    expect(rendered.container.querySelector('.agent-bundle-quota-track')).toBeNull()
-    expect(rendered.container.querySelector('.agent-bundle-quota-fill')).toBeNull()
-  })
-
-  it('does not turn the Agent counters into a quota warning when the configured sent limit is reached', async () => {
-    vi.mocked(api.bundleQuota).mockResolvedValueOnce({ window_hours: 3, limit: 80, sent: 80, received: 76, total: 156, warning: true, window_start: '2026-09-09T15:00:00Z', window_end: '2026-09-09T18:00:00Z' })
-    const rendered = render(props().element)
-    expect(await screen.findByRole('group', { name: 'Bundles: 80 enviados ao ChatGPT e 76 recebidos do ChatGPT.' })).toBeTruthy()
-    expect(rendered.container.querySelector('.agent-bundle-counters')?.textContent).toBe('↑80↓76')
-    expect(rendered.container.querySelector('.agent-bundle-quota.warning')).toBeNull()
-  })
 
   it('keeps chat tabs visible while switching single-pane Agent surfaces', () => {
     const view = props()
@@ -220,8 +203,9 @@ describe('AgentWorkspace', () => {
       expect(commandbar?.closest('.agent-workspace')).toBeNull()
     })
     expect(within(rightRail).getByRole('button', { name: 'Explorador do projeto' })).toBeTruthy()
-    expect(within(rightRail).getByRole('navigation', { name: 'Áreas do Agent' })).toBeTruthy()
+    expect(within(rightRail).queryByRole('navigation', { name: 'Áreas do Agent' })).toBeNull()
     expect(within(rightRail).getByRole('navigation', { name: 'ChatGPT direto' })).toBeTruthy()
+    expect(within(screen.getByRole('navigation', { name: 'Conversas do Harness' })).getByRole('navigation', { name: 'Áreas do Agent' })).toBeTruthy()
   })
 
   it('keeps the chat fixed on the left and uses the right-side tabs for the inspector', () => {
@@ -314,6 +298,47 @@ describe('AgentWorkspace', () => {
     view.onReorderChat.mockClear()
     fireEvent.keyDown(primary, { key: 'ArrowRight', altKey: true })
     expect(view.onReorderChat).toHaveBeenCalledWith('chat-1', 'chat-2')
+  })
+
+  it('lists out-of-view chats in a fixed overflow menu and keeps reorder/save/archive actions', async () => {
+    const view = props()
+    const save = vi.fn(async () => undefined)
+    const archive = vi.fn(async () => undefined)
+    const chats = [
+      { id: 'chat-1', title: 'Principal', sessionId: 'ses-agent', createdAt: '2026-09-04T10:00:00.000Z', updatedAt: '2026-09-04T10:00:00.000Z' },
+      { id: 'chat-2', title: 'Paralelo', sessionId: 'ses-parallel', createdAt: '2026-09-04T09:00:00.000Z', updatedAt: '2026-09-04T09:00:00.000Z' },
+      { id: 'chat-3', title: 'Terceiro', sessionId: 'ses-third', createdAt: '2026-09-04T08:00:00.000Z', updatedAt: '2026-09-04T08:00:00.000Z' },
+    ]
+    const rect = (left: number, right: number) => ({ left, right, top: 0, bottom: 32, x: left, y: 0, width: right - left, height: 32, toJSON: () => ({}) } as DOMRect)
+    const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('agent-workspace')) return rect(0, 1_200)
+      if (this.classList.contains('chat-tabs')) return rect(0, 160)
+      if (this.dataset.chatId === 'chat-1') return rect(0, 80)
+      if (this.dataset.chatId === 'chat-2') return rect(80, 160)
+      if (this.dataset.chatId === 'chat-3') return rect(160, 240)
+      return rect(0, 40)
+    })
+    render(<view.Harness chatProps={{ chats, onSaveChat: save, onArchiveChat: archive }} />)
+
+    const overflow = await screen.findByRole('button', { name: 'Chats fora da área visível, 1' })
+    fireEvent.click(overflow)
+    const menu = screen.getByRole('menu', { name: 'Chats não visíveis' })
+    expect(within(menu).getByRole('menuitem', { name: 'Abrir chat Terceiro' })).toBeTruthy()
+    fireEvent.click(within(menu).getByRole('button', { name: 'Guardar chat Terceiro' }))
+    expect(save).toHaveBeenCalledWith('chat-3')
+    fireEvent.click(within(menu).getByRole('button', { name: 'Fechar e arquivar chat Terceiro' }))
+    expect(archive).toHaveBeenCalledWith('chat-3')
+
+    const data = new Map<string, string>()
+    const dataTransfer = { effectAllowed: 'none', dropEffect: 'none', setData: (type: string, value: string) => data.set(type, value), getData: (type: string) => data.get(type) || '' }
+    const hiddenRow = within(menu).getByRole('menuitem', { name: 'Abrir chat Terceiro' }).closest('.chat-overflow-row') as HTMLDivElement
+    const visibleTarget = screen.getByRole('button', { name: 'Principal' }).closest('.chat-tab-group') as HTMLDivElement
+    fireEvent.dragStart(hiddenRow, { dataTransfer })
+    fireEvent.dragEnter(visibleTarget, { dataTransfer })
+    fireEvent.dragOver(visibleTarget, { dataTransfer })
+    fireEvent.drop(visibleTarget, { dataTransfer })
+    expect(view.onReorderChat).toHaveBeenCalledWith('chat-3', 'chat-1')
+    geometry.mockRestore()
   })
 
   it('restores each chat viewport across the keyed chat panel remount', async () => {
@@ -411,7 +436,7 @@ describe('AgentWorkspace', () => {
     expect(view.onApply).not.toHaveBeenCalled()
   })
 
-  it('opens a compact alert popover first, then the full alert panel', async () => {
+  it('opens the full alert panel from the project chrome request', async () => {
     const current = session()
     const parallel = session()
     parallel.id = 'ses-parallel'
@@ -420,12 +445,7 @@ describe('AgentWorkspace', () => {
     parallel.policy = { allowed: true, requires_approval: true, risk: 'high', reasons: ['approval required'] }
     const view = props(current)
     render(<view.Harness attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
-    const summary = screen.getByRole('button', { name: /Centro de notificações, 1 alerta/ })
-    expect(summary.querySelector('.agent-attention-count')?.textContent).toBe('1')
-    fireEvent.click(summary)
-    expect(screen.getByRole('dialog', { name: 'Alertas ativos' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Paralelo.*Aprovação necessária/ })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Ver todos os alertas' }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     expect(screen.getByRole('region', { name: 'Centro de notificações' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Paralelo.*Aprovação necessária/ }))
     await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
@@ -440,7 +460,7 @@ describe('AgentWorkspace', () => {
     parallel.policy = { allowed: true, requires_approval: true, risk: 'high', reasons: ['approval required'] }
     const view = props(current)
     render(<view.Harness attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     fireEvent.click(screen.getByRole('button', { name: 'Abrir Paralelo para Aprovar e executar' }))
     await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
     expect(view.onExecute).not.toHaveBeenCalled()
@@ -457,7 +477,7 @@ describe('AgentWorkspace', () => {
     const view = props(current)
     const retry = vi.fn(async () => undefined)
     const rendered = render(<view.Harness attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} chatProps={{ onRetryTransportFailure: retry }} />)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     fireEvent.click(screen.getByRole('button', { name: /Paralelo.*Falha na ligação ao ChatGPT/ }))
     await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
 
@@ -467,8 +487,8 @@ describe('AgentWorkspace', () => {
       chatProps={{ session: parallel, activeChatId: 'chat-2', onRetryTransportFailure: retry }}
       inspectorProps={{ session: parallel }}
     />)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
-    fireEvent.click(within(screen.getByRole('dialog', { name: 'Alertas ativos' })).getByRole('button', { name: 'Repetir pedido' }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
+    fireEvent.click(within(screen.getByRole('region', { name: 'Centro de notificações' })).getByRole('button', { name: 'Repetir pedido' }))
     expect(retry).toHaveBeenCalledWith('req-transport')
   })
 
@@ -479,7 +499,7 @@ describe('AgentWorkspace', () => {
     parallel.interrupted_execution = { plan_id: 'plan-parallel', status: 'awaiting_decision', requested_at: '2026-09-07T10:00:01.000Z', approved: false }
     const view = props(current)
     render(<view.Harness attentionSessions={{ 'chat-1': current, 'chat-2': parallel }} />)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     fireEvent.click(screen.getByRole('button', { name: /Paralelo.*Execução interrompida/ }))
     await waitFor(() => expect(view.onSelectChat).toHaveBeenCalledWith('chat-2'))
     // Routing goes through the shell's inspectorAttention channel, so the tab
@@ -493,7 +513,7 @@ describe('AgentWorkspace', () => {
     const approvalView = props(approval)
     const rendered = render(<approvalView.Harness attentionSessions={{ 'chat-1': approval }} />)
     expect(screen.queryByRole('button', { name: 'Aprovar e executar plano' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     const approve = screen.getByRole('button', { name: 'Aprovar e executar' })
     fireEvent.click(approve)
     expect(approvalView.onExecute).toHaveBeenCalledWith(true)
@@ -505,7 +525,7 @@ describe('AgentWorkspace', () => {
     blocked.last_execution = { plan_id: blocked.plan!.plan_id, success: false, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] }
     const blockedView = props(blocked)
     rendered.rerender(<blockedView.Harness attentionSessions={{ 'chat-1': blocked }} />)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     expect(screen.getByText('Dependências precisam de rede')).toBeTruthy()
     const retry = screen.getByRole('button', { name: 'Permitir rede e repetir' })
     fireEvent.click(retry)
@@ -522,7 +542,7 @@ describe('AgentWorkspace', () => {
     proseOnly.last_repair_error = 'offline sandbox dependencies unavailable: module lookup disabled by GOPROXY=off'
     const view = props(proseOnly)
     render(<view.Harness attentionSessions={{ 'chat-1': proseOnly }} />)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     expect(screen.queryByRole('button', { name: 'Permitir rede e repetir' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Corrigir com GPT' })).toBeTruthy()
   })
@@ -538,7 +558,7 @@ describe('AgentWorkspace', () => {
     plannerReported.last_execution = { plan_id: plannerReported.plan!.plan_id, success: false, started_at: '2026-09-07T10:00:00.000Z', completed_at: '2026-09-07T10:00:01.000Z', commands: [] }
     const view = props(plannerReported)
     render(<view.Harness attentionSessions={{ 'chat-1': plannerReported }} />)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     const retry = screen.getByRole('button', { name: 'Permitir rede e repetir' })
     fireEvent.click(retry)
     expect(view.onRetryDependencyNetwork).toHaveBeenCalledTimes(1)
@@ -558,7 +578,7 @@ describe('AgentWorkspace', () => {
     plannerReported.last_turn = { protocol: 'harness.turn/v1', request_id: 'req-blocked', kind: 'blocked', message: 'O build list Go não pode ser resolvido com GOPROXY=off.' }
     const view = props(plannerReported)
     render(<view.Harness attentionSessions={{ 'chat-1': plannerReported }} />)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     expect(screen.queryByRole('button', { name: 'Permitir rede e repetir' })).toBeNull()
     expect(screen.getByText('Pedido bloqueado')).toBeTruthy()
   })
@@ -571,7 +591,7 @@ describe('AgentWorkspace', () => {
     const view = props(blocked)
     render(<view.Harness attentionSessions={{ 'chat-1': blocked }} />)
     expect(screen.getByRole('button', { name: /^Execução(?: ·|$)/ }).className).toContain('attention-danger')
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     expect(screen.getByText('Build do host bloqueado')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Permitir rede e repetir' })).toBeNull()
   })
@@ -582,7 +602,7 @@ describe('AgentWorkspace', () => {
     blocked.failure_kind = 'host_dependency_state'
     const view = props(blocked)
     render(<view.Harness attentionSessions={{ 'chat-1': blocked }} />)
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     const retry = screen.getByRole('button', { name: 'Reinstalar dependências e repetir' })
     fireEvent.click(retry)
     expect(view.onRetryHostDependencyRepair).toHaveBeenCalledTimes(1)
@@ -600,7 +620,7 @@ describe('AgentWorkspace', () => {
       }]
       const view = props(blocked)
       const rendered = render(<view.Harness attentionSessions={{ 'chat-1': blocked }} />)
-      fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+      fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
       const retry = screen.getByRole('button', { name: 'Repetir aplicação' })
       fireEvent.click(retry)
       expect(view.onApply).toHaveBeenCalledTimes(1)
@@ -616,7 +636,7 @@ describe('AgentWorkspace', () => {
     const { rerender } = render(<view.Harness attentionSessions={{ 'chat-1': current }} chatgptHumanActions={{ 'chat-1': notice }} />)
     expect(screen.queryByRole('button', { name: 'Ação humana necessária no ChatGPT' })).toBeNull()
     expect(screen.getByRole('button', { name: /^Engine(?: ·|$)/ }).className).toContain('attention-warning')
-    fireEvent.click(screen.getByRole('button', { name: /Centro de notificações/ }))
+    fireEvent(window, new CustomEvent('wharnex:open-attention-drawer'))
     fireEvent.click(screen.getByRole('button', { name: /Principal.*Ação humana necessária no ChatGPT/ }))
     expect(onHumanAction).toHaveBeenCalledTimes(1)
     rerender(<view.Harness attentionSessions={{ 'chat-1': current }} chatgptHumanActions={{ 'chat-1': notice }} nonce={1} />)
@@ -736,8 +756,9 @@ describe('AgentWorkspace', () => {
     const commandbar = directChatGPT.closest('.agent-commandbar')
     expect(commandbar?.getAttribute('aria-label')).toBe('Atalhos do Agent')
     expect(commandbar?.lastElementChild).toBe(directChatGPT)
-    expect(directChatGPT.previousElementSibling).toBe(agentAreas)
-    expect(agentAreas.previousElementSibling?.classList.contains('agent-command-actions')).toBe(true)
+    expect(commandbar?.querySelector('[aria-label="Áreas do Agent"]')).toBeNull()
+    expect(agentAreas.closest('.agent-chat-fixed-tools')).toBeTruthy()
+    expect(agentAreas.closest('.agent-chat-switcher')).toBeTruthy()
     expect(directChatGPT.querySelector('[aria-label="ChatGPT"]')).toBeTruthy()
     expect(agentAreas.querySelector('[aria-label="ChatGPT"]')).toBeNull()
     expect(agentAreas.querySelector('[aria-label="Plano"]')).toBeTruthy()
