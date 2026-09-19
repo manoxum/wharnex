@@ -183,7 +183,7 @@ describe('AgentWorkspace', () => {
     expect(rendered.container.querySelector('.agent-bundle-quota.warning')).toBeNull()
   })
 
-  it('switches between chat and Engine in a single pane when both drawers are open', () => {
+  it('keeps chat tabs visible while switching single-pane Agent surfaces', () => {
     const view = props()
     const rendered = render(<view.Harness singlePane />)
     const areas = screen.getByRole('navigation', { name: 'Áreas do Agent' })
@@ -193,10 +193,18 @@ describe('AgentWorkspace', () => {
     expect(chat.className).toContain('active')
     expect(rendered.container.querySelector('.agent-inspector-stage.surface-hidden')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Redimensionar chat e Engine' })).toBeNull()
+    const chatSwitcher = screen.getByRole('navigation', { name: 'Conversas do Harness' })
+    expect(chatSwitcher.className).not.toContain('surface-hidden')
 
     fireEvent.click(within(areas).getByRole('button', { name: 'Engine' }))
     expect(rendered.container.querySelector('.agent-chat-stage.surface-hidden')).toBeTruthy()
     expect(rendered.container.querySelector('.agent-inspector-stage.surface-hidden')).toBeNull()
+    expect(chatSwitcher.className).not.toContain('surface-hidden')
+    expect(within(chatSwitcher).getByRole('button', { name: /^Principal$/ })).toBeTruthy()
+
+    fireEvent.click(within(areas).getByRole('button', { name: 'Plano' }))
+    expect(chatSwitcher.className).not.toContain('surface-hidden')
+    expect(within(chatSwitcher).getByRole('button', { name: /^Principal$/ })).toBeTruthy()
   })
 
   it('mounts Agent shortcuts inside the existing right workspace rail', async () => {
