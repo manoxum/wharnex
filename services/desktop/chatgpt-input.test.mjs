@@ -142,9 +142,19 @@ test('automatic submit never replays Enter when request observation times out', 
   assert.equal(submitCount, 1)
   assert.deepEqual(result, {
     accepted: false,
+    dispatched: true,
     requestId: '',
     observationError: 'ChatGPT did not accept the submit command before timeout',
   })
+})
+
+test('automatic submit propagates an asynchronous dispatch failure', async () => {
+  const coordinator = new ChatGPTSubmitCoordinator()
+
+  await assert.rejects(() => submitWithoutReplay({
+    beginObservation: () => coordinator.expect(19, { startTimeoutMs: 5 }),
+    submit: async () => { throw new Error('send button unavailable') },
+  }), /send button unavailable/)
 })
 
 test('automatic submit still reports a confirmed observed request when available', async () => {

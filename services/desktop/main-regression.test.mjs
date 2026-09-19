@@ -1305,28 +1305,31 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   assert.doesNotMatch(flush, /chatGPTFillComposerScript\(pending\.text\)/)
 })
 
-test('submitChatGPTDraft retries a dispatched-but-unconfirmed submit instead of returning a silently ignorable failure', async () => {
+test('submitChatGPTDraft never replays an ambiguous automatic submit', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   assert.notEqual(start, -1)
   assert.notEqual(end, -1)
   const body = source.slice(start, end)
-  assert.match(body, /submitWithRetry\(\{/)
-  assert.match(body, /beginSubmission: \(\) => chatGPTSubmissions\.expect\(wc\.id\)/)
-  // A retry loop that never re-verifies composer readiness between attempts
-  // is not really a retry; and an omitted beforeAttempt previously crashed
-  // every automatic submit with "beforeAttempt is not a function" because
-  // submitWithRetry had no default, silently turning a real ChatGPT send
-  // failure (e.g. a repair prompt) into a stale expected-bundle wait that
-  // later got "resolved" with an unrelated generic continuation nudge.
-  assert.match(body, /beforeAttempt: async \(attempt\) => \{/)
+  assert.match(body, /submitWithoutReplay\(\{/)
+  assert.match(body, /beginObservation: \(\) => chatGPTSubmissions\.expect\(wc\.id\)/)
+  assert.doesNotMatch(body, /submitWithRetry\(/)
+  assert.doesNotMatch(body, /beforeAttempt:/)
   assert.match(body, /const expectedConversation = canonicalChatGPTConversationURL\(expectedURL\)/)
   assert.match(body, /assertExpectedConversation\(\)/)
   assert.match(body, /sameConversationURL\(wc\.getURL\(\), expectedConversation\)/)
-  // The old implementation swallowed a failed submit into `{ accepted: false }`
-  // instead of throwing — every caller must see a real error now.
-  assert.doesNotMatch(body, /return \{ accepted: false/)
+  assert.match(body, /continuing supervision without replay/)
+})
+
+test('retry refuses to replay a request that already has an armed expected bundle', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function retryPreparedChatGPTPrompt(')
+  const end = source.indexOf('\nasync function attachContextToChatGPT', start)
+  const body = source.slice(start, end)
+  assert.match(body, /const supervised = expectedChatGPTBundles\.get\(key\)/)
+  assert.match(body, /supervised\?\.requestId === requestId/)
+  assert.match(body, /alreadySupervised: true/)
 })
 
 test('every ChatGPT submit verifies the requested reasoning effort before starting its POST observation', async () => {
@@ -1337,7 +1340,7 @@ test('every ChatGPT submit verifies the requested reasoning effort before starti
   const ensure = body.indexOf('await ensureChatGPTReasoningEffort({')
   const observe = body.indexOf("executeChatGPTDOMScript(key, target.entry, 'reasoning-effort-state'")
   const cycle = body.indexOf('await stepChatGPTReasoningEffortToward(key, target.entry, reasoningEffort)')
-  const submit = body.indexOf('submitWithRetry({')
+  const submit = body.indexOf('submitWithoutReplay({')
   assert.ok(ensure >= 0 && observe > ensure && cycle > observe && submit > cycle)
   assert.match(body, /normalizeChatGPTReasoningEffort\(target\.reasoningEffort \|\| target\.entry\.reasoningEffort \|\| 'high'\)/)
 })
