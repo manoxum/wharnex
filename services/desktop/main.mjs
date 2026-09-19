@@ -3938,6 +3938,26 @@ async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentCo
   const entry = entryOverride || ensureChatGPTView(key).entry
   requireOwnedChatGPTEntry(key, entry)
   const { wc } = requireOwnedChatGPTEntry(key, entry)
+  // A hidden owned view (every Worker, and a Supervisor bound to a
+  // non-painted chat) is never given bounds by the window layout, which
+  // leaves its renderer at a zero-sized viewport. DOM script execution
+  // (fill/click-via-JS) still works there, so ordinary composer prep and
+  // `chatGPTSubmitScript`'s DOM-click submission never surfaced this. The
+  // reasoning-effort cycle does not: it commits Ctrl+Shift+M with a trusted
+  // native `sendInputEvent`, and live testing showed that native event is
+  // silently swallowed on a 0x0 viewport - observed as
+  // "did not reach instant after bounded cycling (high -> high -> high ->
+  // high)" on every single attempt. TODO_CLASSIFY/TRANSLATE_MARKDOWN tolerate
+  // that failure by design (see submitChatGPTDraft) and submit at whatever
+  // level ChatGPT is already on, but "whatever level" was always the
+  // account's last-used level, never the requested 'instant' - so a thinking
+  // model spent its full reasoning budget on a trivial classification and
+  // blew through the 4-minute timeout on every attempt. Granting the
+  // viewport here, before any composer interaction, is a no-op for a surface
+  // the window is actually showing (see ensureChatGPTLayoutViewport's own
+  // guard) and fixes every native-input consumer downstream, not only this
+  // one.
+  ensureChatGPTLayoutViewport(key, entry)
   if (entry.externalAuthProvider) throw new Error(`ChatGPT está em autenticação externa via ${entry.externalAuthProvider}. Use o navegador do sistema e importe o bundle ZIP pelo Wharnex.`)
   if (expectedURL) {
     const target = requireTrustedChatGPTURL(expectedURL)
