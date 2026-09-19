@@ -234,6 +234,7 @@ const DOM_DOWNLOAD_RETRY_MS = 5_000
 const CHAT_AGENT_AUTO_SCALE_DRAIN_COOLDOWN_MS = 20_000
 let chatAgentWorkerLastGrowAt = 0
 let chatAgentSupervisorLastGrowAt = 0
+const CHAT_AGENT_RUNTIME_STATE_BROADCAST_MS = 250
 const BUNDLE_COMPLETION_GRACE_MS = 4_000
 const BUNDLE_CONTINUATION_BASE_MS = 5_000
 // How long a structural completion must keep holding, with the bundle still
@@ -2891,9 +2892,33 @@ function chatAgentRuntimeState() {
   }
 }
 
+let chatAgentRuntimeStateBroadcastTimer
+let chatAgentRuntimeStateBroadcastPending = false
+let chatAgentRuntimeStateLatest
+
+// Called from 26 sites, several of them WebContents event handlers
+// (did-navigate, did-start-loading...) that fire once per view per
+// occurrence - with up to 9 ChatGPT views active, a busy backlog drain can
+// trigger many of these within the same second. Computing the (bounded,
+// slot-count-sized) state stays synchronous so callers that `return` it as
+// their IPC response still get the current value; only the broadcast to
+// renderer windows is coalesced, so a burst produces at most one send per
+// window per CHAT_AGENT_RUNTIME_STATE_BROADCAST_MS window instead of one per
+// event - always eventually delivering the latest state (trailing edge).
 function publishChatAgentRuntimeState() {
   const state = chatAgentRuntimeState()
-  for (const windowState of desktopWindows.values()) sendToWindowState(windowState, 'wharness:agents:state', state)
+  chatAgentRuntimeStateLatest = state
+  if (!chatAgentRuntimeStateBroadcastTimer) {
+    for (const windowState of desktopWindows.values()) sendToWindowState(windowState, 'wharness:agents:state', state)
+    chatAgentRuntimeStateBroadcastTimer = setTimeout(() => {
+      chatAgentRuntimeStateBroadcastTimer = undefined
+      if (!chatAgentRuntimeStateBroadcastPending) return
+      chatAgentRuntimeStateBroadcastPending = false
+      for (const windowState of desktopWindows.values()) sendToWindowState(windowState, 'wharness:agents:state', chatAgentRuntimeStateLatest)
+    }, CHAT_AGENT_RUNTIME_STATE_BROADCAST_MS)
+  } else {
+    chatAgentRuntimeStateBroadcastPending = true
+  }
   return state
 }
 

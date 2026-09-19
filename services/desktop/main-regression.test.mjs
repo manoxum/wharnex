@@ -2572,3 +2572,27 @@ test('the worker and supervisor pools cannot drain immediately after growing', a
   const supervisorDrainIndex = supervisor.indexOf('autoScaleSupervisorDrainTarget(')
   assert.ok(supervisorCooldownIndex < supervisorDrainIndex, 'supervisor cooldown must gate the drain check')
 })
+
+// publishChatAgentRuntimeState is called from ~26 sites, several of them
+// WebContents event handlers that can each fire once per view per
+// occurrence; with several ChatGPT views active a busy backlog drain
+// produced a burst of these within the same second. The computed state must
+// still be returned synchronously (callers that `return` it as their IPC
+// response depend on that), but the renderer broadcast is coalesced so a
+// burst produces at most one send per window per broadcast window.
+test('the runtime state broadcast is coalesced without delaying the returned value', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function publishChatAgentRuntimeState(')
+  assert.notEqual(start, -1)
+  const fn = source.slice(start, source.indexOf('\n}', start) + 2)
+
+  assert.match(fn, /const state = chatAgentRuntimeState\(\)/)
+  assert.match(fn, /chatAgentRuntimeStateLatest = state/)
+  assert.match(fn, /if \(!chatAgentRuntimeStateBroadcastTimer\) \{/)
+  assert.match(fn, /chatAgentRuntimeStateBroadcastPending = true/)
+  assert.match(fn, /setTimeout\(\(\) => \{[\s\S]*chatAgentRuntimeStateBroadcastTimer = undefined/)
+  // The synchronous return must not sit inside the deferred branch.
+  const returnIndex = fn.lastIndexOf('return state')
+  const elseIndex = fn.indexOf('} else {')
+  assert.ok(returnIndex > elseIndex, 'return state must follow both branches, not be nested inside one')
+})
