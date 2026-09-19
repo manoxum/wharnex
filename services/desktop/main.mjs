@@ -3595,6 +3595,13 @@ async function organizeChatGPTConversation(cacheKey, projectName, title, expecte
   return serializeChatGPTAccountOperation(async () => {
     entry.accountOperationActive = true
     try {
+      // Account-lifecycle actions are provider-facing navigation exactly like
+      // a submission is; live testing found this whole class of action (a
+      // DELETE_BUNDLE backlog of over a hundred items above all) sharing only
+      // serializeChatGPTAccountOperation's back-to-back queue and none of the
+      // process-wide navigation gate, hammering chatgpt.com without a single
+      // request ever spaced out - severe enough to crash the desktop.
+      await paceChatGPTWorkerNavigation()
       if (expectedURL) {
         const target = requireTrustedChatGPTURL(expectedURL)
         if (!sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'organize-conversation')
@@ -3672,6 +3679,10 @@ async function archiveChatGPTConversation(cacheKey, expectedURL = '', entryOverr
     entry.accountOperationActive = true
     reconcileChatGPTThrottle(key, entry)
     try {
+      // See the matching comment in organizeChatGPTConversation: account-
+      // lifecycle actions are provider-facing navigation and must share the
+      // same process-wide gate a submission does.
+      await paceChatGPTWorkerNavigation()
       const target = expectedURL ? requireTrustedChatGPTURL(expectedURL) : ''
       if (target && !sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'archive-conversation')
       await waitForChatGPTSurfaceReady(key, entry)
@@ -3703,6 +3714,8 @@ async function deleteChatGPTConversation(cacheKey, expectedURL = '', entryOverri
   return serializeChatGPTAccountOperation(async () => {
     entry.accountOperationActive = true
     try {
+      // See the matching comment in organizeChatGPTConversation.
+      await paceChatGPTWorkerNavigation()
       const target = expectedURL ? requireTrustedChatGPTURL(expectedURL) : ''
       if (target && !sameConversationURL(entry.view.webContents.getURL(), target)) await loadOwnedChatGPTURL(key, entry, target, 'delete-conversation')
       await waitForChatGPTSurfaceReady(key, entry)
@@ -3737,6 +3750,9 @@ async function deleteChatGPTLibraryArtifact(cacheKey, canonicalFilename, artifac
   return serializeChatGPTAccountOperation(async () => {
     entry.accountOperationActive = true
     try {
+      // See the matching comment in organizeChatGPTConversation - this is the
+      // flow a large DELETE_BUNDLE backlog live-reproduced the crash through.
+      await paceChatGPTWorkerNavigation()
       if (entry.view.webContents.getURL() !== CHATGPT_LIBRARY_URL) await loadOwnedChatGPTURL(key, entry, CHATGPT_LIBRARY_URL, 'delete-library-artifact')
       ensureChatGPTLayoutViewport(key, entry)
       let located = { ok: false, state: 'artifact-missing', rows: 0 }

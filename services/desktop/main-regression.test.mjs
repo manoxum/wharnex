@@ -2596,3 +2596,32 @@ test('the runtime state broadcast is coalesced without delaying the returned val
   const elseIndex = fn.indexOf('} else {')
   assert.ok(returnIndex > elseIndex, 'return state must follow both branches, not be nested inside one')
 })
+
+// Account-lifecycle actions (organize/archive/delete/delete-library-artifact)
+// only ever shared serializeChatGPTAccountOperation's back-to-back queue,
+// never the process-wide navigation gate a submission respects. A live
+// DELETE_BUNDLE backlog of over a hundred items reproduced this: each one
+// navigated to chatgpt.com/library the instant the previous one finished,
+// with no request ever spaced out, severe enough to crash the desktop.
+test('every account-lifecycle action paces its navigation like a submission does', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  for (const [open, close] of [
+    ['async function organizeChatGPTConversation(', '\nasync function suggestChatGPTConversationTitle'],
+    ['async function archiveChatGPTConversation(', '\nasync function deleteChatGPTConversation'],
+    ['async function deleteChatGPTConversation(', '\nasync function deleteChatGPTLibraryArtifact'],
+    ['async function deleteChatGPTLibraryArtifact(', '\nasync function chatGPTAccountAction'],
+  ]) {
+    const start = source.indexOf(open)
+    assert.notEqual(start, -1, open)
+    const end = source.indexOf(close, start)
+    const fn = end === -1 ? source.slice(start, start + 2000) : source.slice(start, end)
+    const activeIndex = fn.indexOf('accountOperationActive = true')
+    const paceIndex = fn.indexOf('await paceChatGPTWorkerNavigation()')
+    const loadIndex = fn.indexOf('loadOwnedChatGPTURL(')
+    assert.notEqual(activeIndex, -1, open)
+    assert.notEqual(paceIndex, -1, `${open} must pace its navigation`)
+    assert.notEqual(loadIndex, -1, open)
+    assert.ok(activeIndex < paceIndex, `${open}: pacing must happen inside the serialized operation`)
+    assert.ok(paceIndex < loadIndex, `${open}: pacing must happen before navigating`)
+  }
+})
