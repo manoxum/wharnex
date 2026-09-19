@@ -155,7 +155,8 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	}
 	if providerPaused && providerUntil.Valid {
 		if _, err := tx.Exec(`UPDATE harness_chat_agent_provider_state
-			SET paused=false, paused_until=NULL, reason='', updated_at=now() WHERE provider='chatgpt'`); err != nil {
+			SET paused=false, paused_until=NULL, reason='', rate_limit_level=0,
+				last_rate_limit_at=NULL,last_rate_limit_source='',updated_at=now() WHERE provider='chatgpt'`); err != nil {
 			return nil, fmt.Errorf("resume expired chat agent provider pause: %w", err)
 		}
 	}

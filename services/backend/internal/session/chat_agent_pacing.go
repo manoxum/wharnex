@@ -21,7 +21,7 @@ const (
 	// earned it. A transport 429 stays on the progressive ladder below, because
 	// there the next request may well succeed; the gate instead suspends the
 	// whole provider long enough for the account's own window to reopen.
-	chatAgentRateLimitGatePause = 30 * time.Minute
+	chatAgentRateLimitGatePause = 5 * time.Minute
 )
 
 // Rate-limit evidence kinds. Transport is a single throttled HTTP response;

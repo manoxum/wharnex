@@ -1069,7 +1069,7 @@ test('autonomous workers pace chat switches, wait for page settle, and pause on 
   const httpStatus = source.slice(statusStart, statusEnd)
 
   assert.match(source, /const CHATGPT_WORKER_NAVIGATION_GAP_MS = CHAT_AGENT_NAVIGATION_GAP_MS/)
-  assert.match(pacing, /await wait\(remaining\)/)
+  assert.match(pacing, /chatGPTWorkerPacer\.pace/)
   assert.match(pacing, /await loadOwnedChatGPTURL/)
   assert.match(pacing, /await waitForChatGPTSurfaceReady/)
   assert.match(execute, /initialRateLimitDelay = chatAgentRateLimitDelayMs\(\)/)
@@ -1282,7 +1282,7 @@ test('bundle download failures remain correlated to a strict late filename inste
 
 test('ChatGPT request archive upload uses the dedicated file input instead of clipboard paste', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count)')
+  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count, { translation = false } = {})')
   const end = source.indexOf('\nasync function submitChatGPTDraft', start)
   const upload = source.slice(start, end)
   assert.match(upload, /selectChatGPTUploadFile\(wc, filePath\)/)
@@ -1300,13 +1300,13 @@ test('ChatGPT request archive upload uses the dedicated file input instead of cl
 // reintroduces that contention.
 test('every ChatGPT upload attempt, not only the first, is paced against the shared provider gate', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count)')
+  const start = source.indexOf('async function pasteChatGPTFile(entry, filePath, index, count, { translation = false } = {})')
   const end = source.indexOf('\nasync function submitChatGPTDraft', start)
   const upload = source.slice(start, end)
   const beforeAttemptStart = upload.indexOf('beforeAttempt: async () => {')
   const beforeAttemptEnd = upload.indexOf('beginUpload:', beforeAttemptStart)
   const beforeAttempt = upload.slice(beforeAttemptStart, beforeAttemptEnd)
-  assert.match(beforeAttempt, /await paceChatGPTWorkerSubmission\(\)/)
+  assert.match(beforeAttempt, /await paceChatGPTWorkerSubmission\(\{ translation \}\)/)
 })
 
 test('task comments are sent as a single protocol ZIP containing the guidance and attachments', async () => {
@@ -2025,7 +2025,7 @@ test('autonomous submissions are spaced process-wide and re-check the provider c
   // Passed as a function, not a value: the gap is measured after the queue
   // wait so a 429 raised while this caller was queued widens its own spacing.
   const pacer = source.slice(source.indexOf('async function paceChatGPTWorkerSubmission('))
-  assert.match(pacer.slice(0, 600), /paceChatGPTWorkerRequest\(chatAgentSubmissionGapMs\)/)
+  assert.match(pacer.slice(0, 900), /translation \? \(\) => CHAT_AGENT_TRANSLATION_ACTION_GAP_MS : chatAgentSubmissionGapMs/)
   const gapStart = source.indexOf('function chatAgentSubmissionGapMs(')
   const gap = source.slice(gapStart, source.indexOf('\nasync function paceChatGPTWorkerSubmission(', gapStart))
   assert.match(gap, /CHAT_AGENT_SUBMIT_GAP_MS/)
@@ -2187,7 +2187,7 @@ test('the cross-chat navigation gate follows the provider instead of one fixed c
   assert.match(gap.slice(0, 900), /rate_limit_level/)
   assert.match(gap.slice(0, 900), /CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS/)
   assert.match(gap.slice(0, 900), /CHATGPT_WORKER_NAVIGATION_GAP_MS/)
-  assert.match(source, /const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = 6_000/)
+  assert.match(source, /const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = CHAT_AGENT_WORKER_ACTION_GAP_MS/)
 
   const pacer = source.slice(source.indexOf('async function paceChatGPTWorkerNavigation('))
   assert.match(pacer.slice(0, 600), /paceChatGPTWorkerRequest\(chatAgentNavigationGapMs\)/)
@@ -2284,7 +2284,7 @@ test('any trusted ChatGPT backend 429 is provider-wide evidence, not just the co
 
 test('an account-wide rate-limit gate suspends the provider for the fixed window', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  assert.match(source, /const CHATGPT_RATE_LIMIT_GATE_MS = 30 \* 60_000/)
+  assert.match(source, /const CHATGPT_RATE_LIMIT_GATE_MS = 5 \* 60_000/)
 
   const start = source.indexOf('function applyChatGPTRateLimit(')
   const apply = source.slice(start, source.indexOf('\nfunction noteChatGPTRateLimitGate(', start))
@@ -2331,12 +2331,13 @@ test('submission pacing widens after rate-limit pressure and decays back on its 
   // first one through earns the 429, and a value captured on entry would spend
   // the old narrow width for everyone still queued behind it - which is how
   // the burst that caused the rate limit carried straight on through the gate.
-  assert.match(pace, /Math\.max\(CHAT_AGENT_SUBMIT_GAP_MS, Number\(measureGapMs\(\)\) \|\| 0\)/)
-  assert.doesNotMatch(pace, /Number\(gapMs\)/)
-  assert.match(pace, /chatGPTWorkerRequestTail/)
-  assert.match(pace, /chatGPTWorkerLastRequestAt/)
+  assert.match(pace, /chatGPTWorkerPacer\.pace\(measureGapMs, \{ minimumGapMs \}\)/)
+  assert.match(source, /CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer/) 
+  const pacerModule = await readFile(new URL('./chat-agent-pacer.mjs', import.meta.url), 'utf8')
+  assert.match(pacerModule, /CHAT_AGENT_WORKER_ACTION_GAP_MS = 30_000/)
+  assert.match(pacerModule, /CHAT_AGENT_TRANSLATION_ACTION_GAP_MS = 5_000/)
   assert.match(pace, /paceChatGPTWorkerNavigation\(\)[\s\S]*paceChatGPTWorkerRequest\(chatAgentNavigationGapMs\)/)
-  assert.match(pace, /paceChatGPTWorkerSubmission\(\)[\s\S]*paceChatGPTWorkerRequest\(chatAgentSubmissionGapMs\)/)
+  assert.match(pace, /paceChatGPTWorkerSubmission\(\{ translation = false \} = \{\}\)[\s\S]*CHAT_AGENT_TRANSLATION_ACTION_GAP_MS/)
 
   // A suspension raised while this navigation sat in the queue must stop it:
   // AGENTS.md §8 requires a suspended provider to stop receiving actions, not

@@ -51,6 +51,9 @@ func (s *Store) ChatAgentProviderState() (ChatAgentProviderState, error) {
 		state.Paused = false
 		state.PausedUntil = nil
 		state.Reason = ""
+		state.RateLimitLevel = 0
+		state.LastRateLimitAt = nil
+		state.LastRateLimitSource = ""
 		state.UpdatedAt = time.Now().UTC()
 	}
 	s.chatAgentProvider = state
@@ -74,7 +77,11 @@ func (s *Store) SetChatAgentProviderPause(paused bool, until *time.Time, reason 
 		_, err := s.db.Exec(`INSERT INTO harness_chat_agent_provider_state
 			(provider,paused,paused_until,reason,updated_at) VALUES ('chatgpt',$1,$2,$3,$4)
 			ON CONFLICT (provider) DO UPDATE SET paused=EXCLUDED.paused,
-				paused_until=EXCLUDED.paused_until,reason=EXCLUDED.reason,updated_at=EXCLUDED.updated_at`,
+				paused_until=EXCLUDED.paused_until,reason=EXCLUDED.reason,
+				rate_limit_level=CASE WHEN EXCLUDED.paused THEN harness_chat_agent_provider_state.rate_limit_level ELSE 0 END,
+				last_rate_limit_at=CASE WHEN EXCLUDED.paused THEN harness_chat_agent_provider_state.last_rate_limit_at ELSE NULL END,
+				last_rate_limit_source=CASE WHEN EXCLUDED.paused THEN harness_chat_agent_provider_state.last_rate_limit_source ELSE '' END,
+				updated_at=EXCLUDED.updated_at`,
 			paused, until, reason, now)
 		if err != nil {
 			return ChatAgentProviderState{}, err
@@ -88,6 +95,11 @@ func (s *Store) SetChatAgentProviderPause(paused bool, until *time.Time, reason 
 		state.Provider = "chatgpt"
 	}
 	state.Paused, state.PausedUntil, state.Reason, state.UpdatedAt = paused, until, reason, now
+	if !paused {
+		state.RateLimitLevel = 0
+		state.LastRateLimitAt = nil
+		state.LastRateLimitSource = ""
+	}
 	s.chatAgentProvider = state
 	state, err := s.enrichChatAgentProviderState(state)
 	s.mu.Unlock()

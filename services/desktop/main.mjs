@@ -29,6 +29,7 @@ import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLO
 import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState } from './chat-agent-policies.mjs'
 import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
+import { CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer } from './chat-agent-pacer.mjs'
 import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
 import { reasoningEffortAdjustScript, reasoningEffortStateScript } from './chat-agent-scripts.mjs'
@@ -180,8 +181,7 @@ const chatGPTTransportTails = new Map()
 const chatGPTTransportAbortControllers = new Map()
 const chatAgentResidency = new ChatAgentResidency({ minResidenceMs: Number(process.env.WHARNESS_CHAT_AGENT_RESIDENCY_MS || 30_000) })
 let chatGPTSupervisorTransportTail = Promise.resolve()
-let chatGPTWorkerRequestTail = Promise.resolve()
-let chatGPTWorkerLastRequestAt = 0
+const chatGPTWorkerPacer = new ChatAgentGlobalPacer()
 let chatGPTRateLimitUntil = 0
 // Conversations whose generated-file artifact ChatGPT no longer serves.
 //
@@ -247,7 +247,7 @@ const BUNDLE_COMPLETION_CONFIRM_MS = 15_000
 // serialized per Worker slot, so without this every free slot could submit at
 // once and present the authenticated account with a burst — the shape that
 // earns an HTTP 429 for the whole provider.
-const CHAT_AGENT_SUBMIT_GAP_MS = 10_000
+const CHAT_AGENT_SUBMIT_GAP_MS = CHAT_AGENT_WORKER_ACTION_GAP_MS
 // Widest submission spacing, used while the provider still shows the pressure
 // that produced an account-wide gate. Staged resume, not a permanent ceiling:
 // it decays back to the floor above as valid bundles clear the rate-limit level.
@@ -279,12 +279,12 @@ const CHATGPT_RATE_LIMIT_BACKOFF_MS = 60_000
 // Local mirror of the backend's account-wide gate suspension, applied on the
 // tick the gate is observed so workers stop before the round-trip returns. The
 // persisted value from the backend is authoritative and wins on arrival.
-const CHATGPT_RATE_LIMIT_GATE_MS = 30 * 60_000
+const CHATGPT_RATE_LIMIT_GATE_MS = 5 * 60_000
 // Protective ceiling for the navigation gate, applied once the provider shows
 // sustained 429 pressure. The healthy floor below is what the pool actually
 // runs at while ChatGPT is answering normally.
 const CHATGPT_WORKER_NAVIGATION_GAP_MS = CHAT_AGENT_NAVIGATION_GAP_MS
-const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = 6_000
+const CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS = CHAT_AGENT_WORKER_ACTION_GAP_MS
 const CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS = 15 * 60_000
 const CHATGPT_DOM_PROBE_FAILURE_LIMIT = 3
 const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
@@ -2862,7 +2862,7 @@ async function refreshChatAgentRuntimeState() {
     }
     // The suspension is durable backend state; the local clock is only a
     // mirror, and it is reset by every Desktop restart. Without adopting the
-    // persisted deadline here, restarting during a 30-minute gate resumed the
+    // persisted deadline here, restarting during a five-minute gate resumed the
     // whole pool immediately — which is exactly how a restart-heavy workflow
     // walks straight back into the block it was waiting out.
     //
@@ -4183,31 +4183,8 @@ class ChatGPTRateLimitDeferral extends Error {
   }
 }
 
-async function paceChatGPTWorkerRequest(measureGapMs) {
-  let release
-  const previous = chatGPTWorkerRequestTail
-  chatGPTWorkerRequestTail = new Promise((resolve) => { release = resolve })
-  await previous
-  try {
-    // Navigation and submission share one authenticated provider account. A
-    // single process-wide gate prevents every resumed Worker from issuing its
-    // next provider-facing action at once; 10s is the hard healthy floor.
-    //
-    // The gap is measured after the queue wait, never captured before it.
-    // Several Workers pass their own pre-flight rate-limit check within the
-    // same instant and all queue here; the first one through then earns the
-    // account a 429, which widens the gap. Reading a value captured on entry
-    // spent the old, narrow width for everyone already queued behind it - so
-    // the burst that caused the rate limit continued straight through it, at
-    // the healthy floor, which is what put ChatGPT's own "Demasiados pedidos"
-    // gate in front of the account.
-    const effectiveGap = Math.max(CHAT_AGENT_SUBMIT_GAP_MS, Number(measureGapMs()) || 0)
-    const remaining = effectiveGap - (Date.now() - chatGPTWorkerLastRequestAt)
-    if (remaining > 0) await wait(remaining)
-    chatGPTWorkerLastRequestAt = Date.now()
-  } finally {
-    release()
-  }
+async function paceChatGPTWorkerRequest(measureGapMs, minimumGapMs = CHAT_AGENT_WORKER_ACTION_GAP_MS) {
+  await chatGPTWorkerPacer.pace(measureGapMs, { minimumGapMs })
 }
 
 async function paceChatGPTWorkerNavigation() {
@@ -4227,8 +4204,14 @@ function chatAgentSubmissionGapMs() {
   return steps[Math.min(steps.length - 1, Math.max(0, level - 1))]
 }
 
-async function paceChatGPTWorkerSubmission() {
-  await paceChatGPTWorkerRequest(chatAgentSubmissionGapMs)
+async function paceChatGPTWorkerSubmission({ translation = false } = {}) {
+  // Translation remains a bounded, artifact-only utility and may run at its
+  // explicitly smaller cadence. Every other Worker task, including TODO and
+  // lifecycle work, uses the 30-second account-wide floor.
+  await paceChatGPTWorkerRequest(
+    translation ? () => CHAT_AGENT_TRANSLATION_ACTION_GAP_MS : chatAgentSubmissionGapMs,
+    translation ? CHAT_AGENT_TRANSLATION_ACTION_GAP_MS : CHAT_AGENT_WORKER_ACTION_GAP_MS,
+  )
 }
 
 async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, reason, assignment) {
@@ -4248,7 +4231,7 @@ async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationUR
   }
 }
 
-async function pasteChatGPTFile(entry, filePath, index, count) {
+async function pasteChatGPTFile(entry, filePath, index, count, { translation = false } = {}) {
   const key = chatGPTKeyForEntry(entry)
   const { wc } = requireOwnedChatGPTEntry(key, entry)
   const result = await pasteWithUploadRetry({
@@ -4260,7 +4243,7 @@ async function pasteChatGPTFile(entry, filePath, index, count) {
       // pushes an upload that would otherwise start past the coordinator's
       // observation window. The shared gate spaces retries the same way it
       // already spaces first attempts and navigation.
-      await paceChatGPTWorkerSubmission()
+      await paceChatGPTWorkerSubmission({ translation })
       await waitForChatGPTSurfaceReady(key, entry)
       const ready = await wc.executeJavaScript(chatGPTComposerReadyScript(), true)
       if (!ready) throw new Error('ChatGPT composer DOM was not found before upload')
@@ -5511,6 +5494,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
   // the file a previous attempt attached before failing later in the flow.
   if (Number(task.attempt || 0) > 0) {
     const { wc: staleWc } = requireOwnedChatGPTEntry(key, entry)
+    await paceChatGPTWorkerSubmission({ translation: true })
     staleWc.reload()
     await waitForChatGPTSurfaceReady(key, entry)
   }
@@ -5520,7 +5504,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     target.reasoningEffort = 'instant'
     const filled = await executeChatGPTDOMScript(key, target.entry, 'translation-fill-composer', chatGPTFillComposerScript(bootstrap))
     if (!filled) throw new Error('ChatGPT translation composer could not be populated')
-    await pasteChatGPTFile(target.entry, sourcePath, 1, 1)
+    await pasteChatGPTFile(target.entry, sourcePath, 1, 1, { translation: true })
     await wait(chatInputSettleDelay(archive.byteLength, 1))
     // A fresh chat's landing-page composer is a different mounted element
     // from the one the active conversation ends up with once an attachment
@@ -5628,6 +5612,7 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
   // attempt begins from an empty composer instead of a stuck one.
   if (Number(task.attempt || 0) > 0) {
     const { wc: staleWc } = requireOwnedChatGPTEntry(key, entry)
+    await paceChatGPTWorkerSubmission()
     staleWc.reload()
     await waitForChatGPTSurfaceReady(key, entry)
   }

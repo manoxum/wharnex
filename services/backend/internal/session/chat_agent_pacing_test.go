@@ -74,7 +74,7 @@ func TestChatAgentRateLimitBackoffIsProgressive(t *testing.T) {
 // The incident this covers: workers kept claiming and submitting straight into
 // ChatGPT's account-wide "too many requests" block, because the only response
 // available was the transport ladder, whose first step is one minute.
-func TestChatAgentRateLimitGateSuspendsProviderForThirtyMinutes(t *testing.T) {
+func TestChatAgentRateLimitGateSuspendsProviderForFiveMinutes(t *testing.T) {
 	store := NewStore()
 	before := time.Now().UTC()
 	state, err := store.RecordChatAgentRateLimit("dom_gate", ChatAgentRateLimitGate)
@@ -111,6 +111,22 @@ func TestChatAgentTransportRateLimitNeverShortensAnActiveGate(t *testing.T) {
 	}
 	if after.PausedUntil == nil || after.PausedUntil.Before(*gate.PausedUntil) {
 		t.Fatalf("transport 429 shortened the gate: gate=%v after=%v", gate.PausedUntil, after.PausedUntil)
+	}
+}
+
+func TestChatAgentExpiredGateResumesAtTheHealthyRateLimitLevel(t *testing.T) {
+	past := time.Now().UTC().Add(-time.Second)
+	store := NewStore()
+	store.chatAgentProvider = ChatAgentProviderState{
+		Provider: "chatgpt", Paused: true, PausedUntil: &past, Reason: "gate",
+		RateLimitLevel: chatAgentMaxRateLimitLevel, LastRateLimitAt: &past, LastRateLimitSource: "dom_gate",
+	}
+	state, err := store.ChatAgentProviderState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Paused || state.PausedUntil != nil || state.RateLimitLevel != 0 || state.LastRateLimitAt != nil || state.LastRateLimitSource != "" {
+		t.Fatalf("expired gate did not reset the provider state: %#v", state)
 	}
 }
 
