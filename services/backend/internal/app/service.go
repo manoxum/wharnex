@@ -2304,6 +2304,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		}
 	}
 	s.recordExecutionActivity(sessionID, item.Plan.RequestID, result)
+	s.resolveExecutionFailuresWithGPT(sessionID, item, *item.Plan)
 	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true, "execution_mode": item.ExecutionMode, "target": executionTarget})
 	return result, updated, nil
 }
@@ -2434,6 +2435,7 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	// Recorded before the session state moves, because every branch below
 	// rewrites LastExecution or clears it, and the failed run is the evidence
 	// that explains why the next round exists.
+	s.recordExecutionFailure(sessionID, result, cause)
 	s.recordExecutionActivity(sessionID, "", result)
 	updated, _ := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastExecution = &result

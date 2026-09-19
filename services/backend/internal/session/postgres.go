@@ -40,6 +40,31 @@ CREATE TABLE IF NOT EXISTS harness_events (
 );
 CREATE INDEX IF NOT EXISTS harness_events_session_time_idx
     ON harness_events (session_id, occurred_at, id);
+CREATE TABLE IF NOT EXISTS harness_execution_errors (
+    id text PRIMARY KEY,
+    session_id text NOT NULL,
+    chat_id text NOT NULL DEFAULT '',
+    root_request_id text NOT NULL DEFAULT '',
+    request_id text NOT NULL DEFAULT '',
+    plan_id text NOT NULL DEFAULT '',
+    stage text NOT NULL DEFAULT 'execution',
+    error text NOT NULL,
+    cause text NOT NULL DEFAULT '',
+    failure_kind text NOT NULL DEFAULT '',
+    status_code integer,
+    logs jsonb NOT NULL DEFAULT '[]'::jsonb,
+    status text NOT NULL DEFAULT 'open',
+    gpt_solution jsonb,
+    occurred_at timestamptz NOT NULL,
+    resolved_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS harness_execution_errors_session_time_idx
+    ON harness_execution_errors (session_id, occurred_at DESC, id);
+CREATE INDEX IF NOT EXISTS harness_execution_errors_chat_status_idx
+    ON harness_execution_errors (chat_id, status, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS harness_execution_errors_root_status_idx
+    ON harness_execution_errors (session_id, root_request_id, status);
 CREATE TABLE IF NOT EXISTS harness_project_knowledge (
     project_path text PRIMARY KEY,
     content text NOT NULL DEFAULT '',
@@ -332,7 +357,7 @@ func (s *Store) postgresList() ([]domain.Session, error) {
 }
 
 func (s *Store) postgresClear() error {
-	_, err := s.db.Exec(`TRUNCATE harness_chat_agent_tasks, harness_events, harness_sessions`)
+	_, err := s.db.Exec(`TRUNCATE harness_chat_agent_tasks, harness_execution_errors, harness_events, harness_sessions`)
 	return wrapPostgresError("clear sessions", err)
 }
 
