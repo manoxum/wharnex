@@ -239,7 +239,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [inspectedChangeFile, setInspectedChangeFile] = useState<ChatChangeFile>()
 
   const draftInterviewReply = (interview: Interview, question: InterviewQuestion, option: { id: string; label: string }) => {
-    const reply = `Resposta da entrevista (${interview.protocol})\n- ${question.prompt}\n  - ${option.label}`
+    const reply = [`Resposta da entrevista (${interview.protocol})`, `- ${question.prompt}`, `  - ${option.label}`].join('\n')
     composerMessageRef.current = reply
     setMessage(reply)
     setPendingCaret({ index: reply.length, token: Date.now() })

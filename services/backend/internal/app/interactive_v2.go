@@ -80,7 +80,8 @@ func (s *Service) executeInteractiveV2Plan(ctx context.Context, sessionID string
 		operationID := fmt.Sprintf("op-%02d-%s", index+1, ids.New("iv2"))
 		started := time.Now().UTC()
 		digest := interactiveOperationDigest(op)
-		s.bus.Publish(sessionID, "interactive.operation_started", map[string]any{"plan_id": plan.PlanID, "operation_id": operationID, "capability": op.Type, "target": plan.Debug.Target, "digest": digest})
+		rationale := interactiveOperationRationale(op)
+		s.bus.Publish(sessionID, "interactive.operation_started", map[string]any{"plan_id": plan.PlanID, "operation_id": operationID, "capability": op.Type, "target": plan.Debug.Target, "digest": digest, "rationale": rationale})
 		opResult, commandResult, opErr := s.executeInteractiveOperation(ctx, sessionID, current, plan, op, operationID, runner, workspace, target)
 		opResult.StartedAt = started
 		opResult.CompletedAt = time.Now().UTC()
@@ -90,8 +91,8 @@ func (s *Service) executeInteractiveV2Plan(ctx context.Context, sessionID string
 		result.Interactive = append(result.Interactive, opResult)
 		s.bus.Publish(sessionID, "interactive.operation_completed", map[string]any{
 			"plan_id": plan.PlanID, "operation_id": operationID, "capability": opResult.Capability, "digest": digest,
-			"status": opResult.Status, "bytes": opResult.Bytes, "rows": opResult.Rows,
-			"truncated": opResult.Truncated, "redacted": opResult.Redacted, "error": opResult.Error,
+			"status": opResult.Status, "bytes": opResult.Bytes, "rows": opResult.Rows, "output": opResult.Output,
+			"truncated": opResult.Truncated, "redacted": opResult.Redacted, "error": opResult.Error, "rationale": rationale,
 		})
 		if opErr != nil {
 			result.Success = false
@@ -131,8 +132,20 @@ func interactiveOperationDigest(op domain.Operation) string {
 func (s *Service) runInteractiveCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
 	command = repositoryTreeCommand(ctx, workspace.Path, command)
 	runID := ids.New("interactive-run")
-	s.bus.Publish(sessionID, "command.started", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "timeout_seconds": command.TimeoutSeconds, "target": target, "interactive": true})
-	result, err := runner.Run(ctx, workspace, command)
+	rationale := executionCommandRationale(command, target)
+	s.bus.Publish(sessionID, "command.started", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "network": command.Network, "timeout_seconds": command.TimeoutSeconds, "target": target, "interactive": true, "rationale": rationale})
+	var result domain.CommandResult
+	var err error
+	if streaming, ok := runner.(sandbox.StreamingRunner); ok {
+		result, err = streaming.RunStreaming(ctx, workspace, command, func(stream, text string) {
+			clean, _, _ := sanitizeInteractiveOutput(text)
+			if clean != "" {
+				s.bus.Publish(sessionID, "command.output", map[string]any{"run_id": runID, "stream": stream, "text": clean, "target": target, "interactive": true, "rationale": rationale})
+			}
+		})
+	} else {
+		result, err = runner.Run(ctx, workspace, command)
+	}
 	result = normalizePreflightCommandFailure(command, result, err)
 	if err == nil && !result.Success && result.ExitCode == -1 && ctx.Err() != nil {
 		err = ctx.Err()
@@ -140,7 +153,7 @@ func (s *Service) runInteractiveCommandWithRunner(ctx context.Context, sessionID
 	stdout, stdoutTruncated, stdoutRedacted := sanitizeInteractiveOutput(result.Stdout)
 	stderr, stderrTruncated, stderrRedacted := sanitizeInteractiveOutput(result.Stderr)
 	result.Stdout, result.Stderr = stdout, stderr
-	s.bus.Publish(sessionID, "command.completed", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": stdout, "stderr": stderr, "duration_ms": result.DurationMS, "target": target, "interactive": true, "truncated": stdoutTruncated || stderrTruncated, "redacted": stdoutRedacted || stderrRedacted})
+	s.bus.Publish(sessionID, "command.completed", map[string]any{"run_id": runID, "argv": command.Argv, "cwd": command.Cwd, "exit_code": result.ExitCode, "success": result.Success, "stdout": stdout, "stderr": stderr, "duration_ms": result.DurationMS, "target": target, "interactive": true, "truncated": stdoutTruncated || stderrTruncated, "redacted": stdoutRedacted || stderrRedacted, "rationale": rationale})
 	return result, err
 }
 
@@ -148,7 +161,11 @@ func (s *Service) executeInteractiveOperation(ctx context.Context, sessionID str
 	base := domain.InteractiveOperationResult{OperationID: operationID, Type: op.Type, Capability: op.Type, Target: plan.Debug.Target, Status: "completed"}
 	switch op.Type {
 	case "command":
-		res, err := s.runInteractiveCommandWithRunner(ctx, sessionID, runner, workspace, op.Command, target)
+		command := op.Command
+		if strings.TrimSpace(command.Rationale) == "" {
+			command.Rationale = op.Rationale
+		}
+		res, err := s.runInteractiveCommandWithRunner(ctx, sessionID, runner, workspace, command, target)
 		base.Output, base.Truncated, base.Redacted = sanitizeInteractiveOutput(res.Stdout + joinedStderr(res.Stderr))
 		base.Bytes = len(base.Output)
 		if err != nil || !res.Success {
@@ -161,7 +178,7 @@ func (s *Service) executeInteractiveOperation(ctx context.Context, sessionID str
 		}
 		return base, &res, nil
 	case "shell":
-		res, err := s.executeInteractiveShell(ctx, sessionID, runner, workspace, *op.Shell, target, plan.Debug.Target == "host")
+		res, err := s.executeInteractiveShell(ctx, sessionID, runner, workspace, *op.Shell, target, plan.Debug.Target == "host", op.Rationale)
 		base.Output, base.Truncated, base.Redacted = sanitizeInteractiveOutput(res.Stdout + joinedStderr(res.Stderr))
 		base.Bytes = len(base.Output)
 		if err != nil || !res.Success {
@@ -221,6 +238,7 @@ func (s *Service) executeInteractiveOperation(ctx context.Context, sessionID str
 		return base, nil, nil
 	case "container":
 		command := interactiveContainerCommand(*op.Container)
+		command.Rationale = op.Rationale
 		res, err := s.runInteractiveCommandWithRunner(ctx, sessionID, runner, workspace, command, target)
 		base.Output, base.Truncated, base.Redacted = sanitizeInteractiveOutput(res.Stdout + joinedStderr(res.Stderr))
 		base.Bytes = len(base.Output)
@@ -235,6 +253,7 @@ func (s *Service) executeInteractiveOperation(ctx context.Context, sessionID str
 		return base, &res, nil
 	case "service":
 		command := interactiveServiceCommand(*op.Service)
+		command.Rationale = op.Rationale
 		res, err := s.runInteractiveCommandWithRunner(ctx, sessionID, runner, workspace, command, target)
 		base.Output, base.Truncated, base.Redacted = sanitizeInteractiveOutput(res.Stdout + joinedStderr(res.Stderr))
 		base.Bytes = len(base.Output)
@@ -250,6 +269,16 @@ func (s *Service) executeInteractiveOperation(ctx context.Context, sessionID str
 	default:
 		return failedInteractive(base, fmt.Errorf("unsupported interactive operation %q", op.Type))
 	}
+}
+
+func interactiveOperationRationale(op domain.Operation) string {
+	if rationale := strings.TrimSpace(op.Rationale); rationale != "" {
+		return rationale
+	}
+	if rationale := strings.TrimSpace(op.Command.Rationale); rationale != "" {
+		return rationale
+	}
+	return "Executar esta operação interativa para recolher evidência local necessária ao próximo passo."
 }
 
 func (s *Service) CancelInteractiveV2(sessionID string) bool {
@@ -286,7 +315,7 @@ func sanitizeInteractiveOutput(value string) (string, bool, bool) {
 	return redacted, false, wasRedacted
 }
 
-func (s *Service) executeInteractiveShell(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, spec domain.InteractiveShellSpec, target string, host bool) (domain.CommandResult, error) {
+func (s *Service) executeInteractiveShell(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, spec domain.InteractiveShellSpec, target string, host bool, rationale string) (domain.CommandResult, error) {
 	var path string
 	var cleanup func()
 	if host {
@@ -326,7 +355,7 @@ func (s *Service) executeInteractiveShell(ctx context.Context, sessionID string,
 	defer cleanup()
 	envAllowlist := make([]string, len(spec.EnvAllowlist))
 	copy(envAllowlist, spec.EnvAllowlist)
-	command := domain.CommandSpec{Argv: []string{spec.Shell, path}, Cwd: spec.Cwd, TimeoutSeconds: spec.TimeoutSeconds, Network: spec.Network, ExpectedExitCodes: []int{0}, EnvAllowlist: envAllowlist}
+	command := domain.CommandSpec{Argv: []string{spec.Shell, path}, Cwd: spec.Cwd, TimeoutSeconds: spec.TimeoutSeconds, Network: spec.Network, ExpectedExitCodes: []int{0}, EnvAllowlist: envAllowlist, Rationale: rationale}
 	return s.runInteractiveCommandWithRunner(ctx, sessionID, runner, workspace, command, target)
 }
 
@@ -385,7 +414,7 @@ func (s *Service) readInteractiveLogs(ctx context.Context, sessionID string, cur
 		if spec.Until != "" {
 			argv = append(argv, "--until", spec.Until)
 		}
-		res, err := s.runInteractiveCommandWithRunner(ctx, sessionID, runner, workspace, domain.CommandSpec{Argv: argv, Cwd: ".", TimeoutSeconds: 60, ExpectedExitCodes: []int{0}}, target)
+		res, err := s.runInteractiveCommandWithRunner(ctx, sessionID, runner, workspace, domain.CommandSpec{Argv: argv, Cwd: ".", TimeoutSeconds: 60, ExpectedExitCodes: []int{0}, Rationale: "Ler os logs solicitados para recolher evidência da operação interativa."}, target)
 		if err != nil || !res.Success {
 			if err == nil {
 				err = fmt.Errorf("journalctl exited with %d", res.ExitCode)
@@ -405,7 +434,7 @@ func (s *Service) readInteractiveLogs(ctx context.Context, sessionID string, cur
 			argv = append(argv, "--until", spec.Until)
 		}
 		argv = append(argv, spec.Container)
-		res, err := s.runInteractiveCommandWithRunner(ctx, sessionID, runner, workspace, domain.CommandSpec{Argv: argv, Cwd: ".", TimeoutSeconds: 60, ExpectedExitCodes: []int{0}}, target)
+		res, err := s.runInteractiveCommandWithRunner(ctx, sessionID, runner, workspace, domain.CommandSpec{Argv: argv, Cwd: ".", TimeoutSeconds: 60, ExpectedExitCodes: []int{0}, Rationale: "Ler os logs solicitados para recolher evidência da operação interativa."}, target)
 		if err != nil || !res.Success {
 			if err == nil {
 				err = fmt.Errorf("docker logs exited with %d", res.ExitCode)

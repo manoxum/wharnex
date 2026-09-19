@@ -18,6 +18,7 @@ export type ExecutionTimelineEntry = {
   output: string
   outputSegments: ExecutionOutputSegment[]
   lifecycleState?: 'active' | 'success' | 'failure'
+  rationale: string
 	requestId: string
 	rootRequestId: string
 	iterationKind: 'standard' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict'
@@ -49,17 +50,18 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       const runID = String(event.data.run_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'command', title: commandTitle(event), detail: commandDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], ...active }
+        entry = { id: runID, kind: 'command', title: commandTitle(event), detail: commandDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], rationale: commandRationale(event), ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'command.started') {
-        entry.title = commandTitle(event); entry.detail = commandDetail(event); entry.timestamp = event.timestamp
+        entry.title = commandTitle(event); entry.detail = commandDetail(event); entry.timestamp = event.timestamp; entry.rationale = commandRationale(event) || entry.rationale
       } else if (event.type === 'command.output') {
         const text = String(event.data.text || '')
         if (text) appendOutput(entry, event.data.stream === 'stderr' ? 'stderr' : 'stdout', text)
       } else {
         entry.title = commandTitle(event) || entry.title
         entry.detail = commandDetail(event) || entry.detail
+        entry.rationale = commandRationale(event) || entry.rationale
         entry.badge = `exit ${String(event.data.exit_code ?? '?')}`
         entry.tone = event.data.success === false ? 'fail' : 'ok'
         entry.running = false
@@ -78,7 +80,7 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       const runID = String(event.data.transaction_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'command', title: 'Build do Wharnex no host', detail: '', badge: 'BUILD', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], ...active }
+        entry = { id: runID, kind: 'command', title: 'Build do Wharnex no host', detail: '', badge: 'BUILD', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], rationale: 'Construir o runtime atualizado no host antes de ativar a autoevolução.', ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'self_evolution.host_build_output') {
@@ -96,7 +98,7 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
       const runID = String(event.data.run_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'patch', title: patchTitle(event), detail: patchDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], ...active }
+        entry = { id: runID, kind: 'patch', title: patchTitle(event), detail: patchDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], rationale: 'Aplicar a alteração declarada pelo plano no workspace protegido.', ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'patch.applied') {
@@ -106,7 +108,7 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
     }
     const meta = statusMeta(event)
     const outputSegments = statusEventOutput(event)
-    entries.push({ id: event.id, kind: 'status', timestamp: event.timestamp, running: false, output: segmentsText(outputSegments), outputSegments, ...active, ...meta })
+    entries.push({ id: event.id, kind: 'status', timestamp: event.timestamp, running: false, output: segmentsText(outputSegments), outputSegments, rationale: commandRationale(event), ...active, ...meta })
   }
   return entries
 }
@@ -124,6 +126,7 @@ function commandTitle(event: HarnessEvent) {
   return Array.isArray(event.data.argv) ? (event.data.argv as unknown[]).map(String).join(' ') : 'Comando'
 }
 function commandDetail(event: HarnessEvent) { return [String(event.data.cwd || '.'), String(event.data.target || '')].filter(Boolean).join(' · ') }
+function commandRationale(event: HarnessEvent) { return String(event.data.rationale || '').trim() }
 function patchTitle(event: HarnessEvent) { return event.type === 'patch.applied' ? 'Patch aplicado' : 'Aplicando patch' }
 function patchDetail(event: HarnessEvent) {
   const files = Array.isArray(event.data.files) ? (event.data.files as unknown[]).map(String).filter(Boolean) : []
@@ -140,10 +143,11 @@ function appendOutput(entry: ExecutionTimelineEntry, stream: 'stdout' | 'stderr'
 
 function fallbackOutput(event: HarnessEvent): ExecutionOutputSegment[] {
   const segments: ExecutionOutputSegment[] = []
-  for (const [key, label] of [['stdout', 'stdout'], ['stderr', 'stderr'], ['diagnostic', 'diagnóstico'], ['baseline_diagnostic', 'baseline'], ['post_diagnostic', 'pós-verificação'], ['error', 'erro']] as const) {
+  for (const [key, label] of [['stdout', 'stdout'], ['stderr', 'stderr'], ['output', 'output'], ['diagnostic', 'diagnóstico'], ['baseline_diagnostic', 'baseline'], ['post_diagnostic', 'pós-verificação'], ['error', 'erro']] as const) {
     const text = typeof event.data[key] === 'string' ? String(event.data[key]).trim() : ''
     if (!text) continue
     if (key === 'stdout' || key === 'stderr') segments.push({ stream: key, text })
+    else if (key === 'output') segments.push({ stream: 'meta', text })
     else segments.push({ stream: 'meta', text: `[${label}] ${text}` })
   }
   const reasons = Array.isArray(event.data.reasons) ? (event.data.reasons as unknown[]).map(String).filter(Boolean) : []
