@@ -143,6 +143,18 @@ describe('agent runtime drawer CSS', () => {
     expect(lastRule('.agent-runtime-list > button.state-chat-empty')).toContain('--agent-state:#3f86d9')
     expect(detail).toContain('border-radius:10px')
   })
+
+  it('adapts to the drawer width instead of the desktop viewport', () => {
+    const drawer = firstRule('.agent-runtime-drawer')
+
+    expect(drawer).toContain('container-type:inline-size')
+    expect(drawer).toContain('container-name:agent-runtime')
+    expect(css).toContain('@container agent-runtime (max-width: 560px)')
+    expect(css).toContain('grid-template-columns:repeat(2,minmax(0,1fr))')
+    expect(css).toContain('@container agent-runtime (max-width: 410px)')
+    expect(css).toContain('.agent-runtime-body { grid-template-columns:1fr; align-content:start; }')
+    expect(css).toContain('.agent-runtime-tab-panel.agents { display:block; overflow:auto; }')
+  })
 })
 
 describe('composer layout CSS', () => {
