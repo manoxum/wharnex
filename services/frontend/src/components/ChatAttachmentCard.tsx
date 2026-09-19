@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { ChatAttachmentInfo } from '../types'
 import { desktopBridge } from '../lib/desktop'
 import { formatBytes } from '../lib/desktop'
 import { Icon } from './Icon'
 import { requestArtifactIndex } from '../lib/artifactIndexing'
+import { ChatAttachmentViewer } from './ChatAttachmentViewer'
 
 export function MessageAttachmentCard({ attachment }: { attachment: ChatAttachmentInfo }) {
   const [preview, setPreview] = useState('')
-  const [available, setAvailable] = useState(Boolean(attachment.storageRef))
+  const [viewerOpen, setViewerOpen] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -16,36 +17,37 @@ export function MessageAttachmentCard({ attachment }: { attachment: ChatAttachme
     if (!bridge) return () => { alive = false }
     void bridge.attachments.preview({ storageRef: attachment.storageRef }).then((result) => {
       if (!alive) return
-      setAvailable(result.available)
-      setPreview(result.dataUrl || '')
-    }).catch(() => { if (alive) setAvailable(false) })
+      setPreview(result.available ? result.dataUrl || '' : '')
+    }).catch(() => { if (alive) setPreview('') })
     return () => { alive = false }
   }, [attachment.previewKind, attachment.storageRef])
 
-  async function openAttachment() {
-    if (!attachment.storageRef) return
-    const bridge = desktopBridge()
-    if (!bridge) return
-    try { await bridge.attachments.open({ storageRef: attachment.storageRef }) } catch { setAvailable(false) }
-  }
-
   const persisted = Boolean(attachment.storageRef)
-  return <article className={`message-attachment-card${persisted ? ' is-persisted' : ''}`}>
-    <button type="button" className="message-attachment-open" disabled={!persisted || !available} onClick={() => void openAttachment()} title={persisted ? `Abrir ${attachment.name}` : `${attachment.name} · anexo histórico sem cópia persistida`}>
-      <AttachmentVisual preview={preview} name={attachment.name} />
-      <span className="message-attachment-copy"><b>{attachment.name}</b><small>{formatBytes(attachment.size)}{attachment.mime ? ` · ${attachment.mime}` : ''}</small></span>
-    </button>
-    <button type="button" className="message-attachment-index" onClick={() => requestArtifactIndex('chat', attachment.name)} title="Indexar no próximo prompt" aria-label={`Indexar ${attachment.name} no composer`}><Icon name="link" size={12}/></button>
-  </article>
+  return <Fragment>
+    <article className={`message-attachment-card${persisted ? ' is-persisted' : ''}`}>
+      <button type="button" className="message-attachment-open" disabled={!persisted} onClick={() => setViewerOpen(true)} title={persisted ? `Abrir ${attachment.name} no Wharnex` : `${attachment.name} · anexo histórico sem cópia persistida`} aria-label={persisted ? `Abrir ${attachment.name} no Wharnex` : undefined}>
+        <AttachmentVisual preview={preview} name={attachment.name} />
+        <span className="message-attachment-copy"><b>{attachment.name}</b><small>{formatBytes(attachment.size)}{attachment.mime ? ` · ${attachment.mime}` : ''}</small></span>
+      </button>
+      <button type="button" className="message-attachment-index" onClick={() => requestArtifactIndex('chat', attachment.name)} title="Indexar no próximo prompt" aria-label={`Indexar ${attachment.name} no composer`}><Icon name="link" size={12}/></button>
+    </article>
+    {viewerOpen && persisted && <ChatAttachmentViewer source={{ attachment }} onClose={() => setViewerOpen(false)}/>}
+  </Fragment>
 }
 
 export function ComposerAttachmentChip({ file, onRemove }: { file: File; onRemove: () => void }) {
   const preview = useLocalImagePreview(file)
-  return <span className="composer-attachment-chip" title={`${file.name} · ${formatBytes(file.size)}`}>
-    <AttachmentVisual preview={preview} name={file.name} />
-    <span className="composer-attachment-copy"><b>{file.name}</b><small>{formatBytes(file.size)}</small></span>
-    <button type="button" aria-label={`Remover ${file.name}`} onClick={onRemove}>×</button>
-  </span>
+  const [viewerOpen, setViewerOpen] = useState(false)
+  return <Fragment>
+    <span className="composer-attachment-chip" title={`${file.name} · ${formatBytes(file.size)}`}>
+      <button type="button" className="composer-attachment-open" onClick={() => setViewerOpen(true)} aria-label={`Abrir ${file.name} no Wharnex`}>
+        <AttachmentVisual preview={preview} name={file.name} />
+        <span className="composer-attachment-copy"><b>{file.name}</b><small>{formatBytes(file.size)}</small></span>
+      </button>
+      <button type="button" className="composer-attachment-remove" aria-label={`Remover ${file.name}`} onClick={onRemove}>×</button>
+    </span>
+    {viewerOpen && <ChatAttachmentViewer source={{ file }} onClose={() => setViewerOpen(false)}/>}
+  </Fragment>
 }
 
 function AttachmentVisual({ preview, name }: { preview: string; name: string }) {
