@@ -362,7 +362,11 @@ function chatGPTArtifactExpectationArmed(key) {
 // renderer's throttle has to be reconciled at both edges - the predicate alone
 // only takes effect the next time something else happens to reconcile.
 function reconcileChatGPTThrottleForKey(key, entry) {
-  const owned = entry && chatgptViews.get(key) === entry ? entry : chatgptViews.get(key)
+  // A Worker entry lives in the pool, never in `chatgptViews`, so resolving
+  // through that map alone would silently skip exactly the pool that runs the
+  // utility artifacts. The caller's own owned entry is the authority; the map
+  // lookup only covers callers that hold none.
+  const owned = entry || chatgptViews.get(key)
   if (owned) reconcileChatGPTThrottle(key, owned)
 }
 
