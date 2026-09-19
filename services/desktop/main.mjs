@@ -3672,6 +3672,44 @@ function ensureChatGPTLayoutViewport(key, entry) {
 // Locates a control with a typed script and commits it with a trusted native
 // click. ChatGPT's Radix menu items ignore synthetic HTMLElement.click(), so
 // "locate, then click for real" is the only reliable shape for these controls.
+// Presses a located control on an owned ChatGPT surface.
+//
+// `webContents.sendInputEvent` routes a mouse event through the view's own
+// widget, and a view that is not visible has nothing for it to hit: the event
+// is dropped. Keyboard events do not need hit-testing and still arrive, which
+// is why composer typing and submission always worked on a hidden Worker
+// while every menu this pool tries to open did not - `menu-not-open` on 116
+// DELETE_TEMP_CHAT, 35 RENAME_CHAT and 27 ARCHIVE_CHAT tasks, plus the
+// composer's own reasoning-effort picker.
+//
+// Live CDP testing separated the two: a press dispatched to the very same
+// hidden Worker over the WebContents debugger opened the menu, while the
+// identical press through sendInputEvent did not. The debugger path delivers
+// to the render widget host directly, so it does not depend on the view being
+// composited. The event it produces is a real browser-level input event -
+// `isTrusted`, indistinguishable to the page from the native one - so this
+// stays within ADR-0037's "commit the located target with a trusted native
+// input event"; only the delivery route changes, and only for a surface where
+// the other route silently drops it.
+async function pressChatGPTControl(entry, wc, rect) {
+  if (entry?.view?.getVisible?.() !== false) {
+    return dispatchChatGPTPointerPress(wc, rect, { wait, guard: withPreservedLocalFocus })
+  }
+  const x = Math.max(0, Math.floor(Number(rect?.x) || 0))
+  const y = Math.max(0, Math.floor(Number(rect?.y) || 0))
+  const attachedHere = !wc.debugger.isAttached()
+  if (attachedHere) wc.debugger.attach('1.3')
+  try {
+    await wc.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
+    await wc.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 })
+    await wait(CHATGPT_CONTROL_PRESS_HOLD_MS)
+    await wc.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 })
+  } finally {
+    if (attachedHere) try { wc.debugger.detach() } catch { /* already detached */ }
+  }
+  return { x, y }
+}
+
 async function commitChatGPTAccountControl(key, entry, stage, script, { attempts = 4 } = {}) {
   let located = { ok: false, state: 'action-unavailable' }
   for (let attempt = 0; attempt < attempts; attempt += 1) {
