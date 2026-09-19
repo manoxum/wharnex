@@ -1,0 +1,234 @@
+/* Operational surface refinement — denser information, calmer chrome and
+   clearer hierarchy across the agent, Git, task and knowledge drawers. */
+.agent-runtime-drawer,
+.git-drawer,
+.chat-agent-tasks-drawer,
+.project-knowledge-drawer,
+.agent-archive-drawer {
+  background: color-mix(in srgb, var(--theme-bg) 97%, var(--theme-surface));
+}
+.agent-runtime-drawer .agent-drawer-heading,
+.git-drawer .agent-drawer-heading,
+.chat-agent-tasks-drawer .agent-drawer-heading,
+.project-knowledge-drawer .agent-drawer-heading,
+.agent-archive-drawer .agent-drawer-heading {
+  min-height: 52px;
+  padding-inline: 14px 11px;
+  background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg));
+}
+
+/* Agent runtime */
+.agent-runtime-summary {
+  padding: 12px 14px;
+  gap: 9px;
+  background: transparent;
+}
+.agent-runtime-summary span,
+.agent-runtime-memory-summary span {
+  border-color: color-mix(in srgb, var(--theme-border) 74%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface) 94%, var(--theme-elevated));
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 16%, transparent);
+}
+.agent-runtime-summary span {
+  min-height: 54px;
+  padding: 9px 11px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+.agent-runtime-summary b { font-size: calc(14px * var(--ui-font-scale)); }
+.agent-runtime-summary small { line-height: 1.25; }
+.agent-runtime-tabs { padding-inline: 12px; background: color-mix(in srgb, var(--theme-surface) 90%, var(--theme-bg)); }
+.agent-runtime-tab-panel { background: transparent; }
+.agent-runtime-state-legend,
+.agent-runtime-pause,
+.agent-runtime-memory-summary,
+.agent-runtime-diagnostics,
+.agent-runtime-scale,
+.agent-runtime-scope { background: transparent; }
+.agent-runtime-body { padding: 12px 14px 14px; gap: 11px; background: transparent; }
+.agent-runtime-list,
+.agent-runtime-detail {
+  border-color: color-mix(in srgb, var(--theme-border) 76%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--theme-shadow) 14%, transparent);
+}
+.agent-runtime-list { padding: 8px; gap: 6px; }
+.agent-runtime-list > button { min-height: 60px; border-radius: 10px; box-shadow: inset 3px 0 0 color-mix(in srgb,var(--agent-state) 68%,transparent); }
+.agent-runtime-detail { padding: 15px 16px 17px; }
+.agent-runtime-memory-summary { padding: 12px 14px 10px; gap: 9px; border-bottom: 0; }
+.agent-runtime-diagnostics { padding: 0 14px 12px; gap: 9px; }
+.agent-runtime-diagnostic-row {
+  min-height: 82px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated));
+  box-shadow: inset 0 2px 0 var(--theme-border-soft), 0 5px 16px color-mix(in srgb, var(--theme-shadow) 12%, transparent);
+}
+.agent-runtime-scale { padding: 12px 14px; gap: 9px; border-bottom: 0; }
+.agent-runtime-scale-card {
+  min-height: 64px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated));
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 12%, transparent);
+}
+.agent-runtime-scale small { overflow: visible; white-space: normal; line-height: 1.35; }
+.agent-runtime-pause { margin: 10px 14px 0; padding: 12px; border: 1px solid var(--theme-border-soft); border-radius: 12px; }
+.agent-runtime-state-legend { padding: 8px 14px; }
+
+/* Git */
+.git-heading-branch {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 999px;
+  background: var(--theme-muted);
+}
+.git-tabs { padding-inline: 10px; background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg)); }
+.git-tab-content { padding: 14px; gap: 12px; background: transparent; }
+.git-changes-tabs { background: transparent; }
+.git-section,
+.git-worktree-card,
+.git-branch-hero {
+  border-color: color-mix(in srgb, var(--theme-border) 76%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated));
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--theme-shadow) 14%, transparent);
+}
+.git-section { padding: 14px; gap: 12px; }
+.git-worktree-card { padding: 13px 14px; }
+.git-worktree-status { width: 36px; height: 36px; border-radius: 10px; }
+.git-action { border-radius: 8px; }
+.git-notice { padding-inline: 14px; }
+
+/* Chat management */
+.agent-chat-management-tabs {
+  padding-inline: 10px;
+  background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg));
+}
+.agent-chat-management-tabs button > svg { flex: 0 0 auto; opacity: .72; }
+.agent-chat-management-tabs button[aria-selected='true'] > svg { color: var(--theme-accent); opacity: 1; }
+.agent-chat-management-tabs button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-archive-toolbar { padding-inline: 12px; }
+.agent-archive-list { padding: 10px 12px 14px; gap: 8px; }
+.agent-archive-item {
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--theme-border) 74%, transparent);
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated));
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 12%, transparent);
+}
+
+/* Durable task queue */
+.chat-agent-tasks-drawer { display: flex; flex-direction: column; }
+.chat-agent-tasks-summary { min-height: 42px; padding: 8px 14px; gap: 7px 14px; background: transparent; }
+.chat-agent-tasks-summary span { padding: 3px 0; }
+.chat-agent-tasks-summary b { font-size: calc(10px * var(--ui-font-scale)); }
+.chat-agent-tasks-scope { padding: 8px 14px; background: transparent; }
+.chat-agent-task-tabs {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--theme-border);
+  background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg));
+  scrollbar-width: none;
+}
+.chat-agent-task-tabs::-webkit-scrollbar { display: none; }
+.chat-agent-task-tabs button {
+  min-width: max-content;
+  min-height: 43px;
+  position: relative;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--theme-text-muted);
+  cursor: pointer;
+  font-size: calc(8.2px * var(--ui-font-scale));
+  font-weight: 640;
+}
+.chat-agent-task-tabs button:hover { background: color-mix(in srgb, var(--theme-hover) 64%, transparent); color: var(--theme-text-soft); }
+.chat-agent-task-tabs button[aria-selected='true'] { color: var(--theme-text); }
+.chat-agent-task-tabs button[aria-selected='true']::after { content: ''; position: absolute; right: 8px; bottom: -1px; left: 8px; height: 2px; border-radius: 2px 2px 0 0; background: var(--theme-accent); }
+.chat-agent-task-tabs button[aria-selected='true'] > svg { color: var(--theme-accent); }
+.chat-agent-task-tabs b { min-width: 18px; height: 18px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--theme-muted); color: var(--theme-text-muted); font: 700 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family); }
+.chat-agent-task-tabs button[aria-selected='true'] b { background: var(--theme-accent-soft); color: var(--theme-text); }
+.chat-agent-tasks-body { min-height: 0; flex: 1 1 auto; padding: 12px 14px 16px; gap: 9px; }
+.chat-agent-task-section { gap: 9px; }
+.chat-agent-task-section > header { min-height: 38px; padding: 0 2px; align-items: flex-start; }
+.chat-agent-task-section > header > div { min-width: 0; display: grid; gap: 3px; }
+.chat-agent-task-section > header strong { color: var(--theme-text); font-size: calc(9px * var(--ui-font-scale)); letter-spacing: .045em; }
+.chat-agent-task-section > header small { color: var(--theme-text-muted); font-size: calc(7.4px * var(--ui-font-scale)); line-height: 1.4; }
+.chat-agent-task-section > header > span { margin-top: 1px; }
+.chat-agent-task-section > p { padding: 16px; border-style: solid; border-radius: 11px; background: color-mix(in srgb, var(--theme-surface) 70%, transparent); text-align: center; }
+.chat-agent-task-list { gap: 8px; }
+.chat-agent-task-card {
+  padding: 11px 12px 8px;
+  gap: 8px;
+  border-color: color-mix(in srgb, var(--theme-border) 74%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface) 97%, var(--theme-elevated));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--theme-shadow) 13%, transparent);
+}
+.chat-agent-task-card:hover { border-color: color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border)); }
+
+/* Project knowledge */
+.project-knowledge-drawer { container-type: inline-size; }
+.project-knowledge-toolbar {
+  padding: 9px 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 36%);
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--theme-border);
+  background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg));
+}
+.project-knowledge-meta {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+}
+.project-knowledge-meta > span,
+.project-knowledge-meta > code {
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 999px;
+  background: var(--theme-muted);
+}
+.project-knowledge-meta code { margin-left: 0; }
+.project-knowledge-version { display: inline-flex; align-items: center; gap: 5px; color: var(--theme-text-soft); }
+.project-knowledge-version svg { color: var(--theme-accent); }
+.project-knowledge-search { min-width: 0; margin: 0; }
+.project-knowledge-layout { border-top: 0; grid-template-columns: minmax(180px, 30%) minmax(0, 1fr); }
+.project-knowledge-index { padding: 10px; background: color-mix(in srgb, var(--theme-surface) 88%, var(--theme-bg)); }
+.project-knowledge-index-heading { min-height: 32px; padding: 0 7px 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--theme-text-muted); }
+.project-knowledge-index-heading > span { display: inline-flex; align-items: center; gap: 6px; font-size: calc(7.6px * var(--ui-font-scale)); font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
+.project-knowledge-index-heading > b { min-width: 20px; padding: 3px 6px; border-radius: 999px; background: var(--theme-muted); font: 700 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family); text-align: center; }
+.project-knowledge-index button { min-height: 36px; padding: 7px 9px; gap: 8px; border-radius: 9px; }
+.project-knowledge-index button > svg { flex: 0 0 auto; opacity: .65; }
+.project-knowledge-index button.active { background: color-mix(in srgb, var(--theme-accent) 11%, var(--theme-surface)); box-shadow: inset 2px 0 var(--theme-accent); }
+.project-knowledge-index button.active > svg { color: var(--theme-accent); opacity: 1; }
+.project-knowledge-content { padding: 18px 20px 34px; background: transparent; }
+.project-knowledge-content > .translatable-markdown { width: min(100%, 920px); margin-inline: auto; }
+.project-knowledge-content .markdown-translation-toolbar { border-radius: 10px; background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated)); box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 10%, transparent); }
+
+@container (max-width: 520px) {
+  .project-knowledge-drawer { container-type: inline-size; }
+.project-knowledge-toolbar { grid-template-columns: 1fr; gap: 8px; }
+  .project-knowledge-layout { grid-template-columns: 1fr; }
+  .project-knowledge-content { padding-inline: 14px; }
+}
