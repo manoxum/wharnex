@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/orchestrator"
 	"kernl.local/harness/backend/internal/planner"
@@ -37,6 +38,7 @@ type OrchestratorComposerContext struct {
 	ProjectFiles       []string                         `json:"project_files,omitempty"`
 	AttachmentCacheKey string                           `json:"attachment_cache_key,omitempty"`
 	Attachments        []OrchestratorPlanningAttachment `json:"attachments,omitempty"`
+	TodoIDs            []string                         `json:"todo_ids,omitempty"`
 }
 
 type OrchestratorTaskInput struct {
@@ -76,14 +78,23 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 		return OrchestratorProposalResult{}, err
 	}
 	requestID := ids.New("orp")
+	linkedTodos, err := s.resolveProjectTodos(item.ProjectPath, input.TodoIDs)
+	if err != nil {
+		return OrchestratorProposalResult{}, err
+	}
+	if err := s.linkProjectTodos(linkedTodos, item, requestID, "orchestrator"); err != nil {
+		return OrchestratorProposalResult{}, err
+	}
+	planningMessage := messageWithProjectTodos(orchestratorPlanningMessage(objective, input), linkedTodos)
 	result, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{
-		SessionID: item.ID, RequestID: requestID, Message: orchestratorPlanningMessage(objective, input),
+		SessionID: item.ID, RequestID: requestID, Message: planningMessage,
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
 		AutomationMode: item.AutomationMode, EffortLevel: item.EffortLevel, SelfEvolution: s.isSelfEvolution(item),
 		ReasoningEffort: normalizeReasoningEffort(item.ReasoningEffort),
 		PlanningMode:    "orchestrator",
 	}, knowledge))
 	if err != nil {
+		s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, err.Error())
 		return OrchestratorProposalResult{}, err
 	}
 	if result.OrchestratorPlan == nil {
@@ -104,6 +115,7 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 				ReasoningEffort: string(normalizeReasoningEffort(item.ReasoningEffort)),
 			})
 			if marshalErr != nil {
+				s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, marshalErr.Error())
 				return OrchestratorProposalResult{}, fmt.Errorf("encode orchestrator planning worker: %w", marshalErr)
 			}
 			worker, enqueueErr := s.store.EnqueueChatAgentTask(session.ChatAgentTask{
@@ -112,6 +124,7 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 				DedupeKey: "orchestrator-plan:" + requestID, Payload: payload, MaxAttempts: 8,
 			})
 			if enqueueErr != nil {
+				s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, enqueueErr.Error())
 				return OrchestratorProposalResult{}, fmt.Errorf("enqueue orchestrator planning worker: %w", enqueueErr)
 			}
 			s.bus.Publish(sessionID, "orchestrator.plan_queued", map[string]any{
@@ -122,9 +135,19 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 				WorkerTaskID: worker.TaskID, Delivery: worker.Status,
 			}, nil
 		}
-		return OrchestratorProposalResult{}, errors.New("planner returned no orchestrator proposal")
+		err := errors.New("planner returned no orchestrator proposal")
+		s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, err.Error())
+		return OrchestratorProposalResult{}, err
 	}
-	return s.persistOrchestratorProposal(ctx, sessionID, item.ProjectPath, requestID, *result.OrchestratorPlan)
+	proposal, err := s.persistOrchestratorProposal(ctx, sessionID, item.ProjectPath, requestID, *result.OrchestratorPlan)
+	if err != nil {
+		s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, err.Error())
+		return OrchestratorProposalResult{}, err
+	}
+	if proposal.Plan != nil {
+		s.bindProjectTodosToOrchestratorPlan(requestID, proposal.Plan.ID)
+	}
+	return proposal, nil
 }
 
 func validateOrchestratorComposerContext(input OrchestratorComposerContext) error {
@@ -133,6 +156,9 @@ func validateOrchestratorComposerContext(input OrchestratorComposerContext) erro
 	}
 	if len(input.Attachments) > 12 {
 		return errors.New("orchestrator attachments exceed the limit")
+	}
+	if len(input.TodoIDs) > 128 {
+		return errors.New("orchestrator TODO references exceed the limit")
 	}
 	if len(input.Attachments) == 0 {
 		return nil
@@ -198,7 +224,15 @@ func (s *Service) ImportOrchestratorProposal(ctx context.Context, sessionID, req
 	if strings.TrimSpace(requestID) == "" {
 		requestID = ids.New("orp")
 	}
-	return s.persistOrchestratorProposal(ctx, sessionID, item.ProjectPath, requestID, proposal)
+	result, err := s.persistOrchestratorProposal(ctx, sessionID, item.ProjectPath, requestID, proposal)
+	if err != nil {
+		s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, err.Error())
+		return OrchestratorProposalResult{}, err
+	}
+	if result.Plan != nil {
+		s.bindProjectTodosToOrchestratorPlan(requestID, result.Plan.ID)
+	}
+	return result, nil
 }
 
 func (s *Service) RetryOrchestratorPlanning(sessionID, requestID string) (orchestrator.PlanningRequest, error) {
@@ -257,6 +291,7 @@ func (s *Service) RetryOrchestratorPlanning(sessionID, requestID string) (orches
 	if err != nil {
 		return orchestrator.PlanningRequest{}, fmt.Errorf("retry orchestrator planning worker: %w", err)
 	}
+	s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionProcessing, "")
 	s.bus.Publish(sessionID, "orchestrator.plan_requeued", map[string]any{
 		"project_path": item.ProjectPath, "request_id": requestID, "worker_task_id": retried.TaskID,
 	})

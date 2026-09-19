@@ -208,6 +208,9 @@ func (a *API) finishChatAgentTask(w http.ResponseWriter, r *http.Request, attent
 		writeChatAgentTaskError(w, err)
 		return
 	}
+	if a.service != nil {
+		a.service.HandleChatAgentTaskTerminal(task)
+	}
 	writeJSON(w, http.StatusOK, task)
 }
 

@@ -792,6 +792,11 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		return planner.Result{}, domain.Session{}, err
 	}
 	requestID := ids.New("req")
+	linkedTodos, err := s.resolveProjectTodos(item.ProjectPath, projectTodoIDsFromMessage(message))
+	if err != nil {
+		return planner.Result{}, item, err
+	}
+	message = messageWithProjectTodos(message, linkedTodos)
 	// Normalize the operator's own directives first, so every later reader —
 	// the grant resolver, the legend, the model, and this prompt re-parsed on a
 	// continuation — sees one spelling. The markers stay where they were
@@ -870,7 +875,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	contextDelta := s.computeContextDelta(ctx, item, knowledgeReviewRoot(item, parentRequestID), requestID, baseCommit)
 	var releasedBases []string
 	var prunedContexts []string
-	if _, err := s.store.Update(sessionID, func(current *domain.Session) error {
+	trackedItem, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
 		current.PlannerInFlight = true
@@ -893,11 +898,17 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		recordRequestContextDelta(current, requestID, contextDelta)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return planner.Result{}, item, err
 	}
+	item = trackedItem
 	s.cleanupPrunedRequestContexts(prunedContexts)
 	s.releaseRequestBaseRefs(ctx, sessionID, item.ProjectPath, releasedBases)
+	if err := s.linkProjectTodos(linkedTodos, item, requestID, "chat"); err != nil {
+		s.setProjectTodosByRequestLineage(item, requestID, domain.ProjectTodoExecutionFailed, err.Error())
+		return planner.Result{}, item, err
+	}
 	s.bus.Publish(sessionID, "planner.started", map[string]any{"request_id": requestID, "base_context_sha256": requestBaselineSHA, "planning_mode": planningMode, "parent_request_id": parentRequestID})
 	expectedFilename := expectedResponseBundleFilename(item, requestID)
 	if parentRequestID != "" {
@@ -912,6 +923,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			return nil
 		})
 		s.bus.Publish(sessionID, "planner.failed", map[string]any{"error": err.Error()})
+		s.setProjectTodosByRequestLineage(item, requestID, domain.ProjectTodoExecutionFailed, err.Error())
 		return planner.Result{}, item, err
 	}
 	if result.ManualPrompt != "" {
@@ -922,6 +934,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	}
 	enrichPlanConcurrency(result.Plan, requestBaselineSHA)
 	if err := normalizePlannerResult(requestID, &result); err != nil {
+		s.setProjectTodosByRequestLineage(item, requestID, domain.ProjectTodoExecutionFailed, err.Error())
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
 				current.PlannerInFlight = false
@@ -1031,6 +1044,20 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			} else {
 				updated = repaired
 			}
+		}
+	}
+	if len(linkedTodos) > 0 {
+		switch {
+		case updated.State == "applied" || updated.State == "restart_pending":
+			s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionDone, "")
+		case updated.State == "failed":
+			s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionFailed, updated.LastRepairError)
+		case result.Turn != nil && result.Turn.Outcome != nil && result.Turn.Outcome.Status != domain.TurnOutcomeCompleted:
+			s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionFailed, result.Turn.Outcome.Message)
+		case result.Turn != nil && result.Turn.Kind == domain.TurnKindBlocked:
+			s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionFailed, "request blocked")
+		case result.Plan == nil && result.Turn != nil && (result.Turn.Kind == domain.TurnKindAnswer || result.Turn.Kind == domain.TurnKindInvestigation):
+			s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionDone, "")
 		}
 	}
 	// v2 knowledge is carried inside every ordinary response bundle and no
@@ -2444,6 +2471,7 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 		current.FailureKind = classifyExecutionFailure(cause)
 		return nil
 	})
+	s.setProjectTodosByRequestLineage(updated, updated.LastRequestID, domain.ProjectTodoExecutionFailed, cause.Error())
 	if updated.ExecutionMode == domain.ExecutionModeUnprotected {
 		s.resetDevspace(sessionID)
 	}
@@ -2815,6 +2843,16 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 		return refreshed, err
 	}
 	s.cleanupPrunedRequestContexts(prunedContexts)
+	switch {
+	case planned.Turn != nil && planned.Turn.Outcome != nil && planned.Turn.Outcome.Status != domain.TurnOutcomeCompleted:
+		s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionFailed, planned.Turn.Outcome.Message)
+	case planned.Turn != nil && planned.Turn.Kind == domain.TurnKindBlocked:
+		s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionFailed, "request blocked")
+	case planned.Plan == nil && planned.Turn != nil && (planned.Turn.Kind == domain.TurnKindAnswer || planned.Turn.Kind == domain.TurnKindInvestigation):
+		s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionDone, "")
+	default:
+		s.setProjectTodosByRequestLineage(updated, requestID, domain.ProjectTodoExecutionProcessing, "")
+	}
 	if planned.Plan == nil {
 		s.bus.Publish(sessionID, "repair.prompt_ready", map[string]any{"request_id": requestID, "attempt": attempt, "failed_plan_id": result.PlanID, "iteration_kind": lineageKind})
 	} else {
@@ -3436,6 +3474,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		s.deleteSubmoduleIntegrationBranches(ctx, sessionID, item.ProjectPath, integratedSubmodules(mergedIntegrationBranches, false))
 	}
 
+	s.setProjectTodosByRequestLineage(updated, updated.LastRequestID, domain.ProjectTodoExecutionDone, "")
 	if selfEvolution {
 		transaction.ReleaseStage()
 		s.resetDevspace(sessionID)

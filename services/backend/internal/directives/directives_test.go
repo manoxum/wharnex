@@ -235,3 +235,15 @@ func TestChatAndLibraryDirectivesUseStableArtifactReferences(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestTodoDirectiveCanonicalizesStableIDsAndSupportsMultiple(t *testing.T) {
+	input := "resolve @TODO:todo_123 together with @todo:todo-456"
+	parsed := Parse(input)
+	if len(parsed) != 2 || parsed[0].Kind != KindTodo || parsed[0].Value != "todo_123" || parsed[1].Value != "todo-456" {
+		t.Fatalf("parsed=%#v", parsed)
+	}
+	want := "resolve @{[todo]todo_123} together with @{[todo]todo-456}"
+	if got := Canonicalize(input); got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}

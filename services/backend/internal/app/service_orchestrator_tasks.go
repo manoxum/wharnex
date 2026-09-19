@@ -132,5 +132,6 @@ func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, tas
 		task = updated
 	}
 	s.bus.Publish(sessionID, "orchestrator.task_transitioned", map[string]any{"task_id": task.ID, "status": task.Status, "condition": task.Condition})
+	s.reconcileProjectTodosForOrchestratorPlan(ctx, item.ProjectPath, task.PlanID)
 	return task, err
 }

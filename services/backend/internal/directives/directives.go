@@ -63,6 +63,8 @@ const (
 	KindChat Kind = "chat"
 	// KindLib points at a persisted file in the global Wharnex library.
 	KindLib Kind = "lib"
+	// KindTodo points at one project TODO by its stable ID.
+	KindTodo Kind = "todo"
 )
 
 const (
@@ -98,6 +100,7 @@ var keywords = []KeywordSpec{
 	{Kind: KindSee, Keyword: "see", Aliases: []string{"look"}},
 	{Kind: KindChat, Keyword: "chat"},
 	{Kind: KindLib, Keyword: "lib", Aliases: []string{"library"}},
+	{Kind: KindTodo, Keyword: "todo", Aliases: []string{"TODO"}},
 }
 
 // Keywords returns the directive vocabulary, so a menu — or a test — can
@@ -148,7 +151,7 @@ func typedKeywordAlternation() string {
 // "change @ref:core, then stop" refers to `core`, not to `core,`. A value that
 // genuinely contains one of those characters needs the bracketed form, which is
 // what it is for.
-var pattern = regexp.MustCompile(`@\{\[(file|ref|attach|see|chat|lib)\]([^{}\n]*)\}|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
+var pattern = regexp.MustCompile(`@\{\[(file|ref|attach|see|chat|lib|todo)\]([^{}\n]*)\}|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
 
 // Directive is one parsed reference, with the byte range it occupied.
 type Directive struct {
@@ -267,6 +270,11 @@ func build(kind Kind, raw string) (Directive, bool) {
 		return parseChatValue(strings.TrimSpace(raw))
 	case KindLib:
 		return parseLibraryValue(strings.TrimSpace(raw))
+	case KindTodo:
+		if !namePattern.MatchString(value) {
+			return Directive{}, false
+		}
+		return Directive{Kind: KindTodo, Value: value, Path: value}, true
 	case KindRef:
 		segments := strings.Split(raw, "|")
 		target := strings.TrimRight(strings.TrimSpace(segments[0]), "/.")

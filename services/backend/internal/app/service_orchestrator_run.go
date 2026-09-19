@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/orchestrator"
 )
@@ -128,5 +129,6 @@ func (s *Service) failOrchestratorRun(ctx context.Context, task orchestrator.Tas
 	task.UpdatedAt = completed
 	_ = s.orchestrator.PutTask(ctx, task)
 	_ = s.orchestrator.AppendRun(ctx, run)
+	s.setProjectTodosByPlan(task.ProjectPath, task.PlanID, domain.ProjectTodoExecutionFailed, cause.Error())
 	return OrchestratorRunResult{Task: task, Run: run}, cause
 }

@@ -283,6 +283,16 @@ describe('aliases', () => {
     }
   })
 
+  it('canonicalizes @TODO and offers multiple TODO IDs through the same directive grammar', () => {
+    expect(canonicalizeDirectives('resolve @TODO:todo_123 and @todo:todo-456')).toBe('resolve @{[todo]todo_123} and @{[todo]todo-456}')
+    const query = directiveQuery('@TODO:todo', '@TODO:todo'.length)!
+    const rows = directiveSuggestions(query, [], projects, [], [], [], [], [
+      { value: 'todo_123', label: 'Corrigir login', detail: 'todo_123' },
+      { value: 'todo_456', label: 'Melhorar pesquisa', detail: 'todo_456' },
+    ])
+    expect(rows[0]).toMatchObject({ value: 'todo_123' })
+  })
+
   it('indexes chat and library files with stable canonical markers', () => {
     expect(canonicalizeDirectives('usa @chat:diagram.png e @library:session|ses_123|artifact_456'))
       .toBe('usa @{[chat]diagram.png} e @{[lib]session|ses_123|artifact_456}')
@@ -300,7 +310,7 @@ describe('bare @ kind picker', () => {
   })
 
   it('filters by keyword or any alias', () => {
-    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach', 'see', 'chat', 'lib'])
+    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach', 'see', 'chat', 'lib', 'todo'])
     expect(directiveKindSuggestions('proj').map((s) => s.kind)).toEqual(['ref'])
     expect(directiveKindSuggestions('dir').map((s) => s.kind)).toEqual(['attach'])
   })
