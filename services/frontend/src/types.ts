@@ -75,6 +75,42 @@ export type CommandResult = {
   baseline_output?: string
 }
 
+export type ExecutionErrorLog = {
+  kind: string
+  argv?: string[]
+  cwd?: string
+  exit_code?: number
+  stdout?: string
+  stderr?: string
+  operation_id?: string
+  operation_type?: string
+  output?: string
+  error?: string
+  duration_ms?: number
+}
+
+export type ExecutionErrorSolution = { request_id: string; plan_id: string; summary: string; commit_message?: string }
+
+export type ExecutionErrorRecord = {
+  id: string
+  session_id: string
+  chat_id: string
+  root_request_id?: string
+  request_id?: string
+  plan_id?: string
+  stage: string
+  error: string
+  cause?: string
+  failure_kind?: string
+  status_code?: number
+  logs: ExecutionErrorLog[]
+  status: 'open' | 'resolved'
+  gpt_solution?: ExecutionErrorSolution
+  occurred_at: string
+  resolved_at?: string
+  updated_at: string
+}
+
 export type ExecutionResult = {
   plan_id: string
   success: boolean

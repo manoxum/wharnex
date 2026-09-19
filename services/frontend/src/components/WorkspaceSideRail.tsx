@@ -24,6 +24,7 @@ import { drawerResizeCeiling, WORKBENCH_SIDE_PANEL_MIN_PX } from '../lib/workben
 // open instead keeps that cost off the startup path entirely.
 const AgentProjectExplorer = lazy(() => import('./AgentProjectExplorer').then((m) => ({ default: m.AgentProjectExplorer })))
 const ProjectActivityDrawer = lazy(() => import('./ProjectActivityDrawer').then((m) => ({ default: m.ProjectActivityDrawer })))
+const ExecutionErrorsDrawer = lazy(() => import('./ExecutionErrorsDrawer').then((m) => ({ default: m.ExecutionErrorsDrawer })))
 const EvolutionEvidenceDrawer = lazy(() => import('./EvolutionEvidenceDrawer').then((m) => ({ default: m.EvolutionEvidenceDrawer })))
 const ProjectKnowledgeDrawer = lazy(() => import('./ProjectKnowledgeDrawer').then((m) => ({ default: m.ProjectKnowledgeDrawer })))
 const GitDrawer = lazy(() => import('./GitDrawer').then((m) => ({ default: m.GitDrawer })))
@@ -37,7 +38,7 @@ function DrawerFallback() {
   return <PanelSkeleton/>
 }
 
-export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | ProjectActivityKind | ''
+export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | 'errors' | ProjectActivityKind | ''
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 44
@@ -138,6 +139,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     if (tool === 'tasks') return { label: 'Tarefas do runtime', title: 'Fila e tarefas em execução', icon: 'list', drawer: 'tasks' }
     if (tool === 'plans') return { label: 'Planos do projeto', title: 'Planos do projeto', icon: 'plan', drawer: 'plans' }
     if (tool === 'executions') return { label: 'Execuções do projeto', title: 'Execuções do projeto', icon: 'history', drawer: 'executions' }
+    if (tool === 'errors') return { label: 'Erros de execução', title: 'Ocorrências, causas, logs e soluções', icon: 'alert', drawer: 'errors' }
     if (tool === 'fifo') return { label: 'Fila FIFO de execução', title: 'Fila FIFO de execução', icon: 'play', drawer: 'fifo', badge: activeExecutionCount }
     if (tool === 'evolution') return { label: 'Logs de auto-evolução', title: 'Logs e análise de auto-evolução', icon: 'refresh', drawer: 'evolution' }
     if (tool === 'database') return { label: 'Database connection', title: 'Database connection', icon: 'database', drawer: 'database' }
@@ -206,6 +208,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     {drawer === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
     {drawer === 'tasks' ? <ChatAgentTasksDrawer projectPath={session.project_path} onClose={close} onError={onError} chats={props.chats} onGoToChat={props.onGoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onFollowInstance={props.onFollowInstance}/> : null}
     {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close}/> : null}
+    {drawer === 'errors' ? <ExecutionErrorsDrawer chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} onClose={close}/> : null}
     {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
     {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
     {drawer === 'database' ? <div className="workspace-database-drawer"><DatabaseExplorerPanel onError={onError}/><button type="button" className="workspace-right-close" onClick={close} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button></div> : null}
