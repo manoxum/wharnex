@@ -54,9 +54,14 @@ export function chatGPTFillComposerScript(text) {
     // Whether the editor accepted it is decided by reading the composer back,
     // never by the event's own return value: cancelling a paste says the page
     // handled the event, not that the text landed.
-    const normalize = (candidate) => String(candidate || '').replace(/\\s+/g, ' ').trim();
-    const wanted = normalize(value);
-    const holdsWanted = () => normalize(composer.textContent).includes(wanted);
+    // Whitespace is removed entirely on both sides rather than collapsed. The
+    // editor decides how line boundaries read back, and textContent joins
+    // block children with no separator at all - so a collapsed-whitespace
+    // comparison could never match a block-structured write, and reported
+    // every such fill as failed.
+    const squash = (candidate) => String(candidate || '').replace(/\\s+/g, '');
+    const wanted = squash(value);
+    const holdsWanted = () => wanted.length > 0 && squash(composer.textContent).includes(wanted);
     try {
       const transfer = new DataTransfer();
       transfer.setData('text/plain', value);

@@ -125,7 +125,10 @@ test('composer text is written through the editor model and keeps its line struc
   // return value: cancelling a paste says the page handled the event, not that
   // the text landed - and an exact-match check failed a fill that had landed,
   // because the editor adds structure of its own.
-  assert.match(script, /const holdsWanted = \(\) => normalize\(composer\.textContent\)\.includes\(wanted\)/)
+  // Whitespace removed entirely, not collapsed: textContent joins block
+  // children with no separator, so a collapsed comparison could never match a
+  // block-structured write and failed every such fill.
+  assert.match(script, /squash\(composer\.textContent\)\.includes\(wanted\)/)
   assert.match(script, /if \(!holdsWanted\(\)\)/)
   assert.match(script, /return holdsWanted\(\)/)
 })
