@@ -1,20 +1,31 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS } from './chat-agent-pool.mjs'
-import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, keepFlowingForWorker, normalizeChatAgentPolicies } from './chat-agent-policies.mjs'
+import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState } from './chat-agent-policies.mjs'
 
 test('defaults global flow protection on and normalizes its bounded policy', () => {
   assert.deepEqual(normalizeChatAgentPolicies(), {
-    auto_scale: true, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: HARD_MAX_WORKER_SLOTS, keep_flowing_global: true, keep_flowing_workers: [],
+    auto_scale: true, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: HARD_MAX_WORKER_SLOTS, keep_flowing_global: true, keep_flowing_workers: [], workers_suspended: false, workers_suspended_until: '',
   })
   assert.equal(normalizeChatAgentPolicies({ keep_flowing_global: false }).auto_scale, true)
   assert.deepEqual(normalizeChatAgentPolicies({ auto_scale: false, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-3', 'worker-2', 'worker-2', 'worker-99', 'bad'] }), {
-    auto_scale: false, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-2', 'worker-3'],
+    auto_scale: false, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-2', 'worker-3'], workers_suspended: false, workers_suspended_until: '',
   })
   assert.equal(normalizeChatAgentPolicies({ auto_scale_max_workers: 99 }).auto_scale_max_workers, HARD_MAX_WORKER_SLOTS)
   assert.equal(normalizeChatAgentPolicies({ auto_scale_max_workers: 0 }).auto_scale_max_workers, 1)
   assert.equal(keepFlowingForWorker({ keep_flowing_workers: ['worker-2'] }, 2), true)
   assert.equal(keepFlowingForWorker({ keep_flowing_global: true }, 'worker-3'), true)
+})
+
+
+test('worker suspension supports manual release and an expiring deadline without pausing supervisors', () => {
+  const now = Date.parse('2026-09-19T14:00:00Z')
+  assert.deepEqual(workerSuspensionState({ workers_suspended: true }, now), { paused: true, paused_until: '' })
+  assert.deepEqual(workerSuspensionState({ workers_suspended: true, workers_suspended_until: '2026-09-19T14:30:00Z' }, now), {
+    paused: true, paused_until: '2026-09-19T14:30:00.000Z',
+  })
+  assert.deepEqual(workerSuspensionState({ workers_suspended: true, workers_suspended_until: '2026-09-19T13:59:59Z' }, now), { paused: false, paused_until: '' })
+  assert.deepEqual(workerSuspensionState({ workers_suspended: false, workers_suspended_until: '2026-09-19T14:30:00Z' }, now), { paused: false, paused_until: '' })
 })
 
 test('auto scale fills unmet Worker demand up to the configured ceiling', () => {

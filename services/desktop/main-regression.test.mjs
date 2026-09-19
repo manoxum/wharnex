@@ -1126,6 +1126,32 @@ test('Agents panel suspension uses the durable provider pause with optional dead
   assert.match(preload, /pauseProvider: \(pausedUntil\) => invoke\('wharness:agents:pause-provider'/)
 })
 
+
+test('Agents tab Worker suspension is persisted locally and blocks only Worker claims', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
+  const pauseStart = source.indexOf("ipcMain.handle('wharness:agents:pause-workers'")
+  const pauseEnd = source.indexOf("ipcMain.handle('wharness:agents:pause-provider'", pauseStart)
+  const pauseHandlers = source.slice(pauseStart, pauseEnd)
+  const workerSchedulerStart = source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient(')
+  const workerSchedulerEnd = source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient(', workerSchedulerStart)
+  const workerScheduler = source.slice(workerSchedulerStart, workerSchedulerEnd)
+  const supervisorScheduler = source.slice(workerSchedulerEnd, source.indexOf("app.on('before-quit'", workerSchedulerEnd))
+  const scaleStart = source.indexOf('async function reconcileChatAgentAutoScale()')
+  const scaleEnd = source.indexOf('function reconcileChatAgentSupervisorAutoScale', scaleStart)
+  const scale = source.slice(scaleStart, scaleEnd)
+
+  assert.ok(pauseStart >= 0, 'worker pause IPC handler must exist')
+  assert.match(pauseHandlers, /workers_suspended: true, workers_suspended_until: pausedUntil/)
+  assert.match(pauseHandlers, /workers_suspended: false, workers_suspended_until: ''/)
+  assert.match(pauseHandlers, /persistChatAgentPolicies\(\)/)
+  assert.match(preload, /pauseWorkers: \(pausedUntil\) => invoke\('wharness:agents:pause-workers'/)
+  assert.match(preload, /resumeWorkers: \(\) => invoke\('wharness:agents:resume-workers'/)
+  assert.match(workerScheduler, /workerSuspensionState\(chatAgentPolicies\)\.paused\) return \{ skip: true \}/)
+  assert.doesNotMatch(supervisorScheduler, /workerSuspensionState\(chatAgentPolicies\)/)
+  assert.ok(scale.indexOf('reconcileChatAgentSupervisorAutoScale(queue)') < scale.indexOf('workerSuspensionState(chatAgentPolicies).paused'), 'Supervisor scaling must reconcile before Worker suspension returns')
+})
+
 test('switching chats reuses a released Supervisor slot and preserves visible intent when recycling', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')
@@ -2186,8 +2212,9 @@ test('a conversation still producing a response is never concluded without evide
 
 test('live response residency is pinned so excess chats cannot cause navigation thrash', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
-  assert.match(scheduler.slice(0, 1800), /pinResident: chatAgentSupervisingLiveResponse\(worker\)/)
+  const schedulerStart = source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient(')
+  const scheduler = source.slice(schedulerStart, source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient(', schedulerStart))
+  assert.match(scheduler, /pinResident: chatAgentSupervisingLiveResponse\(worker\)/)
   assert.match(source, /const MAX_BUNDLE_CONTINUATIONS = 3/)
   assert.match(source, /chatGPTDeliveryContinuationPrompt\(expected\.requestId, expected\.filename, expected\.originalPrompt\)/)
 })

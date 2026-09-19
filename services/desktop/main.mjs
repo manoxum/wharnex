@@ -26,7 +26,7 @@ import { desktopIconSVG, desktopInstanceName, desktopWindowTitle } from './deskt
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
-import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, keepFlowingForWorker, normalizeChatAgentPolicies } from './chat-agent-policies.mjs'
+import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState } from './chat-agent-policies.mjs'
 import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
@@ -2517,6 +2517,12 @@ async function reconcileChatAgentAutoScale() {
     // never from the same number: they own disjoint task types, so the shared
     // `due` total describes neither of them.
     const supervisorChanged = reconcileChatAgentSupervisorAutoScale(queue)
+    // Worker suspension is intentionally narrower than the provider gate: the
+    // Supervisor pool remains operational while Workers stop taking new claims.
+    if (workerSuspensionState(chatAgentPolicies).paused) {
+      if (supervisorChanged) publishChatAgentRuntimeState()
+      return
+    }
     const grow = autoScaleTarget({
       enabled: true, due: queue.due_worker, available: chatAgentAvailableWorkers(), current: desiredChatAgentWorkerSlots, maxWorkers: chatAgentPolicies.auto_scale_max_workers,
     })
@@ -2921,6 +2927,7 @@ function chatAgentRuntimeMemory(agents) {
 }
 
 function chatAgentRuntimeState() {
+  const workerPause = workerSuspensionState(chatAgentPolicies)
   const supervisors = Array.from({ length: desiredChatAgentSupervisorSlots }, (_, offset) => {
     const slot = offset + 1
     const id = chatSupervisorSlotID(slot)
@@ -2974,7 +2981,7 @@ function chatAgentRuntimeState() {
       project_id: chatAgentAgentProject(runtime.task, runtime.lastTask, chatAgentKeepFlowingActive(worker)),
       last_task: publicChatAgentTask(runtime.lastTask), last_claim_at: String(runtime.lastClaimAt || ''),
       error: String(runtime.error || ''), browser: publicAgentBrowser(entry), residency: chatAgentResidency.snapshot(entry.slotId),
-      keep_flowing: chatAgentKeepFlowingConfigured(worker), keep_flowing_active: chatAgentKeepFlowingActive(worker),
+      keep_flowing: chatAgentKeepFlowingConfigured(worker), keep_flowing_active: chatAgentKeepFlowingActive(worker), suspended: workerPause.paused,
     }
   })
   const agents = [...supervisors, ...workers]
@@ -2999,6 +3006,7 @@ function chatAgentRuntimeState() {
     scheduler: chatAgentRuntimeDiagnostics.scheduler,
     queue: chatAgentRuntimeDiagnostics.queue,
     provider: chatAgentRuntimeDiagnostics.provider,
+    worker_pause: workerPause,
     memory: memory.totals,
     agents: agents.map((agent) => ({ ...agent, memory: memory.by_agent[agent.id] })),
   }
@@ -7149,6 +7157,32 @@ function registerIPC() {
     persistChatAgentPolicies()
     return publishChatAgentRuntimeState()
   })
+  ipcMain.handle('wharness:agents:pause-workers', async (event, request) => {
+    trustedSender(event)
+    const rawUntil = String(request?.pausedUntil || '').trim()
+    let pausedUntil = ''
+    if (rawUntil) {
+      const deadline = Date.parse(rawUntil)
+      if (!Number.isFinite(deadline)) throw new Error('Worker suspension deadline is invalid')
+      if (deadline <= Date.now()) throw new Error('Worker suspension deadline must be in the future')
+      pausedUntil = new Date(deadline).toISOString()
+    }
+    chatAgentPolicies = normalizeChatAgentPolicies({
+      ...chatAgentPolicies, workers_suspended: true, workers_suspended_until: pausedUntil,
+    })
+    persistChatAgentPolicies()
+    chatAgentScheduler?.wake()
+    return publishChatAgentRuntimeState()
+  })
+  ipcMain.handle('wharness:agents:resume-workers', async (event) => {
+    trustedSender(event)
+    chatAgentPolicies = normalizeChatAgentPolicies({
+      ...chatAgentPolicies, workers_suspended: false, workers_suspended_until: '',
+    })
+    persistChatAgentPolicies()
+    chatAgentScheduler?.wake()
+    return publishChatAgentRuntimeState()
+  })
   ipcMain.handle('wharness:agents:pause-provider', async (event, request) => {
     trustedSender(event)
     if (!chatAgentScheduler) throw new Error('Chat-agent scheduler is not ready')
@@ -7351,6 +7385,9 @@ app.whenReady().then(async () => {
     // a chat-bound task this pool must never navigate to.
     role: 'worker',
     claimOptions: (worker) => {
+      // Operator suspension is Worker-only: current tasks may settle, but this
+      // pool must not claim another task until manual or timed release.
+      if (workerSuspensionState(chatAgentPolicies).paused) return { skip: true }
       // A suspended provider must stop the pool at the claim, not at the
       // submission. Claiming during a cooldown charges an attempt to every task
       // it touches and hands each one straight back to WAITING — churn that

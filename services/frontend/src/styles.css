@@ -3223,7 +3223,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-tabs button span { font-weight:700; }
 .agent-runtime-tabs button small { padding:2px 5px; border:1px solid var(--theme-border-soft); border-radius:999px; color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); line-height:1; }
 .agent-runtime-tab-panel { min-height:0; overflow:auto; background:color-mix(in srgb,var(--theme-bg) 96%,var(--theme-surface)); }
-.agent-runtime-tab-panel.agents { overflow:hidden; display:grid; grid-template-rows:auto minmax(0,1fr); }
+.agent-runtime-tab-panel.agents { overflow:hidden; display:grid; grid-template-rows:auto auto minmax(0,1fr); }
 .agent-runtime-tab-panel.agents .agent-runtime-body { height:100%; }
 .agent-runtime-state-legend { padding:7px 12px; display:flex; flex-wrap:wrap; gap:6px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
 .agent-runtime-state-legend > span { display:inline-flex; align-items:center; gap:6px; color:var(--theme-text-muted); font-size:calc(8px * var(--ui-font-scale)); white-space:nowrap; }
@@ -3303,8 +3303,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-list > button.state-error { --agent-state:var(--danger); }
 .agent-runtime-list > button.state-stopped { --agent-state:#68707f; }
 .agent-runtime-list > button.state-draining { --agent-state:#c27535; }
+.agent-runtime-list > button.state-paused { --agent-state:var(--warning); }
 .agent-runtime-dot { width:9px; height:9px; display:inline-block; border-radius:50%; background:var(--theme-text-muted); }
 .agent-runtime-dot.state-idle { background:#7c8aa0; }
+.agent-runtime-dot.state-paused { background:var(--warning); box-shadow:0 0 0 4px color-mix(in srgb,var(--warning) 14%,transparent); }
 .agent-runtime-dot.state-writing { background:#9b6cff; box-shadow:0 0 0 4px color-mix(in srgb,#9b6cff 15%,transparent); }
 .agent-runtime-dot.state-listening { background:#16a6c9; box-shadow:0 0 0 4px color-mix(in srgb,#16a6c9 15%,transparent); }
 .agent-runtime-dot.state-waiting { background:#df9c24; }

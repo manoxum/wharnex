@@ -15,11 +15,12 @@ function runtime(desiredWorkers = 6, desiredSupervisors = 3): DesktopAgentRuntim
     configured_supervisors: desiredSupervisors,
     desired_workers: desiredWorkers,
     configured_workers: desiredWorkers,
-    policies: { auto_scale: false, auto_scale_max_supervisors: 12, auto_scale_max_workers: 6, keep_flowing_global: false, keep_flowing_workers: [], auto_scaled_supervisors: 0, auto_scaled_workers: 0 },
+    policies: { auto_scale: false, auto_scale_max_supervisors: 12, auto_scale_max_workers: 6, keep_flowing_global: false, keep_flowing_workers: [], workers_suspended: false, workers_suspended_until: '', auto_scaled_supervisors: 0, auto_scaled_workers: 0 },
     limits: { min_supervisors: 1, max_supervisors: 12, min_workers: 1, max_workers: 6 },
     scheduler: { running: true, backend_reachable: true, last_refresh_at: '2026-09-11T10:00:00Z', last_error: '' },
     queue: { queued: 2, counts: { RUNNING: 1, WAITING: 1 }, due: 1, scheduled: 0, blocked: 0, oldest_due_created_at: '2026-09-11T09:55:00Z', next_not_before: '2026-09-11T10:00:10Z' },
     provider: { provider: 'chatgpt', paused: false, paused_until: '', reason: '', updated_at: '2026-09-11T10:00:00Z' },
+    worker_pause: { paused: false, paused_until: '' },
     memory: { available: true, total_workers_bytes: 340 * 1024 * 1024, total_supervisors_bytes: 220 * 1024 * 1024, total_agents_bytes: 560 * 1024 * 1024, desktop_bytes: 420 * 1024 * 1024, total_bytes: 980 * 1024 * 1024 },
     agents: [
       { id: 'supervisor-1', label: 'Supervisor 1', role: 'supervisor', status: 'idle', draining: false, chat_id: 'chat-human', error: '', browser: { available: true, web_contents_id: 10, os_process_id: 1010, url: 'https://chatgpt.com/c/human', title: 'Chat humano', loading: false }, memory: { available: true, rss_bytes: 110 * 1024 * 1024, os_process_id: 1010, shared_process: false } },
@@ -37,6 +38,8 @@ function agentsBridge(state: DesktopAgentRuntimeState = runtime()) {
     setWorkerCount: vi.fn(async (count: number) => runtime(count)),
     setPolicies: vi.fn(async (policies: { auto_scale?: boolean; auto_scale_max_supervisors?: number; auto_scale_max_workers?: number; keep_flowing_global?: boolean }) => ({ ...state, policies: { ...state.policies, ...policies } })),
     setWorkerKeepFlowing: vi.fn(async (agentId: string, enabled: boolean) => ({ ...state, agents: state.agents.map((agent) => agent.id === agentId ? { ...agent, keep_flowing: enabled } : agent) })),
+    pauseWorkers: vi.fn(async (pausedUntil?: string) => ({ ...state, worker_pause: { paused: true, paused_until: pausedUntil || '' } })),
+    resumeWorkers: vi.fn(async () => ({ ...state, worker_pause: { paused: false, paused_until: '' } })),
     pauseProvider: vi.fn(async (pausedUntil?: string) => ({ ...state, provider: { ...state.provider, paused: true, paused_until: pausedUntil || '' } })),
     resumeProvider: vi.fn(async () => runtime()),
     snapshot: vi.fn(async (agentId: string) => ({ agentId, dataUrl: 'data:image/png;base64,AA==', capturedAt: '2026-09-10T23:00:00Z' })),
@@ -252,6 +255,49 @@ describe('AgentRuntimeDrawer', () => {
     fireEvent.click(button)
     await waitFor(() => expect(agents.snapshot).toHaveBeenCalledWith('supervisor-1'))
     expect(await screen.findByRole('img', { name: /Captura do navegador de Supervisor 1/ })).toBeTruthy()
+  })
+
+
+  it('suspends only Workers from the Agents tab until the configured release window', async () => {
+    const agents = agentsBridge()
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    expect(await screen.findByText('Suspende apenas novos claims dos Workers; tarefas em curso terminam e os Supervisores continuam operacionais.')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Minutos até retoma dos Workers'), { target: { value: '30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
+
+    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledTimes(1))
+    const pausedUntil = String(agents.pauseWorkers.mock.calls[0][0] || '')
+    expect(Date.parse(pausedUntil)).toBeGreaterThan(Date.now() + 29 * 60_000)
+    expect(Date.parse(pausedUntil)).toBeLessThan(Date.now() + 31 * 60_000)
+    expect(agents.pauseProvider).not.toHaveBeenCalled()
+  })
+
+  it('supports manual Worker suspension and explicit release without pausing Supervisors', async () => {
+    const agents = agentsBridge()
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+
+    const { unmount } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.change(await screen.findByLabelText('Modo de retoma dos Workers'), { target: { value: 'manual' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
+    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined))
+    unmount()
+
+    const paused = runtime()
+    paused.worker_pause = { paused: true, paused_until: '' }
+    paused.policies = { ...paused.policies, workers_suspended: true, workers_suspended_until: '' }
+    paused.agents = paused.agents.map((agent) => agent.role === 'worker' ? { ...agent, suspended: true, status: 'idle', task: undefined } : agent)
+    const pausedAgents = agentsBridge(paused)
+    window.wharnessDesktop = { agents: pausedAgents } as unknown as WharnessDesktopBridge
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+
+    expect(await screen.findByText('Suspensos · aguardam liberação manual')).toBeTruthy()
+    expect(screen.getByText('Worker · Suspenso')).toBeTruthy()
+    expect(screen.getByText('Supervisor · Chat sem jobs')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Retomar Workers' }))
+    await waitFor(() => expect(pausedAgents.resumeWorkers).toHaveBeenCalledTimes(1))
+    expect(pausedAgents.resumeProvider).not.toHaveBeenCalled()
   })
 
   it('suspends all new agentic work with an automatic resume deadline', async () => {
