@@ -10,7 +10,7 @@ HOST_PTY_BIN := $(DIST_DIR)/bin/wharnex-host-pty
 BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 
-.PHONY: reset-data clean-all help deps deps-status deps-refresh build-status build-refresh storage-prune runner-deps build build-stage build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
+.PHONY: reset-data clean-all help deps deps-unlocked deps-status deps-refresh deps-refresh-unlocked build-status build-refresh storage-prune runner-deps build build-stage build-stage-unlocked build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
 	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
 	electron-runtime-check electron-runtime-install electron-runtime-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
@@ -61,6 +61,12 @@ help:
 		'  WHARNESS_OZONE_PLATFORM=wayland make start'
 
 deps:
+	@WHARNESS_ROOT="$(ROOT_DIR)" \
+		"$(ROOT_DIR)/scripts/build-lock.sh" \
+		make --no-print-directory deps-unlocked
+
+
+deps-unlocked:
 	@command -v git >/dev/null || { echo 'git is required' >&2; exit 1; }
 	@command -v curl >/dev/null || { echo 'curl is required' >&2; exit 1; }
 	@WHARNESS_ROOT="$(ROOT_DIR)" \
@@ -77,6 +83,12 @@ deps-status:
 
 
 deps-refresh:
+	@WHARNESS_ROOT="$(ROOT_DIR)" \
+		"$(ROOT_DIR)/scripts/build-lock.sh" \
+		make --no-print-directory deps-refresh-unlocked
+
+
+deps-refresh-unlocked:
 	@WHARNESS_ROOT="$(ROOT_DIR)" \
 		WHARNESS_NPM_CACHE="$(NPM_CACHE)" \
 		WHARNESS_DEPS_CACHE_DIR="$(DEPS_CACHE_DIR)" \
@@ -118,10 +130,16 @@ build-runner: runner-deps
 	docker build -t "$(RUNNER_IMAGE)" -f "$(ROOT_DIR)/docker/runner/Dockerfile" "$(ROOT_DIR)"
 
 build-stage:
+	@WHARNESS_ROOT="$(ROOT_DIR)" \
+		"$(ROOT_DIR)/scripts/build-lock.sh" \
+		make --no-print-directory build-stage-unlocked
+
+
+build-stage-unlocked:
 	@mkdir -p "$(dir $(BUILD_STAMP))"
 	@if [ -f "$(BUILD_STAMP)" ]; then cp -p "$(BUILD_STAMP)" "$(BUILD_BASELINE_STAMP)"; fi
 	@rm -f "$(BUILD_STAMP)"
-	@$(MAKE) --no-print-directory deps
+	@$(MAKE) --no-print-directory deps-unlocked
 	@$(MAKE) --no-print-directory -j"$(BUILD_JOBS)" build-backend build-frontend build-desktop
 	@$(MAKE) --no-print-directory stack-build
 	@touch "$(BUILD_STAMP)"
