@@ -48,6 +48,22 @@ describe('chat header CSS', () => {
   })
 })
 
+describe('plan approval actions CSS', () => {
+  it('keeps plan decisions compact, theme-aware and visually hierarchical', () => {
+    const approval = lastRule('.plan-approval')
+    const actions = firstRule('.message-plan > .plan-approval.plan-pending > div:last-child')
+    const buttons = lastRule('.message-plan > .plan-approval.plan-pending > div:last-child > button')
+    const primary = lastRule('.message-plan > .plan-approval.plan-pending > div:last-child > .apply-button')
+
+    expect(approval).toContain('border-radius: 12px')
+    expect(approval).toContain('var(--theme-elevated)')
+    expect(actions).toContain('border-radius: 10px')
+    expect(buttons).toContain('min-height: 29px')
+    expect(primary).toContain('background: var(--theme-accent)')
+    expect(primary).toContain('color: var(--theme-bg)')
+  })
+})
+
 describe('applied change summary CSS', () => {
   it('renders the total deletion count with the same red tone as file deletions', () => {
     const totalDeletions = lastRule('.change-summary-card > header > code i')

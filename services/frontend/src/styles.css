@@ -1261,12 +1261,25 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .message-wharness .message-body { background: #edf5e7; border-color: #b9d2a2; color: #3a5b28; border-radius: 8px; }
 .message-plan { width: min(92%, 820px); border-left: 3px solid #7992b6; padding-left: 8px; }
 .message-plan .message-body { background: #f3f6fa; border-color: #d7e0ea; }
-.plan-approval { margin-top: 8px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #d5dde7; border-radius: 9px; background: #eef3f8; color: #566579; font-size: calc(8.5px * var(--ui-font-scale)); }
+.plan-approval { margin-top: 9px; padding: 9px 10px 9px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid color-mix(in srgb, var(--theme-border) 78%, transparent); border-radius: 12px; background: color-mix(in srgb, var(--theme-elevated) 92%, var(--theme-accent-soft)); color: var(--theme-text-muted); font-size: calc(8.5px * var(--ui-font-scale)); box-shadow: inset 0 1px rgba(255,255,255,.38), 0 4px 14px color-mix(in srgb, var(--theme-shadow) 36%, transparent); }
 .plan-approval > div { display: flex; align-items: center; gap: 7px; }
+.plan-approval > div:first-child { min-width: 0; color: var(--theme-text-soft); }
+.plan-approval > div:first-child svg { flex: 0 0 auto; color: var(--theme-accent); }
 .plan-approval > div:last-child { justify-content: flex-end; flex-wrap: wrap; }
-.plan-approved { border-color: #c7dbc2; background: #edf5ea; color: #55704e; }
-.plan-rejected { border-color: #e2ceca; background: #f7efed; color: #805f58; }
-.plan-superseded { border-color: #d8d5c7; background: #f5f3ea; color: #726d59; }
+.message-plan > .plan-approval.plan-pending > div:last-child { padding: 3px; gap: 3px; flex-wrap: nowrap; border: 1px solid var(--theme-border-soft); border-radius: 10px; background: color-mix(in srgb, var(--theme-surface) 88%, transparent); box-shadow: 0 1px 2px color-mix(in srgb, var(--theme-shadow) 28%, transparent); }
+.message-plan > .plan-approval.plan-pending > div:last-child > button { min-height: 29px; padding: 0 10px; gap: 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--theme-text-muted); font-size: calc(8.5px * var(--ui-font-scale)); font-weight: 650; white-space: nowrap; transition: transform .14s ease, border-color .14s ease, background .14s ease, color .14s ease, box-shadow .14s ease; }
+.message-plan > .plan-approval.plan-pending > div:last-child > .text-button:hover:not(:disabled) { border-color: var(--theme-border-soft); background: var(--theme-hover); color: var(--theme-text); }
+.message-plan > .plan-approval.plan-pending > div:last-child > .text-button:first-child:hover:not(:disabled) { border-color: color-mix(in srgb, var(--danger) 32%, var(--theme-border-soft)); background: color-mix(in srgb, var(--danger) 9%, var(--theme-surface)); color: var(--danger); }
+.message-plan > .plan-approval.plan-pending > div:last-child > .apply-button { border-color: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-border)); background: var(--theme-accent); color: var(--theme-bg); box-shadow: 0 1px 2px color-mix(in srgb, var(--theme-accent) 28%, transparent); }
+.message-plan > .plan-approval.plan-pending > div:last-child > .apply-button:hover:not(:disabled) { transform: translateY(-1px); background: color-mix(in srgb, var(--theme-accent) 88%, var(--theme-text)); box-shadow: 0 4px 10px color-mix(in srgb, var(--theme-accent) 22%, transparent); }
+.message-plan > .plan-approval.plan-pending > div:last-child > button:focus-visible { outline: 2px solid color-mix(in srgb, var(--theme-accent) 72%, transparent); outline-offset: 1px; }
+.plan-approved { border-color: color-mix(in srgb, var(--success) 35%, var(--theme-border)); background: color-mix(in srgb, var(--success) 8%, var(--theme-elevated)); color: var(--theme-text-soft); }
+.plan-rejected { border-color: color-mix(in srgb, var(--danger) 30%, var(--theme-border)); background: color-mix(in srgb, var(--danger) 7%, var(--theme-elevated)); color: var(--theme-text-soft); }
+.plan-superseded { border-color: color-mix(in srgb, var(--warning) 28%, var(--theme-border)); background: color-mix(in srgb, var(--warning) 7%, var(--theme-elevated)); color: var(--theme-text-soft); }
+@media (max-width: 720px) {
+  .message-plan > .plan-approval.plan-pending { align-items: stretch; flex-direction: column; }
+  .message-plan > .plan-approval.plan-pending > div:last-child { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+}
 .chat-notice, .chat-thought { width: min(88%, 790px); margin: 3px auto; padding: 7px 10px; display: grid; grid-template-columns: 24px minmax(0,1fr) auto; gap: 8px; align-items: start; border: 1px solid #e0e3da; border-radius: 10px; background: #f7f8f4; color: #70776b; }
 .chat-notice strong, .chat-thought strong { display: block; margin-bottom: 2px; color: #626a5e; font-size: calc(8.5px * var(--ui-font-scale)); }
 .chat-notice p, .chat-thought p { margin: 0; font-size: calc(9px * var(--ui-font-scale)); line-height: 1.5; }
