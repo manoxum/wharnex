@@ -53,17 +53,14 @@ export function ProgressiveTranscriptEntry({ streamRef, deferUntilNear, priority
   children: ReactNode
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const [nearViewport, setNearViewport] = useState(!deferUntilNear)
-  const [hydrated, setHydrated] = useState(!deferUntilNear)
+  const canDefer = deferUntilNear && typeof IntersectionObserver !== 'undefined'
+  const [nearViewport, setNearViewport] = useState(!canDefer)
+  const [hydrated, setHydrated] = useState(!canDefer)
 
   useEffect(() => {
-    if (!deferUntilNear || hydrated || nearViewport) return
+    if (!canDefer || hydrated || nearViewport) return
     const host = hostRef.current
     if (!host) return
-    if (typeof IntersectionObserver === 'undefined') {
-      startTransition(() => setHydrated(true))
-      return
-    }
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return
       setNearViewport(true)
@@ -71,7 +68,7 @@ export function ProgressiveTranscriptEntry({ streamRef, deferUntilNear, priority
     }, { root: streamRef.current, rootMargin: '480px 0px' })
     observer.observe(host)
     return () => observer.disconnect()
-  }, [deferUntilNear, hydrated, nearViewport, streamRef])
+  }, [canDefer, hydrated, nearViewport, streamRef])
 
   useEffect(() => {
     if (!nearViewport || hydrated) return

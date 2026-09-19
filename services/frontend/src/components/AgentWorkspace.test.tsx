@@ -703,6 +703,8 @@ describe('AgentWorkspace', () => {
     const view = props()
     render(view.element)
     fireEvent.click(screen.getByRole('button', { name: 'Gestão de chats' }))
+    expect(screen.getByRole('tab', { name: /Guardados/ }).querySelector('svg')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /Arquivados/ }).querySelector('svg')).toBeTruthy()
     expect(screen.getByText('Diagnóstico antigo')).toBeTruthy()
     fireEvent.click(screen.getByText('Diagnóstico antigo'))
     fireEvent.click(screen.getByRole('button', { name: 'Restaurar chat' }))

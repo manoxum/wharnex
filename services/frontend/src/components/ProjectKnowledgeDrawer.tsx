@@ -39,12 +39,15 @@ export function ProjectKnowledgeDrawer({ session, onClose }: { session: Session;
         <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar conhecimentos"><Icon name="close" size={13}/></button>
       </div>
     </header>
-    {knowledge && <div className="project-knowledge-meta"><span>v{knowledge.version}</span><span>{new Date(knowledge.updated_at).toLocaleString()}</span>{knowledge.updated_by_request_id && <code>{knowledge.updated_by_request_id}</code>}</div>}
-    {knowledge && <label className="panel-search-field agent-explorer-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar conhecimentos" aria-label="Pesquisar conhecimentos"/>{query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={11}/></button>}</label>}
+    {knowledge && <div className="project-knowledge-toolbar">
+      <div className="project-knowledge-meta"><span className="project-knowledge-version"><Icon name="knowledge" size={12}/>v{knowledge.version}</span><span>{new Date(knowledge.updated_at).toLocaleString()}</span>{knowledge.updated_by_request_id && <code>{knowledge.updated_by_request_id}</code>}</div>
+      <label className="panel-search-field project-knowledge-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar conhecimentos" aria-label="Pesquisar conhecimentos"/>{query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={11}/></button>}</label>
+    </div>}
     {loading && !knowledge ? <div className="agent-drawer-empty">A carregar os conhecimentos adquiridos…</div> : error && !knowledge ? <div className="agent-drawer-empty">{error}</div> : !knowledge ? <div className="agent-drawer-empty">Ainda não há conhecimento persistido para este projeto. Ele é consolidado após alterações aplicadas e revistas.</div> : <div className="project-knowledge-layout">
       <nav className="project-knowledge-index" aria-label="Tópicos do conhecimento">
+        <div className="project-knowledge-index-heading"><span><Icon name="list" size={13}/>Tópicos</span><b>{visible.length}</b></div>
         <button type="button" className={selected === 'all' ? 'active' : ''} onClick={() => setSelected('all')}><Icon name="clipboard" size={13}/><span>Documento completo</span></button>
-        {visible.map((section) => <button type="button" key={section.id} className={selected === section.id ? 'active' : ''} onClick={() => setSelected(section.id)}><span>{section.title}</span></button>)}
+        {visible.map((section) => <button type="button" key={section.id} className={selected === section.id ? 'active' : ''} onClick={() => setSelected(section.id)}><Icon name="knowledge" size={12}/><span>{section.title}</span></button>)}
         {!visible.length && <div className="agent-drawer-empty">Nenhum tópico corresponde à pesquisa.</div>}
       </nav>
       <article className="project-knowledge-content">

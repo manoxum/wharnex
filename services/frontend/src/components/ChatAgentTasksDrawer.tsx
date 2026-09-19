@@ -39,6 +39,7 @@ export function ChatAgentTasksDrawer({ projectPath, onClose, onError, chats = []
   const [loading, setLoading] = useState(true)
   const [refreshedAt, setRefreshedAt] = useState(Date.now())
   const [workers, setWorkers] = useState<DesktopAgentRuntimeAgent[]>([])
+  const [activeTab, setActiveTab] = useState<TaskDisposition>('running')
 
   const refresh = useCallback(async () => {
     try {
@@ -119,6 +120,19 @@ export function ChatAgentTasksDrawer({ projectPath, onClose, onError, chats = []
   // here does not mean an idle pool. This is a bare count on purpose: what that
   // work is belongs to the project that owns it, not to this panel.
   const otherProjectsCount = queueSummary?.other_projects ?? 0
+  const taskTabs = useMemo(() => [
+    { id: 'running', label: 'Em execução', icon: 'play', count: runningCount },
+    { id: 'due', label: 'Por executar', icon: 'list', count: dueCount },
+    { id: 'guarded', label: 'Aguardam liberação', icon: 'shield', count: guardedCount },
+    { id: 'scheduled', label: 'Agendadas', icon: 'history', count: scheduledCount },
+    { id: 'blocked', label: 'Sem tentativas', icon: 'alert', count: blockedCount },
+  ] as const, [blockedCount, dueCount, guardedCount, runningCount, scheduledCount])
+
+  useEffect(() => {
+    if (loading || taskTabs.some((tab) => tab.id === activeTab && tab.count > 0)) return
+    const next = taskTabs.find((tab) => tab.count > 0)
+    if (next) setActiveTab(next.id)
+  }, [activeTab, loading, taskTabs])
 
   const assignTask = async (task: ChatAgentTask, workerID: string, keepFlowing: boolean) => {
     try {
@@ -134,14 +148,16 @@ export function ChatAgentTasksDrawer({ projectPath, onClose, onError, chats = []
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime ChatGPT</span><strong>Tarefas</strong></div><div className="agent-runtime-heading-actions"><button type="button" className="agent-drawer-icon" onClick={() => void refresh()} aria-label="Atualizar tarefas"><Icon name="refresh" size={13}/></button><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar tarefas"><Icon name="close" size={13}/></button></div></header>
     <div className="chat-agent-tasks-summary"><span><b>{runningCount}</b> em execução</span><span><b>{dueCount}</b> por executar</span><span><b>{scheduledCount}</b> {scheduledCount === 1 ? 'agendada' : 'agendadas'}</span>{guardedCount > 0 ? <span><b>{guardedCount}</b> {guardedCount === 1 ? 'aguarda liberação' : 'aguardam liberação'}</span> : null}{blockedCount > 0 ? <span><b>{blockedCount}</b> sem tentativas</span> : null}<small>Atualizado {relativeAge(refreshedAt)}</small></div>
     <p className="chat-agent-tasks-scope">Apenas as tarefas deste projeto.{otherProjectsCount > 0 ? ` Os agentes são partilhados e executam também ${otherProjectsCount} ${otherProjectsCount === 1 ? 'tarefa ativa de outro projeto' : 'tarefas ativas de outros projetos'}.` : ''}</p>
-    <div className="chat-agent-tasks-body">
-      {loading ? <div className="agent-drawer-empty">A carregar fila durável…</div> : !tasks.length ? <div className="agent-drawer-empty"><strong>Sem tarefas ativas neste projeto.</strong><span>{otherProjectsCount > 0 ? 'A fila deste projeto está vazia, mas os agentes partilhados estão ocupados com outros projetos.' : 'A fila e os Workers estão livres neste momento.'}</span></div> : <>
-        <TaskSection title="Em execução" tasks={groups.running} empty="Nenhum Worker está a executar uma tarefa." disposition="running" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={assignTask}/>
-        <TaskSection title="Por executar" tasks={groups.due} empty="Nenhuma tarefa está pronta para atribuição." disposition="due" showPosition chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={assignTask}/>
-        <ScheduledTaskSection tasks={groups.scheduled} nextNotBefore={queueSummary?.next_not_before} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={assignTask}/>
-        {groups.guarded.length ? <TaskSection title="Aguardam liberação" tasks={groups.guarded} empty="" disposition="guarded" guardReasons={groups.guardReasons} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={assignTask}/> : null}
-        {groups.blocked.length ? <TaskSection title="Sem tentativas" tasks={groups.blocked} empty="" disposition="blocked" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={assignTask}/> : null}
-      </>}
+    {!loading && tasks.length > 0 ? <nav className="chat-agent-task-tabs" role="tablist" aria-label="Estados das tarefas">
+      {taskTabs.map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls="chat-agent-task-panel" onClick={() => setActiveTab(tab.id)}><Icon name={tab.icon} size={13}/><span>{tab.label}</span><b>{tab.count}</b></button>)}
+    </nav> : null}
+    <div id="chat-agent-task-panel" className="chat-agent-tasks-body" role="tabpanel">
+      {loading ? <div className="agent-drawer-empty">A carregar fila durável…</div> : !tasks.length ? <div className="agent-drawer-empty"><strong>Sem tarefas ativas neste projeto.</strong><span>{otherProjectsCount > 0 ? 'A fila deste projeto está vazia, mas os agentes partilhados estão ocupados com outros projetos.' : 'A fila e os Workers estão livres neste momento.'}</span></div> : activeTab === 'running' ?
+        <TaskSection title="Em execução" description="Instâncias com trabalho ativo neste momento." tasks={groups.running} empty="Nenhum Worker está a executar uma tarefa." disposition="running" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={assignTask}/> : activeTab === 'due' ?
+        <TaskSection title="Por executar" description="Fila pronta para atribuição, ordenada por prioridade." tasks={groups.due} empty="Nenhuma tarefa está pronta para atribuição." disposition="due" showPosition chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={assignTask}/> : activeTab === 'guarded' ?
+        <TaskSection title="Aguardam liberação" description="Trabalho protegido por conversa, conta ou provider." tasks={groups.guarded} empty="Nenhuma tarefa aguarda liberação." disposition="guarded" guardReasons={groups.guardReasons} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={assignTask}/> : activeTab === 'scheduled' ?
+        <TaskSection title="Agendadas" description={`Aguardam a data de execução, não um Worker.${groups.scheduled.length ? ` Próxima: ${timeLabel(queueSummary?.next_not_before || groups.scheduled[0].not_before)}` : ''}`} tasks={groups.scheduled} empty="Nenhuma tarefa está agendada." disposition="scheduled" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={assignTask}/> :
+        <TaskSection title="Sem tentativas" description="Tarefas que atingiram o limite configurado de tentativas." tasks={groups.blocked} empty="Nenhuma tarefa está bloqueada por tentativas." disposition="blocked" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={assignTask}/>}
     </div>
   </section>
 }
@@ -155,16 +171,8 @@ type TaskNavProps = {
   onAssignTask?: (task: ChatAgentTask, workerID: string, keepFlowing: boolean) => Promise<void>
 }
 
-function TaskSection({ title, tasks, empty, disposition, guardReasons, showPosition = false, chats, onGoToChat, onGoToOrchestrator, onFollowInstance, workers, onAssignTask }: { title: string; tasks: ChatAgentTask[]; empty: string; disposition: TaskDisposition; guardReasons?: Map<string, string>; showPosition?: boolean } & TaskNavProps) {
-  return <section className="chat-agent-task-section"><header><strong>{title}</strong><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task, index) => <TaskCard key={task.task_id} task={task} disposition={disposition} guardReason={guardReasons?.get(task.task_id)} queuePosition={showPosition ? index + 1 : undefined} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={onAssignTask}/>)}</div> : <p>{empty}</p>}</section>
-}
-
-function ScheduledTaskSection({ tasks, nextNotBefore, chats, onGoToChat, onGoToOrchestrator, workers, onAssignTask }: { tasks: ChatAgentTask[]; nextNotBefore?: string } & TaskNavProps) {
-  if (!tasks.length) return null
-  return <details className="chat-agent-task-section chat-agent-task-scheduled-section">
-    <summary><span><strong>Agendadas</strong><small>Aguardam a data de execução, não um Worker. Próxima: {timeLabel(nextNotBefore || tasks[0].not_before)}</small></span><em>{tasks.length}</em></summary>
-    <div className="chat-agent-task-list">{tasks.map((task) => <TaskCard key={task.task_id} task={task} disposition="scheduled" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} workers={workers} onAssignTask={onAssignTask}/>)}</div>
-  </details>
+function TaskSection({ title, description, tasks, empty, disposition, guardReasons, showPosition = false, chats, onGoToChat, onGoToOrchestrator, onFollowInstance, workers, onAssignTask }: { title: string; description?: string; tasks: ChatAgentTask[]; empty: string; disposition: TaskDisposition; guardReasons?: Map<string, string>; showPosition?: boolean } & TaskNavProps) {
+  return <section className="chat-agent-task-section"><header><div><strong>{title}</strong>{description ? <small>{description}</small> : null}</div><span>{tasks.length}</span></header>{tasks.length ? <div className="chat-agent-task-list">{tasks.map((task, index) => <TaskCard key={task.task_id} task={task} disposition={disposition} guardReason={guardReasons?.get(task.task_id)} queuePosition={showPosition ? index + 1 : undefined} chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={onAssignTask}/>)}</div> : <p>{empty}</p>}</section>
 }
 
 // A task only ever offers the navigation it can actually resolve: following an
