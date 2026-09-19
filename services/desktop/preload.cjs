@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       return () => ipcRenderer.removeListener('wharness:windows:activate-project', handler)
     },
     open: () => invoke('wharness:windows:open'),
+    openSurface: (request = {}) => invoke('wharness:windows:open-surface', request),
     minimize: () => invoke('wharness:windows:minimize'),
     toggleMaximize: () => invoke('wharness:windows:toggle-maximize'),
     close: () => invoke('wharness:windows:close'),

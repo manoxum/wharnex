@@ -1,6 +1,13 @@
 export function desktopBridge() {
-  if (window.wharnessDesktop) return window.wharnessDesktop
-  try { return window.parent !== window ? window.parent.wharnessDesktop : undefined } catch { return undefined }
+  let current: Window = window
+  for (let depth = 0; depth < 4; depth += 1) {
+    try {
+      if (current.wharnessDesktop) return current.wharnessDesktop
+      if (current.parent === current) return undefined
+      current = current.parent
+    } catch { return undefined }
+  }
+  return undefined
 }
 
 export function isDesktop() {

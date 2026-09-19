@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from 'react'
 import { createPortal } from 'react-dom'
+import { workspaceDragEndedOutside } from '../lib/workspaceSurface'
 import type { Session } from '../types'
 import { ChatPanel, type ChatPanelHandle } from './ChatPanel'
 import type { ChatViewportStore } from './useProgressiveChatHistory'
@@ -36,7 +37,7 @@ function saveAgentChatWidth(width: number) {
 // Kept in step with the grid in styles.css: the splitter width and the minimum
 // a panel may be squeezed to. The activity rail is no longer part of this grid
 // — it belongs to the shell, beside every mode surface.
-export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAttentionNonce = 0, inspectorAttention, singlePane = false, onOpenAttentionDrawer, chatProps, inspectorProps, onExportChat, onReorderChat, railVisible = false }: {
+export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAttentionNonce = 0, inspectorAttention, singlePane = false, onOpenAttentionDrawer, chatProps, inspectorProps, onExportChat, onReorderChat, railVisible = false, surfaceMode = false, onDetachChat, onSplitChat }: {
   session: Session
   busy: boolean
   attentionItems?: AttentionItem[]
@@ -51,6 +52,9 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   onExportChat?: () => Promise<void>
   onReorderChat: (sourceChatId: string, targetChatId: string) => void
   railVisible?: boolean
+  surfaceMode?: boolean
+  onDetachChat?: (chatId: string) => void
+  onSplitChat?: (chatId: string, direction: 'vertical' | 'horizontal') => void
 }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>(inspectorProps.config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [singlePaneSurface, setSinglePaneSurface] = useState<'chat' | 'inspector'>('chat')
@@ -239,30 +243,35 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   return <section ref={workspaceRef} className={`agent-workspace${singlePane ? ' single-pane' : ''} ${railVisible ? 'agent-rail-unified' : ''}`.trim()} style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
     {railVisible ? (railTarget ? createPortal(commandbar, railTarget) : null) : commandbar}
     <nav className="agent-chat-switcher" aria-label="Conversas do Harness">
-      <button className="chat-new-button" onClick={() => void chatProps.onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>
-      {archived.length > 0 && <button className="chat-new-button chat-reopen-button" disabled={busy} onClick={() => void chatProps.onRestoreChat(archived[0].id)} title={`Reabrir último chat fechado: ${archived[0].title}`} aria-label="Reabrir último chat fechado"><Icon name="refresh" size={13}/></button>}
+      {!surfaceMode && <button className="chat-new-button" onClick={() => void chatProps.onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>}
+      {!surfaceMode && archived.length > 0 && <button className="chat-new-button chat-reopen-button" disabled={busy} onClick={() => void chatProps.onRestoreChat(archived[0].id)} title={`Reabrir último chat fechado: ${archived[0].title}`} aria-label="Reabrir último chat fechado"><Icon name="refresh" size={13}/></button>}
       <div className="chat-tabs" ref={chatTabsRef} onScroll={() => { const root = chatTabsRef.current; if (!root) return; const bounds = root.getBoundingClientRect(); setHiddenChatIds(Array.from(root.querySelectorAll<HTMLElement>('.chat-tab-group[data-chat-id]')).filter((node) => { const rect = node.getBoundingClientRect(); return rect.left < bounds.left - 1 || rect.right > bounds.right + 1 }).map((node) => node.dataset.chatId || '').filter(Boolean)) }}>
         {chatProps.chats.map((chat) => <div
           key={chat.id}
           data-chat-id={chat.id}
-          draggable
+          draggable={!surfaceMode}
           className={[chat.id === chatProps.activeChatId ? 'chat-tab-group active' : 'chat-tab-group', chat.id === draggedChatId ? 'dragging' : '', chat.id === dropTargetChatId ? 'drop-target' : ''].filter(Boolean).join(' ')}
           onDragStart={(event) => beginChatDrag(event, chat.id)}
           onDragEnter={() => { if (draggedChatId && draggedChatId !== chat.id) setDropTargetChatId(chat.id) }}
           onDragOver={(event) => { if (draggedChatId && draggedChatId !== chat.id) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } }}
           onDrop={(event) => dropChat(event, chat.id)}
-          onDragEnd={() => { setDraggedChatId(''); setDropTargetChatId('') }}
+          onDragEnd={(event) => { if (onDetachChat && workspaceDragEndedOutside(event)) onDetachChat(chat.id); setDraggedChatId(''); setDropTargetChatId('') }}
         >
           <button className={chat.id === chatProps.activeChatId ? 'chat-tab active' : 'chat-tab'} onClick={() => void chatProps.onSelectChat(chat.id)} onKeyDown={(event) => moveChatWithKeyboard(event, chat.id)} title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}\nArraste para reordenar · Alt+←/→` : `${chat.title}\nChatGPT ainda não vinculado\nArraste para reordenar · Alt+←/→`}><span>{chat.title}</span><i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" /></button>
-          {chatProps.onSaveChat && <button className="chat-tab-remove chat-tab-save" disabled={busy} onClick={() => void chatProps.onSaveChat?.(chat.id)} title={`Guardar ${chat.title} em standby`} aria-label={`Guardar chat ${chat.title}`}><Icon name="save" size={11}/></button>}
-          <button className="chat-tab-remove" disabled={busy} onClick={() => void chatProps.onArchiveChat(chat.id)} title={`Fechar e arquivar ${chat.title}`} aria-label={`Fechar e arquivar chat ${chat.title}`}><Icon name="close" size={11}/></button>
+          {!surfaceMode && chatProps.onSaveChat && <button className="chat-tab-remove chat-tab-save" disabled={busy} onClick={() => void chatProps.onSaveChat?.(chat.id)} title={`Guardar ${chat.title} em standby`} aria-label={`Guardar chat ${chat.title}`}><Icon name="save" size={11}/></button>}
+          {!surfaceMode && <button className="chat-tab-remove" disabled={busy} onClick={() => void chatProps.onArchiveChat(chat.id)} title={`Fechar e arquivar ${chat.title}`} aria-label={`Fechar e arquivar chat ${chat.title}`}><Icon name="close" size={11}/></button>}
         </div>)}
       </div>
       <div className="agent-chat-fixed-tools">
+        {onSplitChat && chatProps.activeChatId && <div className="surface-layout-actions" role="group" aria-label="Dividir chat">
+          <button type="button" onClick={() => onSplitChat(chatProps.activeChatId, 'vertical')} title="Dividir chat verticalmente" aria-label="Dividir chat verticalmente"><Icon name="arrow-right" size={13}/></button>
+          <button type="button" onClick={() => onSplitChat(chatProps.activeChatId, 'horizontal')} title="Dividir chat horizontalmente" aria-label="Dividir chat horizontalmente"><Icon name="arrow-down" size={13}/></button>
+        </div>}
+        {onDetachChat && chatProps.activeChatId && <button type="button" className="surface-detach-action" onClick={() => onDetachChat(chatProps.activeChatId)} title="Abrir este chat numa janela independente" aria-label="Abrir chat numa janela independente"><Icon name="external" size={13}/></button>}
         {hiddenChats.length > 0 && <div className="chat-overflow-control" ref={overflowRef}>
           <button ref={overflowTriggerRef} type="button" className="chat-overflow-trigger" aria-haspopup="menu" aria-expanded={overflowOpen} aria-label={`Chats fora da área visível, ${hiddenChats.length}`} title={`${hiddenChats.length} chat(s) fora da área visível`} onClick={() => setOverflowOpen((current) => !current)}><Icon name="list" size={15}/><span>{hiddenChats.length}</span></button>
           {overflowOpen && <div className="chat-overflow-menu" role="menu" aria-label="Chats não visíveis">
-            {hiddenChats.map((chat) => <div key={chat.id} data-chat-id={chat.id} draggable className={[chat.id === chatProps.activeChatId ? 'chat-overflow-row active' : 'chat-overflow-row', chat.id === draggedChatId ? 'dragging' : '', chat.id === dropTargetChatId ? 'drop-target' : ''].filter(Boolean).join(' ')} onDragStart={(event) => beginChatDrag(event, chat.id)} onDragEnter={() => { if (draggedChatId && draggedChatId !== chat.id) setDropTargetChatId(chat.id) }} onDragOver={(event) => { if (draggedChatId && draggedChatId !== chat.id) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } }} onDrop={(event) => dropChat(event, chat.id)} onDragEnd={() => { setDraggedChatId(''); setDropTargetChatId('') }}>
+            {hiddenChats.map((chat) => <div key={chat.id} data-chat-id={chat.id} draggable className={[chat.id === chatProps.activeChatId ? 'chat-overflow-row active' : 'chat-overflow-row', chat.id === draggedChatId ? 'dragging' : '', chat.id === dropTargetChatId ? 'drop-target' : ''].filter(Boolean).join(' ')} onDragStart={(event) => beginChatDrag(event, chat.id)} onDragEnter={() => { if (draggedChatId && draggedChatId !== chat.id) setDropTargetChatId(chat.id) }} onDragOver={(event) => { if (draggedChatId && draggedChatId !== chat.id) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } }} onDrop={(event) => dropChat(event, chat.id)} onDragEnd={(event) => { if (onDetachChat && workspaceDragEndedOutside(event)) onDetachChat(chat.id); setDraggedChatId(''); setDropTargetChatId('') }}>
               <button type="button" role="menuitem" className="chat-overflow-open" onClick={() => { setOverflowOpen(false); void chatProps.onSelectChat(chat.id); window.requestAnimationFrame(() => Array.from(chatTabsRef.current?.querySelectorAll<HTMLElement>('.chat-tab-group[data-chat-id]') || []).find((node) => node.dataset.chatId === chat.id)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })) }} title={chat.title} aria-label={`Abrir chat ${chat.title}`}><span>{chat.title}</span><i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true"/></button>
               {chatProps.onSaveChat && <button type="button" className="chat-overflow-action" disabled={busy} onClick={() => void chatProps.onSaveChat?.(chat.id)} title={`Guardar ${chat.title} em standby`} aria-label={`Guardar chat ${chat.title}`}><Icon name="save" size={12}/></button>}
               <button type="button" className="chat-overflow-action" disabled={busy} onClick={() => void chatProps.onArchiveChat(chat.id)} title={`Fechar e arquivar ${chat.title}`} aria-label={`Fechar e arquivar chat ${chat.title}`}><Icon name="close" size={12}/></button>

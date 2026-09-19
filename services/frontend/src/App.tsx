@@ -96,6 +96,7 @@ import { executionStartedNotice } from './lib/executionNotice'
 import { createEventStreamCoalescer, type EventStreamCoalescer } from './lib/eventStream'
 import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
 import { loadWorkbenchState, saveWorkbenchState } from './lib/workbenchPreferences'
+import { workspaceSurfaceRequest, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget } from './lib/workspaceSurface'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 
@@ -111,6 +112,7 @@ export default function App() {
 }
 
 function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
+  const surfaceRequest = useRef(workspaceSurfaceRequest()).current
   const activeAtLoad = embeddedProject ? undefined : loadActiveWorkspace()
   const [config, setConfig] = useState<AppConfig>()
   const [session, setSession] = useState<Session>()
@@ -121,7 +123,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [items, setItems] = useState<ChatItem[]>([])
   const [events, setEvents] = useState<HarnessEvent[]>([])
   const [manualPrompt, setManualPrompt] = useState('')
-  const [mode, setMode] = useState<WorkspaceMode>('agent')
+  const [mode, setMode] = useState<WorkspaceMode>(surfaceRequest?.kind === 'editor' ? 'editor' : 'agent')
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('protected')
   const [automationMode, setAutomationMode] = useState<AutomationMode>('auto')
   const [effortLevel, setEffortLevel] = useState<EffortLevel>('medium')
@@ -159,7 +161,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const workbenchProjectRef = useRef(embeddedProject)
   // The interactive terminal is the bottom tool window, so its visibility and
   // height participate in the same persisted workbench state.
-  const [terminalOpen, setTerminalOpen] = useState(initialWorkbench.bottom.open)
+  const [terminalOpen, setTerminalOpen] = useState(surfaceRequest?.kind === 'terminal' ? true : initialWorkbench.bottom.open)
   const [terminalHeight, setTerminalHeight] = useState(initialWorkbench.bottom.size)
   const [terminalRunRequest, setTerminalRunRequest] = useState<TerminalRunRequest>()
   const terminalRunNonceRef = useRef(0)
@@ -173,8 +175,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [restartModalOpen, setRestartModalOpen] = useState(false)
   const [interruptedExecutions, setInterruptedExecutions] = useState<Array<{ chat: WorkspaceChat; session: Session }>>([])
   const [executionFIFO, setExecutionFIFO] = useState<FrontendExecutionQueueItem[]>([])
-  const [editorOpenPath, setEditorOpenPath] = useState<string>()
-  const [editorOpenNonce, setEditorOpenNonce] = useState(0)
+  const [editorOpenPath, setEditorOpenPath] = useState<string | undefined>(surfaceRequest?.kind === 'editor' ? surfaceRequest.path : undefined)
+  const [editorOpenNonce, setEditorOpenNonce] = useState(surfaceRequest?.kind === 'editor' && surfaceRequest.path ? 1 : 0)
+  const [splitSurface, setSplitSurface] = useState<{ direction: WorkspaceSplitDirection; target: WorkspaceSurfaceTarget; ratio: number }>()
   const sourceRef = useRef<EventSource | null>(null)
   // Owns the event stream's deduplication, retained window and flush/persist
   // cadence, so a catch-up burst costs a handful of renders instead of one
@@ -232,7 +235,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   useEffect(() => { setTerminalRunRequest(undefined) }, [session?.id])
 
   useEffect(() => {
-    if (!session) return
+    if (!session || surfaceRequest) return
     workbenchProjectRef.current = ''
     const workbench = loadWorkbenchState(session.project_path)
     setSideDrawer(workbench.left.open ? (workbench.left.tool as Drawer) : '')
@@ -246,7 +249,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [session?.project_path])
 
   useEffect(() => {
-    if (!session || workbenchProjectRef.current !== session.project_path) return
+    if (!session || surfaceRequest || workbenchProjectRef.current !== session.project_path) return
     saveWorkbenchState(session.project_path, {
       version: 1,
       left: { open: Boolean(sideDrawer), collapsed: !sideDrawer, size: leftDrawerWidth, tool: sideDrawer || '' },
@@ -711,7 +714,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       rememberRecent(created.project_path); setRecent(loadRecentWorkspaces())
       const hydrated = await hydrateWorkspaceMemory(created.project_path)
       let nextChats = hydrated.active
-      let selected = nextChats[0]
+      let selected = (surfaceRequest?.kind === 'chat' && surfaceRequest.chatId ? nextChats.find((chat) => chat.id === surfaceRequest.chatId) : undefined) || nextChats[0]
       let selectedSession = created
       if (selected) {
         try {
@@ -734,7 +737,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       persistChats(created.project_path, nextChats)
       setSavedChats(hydrated.saved); setArchivedChats(hydrated.archived); setSession(selectedSession); activeChatIdRef.current = selected.id; setActiveChatId(selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
-      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode('agent'); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(projectEffortLevel); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
+      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode(surfaceRequest?.kind === 'editor' ? 'editor' : 'agent'); setTerminalOpen(surfaceRequest?.kind === 'terminal' ? true : initialWorkbench.bottom.open); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(projectEffortLevel); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
       connectEvents(selectedSession.id, selectedSession.project_path, selected.id)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
   }
@@ -3321,6 +3324,31 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const openLeftDrawer = (next: Drawer) => { setSideDrawer(next) }
   const openRightDrawer = (next: Drawer) => { setRightDrawer(next) }
 
+  const detachSurface = (target: WorkspaceSurfaceTarget) => {
+    const bridge = desktopBridge()
+    if (bridge) {
+      void bridge.windows.openSurface(target).catch((cause) => setError(messageOf(cause)))
+      return
+    }
+    window.open(workspaceSurfaceURL(target, 'window'), '_blank', 'noopener,noreferrer')
+  }
+  const splitWorkspaceSurface = (target: WorkspaceSurfaceTarget, direction: WorkspaceSplitDirection) => setSplitSurface({ target, direction, ratio: .5 })
+  const resizeWorkspaceSplit = (event: ReactPointerEvent<HTMLDivElement>, direction: WorkspaceSplitDirection) => {
+    event.preventDefault()
+    const container = event.currentTarget.parentElement
+    if (!container) return
+    const bounds = container.getBoundingClientRect()
+    const move = (pointer: PointerEvent) => {
+      const raw = direction === 'vertical' ? (pointer.clientX - bounds.left) / Math.max(1, bounds.width) : (pointer.clientY - bounds.top) / Math.max(1, bounds.height)
+      const ratio = Math.max(.2, Math.min(.8, raw))
+      setSplitSurface((current) => current ? { ...current, ratio } : current)
+    }
+    const finish = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish, { once: true })
+  }
+  const surfaceTarget = (kind: WorkspaceSurfaceTarget['kind'], detail: Pick<WorkspaceSurfaceTarget, 'chatId' | 'path'> = {}): WorkspaceSurfaceTarget => ({ projectPath: session.project_path, kind, ...detail })
+
   const sharedChatProps: ComponentProps<typeof ChatPanel> = {
     session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, reasoningEffort: session.reasoning_effort || 'high', chatTransportMode,
     attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
@@ -3334,6 +3362,23 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
     onRepairWithGPT: repairFailureWithGPT, canRepairWithGPT: canRepairFailureWithGPT(session), onRetryDependencyNetwork: retryDependencyNetwork, canRetryDependencyNetwork: canRetryDependencyNetwork(session), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
     onNewChat: newChat, onSelectChat: selectChat, onSaveChat: saveChatForLater, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
+  }
+
+  if (surfaceRequest) {
+    const focusedChatProps = surfaceRequest.kind === 'chat' ? { ...sharedChatProps, chats: chats.filter((chat) => chat.id === activeChatId) } : sharedChatProps
+    return <main className={`workspace-root workspace-surface-root workspace-surface-${surfaceRequest.kind}`}>
+      {surfaceRequest.host === 'window' && isDesktop() && <header className="workspace-surface-windowbar" data-window-titlebar="true"><strong>{surfaceRequest.kind === 'chat' ? activeChat?.title || 'Chat' : surfaceRequest.kind === 'editor' ? surfaceRequest.path || 'Editor' : 'Terminal'}</strong><span>{session.project_path}</span><div className="workspace-surface-window-controls"><button type="button" onClick={() => void desktopBridge()?.windows.minimize()} aria-label="Minimizar">—</button><button type="button" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label="Maximizar ou restaurar">□</button><button type="button" onClick={() => void desktopBridge()?.windows.close()} aria-label="Fechar">×</button></div></header>}
+      <ErrorToast open={Boolean(error)} message={error} onDismiss={() => setError(undefined)} />
+      <div className={`workspace-surface-content ${splitSurface ? `is-split split-${splitSurface.direction}` : ''}`} style={splitSurface ? { ['--workspace-split-primary' as string]: `${Math.round(splitSurface.ratio * 1000) / 10}%` } as React.CSSProperties : undefined}>
+        <div className="workspace-surface-primary">
+          {surfaceRequest.kind === 'chat' && <AgentWorkspace session={session} busy={activeBusy} attentionItems={attentionItems} onOpenAttention={openAttentionItem} onAttentionAction={runAttentionItemAction} chatgptAttentionNonce={chatgptAttentionNonce} inspectorAttention={inspectorAttention} surfaceMode onOpenAttentionDrawer={() => undefined} onExportChat={exportActiveChat} onReorderChat={reorderChat} chatProps={focusedChatProps} onDetachChat={(chatId) => detachSurface(surfaceTarget('chat', { chatId }))} onSplitChat={surfaceRequest.host === 'split' ? undefined : (chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)} inspectorProps={{ config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive, onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT }} />}
+          {surfaceRequest.kind === 'editor' && <EditorWorkspace session={session} surfaceMode onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} onDetachFile={(path) => detachSurface(surfaceTarget('editor', { path }))} onSplitFile={surfaceRequest.host === 'split' ? undefined : (path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />}
+          {surfaceRequest.kind === 'terminal' && <TerminalWorkspace session={session} height={terminalHeight} visible fill runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onDetachTerminal={() => detachSurface(surfaceTarget('terminal'))} onSplitTerminal={surfaceRequest.host === 'split' ? undefined : (direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />}
+        </div>
+        {splitSurface && <div className={`workspace-surface-splitter split-${splitSurface.direction}`} role="separator" aria-orientation={splitSurface.direction === 'vertical' ? 'vertical' : 'horizontal'} aria-label="Redimensionar divisão do workspace" onPointerDown={(event) => resizeWorkspaceSplit(event, splitSurface.direction)} />}
+        {splitSurface && <section className="workspace-split-pane"><header><strong>{splitSurface.target.kind === 'chat' ? 'Chat' : splitSurface.target.kind === 'editor' ? splitSurface.target.path || 'Editor' : 'Terminal'}</strong><div><button type="button" onClick={() => detachSurface(splitSurface.target)} title="Destacar para janela" aria-label="Destacar painel para janela"><Icon name="external" size={12}/></button><button type="button" onClick={() => setSplitSurface(undefined)} title="Fechar divisão" aria-label="Fechar divisão">×</button></div></header><iframe title={`Painel ${splitSurface.target.kind}`} src={workspaceSurfaceURL(splitSurface.target, 'split')} /></section>}
+      </div>
+    </main>
   }
 
   return <main className="workspace-root">
@@ -3408,9 +3453,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />
       <div className="workspace-center-column">
+        <div className={`workspace-surface-content ${splitSurface ? `is-split split-${splitSurface.direction}` : ''}`} style={splitSurface ? { ['--workspace-split-primary' as string]: `${Math.round(splitSurface.ratio * 1000) / 10}%` } as React.CSSProperties : undefined}>
+          <div className="workspace-surface-primary">
         <div className="workspace-mode-stack">
         <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
-        <EditorWorkspace session={session} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} />
+        <EditorWorkspace session={session} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} onDetachFile={(path) => detachSurface(surfaceTarget('editor', { path }))} onSplitFile={(path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />
       </div>
       <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
         <OrchestratorWorkspace
@@ -3442,6 +3489,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           railVisible={mode === 'agent'}
           onExportChat={exportActiveChat}
           onReorderChat={reorderChat}
+          onDetachChat={(chatId) => detachSurface(surfaceTarget('chat', { chatId }))}
+          onSplitChat={(chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)}
           chatProps={sharedChatProps}
           inspectorProps={{
   		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
@@ -3452,7 +3501,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       </div>
       </div>
         {terminalOpen && <div className="terminal-resizer" role="separator" aria-orientation="horizontal" aria-label="Ajustar altura do terminal" title="Arraste para aumentar ou reduzir o terminal" onPointerDown={resizeTerminal} onDoubleClick={() => setTerminalHeight(275)} />}
-        <TerminalWorkspace session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} />
+        <TerminalWorkspace session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onDetachTerminal={() => detachSurface(surfaceTarget('terminal'))} onSplitTerminal={(direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />
+          </div>
+          {splitSurface && <div className={`workspace-surface-splitter split-${splitSurface.direction}`} role="separator" aria-orientation={splitSurface.direction === 'vertical' ? 'vertical' : 'horizontal'} aria-label="Redimensionar divisão do workspace" onPointerDown={(event) => resizeWorkspaceSplit(event, splitSurface.direction)} />}
+        {splitSurface && <section className="workspace-split-pane"><header><strong>{splitSurface.target.kind === 'chat' ? 'Chat' : splitSurface.target.kind === 'editor' ? splitSurface.target.path || 'Editor' : 'Terminal'}</strong><div><button type="button" onClick={() => detachSurface(splitSurface.target)} title="Destacar para janela" aria-label="Destacar painel para janela"><Icon name="external" size={12}/></button><button type="button" onClick={() => setSplitSurface(undefined)} title="Fechar divisão" aria-label="Fechar divisão">×</button></div></header><iframe title={`Painel ${splitSurface.target.kind}`} src={workspaceSurfaceURL(splitSurface.target, 'split')} /></section>}
+        </div>
       </div>
       <WorkspaceSideRail
         session={session}

@@ -4,6 +4,7 @@ import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
 import { confirmDialog } from '../lib/appDialog'
 import { editorExecutableOptions, loadEditorRunHistory, parentDirectory, recentEditorRunOptions, rememberEditorRun, selectionCommand } from '../lib/editorExecution'
+import { workspaceDragEndedOutside } from '../lib/workspaceSurface'
 import type { FileEntry, GitFileDiff, Session, TerminalRunInput, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
@@ -15,12 +16,15 @@ type EditorDocument = WorkspaceFile & { draft: string }
 type Cursor = { line: number; column: number }
 type WorkspaceMutation = { kind: 'create'; path: string } | { kind: 'rename'; from: string; to: string } | { kind: 'delete'; path: string }
 
-export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, openNonce = 0 }: {
+export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, openNonce = 0, surfaceMode = false, onDetachFile, onSplitFile }: {
   session: Session
   onError: (message: string) => void
   onRunInTerminal: (input: TerminalRunInput) => void
   openPath?: string
   openNonce?: number
+  surfaceMode?: boolean
+  onDetachFile?: (path: string) => void
+  onSplitFile?: (path: string, direction: 'vertical' | 'horizontal') => void
 }) {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [documents, setDocuments] = useState<EditorDocument[]>([])
@@ -181,7 +185,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   return <section className="editor-workspace">
     <div className="editor-main">
       <div className="editor-area">
-        {documents.length > 0 && <EditorTabs documents={documents} activePath={activePath} savingPath={savingPath} onSelect={setActivePath} onClose={closeDocument} onSave={save} />}
+        {documents.length > 0 && <EditorTabs documents={documents} activePath={activePath} savingPath={savingPath} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} />}
         {selected ? <>
           <div className="editor-contextbar">
             <div className="editor-breadcrumbs">{selected.path.split('/').map((part, index, parts) => <span key={`${part}-${index}`}>{part}{index < parts.length - 1 && <i>›</i>}</span>)}</div>
@@ -210,20 +214,25 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   </section>
 }
 
-function EditorTabs({ documents, activePath, savingPath, onSelect, onClose, onSave }: {
-  documents: EditorDocument[]; activePath?: string; savingPath?: string
+function EditorTabs({ documents, activePath, savingPath, surfaceMode = false, onSelect, onClose, onSave, onDetach, onSplit }: {
+  documents: EditorDocument[]; activePath?: string; savingPath?: string; surfaceMode?: boolean
   onSelect: (path: string) => void; onClose: (path: string) => void; onSave: (path: string) => Promise<void>
+  onDetach?: (path: string) => void; onSplit?: (path: string, direction: 'vertical' | 'horizontal') => void
 }) {
   return <div className="editor-tabbar">
     <div className="editor-tabs-scroll">{documents.map((document) => {
       const dirty = document.draft !== document.content
       const name = document.path.split('/').pop() || document.path
-      return <button className={`editor-tab ${activePath === document.path ? 'active' : ''}`} key={document.path} onClick={() => onSelect(document.path)} title={document.path}>
+      return <button className={`editor-tab ${activePath === document.path ? 'active' : ''}`} key={document.path} draggable={Boolean(onDetach)} onDragEnd={(event) => { if (onDetach && workspaceDragEndedOutside(event)) onDetach(document.path) }} onClick={() => onSelect(document.path)} title={document.path}>
         <FileGlyph path={document.path} size={13}/><span>{name}</span>{dirty && <i className="dirty-dot"/>}
-        <span className="editor-tab-close" aria-hidden="true" onClick={(event) => { event.stopPropagation(); onClose(document.path) }}>×</span>
+        {!surfaceMode && <span className="editor-tab-close" aria-hidden="true" onClick={(event) => { event.stopPropagation(); onClose(document.path) }}>×</span>}
       </button>
     })}</div>
+    <div className="editor-surface-actions">
+      {onSplit && activePath && <div className="surface-layout-actions" role="group" aria-label="Dividir editor"><button type="button" onClick={() => onSplit(activePath, 'vertical')} title="Dividir editor verticalmente" aria-label="Dividir editor verticalmente"><Icon name="arrow-right" size={13}/></button><button type="button" onClick={() => onSplit(activePath, 'horizontal')} title="Dividir editor horizontalmente" aria-label="Dividir editor horizontalmente"><Icon name="arrow-down" size={13}/></button></div>}
+      {onDetach && activePath && <button type="button" className="surface-detach-action" onClick={() => onDetach(activePath)} title="Abrir ficheiro numa janela independente" aria-label="Abrir ficheiro numa janela independente"><Icon name="external" size={13}/></button>}
     <button className="editor-save" disabled={!activePath || !documents.some((item) => item.path === activePath && item.draft !== item.content) || Boolean(savingPath)} onClick={() => activePath && void onSave(activePath)} title="Guardar (Ctrl+S)"><Icon name="save" size={14}/>{savingPath ? 'A guardar…' : 'Guardar'}</button>
+    </div>
   </div>
 }
 

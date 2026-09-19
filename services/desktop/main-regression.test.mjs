@@ -2964,3 +2964,23 @@ test('an unrecognized download on the ChatGPT automation partition fails closed'
   assert.match(helper, /internalChatGPTBrowsers\.values\(\)/)
   assert.match(helper, /sourceWebContents === wc \|\| sourceWebContents\.hostWebContents === wc/)
 })
+
+test('detached workbench surfaces stay transient and keep project ownership with the parent window', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const createStart = source.indexOf('function createWindow(')
+  const createEnd = source.indexOf('\nfunction registerIPC()', createStart)
+  const createWindowSource = source.slice(createStart, createEnd)
+  assert.match(createWindowSource, /transientSurface: Boolean\(surface\)/)
+  assert.match(createWindowSource, /if \(surface\?\.projectPath\) \{[\s\S]*state\.projects\.add\(surface\.projectPath\)/)
+  assert.match(createWindowSource, /if \(!state\.transientSurface\) win\.on\('resize', scheduleWindowLayoutPersistence\)/)
+  assert.match(createWindowSource, /if \(!quitting && !state\.transientSurface\) persistWindowLayout\(\)/)
+  assert.match(source, /function persistWindowLayout\(ids = \[\.\.\.desktopWindows\.values\(\)\]\.filter\(\(state\) => !state\.window\.isDestroyed\(\) && !state\.transientSurface\)/)
+  assert.match(source, /find\(\(state\) => !state\.window\.isDestroyed\(\) && !state\.transientSurface && state\.projects\.has\(projectPath\)\)/)
+
+  const handlerStart = source.indexOf("ipcMain.handle('wharness:windows:open-surface'")
+  assert.notEqual(handlerStart, -1)
+  const handler = source.slice(handlerStart, source.indexOf("ipcMain.handle('wharness:windows:minimize'", handlerStart))
+  assert.match(handler, /owner\.projects\.has\(projectPath\)/)
+  assert.match(handler, /createWindow\(`surface-\$\{randomUUID\(\)\}`, false, \{ surface:/)
+  assert.doesNotMatch(handler, /projectWindowRegistry\.set/)
+})
