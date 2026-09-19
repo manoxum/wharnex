@@ -174,6 +174,45 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(desktop.chatgpt.openDevTools).toHaveBeenCalledWith('chat-1'))
   })
 
+  it('copies the currently visible Supervisor conversation link from the Engine header', async () => {
+    const desktop = bridge()
+    const supervisorState = { ...state, cacheKey: 'chat-1', url: 'https://chatgpt.com/c/supervisor?model=auto' }
+    desktop.chatgpt.state = vi.fn().mockResolvedValue(supervisorState)
+    desktop.chatgpt.navigate = vi.fn().mockResolvedValue(supervisorState)
+    window.wharnessDesktop = desktop
+    const { container } = render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/supervisor?model=auto" />)
+
+    const copyButton = await screen.findByRole('button', { name: 'Copiar link da conversa visível' })
+    await waitFor(() => expect((copyButton as HTMLButtonElement).disabled).toBe(false))
+    const devToolsButton = screen.getByRole('button', { name: 'Abrir DevTools da instância atual' })
+    expect(container.querySelector('.desktop-browser-controls')?.contains(copyButton)).toBe(true)
+    expect(container.querySelector('.desktop-browser-controls')?.contains(devToolsButton)).toBe(true)
+    expect(container.querySelector('.desktop-chatgpt-toolbar-status')?.contains(devToolsButton)).toBe(false)
+    fireEvent.click(copyButton)
+
+    await waitFor(() => expect(desktop.clipboard.writeText).toHaveBeenCalledWith('https://chatgpt.com/c/supervisor'))
+    expect(await screen.findByText('Link da conversa visível copiado.')).toBeTruthy()
+  })
+
+  it('copies the followed Worker conversation link when that Worker is visible', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+
+    const selector = await screen.findByRole('combobox', { name: 'Instância do Engine' })
+    fireEvent.change(selector, { target: { value: 'worker-2' } })
+    await waitFor(() => expect(desktop.agents.openInteraction).toHaveBeenCalledWith('worker-2', expect.any(Object)))
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar link da conversa visível' }))
+
+    await waitFor(() => expect(desktop.clipboard.writeText).toHaveBeenCalledWith('https://chatgpt.com/c/worker'))
+  })
+
+  it('disables copy-link when the visible Engine instance is not on a conversation', async () => {
+    const desktop = bridge(); window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} />)
+
+    expect((await screen.findByRole('button', { name: 'Copiar link da conversa visível' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('synchronizes the native view bounds immediately after mounting', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     render(<ChatGPTDesktopPane {...props} />)
