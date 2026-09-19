@@ -2651,3 +2651,36 @@ test('every account-lifecycle action paces its navigation like a submission does
     assert.ok(paceIndex < loadIndex, `${open}: pacing must happen before navigating`)
   }
 })
+
+// Every recognizer in the will-download handler may decline, and the handler
+// used to end that path with a bare `return`. On the automation partition that
+// handed the download to Chromium's default behaviour: a Worker artifact whose
+// name did not match landed silently in the operator's Downloads folder
+// instead of being captured, and a colliding name raised the operating
+// system's own modal Save As dialog, which froze the desktop until dismissed.
+// The only surface that keeps ordinary download behaviour is the human
+// browsing window, which shares this partition.
+test('an unrecognized download on the ChatGPT automation partition fails closed', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf("chatSession.on('will-download'")
+  assert.notEqual(start, -1)
+  const handler = source.slice(start, source.indexOf('\n  })', source.indexOf('wharness-plans', start)))
+
+  assert.match(handler, /if \(chatGPTDownloadIsHumanBrowsing\(sourceWebContents\)\) return/)
+  // The exemption must be reached only after every recognizer declined, and
+  // the cancel must follow it - never the other way round.
+  const exemption = handler.indexOf('chatGPTDownloadIsHumanBrowsing')
+  const cancel = handler.indexOf('item.cancel()', exemption)
+  assert.ok(cancel > exemption, 'the human-browsing exemption must precede the cancel')
+  assert.match(handler.slice(exemption, cancel + 400), /\[chatgpt-download\] unrecognized artifact cancelled/)
+
+  // An invalid plan name is already reported and cancelled; it must not fall
+  // through into the generic cancel and be reported twice.
+  assert.match(handler, /publishPlanDownloadError\('Nome do ficheiro de plano inválido[^)]*\)\n\s*return\n/)
+
+  const helperStart = source.indexOf('function chatGPTDownloadIsHumanBrowsing(sourceWebContents)')
+  assert.notEqual(helperStart, -1)
+  const helper = source.slice(helperStart, source.indexOf('\n}', helperStart))
+  assert.match(helper, /internalChatGPTBrowsers\.values\(\)/)
+  assert.match(helper, /sourceWebContents === wc \|\| sourceWebContents\.hostWebContents === wc/)
+})

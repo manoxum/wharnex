@@ -1503,6 +1503,21 @@ function stripChatGPTDownloadDuplicateSuffix(filename) {
   return String(filename || '').replace(/ \([1-9][0-9]{0,3}\)(?=\.[^.]+$)/, '')
 }
 
+// The project-scoped human ChatGPT browser shares the automation partition, so
+// it reaches the same `will-download` handler. A person browsing there may
+// legitimately save anything, and their downloads must keep behaving like
+// ordinary browser downloads. Everything else on this partition is Wharnex
+// automation, where an unrecognized download is a leak.
+function chatGPTDownloadIsHumanBrowsing(sourceWebContents) {
+  if (!sourceWebContents) return false
+  for (const browser of internalChatGPTBrowsers.values()) {
+    if (browser.isDestroyed()) continue
+    const wc = browser.webContents
+    if (sourceWebContents === wc || sourceWebContents.hostWebContents === wc) return true
+  }
+  return false
+}
+
 function registerChatGPTMarkdownTranslationDownload(item, sourceFilename) {
   const rawFilename = path.basename(String(sourceFilename || ''))
   const filename = stripChatGPTDownloadDuplicateSuffix(rawFilename)
@@ -1865,7 +1880,19 @@ function registerChatGPTPlanDownloads(chatSession) {
       if (filename.startsWith('wharness-plan-')) {
         item.cancel()
         publishPlanDownloadError('Nome do ficheiro de plano inválido; esperado wharness-plan-<request_id>.json.', filename, sourceCacheKey)
+        return
       }
+      // Fail closed. Every recognizer above has declined, so on an automation
+      // surface this is a download Wharnex did not ask for and cannot account
+      // for. Returning here let it fall through to Chromium's default
+      // handling: it landed in the operator's Downloads folder unnoticed - the
+      // Worker artifacts that "leaked instead of being captured" - and, when
+      // the name collided, raised the operating system's own Save As dialog,
+      // which is modal and froze the whole desktop until dismissed by hand.
+      // Only the human browsing surface keeps ordinary download behaviour.
+      if (chatGPTDownloadIsHumanBrowsing(sourceWebContents)) return
+      item.cancel()
+      console.warn(`[chatgpt-download] unrecognized artifact cancelled file=${filename} key=${sourceCacheKey || '-'} mime=${item.getMimeType?.() || '-'} source=${sanitizeDiagnosticURL(sourceWebContents?.getURL?.() || '')}`)
       return
     }
     const sourceURL = sourceWebContents?.getURL?.() || ''
