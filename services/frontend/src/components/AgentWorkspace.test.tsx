@@ -90,8 +90,9 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
     return <div className="workspace-body">
       <div className="workspace-main-row">
         <WorkspaceSideRail {...sharedRailProps} drawer={drawer} onDrawer={setDrawer}/>
-        <div className="workspace-mode-stack">
-          <AgentWorkspace
+        <div className="workspace-center-column">
+          <div className="workspace-mode-stack">
+            <AgentWorkspace
             session={active}
             busy={busy}
             attentionItems={attentionItems}
@@ -114,7 +115,8 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
               onChatGPTURL: () => true, onExecute, onRetryDependencyNetwork, onRetryHostDependencyRepair, onRejectPendingChanges: async () => undefined, onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
               ...inspectorOverride,
             } as ComponentProps<typeof AgentWorkspace>['inspectorProps']}
-          />
+            />
+          </div>
         </div>
         {railVisible && <WorkspaceSideRail {...sharedRailProps} side="right" tools={['project', 'database']} drawer="" onDrawer={() => undefined}/>}
       </div>
@@ -799,7 +801,12 @@ describe('AgentWorkspace', () => {
     // The rail and drawer are the shell's columns now, so the drag measures
     // against the shell row rather than the Agent workspace.
     const body = container.querySelector('.workspace-body') as HTMLElement
-    body.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 1600, bottom: 900, width: 1600, height: 900, toJSON: () => ({}) })
+    const row = container.querySelector('.workspace-main-row') as HTMLElement
+    const centre = container.querySelector('.workspace-center-column') as HTMLElement
+    const shellRect = { x: 0, y: 0, top: 0, left: 0, right: 1600, bottom: 900, width: 1600, height: 900, toJSON: () => ({}) }
+    body.getBoundingClientRect = () => shellRect
+    row.getBoundingClientRect = () => shellRect
+    centre.getBoundingClientRect = () => ({ ...shellRect, right: 900, width: 900 })
     splitter.setPointerCapture = () => undefined
 
     fireEvent.pointerDown(splitter, { pointerId: 1, clientX: 400 })
@@ -808,6 +815,14 @@ describe('AgentWorkspace', () => {
 
     const drawer = container.querySelector('.agent-drawer') as HTMLElement
     await waitFor(() => expect(drawer.style.getPropertyValue('--workspace-drawer-width')).toBe('456px'))
+
+    // Production wraps the mode stack in `.workspace-center-column`. Its live
+    // width must not be counted as reserved chrome or it creates a false upper
+    // bound that stops the divider while plenty of centre space remains.
+    fireEvent.pointerDown(splitter, { pointerId: 2, clientX: 500 })
+    fireEvent(window, Object.assign(new Event('pointermove'), { clientX: 900 }))
+    fireEvent(window, new Event('pointerup'))
+    await waitFor(() => expect(drawer.style.getPropertyValue('--workspace-drawer-width')).toBe('856px'))
     // The Agent's own chat/inspector split is a separate measurement and must
     // not be rewritten by a drag of the shell's side panel.
     const workspace = container.querySelector('.agent-workspace') as HTMLElement
@@ -817,7 +832,7 @@ describe('AgentWorkspace', () => {
 
     // The divider must also travel below the old 240px drawer floor. A narrow
     // drawer remains recoverable because its rail and splitter stay mounted.
-    fireEvent.pointerDown(splitter, { pointerId: 2, clientX: 500 })
+    fireEvent.pointerDown(splitter, { pointerId: 3, clientX: 900 })
     fireEvent(window, Object.assign(new Event('pointermove'), { clientX: 80 }))
     fireEvent(window, new Event('pointerup'))
     await waitFor(() => expect(drawer.style.getPropertyValue('--workspace-drawer-width')).toBe('160px'))

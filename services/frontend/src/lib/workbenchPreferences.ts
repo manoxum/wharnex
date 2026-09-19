@@ -1,4 +1,4 @@
-import { WORKBENCH_SIDE_PANEL_MIN_PX } from './workbenchResize'
+import { WORKBENCH_CENTRE_MIN_PX, WORKBENCH_SIDE_PANEL_MIN_PX } from './workbenchResize'
 
 const WORKBENCH_STATE_VERSION = 1
 const STORAGE_PREFIX = 'whx.workbench.layout.v1'
@@ -36,10 +36,12 @@ export function defaultSidePanelWidth(viewportWidth = typeof window === 'undefin
   return usable > 0 ? Math.round(usable * SIDE_PANEL_FRACTION) : 0
 }
 
-// A static ceiling would stop a wide screen from ever reaching that quarter,
-// and would stop the operator from deliberately squeezing the centre.
-function sidePanelMax(staticMax: number, viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth) {
-  return Math.max(staticMax, Math.round(Math.max(0, viewportWidth) * 0.45))
+// Persistence must not impose a second, arbitrary ceiling after the live
+// splitter already accepted a width. Keep only a viewport safety bound that
+// leaves the same recoverable centre reserve used during dragging.
+function sidePanelMax(viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth) {
+  const viewport = Math.round(Math.max(0, viewportWidth))
+  return viewport > 0 ? Math.max(WORKBENCH_SIDE_PANEL_MIN_PX, viewport - WORKBENCH_CENTRE_MIN_PX) : Number.MAX_SAFE_INTEGER
 }
 
 export function loadWorkbenchState(projectPath: string): WorkbenchState {
@@ -49,8 +51,8 @@ export function loadWorkbenchState(projectPath: string): WorkbenchState {
     const fallback = cloneDefault()
     const leftWidth = legacyDrawerWidth('left')
     const rightWidth = legacyDrawerWidth('right')
-    fallback.left.size = clamp(leftWidth || defaultSidePanelWidth() || fallback.left.size, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(720))
-    fallback.right.size = clamp(rightWidth || defaultSidePanelWidth() || fallback.right.size, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(840))
+    fallback.left.size = clamp(leftWidth || defaultSidePanelWidth() || fallback.left.size, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax())
+    fallback.right.size = clamp(rightWidth || defaultSidePanelWidth() || fallback.right.size, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax())
     return fallback
   } catch { return cloneDefault() }
 }
@@ -64,8 +66,8 @@ export function saveWorkbenchState(projectPath: string, state: WorkbenchState) {
 export function normalizeWorkbenchState(value: Partial<WorkbenchState>): WorkbenchState {
   return {
     version: WORKBENCH_STATE_VERSION,
-    left: normalizePanel(value.left, DEFAULT_WORKBENCH_STATE.left, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(720), true),
-    right: normalizePanel(value.right, DEFAULT_WORKBENCH_STATE.right, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(840), true),
+    left: normalizePanel(value.left, DEFAULT_WORKBENCH_STATE.left, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(), true),
+    right: normalizePanel(value.right, DEFAULT_WORKBENCH_STATE.right, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(), true),
     bottom: normalizePanel(value.bottom, DEFAULT_WORKBENCH_STATE.bottom, 185, 720),
   }
 }
