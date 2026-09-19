@@ -203,7 +203,9 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	case ChatAgentRoleSupervisor:
 		roleSQL = " AND (t.assigned_worker<>'' OR " + chatAgentTaskSupervisorSQL("t.type") + ")"
 	case ChatAgentRoleWorker:
-		roleSQL = " AND (t.assigned_worker<>'' OR NOT " + chatAgentTaskSupervisorSQL("t.type") + ")"
+		roleSQL = " AND (t.assigned_worker<>'' OR (NOT " + chatAgentTaskSupervisorSQL("t.type") + " AND t.type<>'TRANSLATE_MARKDOWN'))"
+	case ChatAgentRoleTranslator:
+		roleSQL = " AND (t.assigned_worker<>'' OR t.type='TRANSLATE_MARKDOWN')"
 	}
 	query := `WITH candidate AS (
 		SELECT t.task_id FROM harness_chat_agent_tasks t

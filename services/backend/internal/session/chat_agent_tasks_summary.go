@@ -47,6 +47,7 @@ type ChatAgentQueueSummary struct {
 	// library cleanup is queued.
 	DueSupervisorLanes int `json:"due_supervisor_lanes"`
 	DueWorker          int `json:"due_worker"`
+	DueTranslator      int `json:"due_translator"`
 	// Blocked counts tasks that are past their attempt budget and can never be
 	// claimed again. They are backlog that will never drain, which is a
 	// different operational fact from work that is merely waiting.
@@ -128,6 +129,8 @@ func (s *Store) ChatAgentQueueSummary(projectID string) (ChatAgentQueueSummary, 
 			summary.Due++
 			if chatAgentTaskSupervisor(task.Type) {
 				supervisorLanes[chatAgentTaskLaneKey(task)] = struct{}{}
+			} else if task.Type == "TRANSLATE_MARKDOWN" {
+				summary.DueTranslator++
 			} else {
 				summary.DueWorker++
 			}
@@ -242,12 +245,13 @@ func (s *Store) postgresChatAgentQueueSummary(projectID string) (ChatAgentQueueS
 	if err := rows.Err(); err != nil {
 		return ChatAgentQueueSummary{}, err
 	}
-	lanes, dueWorker, err := s.postgresChatAgentDueByRole(projectID)
+	lanes, dueWorker, dueTranslator, err := s.postgresChatAgentDueByRole(projectID)
 	if err != nil {
 		return ChatAgentQueueSummary{}, err
 	}
 	summary.DueSupervisorLanes = lanes
 	summary.DueWorker = dueWorker
+	summary.DueTranslator = dueTranslator
 	return summary, nil
 }
 
@@ -258,7 +262,7 @@ func (s *Store) postgresChatAgentQueueSummary(projectID string) (ChatAgentQueueS
 // because that query groups by status: a chat holding one due PENDING and one
 // due WAITING task is one lane, and summing a per-status DISTINCT would report
 // it as two and grow the pool against a conversation one slot already serves.
-func (s *Store) postgresChatAgentDueByRole(projectID string) (int, int, error) {
+func (s *Store) postgresChatAgentDueByRole(projectID string) (int, int, int, error) {
 	row := s.db.QueryRow(`WITH due AS (
 		SELECT t.type,t.chat_id,t.conversation_id
 		FROM harness_chat_agent_tasks t
@@ -274,13 +278,14 @@ func (s *Store) postgresChatAgentDueByRole(projectID string) (int, int, error) {
 		SELECT
 			count(DISTINCT CASE WHEN `+chatAgentTaskSupervisorSQL("type")+`
 				THEN CASE WHEN coalesce(conversation_id,'')<>'' THEN 'conversation:'||conversation_id ELSE 'chat:'||coalesce(chat_id,'') END END),
-			count(*) FILTER (WHERE NOT `+chatAgentTaskSupervisorSQL("type")+`)
+			count(*) FILTER (WHERE NOT `+chatAgentTaskSupervisorSQL("type")+` AND type<>'TRANSLATE_MARKDOWN'),
+			count(*) FILTER (WHERE type='TRANSLATE_MARKDOWN')
 		FROM due`, projectID)
-	var lanes, dueWorker int
-	if err := row.Scan(&lanes, &dueWorker); err != nil {
-		return 0, 0, fmt.Errorf("summarize chat agent due work by role: %w", err)
+	var lanes, dueWorker, dueTranslator int
+	if err := row.Scan(&lanes, &dueWorker, &dueTranslator); err != nil {
+		return 0, 0, 0, fmt.Errorf("summarize chat agent due work by role: %w", err)
 	}
-	return lanes, dueWorker, nil
+	return lanes, dueWorker, dueTranslator, nil
 }
 
 func (s *Store) postgresPruneChatAgentTasks(before time.Time) (int, error) {

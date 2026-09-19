@@ -19,7 +19,7 @@ var ErrChatAgentTaskAssignment = errors.New("chat agent task assignment conflict
 // honoured by the same `assigned_worker` check Workers already use.
 func normalizeChatAgentWorkerID(value string) (string, error) {
 	value = strings.TrimSpace(strings.ToLower(value))
-	for _, prefix := range []string{"worker-", "supervisor-"} {
+	for _, prefix := range []string{"worker-", "supervisor-", "translator-"} {
 		if !strings.HasPrefix(value, prefix) {
 			continue
 		}
@@ -29,7 +29,7 @@ func normalizeChatAgentWorkerID(value string) (string, error) {
 		}
 		return fmt.Sprintf("%s%d", prefix, number), nil
 	}
-	return "", errors.New("worker_id must use worker-N or supervisor-N format")
+	return "", errors.New("worker_id must use worker-N, supervisor-N or translator-N format")
 }
 
 func chatAgentLeaseMatchesWorker(owner, workerID string) bool {

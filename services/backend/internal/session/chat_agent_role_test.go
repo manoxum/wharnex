@@ -32,8 +32,10 @@ func claimTypes(t *testing.T, store *Store, role string, count int) []string {
 func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 	store := NewStore()
 	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE", "ORCHESTRATOR_PLAN"}
-	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TRANSLATE_MARKDOWN", "TODO_CLASSIFY", "TITLE_DISCOVER"}
-	for index, taskType := range append(append([]string{}, supervisorTypes...), workerTypes...) {
+	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "TITLE_DISCOVER"}
+	translatorTypes := []string{"TRANSLATE_MARKDOWN"}
+	allTypes := append(append(append([]string{}, supervisorTypes...), workerTypes...), translatorTypes...)
+	for index, taskType := range allTypes {
 		task := testChatAgentTask(taskType, "chat-"+taskType, "conv-"+taskType, taskType+":"+string(rune('a'+index)))
 		if _, err := store.EnqueueChatAgentTask(task); err != nil {
 			t.Fatalf("enqueue %s: %v", taskType, err)
@@ -46,8 +48,13 @@ func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 		}
 	}
 	for _, taskType := range claimTypes(t, store, ChatAgentRoleWorker, len(workerTypes)+len(supervisorTypes)) {
-		if chatAgentTaskSupervisor(taskType) {
+		if chatAgentTaskSupervisor(taskType) || taskType == "TRANSLATE_MARKDOWN" {
 			t.Fatalf("Worker pool claimed chat-bound Supervisor work %q", taskType)
+		}
+	}
+	for _, taskType := range claimTypes(t, store, ChatAgentRoleTranslator, len(allTypes)) {
+		if taskType != "TRANSLATE_MARKDOWN" {
+			t.Fatalf("Translator claimed foreign work %q", taskType)
 		}
 	}
 }
@@ -80,6 +87,9 @@ func TestChatAgentSupervisorWorkerIDIsCanonical(t *testing.T) {
 		if err != nil || normalized != "supervisor-3" {
 			t.Fatalf("normalize(%q)=%q err=%v", value, normalized, err)
 		}
+	}
+	if normalized, err := normalizeChatAgentWorkerID(" Translator-1 "); err != nil || normalized != "translator-1" {
+		t.Fatalf("translator identity=%q err=%v", normalized, err)
 	}
 	if _, err := normalizeChatAgentWorkerID("supervisor-0"); err == nil {
 		t.Fatal("supervisor-0 must be rejected")

@@ -33,8 +33,8 @@ export function TranslatableMarkdown({ sessionId, markdown, compact = false }: {
     try {
       const result = await api.translateMarkdown(sessionId, target, markdown)
       setTranslated(result.markdown)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Não foi possível traduzir o documento.')
+    } catch {
+      setError('A tradução falhou. Tente novamente mais tarde.')
     } finally { setLoading(false) }
   }
 

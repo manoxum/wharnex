@@ -22,6 +22,10 @@ const (
 const (
 	ChatAgentRoleSupervisor = "supervisor"
 	ChatAgentRoleWorker     = "worker"
+	// Translator is an ephemeral utility browser. It uses the same hardened
+	// browser transport as a Worker, but may claim only TRANSLATE_MARKDOWN and
+	// is destroyed as soon as that one task settles.
+	ChatAgentRoleTranslator = "translator"
 )
 
 type ChatAgentClaimOptions struct {
@@ -67,7 +71,7 @@ func normalizeChatAgentClaimOptions(input ChatAgentClaimOptions) (ChatAgentClaim
 	}
 	input.Role = strings.ToLower(strings.TrimSpace(input.Role))
 	switch input.Role {
-	case "", ChatAgentRoleSupervisor, ChatAgentRoleWorker:
+	case "", ChatAgentRoleSupervisor, ChatAgentRoleWorker, ChatAgentRoleTranslator:
 	default:
 		return ChatAgentClaimOptions{}, fmt.Errorf("unsupported chat agent pool role %q", input.Role)
 	}
@@ -157,7 +161,10 @@ func chatAgentClaimRoleAllows(task ChatAgentTask, options ChatAgentClaimOptions)
 	if options.Role == ChatAgentRoleSupervisor {
 		return chatAgentTaskSupervisor(task.Type)
 	}
-	return !chatAgentTaskSupervisor(task.Type)
+	if options.Role == ChatAgentRoleTranslator {
+		return task.Type == "TRANSLATE_MARKDOWN"
+	}
+	return !chatAgentTaskSupervisor(task.Type) && task.Type != "TRANSLATE_MARKDOWN"
 }
 
 func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {

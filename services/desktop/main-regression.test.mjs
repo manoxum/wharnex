@@ -41,7 +41,7 @@ test('agent Chromium workers start after the first local shell paint', async () 
   const delay = source.indexOf('CHAT_AGENT_STARTUP_DELAY_MS')
   assert.ok(delay !== -1)
   assert.match(source, /setTimeout\(async \(\) => \{[\s\S]*await primeChatGPTWorkerPool\(workerHost\)[\s\S]*chatAgentScheduler\.start\(\)[\s\S]*CHAT_AGENT_STARTUP_DELAY_MS/)
-  assert.match(source, /createChatGPTWorkerView\(`worker-\$\{index \+ 1\}`, host\)[\s\S]*await wait\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
+  assert.match(source, /createChatGPTWorkerView\(`worker-\$\{index\}`, host\)[\s\S]*await wait\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
 })
 
 test('hidden Worker views stay out of the local shell compositor until explicitly surfaced', async () => {
@@ -971,9 +971,10 @@ test('two Supervisor slots double-buffer renderer IPC while bounded workers stay
   assert.match(ensure, /chatgptViews\.size >= desiredChatAgentSupervisorSlots/)
   assert.match(ensure, /const reusable = reusableSupervisor\(key, resolved\)/)
   assert.match(ensure, /retireChatGPTSupervisorSurface\(reusable\[0\]\)/)
-  assert.match(workers, /index < desiredChatAgentWorkerSlots/)
-  assert.match(workers, /createChatGPTWorkerView\(`worker-\$\{index \+ 1\}`/)
-  assert.match(workers, /while \(chatGPTWorkerEntries\.length > desiredChatAgentWorkerSlots\)/)
+  assert.match(workers, /index <= desiredChatAgentWorkerSlots/)
+  assert.match(workers, /createChatGPTWorkerView\(`worker-\$\{index\}`/)
+  assert.match(workers, /persistent\.length <= desiredChatAgentWorkerSlots/)
+  assert.match(workers, /entry\.slotId === `worker-\$\{index\}`/)
   assert.match(workers, /if \(candidate\?\.interactionWindowId \|\| runtime\?\.task \|\| runtime\?\.active !== false\) break/)
   assert.match(workers, /reconcileChatGPTWorkerPool\(windowState\)/)
   assert.match(source, /function workerEntryForIndex\(worker\)/)
@@ -2080,6 +2081,25 @@ test('translation worker is transport only: it uploads the engine’s bundle and
   assert.match(download, /\^whx_translation_res_cat_\[a-f0-9\]\{20\}\\\.zip\$/)
 })
 
+test('translation uses a dedicated one-shot Translator instead of a persistent Worker', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const executeStart = source.indexOf('async function executeChatTranslatorTask(')
+  const executeEnd = source.indexOf('\nasync function executeChatAgentTask(', executeStart)
+  const execute = source.slice(executeStart, executeEnd)
+  assert.notEqual(executeStart, -1)
+  assert.match(execute, /task\?\.type !== 'TRANSLATE_MARKDOWN'/)
+  assert.match(execute, /createChatGPTWorkerView\(`translator-\$\{task\.task_id\}`/)
+  assert.match(execute, /finally \{[\s\S]*chatGPTWorkerEntries\.splice\(index, 1\)[\s\S]*retireChatGPTWorkerView\(entry\)/)
+
+  const schedulerStart = source.indexOf('chatTranslatorScheduler = new ChatAgentSchedulerClient(')
+  const schedulerEnd = source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient(', schedulerStart)
+  const scheduler = source.slice(schedulerStart, schedulerEnd)
+  assert.notEqual(schedulerStart, -1)
+  assert.match(scheduler, /role: 'translator'/)
+  assert.match(scheduler, /agentID: \(\) => 'translator-1'/)
+  assert.match(scheduler, /idleMs: 100, taskCooldownMs: 0/)
+})
+
 
 test('TODO classification worker keeps the provider exchange bundle-only', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
@@ -2356,16 +2376,21 @@ test('workers stop claiming while the provider cooldown is active', async () => 
   assert.match(claimOptions, /if \(chatAgentRateLimitResumeBlocked\(\)\) return \{ skip: true \}/)
 })
 
-test('a detected gate returns the worker without spending the task attempt budget', async () => {
+test('a detected gate preserves passive probes but fails the one-shot Translator', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const gate = source.slice(source.indexOf('function noteChatGPTRateLimitGate('), source.indexOf('\nfunction noteChatGPTHTTPStatus('))
   assert.match(gate, /health\?\.rateLimited !== true/)
   assert.match(gate, /domGate: true/)
 
-  // Every supervision path that probes health must hand the slot back as a
-  // passive observation, which is what returns the attempt.
+  // Long-running supervision paths hand the slot back as passive observations,
+  // which returns the attempt. Translation is intentionally single-attempt and
+  // must instead fail immediately so the UI does not wait through suspension.
   const observations = source.match(/noteChatGPTRateLimitGate\(key, health\)\) \{\n\s+return \{ status: 'waiting'[^}]*observation: true/g) || []
-  assert.ok(observations.length >= 3, `expected every probing task path to observe, saw ${observations.length}`)
+  assert.ok(observations.length >= 2, `expected passive supervision paths to observe, saw ${observations.length}`)
+  const translationStart = source.indexOf('async function executeChatAgentMarkdownTranslation(')
+  const translationEnd = source.indexOf('\nasync function executeChatAgentTodoClassification(', translationStart)
+  const translation = source.slice(translationStart, translationEnd)
+  assert.match(translation, /noteChatGPTRateLimitGate\(key, health\)\)[\s\S]*return \{ status: 'failed', error: 'ChatGPT rate-limit gate is active' \}/)
 })
 
 test('submission pacing widens after rate-limit pressure and decays back on its own', async () => {

@@ -1,61 +1,249 @@
 # Manutenção e aceitação da automação ChatGPT
 
-Use este procedimento quando uma mudança da interface ChatGPT quebrar um Worker.
+Este documento descreve o contrato atualmente implementado para a automação do ChatGPT no Desktop, como investigar mudanças estruturais da página e como validar uma correção. Use-o quando uma atualização do ChatGPT quebrar uma operação, quando houver HTTP 429/“too many requests” ou antes de aceitar uma alteração no engine.
 
-## Limites
+Última revisão estrutural e operacional: **2026-09-19**.
 
-- Trabalhe somente com operações nomeadas do Desktop e recursos temporários Wharnex.
-- Não leia prosa do assistente, cookies, storage, credenciais, corpos/headers de rede ou DOM bruto.
-- Scripts retornam somente estado e geometria estruturais; o processo principal faz o input confiável. Não acrescente clicks DOM para operações de conta.
-- Pare em autenticação, CAPTCHA, acesso negado, gate estrutural ou rate limit. Não faça retries para “destravar”; o gate automático usa a duração configurada em **Políticas** (7 minutos e 30 segundos por padrão; limite de 1 a 60 minutos). Ao expirar, mantenha ambos os pools bloqueados: um único Worker deve recarregar sua URL confiável atual e só liberar a fila depois de confirmar estruturalmente `rateLimited=false`, sem gate de autenticação, verificação ou acesso. Novo 429/gate inicia outra suspensão configurada; página ambígua adia a confirmação sem consumir tentativa de tarefa.
+## 1. Limites de segurança
 
-## Cadência
+- Trabalhe somente com operações nomeadas do Desktop e recursos temporários pertencentes ao Wharnex.
+- Não leia prosa da resposta do assistente, cookies, storage, credenciais, corpos/headers de rede nem DOM bruto. A exceção de raciocínio visível continua limitada pelo contrato normativo do projeto.
+- Scripts injetados retornam somente estado estrutural, metadados de controles e geometria limitada. O processo principal executa o input confiável.
+- Operações de conta não podem depender de `HTMLElement.click()`: o script localiza e devolve o alvo; o processo principal confirma o alvo e envia o evento nativo.
+- Nunca use conversas, projetos ou artefatos reais como fixture destrutiva. Crie primeiro um recurso temporário com identidade Wharnex comprovável.
+- Autenticação, CAPTCHA, verificação humana e acesso negado falham de forma fechada. Rate limit é uma pausa automática, não uma solicitação de ação humana.
 
-- Navegação, reload, upload, submit e operações de conta de qualquer Worker compartilham 30 s mínimos por perfil.
-- `TRANSLATE_MARKDOWN` é a única exceção: 5 s mínimos.
-- Supervisores não usam esse pacer; continuam sujeitos à pausa durável do provider.
-- Observação passiva não é ação de provider e não consome tentativa/cadência.
+## 2. Responsabilidade dos pools
 
-## Investigação estrutural
+| Pool | Operações | Cadência normal |
+|---|---|---:|
+| Supervisor | `BOT_WRITE`, `RECOVERY_WRITE`, `ORCHESTRATOR_PLAN`, `AWAIT_RESPONSE` e observação do bundle esperado do chat vinculado | Não usa o pacer comum de Worker |
+| Worker | `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT` e `TODO_CLASSIFY` | 30 s globais mínimos |
+| Translator efêmero | Somente `TRANSLATE_MARKDOWN`; cria uma instância por tarefa e destrói ao terminar | 5 s globais mínimos |
 
-1. Confirme que o provider não está pausado e que o chat de teste está ocioso.
-2. Execute uma operação por vez e mantenha diagnóstico limitado a atributos, papéis, `data-testid`, visibilidade, estado disabled e URL sanitizada.
-3. Compare com `services/desktop/chat-agent-behavior.mjs`, `chatgpt-dom.mjs`, `chatgpt-account.mjs` e `chat-agent-scripts.mjs`.
-4. Escreva um teste de regressão de menor camada antes de mudar seletores/estados. Preserve validação estrita de artefato e a fronteira de conteúdo remoto.
+`DELETE_DOUBLE` não é um tipo durável atual. A remoção de artefato duplicado/expirado é representada por `DELETE_BUNDLE`; duplicidade de tarefas é controlada por `dedupe_key`.
+
+O rate limit é superior a essa divisão: durante uma suspensão automática, **Workers, Supervisores e Translator param de iniciar ações contra o provedor**. Uma tradução solicitada nesse estado falha imediatamente e não fica aguardando a retomada. Observação passiva já residente pode continuar quando não navega, recarrega, envia, faz upload ou ativa controles.
+
+## 3. Cadência global dos Workers
+
+- Navegação, reload, tentativa de upload, submit e operação de conta de qualquer Worker compartilham o mesmo relógio global de 30 segundos por perfil.
+- `TRANSLATE_MARKDOWN` não entra no pool persistente de Workers. Um scheduler dedicado reivindica somente esse tipo, cria o `Translator`, dispara automaticamente a operação e destrói a instância no fim.
+- O `Translator` usa o relógio global de tradução, com mínimo normativo de 5 segundos; ele não aguarda a cadência de 30 segundos dos Workers comuns.
+- A tarefa de tradução tem `max_attempts=1`. Suspensão, autenticação, gate humano, timeout ou falha de transporte terminam a operação sem retry e a interface mostra **“A tradução falhou. Tente novamente mais tarde.”**
+- A cadência é aplicada também aos retries que realmente podem alcançar o ChatGPT.
+- Antes da última ação de navegação, upload ou submit, o engine consulta novamente a suspensão. Se ela começou enquanto a operação aguardava o pacer, a ação é adiada sem alcançar o provedor.
+- Um adiamento anterior ao contato com o ChatGPT é uma observação gratuita: não consome a tentativa durável da tarefa.
+- Pressão recente do provedor pode aumentar a separação; nunca pode reduzi-la abaixo dos mínimos acima.
+
+Implementação principal: `services/desktop/chat-agent-pacer.mjs` e os limites finais em `services/desktop/main.mjs`.
+
+## 4. Suspensão automática por rate limit
+
+### 4.1 Detecção
+
+Qualquer uma destas evidências abre a suspensão global:
+
+- HTTP 429 observado num endpoint backend confiável de `chatgpt.com`;
+- controle estrutural de rate limit exposto pela página;
+- repetição de recusas classificada como gate da conta.
+
+A detecção é estrutural e independente do idioma. Não use texto localizado da página para decidir.
+
+### 4.2 Duração configurável
+
+Na aba **Agentes → Políticas**, o campo **Suspensão automática por rate limit** aceita:
+
+- padrão: **7,5 minutos**;
+- mínimo: **1 minuto**;
+- máximo: **60 minutos**;
+- incremento: **0,5 minuto**.
+
+O valor é normalizado e persistido na política do Desktop. Alterá-lo afeta as próximas suspensões; uma suspensão já ativa nunca é encurtada por uma observação posterior ou por um valor menor.
+
+O backend persiste `paused`, `paused_until`, `reason`, `rate_limit_level`, `last_rate_limit_at` e `last_rate_limit_source`. Reiniciar o Desktop durante a janela não libera a fila.
+
+### 4.3 Comportamento durante a pausa
+
+1. Ambos os schedulers deixam de fazer novos claims.
+2. Navegação, upload e submit fazem uma última verificação antes da fronteira do provedor.
+3. Comentários, recuperação e continuações já preparadas são adiados; não executam loops locais de upload.
+4. `ChatGPTRateLimitDeferral` preserva o erro tipado e marca `retryUpload=false`, evitando cinco retries locais de uma ação que não chegou ao provedor.
+5. O adiamento não consome tentativa da tarefa e não cria atenção humana.
+6. Uma operação que já atravessou a fronteira antes da detecção pode terminar, mas nenhuma nova etapa de submit é iniciada sem consultar novamente a suspensão.
+
+### 4.4 Retomada obrigatoriamente confirmada
+
+O fim de `paused_until` não libera a fila por si só:
+
+1. Workers e Supervisores continuam bloqueados por `chatAgentRateLimitResumeBlocked()`.
+2. Exatamente um Worker é escolhido para a confirmação.
+3. O Worker passa pelo pacer global e recarrega sua URL confiável atual. Se não houver URL confiável residente, carrega `https://chatgpt.com/`.
+4. Depois de `reload()`, o engine aguarda o início real da navegação e a estabilização do carregamento/rede.
+5. O engine executa `chatGPTHumanActionScript()` e exige um objeto estrutural válido com `rateLimited === false`.
+6. Autenticação, CAPTCHA, acesso negado, resultado ausente ou página ambígua mantêm a fila bloqueada e reagendam a confirmação.
+7. Um 429 durante o reload, ou um gate ainda presente, abre outra suspensão completa usando a política atual.
+8. O backend pode limpar o estado temporal expirado ao ser consultado, mas o bloqueio local de retomada permanece. Somente a confirmação saudável remove esse bloqueio e permite novos claims.
+
+O log de sucesso esperado é:
+
+```text
+[chat-agent] rate-limit resume confirmed slot=worker-N url=https://chatgpt.com/...
+```
+
+Nunca aceite uma implementação que libere a fila apenas porque o relógio expirou.
+
+## 5. Investigação estrutural controlada
+
+1. Consulte o estado durável do provider e confirme que ele não está pausado. Não force uma rodada enquanto houver cooldown.
+2. Confirme que o chat de teste está ocioso e que não existe request real em geração.
+3. Execute uma única operação por vez numa fixture temporária.
+4. Registre somente atributos estruturais permitidos: papel, `data-testid`, visibilidade, estado `disabled`, retângulo do alvo, contagens limitadas e URL sanitizada.
+5. Compare o resultado com:
+   - `services/desktop/chat-agent-behavior.mjs`;
+   - `services/desktop/chatgpt-dom.mjs`;
+   - `services/desktop/chatgpt-account.mjs`;
+   - `services/desktop/chat-agent-scripts.mjs`.
+6. Escreva primeiro uma regressão na menor camada útil e depois altere o seletor ou a máquina de estados.
+7. Preserve a validação estrita do artefato e a fronteira que proíbe leitura de conteúdo remoto.
+8. Remova toda instrumentação temporária `[DEBUG-...]` antes de concluir.
 
 ### Mapa estrutural confirmado em 2026-09-19
 
-- O histórico expõe `data-conversation-options-trigger`; o `data-testid` visual pode ser `history-item-<n>-options` ou `undefined-options` e não deve ser usado como identidade durável.
-- O menu da conversa atualmente aberta expõe `button[data-testid="conversation-options-button"]`; use-o somente como fallback da conversa carregada.
-- O botão do cabeçalho pode ter `aria-label="Mais"` e não declarar `aria-haspopup`; sua identidade vem do `data-testid`, não do texto localizado.
-- Itens de ação expõem `data-testid` específicos; o `role="menuitem"` pode estar no mesmo nó ou num ancestral. Resolva primeiro o `data-testid`, suba apenas até o controle acionável e use labels localizados somente como fallback fechado.
-- O popover de esforço pode expor o slider utilizável sem refletir `aria-expanded="true"` no gatilho. A presença de um único slider composer-scoped definido em `effortSlider` é a evidência de menu aberto; `aria-expanded` não é precondição.
-- Um Worker oculto não pode depender de `webContents.sendInputEvent` para controles que exigem hit-testing. Localize e valide o retângulo no renderer e entregue o press confiável ao widget oculto pela operação estreita já implementada em `pressChatGPTControl`; nunca substitua isso por `HTMLElement.click()`.
+- O histórico expõe `data-conversation-options-trigger`; o `data-testid` visual pode ser `history-item-<n>-options` ou `undefined-options` e não serve como identidade durável.
+- O menu da conversa carregada expõe `button[data-testid="conversation-options-button"]`. Use-o somente para a conversa cujo URL/id foi confirmado.
+- O botão do cabeçalho pode ter `aria-label="Mais"` e não declarar `aria-haspopup`; a identidade primária vem do `data-testid`, nunca do texto localizado.
+- Itens de ação expõem `data-testid` específicos. `role="menuitem"` pode estar no mesmo nó ou num ancestral; resolva o `data-testid`, suba somente até o controle acionável e mantenha labels localizados como fallback fechado.
+- Scripts de conta localizam controles e retornam o alvo. O clique final precisa ser input nativo confiável.
+- O popover de esforço pode apresentar um slider utilizável sem `aria-expanded="true"`. Um único slider definido em `effortSlider` e limitado ao composer é a evidência de menu aberto.
+- Worker oculto não pode depender de `webContents.sendInputEvent` sem viewport/hit-testing válidos. Use a operação estreita `pressChatGPTControl`; não substitua por click DOM.
+- Todo gerador de script de conta deve entrar em `ALL_SCRIPTS` e passar por compilação com `new Function`. Regex dentro de template strings precisam preservar dupla fuga (`\\/`).
 
-Ao atualizar este mapa, incremente `CHATGPT_BEHAVIOR.revision`, acrescente uma regressão e remova toda instrumentação temporária marcada com `[DEBUG-...]` antes de concluir.
-Todo gerador de script de conta deve entrar na lista `ALL_SCRIPTS` e passar pelo teste de compilação com `new Function`; regex dentro de template strings precisam preservar dupla fuga (`\\/`).
+Quando o mapa mudar, incremente `CHATGPT_BEHAVIOR.revision`, acrescente a regressão correspondente e registre a data da nova confirmação.
 
-## Aceitação por tipo
+## 6. Operações que devem ser exercitadas
 
-Para cada tipo habilitado (`RENAME_CHAT`, `ORGANIZE_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TODO_CLASSIFY`, `TRANSLATE_MARKDOWN` e compatibilidades de título), crie cinco tarefas temporárias, isoladas e rastreáveis.
+Use somente fixtures temporárias e cubra, conforme a mudança:
 
-- Aceite somente com pelo menos 4/5 sucessos.
-- Duas falhas do mesmo tipo suspendem a rodada daquele tipo: faça scraper estrutural dirigido, adicione regressão e repita cinco novas tarefas. Não use retry ilimitado.
-- TODO e tradução só contam quando o arquivo de nome exato é baixado e aceito pelo validador do backend.
-- Para operação destrutiva, crie antes o recurso temporário Wharnex que será removido; nunca use dado real como fixture.
-- Registre apenas ID, tipo, estado, tentativas, timestamps, URL sanitizada e categoria de erro. Pausa do provider torna a rodada inconclusiva.
+- criação de chat e confirmação da URL definitiva;
+- envio de texto e do bundle/arquivo esperado;
+- seleção de modelo e nível de raciocínio;
+- criação ou reutilização exata do projeto Wharnex;
+- organização/movimentação de conversa;
+- descoberta e alteração de título;
+- arquivamento e exclusão de conversa temporária;
+- exclusão de bundle Wharnex expirado na biblioteca;
+- tradução Markdown por artefato;
+- classificação de TODO por artefato;
+- observação e download do bundle canónico esperado.
 
-## Gates
+Chats anónimos, conversas alheias, ficheiros sem identidade Wharnex e conteúdo de resposta não fazem parte da superfície autorizada de automação.
+
+## 7. Aceitação por tipo: regra 4/5
+
+Para cada tipo alterado ou habilitado, crie cinco tarefas novas, isoladas e rastreáveis:
+
+- `RENAME_CHAT`;
+- `ORGANIZE_CHAT`;
+- `ARCHIVE_CHAT`;
+- `DELETE_CHAT`;
+- `DELETE_TEMP_CHAT`;
+- `DELETE_BUNDLE`;
+- `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP` e `TITLE_AWAIT` quando aplicáveis;
+- `TODO_CLASSIFY`;
+- `TRANSLATE_MARKDOWN`.
+
+Critérios:
+
+- aceite somente com pelo menos **4 sucessos em 5** para cada tipo;
+- duas falhas do mesmo tipo tornam a rodada inconclusiva: pare esse tipo, faça investigação estrutural dirigida, adicione regressão e execute cinco tarefas novas;
+- não complete a amostra repetindo somente o caso que falhou e não use retry ilimitado;
+- TODO e tradução só contam quando o arquivo de nome exato é baixado e aceito pelo validador do backend;
+- operação destrutiva só conta quando remove a fixture temporária exata, sem atingir outro recurso;
+- registre apenas ID, tipo, estado, tentativas, timestamps, URL sanitizada e categoria estrutural de erro;
+- qualquer 429 torna a rodada atual inconclusiva. Aguarde todo o fluxo de suspensão e confirmação antes de iniciar uma amostra nova.
+
+## 8. Aceitação específica do rate limit
+
+Confirme, preferencialmente a partir de uma ocorrência natural e sem provocar carga:
+
+1. `paused_until` está à frente pela duração configurada.
+2. Nenhum pool faz novos claims durante a janela.
+3. Ações que alcançam a fronteira final são adiadas sem consumir tentativa.
+4. Upload/continuação adiados não repetem localmente e não geram atenção humana.
+5. Reiniciar o Desktop durante a janela preserva o deadline.
+6. Na expiração, exatamente um Worker recarrega uma URL confiável.
+7. Não há claims entre a expiração e o log `rate-limit resume confirmed`.
+8. Página ambígua mantém o bloqueio.
+9. Novo 429 abre outra janela completa; não é tratado como sucesso da retomada anterior.
+10. Uma confirmação saudável permite a fila voltar e o backend retornar ao nível saudável.
+
+## 9. Evidência da intervenção de 2026-09-19
+
+Durante a correção que originou este procedimento:
+
+- uma suspensão real por gate estrutural começou em `2026-09-19T18:43:41Z`;
+- a duração persistida foi 7 minutos e 30 segundos, com expiração em `18:51:11Z`;
+- uma continuação já existente revelou quatro retries locais de upload e atenção humana, embora nenhuma dessas tentativas tivesse alcançado o provedor;
+- o retry genérico foi ajustado para propagar `ChatGPTRateLimitDeferral` imediatamente, e comentários/recuperações/continuações passaram a respeitar o bloqueio global;
+- o Desktop foi reiniciado antes da expiração e adotou a pausa durável;
+- depois da expiração, `worker-1` recarregou `https://chatgpt.com/` e registrou `rate-limit resume confirmed` antes dos novos claims;
+- após a expiração, o backend limpou o estado temporal para `paused=false` e `rate_limit_level=0`, enquanto o Desktop manteve os claims bloqueados até concluir a confirmação;
+- um HTTP 429 posterior, num novo endpoint/ato do Worker, abriu corretamente outra janela completa de 7 minutos e 30 segundos, sem loop local de retry.
+
+Esses horários são evidência histórica, não constantes de teste.
+
+Resultados observados na mesma intervenção:
+
+- testes focados finais do contrato de pacing/rate limit: **178/178**;
+- suíte completa do Desktop após a correção: **428/428**;
+- backend, incluindo `go test -race ./...`: aprovado;
+- teste focado da aba Políticas e build frontend de produção: aprovados;
+- lifecycle e export: aprovados;
+- a suíte frontend ampla registrou 28 falhas em áreas fora deste diff. Elas foram reportadas e não tiveram assertions relaxadas; qualquer manutenção futura deve compará-las formalmente com o baseline antes de atribuir regressão.
+
+## 10. Gates de verificação
+
+Testes focados no contrato descrito aqui:
 
 ```bash
 cd services/desktop
-node --test chat-agent-pacer.test.mjs chat-agent-scheduler.test.mjs chat-agent-residency.test.mjs main-regression.test.mjs
-npm run typecheck
-npm run lint
-npm test -- --run
-npm run build
+node --test \
+  chat-agent-pacer.test.mjs \
+  chat-agent-policies.test.mjs \
+  chat-agent-scheduler.test.mjs \
+  chat-agent-residency.test.mjs \
+  chatgpt-upload.test.mjs \
+  chatgpt-dom.test.mjs \
+  chatgpt-account.test.mjs \
+  main-regression.test.mjs
+
+cd ../frontend
+npm test -- --run src/components/AgentRuntimeDrawer.test.tsx
 ```
 
-Antes de aceitar, confira ausência de novo `429`, cumprimento da cadência e ausência de conteúdo remoto nos diagnósticos.
+Gates canónicos do repositório:
 
-Se um 429 ocorrer durante a rodada, encerre a medição como inconclusiva. Confirme no estado durável que `paused_until` está à frente pela duração configurada, que nenhum pool reivindica trabalho novo durante a janela e que, ao expirar, exatamente um Worker recarrega a URL confiável e confirma a ausência estrutural do gate antes de qualquer pool voltar a reivindicar trabalho. Um novo 429 deve abrir outra janela completa. Só então verifique que o estado volta ao nível saudável antes de iniciar cinco casos novos.
+```bash
+cd ../..
+make backend-check
+make frontend-check
+make desktop-check
+make lifecycle-check
+make export-check
+```
+
+Também execute `npm run build` no frontend quando a aba Políticas for alterada. Falhas preexistentes da suíte ampla devem ser comparadas com o baseline não modificado e reportadas; não altere assertions alheias para fazer o gate passar.
+
+## 11. Checklist final
+
+- [ ] Política configurável aparece em **Agentes → Políticas** e persiste o valor normalizado.
+- [ ] Cadência global é 30 s para Worker comum e 5 s para tradução.
+- [ ] Supervisores ignoram o pacer comum, mas respeitam a suspensão do provider.
+- [ ] Nenhum diagnóstico contém prosa remota, DOM bruto, cookies ou credenciais.
+- [ ] Scripts retornam alvos; operações de conta usam input nativo confiável.
+- [ ] Suspensão não consome tentativas nem gera retry storm.
+- [ ] Retomada recarrega e confirma estruturalmente antes de liberar claims.
+- [ ] Novo 429 reinicia a janela configurada.
+- [ ] Cada tipo alterado alcança pelo menos 4/5 numa amostra nova.
+- [ ] Regressões focadas, build aplicável e gates sem regressão nova foram concluídos.

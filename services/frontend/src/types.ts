@@ -488,6 +488,9 @@ export type ChatAgentQueueSummary = {
   queued: number
   counts: Record<string, number>
   due: number
+  due_supervisor_lanes?: number
+  due_worker?: number
+  due_translator?: number
   scheduled: number
   guarded: number
   blocked: number

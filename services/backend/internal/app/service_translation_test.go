@@ -108,6 +108,9 @@ func TestTranslateMarkdownDispatchesARequestBundle(t *testing.T) {
 	if task.Type != "TRANSLATE_MARKDOWN" || task.Priority != -1 {
 		t.Fatalf("translation task=%#v", task)
 	}
+	if task.MaxAttempts != 1 || task.RootRequestID != task.TaskID {
+		t.Fatalf("translation must be one-shot and self-cancellable, got attempts=%d root=%q", task.MaxAttempts, task.RootRequestID)
+	}
 	if payload.Protocol != translation.RequestProtocolV1 || payload.Task != translation.TaskTranslateDocument {
 		t.Fatalf("worker payload must carry its protocol identity, got protocol=%q task=%q", payload.Protocol, payload.Task)
 	}
@@ -159,6 +162,25 @@ func TestTranslateMarkdownDispatchesARequestBundle(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("TranslateMarkdown did not observe the completed worker task")
+	}
+}
+
+func TestTranslateMarkdownFailsBeforeEnqueueWhileProviderIsSuspended(t *testing.T) {
+	service, store := translationService(t)
+	until := time.Now().UTC().Add(time.Minute)
+	if _, err := store.SetChatAgentProviderPause(true, &until, "rate limit"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := service.TranslateMarkdown(context.Background(), "ses_translation", utility.LanguagePortuguese, "# Hello")
+	if err == nil || !strings.Contains(err.Error(), utility.ErrUnavailable.Error()) {
+		t.Fatalf("suspended translation error=%v", err)
+	}
+	items, listErr := store.ListChatAgentTasks(session.ChatAgentTaskFilter{ActiveOnly: true})
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(items) != 0 {
+		t.Fatalf("suspended translation must not queue work: %#v", items)
 	}
 }
 

@@ -622,7 +622,7 @@ func (a *API) translateMarkdown(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, session.ErrNotFound):
 			writeError(w, http.StatusNotFound, "session_not_found", err.Error())
 		case errors.Is(err, utility.ErrUnavailable):
-			writeError(w, http.StatusServiceUnavailable, "utility_unavailable", "Markdown translation worker is unavailable")
+			writeError(w, http.StatusServiceUnavailable, "utility_unavailable", "Markdown Translator is unavailable")
 		default:
 			writeError(w, http.StatusBadGateway, "translation_failed", err.Error())
 		}

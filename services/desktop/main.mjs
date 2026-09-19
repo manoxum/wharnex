@@ -137,6 +137,7 @@ const chatAgentWorkerStates = new Map()
 // types, so each slot needs its own loop state and its own chat binding.
 const chatSupervisorStates = new Map()
 let chatSupervisorScheduler
+let chatTranslatorScheduler
 let configuredChatAgentSupervisorSlots = DEFAULT_SUPERVISOR_SLOTS
 let desiredChatAgentSupervisorSlots = DEFAULT_SUPERVISOR_SLOTS
 let configuredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
@@ -2600,14 +2601,19 @@ function reconcileChatGPTWorkerPool(windowState) {
     ? windowState
     : [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
   if (!host) return
-  for (let index = chatGPTWorkerEntries.length; index < desiredChatAgentWorkerSlots; index += 1) createChatGPTWorkerView(`worker-${index + 1}`, host)
-  while (chatGPTWorkerEntries.length > desiredChatAgentWorkerSlots) {
-    const index = chatGPTWorkerEntries.length
+  for (let index = 1; index <= desiredChatAgentWorkerSlots; index += 1) {
+    if (!chatGPTWorkerEntries.some((entry) => entry.slotId === `worker-${index}`)) createChatGPTWorkerView(`worker-${index}`, host)
+  }
+  for (;;) {
+    const persistent = chatGPTWorkerEntries.filter((entry) => /^worker-[1-9][0-9]?$/.test(entry.slotId))
+    if (persistent.length <= desiredChatAgentWorkerSlots) break
+    const candidate = persistent.sort((left, right) => Number(right.slotId.slice(7)) - Number(left.slotId.slice(7)))[0]
+    const index = Number(candidate.slotId.slice(7))
     const runtime = chatAgentWorkerStates.get(index)
-    const candidate = chatGPTWorkerEntries[index - 1]
     if (candidate?.interactionWindowId || runtime?.task || runtime?.active !== false) break
-    const entry = chatGPTWorkerEntries.pop()
-    retireChatGPTWorkerView(entry)
+    const position = chatGPTWorkerEntries.indexOf(candidate)
+    if (position >= 0) chatGPTWorkerEntries.splice(position, 1)
+    retireChatGPTWorkerView(candidate)
     chatAgentWorkerStates.delete(index)
   }
 }
@@ -2617,14 +2623,16 @@ function ensureChatGPTWorkerPool(windowState) {
 }
 
 async function primeChatGPTWorkerPool(windowState) {
-  while (!quitting && chatGPTWorkerEntries.length < desiredChatAgentWorkerSlots) {
+  while (!quitting && chatGPTWorkerEntries.filter((entry) => /^worker-[1-9][0-9]?$/.test(entry.slotId)).length < desiredChatAgentWorkerSlots) {
     const host = windowState?.window && !windowState.window.isDestroyed()
       ? windowState
       : [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
     if (!host) return
-    const index = chatGPTWorkerEntries.length
-    createChatGPTWorkerView(`worker-${index + 1}`, host)
-    if (chatGPTWorkerEntries.length < desiredChatAgentWorkerSlots) await wait(CHAT_AGENT_WORKER_SPAWN_GAP_MS)
+    const index = Array.from({ length: desiredChatAgentWorkerSlots }, (_unused, offset) => offset + 1)
+      .find((candidate) => !chatGPTWorkerEntries.some((entry) => entry.slotId === `worker-${candidate}`))
+    if (!index) return
+    createChatGPTWorkerView(`worker-${index}`, host)
+    if (chatGPTWorkerEntries.filter((entry) => /^worker-[1-9][0-9]?$/.test(entry.slotId)).length < desiredChatAgentWorkerSlots) await wait(CHAT_AGENT_WORKER_SPAWN_GAP_MS)
   }
 }
 
@@ -2654,7 +2662,7 @@ function assignChatGPTWorker(entry, task) {
 }
 
 function workerEntryForIndex(worker) {
-  return chatGPTWorkerEntries[Math.max(0, Number(worker || 1) - 1)]
+  return chatGPTWorkerEntries.find((entry) => entry.slotId === `worker-${Math.max(1, Number(worker) || 1)}`)
 }
 
 /**
@@ -2833,6 +2841,7 @@ function chatAgentQueueDiagnostics(summary = {}) {
     // and grow the Worker pool because a conversation is being supervised.
     due_supervisor_lanes: Math.max(0, Number(summary?.due_supervisor_lanes) || 0),
     due_worker: Math.max(0, Number(summary?.due_worker) || 0),
+    due_translator: Math.max(0, Number(summary?.due_translator) || 0),
     scheduled: Math.max(0, Number(summary?.scheduled) || 0),
     guarded: Math.max(0, Number(summary?.guarded) || 0),
     blocked: Math.max(0, Number(summary?.blocked) || 0),
@@ -2983,8 +2992,8 @@ function chatAgentRuntimeState() {
       binding_hold: hold, error: String(runtime.error || ''), browser: publicAgentBrowser(entry),
     }
   })
-  const workers = chatGPTWorkerEntries.map((entry, offset) => {
-    const worker = offset + 1
+  const workers = chatGPTWorkerEntries.filter((entry) => /^worker-[1-9][0-9]?$/.test(entry.slotId)).map((entry) => {
+    const worker = Number(entry.slotId.slice(7))
     const runtime = chatAgentWorkerStates.get(worker) || {}
     return {
       id: entry.slotId || `worker-${worker}`, label: `Worker ${worker}`, role: 'worker',
@@ -4286,8 +4295,9 @@ async function paceChatGPTWorkerSubmission({ translation = false } = {}) {
   )
 }
 
-async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, reason, assignment) {
-  await paceChatGPTWorkerNavigation()
+async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, reason, assignment, { translation = false } = {}) {
+  if (translation) await paceChatGPTWorkerSubmission({ translation: true })
+  else await paceChatGPTWorkerNavigation()
   // The caller's pre-flight rate-limit check ran before this action joined the
   // process-wide queue, and a suspension raised while it waited there is the
   // common case rather than the rare one - the Worker that went first is
@@ -5541,9 +5551,9 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     return { status: 'failed', error: 'translation request archive exceeds the transport limit' }
   }
 
-  await paceChatGPTWorkerSubmission()
+  await paceChatGPTWorkerSubmission({ translation: true })
   const rateLimitDelay = chatAgentRateLimitDelayMs()
-  if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
+  if (rateLimitDelay > 0) return { status: 'failed', error: 'ChatGPT rate-limit cooldown is active' }
 
   const filename = expectedFilename
   const dir = path.join(app.getPath('temp'), 'wharness-markdown-translations', task.task_id)
@@ -5568,7 +5578,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
   // See the matching comment in executeChatAgentTodoClassification: a
   // retried attempt must not reuse a page whose composer may already hold
   // the file a previous attempt attached before failing later in the flow.
-  if (Number(task.attempt || 0) > 0) {
+  if (Number(task.attempt || 0) > 1) {
     const { wc: staleWc } = requireOwnedChatGPTEntry(key, entry)
     await paceChatGPTWorkerSubmission({ translation: true })
     staleWc.reload()
@@ -5621,12 +5631,12 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
       }
       const health = await executeChatGPTDOMScript(key, target.entry, 'translation-health', chatGPTHumanActionScript())
       if (noteChatGPTRateLimitGate(key, health)) {
-        return { status: 'waiting', delayMs: chatAgentRateLimitDelayMs(), observation: true, error: 'ChatGPT rate-limit gate is active' }
+        return { status: 'failed', error: 'ChatGPT rate-limit gate is active' }
       }
       if (health?.required === true) {
         const kind = String(health.kind || 'verification')
         setChatGPTHumanAction(key, kind, '', 'translation-worker')
-        return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(kind) }
+        return { status: 'failed', error: chatGPTHumanActionMessage(kind) }
       }
       const completion = await executeChatGPTDOMScript(key, target.entry, 'translation-completion', chatGPTResponseCompletionScript(assistantBaseline))
       if (!downloadTriggered && Number(completion?.assistantCount || 0) > assistantBaseline) {
@@ -5931,6 +5941,36 @@ async function executeChatSupervisorTask(task, { worker, owner }) {
   }
 }
 
+// Run one translation in a provider-facing browser instance that exists only
+// for that task. The lightweight scheduler remains alive to notice durable
+// queue work; the Chromium WebContents named Translator does not.
+async function executeChatTranslatorTask(task) {
+  if (task?.type !== 'TRANSLATE_MARKDOWN') return { status: 'failed', error: 'Translator accepts only TRANSLATE_MARKDOWN' }
+  if (chatAgentRateLimitResumeBlocked()) return { status: 'failed', error: 'ChatGPT rate-limit cooldown is active' }
+  const host = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+  if (!host) return { status: 'failed', error: 'Translator has no host window' }
+
+  const entry = createChatGPTWorkerView(`translator-${task.task_id}`, host)
+  let assigned
+  try {
+    const payload = chatAgentTaskPayload(task)
+    assigned = assignChatGPTWorker(entry, { ...task, payload })
+    await loadAndSettleChatGPTWorkerConversation(
+      assigned.key, entry, CHATGPT_URL, 'chat-agent-translate-markdown', assigned.assignment, { translation: true },
+    )
+    if (chatAgentRateLimitDelayMs() > 0) return { status: 'failed', error: 'ChatGPT rate-limit cooldown is active' }
+    return await executeChatAgentMarkdownTranslation(task, entry, assigned.key, payload)
+  } catch (error) {
+    if (assigned) chatAgentResidency.cancelAssignment(entry.slotId, assigned.assignment.epoch)
+    return { status: 'failed', error: error instanceof Error ? error.message : String(error) }
+  } finally {
+    const index = chatGPTWorkerEntries.indexOf(entry)
+    if (index >= 0) chatGPTWorkerEntries.splice(index, 1)
+    retireChatGPTWorkerView(entry)
+    console.log(`[translator] destroyed task=${task.task_id}`)
+  }
+}
+
 async function executeChatAgentTask(task, { worker, owner }) {
   const entry = workerEntryForIndex(worker)
   if (!entry) return { status: 'attention', providerWide: true, error: 'Autonomous worker browser is unavailable' }
@@ -5989,7 +6029,6 @@ async function executeChatAgentTask(task, { worker, owner }) {
   }
   switch (task.type) {
     case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan(task, entry, key, payload, owner)
-    case 'TRANSLATE_MARKDOWN': return executeChatAgentMarkdownTranslation(task, entry, key, payload)
     case 'TODO_CLASSIFY': return executeChatAgentTodoClassification(task, entry, key, payload)
     case 'AWAIT_RESPONSE': return probeChatAgentResponse(task, entry, key, payload, conversationURL)
     case 'BOT_WRITE':
@@ -7568,6 +7607,30 @@ app.whenReady().then(async () => {
     if (quitting) return
     chatAgentScheduler.start()
   }, CHAT_AGENT_STARTUP_DELAY_MS)
+
+  // Translation has its own one-shot consumer. It never borrows a persistent
+  // Worker slot: claiming a translation creates a Translator WebContents,
+  // executes that single request, and destroys the WebContents immediately.
+  chatTranslatorScheduler = new ChatAgentSchedulerClient({
+    baseURL: BACKEND_URL, workerCount: 1, maxWorkers: 1,
+    execute: executeChatTranslatorTask, role: 'translator', agentID: () => 'translator-1',
+    idleMs: 100, taskCooldownMs: 0,
+    claimOptions: () => ({
+      // Unlike persistent pools, the Translator claims after a cooldown's
+      // durable deadline even while the Desktop still awaits its health
+      // confirmation. Its executor then fails locally at the resume gate,
+      // which gives the caller an immediate terminal answer without touching
+      // ChatGPT or leaving the request queued behind the probe.
+      skip: ![...desktopWindows.values()].some((state) => state.window && !state.window.isDestroyed()),
+      project_scoped: true, open_projects: projectWindowRegistry.openProjects(),
+    }),
+    onState: (state) => {
+      if (state?.kind === 'task-error' || state?.kind === 'worker-error') {
+        console.warn(`[translator] ${state.kind}: ${String(state?.error?.message || state?.error || 'unknown failure')}`)
+      }
+    },
+  })
+  chatTranslatorScheduler.start()
   // The Supervisor pool draws from the same durable queue with the complementary
   // role: opening the chat, submitting the request bundle, following the remote
   // instance and collecting the response bundle. One loop per Supervisor slot,
@@ -7637,6 +7700,7 @@ app.on('before-quit', () => {
   persistWindowLayout()
   if (chatGPTDownloadPoller) clearInterval(chatGPTDownloadPoller)
   if (chatAgentScheduler) void chatAgentScheduler.stop()
+  if (chatTranslatorScheduler) void chatTranslatorScheduler.stop()
   if (chatSupervisorScheduler) void chatSupervisorScheduler.stop()
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

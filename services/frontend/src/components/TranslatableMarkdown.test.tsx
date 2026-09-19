@@ -20,4 +20,12 @@ describe('TranslatableMarkdown', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ver original' }))
     expect(screen.getByText('Olá')).toBeTruthy()
   })
+
+  it('reports a translation failure immediately without exposing transport detail', async () => {
+    vi.mocked(api.translateMarkdown).mockRejectedValueOnce(new Error('chat-agent API 503: provider suspended'))
+    render(<TranslatableMarkdown sessionId="ses_1" markdown="# Olá" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Traduzir' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('A tradução falhou. Tente novamente mais tarde.')
+    expect((screen.getByRole('button', { name: 'Traduzir' }) as HTMLButtonElement).disabled).toBe(false)
+  })
 })

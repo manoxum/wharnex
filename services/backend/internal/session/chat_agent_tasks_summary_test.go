@@ -209,6 +209,7 @@ func TestChatAgentQueueSummarySplitsDueWorkByPoolRole(t *testing.T) {
 		testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1"),
 		testChatAgentTask("AWAIT_RESPONSE", "chat-b", "conv-b", "await:req-2"),
 		testChatAgentTask("DELETE_BUNDLE", "chat-c", "", "delete-bundle:c.zip"),
+		testChatAgentTask("TRANSLATE_MARKDOWN", "chat-d", "", "translate:d"),
 	} {
 		if _, err := store.EnqueueChatAgentTask(task); err != nil {
 			t.Fatal(err)
@@ -219,14 +220,17 @@ func TestChatAgentQueueSummarySplitsDueWorkByPoolRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.Due != 3 {
-		t.Fatalf("due=%d want 3", summary.Due)
+	if summary.Due != 4 {
+		t.Fatalf("due=%d want 4", summary.Due)
 	}
 	if summary.DueSupervisorLanes != 2 {
 		t.Fatalf("due_supervisor_lanes=%d want 2", summary.DueSupervisorLanes)
 	}
 	if summary.DueWorker != 1 {
 		t.Fatalf("due_worker=%d want 1", summary.DueWorker)
+	}
+	if summary.DueTranslator != 1 {
+		t.Fatalf("due_translator=%d want 1", summary.DueTranslator)
 	}
 }
 

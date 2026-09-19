@@ -177,6 +177,13 @@ func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, targe
 	if markdown == "" {
 		return utility.Result{Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown, TargetLanguage: target}, nil
 	}
+	provider, err := s.store.ChatAgentProviderState()
+	if err != nil {
+		return utility.Result{}, fmt.Errorf("read translation provider state: %w", err)
+	}
+	if provider.Paused {
+		return utility.Result{}, fmt.Errorf("%w: ChatGPT is suspended", utility.ErrUnavailable)
+	}
 	// The id is minted here because the protocol's filenames are derived from
 	// it: the request bundle cannot be built without knowing what the answer
 	// will be called.
@@ -206,7 +213,7 @@ func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, targe
 	}
 	task, err := s.store.EnqueueChatAgentTask(session.ChatAgentTask{
 		Type: "TRANSLATE_MARKDOWN", TaskID: taskID, ChatID: sessionID, SessionID: sessionID,
-		Payload: payload, MaxAttempts: 2,
+		RootRequestID: taskID, Payload: payload, MaxAttempts: 1,
 	})
 	if err != nil {
 		return utility.Result{}, fmt.Errorf("enqueue translation worker: %w", err)
@@ -230,10 +237,21 @@ func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, targe
 			}
 			return utility.Result{}, fmt.Errorf("%w: %s", utility.ErrUnavailable, detail)
 		}
+		provider, providerErr := s.store.ChatAgentProviderState()
+		if providerErr != nil {
+			_, _ = s.store.CancelChatAgentLineage(taskID)
+			return utility.Result{}, fmt.Errorf("read translation provider state: %w", providerErr)
+		}
+		if provider.Paused {
+			_, _ = s.store.CancelChatAgentLineage(taskID)
+			return utility.Result{}, fmt.Errorf("%w: ChatGPT is suspended", utility.ErrUnavailable)
+		}
 		select {
 		case <-ctx.Done():
+			_, _ = s.store.CancelChatAgentLineage(taskID)
 			return utility.Result{}, ctx.Err()
 		case <-timeout.C:
+			_, _ = s.store.CancelChatAgentLineage(taskID)
 			return utility.Result{}, fmt.Errorf("%w: translation worker timed out", utility.ErrUnavailable)
 		case <-ticker.C:
 		}
