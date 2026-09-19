@@ -193,6 +193,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const resumedBundleKeysRef = useRef(new Set<string>())
   const livePromptDeliveryKeysRef = useRef(new Set<string>())
   const failedPromptDeliveryKeysRef = useRef(new Set<string>())
+  const cancelledPromptDeliveryIdsRef = useRef(new Set<string>())
   const submitBundleFileRef = useRef<(contentBase64: string, requestId: string, filename: string) => Promise<string>>(async () => '')
   const ingestingBundleKeysRef = useRef(new Set<string>())
   const dismissedRestartKeysRef = useRef(new Set<string>())
@@ -388,6 +389,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         // One workspace-chat read for the whole batch, not two per frame.
         const needsOwner = batch.some((parsed) => parsed.type === 'execution.started' || (parsed.data.plan_id && EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)))
         const owner = needsOwner ? loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId) : undefined
+        if (batch.some((parsed) => parsed.type === 'artifact.persisted' && parsed.data.kind === 'bundle')) {
+          void api.getSession(id).then((updated) => {
+            sessionCacheRef.current[chatId] = updated
+            if (activeChatIdRef.current === chatId) setSession(updated)
+          }).catch(() => undefined)
+        }
         for (const parsed of batch) {
           if (parsed.type === 'host.applied') setHostAppliedPresentation({ eventId: parsed.id, sessionId: id, projectPath, chatId })
           if (parsed.type === 'execution.started' && owner) appendChatItem(owner, projectPath, executionStartedNotice(parsed))
@@ -1710,6 +1717,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             projectPath,
             reasoningEffort: response.session.reasoning_effort || 'high',
           })
+          if (requestId && cancelledPromptDeliveryIdsRef.current.has(requestId)) throw new Error('WHARNEX_REQUEST_CANCELLED: preparação do bundle cancelada')
           try {
             const artifactSession = await api.getSession(response.session.id)
             acceptSessionForChat(targetChat, artifactSession)
@@ -1732,15 +1740,18 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[targetChat.id]; return next })
           failedPromptDeliveryKeysRef.current.delete(deliveryKey)
         } catch (prepareError) {
-          transportFailure = messageOf(prepareError)
-          const failureKind = promptDeliveryFailureKind(transportFailure)
-          setFailedPromptDeliveries((current) => ({ ...current, [targetChat.id]: { kind: failureKind, requestId } }))
-          failedPromptDeliveryKeysRef.current.add(deliveryKey)
+          if (!requestId || !cancelledPromptDeliveryIdsRef.current.has(requestId)) {
+            transportFailure = messageOf(prepareError)
+            const failureKind = promptDeliveryFailureKind(transportFailure)
+            setFailedPromptDeliveries((current) => ({ ...current, [targetChat.id]: { kind: failureKind, requestId } }))
+            failedPromptDeliveryKeysRef.current.add(deliveryKey)
+          }
         } finally {
           livePromptDeliveryKeysRef.current.delete(deliveryKey)
           if (activeChatIdRef.current === targetChat.id) setTransportProgress('')
         }
       }
+      if (requestId && cancelledPromptDeliveryIdsRef.current.delete(requestId)) return
       const immediatePlannerFailure = turn?.outcome?.status === 'failed' || turn?.outcome?.status === 'partial'
       const immediateConversationalTurn = Boolean(turn && !immediatePlannerFailure && turn.kind !== 'change' && turn.kind !== 'workflow')
       appendChatItem(targetChat, response.session.project_path, {
@@ -3000,16 +3011,18 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		const targetSession = session
 		const targetChat = chats.find((chat) => chat.id === activeChatId)
 		if (!targetChat) return
+    cancelledPromptDeliveryIdsRef.current.add(requestId)
 		setBusy(true); setError(undefined)
 		try {
       const desktopCancellation = isDesktop() ? desktopBridge()?.chatgpt.cancelRequest(targetChat.id, requestId) : undefined
       const [updated] = await Promise.all([api.cancelPendingRequest(targetSession.id, requestId), desktopCancellation || Promise.resolve(undefined)])
 			acceptSessionForChat(targetChat, updated)
-			if (activeChatIdRef.current === targetChat.id) setManualPrompt('')
+			if (activeChatIdRef.current === targetChat.id) { setManualPrompt(''); setTransportProgress('') }
 			for (const key of [...resumedBundleKeysRef.current]) if (key.includes(`:${requestId}:`)) resumedBundleKeysRef.current.delete(key)
 			for (const key of [...failedPromptDeliveryKeysRef.current]) if (key.includes(`:${requestId}:`)) failedPromptDeliveryKeysRef.current.delete(key)
 			appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'O pedido foi cancelado. A conversa está livre para receber um novo pedido principal; alterações Protected já verificadas foram preservadas.', meta: 'Pedido cancelado', iteration: iterationRef(requestId, 'failed', [], targetChat.chatgptUrl) })
 		} catch (cancelError) {
+      cancelledPromptDeliveryIdsRef.current.delete(requestId)
 			setError(messageOf(cancelError))
 			throw cancelError
 		} finally { setBusy(false) }
@@ -3261,7 +3274,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
     artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
     artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
-    requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '',
+    requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '', transportRequestId: busyChats[activeChatId] ? activePendingRequestId(session) : '',
     onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onDebugMode: changeDebugMode, onEffortLevel: changeEffortLevel, onReasoningEffort: changeReasoningEffort, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
     onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
     onSend: enqueueMainRequest, onAdjustExecutionPlan: adjustExecutionPlan, onPreviewBundle: previewComposerBundle, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,

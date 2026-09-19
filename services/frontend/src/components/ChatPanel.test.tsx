@@ -1198,12 +1198,15 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(onRetryPreparedDelivery).toHaveBeenCalledWith('req-attention'))
   })
 
-  it('shows remote context generation progress while an enriched ZIP is being published', () => {
+  it('shows remote context generation progress and allows cancelling the in-flight bundle preparation', async () => {
+    const onCancelPendingRequest = vi.fn(async () => undefined)
     render(
-      <ChatPanel session={session} items={[]} chats={[]} activeChatId="progress-test" busy={true} transportProgress="A gerar o ZIP enriquecido e a publicá-lo no provider…" onSend={async () => undefined} {...chatActions} />,
+      <ChatPanel session={session} items={[]} chats={[]} activeChatId="progress-test" busy={true} transportProgress="A gerar o ZIP enriquecido e a publicá-lo no provider…" transportRequestId="req-progress" onCancelPendingRequest={onCancelPendingRequest} onSend={async () => undefined} {...chatActions} />,
     )
     expect(screen.getByRole('status').textContent).toContain('A preparar rotas remotas')
     expect(screen.getByRole('status').textContent).toContain('provider')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar preparação do bundle' }))
+    await waitFor(() => expect(onCancelPendingRequest).toHaveBeenCalledWith('req-progress'))
   })
 
   it('keeps system artifact selectors inside the Wharnex composer and marks automatic payloads', () => {

@@ -143,9 +143,17 @@ function flattenContextEntries(buffer) {
   }))
 }
 
-async function writeAll(handle, buffer, position) {
+function throwIfArchiveAborted(signal) {
+  if (!signal?.aborted) return
+  const error = new Error('Chat input archive preparation was cancelled')
+  error.name = 'AbortError'
+  throw error
+}
+
+async function writeAll(handle, buffer, position, signal) {
   let written = 0
   while (written < buffer.byteLength) {
+    throwIfArchiveAborted(signal)
     const result = await handle.write(buffer, written, buffer.byteLength - written, position + written)
     if (!result.bytesWritten) throw new Error('Could not write chat input archive')
     written += result.bytesWritten
@@ -153,13 +161,15 @@ async function writeAll(handle, buffer, position) {
   return position + written
 }
 
-async function writeStoredZip(targetPath, entries) {
+async function writeStoredZip(targetPath, entries, signal) {
   if (!Array.isArray(entries) || !entries.length || entries.length > 0xffff) throw new Error('Invalid chat input archive entries')
   const names = new Set()
   const central = []
   let position = 0
+  throwIfArchiveAborted(signal)
   const handle = await open(targetPath, 'wx', 0o600)
   try {
+    throwIfArchiveAborted(signal)
     for (const entry of entries) {
       const { name, raw: nameRaw } = safeEntryName(entry?.name)
       const key = name.toLocaleLowerCase('en-US')
@@ -181,9 +191,9 @@ async function writeStoredZip(targetPath, entries) {
       header.writeUInt32LE(data.byteLength, 22)
       header.writeUInt16LE(nameRaw.byteLength, 26)
       header.writeUInt16LE(0, 28)
-      position = await writeAll(handle, header, position)
-      position = await writeAll(handle, nameRaw, position)
-      position = await writeAll(handle, data, position)
+      position = await writeAll(handle, header, position, signal)
+      position = await writeAll(handle, nameRaw, position, signal)
+      position = await writeAll(handle, data, position, signal)
       central.push({ nameRaw, checksum, bytes: data.byteLength, localOffset })
     }
 
@@ -207,8 +217,8 @@ async function writeStoredZip(targetPath, entries) {
       header.writeUInt16LE(0, 36)
       header.writeUInt32LE(0, 38)
       header.writeUInt32LE(entry.localOffset, 42)
-      position = await writeAll(handle, header, position)
-      position = await writeAll(handle, entry.nameRaw, position)
+      position = await writeAll(handle, header, position, signal)
+      position = await writeAll(handle, entry.nameRaw, position, signal)
     }
 
     const centralSize = position - centralOffset
@@ -222,7 +232,7 @@ async function writeStoredZip(targetPath, entries) {
     end.writeUInt32LE(centralSize, 12)
     end.writeUInt32LE(centralOffset, 16)
     end.writeUInt16LE(0, 20)
-    position = await writeAll(handle, end, position)
+    position = await writeAll(handle, end, position, signal)
     await handle.sync()
     return position
   } catch (error) {
@@ -429,7 +439,7 @@ function normalizeContinuationFiles(values) {
   return out
 }
 
-export async function writeChatInputArchive(targetPath, { requestId, requestMetadata, prompt, context, knowledge, gitContext, continuation = [], attachments = [], artifacts = [], projectFiles = [], liveTunnels = [] }) {
+export async function writeChatInputArchive(targetPath, { requestId, requestMetadata, prompt, context, knowledge, gitContext, continuation = [], attachments = [], artifacts = [], projectFiles = [], liveTunnels = [], signal }) {
   let promptText = String(prompt || '').trimEnd()
   if (!promptText) throw new Error('Prepared prompt is empty')
   const normalizedRequestMetadata = normalizeRequestMetadata(requestMetadata, requestId)
@@ -520,7 +530,7 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
   }
   for (const artifact of artifacts) entries.push({ name: `artifacts/${artifact.name}`, bytes: artifact.bytes })
   for (const attachment of attachments) entries.push({ name: `attachments/${attachment.name}`, bytes: attachment.bytes })
-  const bytes = await writeStoredZip(targetPath, entries)
+  const bytes = await writeStoredZip(targetPath, entries, signal)
   return { bytes, fileCount: entries.length, requestMetadata: normalizedRequestMetadata }
 }
 

@@ -1443,9 +1443,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .file-reference-menu > button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 550 calc(8.5px * var(--ui-font-scale))/1.35 var(--mono-font-family); }
 .file-reference-menu kbd { padding: 2px 5px; border: 1px solid #cad1c2; border-radius: 4px; background: #fff; color: #7a8174; font: calc(7px * var(--ui-font-scale))/1 var(--mono-font-family); }
 .context-publication-progress { flex: 0 0 auto; margin: 0 16px 9px; min-height: 46px; padding: 8px 12px; display: flex; align-items: center; gap: 11px; overflow: hidden; border: 1px solid #bdc9af; border-radius: 10px; background: linear-gradient(100deg, #f5f7ef 0%, #eaf1df 48%, #f5f7ef 100%); background-size: 220% 100%; animation: context-publication-sheen 1.8s linear infinite; }
-.context-publication-progress > div { min-width: 0; display: grid; gap: 2px; }
+.context-publication-progress > .context-publication-copy { min-width: 0; display: grid; gap: 2px; }
 .context-publication-progress strong { color: #394532; font-size: calc(9px * var(--ui-font-scale)); }
 .context-publication-progress small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #707a68; font-size: calc(8px * var(--ui-font-scale)); }
+.context-publication-cancel { flex: 0 0 auto; margin-left: auto; }
 .publication-orbit { position: relative; width: 25px; height: 25px; flex: 0 0 auto; border: 1px solid #9aac87; border-radius: 50%; }
 .publication-orbit i { position: absolute; top: 10px; left: 10px; width: 4px; height: 4px; border-radius: 50%; background: #607a49; animation: publication-orbit 1.25s ease-in-out infinite; }
 .publication-orbit i:nth-child(2) { animation-delay: .16s; }.publication-orbit i:nth-child(3) { animation-delay: .32s; }
