@@ -1,12 +1,12 @@
 import { useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { desktopWindowScope } from '../lib/projectBindings'
+import { drawerResizeCeiling } from '../lib/workbenchResize'
 import { DatabaseExplorerPanel } from './DatabaseExplorerPanel'
 import { Icon } from './Icon'
 
 export type RightDrawer = 'database' | ''
 const WIDTH_KEY = 'whx.workspace.right-drawer-width'
 const MIN_WIDTH = 360
-const MIN_WORKSPACE = 560
 
 export function WorkspaceRightRail({ drawer, onDrawer, onError }: { drawer: RightDrawer; onDrawer: (drawer: RightDrawer) => void; onError: (message: string) => void }) {
   const [width, setWidth] = useState(loadWidth)
@@ -15,11 +15,19 @@ export function WorkspaceRightRail({ drawer, onDrawer, onError }: { drawer: Righ
   function beginResize(event: ReactPointerEvent<HTMLButtonElement>) {
     const body = event.currentTarget.closest('.workspace-body') as HTMLElement | null
     const panel = body?.querySelector('.workspace-right-drawer') as HTMLElement | null
-    const stack = body?.querySelector('.workspace-mode-stack') as HTMLElement | null
-    if (!body || !panel || !stack) return
+    if (!body || !panel) return
     event.currentTarget.setPointerCapture(event.pointerId)
-    const startX = event.clientX; const startWidth = panel.getBoundingClientRect().width; const maxWidth = Math.max(MIN_WIDTH, startWidth + stack.getBoundingClientRect().width - MIN_WORKSPACE)
-    const move = (moveEvent: PointerEvent) => { const next = Math.round(Math.max(MIN_WIDTH, Math.min(maxWidth, startWidth + startX - moveEvent.clientX))); setWidth(next); saveWidth(next) }
+    const startX = event.clientX; const startWidth = panel.getBoundingClientRect().width
+    // Recomputed per move against the whole live row. Deriving the ceiling
+    // once from the centre's own width reserved 560px for it and counted no
+    // other panel at all, so this splitter happily overran the left drawer -
+    // and since the centre takes no share of flex shrinking, the left drawer
+    // is what visibly gave way. See lib/workbenchResize.
+    const move = (moveEvent: PointerEvent) => {
+      const maxWidth = drawerResizeCeiling(body, panel, MIN_WIDTH)
+      const next = Math.round(Math.max(MIN_WIDTH, Math.min(maxWidth, startWidth + startX - moveEvent.clientX)))
+      setWidth(next); saveWidth(next)
+    }
     const finish = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish) }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish)
   }

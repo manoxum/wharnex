@@ -4623,7 +4623,12 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .workspace-main-row > .workspace-side-rail { overflow:hidden; scrollbar-width:none; }
 .workspace-main-row > .workspace-side-rail::-webkit-scrollbar { display:none; }
 .workspace-main-row > .agent-activity-bar button { width: 35px; height: 36px; border-radius: 6px; }
-.workspace-main-row > .agent-drawer { max-width: min(48vw, 840px); background: var(--theme-surface); color: var(--theme-text-soft); border-color: var(--theme-border); }
+/* No CSS ceiling on a side panel: the splitter's own ceiling (see
+   lib/workbenchResize) is measured against the whole live row and already
+   reserves the centre's minimum, so a second, blinder cap here only stopped a
+   drag before that point - on a wide screen the 840px cap bound long before
+   the centre reached anything like a minimum. */
+.workspace-main-row > .agent-drawer { max-width: none; background: var(--theme-surface); color: var(--theme-text-soft); border-color: var(--theme-border); }
 .workspace-side-drawer-left { box-shadow: 8px 0 22px color-mix(in srgb, var(--theme-shadow) 70%, transparent); }
 .workspace-side-drawer-right { box-shadow: -8px 0 22px color-mix(in srgb, var(--theme-shadow) 70%, transparent); }
 .agent-drawer-heading { height: 40px; border-color: var(--theme-border); background: var(--theme-muted); }

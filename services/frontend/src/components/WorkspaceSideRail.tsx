@@ -14,6 +14,7 @@ import { AttentionList } from './AttentionList'
 import { PanelSkeleton } from './Skeleton'
 import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../lib/workspaceRailLayout'
 import { defaultSidePanelWidth } from '../lib/workbenchPreferences'
+import { drawerResizeCeiling } from '../lib/workbenchResize'
 
 // Every drawer below is only ever rendered once the operator opens it, and
 // most (Git graph, Postgres browser, artifact/knowledge explorers, runtime
@@ -40,21 +41,12 @@ export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 44
-const WORKSPACE_SPLITTER_PX = 6
 const WORKSPACE_DRAWER_MIN_PX = 240
 const WORKSPACE_RIGHT_DRAWER_MIN_PX = 360
 // A quarter of the workbench, so opening both side panels lands on the
 // 25% / 50% / 25% split (see lib/workbenchPreferences) rather than on a fixed
 // pixel width that means a different share on every screen.
 const WORKSPACE_RIGHT_DRAWER_DEFAULT_PX = 460
-// How much of the centre a drawer drag must leave behind. This used to mirror
-// the centre's own CSS floor - a 480px Harness chat, a 6px divider and a 400px
-// Engine surface, 886px in total - which made the centre the one panel the
-// operator could not shrink: both drawers stopped dead the moment the centre
-// reached that width, on every screen size. The centre's internal columns are
-// `minmax(0, ...)` now, so it reflows instead of refusing, and this is only
-// the small reserve that keeps it from collapsing out of reach entirely.
-const WORKSPACE_STACK_MIN_PX = 240
 const TOOL_DRAG_TYPE = 'application/x-wharnex-workspace-tool'
 const EMPTY_WORKSPACE_RAIL_TOOLS: WorkspaceTool[] = []
 const DEFAULT_STANDALONE_RAIL_TOOLS: WorkspaceTool[] = (() => {
@@ -173,10 +165,11 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     event.currentTarget.setPointerCapture(event.pointerId)
     const update = (clientX: number) => {
       const minimum = side === 'right' ? WORKSPACE_RIGHT_DRAWER_MIN_PX : WORKSPACE_DRAWER_MIN_PX
-      const opposite = body.querySelector(`.workspace-side-drawer-${side === 'left' ? 'right' : 'left'}`) as HTMLElement | null
-      const oppositeWidth = opposite?.getBoundingClientRect().width || 0
-      const splitterWidth = body.querySelectorAll('.workspace-side-splitter').length * WORKSPACE_SPLITTER_PX
-      const ceiling = Math.max(minimum, rect.width - (WORKSPACE_RAIL_PX * 2) - splitterWidth - oppositeWidth - WORKSPACE_STACK_MIN_PX)
+      const panel = body.querySelector(`.workspace-side-drawer-${side}`) as HTMLElement | null
+      // Measures every sibling in the live row rather than assuming two rails
+      // and one opposite drawer of a known class - the assumption that let one
+      // splitter overrun a panel the other one owns. See lib/workbenchResize.
+      const ceiling = panel ? drawerResizeCeiling(body, panel, minimum) : minimum
       const raw = side === 'left' ? clientX - rect.left - WORKSPACE_RAIL_PX : rect.right - clientX - WORKSPACE_RAIL_PX
       const next = Math.round(Math.max(minimum, Math.min(ceiling, raw)))
       setLocalDrawerWidth(next); saveWorkspaceDrawerWidth(side, next); props.onDrawerWidth?.(next)
