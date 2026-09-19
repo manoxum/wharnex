@@ -1,7 +1,8 @@
 {
   "permissions": {
     "additionalDirectories": [
-      "/home/zootakuxy/workspace/wharnex-statable/.harness"
+      "/home/zootakuxy/workspace/wharnex-statable/.harness",
+      "/tmp/claude-1000/-home-zootakuxy-workspace-wharnex/scratch-live"
     ]
   }
 }
