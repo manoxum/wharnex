@@ -5819,7 +5819,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .workspace-attention-button:focus-visible { outline:2px solid color-mix(in srgb,var(--theme-accent) 72%,transparent); outline-offset:2px; }
 .workspace-attention-count { min-width:15px; height:15px; position:absolute; top:-3px; right:-4px; padding:0 3px; display:grid; place-items:center; border:1px solid var(--theme-surface); border-radius:999px; background:var(--theme-accent); color:var(--theme-surface); box-shadow:0 0 0 2px color-mix(in srgb,var(--theme-surface) 88%,transparent); font:800 7px/1 var(--mono-font-family); pointer-events:none; }
 .workspace-attention-button.urgent .workspace-attention-count { background:var(--theme-danger,#b34f45); }
-.multi-project-actions .workspace-attention-count { border-color:#fafbf7; box-shadow:0 0 0 2px #fafbf7; }
+.multi-project-actions .workspace-attention-count { top:4px; right:3px; border-color:#fafbf7; box-shadow:0 0 0 2px #fafbf7; }
 
 .workbench-bundle-meter { min-width: 220px; height: 100%; margin-left: auto; display: grid; grid-template-columns: auto minmax(62px, 96px) auto; align-items: center; gap: 7px; color: var(--theme-text-muted); white-space: nowrap; }
 .workbench-bundle-meter-label { display: inline-flex; align-items: center; gap: 4px; }
