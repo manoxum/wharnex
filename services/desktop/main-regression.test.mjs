@@ -2331,6 +2331,22 @@ test('automatic rate-limit resume reloads one Worker and confirms the structural
   assert.match(supervisorClaim, /chatAgentRateLimitResumeBlocked\(\)/)
 })
 
+test('provider cooldown defers every continuation path without retries or human escalation', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const deferral = source.slice(source.indexOf('class ChatGPTRateLimitDeferral'), source.indexOf('\nasync function paceChatGPTWorkerRequest'))
+  assert.match(deferral, /this\.retryUpload = false/)
+
+  const polling = source.slice(source.indexOf('async function pollExpectedChatGPTDownloadKey('), source.indexOf('\nasync function pollExpectedChatGPTDownloads('))
+  assert.match(polling, /if \(chatAgentRateLimitResumeBlocked\(\)\) return/)
+  assert.match(polling, /error instanceof ChatGPTRateLimitDeferral\) return/)
+
+  const recovery = source.slice(source.indexOf('async function performChatGPTRecoveryAction('), source.indexOf('\nfunction escalateChatGPTContinuationFailure'))
+  assert.match(recovery, /error instanceof ChatGPTRateLimitDeferral\) return true/)
+
+  const manual = source.slice(source.indexOf("ipcMain.handle('wharness:chatgpt:continue-expected-bundle'"), source.indexOf("ipcMain.handle('wharness:chatgpt:pick-bundle'"))
+  assert.match(manual, /error instanceof ChatGPTRateLimitDeferral[\s\S]*reason: 'provider_cooldown'/)
+})
+
 test('workers stop claiming while the provider cooldown is active', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))

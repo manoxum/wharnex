@@ -4251,6 +4251,7 @@ class ChatGPTRateLimitDeferral extends Error {
     super('ChatGPT rate-limit cooldown is active')
     this.name = 'ChatGPTRateLimitDeferral'
     this.delayMs = Math.max(0, Number(delayMs) || 0)
+    this.retryUpload = false
   }
 }
 
@@ -6076,6 +6077,7 @@ function hasPendingChatGPTComments(key) {
 }
 
 async function flushQueuedChatGPTComments() {
+  if (chatAgentRateLimitResumeBlocked()) return
   for (const [key, queue] of pendingChatGPTComments) {
     while (queue.length && Date.now() - queue[0].queuedAt > 30 * 60 * 1000) queue.shift()
     if (!queue.length) { pendingChatGPTComments.delete(key); continue }
@@ -6223,6 +6225,7 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
       await submitChatGPTDraft(key, entry, entry.affinity.boundURL, { entry, wc, conversationUrl: entry.affinity.boundURL })
     })
   } catch (error) {
+    if (error instanceof ChatGPTRateLimitDeferral) return true
     escalateChatGPTContinuationFailure(key, expected, error, 'automatic-recovery')
     return true
   }
@@ -6268,6 +6271,11 @@ async function pollExpectedChatGPTDownloadKey(key) {
     // provider request at all — which is the whole point of binding a Supervisor
     // to a chat for the life of its request.
     if (!entry || !chatGPTSupervisorOwnsExpectedResponse(key, expected.requestId)) return
+    // Suspension freezes provider-facing supervision too. In particular, do
+    // not turn an already-armed continuation into reload/upload/download
+    // traffic while the queue itself is stopped. The one resume probe owns the
+    // only reload allowed after expiry.
+    if (chatAgentRateLimitResumeBlocked()) return
     // Recovery reloads and DOM probes must not race the serialized upload or
     // prompt preparation currently owning this surface. The next main-process
     // sweep will resume supervision after the transport boundary is released.
@@ -6408,6 +6416,7 @@ async function pollExpectedChatGPTDownloadKey(key) {
           await submitChatGPTDraft(key, entry, entry.affinity.boundURL, { entry, wc, conversationUrl: entry.affinity.boundURL })
         })
       } catch (error) {
+        if (error instanceof ChatGPTRateLimitDeferral) return
         // Continuation assembly/submission is an operational transport failure,
         // not a DOM probe failure. Escalate once and pause this supervisor;
         // otherwise the successful completion probe above resets the generic
@@ -7118,6 +7127,9 @@ function registerIPC() {
       try {
         await fillBundledChatGPTComposer(key, entry, expected.sessionId, requestId, prompt, expected.filename, [], expected.liveTunnels || [], expected.requestMetadata || {})
       } catch (error) {
+        if (error instanceof ChatGPTRateLimitDeferral) {
+          return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'provider_cooldown' }
+        }
         escalateChatGPTContinuationFailure(key, expected, error, 'manual-continuation')
         return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'continuation_failed' }
       }

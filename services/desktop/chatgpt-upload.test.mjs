@@ -222,6 +222,30 @@ test('a transient composer preparation failure consumes one retry instead of abo
   assert.equal(result.observed, true)
 })
 
+test('a deliberate pre-flight deferral escapes without upload retries or error wrapping', async () => {
+  const deferred = new Error('provider cooldown is active')
+  deferred.retryUpload = false
+  let preparationCount = 0
+  let pasteCount = 0
+  const retries = []
+
+  await assert.rejects(() => pasteWithUploadRetry({
+    attempts: 5,
+    beforeAttempt: async () => {
+      preparationCount += 1
+      throw deferred
+    },
+    beginUpload: () => Promise.resolve({ observed: true }),
+    paste: async () => { pasteCount += 1 },
+    wait: async () => {},
+    onRetry: (failure) => retries.push(failure),
+  }), (error) => error === deferred)
+
+  assert.equal(preparationCount, 1)
+  assert.equal(pasteCount, 0)
+  assert.equal(retries.length, 0)
+})
+
 test('exhausted upload failures reject instead of permitting submit', async () => {
   const coordinator = new ChatGPTUploadCoordinator()
   let pasteCount = 0

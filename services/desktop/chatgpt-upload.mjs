@@ -277,6 +277,11 @@ export async function pasteWithUploadRetry({
       return await upload
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
+      // Some failures are deliberate pre-flight deferrals: no upload was
+      // attempted and retrying locally would only spin inside a provider-wide
+      // cooldown. Preserve the typed error so the scheduler/supervisor can
+      // defer the whole operation without escalating it as a transport fault.
+      if (lastError.retryUpload === false) throw lastError
       if (lastError.retryFileSelection === false) {
         throw new Error(`ChatGPT upload state is uncertain after the provider upload started; refusing to select the same file again: ${lastError.message}`)
       }
