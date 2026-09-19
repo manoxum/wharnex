@@ -177,6 +177,7 @@ const ORCHESTRATOR_PLAN_INBOX_MAX = 16
 const ORCHESTRATOR_PLAN_INBOX_TTL_MS = 6 * 60 * 60 * 1000
 const pollingExpectedChatGPTBundles = new Set()
 const chatGPTTransportTails = new Map()
+const chatGPTTransportAbortControllers = new Map()
 const chatAgentResidency = new ChatAgentResidency({ minResidenceMs: Number(process.env.WHARNESS_CHAT_AGENT_RESIDENCY_MS || 30_000) })
 let chatGPTSupervisorTransportTail = Promise.resolve()
 let chatGPTWorkerRequestTail = Promise.resolve()
@@ -509,6 +510,45 @@ function reconcileChatGPTThrottle(key, entry) {
   entry.backgroundThrottled = !fullSpeed
 }
 
+function chatGPTTransportAbortKey(cacheKey, requestId) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const id = String(requestId || '').trim()
+  return id ? `${key}:${id}` : ''
+}
+
+function registerChatGPTTransportAbort(cacheKey, requestId, controller) {
+  const abortKey = chatGPTTransportAbortKey(cacheKey, requestId)
+  if (!abortKey) return ''
+  const controllers = chatGPTTransportAbortControllers.get(abortKey) || new Set()
+  controllers.add(controller)
+  chatGPTTransportAbortControllers.set(abortKey, controllers)
+  return abortKey
+}
+
+function unregisterChatGPTTransportAbort(abortKey, controller) {
+  if (!abortKey) return
+  const controllers = chatGPTTransportAbortControllers.get(abortKey)
+  if (!controllers) return
+  controllers.delete(controller)
+  if (!controllers.size) chatGPTTransportAbortControllers.delete(abortKey)
+}
+
+function abortChatGPTTransportPreparations(cacheKey, requestId) {
+  const abortKey = chatGPTTransportAbortKey(cacheKey, requestId)
+  const controllers = abortKey ? chatGPTTransportAbortControllers.get(abortKey) : undefined
+  if (!controllers?.size) return 0
+  for (const controller of controllers) controller.abort()
+  return controllers.size
+}
+
+function throwIfChatGPTTransportAborted(signal) {
+  if (!signal?.aborted) return
+  const error = new Error('WHARNEX_REQUEST_CANCELLED: ChatGPT request preparation was cancelled')
+  error.name = 'AbortError'
+  error.code = 'WHARNEX_REQUEST_CANCELLED'
+  throw error
+}
+
 async function withChatGPTTransportPreparation(cacheKey, entry, requestId, operation) {
   const key = sanitizeChatCacheKey(cacheKey)
   requireOwnedChatGPTEntry(key, entry)
@@ -518,23 +558,33 @@ async function withChatGPTTransportPreparation(cacheKey, entry, requestId, opera
   const transportKey = entry.role === 'worker' ? `slot:${entry.slotId}` : `chat:${key}`
   const prior = chatGPTTransportTails.get(transportKey) || Promise.resolve()
   let release
+  let preparing = false
   const tail = new Promise((resolve) => { release = resolve })
+  const controller = new AbortController()
+  const abortKey = registerChatGPTTransportAbort(key, requestId, controller)
   chatGPTTransportTails.set(transportKey, tail)
   if (entry.role === 'worker') chatAgentResidency.setNonPreemptive(entry.slotId, true)
-  try { await prior } catch { /* a prior operation cannot poison the queue */ }
-  entry.transportPreparationCount = Number(entry.transportPreparationCount || 0) + 1
-  entry.transportRequestId = String(requestId || '')
-  reconcileChatGPTThrottle(key, entry)
   try {
+    try { await prior } catch { /* a prior operation cannot poison the queue */ }
+    throwIfChatGPTTransportAborted(controller.signal)
+    entry.transportPreparationCount = Number(entry.transportPreparationCount || 0) + 1
+    entry.transportRequestId = String(requestId || '')
+    preparing = true
+    entry.transportAbortSignal = controller.signal
+    reconcileChatGPTThrottle(key, entry)
     return await operation()
   } finally {
-    entry.transportPreparationCount = Math.max(0, Number(entry.transportPreparationCount || 0) - 1)
-    if (!entry.transportPreparationCount) entry.transportRequestId = ''
-    reconcileChatGPTThrottle(key, entry)
-    if (entry.role !== 'worker' && !entry.transportPreparationCount && deferredSupervisorNavigation) setTimeout(() => { void applyDeferredSupervisorNavigation() }, 0)
+    if (preparing) {
+      entry.transportPreparationCount = Math.max(0, Number(entry.transportPreparationCount || 0) - 1)
+      if (!entry.transportPreparationCount) entry.transportRequestId = ''
+      if (entry.transportAbortSignal === controller.signal) delete entry.transportAbortSignal
+      reconcileChatGPTThrottle(key, entry)
+      if (entry.role !== 'worker' && !entry.transportPreparationCount && deferredSupervisorNavigation) setTimeout(() => { void applyDeferredSupervisorNavigation() }, 0)
+    }
     release()
     if (entry.role === 'worker') chatAgentResidency.setNonPreemptive(entry.slotId, false)
     if (chatGPTTransportTails.get(transportKey) === tail) chatGPTTransportTails.delete(transportKey)
+    unregisterChatGPTTransportAbort(abortKey, controller)
   }
 }
 
@@ -832,7 +882,8 @@ async function cancelChatGPTRequestState(cacheKey, requestId) {
   const key = sanitizeChatCacheKey(cacheKey)
   const id = String(requestId || '').trim()
   if (!id) throw new Error('ChatGPT request cancellation requires a request id')
-  let cleared = false
+  const abortedPreparations = abortChatGPTTransportPreparations(key, id)
+  let cleared = abortedPreparations > 0
   const expected = expectedChatGPTBundles.get(key)
   if (expected?.requestId === id) { expectedChatGPTBundles.delete(key); cleared = true }
   const retryable = retryableChatGPTPrompts.get(key)
@@ -866,7 +917,7 @@ async function cancelChatGPTRequestState(cacheKey, requestId) {
       console.warn(`[chat-agent] runtime refresh after request cancellation failed request=${id}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  return { ok: true, cacheKey: key, requestId: id, cleared, cancelledTasks }
+  return { ok: true, cacheKey: key, requestId: id, cleared, cancelledTasks, abortedPreparations }
 }
 
 async function chatGPTAssistantTurnCount(wc) {
@@ -3260,9 +3311,9 @@ async function waitForSubmittedChatGPTConversation(cacheKey, entry, fallback = '
   return stableURL || canonicalChatGPTConversationURL(fallback)
 }
 
-async function fetchContextZip(sessionId) {
+async function fetchContextZip(sessionId, signal) {
   const id = sanitizeSessionId(sessionId)
-  const response = await fetch(contextBundleURL(BACKEND_URL, id), { redirect: 'error' })
+  const response = await fetch(contextBundleURL(BACKEND_URL, id), { redirect: 'error', signal })
   if (!response.ok) throw new Error(`Context bundle HTTP ${response.status}`)
   const contentLength = Number(response.headers.get('content-length') || 0)
   if (contentLength > MAX_CONTEXT_BYTES) throw new Error('Context ZIP exceeds 256 MiB desktop limit')
@@ -3270,7 +3321,7 @@ async function fetchContextZip(sessionId) {
   if (bytes.byteLength > MAX_CONTEXT_BYTES) throw new Error('Context ZIP exceeds 256 MiB desktop limit')
   if (bytes.byteLength < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error('Backend did not return a ZIP bundle')
   const mapsURL = new URL(`/api/sessions/${encodeURIComponent(id)}/context/maps`, BACKEND_URL)
-  const mapsResponse = await fetch(mapsURL, { redirect: 'error' })
+  const mapsResponse = await fetch(mapsURL, { redirect: 'error', signal })
   const maps = await mapsResponse.json().catch(() => ({}))
   if (!mapsResponse.ok || maps?.protocol !== 'harness.context-map/v1' || !Array.isArray(maps?.files)) {
     throw new Error(maps?.error?.message || `Context maps HTTP ${mapsResponse.status}`)
@@ -3278,32 +3329,32 @@ async function fetchContextZip(sessionId) {
   return { id, bytes, maps: maps.files }
 }
 
-async function fetchRequestGitContext(sessionId) {
+async function fetchRequestGitContext(sessionId, signal) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/git/context`, BACKEND_URL)
-  const response = await fetch(target, { redirect: 'error' })
+  const response = await fetch(target, { redirect: 'error', signal })
   const body = await response.json().catch(() => ({}))
   if (!response.ok || body?.protocol !== 'harness.git-context/v1') throw new Error(body?.error?.message || `Git context HTTP ${response.status}`)
   return body
 }
 
-async function fetchRequestKnowledge(sessionId, requestId) {
+async function fetchRequestKnowledge(sessionId, requestId, signal) {
   const id = sanitizeSessionId(sessionId)
   const rid = String(requestId || '').trim()
   if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(rid)) throw new Error('Invalid request id for project knowledge snapshot')
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/requests/${encodeURIComponent(rid)}/knowledge`, BACKEND_URL)
-  const response = await fetch(target, { redirect: 'error' })
+  const response = await fetch(target, { redirect: 'error', signal })
   const body = await response.json().catch(() => ({}))
   if (!response.ok || !body?.knowledge) throw new Error(body?.error?.message || `Request knowledge HTTP ${response.status}`)
   return body.knowledge
 }
 
-async function fetchRequestContinuation(sessionId, requestId) {
+async function fetchRequestContinuation(sessionId, requestId, signal) {
   const id = sanitizeSessionId(sessionId)
   const rid = String(requestId || '').trim()
   if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(rid)) throw new Error('Invalid request id for continuation artifacts')
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/requests/${encodeURIComponent(rid)}/continuation`, BACKEND_URL)
-  const response = await fetch(target, { redirect: 'error' })
+  const response = await fetch(target, { redirect: 'error', signal })
   const body = await response.json().catch(() => ({}))
   // The attempt ledger and divergence report exist to make the NEXT round
   // cheaper; failing to fetch them must never block the request they travel
@@ -3312,11 +3363,12 @@ async function fetchRequestContinuation(sessionId, requestId) {
   return body.files
 }
 
-async function persistChatArtifact(sessionId, requestId, direction, kind, filename, contentType, bytes) {
+async function persistChatArtifact(sessionId, requestId, direction, kind, filename, contentType, bytes, signal) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/artifacts`, BACKEND_URL)
   const response = await fetch(target, {
     method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
+    signal,
     body: JSON.stringify({ request_id: String(requestId || '').trim(), direction, kind, filename, content_type: contentType || 'application/octet-stream', content_base64: Buffer.from(bytes).toString('base64') }),
   })
   if (!response.ok) {
@@ -3328,11 +3380,12 @@ async function persistChatArtifact(sessionId, requestId, direction, kind, filena
   return response.json()
 }
 
-async function publishRemoteChatInput(sessionId, requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles = [], tunnelInstanceIds = [], requestMetadata = {}) {
+async function publishRemoteChatInput(sessionId, requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles = [], tunnelInstanceIds = [], requestMetadata = {}, signal) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/remote-input`, BACKEND_URL)
   const response = await fetch(target, {
     method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
+    signal,
     body: JSON.stringify(remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles, tunnelInstanceIds, requestMetadata)),
   })
   const result = await response.json().catch(() => ({}))
@@ -3343,10 +3396,10 @@ function normalizeTunnelInstanceIDs(value) {
   return [...new Set((Array.isArray(value) ? value : []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 16)
 }
 
-async function requireAutoSession(sessionId) {
+async function requireAutoSession(sessionId, signal) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}`, BACKEND_URL)
-  const response = await fetch(target, { redirect: 'error' })
+  const response = await fetch(target, { redirect: 'error', signal })
   if (!response.ok) throw new Error(`Session lookup HTTP ${response.status}`)
   const sessionState = await response.json()
   if (sessionState?.automation_mode !== 'auto') throw new Error('Automatic ChatGPT submission requires project Auto mode')
@@ -3402,19 +3455,21 @@ function chatAttachmentRoot() {
   return path.join(app.getPath('userData'), 'chat-attachments-v1')
 }
 
-async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], liveTunnels = [], requestMetadata = {}) {
+async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], liveTunnels = [], requestMetadata = {}, signal) {
+  throwIfChatGPTTransportAborted(signal)
   const { decoded } = decodeChatAttachmentSet(values)
   const artifacts = decodeChatArtifactSet(artifactValues)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', cacheKey)
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const knowledge = await fetchRequestKnowledge(sessionId, requestId)
-  const gitContext = await fetchRequestGitContext(sessionId)
-  const continuation = await fetchRequestContinuation(sessionId, requestId)
+  const knowledge = await fetchRequestKnowledge(sessionId, requestId, signal)
+  throwIfChatGPTTransportAborted(signal)
+  const gitContext = await fetchRequestGitContext(sessionId, signal)
+  const continuation = await fetchRequestContinuation(sessionId, requestId, signal)
   // A derived request must be self-contained even when the linked ChatGPT
   // conversation forgot or truncated an earlier snapshot. The delta remains
   // useful for focus, while the current full context is authoritative.
-  const context = includeContext || continuation.length ? await fetchContextZip(sessionId) : undefined
+  const context = includeContext || continuation.length ? await fetchContextZip(sessionId, signal) : undefined
   const archiveName = chatInputArchiveFilename(cacheKey, requestId)
   const archivePath = path.join(dir, archiveName)
   const archive = await writeChatInputArchive(archivePath, {
@@ -3429,11 +3484,13 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
     artifacts: artifacts.decoded,
     projectFiles,
     liveTunnels,
+    signal,
   })
-  await persistChatArtifact(sessionId, requestId, 'input', 'bundle', archiveName, 'application/zip', await readFile(archivePath))
-  if (context) await persistChatArtifact(sessionId, requestId, 'input', 'context', `context-${requestId}.zip`, 'application/zip', context.bytes)
-  for (const attachment of decoded) await persistChatArtifact(sessionId, requestId, 'input', 'attachment', attachment.name, attachment.mime, attachment.bytes)
-  for (const artifact of artifacts.decoded) await persistChatArtifact(sessionId, requestId, 'input', 'system-artifact', artifact.name, artifact.mime, artifact.bytes)
+  throwIfChatGPTTransportAborted(signal)
+  await persistChatArtifact(sessionId, requestId, 'input', 'bundle', archiveName, 'application/zip', await readFile(archivePath), signal)
+  if (context) await persistChatArtifact(sessionId, requestId, 'input', 'context', `context-${requestId}.zip`, 'application/zip', context.bytes, signal)
+  for (const attachment of decoded) await persistChatArtifact(sessionId, requestId, 'input', 'attachment', attachment.name, attachment.mime, attachment.bytes, signal)
+  for (const artifact of artifacts.decoded) await persistChatArtifact(sessionId, requestId, 'input', 'system-artifact', artifact.name, artifact.mime, artifact.bytes, signal)
   return { archivePath, archiveName, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes, requestMetadata: archive.requestMetadata }
 }
 
@@ -3459,6 +3516,7 @@ async function fillBundledChatGPTComposer(key, entry, sessionId, requestId, prom
     if (!filled) throw new Error('ChatGPT composer DOM could not be populated with bundled protocol input')
     await pasteChatGPTFile(entry, input.archivePath, 1, 1)
     await wait(chatInputSettleDelay(input.bytes, 1))
+    throwIfChatGPTTransportAborted(signal)
     return { ...input, bootstrap }
   } finally {
     await rm(path.dirname(input.archivePath), { recursive: true, force: true }).catch(() => undefined)
@@ -4126,6 +4184,8 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
 }
 
 async function preparePromptForChatGPT(request, entryOverride = undefined) {
+  const signal = entryOverride?.transportAbortSignal
+  throwIfChatGPTTransportAborted(signal)
   const text = String(request?.text || '').trim()
   if (!text) throw new Error('Prepared prompt is empty')
   if (text.length > 1024 * 1024) throw new Error('Prepared prompt exceeds 1 MiB limit')
@@ -4136,7 +4196,8 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
   const autoSubmit = request?.autoSubmit === true
   const reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
-  if (autoSubmit) await requireAutoSession(request?.sessionId)
+  if (autoSubmit) await requireAutoSession(request?.sessionId, signal)
+  throwIfChatGPTTransportAborted(signal)
   // Preserve this already-authorized delivery only in Desktop memory so a
   // transient remote-surface failure can be retried without replanning.
   retryableChatGPTPrompts.set(key, { request, preparedAt: Date.now() })
@@ -4158,7 +4219,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   let remoteInput = null
   if (tunnelInstanceIds.length) {
     try {
-      remoteInput = await publishRemoteChatInput(request?.sessionId, requestId, text, request?.bootstrapText, includeContext, request?.attachments || [], request?.artifacts || [], request?.projectFiles || [], tunnelInstanceIds, requestMetadata)
+      remoteInput = await publishRemoteChatInput(request?.sessionId, requestId, text, request?.bootstrapText, includeContext, request?.attachments || [], request?.artifacts || [], request?.projectFiles || [], tunnelInstanceIds, requestMetadata, signal)
     } catch (error) {
       console.warn(`[chatgpt-protocol-channel] optional live fallback unavailable: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -4167,21 +4228,28 @@ async function preparePromptForChatGPT(request, entryOverride = undefined) {
   // Every planner request is transported as exactly one request ZIP. Selected
   // tunnels are optional live mirrors and never replace that authoritative ZIP.
   const directPrompt = remoteInput?.fallbackPrompt ? `${text}\n\n${remoteInput.fallbackPrompt}` : text
-  const input = await materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], remoteInput?.tunnels || [], requestMetadata)
+  const input = await materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], remoteInput?.tunnels || [], requestMetadata, signal)
+  throwIfChatGPTTransportAborted(signal)
   const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, remoteInput?.tunnels || [], input.requestMetadata)
   const target = await targetChatGPTComposer(key, linkedConversation || CHATGPT_URL, linkedConversation ? request?.preferCurrentConversation === true : false, entryOverride)
+  throwIfChatGPTTransportAborted(signal)
   target.reasoningEffort = reasoningEffort
   target.entry.reasoningEffort = reasoningEffort
   if (!linkedConversation) syncChatGPTAffinityURL(key, target.entry)
   const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-composer', chatGPTFillComposerScript(bootstrap))
+  throwIfChatGPTTransportAborted(signal)
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated with local input bootstrap')
   await pasteChatGPTFile(target.entry, input.archivePath, 1, 1)
+  throwIfChatGPTTransportAborted(signal)
   let conversationUrl = target.conversationUrl
   if (autoSubmit) {
     await wait(chatInputSettleDelay(input.bytes, 1))
+    throwIfChatGPTTransportAborted(signal)
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
+    throwIfChatGPTTransportAborted(signal)
     armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId, expectedFilename, input.requestMetadata)
     try {
+      throwIfChatGPTTransportAborted(signal)
       await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
     } catch (error) {
       disarmExpectedChatGPTBundle(key, requestId)

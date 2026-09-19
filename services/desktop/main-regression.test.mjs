@@ -403,7 +403,7 @@ test('Desktop always sends one request ZIP and selected tunnels only augment the
   const prepare = source.slice(start, end)
   assert.match(prepare, /const tunnelInstanceIds = normalizeTunnelInstanceIDs\(request\?\.tunnelInstanceIds\)/)
   assert.match(prepare, /if \(tunnelInstanceIds\.length\) \{/)
-  assert.match(prepare, /publishRemoteChatInput\([^\n]+tunnelInstanceIds, requestMetadata\)/)
+  assert.match(prepare, /publishRemoteChatInput\([^\n]+tunnelInstanceIds, requestMetadata, signal\)/)
   assert.match(prepare, /materializeChatInput\([^\n]+directPrompt/)
   assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, remoteInput\?\.tunnels \|\| \[\], input\.requestMetadata\)/)
   assert.doesNotMatch(prepare, /if \(!transportOptions\.requestArchive\)/)
@@ -838,6 +838,18 @@ test('Supervisor transport stays unthrottled while durable resume bypasses the v
   assert.match(source.slice(source.indexOf('async function flushQueuedChatGPTComments()'), source.indexOf('\nasync function publishRemoteChannelComment')), /withChatGPTTransportPreparation/)
 })
 
+test('request preparation registers a cooperative abort before waiting for its transport slot', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function withChatGPTTransportPreparation(')
+  const end = source.indexOf('\nasync function waitForDifferentSupervisorTransport', start)
+  const helper = source.slice(start, end)
+  assert.match(helper, /const controller = new AbortController\(\)/)
+  assert.match(helper, /registerChatGPTTransportAbort\(key, requestId, controller\)/)
+  assert.ok(helper.indexOf('registerChatGPTTransportAbort') < helper.indexOf('await prior'))
+  assert.match(helper, /entry\.transportAbortSignal = controller\.signal/)
+  assert.match(helper, /unregisterChatGPTTransportAbort\(abortKey, controller\)/)
+})
+
 test('request cancellation clears only matching Desktop supervision state and a validated bundle clears stale human attention', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const cancelStart = source.indexOf('function cancelChatGPTRequestState(')
@@ -848,6 +860,8 @@ test('request cancellation clears only matching Desktop supervision state and a 
   assert.match(cancel, /prepared\?\.requestId/)
   assert.match(cancel, /comment\?\.requestId/)
   assert.match(cancel, /clearChatGPTHumanAction/)
+  assert.match(cancel, /abortChatGPTTransportPreparations\(key, id\)/)
+  assert.match(cancel, /abortedPreparations/)
   assert.match(cancel, /chatAgentScheduler\.cancelLineage\(id\)/)
   assert.match(cancel, /try\s*\{[\s\S]*await refreshChatAgentRuntimeState\(\)[\s\S]*\}\s*catch/)
   assert.match(source, /wharness:chatgpt:cancel-request/)

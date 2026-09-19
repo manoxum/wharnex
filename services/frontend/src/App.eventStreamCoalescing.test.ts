@@ -32,4 +32,10 @@ describe('App event stream wiring', () => {
     expect(connect).toContain('coalescerRef.current?.dispose()')
     expect(connect).toContain('isCurrent: () => sourceRef.current === source')
   })
+
+  it('refreshes the session as soon as an input bundle artifact is persisted', () => {
+    expect(connect).toContain("parsed.type === 'artifact.persisted' && parsed.data.kind === 'bundle'")
+    expect(connect).toContain('void api.getSession(id).then((updated) => {')
+    expect(connect).toContain('sessionCacheRef.current[chatId] = updated')
+  })
 })

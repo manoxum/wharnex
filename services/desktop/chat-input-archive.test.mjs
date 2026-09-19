@@ -33,6 +33,26 @@ function storedEntries(buffer) {
   return entries
 }
 
+
+test('aborted request preparation does not leave a partial chat input ZIP', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-chat-input-abort-'))
+  try {
+    const requestId = 'req_20260919T082150_aborttest'
+    const target = path.join(root, chatInputArchiveFilename('chat-abort', requestId))
+    const controller = new AbortController()
+    controller.abort()
+    await assert.rejects(writeChatInputArchive(target, {
+      requestId,
+      prompt: '# Planner\n\nDo not write a cancelled request.',
+      knowledge: { state: 'none', protocol: 'harness.knowledge/v2', sharing_enabled: true, revision: 70, sha256: '', entries: [] },
+      signal: controller.signal,
+    }), { name: 'AbortError' })
+    await assert.rejects(readFile(target), { code: 'ENOENT' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('direct ChatGPT input is one ZIP with prompt, context, artifacts and user files', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-input-'))
   try {
