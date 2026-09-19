@@ -3272,10 +3272,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-pause-controls select { padding:0 8px; }
 .agent-runtime-pause-controls label { display:flex; align-items:center; gap:5px; color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); }
 .agent-runtime-pause-controls input { width:74px; padding:0 7px; font-family:var(--mono-font-family); font-variant-numeric:tabular-nums; }
-.agent-runtime-pause-controls button,.agent-runtime-resume { min-height:32px; padding:0 11px; border:1px solid color-mix(in srgb, var(--warning) 48%, var(--theme-border)); border-radius:8px; background:color-mix(in srgb, var(--warning) 10%, var(--theme-elevated)); color:var(--theme-text); font-size:calc(8.8px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
-.agent-runtime-resume { border-color:color-mix(in srgb, var(--success) 48%, var(--theme-border)); background:color-mix(in srgb, var(--success) 10%, var(--theme-elevated)); }
-.agent-runtime-pause-controls button:hover:not(:disabled),.agent-runtime-resume:hover:not(:disabled) { background:var(--theme-hover); }
-.agent-runtime-pause-controls :disabled,.agent-runtime-resume:disabled { opacity:.45; cursor:default; }
+.agent-runtime-pause-controls .agent-runtime-icon-button { flex:0 0 auto; }
+.agent-runtime-pause-controls :disabled { opacity:.4; cursor:default; }
 .agent-runtime-scale { padding:10px 12px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
 .agent-runtime-scale-card { min-width:0; padding:9px 11px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:9px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
 .agent-runtime-scale-card > div:first-child { min-width:0; display:grid; gap:3px; }
@@ -3354,14 +3352,14 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-inline-link { flex:none; width:19px; height:19px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--theme-border-soft); border-radius:6px; background:var(--theme-bg); color:var(--theme-text-muted); cursor:pointer; }
 .agent-runtime-inline-link:hover:not(:disabled) { border-color:color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border)); background:var(--theme-hover); color:var(--theme-text); }
 .agent-runtime-inline-link:disabled { opacity:.4; cursor:default; }
-.agent-runtime-worker-actions { margin-top:11px; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
-.agent-runtime-worker-actions .agent-runtime-interact { margin-top:0; }
-.agent-runtime-follow,.agent-runtime-interact,.agent-runtime-capture { width:100%; min-height:38px; margin-top:11px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid var(--theme-border); border-radius:9px; background:var(--theme-elevated); color:var(--theme-text); font-size:calc(9.4px * var(--ui-font-scale)); cursor:pointer; }
-.agent-runtime-follow { margin-top:0; border-color:color-mix(in srgb, var(--theme-accent) 55%, var(--theme-border)); background:color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface)); font-weight:700; }
-.agent-runtime-interact { border-color:color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border)); background:color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface)); }
-.agent-runtime-capture { background:var(--theme-bg); }
-.agent-runtime-follow:hover:not(:disabled),.agent-runtime-interact:hover:not(:disabled),.agent-runtime-capture:hover:not(:disabled) { border-color:color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border)); background:var(--theme-hover); }
-.agent-runtime-follow:disabled,.agent-runtime-interact:disabled,.agent-runtime-capture:disabled { opacity:.45; cursor:default; }
+.agent-runtime-worker-actions { margin-top:11px; display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+.agent-runtime-icon-button { width:34px; height:34px; min-width:34px; min-height:34px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--theme-border); border-radius:9px; background:var(--theme-elevated); color:var(--theme-text-muted); box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 5%,transparent); cursor:pointer; transition:border-color .14s ease,background .14s ease,color .14s ease,transform .14s ease; }
+.agent-runtime-icon-button:hover:not(:disabled) { border-color:color-mix(in srgb,var(--theme-accent) 52%,var(--theme-border)); background:color-mix(in srgb,var(--theme-accent) 8%,var(--theme-hover)); color:var(--theme-text); transform:translateY(-1px); }
+.agent-runtime-icon-button:active:not(:disabled) { transform:translateY(0); }
+.agent-runtime-icon-button[aria-pressed='true'] { border-color:color-mix(in srgb,var(--theme-accent) 62%,var(--theme-border)); background:color-mix(in srgb,var(--theme-accent) 14%,var(--theme-surface)); color:var(--theme-text); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--theme-accent) 14%,transparent); }
+.agent-runtime-icon-button.tone-warning { border-color:color-mix(in srgb,var(--warning) 42%,var(--theme-border)); background:color-mix(in srgb,var(--warning) 7%,var(--theme-elevated)); }
+.agent-runtime-icon-button.tone-success { border-color:color-mix(in srgb,var(--success) 42%,var(--theme-border)); background:color-mix(in srgb,var(--success) 7%,var(--theme-elevated)); }
+.agent-runtime-icon-button:disabled { opacity:.4; cursor:default; transform:none; }
 .agent-runtime-interaction { margin-top:12px; display:grid; gap:8px; }
 .agent-runtime-interaction-heading { display:grid; gap:3px; }
 .agent-runtime-interaction-heading strong { color:var(--theme-text-soft); font-size:calc(10.2px * var(--ui-font-scale)); }
@@ -3425,7 +3423,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 }
 .chat-agent-task-assignment { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:6px; align-items:center; }
 .chat-agent-task-assignment select,.agent-runtime-task-picker-actions select { min-width:0; min-height:30px; padding:0 7px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-bg); color:var(--theme-text-soft); font-size:calc(7px * var(--ui-font-scale)); }
-.chat-agent-task-assignment button,.agent-runtime-task-picker-actions button { min-height:30px; padding:0 10px; border:1px solid color-mix(in srgb,var(--theme-accent) 50%,var(--theme-border)); border-radius:7px; background:color-mix(in srgb,var(--theme-accent) 10%,var(--theme-surface)); color:var(--theme-text); font-size:calc(7px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
+.chat-agent-task-assignment button { min-height:30px; padding:0 10px; border:1px solid color-mix(in srgb,var(--theme-accent) 50%,var(--theme-border)); border-radius:7px; background:color-mix(in srgb,var(--theme-accent) 10%,var(--theme-surface)); color:var(--theme-text); font-size:calc(7px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
+.agent-runtime-task-picker-actions .agent-runtime-icon-button { width:34px; min-width:34px; padding:0; }
 .chat-agent-task-assignment button:disabled,.agent-runtime-task-picker-actions button:disabled { opacity:.45; cursor:default; }
 /* The Agents panel reads at a larger scale than the Tasks drawer this markup
    is shared with, so its own picker/actions font sizes are bumped back up
@@ -5602,7 +5601,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
     gap:7px;
   }
   .agent-runtime-pause-controls select { width:100%; min-width:0; }
-  .agent-runtime-pause-controls button { grid-column:1 / -1; width:100%; }
+  .agent-runtime-pause-controls button { grid-column:auto; width:34px; }
   .agent-runtime-scale { padding:9px 10px; grid-template-columns:1fr; gap:7px; }
   .agent-runtime-scale-card { padding:9px 10px; border-radius:9px; }
   .agent-runtime-scale small {
@@ -5645,7 +5644,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   }
   .agent-runtime-detail dl > div:last-child { border-bottom:0; }
   .agent-runtime-detail dl > div:hover { border-color:var(--theme-border-soft); background:var(--theme-hover); }
-  .agent-runtime-worker-actions { grid-template-columns:1fr; }
+  .agent-runtime-worker-actions { justify-content:flex-start; }
 }
 
 @container agent-runtime (max-width: 410px) {
@@ -5658,8 +5657,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .agent-runtime-diagnostics { grid-template-columns:1fr; }
   .agent-runtime-diagnostic-row:nth-child(3) { grid-column:auto; }
   .agent-runtime-pause-controls { grid-template-columns:1fr; }
-  .agent-runtime-pause-controls label,
-  .agent-runtime-pause-controls button { grid-column:1; }
+  .agent-runtime-pause-controls label { grid-column:1; }
+  .agent-runtime-pause-controls button { grid-column:2; }
   .agent-runtime-pause-controls label { justify-content:space-between; }
   .agent-runtime-pause-controls input { width:min(96px,42%); }
   .agent-runtime-scale-card { grid-template-columns:minmax(0,1fr) auto; }
