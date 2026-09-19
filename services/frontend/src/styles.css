@@ -3274,6 +3274,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .agent-runtime-pause-controls input { width:74px; padding:0 7px; font-family:var(--mono-font-family); font-variant-numeric:tabular-nums; }
 .agent-runtime-pause-controls .agent-runtime-icon-button { flex:0 0 auto; }
 .agent-runtime-pause-controls :disabled { opacity:.4; cursor:default; }
+.agent-runtime-task-suspension { margin:0; padding:9px 11px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 12px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
+.agent-runtime-task-suspension legend { padding:0 5px; color:var(--theme-text-muted); font-size:calc(8.5px * var(--ui-font-scale)); }
+.agent-runtime-task-suspension label { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:6px; color:var(--theme-text); font-size:calc(8.5px * var(--ui-font-scale)); }
+.agent-runtime-task-suspension code { overflow:hidden; color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); text-overflow:ellipsis; }
 .agent-runtime-scale { padding:10px 12px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
 .agent-runtime-scale-card { min-width:0; padding:9px 11px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:9px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
 .agent-runtime-scale-card > div:first-child { min-width:0; display:grid; gap:3px; }

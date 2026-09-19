@@ -32,6 +32,7 @@ type ChatAgentClaimOptions struct {
 	WorkerID      string   `json:"worker_id"`
 	PreferredLane string   `json:"preferred_lane"`
 	ExcludedLanes []string `json:"excluded_lanes"`
+	ExcludedTypes []string `json:"excluded_types"`
 	FallbackMode  string   `json:"fallback_mode"`
 	// Role partitions task types between the Supervisor and Worker pools.
 	//
@@ -105,6 +106,27 @@ func normalizeChatAgentClaimOptions(input ChatAgentClaimOptions) (ChatAgentClaim
 		return ChatAgentClaimOptions{}, errors.New("excluded_lanes must contain at most 32 lanes")
 	}
 	input.ExcludedLanes = cleaned
+	types := make([]string, 0, len(input.ExcludedTypes))
+	seenTypes := map[string]struct{}{}
+	for _, raw := range input.ExcludedTypes {
+		taskType := strings.ToUpper(strings.TrimSpace(raw))
+		if taskType == "" {
+			continue
+		}
+		if _, ok := chatAgentPriorities[taskType]; !ok {
+			return ChatAgentClaimOptions{}, fmt.Errorf("unsupported excluded chat agent task type %q", taskType)
+		}
+		if _, ok := seenTypes[taskType]; ok {
+			continue
+		}
+		seenTypes[taskType] = struct{}{}
+		types = append(types, taskType)
+	}
+	if len(types) > len(chatAgentPriorities) {
+		return ChatAgentClaimOptions{}, errors.New("excluded_types contains too many task types")
+	}
+	sort.Strings(types)
+	input.ExcludedTypes = types
 	projects := make([]string, 0, len(input.OpenProjects))
 	seenProjects := map[string]struct{}{}
 	for _, raw := range input.OpenProjects {
@@ -177,6 +199,11 @@ func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) boo
 	if !chatAgentClaimProjectAllows(task, options) {
 		return false
 	}
+	for _, excluded := range options.ExcludedTypes {
+		if task.Type == excluded {
+			return false
+		}
+	}
 	lane := chatAgentTaskLane(task)
 	for _, excluded := range options.ExcludedLanes {
 		if lane == excluded {
@@ -230,11 +257,12 @@ func (s *Store) ClaimChatAgentTaskWithOptions(owner string, lease time.Duration,
 	now := time.Now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if state := s.chatAgentProvider; state.Paused &&
+	workerRateLimitApplies := options.Role == "" || options.Role == ChatAgentRoleWorker
+	if state := s.chatAgentProvider; workerRateLimitApplies && state.Paused &&
 		(state.PausedUntil == nil || state.PausedUntil.After(now)) {
 		return nil, nil
 	}
-	if s.chatAgentProvider.Paused && s.chatAgentProvider.PausedUntil != nil {
+	if s.chatAgentProvider.Paused && s.chatAgentProvider.PausedUntil != nil && !s.chatAgentProvider.PausedUntil.After(now) {
 		s.chatAgentProvider.Paused = false
 		s.chatAgentProvider.PausedUntil = nil
 		s.chatAgentProvider.Reason = ""

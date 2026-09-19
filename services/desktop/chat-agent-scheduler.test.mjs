@@ -222,7 +222,7 @@ test('scheduler sends affinity-aware claim options supplied by the residency lay
   let claimBody
   const scheduler = new ChatAgentSchedulerClient({
     baseURL: 'http://127.0.0.1:8080', workerCount: 1, idleMs: 1, taskCooldownMs: 0,
-    claimOptions: () => ({ preferred_lane: 'c:conv-a', excluded_lanes: ['c:conv-b'], fallback_mode: 'resident_only' }),
+    claimOptions: () => ({ preferred_lane: 'c:conv-a', excluded_lanes: ['c:conv-b'], excluded_types: ['RENAME_CHAT'], fallback_mode: 'resident_only' }),
     fetchImpl: async (url, init = {}) => {
       if (url.endsWith('/api/chat-agent/tasks/claim')) {
         claimBody = JSON.parse(init.body)
@@ -238,6 +238,7 @@ test('scheduler sends affinity-aware claim options supplied by the residency lay
   assert.equal(claimBody.worker_id, 'worker-1')
   assert.equal(claimBody.preferred_lane, 'c:conv-a')
   assert.deepEqual(claimBody.excluded_lanes, ['c:conv-b'])
+  assert.deepEqual(claimBody.excluded_types, ['RENAME_CHAT'])
   assert.equal(claimBody.fallback_mode, 'resident_only')
 })
 

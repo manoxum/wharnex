@@ -59,6 +59,52 @@ func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 	}
 }
 
+func TestRateLimitPauseBlocksOnlyWorkerRole(t *testing.T) {
+	store := NewStore()
+	for _, taskType := range []string{"TODO_CLASSIFY", "BOT_WRITE", "TRANSLATE_MARKDOWN"} {
+		if _, err := store.EnqueueChatAgentTask(testChatAgentTask(taskType, "chat-"+taskType, "conv-"+taskType, "pause:"+taskType)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	until := time.Now().UTC().Add(time.Minute)
+	if _, err := store.SetChatAgentProviderPause(true, &until, "rate limit"); err != nil {
+		t.Fatal(err)
+	}
+	worker, err := store.ClaimChatAgentTaskWithOptions("worker-owner", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1"})
+	if err != nil || worker != nil {
+		t.Fatalf("Worker claim=%#v err=%v want blocked", worker, err)
+	}
+	supervisor, err := store.ClaimChatAgentTaskWithOptions("supervisor-owner", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleSupervisor, WorkerID: "supervisor-1"})
+	if err != nil || supervisor == nil || supervisor.Type != "BOT_WRITE" {
+		t.Fatalf("Supervisor claim=%#v err=%v", supervisor, err)
+	}
+	translator, err := store.ClaimChatAgentTaskWithOptions("translator-owner", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleTranslator, WorkerID: "translator-1"})
+	if err != nil || translator == nil || translator.Type != "TRANSLATE_MARKDOWN" {
+		t.Fatalf("Translator claim=%#v err=%v", translator, err)
+	}
+}
+
+func TestWorkerClaimExcludesManuallySuspendedTaskTypesWithoutChargingAttempt(t *testing.T) {
+	store := NewStore()
+	rename, err := store.EnqueueChatAgentTask(testChatAgentTask("RENAME_CHAT", "chat-a", "conv-a", "rename:a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnqueueChatAgentTask(testChatAgentTask("TODO_CLASSIFY", "chat-b", "conv-b", "todo:b")); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := store.ClaimChatAgentTaskWithOptions("worker-owner", time.Minute, ChatAgentClaimOptions{
+		Role: ChatAgentRoleWorker, WorkerID: "worker-1", ExcludedTypes: []string{"RENAME_CHAT"},
+	})
+	if err != nil || claimed == nil || claimed.Type != "TODO_CLASSIFY" {
+		t.Fatalf("selective claim=%#v err=%v", claimed, err)
+	}
+	untouched, err := store.GetChatAgentTask(rename.TaskID)
+	if err != nil || untouched.Attempt != 0 || untouched.Status != ChatAgentTaskPending {
+		t.Fatalf("excluded task=%#v err=%v", untouched, err)
+	}
+}
+
 // An explicit operator pin already names one canonical agent. Refusing it by
 // role as well would leave the task reachable by nobody: pinned away from its
 // own pool and barred from the other.

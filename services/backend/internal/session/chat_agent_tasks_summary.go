@@ -123,7 +123,9 @@ func (s *Store) ChatAgentQueueSummary(projectID string) (ChatAgentQueueSummary, 
 		case task.NotBefore.After(now):
 			summary.Scheduled++
 			summary.NextNotBefore = earliest(summary.NextNotBefore, task.NotBefore)
-		case providerGuarded || chatAgentBlockedByActiveTask(task, s.chatAgentTasks, now):
+		case providerGuarded && !chatAgentTaskSupervisor(task.Type) && task.Type != "TRANSLATE_MARKDOWN":
+			summary.Guarded++
+		case chatAgentBlockedByActiveTask(task, s.chatAgentTasks, now):
 			summary.Guarded++
 		default:
 			summary.Due++
@@ -186,11 +188,11 @@ func (s *Store) postgresChatAgentQueueSummary(projectID string) (ChatAgentQueueS
 	rows, err := s.db.Query(`WITH classified AS (
 		SELECT t.status,t.not_before,t.attempt,t.max_attempts,t.created_at,
 			($1='' OR t.project_id=$1) AS mine,
-			(EXISTS (
+			((NOT `+chatAgentTaskSupervisorSQL("t.type")+` AND t.type<>'TRANSLATE_MARKDOWN' AND EXISTS (
 				SELECT 1 FROM harness_chat_agent_provider_state p
 				WHERE p.provider='chatgpt' AND p.paused=true
 				  AND (p.paused_until IS NULL OR p.paused_until>now())
-			) OR `+chatAgentBlockedByActiveTaskSQL("t")+`) AS guarded
+			)) OR `+chatAgentBlockedByActiveTaskSQL("t")+`) AS guarded
 		FROM harness_chat_agent_tasks t
 		WHERE t.status IN ('PENDING','LEASED','RUNNING','WAITING')
 	)
@@ -269,11 +271,11 @@ func (s *Store) postgresChatAgentDueByRole(projectID string) (int, int, int, err
 		WHERE t.status IN ('PENDING','WAITING')
 		  AND ($1='' OR t.project_id=$1)
 		  AND t.not_before<=now() AND t.attempt<t.max_attempts
-		  AND NOT (EXISTS (
+		  AND NOT ((NOT `+chatAgentTaskSupervisorSQL("t.type")+` AND t.type<>'TRANSLATE_MARKDOWN' AND EXISTS (
 			SELECT 1 FROM harness_chat_agent_provider_state p
 			WHERE p.provider='chatgpt' AND p.paused=true
 			  AND (p.paused_until IS NULL OR p.paused_until>now())
-		  ) OR `+chatAgentBlockedByActiveTaskSQL("t")+`)
+		  )) OR `+chatAgentBlockedByActiveTaskSQL("t")+`)
 	)
 		SELECT
 			count(DISTINCT CASE WHEN `+chatAgentTaskSupervisorSQL("type")+`

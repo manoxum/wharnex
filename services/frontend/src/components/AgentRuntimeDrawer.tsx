@@ -12,6 +12,19 @@ type OperationalState = 'idle' | 'writing' | 'listening' | 'waiting' | 'chat-emp
 
 const writingTaskTypes = new Set(['BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN'])
 
+const workerTaskTypeOptions = [
+  ['TODO_CLASSIFY', 'Classificar TODO'],
+  ['ORGANIZE_CHAT', 'Organizar chat'],
+  ['RENAME_CHAT', 'Renomear chat'],
+  ['ARCHIVE_CHAT', 'Arquivar chat'],
+  ['DELETE_CHAT', 'Eliminar chat'],
+  ['DELETE_TEMP_CHAT', 'Eliminar chat temporário'],
+  ['DELETE_BUNDLE', 'Eliminar bundle'],
+  ['TITLE_DISCOVER', 'Descobrir título'],
+  ['TITLE_GENERATE_TEMP', 'Gerar título temporário'],
+  ['TITLE_AWAIT', 'Aguardar título'],
+] as const
+
 function agentOperationalState(agent: DesktopAgentRuntimeAgent): { key: OperationalState; label: string } {
   if (agent.draining) return { key: 'draining', label: 'A terminar' }
   if (agent.status === 'error') return { key: 'error', label: 'Com erro' }
@@ -146,6 +159,8 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
   const [pauseMinutes, setPauseMinutes] = useState('60')
   const [workerPauseMode, setWorkerPauseMode] = useState<'timed' | 'manual'>('timed')
   const [workerPauseMinutes, setWorkerPauseMinutes] = useState('60')
+  const [workerPauseScope, setWorkerPauseScope] = useState<'all' | 'types'>('all')
+  const [workerPauseTaskTypes, setWorkerPauseTaskTypes] = useState<string[]>([])
   const [snapshot, setSnapshot] = useState<Snapshot>()
   const [taskPickerOpen, setTaskPickerOpen] = useState(false)
   const [availableTasks, setAvailableTasks] = useState<ChatAgentTask[]>([])
@@ -266,6 +281,10 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
 
   const suspendWorkers = async () => {
     if (!bridge) return
+    if (workerPauseScope === 'types' && workerPauseTaskTypes.length === 0) {
+      onError?.('Selecione pelo menos um tipo de tarefa para suspender.')
+      return
+    }
     let pausedUntil: string | undefined
     if (workerPauseMode === 'timed') {
       const minutes = Number(workerPauseMinutes)
@@ -276,7 +295,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       pausedUntil = new Date(Date.now() + Math.floor(minutes) * 60_000).toISOString()
     }
     setBusy(true)
-    try { setRuntime(await bridge.pauseWorkers(pausedUntil)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível suspender os Workers') } finally { setBusy(false) }
+    try { setRuntime(await bridge.pauseWorkers(pausedUntil, workerPauseScope === 'types' ? workerPauseTaskTypes : [])) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível suspender os Workers') } finally { setBusy(false) }
   }
 
   const resumeWorkers = async () => {
@@ -391,7 +410,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       </div>
       <div className="agent-runtime-diagnostics">
         <div className={`agent-runtime-diagnostic-row tone-${runtime.scheduler?.backend_reachable ? (runtime.scheduler.running ? 'success' : 'warning') : 'danger'}`}><div><strong>Scheduler</strong><small>{runtime.scheduler?.backend_reachable ? (runtime.scheduler.running ? 'Online' : 'Parado') : 'Backend indisponível'}</small></div><span title={runtime.scheduler?.last_error || ''}>{runtime.scheduler?.last_error ? short(runtime.scheduler.last_error) : timeLabel(runtime.scheduler?.last_refresh_at)}</span></div>
-        <div className={`agent-runtime-diagnostic-row tone-${runtime.provider?.paused ? 'warning' : 'success'}`}><div><strong>Provider {runtime.provider?.provider || 'chatgpt'}</strong><small>{runtime.provider?.paused ? 'Pausado globalmente' : 'Ativo'}</small></div><div className="agent-runtime-provider-action"><span title={runtime.provider?.reason || ''}>{runtime.provider?.paused ? short(runtime.provider.reason, 'Suspensão ativa') : 'Sem bloqueio global'}</span></div></div>
+        <div className={`agent-runtime-diagnostic-row tone-${runtime.provider?.paused ? 'warning' : 'success'}`}><div><strong>Rate limit {runtime.provider?.provider || 'chatgpt'}</strong><small>{runtime.provider?.paused ? 'Workers suspensos' : 'Workers ativos'}</small></div><div className="agent-runtime-provider-action"><span title={runtime.provider?.reason || ''}>{runtime.provider?.paused ? short(runtime.provider.reason, 'Suspensão de Workers ativa') : 'Sem bloqueio por rate limit'}</span></div></div>
         <div className={`agent-runtime-diagnostic-row tone-${(runtime.provider?.rate_limit_level || 0) > 0 ? 'warning' : 'neutral'}`}><div><strong>Pacing</strong><small>{runtime.provider?.valid_sample_count || 0} bundles válidos medidos</small></div><span>espera {durationLabel(runtime.provider?.initial_wait_ms)} · média {durationLabel(runtime.provider?.average_processing_ms)} · 429 L{runtime.provider?.rate_limit_level || 0}</span></div>
         {/* Only work still in the queue. A settled task has left it, and its
             lifetime tally described past throughput while saying nothing about
@@ -409,12 +428,12 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       </div>}
       {activeTab === 'policies' && <div className="agent-runtime-tab-panel policies" role="tabpanel">
       <div className={`agent-runtime-pause${runtime.provider?.paused ? ' is-paused' : ''}`}>
-        <div className="agent-runtime-pause-copy"><strong>Trabalhos agentic</strong><small>{runtime.provider?.paused ? (runtime.provider.paused_until ? `Suspensos · retoma automática em ${timeLabel(runtime.provider.paused_until)}` : 'Suspensos · retoma manual') : 'Suspende novos claims globalmente; trabalhos já em curso terminam sem perder estado.'}</small></div>
+        <div className="agent-runtime-pause-copy"><strong>Cooldown durável dos Workers</strong><small>{runtime.provider?.paused ? (runtime.provider.paused_until ? `Workers suspensos · retoma automática em ${timeLabel(runtime.provider.paused_until)}` : 'Workers suspensos · retoma manual') : 'Suspende todos os novos claims dos Workers; Supervisores e Translator continuam operacionais.'}</small></div>
         {!runtime.provider?.paused && <div className="agent-runtime-pause-controls"><select aria-label="Modo de retoma" value={pauseMode} disabled={busy} onChange={(event) => setPauseMode(event.target.value === 'manual' ? 'manual' : 'timed')}><option value="timed">Retoma automática</option><option value="manual">Retoma manual</option></select>{pauseMode === 'timed' && <label><input aria-label="Minutos até retoma automática" type="number" min="1" max="10080" step="1" value={pauseMinutes} disabled={busy} onChange={(event) => setPauseMinutes(event.target.value)}/><span>min</span></label>}<button type="button" className="agent-runtime-icon-button tone-warning" disabled={busy} onClick={() => void suspendProvider()} aria-label="Suspender trabalhos" title="Suspender trabalhos"><Icon name="pause" size={14}/></button></div>}
         {runtime.provider?.paused && <button type="button" className="agent-runtime-icon-button tone-success" disabled={busy} onClick={() => void resumeProvider()} aria-label="Retomar agora" title="Retomar agora"><Icon name="play" size={14}/></button>}
       </div>
       <div className="agent-runtime-scale" aria-label="Política de rate limit">
-        <div className="agent-runtime-scale-card"><div><strong>Suspensão automática por rate limit</strong><small>Aplica-se a HTTP 429 e ao gate estrutural do ChatGPT. Toda a automação retoma automaticamente no nível saudável.</small></div><label className="agent-runtime-number-policy"><input key={runtime.policies.rate_limit_cooldown_minutes} aria-label="Minutos de suspensão automática por rate limit" type="number" min="1" max="60" step="0.5" defaultValue={runtime.policies.rate_limit_cooldown_minutes} disabled={busy} onBlur={(event) => { const minutes = Number(event.currentTarget.value); if (!Number.isFinite(minutes) || minutes < 1 || minutes > 60) { event.currentTarget.value = String(runtime.policies.rate_limit_cooldown_minutes); onError?.('Defina a suspensão automática entre 1 e 60 minutos.'); return } void updatePolicies({ rate_limit_cooldown_minutes: minutes }) }}/><span>min</span></label></div>
+        <div className="agent-runtime-scale-card"><div><strong>Suspensão automática por rate limit</strong><small>Aplica-se somente aos Workers após HTTP 429 ou gate estrutural. Supervisores e Translator permanecem ativos.</small></div><label className="agent-runtime-number-policy"><input key={runtime.policies.rate_limit_cooldown_minutes} aria-label="Minutos de suspensão automática por rate limit" type="number" min="1" max="60" step="0.5" defaultValue={runtime.policies.rate_limit_cooldown_minutes} disabled={busy} onBlur={(event) => { const minutes = Number(event.currentTarget.value); if (!Number.isFinite(minutes) || minutes < 1 || minutes > 60) { event.currentTarget.value = String(runtime.policies.rate_limit_cooldown_minutes); onError?.('Defina a suspensão automática entre 1 e 60 minutos.'); return } void updatePolicies({ rate_limit_cooldown_minutes: minutes }) }}/><span>min</span></label></div>
       </div>
       <div className="agent-runtime-scale">
         <div className="agent-runtime-scale-card"><div><strong>Supervisores</strong><small>Um por chat: abre a conversa, envia e recolhe o bundle, e só liberta o chat quando o pedido termina</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.configured_supervisors <= runtime.limits.min_supervisors} onClick={() => void scaleSupervisors(-1)} aria-label="Diminuir supervisores" title="Diminuir supervisores"><Icon name="minus" size={13}/></button><b>{runtime.configured_supervisors}</b><button disabled={busy || runtime.configured_supervisors >= runtime.limits.max_supervisors} onClick={() => void scaleSupervisors(1)} aria-label="Aumentar supervisores" title="Aumentar supervisores"><Icon name="plus" size={13}/></button></div></div>
@@ -431,10 +450,11 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       </div>}
       {activeTab === 'agents' && <div className="agent-runtime-tab-panel agents" role="tabpanel">
       <div className={`agent-runtime-pause agent-runtime-worker-pause${runtime.worker_pause?.paused ? ' is-paused' : ''}`}>
-        <div className="agent-runtime-pause-copy"><strong>Workers</strong><small>{runtime.worker_pause?.paused ? (runtime.worker_pause.paused_until ? `Suspensos · retoma automática em ${timeLabel(runtime.worker_pause.paused_until)}` : 'Suspensos · aguardam liberação manual') : 'Suspende apenas novos claims dos Workers; tarefas em curso terminam e os Supervisores continuam operacionais.'}</small></div>
-        {!runtime.worker_pause?.paused && <div className="agent-runtime-pause-controls"><select aria-label="Modo de retoma dos Workers" value={workerPauseMode} disabled={busy} onChange={(event) => setWorkerPauseMode(event.target.value === 'manual' ? 'manual' : 'timed')}><option value="timed">Retoma automática</option><option value="manual">Liberação manual</option></select>{workerPauseMode === 'timed' && <label><input aria-label="Minutos até retoma dos Workers" type="number" min="1" max="10080" step="1" value={workerPauseMinutes} disabled={busy} onChange={(event) => setWorkerPauseMinutes(event.target.value)}/><span>min</span></label>}<button type="button" className="agent-runtime-icon-button tone-warning" disabled={busy} onClick={() => void suspendWorkers()} aria-label="Suspender Workers" title="Suspender Workers"><Icon name="pause" size={14}/></button></div>}
+        <div className="agent-runtime-pause-copy"><strong>Workers</strong><small>{runtime.worker_pause?.paused ? `${runtime.worker_pause.task_types?.length ? `${runtime.worker_pause.task_types.length} tipos suspensos` : 'Todos os tipos suspensos'} · ${runtime.worker_pause.paused_until ? `retoma automática em ${timeLabel(runtime.worker_pause.paused_until)}` : 'aguardam liberação manual'}` : 'Suspende novos claims de todos os Workers ou apenas dos tipos selecionados; tarefas em curso terminam.'}</small></div>
+        {!runtime.worker_pause?.paused && <div className="agent-runtime-pause-controls"><select aria-label="Âmbito da suspensão dos Workers" value={workerPauseScope} disabled={busy} onChange={(event) => setWorkerPauseScope(event.target.value === 'types' ? 'types' : 'all')}><option value="all">Todos os tipos</option><option value="types">Tipos selecionados</option></select><select aria-label="Modo de retoma dos Workers" value={workerPauseMode} disabled={busy} onChange={(event) => setWorkerPauseMode(event.target.value === 'manual' ? 'manual' : 'timed')}><option value="timed">Retoma automática</option><option value="manual">Liberação manual</option></select>{workerPauseMode === 'timed' && <label><input aria-label="Minutos até retoma dos Workers" type="number" min="1" max="10080" step="1" value={workerPauseMinutes} disabled={busy} onChange={(event) => setWorkerPauseMinutes(event.target.value)}/><span>min</span></label>}<button type="button" className="agent-runtime-icon-button tone-warning" disabled={busy} onClick={() => void suspendWorkers()} aria-label="Suspender Workers" title="Suspender Workers"><Icon name="pause" size={14}/></button></div>}
         {runtime.worker_pause?.paused && <button type="button" className="agent-runtime-icon-button tone-success" disabled={busy} onClick={() => void resumeWorkers()} aria-label="Retomar Workers" title="Retomar Workers"><Icon name="play" size={14}/></button>}
       </div>
+      {!runtime.worker_pause?.paused && workerPauseScope === 'types' && <fieldset className="agent-runtime-task-suspension"><legend>Tipos de tarefa a suspender</legend>{workerTaskTypeOptions.map(([type, label]) => <label key={type}><input type="checkbox" checked={workerPauseTaskTypes.includes(type)} disabled={busy} onChange={(event) => setWorkerPauseTaskTypes((current) => event.target.checked ? [...current, type] : current.filter((item) => item !== type))}/><span>{label}</span><code>{type}</code></label>)}</fieldset>}
       <div className="agent-runtime-state-legend" aria-label="Legenda dos estados dos agentes">
         {([['idle', 'Ocioso'], ['paused', 'Suspenso'], ['writing', 'A escrever'], ['listening', 'A escutar'], ['waiting', 'A aguardar'], ['chat-empty', 'Chat sem jobs']] as const).map(([key, label]) => <span key={key}><i className={`agent-runtime-dot state-${key}`} aria-hidden="true"/>{label}</span>)}
       </div>

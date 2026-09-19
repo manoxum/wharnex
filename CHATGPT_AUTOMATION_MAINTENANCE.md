@@ -23,14 +23,16 @@ Este documento descreve o contrato atualmente implementado para a automação do
 
 `DELETE_DOUBLE` não é um tipo durável atual. A remoção de artefato duplicado/expirado é representada por `DELETE_BUNDLE`; duplicidade de tarefas é controlada por `dedupe_key`.
 
-O rate limit é superior a essa divisão: durante uma suspensão automática, **Workers, Supervisores e Translator param de iniciar ações contra o provedor**. Uma tradução solicitada nesse estado falha imediatamente e não fica aguardando a retomada. Observação passiva já residente pode continuar quando não navega, recarrega, envia, faz upload ou ativa controles.
+A suspensão automática por rate limit aplica-se somente aos **Workers persistentes**. Supervisores e Translator continuam a fazer claims e executar as suas operações. Evidência 429 observada por qualquer superfície continua a alimentar o estado durável que protege os Workers.
+
+Por padrão ficam seletivamente suspensos `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP` e `TITLE_AWAIT`. `TODO_CLASSIFY` permanece elegível. Na aba **Agentes → Agentes**, o operador pode suspender todos os tipos de Worker ou escolher um conjunto validado; a filtragem ocorre no claim e não consome tentativa.
 
 ## 3. Cadência global dos Workers
 
 - Navegação, reload, tentativa de upload, submit e operação de conta de qualquer Worker compartilham o mesmo relógio global de 30 segundos por perfil.
 - `TRANSLATE_MARKDOWN` não entra no pool persistente de Workers. Um scheduler dedicado reivindica somente esse tipo, cria o `Translator`, dispara automaticamente a operação e destrói a instância no fim.
 - O `Translator` usa o relógio global de tradução, com mínimo normativo de 5 segundos; ele não aguarda a cadência de 30 segundos dos Workers comuns.
-- A tarefa de tradução tem `max_attempts=1`. Suspensão, autenticação, gate humano, timeout ou falha de transporte terminam a operação sem retry e a interface mostra **“A tradução falhou. Tente novamente mais tarde.”**
+- A tarefa de tradução tem `max_attempts=1`. Autenticação, gate humano, timeout ou falha de transporte terminam a operação sem retry e a interface mostra **“A tradução falhou. Tente novamente mais tarde.”**
 - A cadência é aplicada também aos retries que realmente podem alcançar o ChatGPT.
 - Antes da última ação de navegação, upload ou submit, o engine consulta novamente a suspensão. Se ela começou enquanto a operação aguardava o pacer, a ação é adiada sem alcançar o provedor.
 - Um adiamento anterior ao contato com o ChatGPT é uma observação gratuita: não consome a tentativa durável da tarefa.
@@ -42,7 +44,7 @@ Implementação principal: `services/desktop/chat-agent-pacer.mjs` e os limites 
 
 ### 4.1 Detecção
 
-Qualquer uma destas evidências abre a suspensão global:
+Qualquer uma destas evidências abre a suspensão dos Workers:
 
 - HTTP 429 observado num endpoint backend confiável de `chatgpt.com`;
 - controle estrutural de rate limit exposto pela página;
@@ -61,29 +63,29 @@ Na aba **Agentes → Políticas**, o campo **Suspensão automática por rate lim
 
 O valor é normalizado e persistido na política do Desktop. Alterá-lo afeta as próximas suspensões; uma suspensão já ativa nunca é encurtada por uma observação posterior ou por um valor menor.
 
-O backend persiste `paused`, `paused_until`, `reason`, `rate_limit_level`, `last_rate_limit_at` e `last_rate_limit_source`. Reiniciar o Desktop durante a janela não libera a fila.
+O backend persiste `paused`, `paused_until`, `reason`, `rate_limit_level`, `last_rate_limit_at` e `last_rate_limit_source`. Reiniciar o Desktop durante a janela não libera os Workers.
 
 ### 4.3 Comportamento durante a pausa
 
-1. Ambos os schedulers deixam de fazer novos claims.
-2. Navegação, upload e submit fazem uma última verificação antes da fronteira do provedor.
-3. Comentários, recuperação e continuações já preparadas são adiados; não executam loops locais de upload.
+1. O scheduler dos Workers deixa de fazer novos claims; Supervisor e Translator continuam operacionais.
+2. Navegação, upload e submit de Worker fazem uma última verificação antes da fronteira do provedor.
+3. Comentários, recuperação e continuações dos Supervisores não são bloqueados pelo cooldown dos Workers.
 4. `ChatGPTRateLimitDeferral` preserva o erro tipado e marca `retryUpload=false`, evitando cinco retries locais de uma ação que não chegou ao provedor.
 5. O adiamento não consome tentativa da tarefa e não cria atenção humana.
-6. Uma operação que já atravessou a fronteira antes da detecção pode terminar, mas nenhuma nova etapa de submit é iniciada sem consultar novamente a suspensão.
+6. Uma operação de Worker que já atravessou a fronteira antes da detecção pode terminar, mas nenhuma nova etapa de Worker é iniciada sem consultar novamente a suspensão.
 
 ### 4.4 Retomada obrigatoriamente confirmada
 
 O fim de `paused_until` não libera a fila por si só:
 
-1. Workers e Supervisores continuam bloqueados por `chatAgentRateLimitResumeBlocked()`.
+1. Somente Workers continuam bloqueados por `chatAgentRateLimitResumeBlocked()`.
 2. Exatamente um Worker é escolhido para a confirmação.
 3. O Worker passa pelo pacer global e recarrega sua URL confiável atual. Se não houver URL confiável residente, carrega `https://chatgpt.com/`.
 4. Depois de `reload()`, o engine aguarda o início real da navegação e a estabilização do carregamento/rede.
 5. O engine executa `chatGPTHumanActionScript()` e exige um objeto estrutural válido com `rateLimited === false`.
 6. Autenticação, CAPTCHA, acesso negado, resultado ausente ou página ambígua mantêm a fila bloqueada e reagendam a confirmação.
 7. Um 429 durante o reload, ou um gate ainda presente, abre outra suspensão completa usando a política atual.
-8. O backend pode limpar o estado temporal expirado ao ser consultado, mas o bloqueio local de retomada permanece. Somente a confirmação saudável remove esse bloqueio e permite novos claims.
+8. O backend pode limpar o estado temporal expirado ao ser consultado, mas o bloqueio local de retomada dos Workers permanece. Somente a confirmação saudável permite novos claims de Worker.
 
 O log de sucesso esperado é:
 
@@ -239,7 +241,8 @@ Também execute `npm run build` no frontend quando a aba Políticas for alterada
 
 - [ ] Política configurável aparece em **Agentes → Políticas** e persiste o valor normalizado.
 - [ ] Cadência global é 30 s para Worker comum e 5 s para tradução.
-- [ ] Supervisores ignoram o pacer comum, mas respeitam a suspensão do provider.
+- [ ] Supervisores e Translator ignoram a suspensão automática dos Workers; evidência 429 observada por eles ainda atualiza o cooldown durável dos Workers.
+- [ ] Suspensão manual seletiva impede claims apenas dos tipos escolhidos e não incrementa `attempt`.
 - [ ] Nenhum diagnóstico contém prosa remota, DOM bruto, cookies ou credenciais.
 - [ ] Scripts retornam alvos; operações de conta usam input nativo confiável.
 - [ ] Suspensão não consome tentativas nem gera retry storm.

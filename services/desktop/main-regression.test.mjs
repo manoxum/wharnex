@@ -104,7 +104,22 @@ test('a prepared upload is submitted atomically without retargeting or reloading
 
   assert.match(submit, /preparedTarget/)
   assert.match(submit, /preparedTarget \|\| await targetChatGPTComposer/)
-  assert.match(prepare, /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target\)/)
+  assert.match(prepare, /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ rateLimitExempt: !pacedWorker \}\)/)
+})
+
+test('manual retry through a Supervisor is never deferred by the Worker rate-limit cooldown', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const retryIPCStart = source.indexOf("ipcMain.handle('wharness:chatgpt:retry-prepared-prompt'")
+  const retryIPC = source.slice(retryIPCStart, source.indexOf("ipcMain.handle('wharness:chatgpt:attach-context'", retryIPCStart))
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(')
+  const prepare = source.slice(prepareStart, source.indexOf('\nasync function queuePreparedPromptForWorker', prepareStart))
+  const submitStart = source.indexOf('async function submitChatGPTDraft(')
+  const submit = source.slice(submitStart, prepareStart)
+
+  assert.match(retryIPC, /withChatGPTSupervisorTransport\([\s\S]*retryPreparedChatGPTPrompt\(request, entry\)/)
+  assert.match(prepare, /\{ pacedWorker = false \} = \{\}/)
+  assert.match(prepare, /rateLimitExempt: !pacedWorker/)
+  assert.match(submit, /rateLimitExempt = true/)
 })
 
 test('manual preparation records the supplied title and cannot leave an orphan draft through an undefined variable', async () => {
@@ -1144,12 +1159,13 @@ test('Agents tab Worker suspension is persisted locally and blocks only Worker c
   const scale = source.slice(scaleStart, scaleEnd)
 
   assert.ok(pauseStart >= 0, 'worker pause IPC handler must exist')
-  assert.match(pauseHandlers, /workers_suspended: true, workers_suspended_until: pausedUntil/)
-  assert.match(pauseHandlers, /workers_suspended: false, workers_suspended_until: ''/)
+  assert.match(pauseHandlers, /workers_suspended_types: Array\.isArray\(request\?\.taskTypes\)/)
+  assert.match(pauseHandlers, /workers_suspended: false, workers_suspended_until: '', workers_suspended_types: \[\]/)
   assert.match(pauseHandlers, /persistChatAgentPolicies\(\)/)
-  assert.match(preload, /pauseWorkers: \(pausedUntil\) => invoke\('wharness:agents:pause-workers'/)
+  assert.match(preload, /pauseWorkers: \(pausedUntil, taskTypes = \[\]\) => invoke\('wharness:agents:pause-workers'/)
   assert.match(preload, /resumeWorkers: \(\) => invoke\('wharness:agents:resume-workers'/)
-  assert.match(workerScheduler, /workerSuspensionState\(chatAgentPolicies\)\.paused\) return \{ skip: true \}/)
+  assert.match(workerScheduler, /workerSuspendsAllTaskTypes\(chatAgentPolicies\)\) return \{ skip: true \}/)
+  assert.match(workerScheduler, /excluded_types: manualSuspension\.paused \? manualSuspension\.task_types : \[\]/)
   assert.doesNotMatch(supervisorScheduler, /workerSuspensionState\(chatAgentPolicies\)/)
   assert.ok(scale.indexOf('reconcileChatAgentSupervisorAutoScale(queue)') < scale.indexOf('workerSuspensionState(chatAgentPolicies).paused'), 'Supervisor scaling must reconcile before Worker suspension returns')
 })
@@ -1346,7 +1362,7 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
 
 test('submitChatGPTDraft never replays an ambiguous automatic submit', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
+  const start = source.indexOf('async function submitChatGPTDraft(')
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   assert.notEqual(start, -1)
   assert.notEqual(end, -1)
@@ -1373,7 +1389,7 @@ test('retry refuses to replay a request that already has an armed expected bundl
 
 test('every ChatGPT submit verifies the requested reasoning effort before starting its POST observation', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
+  const start = source.indexOf('async function submitChatGPTDraft(')
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   const body = source.slice(start, end)
   const ensure = body.indexOf('await ensureChatGPTReasoningEffort({')
@@ -1453,7 +1469,7 @@ test('reasoning effort is stepped through the composer slider, not a keyboard sh
 // explicit per caller, not a change to the default.
 test('an unreachable reasoning effort still blocks submission unless a caller explicitly opts out', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf("async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true } = {})")
+  const start = source.indexOf('async function submitChatGPTDraft(')
   const end = source.indexOf('\nasync function preparePromptForChatGPT', start)
   assert.notEqual(start, -1)
   const body = source.slice(start, end)
@@ -1463,11 +1479,11 @@ test('an unreachable reasoning effort still blocks submission unless a caller ex
   // markdown translation) may opt out; every other caller keeps the default.
   const classifyStart = source.indexOf('async function executeChatAgentTodoClassification(task, entry, key, payload)')
   const classifyEnd = source.indexOf('\nasync function chatAgentLifecycleRetry', classifyStart)
-  assert.match(source.slice(classifyStart, classifyEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false \}\)/)
+  assert.match(source.slice(classifyStart, classifyEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false, rateLimitExempt: false \}\)/)
 
   const translateStart = source.indexOf('async function executeChatAgentMarkdownTranslation(task, entry, key, payload)')
   const translateEnd = source.indexOf('\nasync function executeChatAgentTodoClassification', translateStart)
-  assert.match(source.slice(translateStart, translateEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false \}\)/)
+  assert.match(source.slice(translateStart, translateEnd), /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ requireReasoningEffort: false, rateLimitExempt: true \}\)/)
 
   const botWriteCount = (body.match(/requireReasoningEffort: false/g) || []).length
   assert.equal(botWriteCount, 0, 'submitChatGPTDraft itself must keep failing closed by default')
@@ -1480,7 +1496,7 @@ test('expected bundle supervision is armed only around submissions that can leav
   assert.notEqual(prepareStart, -1)
   assert.notEqual(prepareEnd, -1)
   const prepare = source.slice(prepareStart, prepareEnd)
-  const submitCount = (prepare.match(/await submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target\)/g) || []).length
+  const submitCount = (prepare.match(/await submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ rateLimitExempt: !pacedWorker \}\)/g) || []).length
   const disarmCount = (prepare.match(/disarmExpectedChatGPTBundle\(key, requestId\)/g) || []).length
   assert.equal(submitCount, 1, 'the mandatory ZIP autoSubmit path calls submitChatGPTDraft once')
   assert.equal(disarmCount, 1, 'a failed autoSubmit disarms the bundle armed before dispatch')
@@ -2223,8 +2239,8 @@ test('an empty claim releases a resident lane that has run dry', async () => {
 
   // Without this the pool degraded to one effective worker: a resident slot can
   // only claim its own lane, so it could never be rebound by claiming elsewhere.
-  assert.match(scheduler.slice(0, 3600), /onIdle: \(worker\) => \{/)
-  assert.match(scheduler.slice(0, 3600), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
+  assert.match(scheduler.slice(0, 5000), /onIdle: \(worker\) => \{/)
+  assert.match(scheduler.slice(0, 5000), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
 })
 
 test('a conversation still producing a response is never concluded without evidence it ran', async () => {
@@ -2306,10 +2322,10 @@ test('any trusted ChatGPT backend 429 is provider-wide evidence, not just the co
   assert.match(handler, /applyChatGPTRateLimit\(key, \{/)
 })
 
-test('an account-wide rate-limit gate suspends the provider for the fixed window', async () => {
+test('an account-wide rate-limit gate suspends Workers for the configured window', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /const CHATGPT_RATE_LIMIT_BACKOFF_MS = 7\.5 \* 60_000/)
-  assert.match(source, /Toda a automação fica suspensa por \$\{cooldownLabel\}/)
+  assert.match(source, /Os Workers ficam suspensos por \$\{cooldownLabel\}; Supervisores e Translator continuam operacionais/)
 
   const start = source.indexOf('function applyChatGPTRateLimit(')
   const apply = source.slice(start, source.indexOf('\nfunction noteChatGPTRateLimitGate(', start))
@@ -2321,15 +2337,15 @@ test('an account-wide rate-limit gate suspends the provider for the fixed window
   assert.match(apply, /recordRateLimit\(source, classification\.kind, Math\.round\(configuredCooldownMs \/ 1000\)\)/)
 })
 
-test('upload and submit recheck a provider suspension at the last provider-facing boundary', async () => {
+test('Worker upload and submit recheck suspension at the last provider-facing boundary', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const pasteStart = source.indexOf('async function pasteChatGPTFile(')
   const paste = source.slice(pasteStart, source.indexOf('\n// Submission has two different facts', pasteStart))
-  assert.match(paste, /if \(pacedWorker\) await paceChatGPTWorkerSubmission\(\{ translation \}\)[\s\S]*chatAgentRateLimitDelayMs\(\)[\s\S]*throw new ChatGPTRateLimitDeferral/)
+  assert.match(paste, /if \(pacedWorker\) await paceChatGPTWorkerSubmission\(\{ translation \}\)[\s\S]*if \(pacedWorker && !translation\)[\s\S]*chatAgentRateLimitDelayMs\(\)[\s\S]*throw new ChatGPTRateLimitDeferral/)
 
   const submitStart = source.indexOf('async function submitChatGPTDraft(')
   const submit = source.slice(submitStart, source.indexOf('\nasync function preparePromptForChatGPT(', submitStart))
-  assert.match(submit, /beforeSubmit:[\s\S]*chatAgentRateLimitDelayMs\(\)[\s\S]*throw new ChatGPTRateLimitDeferral/)
+  assert.match(submit, /beforeSubmit:[\s\S]*if \(!rateLimitExempt\)[\s\S]*chatAgentRateLimitDelayMs\(\)[\s\S]*throw new ChatGPTRateLimitDeferral/)
 })
 
 test('automatic rate-limit resume reloads one Worker and confirms the structural gate before claims resume', async () => {
@@ -2348,16 +2364,16 @@ test('automatic rate-limit resume reloads one Worker and confirms the structural
   const workerClaim = source.slice(source.indexOf('claimOptions: (worker)'), source.indexOf('onIdle:', source.indexOf('claimOptions: (worker)')))
   const supervisorClaim = source.slice(source.indexOf('claimOptions: (index)'), source.indexOf('onIdle:', source.indexOf('claimOptions: (index)')))
   assert.match(workerClaim, /chatAgentRateLimitResumeBlocked\(\)/)
-  assert.match(supervisorClaim, /chatAgentRateLimitResumeBlocked\(\)/)
+  assert.doesNotMatch(supervisorClaim, /chatAgentRateLimitResumeBlocked\(\)/)
 })
 
-test('provider cooldown defers every continuation path without retries or human escalation', async () => {
+test('Worker cooldown does not block Supervisor continuation paths', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const deferral = source.slice(source.indexOf('class ChatGPTRateLimitDeferral'), source.indexOf('\nasync function paceChatGPTWorkerRequest'))
   assert.match(deferral, /this\.retryUpload = false/)
 
   const polling = source.slice(source.indexOf('async function pollExpectedChatGPTDownloadKey('), source.indexOf('\nasync function pollExpectedChatGPTDownloads('))
-  assert.match(polling, /if \(chatAgentRateLimitResumeBlocked\(\)\) return/)
+  assert.doesNotMatch(polling, /chatAgentRateLimitResumeBlocked\(\)/)
   assert.match(polling, /error instanceof ChatGPTRateLimitDeferral\) return/)
 
   const recovery = source.slice(source.indexOf('async function performChatGPTRecoveryAction('), source.indexOf('\nfunction escalateChatGPTContinuationFailure'))
@@ -2376,7 +2392,7 @@ test('workers stop claiming while the provider cooldown is active', async () => 
   assert.match(claimOptions, /if \(chatAgentRateLimitResumeBlocked\(\)\) return \{ skip: true \}/)
 })
 
-test('a detected gate preserves passive probes but fails the one-shot Translator', async () => {
+test('a detected gate suspends Workers while a Translator reports its own refused request immediately', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const gate = source.slice(source.indexOf('function noteChatGPTRateLimitGate('), source.indexOf('\nfunction noteChatGPTHTTPStatus('))
   assert.match(gate, /health\?\.rateLimited !== true/)
@@ -2386,7 +2402,7 @@ test('a detected gate preserves passive probes but fails the one-shot Translator
   // which returns the attempt. Translation is intentionally single-attempt and
   // must instead fail immediately so the UI does not wait through suspension.
   const observations = source.match(/noteChatGPTRateLimitGate\(key, health\)\) \{\n\s+return \{ status: 'waiting'[^}]*observation: true/g) || []
-  assert.ok(observations.length >= 2, `expected passive supervision paths to observe, saw ${observations.length}`)
+  assert.ok(observations.length >= 1, `expected a passive Worker supervision path to observe, saw ${observations.length}`)
   const translationStart = source.indexOf('async function executeChatAgentMarkdownTranslation(')
   const translationEnd = source.indexOf('\nasync function executeChatAgentTodoClassification(', translationStart)
   const translation = source.slice(translationStart, translationEnd)

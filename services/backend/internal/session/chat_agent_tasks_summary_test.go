@@ -118,7 +118,7 @@ func TestChatAgentQueueSummaryDoesNotCountQuietConversationWorkAsDue(t *testing.
 	}
 }
 
-func TestChatAgentQueueSummaryCountsProviderPausedWorkAsGuarded(t *testing.T) {
+func TestChatAgentQueueSummaryKeepsSupervisorWorkDueDuringWorkerRateLimitPause(t *testing.T) {
 	store := NewStore()
 	if _, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-a", "conv-a", "await:req-1")); err != nil {
 		t.Fatal(err)
@@ -131,11 +131,11 @@ func TestChatAgentQueueSummaryCountsProviderPausedWorkAsGuarded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if summary.Due != 0 || summary.Guarded != 1 {
-		t.Fatalf("due=%d guarded=%d want 0/1 while provider is paused", summary.Due, summary.Guarded)
+	if summary.Due != 1 || summary.Guarded != 0 || summary.DueSupervisorLanes != 1 {
+		t.Fatalf("due=%d guarded=%d supervisor_lanes=%d want 1/0/1 while Workers are paused", summary.Due, summary.Guarded, summary.DueSupervisorLanes)
 	}
-	if summary.OldestDueCreatedAt != nil {
-		t.Fatalf("oldest_due_created_at=%v want none", summary.OldestDueCreatedAt)
+	if summary.OldestDueCreatedAt == nil {
+		t.Fatal("Supervisor work must continue aging as due")
 	}
 }
 

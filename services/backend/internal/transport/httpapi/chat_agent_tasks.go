@@ -17,6 +17,7 @@ type chatAgentLeaseRequest struct {
 	WorkerID      string   `json:"worker_id"`
 	PreferredLane string   `json:"preferred_lane"`
 	ExcludedLanes []string `json:"excluded_lanes"`
+	ExcludedTypes []string `json:"excluded_types"`
 	FallbackMode  string   `json:"fallback_mode"`
 	// Role partitions task types between the chat-bound Supervisor pool and the
 	// small-task Worker pool. Empty stays unrestricted for callers that run no
@@ -92,7 +93,7 @@ func (a *API) claimChatAgentTask(w http.ResponseWriter, r *http.Request) {
 		lease = 45 * time.Second
 	}
 	task, err := a.store.ClaimChatAgentTaskWithOptions(body.Owner, lease, session.ChatAgentClaimOptions{
-		WorkerID: body.WorkerID, PreferredLane: body.PreferredLane, ExcludedLanes: body.ExcludedLanes, FallbackMode: body.FallbackMode,
+		WorkerID: body.WorkerID, PreferredLane: body.PreferredLane, ExcludedLanes: body.ExcludedLanes, ExcludedTypes: body.ExcludedTypes, FallbackMode: body.FallbackMode,
 		Role: body.Role, ProjectScoped: body.ProjectScoped, OpenProjects: body.OpenProjects,
 	})
 	if err != nil {

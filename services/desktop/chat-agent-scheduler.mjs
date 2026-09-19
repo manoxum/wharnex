@@ -233,6 +233,7 @@ export class ChatAgentSchedulerClient {
             role: this.role,
             preferred_lane: String(claim.preferred_lane || ''),
             excluded_lanes: Array.isArray(claim.excluded_lanes) ? claim.excluded_lanes : [],
+            excluded_types: Array.isArray(claim.excluded_types) ? claim.excluded_types : [],
             fallback_mode: String(claim.fallback_mode || 'any'),
             // project_scoped is separate from the list because "no project is
             // open" and "this caller cannot know the window topology" are

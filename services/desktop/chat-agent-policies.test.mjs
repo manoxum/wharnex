@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS } from './chat-agent-pool.mjs'
-import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState } from './chat-agent-policies.mjs'
+import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, DEFAULT_SUSPENDED_WORKER_TASK_TYPES, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes } from './chat-agent-policies.mjs'
 
 test('defaults global flow protection on and normalizes its bounded policy', () => {
   assert.deepEqual(normalizeChatAgentPolicies(), {
-    auto_scale: true, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: HARD_MAX_WORKER_SLOTS, keep_flowing_global: true, keep_flowing_workers: [], workers_suspended: false, workers_suspended_until: '', rate_limit_cooldown_minutes: 7.5,
+    auto_scale: true, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: HARD_MAX_WORKER_SLOTS, keep_flowing_global: true, keep_flowing_workers: [], workers_suspended: true, workers_suspended_until: '', workers_suspended_types: [...DEFAULT_SUSPENDED_WORKER_TASK_TYPES].sort(), rate_limit_cooldown_minutes: 7.5,
   })
   assert.equal(normalizeChatAgentPolicies({ keep_flowing_global: false }).auto_scale, true)
   assert.deepEqual(normalizeChatAgentPolicies({ auto_scale: false, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-3', 'worker-2', 'worker-2', 'worker-99', 'bad'] }), {
-    auto_scale: false, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-2', 'worker-3'], workers_suspended: false, workers_suspended_until: '', rate_limit_cooldown_minutes: 7.5,
+    auto_scale: false, auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS, auto_scale_max_workers: 2, keep_flowing_global: false, keep_flowing_workers: ['worker-2', 'worker-3'], workers_suspended: false, workers_suspended_until: '', workers_suspended_types: [], rate_limit_cooldown_minutes: 7.5,
   })
   assert.equal(normalizeChatAgentPolicies({ auto_scale_max_workers: 99 }).auto_scale_max_workers, HARD_MAX_WORKER_SLOTS)
   assert.equal(normalizeChatAgentPolicies({ auto_scale_max_workers: 0 }).auto_scale_max_workers, 1)
@@ -23,12 +23,14 @@ test('defaults global flow protection on and normalizes its bounded policy', () 
 
 test('worker suspension supports manual release and an expiring deadline without pausing supervisors', () => {
   const now = Date.parse('2026-09-19T14:00:00Z')
-  assert.deepEqual(workerSuspensionState({ workers_suspended: true }, now), { paused: true, paused_until: '' })
+  assert.deepEqual(workerSuspensionState({ workers_suspended: true }, now), { paused: true, paused_until: '', task_types: [] })
   assert.deepEqual(workerSuspensionState({ workers_suspended: true, workers_suspended_until: '2026-09-19T14:30:00Z' }, now), {
-    paused: true, paused_until: '2026-09-19T14:30:00.000Z',
+    paused: true, paused_until: '2026-09-19T14:30:00.000Z', task_types: [],
   })
-  assert.deepEqual(workerSuspensionState({ workers_suspended: true, workers_suspended_until: '2026-09-19T13:59:59Z' }, now), { paused: false, paused_until: '' })
-  assert.deepEqual(workerSuspensionState({ workers_suspended: false, workers_suspended_until: '2026-09-19T14:30:00Z' }, now), { paused: false, paused_until: '' })
+  assert.deepEqual(workerSuspensionState({ workers_suspended: true, workers_suspended_until: '2026-09-19T13:59:59Z' }, now), { paused: false, paused_until: '', task_types: [] })
+  assert.deepEqual(workerSuspensionState({ workers_suspended: false, workers_suspended_until: '2026-09-19T14:30:00Z' }, now), { paused: false, paused_until: '', task_types: [] })
+  assert.equal(workerSuspendsAllTaskTypes({ workers_suspended: true }), true)
+  assert.equal(workerSuspendsAllTaskTypes({ workers_suspended: true, workers_suspended_types: ['RENAME_CHAT'] }), false)
 })
 
 test('auto scale fills unmet Worker demand up to the configured ceiling', () => {

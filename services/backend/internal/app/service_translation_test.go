@@ -95,6 +95,15 @@ func startTranslation(ctx context.Context, service *Service, markdown string) ch
 	return resultCh
 }
 
+func mustDecodeTranslationArchive(t *testing.T, payload translationWorkerPayload) []byte {
+	t.Helper()
+	archive, err := base64.StdEncoding.DecodeString(payload.ArchiveBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return archive
+}
+
 // The worker is handed a sealed request bundle, not an instruction to compose.
 // Everything the provider is asked for — the prompt, the source, the exact
 // filename of the answer — is inside the archive the engine built.
@@ -165,22 +174,30 @@ func TestTranslateMarkdownDispatchesARequestBundle(t *testing.T) {
 	}
 }
 
-func TestTranslateMarkdownFailsBeforeEnqueueWhileProviderIsSuspended(t *testing.T) {
+func TestTranslateMarkdownContinuesWhileWorkersAreRateLimitSuspended(t *testing.T) {
 	service, store := translationService(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	until := time.Now().UTC().Add(time.Minute)
 	if _, err := store.SetChatAgentProviderPause(true, &until, "rate limit"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := service.TranslateMarkdown(context.Background(), "ses_translation", utility.LanguagePortuguese, "# Hello")
-	if err == nil || !strings.Contains(err.Error(), utility.ErrUnavailable.Error()) {
-		t.Fatalf("suspended translation error=%v", err)
+	resultCh := startTranslation(ctx, service, "# Hello")
+	task, payload := awaitTranslationTask(t, store)
+	claimed, err := store.ClaimChatAgentTaskWithOptions("worker-1", 30*time.Second, session.ChatAgentClaimOptions{
+		Role: session.ChatAgentRoleTranslator, WorkerID: "translator-1",
+	})
+	if err != nil || claimed == nil || claimed.TaskID != task.TaskID {
+		t.Fatalf("Translator claim during Worker cooldown=%#v err=%v", claimed, err)
 	}
-	items, listErr := store.ListChatAgentTasks(session.ChatAgentTaskFilter{ActiveOnly: true})
-	if listErr != nil {
-		t.Fatal(listErr)
-	}
-	if len(items) != 0 {
-		t.Fatalf("suspended translation must not queue work: %#v", items)
+	completeTranslation(t, store, task.TaskID, payload, translationResponse(t, validResultManifest(t, mustDecodeTranslationArchive(t, payload), task.TaskID), "# Olá"))
+	select {
+	case got := <-resultCh:
+		if got.err != nil || got.result.Markdown != "# Olá" {
+			t.Fatalf("translation during Worker cooldown=%#v err=%v", got.result, got.err)
+		}
+	case <-ctx.Done():
+		t.Fatal("translation remained blocked by the Worker cooldown")
 	}
 }
 

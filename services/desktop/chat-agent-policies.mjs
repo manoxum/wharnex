@@ -1,13 +1,39 @@
 import { HARD_MAX_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS } from './chat-agent-pool.mjs'
 
+export const CHAT_AGENT_WORKER_TASK_TYPES = Object.freeze([
+  'ORGANIZE_CHAT',
+  'RENAME_CHAT',
+  'ARCHIVE_CHAT',
+  'DELETE_CHAT',
+  'DELETE_TEMP_CHAT',
+  'DELETE_BUNDLE',
+  'TITLE_DISCOVER',
+  'TITLE_GENERATE_TEMP',
+  'TITLE_AWAIT',
+  'TODO_CLASSIFY',
+])
+
+export const DEFAULT_SUSPENDED_WORKER_TASK_TYPES = Object.freeze([
+  'ORGANIZE_CHAT',
+  'RENAME_CHAT',
+  'ARCHIVE_CHAT',
+  'DELETE_CHAT',
+  'DELETE_TEMP_CHAT',
+  'DELETE_BUNDLE',
+  'TITLE_DISCOVER',
+  'TITLE_GENERATE_TEMP',
+  'TITLE_AWAIT',
+])
+
 export const DEFAULT_CHAT_AGENT_POLICIES = Object.freeze({
   auto_scale: true,
   auto_scale_max_workers: HARD_MAX_WORKER_SLOTS,
   auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS,
   keep_flowing_global: true,
   keep_flowing_workers: Object.freeze([]),
-  workers_suspended: false,
+  workers_suspended: true,
   workers_suspended_until: '',
+  workers_suspended_types: DEFAULT_SUSPENDED_WORKER_TASK_TYPES,
   rate_limit_cooldown_minutes: 7.5,
 })
 
@@ -39,6 +65,12 @@ export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, 
   const rawSuspendedUntil = String(value?.workers_suspended_until || '').trim()
   const suspendedDeadline = rawSuspendedUntil ? Date.parse(rawSuspendedUntil) : NaN
   const workersSuspendedUntil = Number.isFinite(suspendedDeadline) ? new Date(suspendedDeadline).toISOString() : ''
+  const suspendedTypes = Array.isArray(value?.workers_suspended_types) ? value.workers_suspended_types : []
+  const allowedSuspendedTypes = new Set(CHAT_AGENT_WORKER_TASK_TYPES)
+  const workersSuspendedTypes = [...new Set(suspendedTypes
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter((item) => allowedSuspendedTypes.has(item)))]
+    .sort()
   const requestedRateLimitCooldown = Number(value?.rate_limit_cooldown_minutes)
   const rateLimitCooldownMinutes = Number.isFinite(requestedRateLimitCooldown)
     ? Math.min(MAX_RATE_LIMIT_COOLDOWN_MINUTES, Math.max(MIN_RATE_LIMIT_COOLDOWN_MINUTES, Math.round(requestedRateLimitCooldown * 2) / 2))
@@ -51,17 +83,23 @@ export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, 
     keep_flowing_workers: keepFlowingWorkers,
     workers_suspended: value?.workers_suspended === true,
     workers_suspended_until: workersSuspendedUntil,
+    workers_suspended_types: workersSuspendedTypes,
     rate_limit_cooldown_minutes: rateLimitCooldownMinutes,
   }
 }
 
 export function workerSuspensionState(policies, now = Date.now()) {
   const normalized = normalizeChatAgentPolicies(policies)
-  if (!normalized.workers_suspended) return { paused: false, paused_until: '' }
-  if (!normalized.workers_suspended_until) return { paused: true, paused_until: '' }
+  if (!normalized.workers_suspended) return { paused: false, paused_until: '', task_types: [] }
+  if (!normalized.workers_suspended_until) return { paused: true, paused_until: '', task_types: normalized.workers_suspended_types }
   const deadline = Date.parse(normalized.workers_suspended_until)
-  if (!Number.isFinite(deadline) || deadline <= Number(now || 0)) return { paused: false, paused_until: '' }
-  return { paused: true, paused_until: normalized.workers_suspended_until }
+  if (!Number.isFinite(deadline) || deadline <= Number(now || 0)) return { paused: false, paused_until: '', task_types: [] }
+  return { paused: true, paused_until: normalized.workers_suspended_until, task_types: normalized.workers_suspended_types }
+}
+
+export function workerSuspendsAllTaskTypes(policies, now = Date.now()) {
+  const state = workerSuspensionState(policies, now)
+  return state.paused && state.task_types.length === 0
 }
 
 export function keepFlowingForWorker(policies, worker) {

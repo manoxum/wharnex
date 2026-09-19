@@ -38,7 +38,7 @@ function agentsBridge(state: DesktopAgentRuntimeState = runtime()) {
     setWorkerCount: vi.fn(async (count: number) => runtime(count)),
     setPolicies: vi.fn(async (policies: { auto_scale?: boolean; auto_scale_max_supervisors?: number; auto_scale_max_workers?: number; keep_flowing_global?: boolean; rate_limit_cooldown_minutes?: number }) => ({ ...state, policies: { ...state.policies, ...policies } })),
     setWorkerKeepFlowing: vi.fn(async (agentId: string, enabled: boolean) => ({ ...state, agents: state.agents.map((agent) => agent.id === agentId ? { ...agent, keep_flowing: enabled } : agent) })),
-    pauseWorkers: vi.fn(async (pausedUntil?: string) => ({ ...state, worker_pause: { paused: true, paused_until: pausedUntil || '' } })),
+    pauseWorkers: vi.fn(async (pausedUntil?: string, taskTypes: string[] = []) => ({ ...state, worker_pause: { paused: true, paused_until: pausedUntil || '', task_types: taskTypes } })),
     resumeWorkers: vi.fn(async () => ({ ...state, worker_pause: { paused: false, paused_until: '' } })),
     pauseProvider: vi.fn(async (pausedUntil?: string) => ({ ...state, provider: { ...state.provider, paused: true, paused_until: pausedUntil || '' } })),
     resumeProvider: vi.fn(async () => runtime()),
@@ -290,7 +290,7 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    expect(await screen.findByText('Suspende apenas novos claims dos Workers; tarefas em curso terminam e os Supervisores continuam operacionais.')).toBeTruthy()
+    expect(await screen.findByText('Suspende novos claims de todos os Workers ou apenas dos tipos selecionados; tarefas em curso terminam.')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Minutos até retoma dos Workers'), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
 
@@ -308,7 +308,7 @@ describe('AgentRuntimeDrawer', () => {
     const { unmount } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.change(await screen.findByLabelText('Modo de retoma dos Workers'), { target: { value: 'manual' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
-    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined))
+    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined, []))
     unmount()
 
     const paused = runtime()
@@ -319,12 +319,26 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents: pausedAgents } as unknown as WharnessDesktopBridge
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
 
-    expect(await screen.findByText('Suspensos · aguardam liberação manual')).toBeTruthy()
+    expect(await screen.findByText('Todos os tipos suspensos · aguardam liberação manual')).toBeTruthy()
     expect(screen.getByText('Worker · Suspenso')).toBeTruthy()
     expect(screen.getByText('Supervisor · Chat sem jobs')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retomar Workers' }))
     await waitFor(() => expect(pausedAgents.resumeWorkers).toHaveBeenCalledTimes(1))
     expect(pausedAgents.resumeProvider).not.toHaveBeenCalled()
+  })
+
+  it('suspends only the selected Worker task types', async () => {
+    const agents = agentsBridge()
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.change(await screen.findByLabelText('Âmbito da suspensão dos Workers'), { target: { value: 'types' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Renomear chat/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Eliminar bundle/ }))
+    fireEvent.change(screen.getByLabelText('Modo de retoma dos Workers'), { target: { value: 'manual' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
+
+    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined, ['RENAME_CHAT', 'DELETE_BUNDLE']))
   })
 
   it('suspends all new agentic work with an automatic resume deadline', async () => {
@@ -333,7 +347,7 @@ describe('AgentRuntimeDrawer', () => {
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
-    await screen.findByText('Trabalhos agentic')
+    await screen.findByText('Cooldown durável dos Workers')
     fireEvent.change(screen.getByLabelText('Minutos até retoma automática'), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
 
@@ -349,7 +363,7 @@ describe('AgentRuntimeDrawer', () => {
 
     const { unmount } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
-    await screen.findByText('Trabalhos agentic')
+    await screen.findByText('Cooldown durável dos Workers')
     fireEvent.change(screen.getByLabelText('Modo de retoma'), { target: { value: 'manual' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
     await waitFor(() => expect(agents.pauseProvider).toHaveBeenCalledWith(undefined))
@@ -363,10 +377,10 @@ describe('AgentRuntimeDrawer', () => {
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
 
     fireEvent.click(await screen.findByRole('tab', { name: /Runtime/ }))
-    const pausedLabel = await screen.findByText('Pausado globalmente')
+    const pausedLabel = await screen.findByText('Workers suspensos')
     expect(pausedLabel.closest('.agent-runtime-diagnostic-row')?.className).toContain('tone-warning')
     fireEvent.click(screen.getByRole('tab', { name: /Políticas/ }))
-    expect(screen.getByText('Suspensos · retoma manual')).toBeTruthy()
+    expect(screen.getByText('Workers suspensos · retoma manual')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retomar agora' }))
     await waitFor(() => expect(pausedAgents.resumeProvider).toHaveBeenCalledTimes(1))
   })

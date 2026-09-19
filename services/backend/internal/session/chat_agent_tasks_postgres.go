@@ -147,13 +147,14 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 		return nil, fmt.Errorf("lock chat agent provider state: %w", err)
 	}
 	now := time.Now().UTC()
-	if providerPaused && (!providerUntil.Valid || providerUntil.Time.After(now)) {
+	workerRateLimitApplies := options.Role == "" || options.Role == ChatAgentRoleWorker
+	if workerRateLimitApplies && providerPaused && (!providerUntil.Valid || providerUntil.Time.After(now)) {
 		if err := tx.Commit(); err != nil {
 			return nil, fmt.Errorf("commit paused chat agent claim: %w", err)
 		}
 		return nil, nil
 	}
-	if providerPaused && providerUntil.Valid {
+	if providerPaused && providerUntil.Valid && !providerUntil.Time.After(now) {
 		if _, err := tx.Exec(`UPDATE harness_chat_agent_provider_state
 			SET paused=false, paused_until=NULL, reason='', rate_limit_level=0,
 				last_rate_limit_at=NULL,last_rate_limit_source='',updated_at=now() WHERE provider='chatgpt'`); err != nil {
@@ -178,6 +179,15 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 			parts = append(parts, fmt.Sprintf("$%d", len(args)))
 		}
 		excludedSQL = " AND " + laneExpr + " NOT IN (" + strings.Join(parts, ",") + ")"
+	}
+	excludedTypesSQL := ""
+	if len(options.ExcludedTypes) > 0 {
+		parts := make([]string, 0, len(options.ExcludedTypes))
+		for _, taskType := range options.ExcludedTypes {
+			args = append(args, taskType)
+			parts = append(parts, fmt.Sprintf("$%d", len(args)))
+		}
+		excludedTypesSQL = " AND t.type NOT IN (" + strings.Join(parts, ",") + ")"
 	}
 	// Project scoping belongs in the claim itself, not after it: a claim charges
 	// an attempt, so claiming and releasing would spend a task's own retry
@@ -207,6 +217,14 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	case ChatAgentRoleTranslator:
 		roleSQL = " AND (t.assigned_worker<>'' OR t.type='TRANSLATE_MARKDOWN')"
 	}
+	providerSQL := ""
+	if workerRateLimitApplies {
+		providerSQL = ` AND NOT EXISTS (
+			SELECT 1 FROM harness_chat_agent_provider_state p
+			WHERE p.provider='chatgpt' AND p.paused=true
+			  AND (p.paused_until IS NULL OR p.paused_until>now())
+		  )`
+	}
 	query := `WITH candidate AS (
 		SELECT t.task_id FROM harness_chat_agent_tasks t
 		WHERE t.status IN ('PENDING','WAITING') AND t.not_before<=now() AND t.attempt<t.max_attempts
@@ -216,12 +234,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 			$4='any'
 			OR ($4='resident_only' AND ` + laneExpr + `=$3)
 			OR ($4='unresident_only' AND ($3='' OR ` + laneExpr + `<>$3))
-		  )` + excludedSQL + projectSQL + roleSQL + `
-		  AND NOT EXISTS (
-			SELECT 1 FROM harness_chat_agent_provider_state p
-			WHERE p.provider='chatgpt' AND p.paused=true
-			  AND (p.paused_until IS NULL OR p.paused_until>now())
-		  )
+		  )` + excludedSQL + excludedTypesSQL + projectSQL + roleSQL + providerSQL + `
 		  AND NOT ` + chatAgentBlockedByActiveTaskSQL("t") + `
 		ORDER BY CASE WHEN $3<>'' AND ` + laneExpr + `=$3 THEN 0 ELSE 1 END,
 		CASE
