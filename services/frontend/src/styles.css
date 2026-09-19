@@ -3207,7 +3207,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 /* Desktop Supervisor/Worker runtime management. Sized a step above the rest of
    the app's dense panels on purpose: this is an operational control surface an
    operator reads at a glance, not a compact inspector list. */
-.agent-runtime-drawer { height:100%; min-height:0; display:grid; grid-template-rows:46px auto auto minmax(0,1fr); background:color-mix(in srgb, var(--theme-bg) 94%, var(--theme-surface)); color:var(--theme-text); }
+.agent-runtime-drawer { container-type:inline-size; container-name:agent-runtime; height:100%; min-height:0; display:grid; grid-template-rows:46px auto auto minmax(0,1fr); background:color-mix(in srgb, var(--theme-bg) 94%, var(--theme-surface)); color:var(--theme-text); }
 .agent-runtime-heading-actions { display:flex; align-items:center; gap:2px; }
 .agent-runtime-drawer .agent-drawer-heading strong { font-size:calc(11.5px * var(--ui-font-scale)); }
 .agent-runtime-drawer .agent-drawer-heading .panel-kicker { font-size:calc(8.5px * var(--ui-font-scale)); }
@@ -5519,6 +5519,125 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .project-todo-tabs button[aria-pressed='true'] b {
   background: var(--theme-accent-soft);
   color: var(--theme-text);
+}
+
+
+/* Runtime Agent drawer -----------------------------------------------------
+   This surface lives behind a user-controlled splitter, so viewport media
+   queries cannot tell when the panel itself is narrow. Container queries keep
+   the operational information legible without imposing a minimum drawer width
+   that would fight the workbench resize contract. */
+@container agent-runtime (max-width: 560px) {
+  .agent-runtime-summary {
+    min-height:0;
+    padding:8px 10px;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:6px;
+  }
+  .agent-runtime-summary span { padding:7px 9px; border-radius:9px; }
+  .agent-runtime-summary b { font-size:calc(12px * var(--ui-font-scale)); }
+  .agent-runtime-summary small { font-size:calc(8.1px * var(--ui-font-scale)); }
+  .agent-runtime-tabs {
+    min-height:38px;
+    display:grid;
+    padding:0 5px;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:0;
+  }
+  .agent-runtime-tabs button {
+    min-height:37px;
+    padding:0 6px;
+    gap:5px;
+    font-size:calc(8.4px * var(--ui-font-scale));
+  }
+  .agent-runtime-tabs button small { min-width:15px; height:15px; padding:0 4px; }
+  .agent-runtime-state-legend { padding:7px 10px; gap:6px 9px; }
+  .agent-runtime-memory-summary {
+    padding:8px 10px;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:6px;
+  }
+  .agent-runtime-memory-summary span { padding:8px 9px; border-radius:9px; }
+  .agent-runtime-memory-summary span:last-child { grid-column:1 / -1; }
+  .agent-runtime-diagnostics {
+    padding:8px 10px 10px;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:6px;
+  }
+  .agent-runtime-diagnostic-row { min-height:64px; padding:9px 10px; border-radius:9px; }
+  .agent-runtime-diagnostic-row:nth-child(3) { grid-column:1 / -1; }
+  .agent-runtime-queue { gap:5px; }
+  .agent-runtime-queue span { padding:4px 8px; }
+  .agent-runtime-queue-times { display:grid; justify-content:stretch; gap:4px; }
+  .agent-runtime-pause { padding:10px; grid-template-columns:1fr; align-items:stretch; }
+  .agent-runtime-pause-controls {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    justify-content:stretch;
+    gap:7px;
+  }
+  .agent-runtime-pause-controls select { width:100%; min-width:0; }
+  .agent-runtime-pause-controls button { grid-column:1 / -1; width:100%; }
+  .agent-runtime-scale { padding:9px 10px; grid-template-columns:1fr; gap:7px; }
+  .agent-runtime-scale-card { padding:9px 10px; border-radius:9px; }
+  .agent-runtime-scale small {
+    overflow:visible;
+    line-height:1.35;
+    text-overflow:clip;
+    white-space:normal;
+  }
+  .agent-runtime-body {
+    padding:8px 10px 10px;
+    grid-template-columns:minmax(132px,.72fr) minmax(0,1.28fr);
+    gap:7px;
+  }
+  .agent-runtime-list { padding:5px; border-radius:9px; }
+  .agent-runtime-list > button {
+    min-height:60px;
+    padding:8px;
+    grid-template-columns:8px minmax(0,1fr);
+    gap:5px 7px;
+  }
+  .agent-runtime-agent-stats {
+    grid-column:2;
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:flex-start;
+    gap:4px;
+  }
+  .agent-runtime-agent-stats code { max-width:100%; }
+  .agent-runtime-detail { padding:10px; border-radius:9px; }
+  .agent-runtime-detail-heading { margin-bottom:6px; padding-bottom:8px; }
+  .agent-runtime-detail dl { gap:0; }
+  .agent-runtime-detail dl > div {
+    padding:7px 4px;
+    grid-template-columns:72px minmax(0,1fr);
+    gap:7px;
+    border:0;
+    border-bottom:1px solid var(--theme-border-soft);
+    border-radius:0;
+    background:transparent;
+  }
+  .agent-runtime-detail dl > div:last-child { border-bottom:0; }
+  .agent-runtime-detail dl > div:hover { border-color:var(--theme-border-soft); background:var(--theme-hover); }
+  .agent-runtime-worker-actions { grid-template-columns:1fr; }
+}
+
+@container agent-runtime (max-width: 410px) {
+  .agent-runtime-tabs button { padding-inline:4px; gap:4px; }
+  .agent-runtime-tab-panel.agents { display:block; overflow:auto; }
+  .agent-runtime-tab-panel.agents .agent-runtime-body { height:auto; }
+  .agent-runtime-body { grid-template-columns:1fr; align-content:start; }
+  .agent-runtime-list { max-height:220px; }
+  .agent-runtime-detail { overflow:visible; }
+  .agent-runtime-diagnostics { grid-template-columns:1fr; }
+  .agent-runtime-diagnostic-row:nth-child(3) { grid-column:auto; }
+  .agent-runtime-pause-controls { grid-template-columns:1fr; }
+  .agent-runtime-pause-controls label,
+  .agent-runtime-pause-controls button { grid-column:1; }
+  .agent-runtime-pause-controls label { justify-content:space-between; }
+  .agent-runtime-pause-controls input { width:min(96px,42%); }
+  .agent-runtime-scale-card { grid-template-columns:minmax(0,1fr) auto; }
 }
 
 /* Preserve each view's useful layout while applying the shared tab grammar. */
