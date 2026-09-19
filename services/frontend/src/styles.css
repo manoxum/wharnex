@@ -4620,7 +4620,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .plan-adjustment-state { color:var(--accent); }
 
 /* Configurable workbench shell ------------------------------------------------ */
-.workspace-center-column { flex: 1 1 760px; min-width: 560px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--theme-bg); }
+.workspace-center-column { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--theme-bg); }
 .workspace-mode-stack { flex: 1 1 auto; min-width: 0; min-height: 0; background: var(--theme-bg); }
 .workspace-main-row > .agent-activity-bar { flex-basis: 44px; width: 44px; padding: 6px 4px; background: color-mix(in srgb, var(--theme-surface) 88%, var(--theme-bg)); border-color: var(--theme-border); }
 .workspace-main-row > .workspace-side-rail { overflow:hidden; scrollbar-width:none; }
@@ -4702,13 +4702,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 :root[data-density='compact'] .workbench-status-bar { height: 21px; flex-basis: 21px; }
 :root[data-density='compact'] .editor-tab { min-height: 28px; }
 
-@media (max-width: 1180px) {
-  .workspace-center-column { min-width: 460px; }
-  .workspace-main-row > .agent-drawer { max-width: 42vw; }
-}
 @media (max-width: 820px) {
-  .workspace-center-column { min-width: 0; }
-  .workspace-main-row > .agent-drawer { max-width: none; }
   .workbench-status-bar { gap: 7px; }
   .workbench-status-bar span:nth-child(n+4) { display: none; }
 }
@@ -5169,10 +5163,9 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 :root[data-tool-rail='bottom'] .workspace-rail-pin-target { width:5px; height:22px; flex-basis:5px; }
 :root[data-tool-rail='bottom'] .workspace-side-rail:has(button[draggable='true']) .workspace-rail-pinned:hover .workspace-rail-pin-target { width:5px; height:28px; }
 
-/* The center is persistent workbench content. Its two Agent surfaces retain a
-   professional working width; secondary tool windows collapse in React before
-   they can squeeze this grid or leave a native ChatGPT view beside dead space. */
-.workspace-center-column { min-width:886px; }
+/* The centre is the elastic workbench surface. Side drawers own their chosen
+   widths and the shared splitter geometry keeps only a small recovery reserve;
+   no late CSS rule may pin the centre back to a desktop-sized minimum. */
 .workspace-main-row > .workspace-side-rail .workspace-rail-primary,
 .workspace-main-row > .workspace-side-rail .workspace-rail-pinned { gap:6px; }
 .workspace-main-row > .agent-activity-bar button { height:40px; }

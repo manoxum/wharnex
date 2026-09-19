@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { WORKBENCH_SIDE_PANEL_MIN_PX } from './workbenchResize'
 import { DEFAULT_WORKBENCH_STATE, defaultSidePanelWidth, loadWorkbenchState, normalizeWorkbenchState, saveWorkbenchState } from './workbenchPreferences'
 
 describe('workbenchPreferences', () => {
@@ -21,10 +22,10 @@ describe('workbenchPreferences', () => {
   // Opening both side panels must land on 25% / 50% / 25% of the workbench,
   // not on a fixed pixel width that means a different share on every screen.
   it('opens each side panel at a quarter of the workbench', () => {
-    expect(defaultSidePanelWidth(1920)).toBe(Math.round((1920 - 54) * 0.25))
-    expect(defaultSidePanelWidth(3840)).toBe(Math.round((3840 - 54) * 0.25))
+    expect(defaultSidePanelWidth(1920)).toBe(Math.round((1920 - 100) * 0.25))
+    expect(defaultSidePanelWidth(3840)).toBe(Math.round((3840 - 100) * 0.25))
     // Centre keeps the other half, give or take the rounding of one pixel.
-    const usable = 1920 - 54
+    const usable = 1920 - 100
     expect(Math.abs((usable - defaultSidePanelWidth(1920) * 2) - usable * 0.5)).toBeLessThanOrEqual(1)
     expect(defaultSidePanelWidth(0)).toBe(0)
   })
@@ -47,8 +48,11 @@ describe('workbenchPreferences', () => {
 
   it('normalizes invalid sizes and tools without leaking malformed local state', () => {
     const normalized = normalizeWorkbenchState({ left: { open: true, collapsed: false, size: 10, tool: 'nope' as never }, bottom: { open: true, collapsed: false, size: 5000 } })
-    expect(normalized.left.size).toBe(240)
+    expect(normalized.left.size).toBe(WORKBENCH_SIDE_PANEL_MIN_PX)
     expect(normalized.left.tool).toBe('')
     expect(normalized.bottom.size).toBe(720)
+
+    const narrowRight = normalizeWorkbenchState({ right: { open: true, collapsed: false, size: 180, tool: 'database' } })
+    expect(narrowRight.right.size).toBe(180)
   })
 })

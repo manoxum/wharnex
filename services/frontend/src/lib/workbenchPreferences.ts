@@ -1,3 +1,5 @@
+import { WORKBENCH_SIDE_PANEL_MIN_PX } from './workbenchResize'
+
 const WORKBENCH_STATE_VERSION = 1
 const STORAGE_PREFIX = 'whx.workbench.layout.v1'
 const LEGACY_DRAWER_WIDTH_PREFIX = 'whx.workspace.drawer-width'
@@ -18,9 +20,10 @@ export const DEFAULT_WORKBENCH_STATE: WorkbenchState = {
   bottom: { open: false, collapsed: true, size: 275 },
 }
 
-// The activity rail plus the two splitters — the chrome that is never part of
-// any of the three resizable panels.
-const WORKBENCH_CHROME_WIDTH = 54
+// Both 44px activity rails plus the two 6px side splitters are fixed chrome,
+// not part of the three resizable surfaces. Keeping this geometry accurate is
+// what makes the initial 25% / 50% / 25% split real when both drawers are open.
+const WORKBENCH_CHROME_WIDTH = 100
 const SIDE_PANEL_FRACTION = 0.25
 
 // With both side panels open the workbench opens as 25% / 50% / 25%: each
@@ -46,8 +49,8 @@ export function loadWorkbenchState(projectPath: string): WorkbenchState {
     const fallback = cloneDefault()
     const leftWidth = legacyDrawerWidth('left')
     const rightWidth = legacyDrawerWidth('right')
-    fallback.left.size = clamp(leftWidth || defaultSidePanelWidth() || fallback.left.size, 240, sidePanelMax(720))
-    fallback.right.size = clamp(rightWidth || defaultSidePanelWidth() || fallback.right.size, 360, sidePanelMax(840))
+    fallback.left.size = clamp(leftWidth || defaultSidePanelWidth() || fallback.left.size, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(720))
+    fallback.right.size = clamp(rightWidth || defaultSidePanelWidth() || fallback.right.size, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(840))
     return fallback
   } catch { return cloneDefault() }
 }
@@ -61,8 +64,8 @@ export function saveWorkbenchState(projectPath: string, state: WorkbenchState) {
 export function normalizeWorkbenchState(value: Partial<WorkbenchState>): WorkbenchState {
   return {
     version: WORKBENCH_STATE_VERSION,
-    left: normalizePanel(value.left, DEFAULT_WORKBENCH_STATE.left, 240, sidePanelMax(720), true),
-    right: normalizePanel(value.right, DEFAULT_WORKBENCH_STATE.right, 360, sidePanelMax(840), true),
+    left: normalizePanel(value.left, DEFAULT_WORKBENCH_STATE.left, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(720), true),
+    right: normalizePanel(value.right, DEFAULT_WORKBENCH_STATE.right, WORKBENCH_SIDE_PANEL_MIN_PX, sidePanelMax(840), true),
     bottom: normalizePanel(value.bottom, DEFAULT_WORKBENCH_STATE.bottom, 185, 720),
   }
 }

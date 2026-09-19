@@ -14,10 +14,11 @@
 // Both splitters now measure the same way: everything in the row except the
 // centre and the panel being dragged.
 
-// What a drag must leave the centre panel. Small on purpose: the centre has no
-// width floor of its own any more (see styles.css), so this only keeps it from
-// collapsing somewhere the operator cannot grab it again.
-export const WORKBENCH_CENTRE_MIN_PX = 240
+// Dragging remains deliberately permissive. These are interaction reserves,
+// not layout floors: CSS lets the centre shrink freely and the splitter only
+// keeps enough of each surface visible to recover it without closing a rail.
+export const WORKBENCH_SIDE_PANEL_MIN_PX = 160
+export const WORKBENCH_CENTRE_MIN_PX = 160
 
 const CENTRE_SELECTOR = '.workspace-mode-stack'
 
