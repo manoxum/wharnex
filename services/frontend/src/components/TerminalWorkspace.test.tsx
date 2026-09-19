@@ -61,4 +61,17 @@ describe('TerminalWorkspace', () => {
     expect(host.getAttribute('data-command')).toBe("cd 'services/frontend' && npm test")
     expect(screen.getByRole('tab', { name: /npm test/ }).getAttribute('aria-selected')).toBe('true')
   })
+
+  it('exposes vertical, horizontal and detached terminal surfaces', () => {
+    const onSplitTerminal = vi.fn()
+    const onDetachTerminal = vi.fn()
+    render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} onSplitTerminal={onSplitTerminal} onDetachTerminal={onDetachTerminal} />)
+
+    fireEvent.click(screen.getByLabelText('Dividir terminal verticalmente'))
+    fireEvent.click(screen.getByLabelText('Dividir terminal horizontalmente'))
+    fireEvent.click(screen.getByLabelText('Abrir terminal numa janela independente'))
+
+    expect(onSplitTerminal.mock.calls).toEqual([['vertical'], ['horizontal']])
+    expect(onDetachTerminal.mock.calls).toHaveLength(1)
+  })
 })

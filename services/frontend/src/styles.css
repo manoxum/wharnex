@@ -5927,3 +5927,194 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .execution-error-solution > strong { color:var(--theme-text); font-size:calc(8.8px * var(--ui-font-scale)); }
 .execution-error-solution > small,.execution-error-solution > span { color:var(--theme-text-muted); font-size:calc(7.3px * var(--ui-font-scale)); }
 @container (max-width: 520px) { .execution-errors-layout { grid-template-columns:1fr; grid-template-rows:minmax(150px,34%) minmax(0,1fr); } .execution-errors-list { border-right:0; border-bottom:1px solid var(--theme-border); } .execution-errors-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } .execution-errors-toolbar { align-items:stretch; flex-direction:column; } .execution-error-meta { grid-template-columns:1fr; } }
+
+/* Detachable/split workbench surfaces ------------------------------------- */
+.surface-layout-actions,
+.editor-surface-actions,
+.terminal-surface-actions,
+.workspace-surface-window-controls,
+.workspace-split-pane > header > div {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.surface-layout-actions button,
+.surface-detach-action,
+.workspace-surface-window-controls button,
+.workspace-split-pane > header button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted, #9ca3af);
+  cursor: pointer;
+}
+
+.surface-layout-actions button:hover,
+.surface-detach-action:hover,
+.workspace-surface-window-controls button:hover,
+.workspace-split-pane > header button:hover {
+  color: var(--text-primary, #f8fafc);
+  background: var(--surface-hover, rgba(255, 255, 255, .07));
+  border-color: var(--border-subtle, rgba(255, 255, 255, .1));
+}
+
+.editor-surface-actions,
+.terminal-surface-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.workspace-surface-content {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-surface-content.split-vertical { flex-direction: row; }
+.workspace-surface-content.split-horizontal { flex-direction: column; }
+
+.workspace-surface-primary {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-surface-content.is-split > .workspace-surface-primary {
+  flex: 0 0 var(--workspace-split-primary, 50%);
+}
+
+.workspace-surface-content.is-split > .workspace-split-pane {
+  flex: 1 1 0;
+}
+
+.workspace-surface-splitter {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 6px;
+  background: transparent;
+  touch-action: none;
+}
+.workspace-surface-splitter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  background: var(--theme-border, rgba(255, 255, 255, .12));
+  transition: background .12s ease;
+}
+.workspace-surface-splitter:hover::after { background: var(--theme-accent, #7aa2f7); }
+.workspace-surface-splitter.split-vertical { width: 6px; cursor: col-resize; }
+.workspace-surface-splitter.split-vertical::after { width: 1px; }
+.workspace-surface-splitter.split-horizontal { height: 6px; cursor: row-resize; }
+.workspace-surface-splitter.split-horizontal::after { height: 1px; }
+
+.workspace-split-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 260px;
+  min-height: 180px;
+  overflow: hidden;
+  background: var(--surface-1, #111827);
+}
+
+
+.workspace-split-pane > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  padding: 3px 6px 3px 10px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, .08));
+  background: var(--surface-2, #0f172a);
+}
+
+.workspace-split-pane > header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-split-pane > iframe {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--surface-1, #111827);
+}
+
+.workspace-surface-root {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-surface-windowbar {
+  -webkit-app-region: drag;
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 38px;
+  min-width: 0;
+  padding-left: 12px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, .1));
+  background: var(--surface-2, #0f172a);
+  user-select: none;
+}
+
+.workspace-surface-windowbar > strong,
+.workspace-surface-windowbar > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-surface-windowbar > strong { font-size: 12px; }
+.workspace-surface-windowbar > span { color: var(--text-muted, #94a3b8); font-size: 11px; }
+.workspace-surface-window-controls { -webkit-app-region: no-drag; height: 100%; gap: 0; }
+.workspace-surface-window-controls button { width: 42px; height: 100%; border-radius: 0; }
+.workspace-surface-window-controls button:last-child:hover { background: #b91c1c; color: #fff; }
+
+.workspace-surface-root > .workspace-surface-content { flex: 1 1 0; }
+.workspace-surface-root .workspace-surface-primary > .agent-workspace,
+.workspace-surface-root .workspace-surface-primary > .editor-workspace,
+.workspace-surface-root .workspace-surface-primary > .terminal-workspace {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace-center-column .workspace-surface-primary > .terminal-resizer,
+.workspace-center-column .workspace-surface-primary > .terminal-workspace {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+.terminal-workspace-fill { max-height: none; min-height: 0; }
+.workspace-surface-terminal .terminal-workspace-fill .terminal-instances,
+.workspace-surface-terminal .terminal-workspace-fill .terminal-instance,
+.workspace-surface-terminal .terminal-workspace-fill .ide-terminal { height: 100% !important; min-height: 0; }
+.workspace-surface-terminal .terminal-workspace-fill .terminal-instances { flex: 1 1 0; }

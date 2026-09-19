@@ -771,7 +771,7 @@ function persistedWindowSize(windowState) {
   } catch { return undefined }
 }
 
-function persistWindowLayout(ids = [...desktopWindows.values()].filter((state) => !state.window.isDestroyed()).map((state) => state.id)) {
+function persistWindowLayout(ids = [...desktopWindows.values()].filter((state) => !state.window.isDestroyed() && !state.transientSurface).map((state) => state.id)) {
   try {
     const previous = readWindowLayoutState()
     const windows = [...new Set(ids)].filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id)).slice(0, 12)
@@ -6658,14 +6658,16 @@ function openInternalChatGPTBrowser(windowState, value) {
   return { ok: true, reused: false }
 }
 
-function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true) {
+function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true, launch = {}) {
   const id = /^[A-Za-z0-9_-]{1,80}$/.test(String(windowId || '')) ? String(windowId) : `window-${randomUUID()}`
+  const surface = launch?.surface && typeof launch.surface === 'object' ? launch.surface : undefined
   const initialWindowSize = loadWindowSize(id)
+  if (surface) Object.assign(initialWindowSize, { width: 1280, height: 820 })
   const win = new BrowserWindow({
     width: initialWindowSize.width,
     height: initialWindowSize.height,
-    minWidth: MIN_DESKTOP_WINDOW_SIZE.width,
-    minHeight: MIN_DESKTOP_WINDOW_SIZE.height,
+    minWidth: surface ? 760 : MIN_DESKTOP_WINDOW_SIZE.width,
+    minHeight: surface ? 520 : MIN_DESKTOP_WINDOW_SIZE.height,
     title: desktopWindowTitle('', DESKTOP_INSTANCE),
     icon: DESKTOP_ICON,
     name: `wharness-${id}`,
@@ -6678,13 +6680,27 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     frame: false,
     webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
   })
-  const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '' }
+  const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '', transientSurface: Boolean(surface) }
+  if (surface?.projectPath) {
+    state.projects.add(surface.projectPath)
+    state.activeProject = surface.projectPath
+    win.setTitle(desktopWindowTitle(surface.projectPath, DESKTOP_INSTANCE))
+  }
   desktopWindows.set(id, state)
   mainWindow = win
 
   const target = new URL(FRONTEND_URL)
   target.searchParams.set('wharnessWindow', id)
   target.searchParams.set('wharnessRuntime', FRONTEND_RUNTIME_TOKEN)
+  if (surface) {
+    target.searchParams.set('embedded', '1')
+    target.searchParams.set('active', '1')
+    target.searchParams.set('project', surface.projectPath)
+    target.searchParams.set('surface', surface.kind)
+    target.searchParams.set('surfaceHost', 'window')
+    if (surface.chatId) target.searchParams.set('chat', surface.chatId)
+    if (surface.path) target.searchParams.set('path', surface.path)
+  }
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isHTTPS(url)) void shell.openExternal(url)
@@ -6733,7 +6749,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
   win.webContents.on('responsive', () => console.log(`[frontend-renderer] window=${id} responsive`))
   win.on('focus', () => { mainWindow = win; win.flashFrame(false); publishChatGPTState(state.activeChatGPTKey) })
   win.on('blur', () => publishChatGPTState(state.activeChatGPTKey))
-  win.on('resize', scheduleWindowLayoutPersistence)
+  if (!state.transientSurface) win.on('resize', scheduleWindowLayoutPersistence)
   win.on('close', () => { hideChatAgentInteractionsForWindow(state); if (!quitting) rehomeChatGPTWorkers(state) })
   win.on('closed', () => {
     closeInternalChatGPTBrowserForWindow(state)
@@ -6741,7 +6757,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true)
     releaseWindowProjects(state)
     desktopWindows.delete(id)
     if (mainWindow === win) mainWindow = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
-    if (!quitting) persistWindowLayout()
+    if (!quitting && !state.transientSurface) persistWindowLayout()
   })
 
   void win.loadURL(target.href)
@@ -6783,7 +6799,7 @@ function registerIPC() {
     const focused = BrowserWindow.getFocusedWindow()
     const items = []
     for (const state of desktopWindows.values()) {
-      if (state.window.isDestroyed()) continue
+      if (state.window.isDestroyed() || state.transientSurface) continue
       for (const projectPath of state.projects) items.push({ windowId: state.id, projectPath, focused: focused === state.window })
     }
     return { currentWindowId: current.id, items }
@@ -6791,7 +6807,7 @@ function registerIPC() {
   ipcMain.handle('wharness:windows:focus-project', (event, request) => {
     trustedSender(event)
     const projectPath = canonicalProjectPath(request?.projectPath)
-    const owner = [...desktopWindows.values()].find((state) => !state.window.isDestroyed() && state.projects.has(projectPath))
+    const owner = [...desktopWindows.values()].find((state) => !state.window.isDestroyed() && !state.transientSurface && state.projects.has(projectPath))
     if (!owner) throw new Error('O projeto já não está aberto noutra janela do Wharnex.')
     sendToWindowState(owner, 'wharness:windows:activate-project', { projectPath })
     owner.window.show(); owner.window.focus()
@@ -6800,6 +6816,18 @@ function registerIPC() {
   ipcMain.handle('wharness:windows:open', (event) => {
     trustedSender(event)
     const windowState = createWindow()
+    windowState.window.show(); windowState.window.focus()
+    return { ok: true, windowId: windowState.id }
+  })
+  ipcMain.handle('wharness:windows:open-surface', (event, request) => {
+    const owner = trustedSender(event)
+    const projectPath = canonicalProjectPath(request?.projectPath)
+    if (!owner.projects.has(projectPath)) throw new Error('A superfície só pode ser destacada a partir de um projeto aberto nesta janela.')
+    const kind = request?.kind === 'chat' || request?.kind === 'editor' || request?.kind === 'terminal' ? request.kind : ''
+    if (!kind) throw new Error('Tipo de superfície inválido.')
+    const chatId = typeof request?.chatId === 'string' ? request.chatId.trim().slice(0, 200) : ''
+    const filePath = typeof request?.path === 'string' ? request.path.trim().replace(/^\/+/, '').slice(0, 4096) : ''
+    const windowState = createWindow(`surface-${randomUUID()}`, false, { surface: { projectPath, kind, chatId, path: filePath } })
     windowState.window.show(); windowState.window.focus()
     return { ok: true, windowId: windowState.id }
   })

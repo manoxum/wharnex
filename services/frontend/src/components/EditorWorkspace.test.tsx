@@ -47,4 +47,21 @@ describe('EditorWorkspace git diff stability', () => {
 
     expect(fileRecordCalls[fileRecordCalls.length - 1]).toBe(firstFile)
   })
+
+  it('offers split and detach actions for the active file', async () => {
+    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
+    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'src/App.tsx', content: 'export {}', sha256: 'abc123', size: 9 })
+    const onSplitFile = vi.fn()
+    const onDetachFile = vi.fn()
+
+    render(<EditorWorkspace session={session} onError={() => undefined} onRunInTerminal={() => undefined} openPath="src/App.tsx" openNonce={1} onSplitFile={onSplitFile} onDetachFile={onDetachFile} />)
+    await waitFor(() => expect(screen.getByTitle('src/App.tsx')).toBeTruthy())
+
+    fireEvent.click(screen.getByLabelText('Dividir editor verticalmente'))
+    fireEvent.click(screen.getByLabelText('Dividir editor horizontalmente'))
+    fireEvent.click(screen.getByLabelText('Abrir ficheiro numa janela independente'))
+
+    expect(onSplitFile.mock.calls).toEqual([['src/App.tsx', 'vertical'], ['src/App.tsx', 'horizontal']])
+    expect(onDetachFile.mock.calls).toEqual([['src/App.tsx']])
+  })
 })

@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Session, TerminalRunRequest, TerminalTarget } from '../types'
+import { workspaceDragEndedOutside } from '../lib/workspaceSurface'
 import { InteractiveTerminal } from './InteractiveTerminal'
 import { Icon } from './Icon'
 
 type TerminalTab = { id: number; label: string; session: Session; target: TerminalTarget }
 
-export function TerminalWorkspace({ session, height, visible, runRequest, onHeight, onError }: {
+export function TerminalWorkspace({ session, height, visible, runRequest, onHeight, onError, fill = false, onDetachTerminal, onSplitTerminal }: {
   session: Session
   height: number
   visible: boolean
   runRequest?: TerminalRunRequest
   onHeight: (value: number) => void
   onError: (message: string) => void
+  fill?: boolean
+  onDetachTerminal?: () => void
+  onSplitTerminal?: (direction: 'vertical' | 'horizontal') => void
 }) {
   const nextID = useRef(2)
   const [tabs, setTabs] = useState<TerminalTab[]>([{ id: 1, label: 'Terminal 1', session, target: 'sandbox' }])
@@ -76,10 +80,10 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     setEditingLabel('')
   }
 
-  return <section className={`terminal-workspace ${visible ? '' : 'terminal-workspace-hidden'}`} style={{ height }} aria-hidden={!visible}>
+  return <section className={`terminal-workspace ${fill ? 'terminal-workspace-fill' : ''} ${visible ? '' : 'terminal-workspace-hidden'}`} style={{ height: fill ? '100%' : height }} aria-hidden={!visible}>
     <div className="terminal-tabbar">
       <div className="terminal-tabs" role="tablist" aria-label="Instâncias do terminal">
-        {tabs.map((tab) => <div className={`terminal-tab-shell ${tab.id === activeID ? 'active' : ''}`} key={tab.id}>
+        {tabs.map((tab) => <div className={`terminal-tab-shell ${tab.id === activeID ? 'active' : ''}`} key={tab.id} draggable={Boolean(onDetachTerminal)} onDragEnd={(event) => { if (onDetachTerminal && workspaceDragEndedOutside(event)) onDetachTerminal() }}>
           {editingID === tab.id ? <div className="terminal-tab-edit">
             <Icon name="terminal" size={11}/>
             <input
@@ -108,7 +112,11 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
           <button type="button" className="terminal-tab-action terminal-tab-close" title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={() => closeTerminal(tab.id)}>×</button>
         </div>)}
       </div>
+      <div className="terminal-surface-actions">
+        {onSplitTerminal && <div className="surface-layout-actions" role="group" aria-label="Dividir terminal"><button type="button" onClick={() => onSplitTerminal('vertical')} title="Dividir terminal verticalmente" aria-label="Dividir terminal verticalmente"><Icon name="arrow-right" size={13}/></button><button type="button" onClick={() => onSplitTerminal('horizontal')} title="Dividir terminal horizontalmente" aria-label="Dividir terminal horizontalmente"><Icon name="arrow-down" size={13}/></button></div>}
+        {onDetachTerminal && <button type="button" className="surface-detach-action" onClick={onDetachTerminal} title="Abrir terminal numa janela independente" aria-label="Abrir terminal numa janela independente"><Icon name="external" size={13}/></button>}
       <button type="button" className="terminal-add-tab" onClick={addTerminal} title="Nova instância de terminal" aria-label="Nova instância de terminal"><Icon name="plus" size={12}/></button>
+      </div>
     </div>
     <div className="terminal-instances">
       {tabs.map((tab) => <div className={`terminal-instance ${tab.id === activeID ? 'active' : ''}`} key={tab.id}>
