@@ -1410,14 +1410,15 @@ test('reasoning effort is stepped through the composer slider, not a keyboard sh
   // button rect) if the picker menu isn't already open...
   assert.match(body, /reasoningEffortAdjustScript\(CHATGPT_BEHAVIOR\)/)
   assert.match(body, /staged\?\.ok && staged\.state === 'effort-menu-closed'/)
-  // A held press: an instantaneous down/up leaves this Radix trigger settled
-  // back closed, which is what kept the slider behind "effort-menu-closed".
-  assert.match(body, /dispatchChatGPTPointerPress\(wc, staged\.rect, \{ wait, guard: withPreservedLocalFocus \}\)/)
+  // A held press routed by surface visibility: an instantaneous down/up leaves
+  // this Radix trigger settled back closed, and sendInputEvent drops a mouse
+  // event entirely on a view that is not visible.
+  assert.match(body, /pressChatGPTControl\(entry, wc, staged\.rect\)/)
   // ...then the slider is stepped exactly once and the menu is closed again,
   // so the very next observe() in the caller's bounded loop reads a clean
   // collapsed-button label instead of the menu's generic open-state title.
-  assert.match(body, /dispatchChatGPTAccountKey\(wc, direction\)/)
-  assert.match(body, /dispatchChatGPTAccountKey\(wc, 'Escape'\)/)
+  assert.match(body, /pressChatGPTControlKey\(entry, wc, direction\)/)
+  assert.match(body, /pressChatGPTControlKey\(entry, wc, 'Escape'\)/)
   assert.doesNotMatch(body, /dispatchChatGPTEffortCycle/)
 
   const adjustStart = source.indexOf('export function reasoningEffortAdjustScript(', 0)
@@ -1929,19 +1930,26 @@ test('background native input preserves the already-focused local composer', asy
   // Held press: these conversation menus are Radix triggers that settle back
   // closed when pointerdown and pointerup land in the same tick, which is the
   // `menu-not-open` that dominates this queue's failures.
-  assert.match(account, /dispatchChatGPTPointerPress\(wc, located\.rect, \{ wait, guard: withPreservedLocalFocus \}\)/)
+  assert.match(account, /pressChatGPTControl\(entry, wc, located\.rect\)/)
 
   const effortStepStart = source.indexOf('async function stepChatGPTReasoningEffortToward(')
   const effortStep = source.slice(effortStepStart, source.indexOf('\nasync function submitChatGPTDraft(', effortStepStart))
   // The press is awaited, so the focus guard wraps each synchronous burst of
   // events instead of the whole press - handing it the awaited press would
   // restore focus while the button is still held down.
-  assert.match(effortStep, /dispatchChatGPTPointerPress\(wc, staged\.rect, \{ wait, guard: withPreservedLocalFocus \}\)/)
+  assert.match(effortStep, /pressChatGPTControl\(entry, wc, staged\.rect\)/)
+  const router = source.slice(source.indexOf('async function pressChatGPTControl('))
+  assert.match(router.slice(0, 900), /dispatchChatGPTPointerPress\(wc, rect, \{ wait, guard: withPreservedLocalFocus \}\)/)
   const press = await readFile(new URL('./chatgpt-input.mjs', import.meta.url), 'utf8')
   const pressBody = press.slice(press.indexOf('export async function dispatchChatGPTPointerPress('))
   assert.match(pressBody.slice(0, 1200), /guard\(\(\) => \{[\s\S]*mouseDown[\s\S]*\}\)\n\s*await wait\(/)
   assert.match(pressBody.slice(0, 1200), /await wait\([\s\S]*guard\(\(\) => webContents\.sendInputEvent\(\{ type: 'mouseUp'/)
-  assert.match(effortStep, /withPreservedLocalFocus\(\(\) => \{\s*dispatchChatGPTAccountKey\(wc, direction\)\s*dispatchChatGPTAccountKey\(wc, 'Escape'\)/)
+  // Keys go through the same visibility-aware router as the press, so one
+  // interaction is never split across two delivery routes; the router keeps
+  // the focus guard on the native path.
+  assert.match(effortStep, /pressChatGPTControlKey\(entry, wc, direction\)/)
+  const keyRouter = source.slice(source.indexOf('async function pressChatGPTControlKey('))
+  assert.match(keyRouter.slice(0, 900), /withPreservedLocalFocus\(\(\) => dispatchChatGPTAccountKey\(wc, name\)\)/)
 })
 
 test('the layout viewport guard does not read native bounds as renderer evidence', async () => {

@@ -292,6 +292,9 @@ const CHATGPT_ACCOUNT_ACTION_SETTLE_MS = 350
 // Radix menu actually rendered; live task history showed it deterministically
 // not opening under worker-pool contention with nothing ever re-clicking it.
 const CHATGPT_MENU_REOPEN_ATTEMPTS = 3
+// Radix reconciles a menu's open state against the pointerup that follows its
+// pointerdown, so the press is held briefly rather than dispatched in one tick.
+const CHATGPT_CONTROL_PRESS_HOLD_MS = 90
 const DEFERRED_SUPERVISOR_NAVIGATION_RETRY_MS = 250
 // How many times a window's frontend renderer may be restarted after a
 // crash before Wharnex stops and asks for human attention.
@@ -3723,6 +3726,40 @@ async function pressChatGPTControl(entry, wc, rect) {
   return { x, y }
 }
 
+// Keyboard counterpart of pressChatGPTControl, for the same reason and with
+// the same closed vocabulary. Keyboard events do not need hit-testing, so they
+// are far likelier to survive sendInputEvent on a hidden view than a mouse
+// press is - but the effort slider is only reachable after that hidden view's
+// menu has been opened over the debugger, and splitting one interaction across
+// two delivery routes is exactly the kind of difference that is invisible
+// until it fails. One surface, one route.
+const CHATGPT_CONTROL_KEYS = Object.freeze({
+  Left: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
+  Right: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
+  Escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
+})
+
+async function pressChatGPTControlKey(entry, wc, name) {
+  const mapped = CHATGPT_CONTROL_KEYS[name]
+  if (!mapped) throw new Error(`Unsupported ChatGPT control key ${name}`)
+  if (entry?.view?.getVisible?.() !== false) {
+    withPreservedLocalFocus(() => dispatchChatGPTAccountKey(wc, name))
+    return
+  }
+  const attachedHere = !wc.debugger.isAttached()
+  if (attachedHere) wc.debugger.attach('1.3')
+  try {
+    for (const type of ['keyDown', 'keyUp']) {
+      await wc.debugger.sendCommand('Input.dispatchKeyEvent', {
+        type, key: mapped.key, code: mapped.code,
+        windowsVirtualKeyCode: mapped.keyCode, nativeVirtualKeyCode: mapped.keyCode,
+      })
+    }
+  } finally {
+    if (attachedHere) try { wc.debugger.detach() } catch { /* already detached */ }
+  }
+}
+
 async function commitChatGPTAccountControl(key, entry, stage, script, { attempts = 4 } = {}) {
   let located = { ok: false, state: 'action-unavailable' }
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -3744,7 +3781,7 @@ async function commitChatGPTAccountControl(key, entry, stage, script, { attempts
   // menus are the same kind of Radix trigger, and `menu-not-open` is by far
   // this queue's largest failure class: 116 DELETE_TEMP_CHAT, 35 RENAME_CHAT
   // and 27 ARCHIVE_CHAT tasks have died on it.
-  await dispatchChatGPTPointerPress(wc, located.rect, { wait, guard: withPreservedLocalFocus })
+  await pressChatGPTControl(entry, wc, located.rect)
   return located
 }
 
@@ -4277,7 +4314,7 @@ async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
     // closed when both events land in the same tick, which is what left the
     // slider unreachable behind "effort-menu-closed" on every attempt (see
     // dispatchChatGPTPointerPress).
-    const pressed = await dispatchChatGPTPointerPress(wc, staged.rect, { wait, guard: withPreservedLocalFocus })
+    const pressed = await pressChatGPTControl(entry, wc, staged.rect)
     await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
     const before = staged
     staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
@@ -4290,10 +4327,8 @@ async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
     throw new Error(`ChatGPT reasoning-effort slider is unavailable (${String(staged?.state || 'unknown')})`)
   }
   const { wc } = requireOwnedChatGPTEntry(key, entry)
-  withPreservedLocalFocus(() => {
-    dispatchChatGPTAccountKey(wc, direction)
-    dispatchChatGPTAccountKey(wc, 'Escape')
-  })
+  await pressChatGPTControlKey(entry, wc, direction)
+  await pressChatGPTControlKey(entry, wc, 'Escape')
   await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
 }
 
