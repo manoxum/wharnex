@@ -1889,7 +1889,10 @@ test('background native input preserves the already-focused local composer', asy
 
   const accountStart = source.indexOf('async function commitChatGPTAccountControl(')
   const account = source.slice(accountStart, source.indexOf('\nasync function chooseChatGPTConversationAction', accountStart))
-  assert.match(account, /withPreservedLocalFocus\(\(\) => dispatchChatGPTPointerClick/)
+  // Held press: these conversation menus are Radix triggers that settle back
+  // closed when pointerdown and pointerup land in the same tick, which is the
+  // `menu-not-open` that dominates this queue's failures.
+  assert.match(account, /dispatchChatGPTPointerPress\(wc, located\.rect, \{ wait, guard: withPreservedLocalFocus \}\)/)
 
   const effortStepStart = source.indexOf('async function stepChatGPTReasoningEffortToward(')
   const effortStep = source.slice(effortStepStart, source.indexOf('\nasync function submitChatGPTDraft(', effortStepStart))
