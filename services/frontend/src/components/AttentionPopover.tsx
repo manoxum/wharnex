@@ -15,16 +15,30 @@ export function AttentionPopover({ items, activeChatId, busy, position, onOpen, 
   onOpenAll: () => void
   onClose: () => void
 }) {
+  const rootRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const summary = summarizeAttention(items)
   const preview = attentionPreviewItems(items)
   const hiddenCount = summary.total - preview.length
 
-  // Opening the popup is an explicit user action. Land keyboard users on its
-  // close affordance; Escape and that affordance return focus to the trigger.
-  useEffect(() => { closeRef.current?.focus() }, [])
+  // Opening the preview is an explicit user action. Keep it transient like the
+  // other header popovers: Escape and outside pointer presses dismiss it, while
+  // the bell trigger is exempt so its own click can deterministically toggle it.
+  useEffect(() => {
+    closeRef.current?.focus()
+    const outside = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (rootRef.current?.contains(target) || target.closest('[data-attention-trigger="true"]')) return
+      onClose()
+    }
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
+  }, [onClose])
 
-  return <section id="agent-attention-popover" className="agent-attention-popover" style={position} role="dialog" aria-modal="false" aria-label="Alertas ativos" aria-describedby="agent-attention-popover-description" data-chatgpt-overlay-blocker="true">
+  return <section ref={rootRef} id="agent-attention-popover" className="agent-attention-popover" style={position} role="dialog" aria-modal="false" aria-label="Alertas ativos" aria-describedby="agent-attention-popover-description" data-chatgpt-overlay-blocker="true">
     <header>
       <div className="agent-attention-popover-heading">
         <span className="agent-attention-popover-symbol" aria-hidden="true"><Icon name={summary.urgent ? 'shield' : 'bell'} size={16}/></span>

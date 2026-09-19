@@ -88,7 +88,10 @@ describe('WorkspaceTopbar self-evolution', () => {
       onClose={vi.fn()}
     />)
     const button = screen.getByRole('button', { name: /Centro de notificações, 3 alerta\(s\), 1 urgente\(s\), 2 com ação/ })
+    expect(button.className).toContain('has-alerts')
     expect(button.className).toContain('urgent')
+    expect(button.getAttribute('data-attention-trigger')).toBe('true')
+    expect(button.getAttribute('title')).toBe('Notificações · ver alertas recentes')
     expect(button.textContent).toContain('3')
     button.click()
     expect(onAttention).toHaveBeenCalledTimes(1)
