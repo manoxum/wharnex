@@ -84,6 +84,8 @@ const PROBES = Object.freeze({
   'conversation-menu': `
     const owned = [...document.querySelectorAll('[data-conversation-options-trigger]')];
     const header = [...document.querySelectorAll('button[data-testid="conversation-options-button"]')];
+    const candidates = [...document.querySelectorAll('header button, main button[aria-haspopup="menu"], nav button[aria-haspopup="menu"], aside button[aria-haspopup="menu"]')]
+      .filter((node) => usable(node) && visible(node));
     return {
       control: 'conversation-menu',
       viewport: viewport(),
@@ -91,6 +93,14 @@ const PROBES = Object.freeze({
       ownedUsable: owned.filter((node) => usable(node) && visible(node)).length,
       headerTriggers: header.length,
       headerUsable: header.filter((node) => usable(node) && visible(node)).length,
+      candidates: candidates.slice(0, ${MAX_LABELS}).map((node) => ({
+        tag: String(node.tagName || '').toLowerCase(),
+        role: node.getAttribute('role') || '',
+        testid: node.getAttribute('data-testid') || '',
+        ariaLabel: String(node.getAttribute('aria-label') || '').slice(0, ${MAX_LABEL_LENGTH}),
+        title: String(node.getAttribute('title') || '').slice(0, ${MAX_LABEL_LENGTH}),
+        popup: node.getAttribute('aria-haspopup') || '',
+      })),
     };
   `,
   // The exact menu-item labels are what a stale label set has to be corrected
@@ -191,7 +201,7 @@ function entry(value) {
   if (typeof value === 'string') return value.slice(0, MAX_LABEL_LENGTH)
   if (!value || typeof value !== 'object') return {}
   const out = {}
-  for (const key of ['label', 'selector', 'tag', 'role', 'testid']) {
+  for (const key of ['label', 'selector', 'tag', 'role', 'testid', 'ariaLabel', 'title', 'popup']) {
     if (typeof value[key] === 'string') out[key] = value[key].slice(0, MAX_LABEL_LENGTH)
   }
   for (const key of ['matches', 'total', 'visible', 'usable']) {

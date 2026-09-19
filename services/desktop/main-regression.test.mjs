@@ -2651,7 +2651,7 @@ test('a conversation menu that fails to render is reopened before the action giv
   const loopStart = fn.indexOf('for (')
   const loop = fn.slice(loopStart, fn.indexOf('\n  }', loopStart))
   assert.match(loop, /chatGPTOpenConversationMenuScript\(conversationId\)/)
-  assert.match(loop, /if \(!opened\.ok\) return opened/)
+  assert.match(loop, /if \(!opened\.ok\) \{[\s\S]*return opened\s*\}/)
   assert.match(loop, /if \(located\.state !== 'menu-not-open'\) return located/)
 })
 

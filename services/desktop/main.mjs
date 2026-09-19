@@ -3791,7 +3791,14 @@ async function chooseChatGPTConversationAction(key, entry, action, conversationI
     let located = { ok: false, state: 'menu-not-open' }
     for (let attempt = 0; attempt < CHATGPT_MENU_REOPEN_ATTEMPTS; attempt += 1) {
       const opened = await commitChatGPTAccountControl(key, entry, `${action}-menu`, chatGPTOpenConversationMenuScript(conversationId))
-      if (!opened.ok) return opened
+      if (!opened.ok) {
+        if (isBehaviorProbeEnabled()) {
+          const raw = await executeChatGPTDOMScript(key, entry, 'debug-conversation-menu', behaviorProbeScript('conversation-menu')).catch(() => ({}))
+          const diagnostic = normalizeBehaviorProbeResult('conversation-menu', raw)
+          console.warn(`[DEBUG-menu-map] ${JSON.stringify(diagnostic)}`)
+        }
+        return opened
+      }
       located = await commitChatGPTAccountControl(key, entry, action, chatGPTMenuItemRectScript(action))
       if (located.state !== 'menu-not-open') return located
     }
