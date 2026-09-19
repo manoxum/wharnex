@@ -8,7 +8,7 @@ type Runtime = DesktopAgentRuntimeState
 
 type Snapshot = { agentId: string; dataUrl: string; capturedAt: string }
 
-type OperationalState = 'idle' | 'writing' | 'listening' | 'waiting' | 'chat-empty' | 'working' | 'loading' | 'error' | 'stopped' | 'draining'
+type OperationalState = 'idle' | 'writing' | 'listening' | 'waiting' | 'chat-empty' | 'working' | 'loading' | 'error' | 'stopped' | 'draining' | 'paused'
 
 const writingTaskTypes = new Set(['BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN'])
 
@@ -19,6 +19,7 @@ function agentOperationalState(agent: DesktopAgentRuntimeAgent): { key: Operatio
   if (agent.status === 'stopped' || agent.loop_active === false) return { key: 'stopped', label: 'Parado' }
 
   const task = engagedTask(agent)
+  if (agent.role === 'worker' && agent.suspended && !task) return { key: 'paused', label: 'Suspenso' }
   if (task?.type === 'AWAIT_RESPONSE' || agent.binding_hold === 'expected-bundle' || agent.binding_hold === 'bundle-delivery') return { key: 'listening', label: 'A escutar' }
   if (task && writingTaskTypes.has(task.type)) return { key: 'writing', label: 'A escrever' }
   if (task?.status === 'WAITING' || (agent.occupied && !agent.task)) return { key: 'waiting', label: 'A aguardar' }
@@ -143,6 +144,8 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
   const [busy, setBusy] = useState(false)
   const [pauseMode, setPauseMode] = useState<'timed' | 'manual'>('timed')
   const [pauseMinutes, setPauseMinutes] = useState('60')
+  const [workerPauseMode, setWorkerPauseMode] = useState<'timed' | 'manual'>('timed')
+  const [workerPauseMinutes, setWorkerPauseMinutes] = useState('60')
   const [snapshot, setSnapshot] = useState<Snapshot>()
   const [taskPickerOpen, setTaskPickerOpen] = useState(false)
   const [availableTasks, setAvailableTasks] = useState<ChatAgentTask[]>([])
@@ -259,6 +262,27 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
     if (!bridge) return
     setBusy(true)
     try { setRuntime(await bridge.setWorkerKeepFlowing(agentId, enabled)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível atualizar Keep flowing neste Worker') } finally { setBusy(false) }
+  }
+
+  const suspendWorkers = async () => {
+    if (!bridge) return
+    let pausedUntil: string | undefined
+    if (workerPauseMode === 'timed') {
+      const minutes = Number(workerPauseMinutes)
+      if (!Number.isFinite(minutes) || minutes < 1 || minutes > 10_080) {
+        onError?.('Defina uma duração dos Workers entre 1 minuto e 7 dias.')
+        return
+      }
+      pausedUntil = new Date(Date.now() + Math.floor(minutes) * 60_000).toISOString()
+    }
+    setBusy(true)
+    try { setRuntime(await bridge.pauseWorkers(pausedUntil)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível suspender os Workers') } finally { setBusy(false) }
+  }
+
+  const resumeWorkers = async () => {
+    if (!bridge) return
+    setBusy(true)
+    try { setRuntime(await bridge.resumeWorkers()) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível retomar os Workers') } finally { setBusy(false) }
   }
 
   const suspendProvider = async () => {
@@ -403,8 +427,13 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       </div>
       </div>}
       {activeTab === 'agents' && <div className="agent-runtime-tab-panel agents" role="tabpanel">
+      <div className={`agent-runtime-pause agent-runtime-worker-pause${runtime.worker_pause?.paused ? ' is-paused' : ''}`}>
+        <div className="agent-runtime-pause-copy"><strong>Workers</strong><small>{runtime.worker_pause?.paused ? (runtime.worker_pause.paused_until ? `Suspensos · retoma automática em ${timeLabel(runtime.worker_pause.paused_until)}` : 'Suspensos · aguardam liberação manual') : 'Suspende apenas novos claims dos Workers; tarefas em curso terminam e os Supervisores continuam operacionais.'}</small></div>
+        {!runtime.worker_pause?.paused && <div className="agent-runtime-pause-controls"><select aria-label="Modo de retoma dos Workers" value={workerPauseMode} disabled={busy} onChange={(event) => setWorkerPauseMode(event.target.value === 'manual' ? 'manual' : 'timed')}><option value="timed">Retoma automática</option><option value="manual">Liberação manual</option></select>{workerPauseMode === 'timed' && <label><input aria-label="Minutos até retoma dos Workers" type="number" min="1" max="10080" step="1" value={workerPauseMinutes} disabled={busy} onChange={(event) => setWorkerPauseMinutes(event.target.value)}/><span>min</span></label>}<button type="button" disabled={busy} onClick={() => void suspendWorkers()}>Suspender Workers</button></div>}
+        {runtime.worker_pause?.paused && <button type="button" className="agent-runtime-resume" disabled={busy} onClick={() => void resumeWorkers()}>Retomar Workers</button>}
+      </div>
       <div className="agent-runtime-state-legend" aria-label="Legenda dos estados dos agentes">
-        {([['idle', 'Ocioso'], ['writing', 'A escrever'], ['listening', 'A escutar'], ['waiting', 'A aguardar'], ['chat-empty', 'Chat sem jobs']] as const).map(([key, label]) => <span key={key}><i className={`agent-runtime-dot state-${key}`} aria-hidden="true"/>{label}</span>)}
+        {([['idle', 'Ocioso'], ['paused', 'Suspenso'], ['writing', 'A escrever'], ['listening', 'A escutar'], ['waiting', 'A aguardar'], ['chat-empty', 'Chat sem jobs']] as const).map(([key, label]) => <span key={key}><i className={`agent-runtime-dot state-${key}`} aria-hidden="true"/>{label}</span>)}
       </div>
       <div className="agent-runtime-body">
         <div className="agent-runtime-list" role="list" aria-label="Instâncias de agentes">{runtime.agents.map((agent) => { const foreign = foreignProject(agent, projectPath); const operational = agentOperationalState(agent); return <button type="button" role="listitem" key={agent.id} className={`${selected?.id === agent.id ? 'active ' : ''}state-${operational.key}${foreign ? ' foreign-project' : ''}`} onClick={() => { setSelectedId(agent.id); setInteractionId(undefined); setSnapshot(undefined) }}>

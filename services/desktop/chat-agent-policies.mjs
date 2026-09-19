@@ -6,6 +6,8 @@ export const DEFAULT_CHAT_AGENT_POLICIES = Object.freeze({
   auto_scale_max_supervisors: HARD_MAX_SUPERVISOR_SLOTS,
   keep_flowing_global: true,
   keep_flowing_workers: Object.freeze([]),
+  workers_suspended: false,
+  workers_suspended_until: '',
 })
 
 function workerNumber(value) {
@@ -30,13 +32,27 @@ export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, 
   const autoScaleMaxSupervisors = Number.isFinite(requestedAutoScaleMaxSupervisors)
     ? Math.min(supervisorLimit, Math.max(1, Math.floor(requestedAutoScaleMaxSupervisors)))
     : Math.min(supervisorLimit, DEFAULT_CHAT_AGENT_POLICIES.auto_scale_max_supervisors)
+  const rawSuspendedUntil = String(value?.workers_suspended_until || '').trim()
+  const suspendedDeadline = rawSuspendedUntil ? Date.parse(rawSuspendedUntil) : NaN
+  const workersSuspendedUntil = Number.isFinite(suspendedDeadline) ? new Date(suspendedDeadline).toISOString() : ''
   return {
     auto_scale: value?.auto_scale == null ? DEFAULT_CHAT_AGENT_POLICIES.auto_scale : value.auto_scale === true,
     auto_scale_max_workers: autoScaleMaxWorkers,
     auto_scale_max_supervisors: autoScaleMaxSupervisors,
     keep_flowing_global: value?.keep_flowing_global === true,
     keep_flowing_workers: keepFlowingWorkers,
+    workers_suspended: value?.workers_suspended === true,
+    workers_suspended_until: workersSuspendedUntil,
   }
+}
+
+export function workerSuspensionState(policies, now = Date.now()) {
+  const normalized = normalizeChatAgentPolicies(policies)
+  if (!normalized.workers_suspended) return { paused: false, paused_until: '' }
+  if (!normalized.workers_suspended_until) return { paused: true, paused_until: '' }
+  const deadline = Date.parse(normalized.workers_suspended_until)
+  if (!Number.isFinite(deadline) || deadline <= Number(now || 0)) return { paused: false, paused_until: '' }
+  return { paused: true, paused_until: normalized.workers_suspended_until }
 }
 
 export function keepFlowingForWorker(policies, worker) {
