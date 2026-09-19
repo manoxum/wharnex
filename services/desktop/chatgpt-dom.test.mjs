@@ -98,6 +98,33 @@ test('composer probes and mutations never request renderer focus', () => {
   assert.doesNotMatch(chatGPTFillComposerScript('prompt'), /\.focus\(|activeElement|createRange|getSelection/)
 })
 
+// Two live symptoms, one cause: assigning textContent wrote around the rich
+// editor's own document model, so the editor re-rendered from its still-empty
+// state when the attachment landed and the request reached ChatGPT as a bare
+// ZIP with no prompt at all - and whatever did survive arrived as one run-on
+// line, because textContent carries no block structure and every newline
+// collapsed to a space.
+test('composer text is written through the editor model and keeps its line structure', () => {
+  const script = chatGPTFillComposerScript('WHARNEX INPUT req_1\nChatId: abc\nRead the ZIP.')
+
+  // Offered as a paste first: a rich editor handles paste through its own
+  // model, which is what survives the attachment re-render.
+  assert.match(script, /new ClipboardEvent\('paste'/)
+  assert.match(script, /setData\('text\/plain', value\)/)
+  // Still no focus and no selection API - the transport must never touch the
+  // remote renderer's focus (AGENTS.md section 8).
+  assert.doesNotMatch(script, /\.focus\(|activeElement|createRange|getSelection|execCommand/)
+
+  // The direct-write fallback is block-structured rather than a flat
+  // textContent assignment, so the lines survive there too.
+  assert.match(script, /split\('\\n'\)/)
+  assert.match(script, /createElement\('p'\)/)
+  assert.doesNotMatch(script, /composer\.textContent = value/)
+
+  // Confirmed from what the editor actually holds, not from what we asked for.
+  assert.match(script, /composer\.textContent \|\| ''/)
+})
+
 test('download DOM automation is bound to expected canonical filename and narrow latest-turn fallback', () => {
   const script = chatGPTExpectedDownloadScript('wharness-bundle-req_12345678.zip', 3)
   assert.match(script, /wharness-bundle-req_12345678\.zip/)

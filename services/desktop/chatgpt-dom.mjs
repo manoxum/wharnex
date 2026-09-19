@@ -35,12 +35,50 @@ export function chatGPTFillComposerScript(text) {
       const proto = composer instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
       if (setter) setter.call(composer, value); else composer.value = value;
-    } else {
-      composer.textContent = value;
+      composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+      composer.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
     }
-    composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
-    composer.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
+    // ChatGPT's composer is a rich editor holding its own document model, not
+    // a plain contenteditable. Assigning textContent wrote around that model
+    // and cost this transport both of its symptoms: the editor re-rendered
+    // from its own (still empty) state when the attachment landed, so the
+    // request arrived as a bare ZIP with no prompt at all, and what did
+    // survive arrived as one run-on line because textContent carries no block
+    // structure - every "\\n" collapsed to a space.
+    //
+    // insertText is the same path a paste takes, so the editor builds its own
+    // paragraphs and keeps its model in step. Replace rather than append: the
+    // composer may still hold a previous attempt's text.
+    // Offered as a paste first. A rich editor handles paste through its own
+    // model, which is what keeps the text alive across the re-render the
+    // attachment triggers - and it needs no focus, so the transport still
+    // never touches the remote renderer's focus (AGENTS.md §8).
+    let pasted = false;
+    try {
+      const transfer = new DataTransfer();
+      transfer.setData('text/plain', value);
+      pasted = !composer.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+    } catch { pasted = false }
+    if (!pasted) {
+      // Direct write, but block-structured: one paragraph per line. Assigning
+      // textContent carries no block structure at all, so every "\\n"
+      // collapsed and the whole prompt arrived as one run-on line.
+      composer.textContent = '';
+      for (const line of String(value).split('\\n')) {
+        const paragraph = document.createElement('p');
+        paragraph.textContent = line;
+        composer.appendChild(paragraph);
+      }
+      composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: value }));
+      composer.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    // The editor owns the rendering; confirm from it rather than from what we
+    // asked for. Whitespace is normalized because block structure legitimately
+    // changes how the text reads back.
+    const wrote = String(composer.textContent || '').replace(/\\s+/g, ' ').trim();
+    const wanted = String(value).replace(/\\s+/g, ' ').trim();
+    return wrote.length > 0 && wrote === wanted;
   })()`
 }
 
