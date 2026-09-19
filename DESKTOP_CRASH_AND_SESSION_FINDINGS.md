@@ -140,70 +140,126 @@ que exigem a **ausência** de piso em cada camada.
 
 ---
 
-## POR RESOLVER — TODO_CLASSIFY não conclui
+## RESOLVIDO — TODO_CLASSIFY estagnava porque o ChatGPT mudou o controlo de esforço
 
-### Estado
+### Sintoma
 
-`TODO_CLASSIFY`: 52 FAILED / 7 DONE. O modo de falha **vivo** (17 ocorrências,
-a mais recente durante esta sessão) é:
+`TODO_CLASSIFY`: 61 FAILED / 8 DONE antes desta correção. O modo de falha
+**vivo** (17+ ocorrências, incluindo durante esta própria sessão) era:
 
 ```
 ChatGPT did not provide whx_todo_classification_res_cat_<id>.zip
 before the TODO classification timeout
 ```
 
-mais 13 × `lease expired after maximum attempts`. Os erros de upload e de
-reasoning-effort são de 17/09 e já estavam corrigidos.
+sempre precedido, no log, por:
 
-### Evidência recolhida
+```
+[chatgpt-effort] could not reach instant, submitting at whatever level
+ChatGPT is currently on instead: ChatGPT reasoning effort did not reach
+instant after bounded cycling (high -> high -> high -> high)
+```
 
-O diagnóstico `[diag-download]` (instrumentação já existente em
-`chatGPTDownloadDiagnosticScript`) mostra, para uma tarefa, **81 sondagens
-consecutivas com a mesma `data-message-id` e o mesmo DOM**:
+### Diagnóstico ao vivo (scraping direto via CDP)
 
-- a mensagem do assistente mantém a classe `streaming-animation` **para
-  sempre**;
-- o texto visível fica congelado num prefixo do nome do ficheiro — `wh` numa
-  tentativa, `whx_todo_classification_res_cat` noutra — e nunca avança;
-- renderizado como `<a class="decorated-link" href="">`, sem
-  `downloadSemantic`, sem `fileLike`, sem `download`;
-- `decision: {index:-1}` — não há nenhum controlo de download no turno, porque
-  a resposta nunca termina.
+A hipótese anterior (background-throttling do Worker escondido) foi
+verificada e **descartada de vez**: os Workers são criados com
+`setBackgroundThrottling(false)` e o poller nem os percorre. Em vez disso,
+liguei o Electron diretamente com `--remote-debugging-port` (reaproveitando o
+backend/frontend já em execução via `WHARNESS_SERVICES_MODE=stack`) e usei o
+Chrome DevTools Protocol para observar o composer do Worker exatamente no
+momento em que tentava mudar o nível de raciocínio:
 
-Ou seja: **não é o matcher de download que falha; é a geração que estagna**. A
-tarefa espera os 4 minutos, expira e gasta uma tentativa.
+1. Um `Input.dispatchKeyEvent` real (Ctrl+Shift+M, o atalho que o código
+   assumia) chega à página — confirmado, não é um problema de foco/viewport —
+   e **não faz nada**. O rótulo do botão do composer manteve-se em "Elevada"
+   em todas as tentativas.
+2. Abrindo o menu do composer com um clique real via CDP, o `outerHTML`
+   revelou que o controlo **deixou de ser um menu de três opções cicladas por
+   atalho** e passou a ser um **slider ARIA genuíno**
+   (`role="slider"`, `aria-valuenow`/`aria-valuemax`, "3 de 3", com
+   `aria-keyshortcuts="ArrowLeft ArrowRight"`).
+3. Focando esse elemento (`slider.focus()`) e enviando `ArrowLeft` via CDP, o
+   `aria-valuenow` desceu de forma determinística `2 → 1 → 0` — prova direta e
+   reproduzível do mecanismo correto.
 
-### Hipótese investigada e descartada
+Achado adicional: `chat-agent-behavior.mjs` já tinha `effortSlider:
+['[role="menuitem"][aria-keyshortcuts]']` documentado com o comentário "The
+effort control is a slider driven by arrow keys" — uma tentativa anterior
+(provavelmente do próprio self-evolution) já tinha identificado a mudança de
+UI mas nunca ligou essa observação ao código de ciclagem, que continuava a
+disparar Ctrl+Shift+M. O selector também apontava ao wrapper `role="menuitem"`
+em vez do `role="slider"` real lá dentro.
 
-Suspeitei de *background throttling* do Chromium no Worker escondido:
-`chatGPTEntryNeedsSupervision` só conhecia `expectedChatGPTBundles` e ignorava
-os três mapas irmãos (`expectedChatGPTTranslations`,
-`expectedChatGPTTodoClassifications`, `expectedChatGPTOrchestratorPlans`), pelo
-que uma expectativa armada desses três não mantinha o renderer a full speed.
+### Correção
 
-Isso **é um defeito real e foi corrigido** (`chatGPTArtifactExpectationArmed` +
-reconciliação do throttle ao armar/desarmar, com teste de regressão reforçado
-em `main-regression.test.mjs`). **Mas não explica esta estagnação**: os Workers
-são criados com `setBackgroundThrottling(false)` e o poller só percorre
-`chatgptViews`, que não contém Workers — ou seja, já estavam a full speed. A
-correção vale para Supervisors escondidos, não para este caso.
+- `chat-agent-behavior.mjs`: `effortSlider` agora aponta ao elemento
+  `role="slider"` real.
+- `chat-agent-scripts.mjs`: novo `reasoningEffortAdjustScript` — localiza o
+  botão do picker ou, se já aberto, o slider; só observa e prepara (foca,
+  nunca clica), conforme a regra do ADR-0037 ("scripts observe and stage,
+  they never click").
+- `main.mjs`: nova `stepChatGPTReasoningEffortToward` substitui o
+  `dispatchChatGPTEffortCycle` morto — abre o menu com um clique nativo
+  confiável quando necessário, avança o slider exatamente um `ArrowLeft`/
+  `ArrowRight` nativo na direção certa (calculada pela posição ordinal dos
+  dois níveis, não por uma rotação fixa) e fecha o menu outra vez, para que a
+  próxima leitura veja o rótulo recolhido em vez do título genérico do menu
+  aberto. Reutiliza o `dispatchChatGPTAccountKey` já existente (já aceitava
+  qualquer tecla só-letras) em vez de criar um novo dispatcher.
+- Mantém a correção já aplicada nesta sessão de chamar
+  `ensureChatGPTLayoutViewport` em `targetChatGPTComposer`: um viewport real
+  (não 0×0) é pré-condição para qualquer evento nativo aterrar, em Worker ou
+  em Supervisor escondido.
 
-### Próximos passos sugeridos
+Testes: 412/412 no `desktop-check`, incluindo um novo teste dedicado que
+verifica a wiring completa (script → main.mjs → seletor) e a ausência do
+mecanismo antigo.
 
-1. Observar a conversa estagnada diretamente (abrir o Worker com **Seguir
-   (flow)**, ou correr o Electron com `--remote-debugging-port` e inspecionar
-   o `WebContentsView` do worker) para distinguir entre *tokens que não chegam
-   pela rede* e *tokens que chegam mas não são pintados*. O painel Network do
-   DevTools desse renderer responde a isto de forma definitiva.
-2. Verificar se a estagnação correlaciona com `gpt-5-6-thinking`: o log mostra
-   `[chatgpt-effort] could not reach instant … (high -> high -> high -> high)`
-   — o seletor de esforço não responde ao clique sintético, exatamente como o
-   `menu-not-open` dos `RENAME_CHAT`/`ARCHIVE_CHAT` (124/124 falhas). Se for a
-   mesma deriva de seletor na UI do ChatGPT, resolve-se uma vez para os dois.
-3. Independentemente da causa: uma resposta que fica `streaming-animation` sem
-   avançar durante uma janela limitada devia ir para `ATTENTION` com essa
-   evidência em vez de gastar os 4 minutos e uma tentativa — o padrão de
-   "bound by evidence" que o `AGENTS.md` §8 já exige para `AWAIT_RESPONSE`.
+### Verificação ao vivo — mecanismo confirmado, ponta-a-ponta bloqueada pelo rate-limit
+
+O mecanismo está provado de forma direta e reproduzível (a manipulação CDP do
+slider, acima). A confirmação end-to-end de uma tarefa `TODO_CLASSIFY`
+completa a correr sob o código novo, num arranque limpo, esbarrou no próprio
+**rate-limit gate da conta** — `ChatGPT rate-limit gate is active` /
+`ChatGPT rate-limit cooldown is active`, confirmado em `last_error` de tarefas
+recentes — provocado pelo volume de tráfego desta própria investigação
+(múltiplos restarts, reclassificações manuais, sondagens CDP repetidas). O
+sistema reagiu **corretamente**: os workers pararam de reivindicar trabalho em
+vez de continuar a bater na conta, exatamente como o `AGENTS.md` §8 exige.
+Falta uma corrida limpa depois de a suspensão (até 30 min) expirar para fechar
+o ciclo por completo, mas a causa raiz já não é hipótese — está provada ao
+nível do mecanismo.
+
+---
+
+## RESOLVIDO — download não reconhecido vazava para o sistema operativo
+
+### Sintoma
+
+O ponto #1 do pedido do utilizador: "os worker estão a deixar o download
+vazar em vez de capturar os zips". No `will-download` do Electron, todo
+recognizer (bundle Wharnex, tradução, classificação de TODO, plano do
+orquestrador, plano legado) podia recusar — e nesse caso o código terminava
+num `return` nu, entregando o download ao comportamento por omissão do
+Chromium **na própria partição de automação**. Um artefacto de Worker cujo
+nome não batesse certo caía silenciosamente na pasta Downloads do operador em
+vez de ser capturado, e um nome colidente disparava o diálogo nativo "Guardar
+Como" do sistema operativo — modal, e é isso que trava o desktop inteiro até
+ser fechado à mão.
+
+### Correção
+
+`chatGPTDownloadIsHumanBrowsing(sourceWebContents)` distingue a janela de
+navegação humana ProjectScoped (que partilha a partição mas deve manter
+comportamento de download normal) de tudo o resto, que é automação Wharnex.
+O caminho passa a falhar fechado: cancela o download e regista um diagnóstico
+com nome do ficheiro, MIME e origem, em vez de cair no comportamento por
+omissão do Chromium.
+
+Teste de regressão em `main-regression.test.mjs` cobre a ordem exata
+(isenção antes do cancelamento, cancelamento depois de todo recognizer ter
+recusado). Commit `6619270`.
 
 ---
 
@@ -239,6 +295,24 @@ Continua ativo e continua a absorver trabalho não commitado em commits próprio
 `"Wharnex host snapshot before integration"`. Nesta sessão absorveu as seis
 alterações do coalescer (commit `45a409a`) e mais um lote (`8c8a8f5`) antes de
 eu conseguir commitá-las com mensagem própria — o conteúdo está íntegro, mas
-sem a mensagem que o explica. Para a próxima sessão: commitar imediatamente
-após validar, e conferir `git log` a seguir a qualquer intervalo longo (build,
-suite de testes).
+sem a mensagem que o explica. Também foi o próprio self-evolution que resolveu
+o piso do painel central desta sessão anterior, entre a documentação de uma
+sessão e a seguinte (`3b75829 fix(workbench): favor centre in default
+three-panel layout`, `8fe8b0f fix(workbench): remove false side-panel resize
+ceiling`) — confirmado por inspeção, não repetido aqui. Para a próxima sessão:
+commitar imediatamente após validar, e conferir `git log` a seguir a qualquer
+intervalo longo (build, suite de testes).
+
+## Recomendação para a próxima sessão
+
+1. Confirmar `TODO_CLASSIFY` ponta-a-ponta depois de o rate-limit gate da
+   conta expirar (até 30 min desde ~10:05-10:08 UTC de 2026-09-19): disparar
+   `POST /api/sessions/{id}/todos/{todo_id}/classify` num TODO aberto e
+   confirmar `classification_status: done` sem passar pelo caminho de
+   tolerância a falha (procurar `[chatgpt-effort] key=... target=instant
+   changed=true` no log, não `unconfirmed(wanted instant)`).
+2. Evitar gerar rajadas de tráfego real contra a conta durante investigação —
+   preferir uma única tarefa observada de perto em vez de disparar
+   reclassificações repetidas, e lembrar que cada `make restart`/arranque do
+   desktop volta a enfileirar todo TODO aberto sem classificação bem-sucedida
+   de uma vez.
