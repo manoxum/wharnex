@@ -16,6 +16,7 @@ STOP="$ROOT/scripts/stop.sh"
 STACK="$ROOT/scripts/stack.sh"
 LOGS="$ROOT/scripts/logs.sh"
 STORAGE_PRUNE="$ROOT/scripts/storage-prune.sh"
+BUILD_LOCK="$ROOT/scripts/build-lock.sh"
 ELECTRON_RUNTIME="$ROOT/scripts/electron-runtime.sh"
 DESKTOP_DEV="$ROOT/services/desktop/dev.mjs"
 SELF_EVOLUTION="$ROOT/services/backend/internal/selfevolution/manager.go"
@@ -35,7 +36,10 @@ section() {
 
 build_block=$(section build)
 build_stage_block=$(section build-stage)
+build_stage_unlocked_block=$(section build-stage-unlocked)
 deps_block=$(section deps)
+deps_unlocked_block=$(section deps-unlocked)
+deps_refresh_block=$(section deps-refresh)
 stop_block=$(section stop)
 
 runner_probe_image='kernl-runner:lifecycle-check'
@@ -57,8 +61,12 @@ if [ ! -x "$STORAGE_PRUNE" ] || ! grep -Fq '/api/storage/prune' "$STORAGE_PRUNE"
   echo 'lifecycle regression: storage prune helper must use the backend ownership-aware cleanup' >&2
   exit 1
 fi
-if ! printf '%s\n' "$build_stage_block" | grep -Fq 'stack-build'; then
-  echo 'lifecycle regression: build-stage must build Compose images without activating them' >&2
+if [ ! -x "$BUILD_LOCK" ] || ! printf '%s\n' "$build_stage_block" | grep -Fq 'build-lock.sh'; then
+  echo 'lifecycle regression: build-stage must serialize dependency mutation and staging' >&2
+  exit 1
+fi
+if ! printf '%s\n' "$build_stage_unlocked_block" | grep -Fq 'stack-build'; then
+  echo 'lifecycle regression: locked build-stage must build Compose images without activating them' >&2
   exit 1
 fi
 if ! grep -A2 '^stack-build:' "$MAKEFILE" | grep -Fq 'stack.sh" build'; then
@@ -81,7 +89,7 @@ if ! grep -Fq 'docker-cli-compose' "$BACKEND_DOCKERFILE" || ! grep -Fq 'nodejs n
   echo 'lifecycle regression: containerized backend must carry the control/build toolchain required by self-evolution' >&2
   exit 1
 fi
-if printf '%s\n' "$deps_block" | grep -Eq 'command -v docker|docker[[:space:]]'; then
+if printf '%s\n' "$deps_unlocked_block" | grep -Eq 'command -v docker|docker[[:space:]]'; then
   echo 'lifecycle regression: dependency hydration must remain Docker-independent' >&2
   exit 1
 fi
@@ -276,8 +284,16 @@ if [ ! -x "$DEPS_CACHE" ]; then
   echo 'lifecycle regression: dependency fingerprint cache helper is missing' >&2
   exit 1
 fi
-if ! grep -Fq 'deps-cache.sh" sync' "$MAKEFILE"; then
-  echo 'lifecycle regression: make deps must use dependency fingerprint cache' >&2
+if ! printf '%s\n' "$deps_block" | grep -Fq 'build-lock.sh' || ! printf '%s\n' "$deps_refresh_block" | grep -Fq 'build-lock.sh'; then
+  echo 'lifecycle regression: dependency hydration and refresh must share the build lock' >&2
+  exit 1
+fi
+if ! printf '%s\n' "$deps_unlocked_block" | grep -Fq 'deps-cache.sh" sync'; then
+  echo 'lifecycle regression: locked make deps must use dependency fingerprint cache' >&2
+  exit 1
+fi
+if ! grep -Fq 'flock -n 9' "$BUILD_LOCK" || grep -Eq 'flock[[:space:]].*-w' "$BUILD_LOCK"; then
+  echo 'lifecycle regression: build lock must use BusyBox-compatible bounded non-blocking flock' >&2
   exit 1
 fi
 if ! grep -Fq -- '--prefer-offline' "$DEPS_CACHE" || ! grep -Fq -- '--no-audit' "$DEPS_CACHE" || ! grep -Fq -- '--no-fund' "$DEPS_CACHE"; then
@@ -288,11 +304,11 @@ if ! grep -Fq 'GOPROXY=off GOFLAGS=-mod=readonly go mod download -json' "$DEPS_C
   echo 'lifecycle regression: a Go dependency fingerprint hit must still prove the module cache is complete offline' >&2
   exit 1
 fi
-if printf '%s\n' "$deps_block" | grep -Eq 'npm[[:space:]]+install'; then
+if printf '%s\n' "$deps_unlocked_block" | grep -Eq 'npm[[:space:]]+install'; then
   echo 'lifecycle regression: make deps must not unconditionally run npm install' >&2
   exit 1
 fi
-if ! printf '%s\n' "$build_stage_block" | grep -Fq '$(BUILD_JOBS)'; then
+if ! printf '%s\n' "$build_stage_unlocked_block" | grep -Fq '$(BUILD_JOBS)'; then
   echo 'lifecycle regression: local application artifacts must retain bounded parallel build support' >&2
   exit 1
 fi
