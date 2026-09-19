@@ -300,7 +300,12 @@ describe('split Agent layout CSS', () => {
     const splitLayout = css.slice(css.lastIndexOf('/* v1.2.47'))
     expect(splitLayout).toContain('--agent-tools-width: 42px')
     expect(splitLayout).toContain('--agent-chat-width: calc((100% - 48px) * 0.6)')
-    expect(splitLayout).toContain('grid-template-columns: minmax(320px, var(--agent-chat-width)) 6px minmax(320px, 1fr) var(--agent-tools-width)')
+    // The centre panel carries no pixel floor of its own, in either column.
+    // Pixel floors here (and the matching 886px reserve the drawer drag used
+    // to keep) were what made the centre the one panel an operator could not
+    // shrink: both side drawers stopped dead the moment the centre reached
+    // that width, on every screen size.
+    expect(splitLayout).toContain('grid-template-columns: minmax(0, var(--agent-chat-width)) 6px minmax(0, 1fr) var(--agent-tools-width)')
     expect(splitLayout).toContain('grid-template-rows: 42px minmax(0, 1fr)')
     expect(splitLayout).toContain('.agent-commandbar {')
     expect(splitLayout).toContain('grid-column: 4')
@@ -313,6 +318,22 @@ describe('split Agent layout CSS', () => {
     expect(splitLayout).toContain('.agent-commandbar .agent-attention-popover { right: calc(100% + 8px); top: 0; }')
     expect(splitLayout).toContain('grid-template-rows: repeat(4, 42px)')
     expect(lastRule('.topbar-indicator')).toContain('width: 27px')
+  })
+
+  // The floors were spread over five rules in three cascade layers, so the
+  // last and most specific one kept reimposing 480 + 6 + 400 = 886px after the
+  // earlier ones had already been relaxed. Assert every one of them.
+  it('leaves the centre panel free to shrink, with no width floor in any layer', () => {
+    expect(lastRule('.workspace-mode-surface > .agent-workspace')).toContain('min-width: 0')
+    expect(lastRule('.workspace-mode-surface > .agent-workspace')).not.toContain('100vw / 3')
+    expect(css).not.toContain('min-width: calc(100vw / 3)')
+    expect(lastRule('.agent-workspace.agent-rail-unified')).toContain('grid-template-columns:minmax(0,var(--agent-chat-width)) 6px minmax(0,1fr)')
+    // The right drawer refused to shrink at all, so the centre absorbed every
+    // pixel of layout pressure by itself.
+    expect(firstRule('.workspace-right-drawer')).toContain('flex: 0 1 ')
+    // An `!important` floor here beat every later rule, so no drag could push
+    // the centre past it.
+    expect(css).not.toContain('min-width: 360px !important')
   })
 })
 
@@ -486,7 +507,10 @@ describe('workbench rail and theme integrity CSS', () => {
   it('removes the extra Agent column when shortcuts use the existing workspace rail', () => {
     const unified = firstRule('.agent-workspace.agent-rail-unified')
     const slot = firstRule('.workspace-agent-rail-slot')
-    expect(lastRule('.agent-workspace.agent-rail-unified')).toContain('grid-template-columns:minmax(480px,var(--agent-chat-width)) 6px minmax(400px,1fr)')
+    // No pixel floor in either column: this was the last and most specific of
+    // the rules pinning the centre's width, so it kept reimposing 886px after
+    // the earlier ones had been relaxed.
+    expect(lastRule('.agent-workspace.agent-rail-unified')).toContain('grid-template-columns:minmax(0,var(--agent-chat-width)) 6px minmax(0,1fr)')
     expect(unified).not.toContain('var(--agent-tools-width)')
     expect(slot).toContain('flex: 1 1 auto')
     expect(slot).toContain('border-top: 1px solid var(--theme-border)')

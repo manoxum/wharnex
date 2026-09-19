@@ -346,12 +346,42 @@ function activeChatGPTEntry(windowState) {
 // from the ChatGPT page's own JS timers, so it is unaffected by Chromium's
 // background throttling either way; only the remote page's own idle
 // timers/rAF slow down once nothing here is waiting on it.
+// Every armed artifact expectation, not only a request bundle. The bundle map
+// is keyed by cache key; the utility maps are keyed by their exact result
+// filename and carry the cache key inside, so they are matched by value. All
+// four hold at most a handful of live entries.
+function chatGPTArtifactExpectationArmed(key) {
+  if (expectedChatGPTBundles.has(key)) return true
+  for (const map of [expectedChatGPTTranslations, expectedChatGPTTodoClassifications, expectedChatGPTOrchestratorPlans]) {
+    for (const expected of map.values()) if (expected?.key === key) return true
+  }
+  return false
+}
+
+// Arming or disarming an expectation changes the answer above, so the owning
+// renderer's throttle has to be reconciled at both edges - the predicate alone
+// only takes effect the next time something else happens to reconcile.
+function reconcileChatGPTThrottleForKey(key, entry) {
+  const owned = entry && chatgptViews.get(key) === entry ? entry : chatgptViews.get(key)
+  if (owned) reconcileChatGPTThrottle(key, owned)
+}
+
 function chatGPTEntryNeedsSupervision(key, entry) {
   // An armed expected bundle keeps its Supervisor at full speed whether or not
   // that slot happens to be the visible one. A hidden Supervisor is the normal
   // case now: it stays bound to its chat for the whole request so the response
   // is collected without ever re-navigating the conversation.
-  return Boolean(entry.loading || entry.humanAction?.active || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.conversationRequests.size > 0 || pendingChatGPTComments.has(key) || expectedChatGPTBundles.has(key))
+  //
+  // The same is required of the utility artifacts — TODO classification,
+  // markdown translation, orchestrator plan — and used not to be, because this
+  // predicate only knew about `expectedChatGPTBundles`. Those three run on a
+  // hidden Worker with no transport preparation held across the response wait,
+  // so Chromium background-throttled the very renderer that had to stream the
+  // answer and reveal its download control. Live evidence: a TODO
+  // classification whose assistant turn stayed frozen mid-stream at two
+  // characters, still carrying `streaming-animation`, for 81 consecutive polls
+  // until the task's four-minute timeout expired and burned an attempt.
+  return Boolean(entry.loading || entry.humanAction?.active || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.conversationRequests.size > 0 || pendingChatGPTComments.has(key) || chatGPTArtifactExpectationArmed(key))
 }
 
 function chatGPTEntryIsActiveVisible(key, entry) {
@@ -4962,6 +4992,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
   download.catch(() => undefined)
   const expected = { taskId: task.task_id, key, filename, armedAt: Date.now(), resolve: resolveDownload, reject: rejectDownload }
   expectedChatGPTOrchestratorPlans.set(filename, expected)
+  reconcileChatGPTThrottleForKey(key, entry)
 
   let conversationUrl = checkpointURL
   let terminalCleanup = false
@@ -5086,7 +5117,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
     }
     throw new Error(`ChatGPT did not provide ${filename} before the orchestrator planning timeout`)
   } finally {
-    if (expectedChatGPTOrchestratorPlans.get(filename) === expected) expectedChatGPTOrchestratorPlans.delete(filename)
+    if (expectedChatGPTOrchestratorPlans.get(filename) === expected) { expectedChatGPTOrchestratorPlans.delete(filename); reconcileChatGPTThrottleForKey(key, entry) }
     await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     const terminalAttempt = terminalCleanup || Number(task.attempt || 0) >= Number(task.max_attempts || 0)
     if (terminalAttempt && attachmentCacheKey) {
@@ -5158,6 +5189,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     resolve: resolveDownload, reject: rejectDownload,
   }
   expectedChatGPTTranslations.set(filename, expected)
+  reconcileChatGPTThrottleForKey(key, entry)
 
   // See the matching comment in executeChatAgentTodoClassification: a
   // retried attempt must not reuse a page whose composer may already hold
@@ -5229,7 +5261,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     }
     throw new Error(`ChatGPT did not provide ${filename} before the translation timeout`)
   } finally {
-    if (expectedChatGPTTranslations.get(filename) === expected) expectedChatGPTTranslations.delete(filename)
+    if (expectedChatGPTTranslations.get(filename) === expected) { expectedChatGPTTranslations.delete(filename); reconcileChatGPTThrottleForKey(key, entry) }
     await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     if (conversationUrl) {
       enqueueChatAgentTask('DELETE_TEMP_CHAT', {
@@ -5270,6 +5302,7 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
   download.catch(() => undefined)
   const expected = { taskId: task.task_id, key, filename, armedAt: Date.now(), resolve: resolveDownload, reject: rejectDownload }
   expectedChatGPTTodoClassifications.set(filename, expected)
+  reconcileChatGPTThrottleForKey(key, entry)
   // A retried attempt reuses whatever page this exact function left behind
   // when an earlier attempt got past a successful upload and then failed
   // later in the flow (submission, reasoning effort, no response). ChatGPT
@@ -5340,7 +5373,7 @@ async function executeChatAgentTodoClassification(task, entry, key, payload) {
     }
     throw new Error(`ChatGPT did not provide ${filename} before the TODO classification timeout`)
   } finally {
-    if (expectedChatGPTTodoClassifications.get(filename) === expected) expectedChatGPTTodoClassifications.delete(filename)
+    if (expectedChatGPTTodoClassifications.get(filename) === expected) { expectedChatGPTTodoClassifications.delete(filename); reconcileChatGPTThrottleForKey(key, entry) }
     await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     if (conversationUrl) {
       enqueueChatAgentTask('DELETE_TEMP_CHAT', {

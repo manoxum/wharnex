@@ -18,6 +18,27 @@ export const DEFAULT_WORKBENCH_STATE: WorkbenchState = {
   bottom: { open: false, collapsed: true, size: 275 },
 }
 
+// The activity rail plus the two splitters — the chrome that is never part of
+// any of the three resizable panels.
+const WORKBENCH_CHROME_WIDTH = 54
+const SIDE_PANEL_FRACTION = 0.25
+
+// With both side panels open the workbench opens as 25% / 50% / 25%: each
+// drawer takes a quarter of what is left once the chrome is removed, so the
+// centre keeps the remaining half. This is only the starting point — the
+// operator may drag either splitter freely afterwards, and no CSS floor pins
+// the centre panel to a minimum width any more.
+export function defaultSidePanelWidth(viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth) {
+  const usable = Math.max(0, Math.round(viewportWidth) - WORKBENCH_CHROME_WIDTH)
+  return usable > 0 ? Math.round(usable * SIDE_PANEL_FRACTION) : 0
+}
+
+// A static ceiling would stop a wide screen from ever reaching that quarter,
+// and would stop the operator from deliberately squeezing the centre.
+function sidePanelMax(staticMax: number, viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth) {
+  return Math.max(staticMax, Math.round(Math.max(0, viewportWidth) * 0.45))
+}
+
 export function loadWorkbenchState(projectPath: string): WorkbenchState {
   try {
     const raw = localStorage.getItem(storageKey(projectPath))
@@ -25,8 +46,8 @@ export function loadWorkbenchState(projectPath: string): WorkbenchState {
     const fallback = cloneDefault()
     const leftWidth = legacyDrawerWidth('left')
     const rightWidth = legacyDrawerWidth('right')
-    if (leftWidth) fallback.left.size = clamp(leftWidth, 240, 720)
-    if (rightWidth) fallback.right.size = clamp(rightWidth, 360, 840)
+    fallback.left.size = clamp(leftWidth || defaultSidePanelWidth() || fallback.left.size, 240, sidePanelMax(720))
+    fallback.right.size = clamp(rightWidth || defaultSidePanelWidth() || fallback.right.size, 360, sidePanelMax(840))
     return fallback
   } catch { return cloneDefault() }
 }
@@ -40,8 +61,8 @@ export function saveWorkbenchState(projectPath: string, state: WorkbenchState) {
 export function normalizeWorkbenchState(value: Partial<WorkbenchState>): WorkbenchState {
   return {
     version: WORKBENCH_STATE_VERSION,
-    left: normalizePanel(value.left, DEFAULT_WORKBENCH_STATE.left, 240, 720, true),
-    right: normalizePanel(value.right, DEFAULT_WORKBENCH_STATE.right, 360, 840, true),
+    left: normalizePanel(value.left, DEFAULT_WORKBENCH_STATE.left, 240, sidePanelMax(720), true),
+    right: normalizePanel(value.right, DEFAULT_WORKBENCH_STATE.right, 360, sidePanelMax(840), true),
     bottom: normalizePanel(value.bottom, DEFAULT_WORKBENCH_STATE.bottom, 185, 720),
   }
 }

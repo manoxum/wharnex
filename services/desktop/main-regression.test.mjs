@@ -765,8 +765,34 @@ test('idle backgrounded ChatGPT views may re-enable normal throttling, but never
   // An armed expectation keeps its Supervisor at full speed whether or not that
   // slot is the painted one: a hidden Supervisor bound to its chat is the normal
   // case, and it is the surface the response will be collected from.
-  assert.match(needs, /\|\| expectedChatGPTBundles\.has\(key\)\)/)
+  //
+  // That has to hold for every artifact Wharnex is waiting on, not only a
+  // request bundle. TODO classification, markdown translation and orchestrator
+  // plans run on a hidden Worker that holds no transport preparation across
+  // the response wait, so a predicate that knew only about
+  // `expectedChatGPTBundles` let Chromium background-throttle the renderer
+  // streaming the answer, freezing it mid-response until the task timed out.
+  assert.match(needs, /\|\| chatGPTArtifactExpectationArmed\(key\)\)/)
   assert.doesNotMatch(needs, /expectedChatGPTBundles\.has\(key\) && chatGPTEntryIsActiveVisible/)
+
+  const armedStart = source.indexOf('function chatGPTArtifactExpectationArmed(key)')
+  const armedEnd = source.indexOf('\nfunction reconcileChatGPTThrottleForKey', armedStart)
+  const armed = source.slice(armedStart, armedEnd)
+  assert.match(armed, /expectedChatGPTBundles\.has\(key\)/)
+  for (const map of ['expectedChatGPTTranslations', 'expectedChatGPTTodoClassifications', 'expectedChatGPTOrchestratorPlans']) {
+    assert.match(armed, new RegExp(map))
+  }
+  // Those three maps are keyed by result filename, so the cache key is matched
+  // against the stored expectation rather than the map key.
+  assert.match(armed, /expected\?\.key === key/)
+
+  // A predicate change only takes effect where the throttle is reconciled, so
+  // arming and disarming an expectation must both reconcile it - otherwise the
+  // renderer keeps whatever throttle state it happened to have.
+  for (const map of ['expectedChatGPTTranslations', 'expectedChatGPTTodoClassifications', 'expectedChatGPTOrchestratorPlans']) {
+    assert.match(source, new RegExp(`${map}\\.set\\(filename, expected\\)\\n\\s*reconcileChatGPTThrottleForKey\\(key, entry\\)`))
+    assert.match(source, new RegExp(`${map}\\.delete\\(filename\\); reconcileChatGPTThrottleForKey\\(key, entry\\)`))
+  }
 
   const reconcileStart = source.indexOf('function reconcileChatGPTThrottle(key, entry)')
   const reconcileEnd = source.indexOf('\nfunction sendToWindowState', reconcileStart)

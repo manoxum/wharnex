@@ -13,6 +13,7 @@ import type { ExecutionFIFOItem } from '../lib/executionQueueView'
 import { AttentionList } from './AttentionList'
 import { PanelSkeleton } from './Skeleton'
 import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../lib/workspaceRailLayout'
+import { defaultSidePanelWidth } from '../lib/workbenchPreferences'
 
 // Every drawer below is only ever rendered once the operator opens it, and
 // most (Git graph, Postgres browser, artifact/knowledge explorers, runtime
@@ -42,11 +43,18 @@ const WORKSPACE_RAIL_PX = 44
 const WORKSPACE_SPLITTER_PX = 6
 const WORKSPACE_DRAWER_MIN_PX = 240
 const WORKSPACE_RIGHT_DRAWER_MIN_PX = 360
+// A quarter of the workbench, so opening both side panels lands on the
+// 25% / 50% / 25% split (see lib/workbenchPreferences) rather than on a fixed
+// pixel width that means a different share on every screen.
 const WORKSPACE_RIGHT_DRAWER_DEFAULT_PX = 460
-// The persistent Agent center contains a 480px Harness chat, a 6px divider
-// and a 400px Engine/ChatGPT surface. Tool windows yield before that center is
-// compressed below a usable width.
-const WORKSPACE_STACK_MIN_PX = 886
+// How much of the centre a drawer drag must leave behind. This used to mirror
+// the centre's own CSS floor - a 480px Harness chat, a 6px divider and a 400px
+// Engine surface, 886px in total - which made the centre the one panel the
+// operator could not shrink: both drawers stopped dead the moment the centre
+// reached that width, on every screen size. The centre's internal columns are
+// `minmax(0, ...)` now, so it reflows instead of refusing, and this is only
+// the small reserve that keeps it from collapsing out of reach entirely.
+const WORKSPACE_STACK_MIN_PX = 240
 const TOOL_DRAG_TYPE = 'application/x-wharnex-workspace-tool'
 const EMPTY_WORKSPACE_RAIL_TOOLS: WorkspaceTool[] = []
 const DEFAULT_STANDALONE_RAIL_TOOLS: WorkspaceTool[] = (() => {
@@ -56,7 +64,7 @@ const DEFAULT_STANDALONE_RAIL_TOOLS: WorkspaceTool[] = (() => {
 
 function scopedKey(prefix: string, side: WorkspaceRailSide) { return `${prefix}:${side}:${desktopWindowScope()}` }
 
-function loadWorkspaceDrawerWidth(side: WorkspaceRailSide) { const fallback = side === 'right' ? WORKSPACE_RIGHT_DRAWER_DEFAULT_PX : 0; try { return Number(localStorage.getItem(scopedKey(WORKSPACE_DRAWER_WIDTH_KEY, side))) || fallback } catch { return fallback } }
+function loadWorkspaceDrawerWidth(side: WorkspaceRailSide) { const fallback = defaultSidePanelWidth() || (side === 'right' ? WORKSPACE_RIGHT_DRAWER_DEFAULT_PX : 0); try { return Number(localStorage.getItem(scopedKey(WORKSPACE_DRAWER_WIDTH_KEY, side))) || fallback } catch { return fallback } }
 function saveWorkspaceDrawerWidth(side: WorkspaceRailSide, width: number) { try { localStorage.setItem(scopedKey(WORKSPACE_DRAWER_WIDTH_KEY, side), String(width)) } catch { /* best effort */ } }
 
 export type WorkspaceSideRailProps = {
