@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TextDecoder } from 'node:util'
-import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, submitWithoutReplay } from './chatgpt-input.mjs'
+import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, dispatchChatGPTPointerPress, submitWithoutReplay } from './chatgpt-input.mjs'
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
@@ -4213,7 +4213,11 @@ async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
   let staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
   for (let attempt = 0; attempt < CHATGPT_MENU_REOPEN_ATTEMPTS && staged?.ok && staged.state === 'effort-menu-closed'; attempt += 1) {
     const { wc } = requireOwnedChatGPTEntry(key, entry)
-    withPreservedLocalFocus(() => dispatchChatGPTPointerClick(wc, staged.rect))
+    // A held press, not an instantaneous click: this trigger settles back
+    // closed when both events land in the same tick, which is what left the
+    // slider unreachable behind "effort-menu-closed" on every attempt (see
+    // dispatchChatGPTPointerPress).
+    await dispatchChatGPTPointerPress(wc, staged.rect, { wait, guard: withPreservedLocalFocus })
     await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
     staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
   }

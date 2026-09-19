@@ -20,6 +20,35 @@ export function dispatchChatGPTPointerClick(webContents, point) {
   return { x, y }
 }
 
+// The same renderer-level press, held open for a moment before releasing.
+//
+// Radix opens a menu on `pointerdown` and then reconciles that state against
+// the `pointerup`/`click` that follows. Dispatching both within the same tick
+// leaves the trigger settled back closed: live CDP testing against the
+// composer's reasoning-effort picker reproduced this exactly - an
+// instantaneous down/up left `aria-expanded` false every time, while the same
+// press with a short hold opened the menu reliably. A menu that has to be
+// opened before its contents can be read therefore presses, waits, releases.
+// `guard` wraps each synchronous burst of events rather than the whole press:
+// the local-focus guard restores focus in a `finally`, so handing it the
+// awaited press would restore focus while the button is still held down.
+export async function dispatchChatGPTPointerPress(webContents, point, {
+  holdMs = 90,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  guard = (operation) => operation(),
+} = {}) {
+  if (!webContents || typeof webContents.sendInputEvent !== 'function') throw new Error('ChatGPT web contents are unavailable')
+  const x = Math.max(0, Math.floor(Number(point?.x) || 0))
+  const y = Math.max(0, Math.floor(Number(point?.y) || 0))
+  guard(() => {
+    webContents.sendInputEvent({ type: 'mouseMove', x, y })
+    webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+  })
+  await wait(Math.max(0, Number(holdMs) || 0))
+  guard(() => webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 }))
+  return { x, y }
+}
+
 // ChatGPT's account menus are Radix `div[role="menuitem"]` nodes whose select
 // handlers ignore a synthetic HTMLElement.click(). Account automation therefore
 // locates the control in the page and commits it with a trusted native event,
