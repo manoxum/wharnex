@@ -161,6 +161,20 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.setWorkerKeepFlowing).toHaveBeenCalledWith('worker-1', true))
   })
 
+  it('renders runtime actions as icon-only controls with accessible names', async () => {
+    window.wharnessDesktop = { agents: agentsBridge() } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByText('Worker 1'))
+
+    for (const name of ['Keep flowing · inativo', 'Seguir (flow)', 'Interagir aqui', 'Capturar imagem']) {
+      const button = screen.getByRole('button', { name })
+      expect(button.textContent).toBe('')
+      expect(button.querySelector('svg')).toBeTruthy()
+      expect(button.getAttribute('title')).toBeTruthy()
+    }
+  })
+
   it('reports a fully deferred queue as scheduled rather than as pending backlog', async () => {
     // Bundle-retention cleanup is enqueued PENDING but deferred for days. Such
     // a queue is idle, and must not present an age that suggests stuck work.
