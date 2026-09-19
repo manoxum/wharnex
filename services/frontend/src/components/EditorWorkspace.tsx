@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, APIError } from '../lib/api'
 import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
@@ -31,6 +31,19 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set())
   const [gitDiff, setGitDiff] = useState<GitFileDiff>()
   const [gitDiffLoading, setGitDiffLoading] = useState(false)
+  // This workspace stays mounted (CSS-hidden) whenever another mode is
+  // active, so an inline object literal here got a new identity on every one
+  // of its many re-renders while a diff was open - and ChangeDiffEditor tears
+  // down and recreates its whole Monaco diff editor (plus fresh html/json/
+  // css/ts web workers) whenever its `file` prop's identity changes. That
+  // churn, live-observed via the Network panel loading the same worker
+  // scripts hundreds of times in a couple of minutes, was severe enough to
+  // balloon a renderer to several GB and crash it. A stable reference tied to
+  // the values that actually matter stops the recreation entirely.
+  const gitDiffFile = useMemo(
+    () => gitDiff?.diff ? { path: gitDiff.path, additions: 0, deletions: 0, diff: gitDiff.diff } : undefined,
+    [gitDiff?.path, gitDiff?.diff],
+  )
   const [recentRuns, setRecentRuns] = useState(() => loadEditorRunHistory(session.project_path))
   const selected = documents.find((item) => item.path === activePath)
   const dirtyCount = documents.filter((item) => item.draft !== item.content).length
@@ -191,7 +204,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     {gitDiff && <div className="diff-inspector-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}>
       <section className="diff-inspector editor-git-diff">
         <header><div><strong>{gitDiff.path}</strong><span>{selected?.draft !== selected?.content ? 'O diff reflete o ficheiro guardado; guarde o rascunho para o incluir.' : gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Diferença do worktree em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff">×</button></header>
-        {gitDiff.diff ? <ChangeDiffEditor sessionId={session.id} file={{ path: gitDiff.path, additions: 0, deletions: 0, diff: gitDiff.diff }} /> : <div className="editor-git-diff-empty"><Icon name="check" size={18}/><strong>Sem alterações Git neste ficheiro</strong><span>O conteúdo guardado coincide com HEAD ou o ficheiro ainda não faz parte de um diff rastreado.</span></div>}
+        {gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile} /> : <div className="editor-git-diff-empty"><Icon name="check" size={18}/><strong>Sem alterações Git neste ficheiro</strong><span>O conteúdo guardado coincide com HEAD ou o ficheiro ainda não faz parte de um diff rastreado.</span></div>}
       </section>
     </div>}
   </section>
