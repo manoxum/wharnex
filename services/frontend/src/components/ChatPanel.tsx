@@ -46,6 +46,7 @@ import { loadUIPreferences } from '../lib/uiPreferences'
 
 const COMPOSER_MIN_HEIGHT = 118
 const COMPOSER_MAX_HEIGHT = 420
+const COMPOSER_TYPING_ATTENTION_MS = 1600
 const LONG_CHAT_MARKDOWN_CHARS = 1400
 const LONG_CHAT_MARKDOWN_LINES = 18
 const LONG_USER_PROMPT_CHARS = 900
@@ -199,6 +200,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [initialFileDraft] = useState(() => loadComposerFileDraft(session.project_path, activeChatId))
   const [message, setMessage] = useState(initialDraft.message)
   const [composerHeight, setComposerHeight] = useState(initialDraft.height)
+  const [composerTypingAttention, setComposerTypingAttention] = useState(false)
   const [attachments, setAttachments] = useState<File[]>(initialFileDraft.attachments)
   const [planAdjustment, setPlanAdjustment] = useState<{ planId: string; requestId: string; fileName: string; summary: string }>()
   const [attachmentError, setAttachmentError] = useState('')
@@ -258,10 +260,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const currentReasoningEffort = reasoningEffort || session.reasoning_effort || 'high'
   const currentChatTransportMode = chatTransportMode || session.chat_transport_mode || 'scraper'
   const knowledgeSharingEnabled = session.knowledge_sharing_enabled !== false
+  const composerProjectName = session.project_path.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) || session.project_path
   const effectiveTransport = chatTransport || globalTransport
   const composerRef = useRef<HTMLFormElement>(null)
   const composerResizeRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null)
   const copiedResetTimerRef = useRef<number | null>(null)
+  const composerTypingTimerRef = useRef<number | null>(null)
   const richEditorRef = useRef<ComposerRichEditorHandle>(null)
   const composerMessageRef = useRef(initialDraft.message)
   const composerCaretRef = useRef(initialDraft.message.length)
@@ -461,6 +465,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     composerMessageRef.current = nextMessage
     composerCaretRef.current = nextMessage.length
     setMessage(nextMessage)
+    setComposerTypingAttention(false)
+    if (composerTypingTimerRef.current !== null) { window.clearTimeout(composerTypingTimerRef.current); composerTypingTimerRef.current = null }
     setComposerHeight(draft.height); setAttachments(fileDraft.attachments); setProjectFiles([]); setAttachmentError(''); setExpandedWhxNoticeRunId(''); setPlanAdjustment(undefined)
 
     const bridge = desktopBridge()
@@ -508,6 +514,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }, [session.id])
   useEffect(() => () => {
     if (copiedResetTimerRef.current !== null) window.clearTimeout(copiedResetTimerRef.current)
+    if (composerTypingTimerRef.current !== null) window.clearTimeout(composerTypingTimerRef.current)
   }, [])
   useEffect(() => {
     const composer = composerRef.current
@@ -725,7 +732,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     composerCaretRef.current = caret
     setMessage(value)
     syncDirectiveQueries(value, caret)
-    if (textChanged) onComposerTyping?.()
+    if (textChanged) {
+      setComposerTypingAttention(true)
+      if (composerTypingTimerRef.current !== null) window.clearTimeout(composerTypingTimerRef.current)
+      composerTypingTimerRef.current = window.setTimeout(() => {
+        setComposerTypingAttention(false)
+        composerTypingTimerRef.current = null
+      }, COMPOSER_TYPING_ATTENTION_MS)
+      onComposerTyping?.()
+    }
   }
 
   function startComposerResize(event: ReactPointerEvent<HTMLDivElement>) {
@@ -982,7 +997,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
     {transportProgress && <div className="context-publication-progress" role="status"><span className="publication-orbit"><i/><i/><i/></span><div className="context-publication-copy"><strong>A preparar rotas remotas</strong><small>{transportProgress}</small></div>{transportRequestId && onCancelPendingRequest ? <button type="button" className="text-button danger context-publication-cancel" aria-label="Cancelar preparação do bundle" onClick={() => void onCancelPendingRequest(transportRequestId)}><Icon name="close" size={12}/> Cancelar</button> : null}</div>}
 
-    <form ref={composerRef} className={`composer ${taskInFlight ? 'comment-mode' : ''} ${planAdjustment ? 'plan-adjustment-mode' : ''}`} style={{ height: composerHeight }} onSubmit={submitMain}>
+    <form ref={composerRef} className={`composer ${composerTypingAttention ? 'composer-typing-attention' : ''} ${taskInFlight ? 'comment-mode' : ''} ${planAdjustment ? 'plan-adjustment-mode' : ''}`} style={{ height: composerHeight }} onSubmit={submitMain}>
+      {composerTypingAttention && <span className="composer-project-attention" role="status" aria-live="polite" aria-label={`Projeto ativo: ${composerProjectName}`}><Icon name="workspace" size={11}/><span>A escrever em</span><strong title={session.project_path}>{composerProjectName}</strong></span>}
       <div
         className="composer-resize-handle"
         role="separator"
