@@ -35,6 +35,7 @@ describe('UI preferences', () => {
     expect(document.documentElement.dataset.density).toBe('compact')
     expect(document.documentElement.style.colorScheme).toBe('dark')
     expect(saved.errorPopups).toBe(false)
+    expect(saved.largePasteThresholdChars).toBe(6000)
   })
 
   it('keeps 100% centered while allowing a 60% reduction from the baseline', () => {
@@ -54,6 +55,12 @@ describe('UI preferences', () => {
     saveUIPreferences(preferences)
     expect(document.documentElement.getAttribute('data-tool-window')).toBeNull()
     expect(resolveTheme('jetbrains-light')).toBe('light')
+  })
+
+  it('clamps the large-paste attachment threshold to a practical range', () => {
+    expect(saveUIPreferences({ largePasteThresholdChars: 250 }).largePasteThresholdChars).toBe(1000)
+    expect(saveUIPreferences({ largePasteThresholdChars: 250000 }).largePasteThresholdChars).toBe(200000)
+    expect(saveUIPreferences({ largePasteThresholdChars: 12500 }).largePasteThresholdChars).toBe(12500)
   })
 
   it('resolves a content scheme independently from the shell theme', () => {

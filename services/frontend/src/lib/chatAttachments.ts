@@ -18,20 +18,40 @@ export function addChatAttachments(current: File[], incoming: File[]): Attachmen
   return { files }
 }
 
-export function uniquifyPastedChatFiles(current: File[], incoming: File[]) {
+export function uniquifyPastedChatFiles(current: File[], incoming: File[], promptIndex = 1) {
   const used = new Set(current.map((file) => file.name.toLowerCase()))
-  let imageSequence = 1
+  let sequence = 1
   return incoming.map((file) => {
-    const original = (file.name || '').trim()
-    const genericImage = file.type.startsWith('image/') && (!original || /^image(?:\s*\(\d+\))?\.[a-z0-9]+$/i.test(original))
-    if (!genericImage && original && !used.has(original.toLowerCase())) { used.add(original.toLowerCase()); return file }
-    const ext = extensionFor(file)
-    const stem = genericImage ? 'clipboard-image' : (original.replace(/\.[^.]+$/, '') || 'clipboard-file')
+    const original = safeAttachmentName((file.name || '').trim())
+    const generic = !original || /^(?:image(?:\s*\(\d+\))?|clipboard-image-\d+)\.[a-z0-9]+$/i.test(original)
+    const prompt = String(Math.max(1, promptIndex)).padStart(2, '0')
     let candidate = ''
-    do { candidate = `${stem}-${String(imageSequence++).padStart(3, '0')}${ext}` } while (used.has(candidate.toLowerCase()))
+    do {
+      const number = String(sequence++).padStart(2, '0')
+      candidate = generic
+        ? `Prompt ${prompt} · Clipboard ${number}${extensionFor(file)}`
+        : `Prompt ${prompt} · Clipboard ${number} · ${original}`
+    } while (used.has(candidate.toLowerCase()))
     used.add(candidate.toLowerCase())
     return new File([file], candidate, { type: file.type, lastModified: file.lastModified || Date.now() })
   })
+}
+
+export function pastedTextChatFile(current: File[], text: string, promptIndex = 1) {
+  const used = new Set(current.map((file) => file.name.toLowerCase()))
+  const prompt = String(Math.max(1, promptIndex)).padStart(2, '0')
+  let sequence = 1
+  let candidate = ''
+  do { candidate = `Prompt ${prompt} · Pasted Text ${String(sequence++).padStart(2, '0')}.txt` } while (used.has(candidate.toLowerCase()))
+  return new File([text], candidate, { type: 'text/plain', lastModified: Date.now() })
+}
+
+function safeAttachmentName(value: string) {
+  const sanitized = Array.from(value, (character) => {
+    const code = character.charCodeAt(0)
+    return character === '/' || character === '\\' || code < 32 || code === 127 ? '-' : character
+  }).join('')
+  return sanitized.replace(/\s+/g, ' ').trim()
 }
 
 function extensionFor(file: File) {

@@ -931,6 +931,25 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
+  it('labels @chat files with their originating prompt when request lineage is available', async () => {
+    vi.spyOn(api, 'chatFiles').mockResolvedValue({ files: [{
+      artifact_id: 'artifact-origin', request_id: 'req-origin', direction: 'input', source: 'attachment',
+      name: 'contrato.pdf', size: 42, created_at: '2026-09-20T04:00:00Z', direct: true,
+    }] })
+    const ref = panelRef()
+    render(
+      <ChatPanel ref={ref} session={session} items={[{
+        id: 'prompt-origin', role: 'user', text: 'Analisa o contrato',
+        iteration: { id: 'iteration-origin', requestId: 'req-origin', phase: 'outbound', artifacts: [] },
+      }]} chats={[]} activeChatId="chat-file-origin" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    await waitFor(() => expect(api.chatFiles).toHaveBeenCalledWith(session.id))
+    typeInComposer(ref, 'Revê @chat:', 'Revê @chat:'.length)
+
+    expect(await screen.findByRole('option', { name: /Prompt 01 · contrato\.pdf/ })).toBeTruthy()
+  })
+
   it('does not replay the chip insertion caret after every following keystroke', async () => {
     const referencedSession = {
       ...session,
@@ -1076,6 +1095,10 @@ describe('ChatPanel', () => {
     typeInComposer(ref, references, references.length)
     for (const kind of ['file', 'ref', 'attach', 'see', 'chat', 'lib', 'todo']) expect(view.container.querySelector(`.composer-reference-thumbnail.${kind}`)).toBeTruthy()
     expect(view.container.querySelector('.composer-directive-chip.file')).toBeTruthy()
+
+    const repeated = 'usa @{[file]src/App.tsx} e depois @{[file]src/App.tsx}'
+    typeInComposer(ref, repeated, repeated.length)
+    expect(view.container.querySelectorAll('.composer-reference-thumbnail.file')).toHaveLength(1)
 
     typeInComposer(ref, 'Revê @file:App', 14)
     expect(view.container.querySelector('.composer-reference-thumbnail.file')).toBeNull()
@@ -1251,6 +1274,18 @@ describe('ChatPanel', () => {
     expect(view.container.querySelector('[role="alert"]')).toBeNull()
   })
 
+  it('turns a large plain-text paste into a prompt-scoped attachment', () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="large-paste" busy={false} attachmentsEnabled onSend={async () => undefined} {...chatActions} />,
+    )
+    const composer = view.container.querySelector('.composer-rich-editor')!
+    const text = 'x'.repeat(6000)
+    fireEvent.paste(composer, { clipboardData: { files: [], items: [], getData: (kind: string) => kind === 'text/plain' ? text : '' } })
+    expect(view.container.textContent).toContain('Prompt 01 · Pasted Text 01.txt')
+    expect(composerText(ref)).toBe('')
+  })
+
   it('requires explicit confirmation for a prepared ChatGPT draft', () => {
     render(
       <ChatPanel session={session} items={[]} chats={[]} activeChatId="chat-1" busy={false} preparedAttachmentCount={2} onSend={async () => undefined} onConfirmPrepared={async () => undefined} {...chatActions} />,
@@ -1297,6 +1332,7 @@ describe('ChatPanel', () => {
     expect(composer.querySelector('.composer-action-row')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Contexto ZIP' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: 'Prompt' }).getAttribute('aria-pressed')).toBe('true')
+    expect(composer.querySelector('.composer-reference-thumbnail.transport')).toBeNull()
   })
 
   it('moves execution and automation choices into compact composer icons', () => {

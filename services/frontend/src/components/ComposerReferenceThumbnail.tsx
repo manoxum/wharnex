@@ -41,15 +41,6 @@ export function ComposerReferenceThumbnail({ session, directive, attachments, ch
   </Fragment>
 }
 
-export function ComposerTransportThumbnail({ kind, label, onOpen }: { kind: 'context' | 'prompt' | 'result' | 'error'; label: string; onOpen: () => void }) {
-  return <span className={`composer-reference-thumbnail transport ${kind}`}>
-    <button type="button" className="composer-reference-open" onClick={onOpen} aria-label={`Visualizar ${label}`}>
-      <span className="composer-reference-visual" aria-hidden="true"><Icon name={kind === 'error' ? 'alert' : kind === 'context' ? 'package' : kind === 'result' ? 'check' : 'plan'} size={15}/><b>{kind === 'context' ? 'CTX' : kind === 'prompt' ? 'PROMPT' : kind === 'result' ? 'RESULT' : 'ERR'}</b></span>
-      <span className="composer-reference-copy"><b>{label}</b><small>Artefacto da próxima iteração</small></span>
-    </button>
-  </span>
-}
-
 function ComposerReferenceViewer({ session, directive, attachments, chatFiles, libraryArtifacts, projectTodos, onClose }: Omit<Props, 'onRemove'> & { onClose: () => void }) {
   const artifactTarget = useMemo(() => resolveArtifactTarget(session, directive, chatFiles, libraryArtifacts), [chatFiles, directive, libraryArtifacts, session])
   const uploadedFile = useMemo(() => directive.kind === 'see' && directive.project === 'upload' ? attachments.find((file) => file.name === directive.path) : undefined, [attachments, directive])
@@ -200,7 +191,7 @@ function referenceFallback(directive: ComposerDirective) {
   return canonicalDirective(directive)
 }
 
-export function directiveBadge(kind: ComposerDirective['kind']) {
+function directiveBadge(kind: ComposerDirective['kind']) {
   if (kind === 'file') return 'FILE'
   if (kind === 'ref') return 'REF'
   if (kind === 'attach') return 'EXT'

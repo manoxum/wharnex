@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '../types'
 import { api } from '../lib/api'
 import { ProjectSettings } from './ProjectSettings'
+import { loadUIPreferences } from '../lib/uiPreferences'
 
 vi.mock('../lib/api', () => ({
   api: {
@@ -85,6 +86,21 @@ describe('ProjectSettings loading', () => {
     expect(slider.getAttribute('max')).toBe('1.6')
     expect(slider.getAttribute('value')).toBe('1')
     expect(screen.getByText(/reduza até 40% ou amplie até 160%/i)).toBeTruthy()
+  })
+
+  it('configures the minimum large-paste size from the Composer settings', async () => {
+    vi.mocked(api.projectConfig).mockResolvedValue({
+      version: 1,
+      project: { name: 'demo' },
+      context: { auto_exclude: true, max_file_bytes: 2097152, include: [], exclude: [] },
+    })
+    render(<ProjectSettings session={session} onClose={() => undefined} onSession={() => undefined} onError={() => undefined} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Composer/i }))
+    const input = screen.getByRole('spinbutton', { name: /Tamanho mínimo para transformar paste em anexo/i })
+    expect(input.getAttribute('value')).toBe('6000')
+    fireEvent.change(input, { target: { value: '12000' } })
+    expect(loadUIPreferences().largePasteThresholdChars).toBe(12000)
   })
 
   it('edits the global three-hour bundle quota without enabling a hard block', async () => {
