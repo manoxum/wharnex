@@ -7,10 +7,11 @@ trap 'rm -rf "$temporary"' EXIT
 fixture="$temporary/repo"
 stamp="$temporary/source-success.sha256"
 
-mkdir -p "$fixture/scripts"
+mkdir -p "$fixture/schemas" "$fixture/scripts"
 cp "$ROOT/scripts/source-fingerprint.sh" "$fixture/scripts/source-fingerprint.sh"
 chmod 0755 "$fixture/scripts/source-fingerprint.sh"
 printf 'first source version\n' >"$fixture/Makefile"
+printf '{"version":1}\n' >"$fixture/schemas/execution-plan.schema.json"
 
 if WHARNESS_ROOT="$fixture" WHARNESS_SOURCE_FINGERPRINT_STAMP="$stamp" "$fixture/scripts/source-fingerprint.sh" matches; then
   echo 'source fingerprint regression: a missing success stamp must not match' >&2
@@ -26,6 +27,13 @@ printf 'second source version\n' >"$fixture/Makefile"
 touch -r "$fixture/Makefile.before" "$fixture/Makefile"
 if WHARNESS_ROOT="$fixture" WHARNESS_SOURCE_FINGERPRINT_STAMP="$stamp" "$fixture/scripts/source-fingerprint.sh" matches; then
   echo 'source fingerprint regression: changed source bytes must invalidate a preserved mtime' >&2
+  exit 1
+fi
+
+WHARNESS_ROOT="$fixture" WHARNESS_SOURCE_FINGERPRINT_STAMP="$stamp" "$fixture/scripts/source-fingerprint.sh" write
+printf '{"version":2}\n' >"$fixture/schemas/execution-plan.schema.json"
+if WHARNESS_ROOT="$fixture" WHARNESS_SOURCE_FINGERPRINT_STAMP="$stamp" "$fixture/scripts/source-fingerprint.sh" matches; then
+  echo 'source fingerprint regression: a protocol schema change must invalidate the launcher build stamp' >&2
   exit 1
 fi
 

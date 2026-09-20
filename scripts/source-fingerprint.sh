@@ -3,17 +3,27 @@ set -eu
 
 # Fingerprint precisely the checkout inputs that can change the locally running
 # Desktop, rather than relying on mtimes (which are not reliable after a Git
-# checkout, archive extraction, or clock adjustment).
+# checkout, archive extraction, or clock adjustment). Keep protocol schemas
+# and root operational configuration here too: they are source inputs, not
+# disposable documentation, and a launcher must never treat their revision as
+# already built.
 ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
 STAMP=${WHARNESS_SOURCE_FINGERPRINT_STAMP:-$ROOT/.harness/source-success.sha256}
 ACTION=${1:-current}
 
 hash_inputs() {
   {
-    for file in "$ROOT/Makefile" "$ROOT/compose.yml"; do
+    for file in \
+      "$ROOT/.env" \
+      "$ROOT/.harnessignore" \
+      "$ROOT/Makefile" \
+      "$ROOT/VERSION" \
+      "$ROOT/compose.yml" \
+      "$ROOT/whaness.yml"
+    do
       [ -f "$file" ] && sha256sum "$file"
     done
-    for directory in "$ROOT/scripts" "$ROOT/docker" "$ROOT/services/backend" "$ROOT/services/tunnel" "$ROOT/services/frontend" "$ROOT/services/desktop"; do
+    for directory in "$ROOT/schemas" "$ROOT/scripts" "$ROOT/docker" "$ROOT/services/backend" "$ROOT/services/tunnel" "$ROOT/services/frontend" "$ROOT/services/desktop"; do
       [ -d "$directory" ] || continue
       find "$directory" -type f \
         ! -path '*/node_modules/*' \
