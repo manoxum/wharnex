@@ -73,15 +73,49 @@ describe('ProjectGitBadge', () => {
     }
   })
 
-  it('dismisses the branch popup when the user clicks outside or presses Escape', async () => {
-    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
-    await openBadge()
+  it('dismisses the branch popup on outside interaction even when bubbling is stopped', async () => {
+    render(<div>
+      <button type="button" data-testid="outside" onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>Outside</button>
+      <ProjectGitBadge sessionID="ses_1" busy={false}/>
+    </div>)
+    const outside = screen.getByTestId('outside')
 
-    fireEvent.pointerDown(document.body)
+    await openBadge()
+    fireEvent.pointerDown(outside)
     expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
 
     await openBadge()
-    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.keyDown(outside, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
+  })
+
+  it('dismisses the branch popup when focus leaves the control or the window blurs', async () => {
+    render(<div>
+      <button type="button" data-testid="focus-target">Outside</button>
+      <ProjectGitBadge sessionID="ses_1" busy={false}/>
+    </div>)
+    const outside = screen.getByTestId('focus-target')
+
+    await openBadge()
+    fireEvent.focusIn(outside)
+    expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
+
+    await openBadge()
+    fireEvent(window, new Event('blur'))
+    expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
+  })
+
+  it('Escape closes the whole branch popup even when the branch picker is open', async () => {
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    await openBadge()
+
+    const picker = document.querySelector<HTMLButtonElement>('.project-git-picker-trigger')
+    if (!picker) throw new Error('branch picker missing')
+    fireEvent.click(picker)
+    expect(await screen.findByRole('menu', { name: 'Branches disponíveis' })).toBeTruthy()
+
+    fireEvent.keyDown(picker, { key: 'Escape' })
+    expect(screen.queryByRole('menu', { name: 'Branches disponíveis' })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
   })
 

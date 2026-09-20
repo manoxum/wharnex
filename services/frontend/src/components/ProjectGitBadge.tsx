@@ -75,22 +75,38 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
 
   useEffect(() => {
     if (!open) { setBranchPickerOpen(false); return }
+
+    const closePopup = () => {
+      setBranchPickerOpen(false)
+      setOpen(false)
+    }
+    const isInsidePopup = (target: EventTarget | null) => target instanceof Node && rootRef.current?.contains(target) === true
     const onPointerDown = (event: PointerEvent) => {
-      if (!(event.target instanceof Node)) return
-      if (!rootRef.current?.contains(event.target)) setOpen(false)
-      else if (branchPickerOpen && !pickerRef.current?.contains(event.target)) setBranchPickerOpen(false)
+      if (!isInsidePopup(event.target)) {
+        closePopup()
+        return
+      }
+      if (branchPickerOpen && event.target instanceof Node && !pickerRef.current?.contains(event.target)) setBranchPickerOpen(false)
+    }
+    const onFocusIn = (event: FocusEvent) => {
+      if (!isInsidePopup(event.target)) closePopup()
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (branchPickerOpen) setBranchPickerOpen(false)
-        else setOpen(false)
-      }
+      if (event.key === 'Escape') closePopup()
     }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
+    const onWindowBlur = () => closePopup()
+
+    // Capture phase keeps dismissal reliable even when another workbench control
+    // stops propagation before the event reaches document in the bubble phase.
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('focusin', onFocusIn, true)
+    document.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('blur', onWindowBlur)
     return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('focusin', onFocusIn, true)
+      document.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('blur', onWindowBlur)
     }
   }, [open, branchPickerOpen])
 
