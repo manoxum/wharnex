@@ -75,20 +75,27 @@ describe('GitDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
+    vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [] })
   })
 
-  it('separates worktree changes from pending commits while keeping the other Git areas dedicated', async () => {
-    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    expect(await screen.findByText('Ficheiros alterados')).toBeTruthy()
-    expect(screen.getByRole('tab', { name: /Alterações pendentes/ }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.queryByText('feat: one')).toBeNull()
-    openChangesTab('Commits pendentes')
-    expect(await screen.findByText('feat: one')).toBeTruthy()
-    expect(screen.queryByText('Ficheiros alterados')).toBeNull()
-    expect(screen.queryByText('feat: applied by whx')).toBeNull()
+  it('separates worktree files from unpublished commits while keeping Wharnex records available in settings', async () => {
+    const unpublished = { ...overview().commits[0], subject: 'feat: unpublished local commit' }
+    vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [unpublished] })
 
-    expect(screen.queryByRole('tab', { name: /Por publicar/ })).toBeNull()
-    expect(await screen.findByText('Commits por publicar')).toBeTruthy()
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    expect(await screen.findByText('Alterações locais')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /Alterações pendentes/ }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('app.go')).toBeTruthy()
+    expect(screen.queryByText('feat: unpublished local commit')).toBeNull()
+    expect(screen.queryByText('feat: one')).toBeNull()
+    expect(screen.queryByText('Commits por publicar')).toBeNull()
+
+    openChangesTab('Commits pendentes')
+    expect(await screen.findByText('feat: unpublished local commit')).toBeTruthy()
+    expect(screen.queryByText('Alterações locais')).toBeNull()
+    expect(screen.queryByText('app.go')).toBeNull()
+    expect(screen.queryByText('feat: one')).toBeNull()
+    expect(screen.getByText('Commits por publicar')).toBeTruthy()
 
     openTab('Histórico')
     expect(screen.getByText('feat: applied by whx')).toBeTruthy()
@@ -104,16 +111,18 @@ describe('GitDrawer', () => {
     openTab('Definições')
     expect(screen.getByRole('group', { name: 'Modo de commit' })).toBeTruthy()
     expect(screen.getByText('https://github.com/org/repo.git')).toBeTruthy()
+    expect(screen.getByText('Registos Wharnex por commitar')).toBeTruthy()
+    expect(screen.getByText('feat: one')).toBeTruthy()
   })
 
 
   it('lists changed worktree files and opens their current diff in auto-commit or manual mode', async () => {
     vi.mocked(api.gitOverview).mockResolvedValue(overview({ commit_mode: 'auto', pending: [] }))
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    expect(await screen.findByText('Ficheiros alterados')).toBeTruthy()
+    expect(await screen.findByText('Alterações locais')).toBeTruthy()
     expect(screen.getByText('app.go')).toBeTruthy()
-    const diffButtons = screen.getAllByRole('button', { name: /Diff/ })
-    fireEvent.click(diffButtons[0])
+    const diffButton = screen.getByRole('button', { name: 'Abrir diff de app.go' })
+    fireEvent.click(diffButton)
     await waitFor(() => expect(api.gitFileDiff).toHaveBeenCalledWith('ses_1', 'app.go'))
     expect(await screen.findByRole('dialog', { name: 'Diff de app.go' })).toBeTruthy()
     expect(screen.getByTestId('change-diff-editor').textContent).toContain('app.go')
@@ -122,11 +131,11 @@ describe('GitDrawer', () => {
   it('manually commits selected worktree files even when auto-commit is enabled', async () => {
     vi.mocked(api.gitOverview).mockResolvedValue(overview({ commit_mode: 'auto', pending: [] }))
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar app.go' }))
     fireEvent.change(screen.getByPlaceholderText('ex.: fix(ui): ajustar painel Git'), { target: { value: 'fix(ui): ajustar painel Git' } })
-    fireEvent.click(screen.getByRole('button', { name: /Commitar selecionados \(1\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Commitar \(1\)/ }))
 
     await waitFor(() => expect(api.commitGitWorktree).toHaveBeenCalledWith('ses_1', 'fix(ui): ajustar painel Git', ['app.go']))
   })
@@ -139,7 +148,8 @@ describe('GitDrawer', () => {
     vi.mocked(api.gitUnpushedCommit).mockResolvedValue({ commit: newest, diff: 'diff --git a/new.ts b/new.ts\n+fixed' })
 
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
+    openChangesTab('Commits pendentes')
     expect(await screen.findByText('fix: newest unpublished')).toBeTruthy()
     expect(screen.getByText('feat: oldest unpublished')).toBeTruthy()
 
@@ -147,7 +157,7 @@ describe('GitDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Push selecionado \(1\)/ }))
     await waitFor(() => expect(api.gitPushSelected).toHaveBeenCalledWith('ses_1', [oldest.sha]))
 
-    fireEvent.click(screen.getAllByRole('button', { name: /Ver alterações/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir diff do commit 2222222' }))
     await waitFor(() => expect(api.gitUnpushedCommit).toHaveBeenCalledWith('ses_1', newest.sha))
     expect(await screen.findByRole('dialog', { name: 'Commit 2222222' })).toBeTruthy()
     expect(screen.getByText(/Request/)).toBeTruthy()
@@ -168,13 +178,14 @@ describe('GitDrawer', () => {
     vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'fix/no-upstream', has_upstream: false, commits: [local] })
 
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     const tab = Array.from(screen.getByRole('tablist', { name: 'Secções do Git' }).querySelectorAll<HTMLButtonElement>('[role=tab]')).find((candidate) => candidate.textContent?.includes('Alterações'))
     expect(tab?.querySelector('.git-tab-count')?.textContent).toBe('3')
     expect(screen.queryByRole('tab', { name: /Por publicar/ })).toBeNull()
 
+    openChangesTab('Commits pendentes')
     expect(await screen.findByText('fix: local unpublished commit')).toBeTruthy()
-    expect(screen.getByText(/Sem upstream, a lista abaixo mostra commits de HEAD/)).toBeTruthy()
+    expect(screen.getByText(/Sem upstream, estes são os commits locais/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Push selecionado/ })).toBeNull()
     expect((screen.getByRole('checkbox', { name: 'Selecionar fix: local unpublished commit' }) as HTMLInputElement).disabled).toBe(true)
 
@@ -185,7 +196,7 @@ describe('GitDrawer', () => {
   it('loads selected and all-branch commit timelines', async () => {
     vi.mocked(api.gitHistory).mockResolvedValue([{ sha: 'f1', short_sha: 'f1', subject: 'feat: feature timeline', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-11T10:00:00Z', parents: ['a2'], wharnex: false, merge: false, pushed: false }])
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Histórico')
 
     const branchSelect = screen.getByRole('listbox', { name: 'Branches do histórico' }) as HTMLSelectElement
@@ -203,6 +214,8 @@ describe('GitDrawer', () => {
     let finishCommit: ((value: { outcomes: Array<{ pending_id: string; subject: string; commit_sha: string }> }) => void) | undefined
     vi.mocked(api.commitGitPending).mockImplementationOnce(() => new Promise((resolve) => { finishCommit = resolve }))
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Definições')
     fireEvent.click(await screen.findByRole('button', { name: /Commitar todos/ }))
 
     const commitDialog = await screen.findByRole('dialog', { name: 'A criar commits' })
@@ -224,7 +237,7 @@ describe('GitDrawer', () => {
   it('renders remote Git failures as high-contrast operational errors', async () => {
     vi.mocked(api.gitFetch).mockRejectedValueOnce(new Error('fetch origin: /usr/bin/gh: not found'))
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Branches')
 
     fireEvent.click(screen.getByRole('button', { name: /Fetch/ }))
@@ -235,7 +248,7 @@ describe('GitDrawer', () => {
 
   it('fetches, pulls and switches branches from version control', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Branches')
 
     fireEvent.click(screen.getByRole('button', { name: /Fetch/ }))
@@ -255,7 +268,7 @@ describe('GitDrawer', () => {
 
   it('toggles the commit mode from settings', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Definições')
     fireEvent.click(screen.getByRole('button', { name: /Auto-commit/ }))
     await waitFor(() => expect(api.setGitCommitMode).toHaveBeenCalledWith('ses_1', 'auto'))
@@ -263,8 +276,8 @@ describe('GitDrawer', () => {
 
   it('commits every pending record, or only the selected ones', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
-    openChangesTab('Commits pendentes')
+    await screen.findByText('Alterações locais')
+    openTab('Definições')
     fireEvent.click(await screen.findByRole('button', { name: /Commitar todos/ }))
     await waitFor(() => expect(api.commitGitPending).toHaveBeenCalledWith('ses_1', []))
 
@@ -275,8 +288,8 @@ describe('GitDrawer', () => {
 
   it('labels discarding as removing only the record', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
-    openChangesTab('Commits pendentes')
+    await screen.findByText('Alterações locais')
+    openTab('Definições')
     const discard = (await screen.findAllByRole('button', { name: /Descartar registo/ }))[0]
     expect(discard.getAttribute('title')).toContain('ficheiros ficam intactos')
     fireEvent.click(discard)
@@ -285,7 +298,7 @@ describe('GitDrawer', () => {
 
   it('pushes the current branch and reports the outcome', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Branches')
     fireEvent.click(screen.getByRole('button', { name: /Push/ }))
     await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'main', false))
@@ -295,7 +308,7 @@ describe('GitDrawer', () => {
   it('explains that a push conflict published nothing', async () => {
     vi.mocked(api.gitPush).mockResolvedValue({ outcome: 'conflict', remote: 'origin', branch: 'main', conflict_id: 'cf_1' })
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Branches')
     fireEvent.click(screen.getByRole('button', { name: /Push/ }))
     expect((await screen.findByRole('status')).textContent).toContain('Nada foi publicado')
@@ -303,7 +316,7 @@ describe('GitDrawer', () => {
 
   it('merges the chosen branch', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Branches')
     const select = screen.getByRole('combobox', { name: 'Branch a fazer merge' })
     fireEvent.change(select, { target: { value: 'feature' } })
@@ -314,7 +327,7 @@ describe('GitDrawer', () => {
 
   it('shows branch divergence and local/remote counterpart flags and can switch from a remote row', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Branches')
     expect(screen.getAllByTitle('1 commit(s) para enviar').length).toBeGreaterThan(0)
     expect(screen.getByLabelText('Existe remotamente como origin/main')).toBeTruthy()
@@ -328,7 +341,7 @@ describe('GitDrawer', () => {
 
   it('merges selected remote branches into a remote target without changing the local checkout', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Branches')
     fireEvent.change(screen.getByRole('combobox', { name: 'Branch remota de destino' }), { target: { value: 'origin/main' } })
     const sources = screen.getByRole('listbox', { name: 'Branches remotas a integrar' }) as HTMLSelectElement
@@ -343,17 +356,16 @@ describe('GitDrawer', () => {
   it('warns when the repository has no Git identity for manual commits', async () => {
     vi.mocked(api.gitOverview).mockResolvedValue(overview({ has_identity: false }))
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    expect((await screen.findByRole('button', { name: /Commitar selecionados/ })).hasAttribute('disabled')).toBe(true)
-    openChangesTab('Commits pendentes')
-    expect(screen.getByRole('button', { name: /Commitar todos/ }).hasAttribute('disabled')).toBe(true)
+    expect((await screen.findByRole('button', { name: /Commitar \(0\)/ })).hasAttribute('disabled')).toBe(true)
     openTab('Definições')
+    expect(screen.getByRole('button', { name: /Commitar todos/ }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByText(/não tem/)).toBeTruthy()
   })
 
   it('locks the toggle when the project always commits', async () => {
     vi.mocked(api.gitOverview).mockResolvedValue(overview({ commit_mode: 'auto', commit_mode_fixed: true }))
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    await screen.findByText('Ficheiros alterados')
+    await screen.findByText('Alterações locais')
     openTab('Definições')
     const manual = screen.getByRole('button', { name: /Sem auto-commit/ })
     expect(manual.hasAttribute('disabled')).toBe(true)
