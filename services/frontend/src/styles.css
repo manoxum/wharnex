@@ -1425,7 +1425,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .message-heading, .message-meta { font-size: calc(9px * var(--ui-font-scale)); }
 .panel-kicker, .eyebrow { font-size: calc(10px * var(--ui-font-scale)); }
 
-.composer { min-height: 118px; max-height: min(420px, 54vh); height: 156px; overflow: auto; resize: vertical; scrollbar-width: thin; }
+.composer { min-height: 180px; max-height: min(420px, 54vh); height: 180px; overflow: auto; resize: vertical; scrollbar-width: thin; }
 .composer-scroll-area { min-height: 100%; display: flex; flex-direction: column; }
 .composer textarea { flex: 0 0 auto; width: 100%; min-height: 76px; max-height: none; padding: 14px 15px 9px; overflow: hidden; resize: none; font-size: calc(14px * var(--ui-font-scale)); line-height: 1.62; letter-spacing: .002em; }
 .composer-footer { margin-top: auto; padding: 6px 9px 9px; }
@@ -1510,7 +1510,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .composer-file-reference-chip b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 calc(8.5px * var(--ui-font-scale))/1.2 var(--mono-font-family); }
 .composer-file-reference-chip button { width: 18px; height: 18px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #71806b; cursor: pointer; }
 .composer-file-reference-chip button:hover { background: #d8e4cc; color: #263322; }
-.composer-editor-shell { position: relative; width: 100%; min-width: 0; }
+.composer-editor-shell { position: relative; flex: 1 1 auto; width: 100%; min-width: 0; min-height: 92px; display: flex; cursor: text; }
 .file-reference-menu { position: absolute; z-index: 30; left: 12px; bottom: 8px; width: min(520px, calc(100% - 24px)); overflow: hidden; border: 1px solid #bcc4b4; border-radius: 10px; background: rgba(249,250,246,.98); box-shadow: 0 16px 42px rgba(27,34,23,.18); backdrop-filter: blur(10px); }
 .file-reference-menu.directive-menu-layer { position: fixed; z-index: 340; right: auto; bottom: auto; box-sizing: border-box; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .file-reference-menu header { min-height: 34px; padding: 6px 9px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #dce1d7; }
@@ -3794,10 +3794,11 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
    themes behaves identically to before. Quill's own chrome (border, focus
    ring, toolbar spacing) is stripped down to nothing here — the composer's
    own `.composer-editor-shell` supplies the visible box. */
-.composer-rich-editor { width: 100%; min-width: 0; }
-.composer-rich-editor .ql-container.ql-bubble { border: 0; font: inherit; width: 100%; min-width: 0; }
+.composer-rich-editor { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 100%; display: flex; }
+.composer-rich-editor > .quill { flex: 1 1 auto; min-height: 100%; display: flex; flex-direction: column; }
+.composer-rich-editor .ql-container.ql-bubble { flex: 1 1 auto; border: 0; font: inherit; width: 100%; min-width: 0; min-height: 100%; }
 .composer-rich-editor .ql-editor {
-  width: 100%; min-width: 0; box-sizing: border-box; min-height: 76px; padding: 14px 15px 9px; border: 0;
+  width: 100%; min-width: 0; box-sizing: border-box; min-height: 100%; padding: 14px 15px 9px; border: 0;
   font: inherit; font-size: calc(14px * var(--ui-font-scale)); line-height: 1.62; letter-spacing: .002em;
   white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; tab-size: 4;
   color: var(--theme-text);
