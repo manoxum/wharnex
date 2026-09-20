@@ -488,6 +488,22 @@ export type ChatAgentTask = {
   updated_at: string
 }
 
+// One durable decision recorded against a chat-agent task's own lifecycle
+// (recovery reload, keep-continue wake-up, bundle validated/rejected, human
+// escalation, manual/automatic continuation). See adr/ADR-0064.
+export type ChatAgentTaskEvent = {
+  id: string
+  task_id: string
+  request_id: string
+  root_request_id: string
+  session_id: string
+  chat_id: string
+  project_id: string
+  type: string
+  occurred_at: string
+  data: Record<string, unknown>
+}
+
 export type ChatAgentQueueSummary = {
   queued: number
   counts: Record<string, number>
