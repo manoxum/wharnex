@@ -1176,6 +1176,4 @@ dwdw
  wdw dw dwdw
 
  wwddwdwdw
-
- wdwdwdw
- dwdw
+mnkh
