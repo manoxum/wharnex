@@ -229,6 +229,11 @@ const chatGPTAccountProviders = new ChatGPTAccountProviderChain({})
 const EXPECTED_BUNDLE_TTL_MS = 60 * 60 * 1000
 const DOM_DOWNLOAD_POLL_MS = 2_000
 const DOM_DOWNLOAD_RETRY_MS = 5_000
+// Bounds how long a fired download click may sit "in flight" waiting for
+// Chromium's will-download before it is treated as stalled. Real downloads
+// resolve well inside this window; a click that hit the wrong element and
+// produced no download at all must not wedge the expectation forever.
+const DOWNLOAD_INFLIGHT_TIMEOUT_MS = 20_000
 // Live-observed on a large draining backlog: due-task demand flapped above
 // and below zero from one 2s poll to the next, so a pool grown for a burst
 // of demand was torn back down before that demand's own next tick, then
@@ -5223,6 +5228,18 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
       return { status: 'waiting', delayMs: DOM_DOWNLOAD_RETRY_MS, observation: true }
     }
   }
+  // A click was already fired for this exact bundle and Chromium has not yet
+  // reported will-download/done for it. Treating this tick as "complete
+  // without a bundle" below would race that in-flight click and enqueue an
+  // automatic continuation for a request that already produced a bundle,
+  // moments before it was downloaded. Wait for it to resolve, bounded in case
+  // the click missed a real download affordance and will-download never fires.
+  if (expected.downloadInFlight) {
+    const pendingMs = now - Number(expected.lastDOMClick || now)
+    if (pendingMs < DOWNLOAD_INFLIGHT_TIMEOUT_MS) return { status: 'waiting', delayMs: DOM_DOWNLOAD_RETRY_MS, observation: true }
+    expected.downloadInFlight = false
+    console.warn(`[chatgpt-bundle-dom] download-stalled key=${key} file=${expected.filename} pendingMs=${pendingMs}`)
+  }
   if (keepFlowing) {
     noteChatGPTRecoveryAssistantCount(expected.recovery, completion?.assistantCount, now)
     const recoveryAction = chooseChatGPTRecoveryAction(expected.recovery, {
@@ -6571,6 +6588,21 @@ async function pollExpectedChatGPTDownloadKey(key) {
           console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename} mode=${clickMode}`)
           return
         }
+      }
+
+      // A click was already fired for this exact bundle and Chromium has not
+      // yet reported will-download/done for it. The response is not "complete
+      // without a bundle" merely because that async download hasn't resolved
+      // by this tick: falling through to completion/recovery below raced the
+      // in-flight click and fired an automatic "keep continue" for a request
+      // that had already produced a bundle, moments before it was downloaded.
+      // Wait for the download to resolve, bounded in case the click missed a
+      // real download affordance and will-download never fires at all.
+      if (expected.downloadInFlight) {
+        const pendingMs = now - Number(expected.lastDOMClick || now)
+        if (pendingMs < DOWNLOAD_INFLIGHT_TIMEOUT_MS) return
+        expected.downloadInFlight = false
+        console.warn(`[chatgpt-bundle-dom] download-stalled key=${key} file=${expected.filename} pendingMs=${pendingMs}`)
       }
 
       // A restored conversation may contain many historical assistant turns.
