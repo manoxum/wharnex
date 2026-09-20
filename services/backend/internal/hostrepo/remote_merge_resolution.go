@@ -88,6 +88,16 @@ func CleanupRemoteMergeResolution(root string, workspace RemoteMergeResolutionWo
 // second independent conflict is reported without publishing a partial merge;
 // the operator can retry with a narrower source set if necessary.
 func FinishRemoteMergeResolution(ctx context.Context, root string, workspace RemoteMergeResolutionWorkspace, identities ...CommitIdentity) (RemoteBranchMergeResult, error) {
+	return FinishRemoteMergeResolutionWithPush(ctx, root, workspace, PushCommit, identities...)
+}
+
+// FinishRemoteMergeResolutionWithPush completes a resolved remote merge using
+// the supplied publisher. This keeps authenticated remote transport in the app
+// layer while preserving the direct-Git default for hostrepo callers.
+func FinishRemoteMergeResolutionWithPush(ctx context.Context, root string, workspace RemoteMergeResolutionWorkspace, push PushCommitFunc, identities ...CommitIdentity) (RemoteBranchMergeResult, error) {
+	if push == nil {
+		return RemoteBranchMergeResult{}, errors.New("remote merge push transport is required")
+	}
 	for _, sourceRef := range workspace.RemainingSources {
 		merge, err := MergeBranch(ctx, workspace.Path, sourceRef, identities...)
 		if err != nil {
@@ -101,13 +111,13 @@ func FinishRemoteMergeResolution(ctx context.Context, root string, workspace Rem
 	if err != nil {
 		return RemoteBranchMergeResult{}, fmt.Errorf("resolve remote merge result: %s", head)
 	}
-	push, err := PushCommit(ctx, root, workspace.TargetRemote, workspace.TargetBranch, head)
+	publish, err := push(ctx, root, workspace.TargetRemote, workspace.TargetBranch, head)
 	if err != nil {
 		return RemoteBranchMergeResult{}, err
 	}
-	result := RemoteBranchMergeResult{Outcome: "merged", TargetRef: workspace.TargetRef, SourceRefs: append([]string(nil), workspace.SourceRefs...), CommitSHA: head, PushOutcome: string(push.Outcome), Detail: push.Detail}
-	if !push.Succeeded() {
-		result.Outcome = string(push.Outcome)
+	result := RemoteBranchMergeResult{Outcome: "merged", TargetRef: workspace.TargetRef, SourceRefs: append([]string(nil), workspace.SourceRefs...), CommitSHA: head, PushOutcome: string(publish.Outcome), Detail: publish.Detail}
+	if !publish.Succeeded() {
+		result.Outcome = string(publish.Outcome)
 	}
 	return result, nil
 }

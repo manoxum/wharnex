@@ -111,7 +111,7 @@ func (s *Service) concludeRemoteGitConflictLocked(ctx context.Context, sessionID
 	if _, err := hostrepo.CompleteMergeResolution(ctx, remoteWorkspace.Path, resolution.Paths, message, identity); err != nil {
 		return item, err
 	}
-	result, err := hostrepo.FinishRemoteMergeResolution(ctx, item.ProjectPath, remoteWorkspace, identity)
+	result, err := hostrepo.FinishRemoteMergeResolutionWithPush(ctx, item.ProjectPath, remoteWorkspace, gitRemotePushCommit, identity)
 	if err != nil {
 		return item, err
 	}

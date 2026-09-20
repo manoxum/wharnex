@@ -385,7 +385,7 @@ func (s *Service) MergeRemoteBranches(ctx context.Context, sessionID, targetRef 
 		}
 	}
 	s.bus.Publish(sessionID, "git.remote_merge_started", map[string]any{"target": targetRef, "sources": sourceRefs})
-	result, err := hostrepo.MergeRemoteBranches(ctx, item.ProjectPath, targetRef, sourceRefs, s.projectCommitIdentity(ctx, item.ProjectPath))
+	result, err := hostrepo.MergeRemoteBranchesWithPush(ctx, item.ProjectPath, targetRef, sourceRefs, gitRemotePushCommit, s.projectCommitIdentity(ctx, item.ProjectPath))
 	if err != nil {
 		return result, err
 	}

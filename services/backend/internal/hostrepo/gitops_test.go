@@ -808,3 +808,70 @@ func TestLogPageIncludesLineStatsAndOffset(t *testing.T) {
 		t.Fatalf("unexpected numstat for newest commit: %+v", first[0])
 	}
 }
+
+func TestMergeRemoteBranchesUsesInjectedPushTransport(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+	git(t, root, "branch", "target")
+	git(t, root, "push", "-q", "origin", "target")
+
+	git(t, root, "checkout", "-qb", "source")
+	write(t, root, "source.txt", "source\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: source")
+	git(t, root, "push", "-q", "origin", "source")
+	git(t, root, "checkout", "-q", "main")
+
+	called := 0
+	publisher := func(ctx context.Context, gotRoot, gotRemote, gotBranch, sha string) (PushResult, error) {
+		called++
+		if gotRoot != root || gotRemote != "origin" || gotBranch != "target" || len(sha) != 40 {
+			t.Fatalf("unexpected publish request: root=%q remote=%q branch=%q sha=%q", gotRoot, gotRemote, gotBranch, sha)
+		}
+		return PushResult{Outcome: PushOutcomePushed, Remote: gotRemote, Branch: gotBranch}, nil
+	}
+	result, err := MergeRemoteBranchesWithPush(context.Background(), root, "origin/target", []string{"origin/source"}, publisher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 {
+		t.Fatalf("expected one injected publish, got %d", called)
+	}
+	if result.Outcome != "merged" || result.PushOutcome != string(PushOutcomePushed) {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestFinishRemoteMergeResolutionUsesInjectedPushTransport(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	head := git(t, root, "rev-parse", "HEAD")
+	workspace := RemoteMergeResolutionWorkspace{
+		Path:         root,
+		TargetRef:    "origin/main",
+		TargetRemote: "origin",
+		TargetBranch: "main",
+		SourceRefs:   []string{"feature"},
+	}
+	called := 0
+	publisher := func(ctx context.Context, gotRoot, gotRemote, gotBranch, sha string) (PushResult, error) {
+		called++
+		if gotRoot != root || gotRemote != "origin" || gotBranch != "main" || sha != head {
+			t.Fatalf("unexpected publish request: root=%q remote=%q branch=%q sha=%q", gotRoot, gotRemote, gotBranch, sha)
+		}
+		return PushResult{Outcome: PushOutcomePushed, Remote: gotRemote, Branch: gotBranch}, nil
+	}
+	result, err := FinishRemoteMergeResolutionWithPush(context.Background(), root, workspace, publisher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 {
+		t.Fatalf("expected one injected publish, got %d", called)
+	}
+	if result.CommitSHA != head || result.PushOutcome != string(PushOutcomePushed) {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
