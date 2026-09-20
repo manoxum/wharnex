@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AutomationMode, BundleQuota, ExecutionMode, WorkspaceMode } from '../types'
 import { api } from '../lib/api'
+import { automationModeLabel, isAutomaticAutomationMode } from '../lib/automationMode'
 import { Icon } from './Icon'
 
 export function WorkbenchStatusBar({ mode, executionMode, automationMode, terminalOpen, activeExecutions, bundleRefreshKey = '' }: {
@@ -23,7 +24,7 @@ export function WorkbenchStatusBar({ mode, executionMode, automationMode, termin
   return <footer className="workbench-status-bar" aria-label="Estado do workspace">
     <span><Icon name="workspace" size={11}/>{mode === 'agent' ? 'Agent' : mode === 'editor' ? 'Editor' : 'Orchestrator'}</span>
     <span><Icon name={executionMode === 'protected' ? 'shield' : 'terminal'} size={11}/>{executionMode === 'protected' ? 'Protected' : 'Host direto'}</span>
-    <span><Icon name={automationMode === 'auto' ? 'play' : 'agent'} size={11}/>{automationMode === 'auto' ? 'Auto' : 'Manual'}</span>
+    <span><Icon name={isAutomaticAutomationMode(automationMode) ? 'play' : 'agent'} size={11}/>{automationModeLabel(automationMode)}</span>
     <span className={terminalOpen ? 'active' : ''}><Icon name="terminal" size={11}/>{terminalOpen ? 'Terminal aberto' : 'Terminal recolhido'}</span>
     {activeExecutions > 0 && <span className="active"><Icon name="refresh" size={11}/>{activeExecutions} em execução</span>}
     {bundleQuota && <BundleConsumption quota={bundleQuota}/>}

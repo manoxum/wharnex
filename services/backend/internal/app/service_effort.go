@@ -74,7 +74,7 @@ func conflictResolutionExhausted(item domain.Session) bool {
 	if policy.MaxAttempts > 0 && item.ConflictAttempt >= policy.MaxAttempts {
 		return true
 	}
-	return item.AutomationMode == domain.AutomationModeAuto && !effortAttemptAvailable(item)
+	return domain.AutomationModeIsAutomatic(item.AutomationMode) && !effortAttemptAvailable(item)
 }
 
 func effortAttemptLabel(item domain.Session, next int) string {
@@ -87,5 +87,5 @@ func effortAttemptLabel(item domain.Session, next int) string {
 
 func shouldContinueImprovement(item domain.Session) bool {
 	policy := policyForEffort(item.EffortLevel)
-	return item.AutomationMode == domain.AutomationModeAuto && policy.ContinuousImprovement && effortAttemptAvailable(item)
+	return domain.AutomationModeIsAutomatic(item.AutomationMode) && policy.ContinuousImprovement && effortAttemptAvailable(item)
 }

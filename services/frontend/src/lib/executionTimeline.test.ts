@@ -133,3 +133,12 @@ it('uses the latest terminal lifecycle result instead of any historical failure'
     event('2', 'execution.started'),
   ]))).toBe('active')
 })
+
+it('renders auto-approval as explicit audit evidence', () => {
+  const entries = buildExecutionTimeline([{
+    id: 'evt-auto-approval', session_id: 'ses-1', type: 'automation.approval_auto_granted', timestamp: '2026-09-20T05:00:00Z',
+    data: { plan_id: 'plan-auto', risk: 'medium', transport: 'provider' },
+  }])
+  expect(entries).toHaveLength(1)
+  expect(entries[0]).toMatchObject({ title: 'Aprovação automática', badge: 'AUTO', tone: 'ok', detail: 'medium' })
+})

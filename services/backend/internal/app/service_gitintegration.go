@@ -540,7 +540,7 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 		} else {
 			current.ConflictAttempt++
 		}
-		if current.AutomationMode == domain.AutomationModeAuto {
+		if domain.AutomationModeIsAutomatic(current.AutomationMode) {
 			current.AutomationAttempt = automaticAttemptsSpent(*current) + 1
 		}
 		current.IntegrationConflict = &resolution

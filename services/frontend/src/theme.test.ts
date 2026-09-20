@@ -33,6 +33,7 @@ describe('complete colour themes', () => {
     expect(theme).toContain("[data-theme='dark'] .composer-round-action.mode-unprotected.selected")
     expect(theme).toContain("[data-theme='dark'] .composer-round-action.mode-manual.selected")
     expect(theme).toContain("[data-theme='dark'] .composer-round-action.mode-auto.selected")
+    expect(theme).toContain("[data-theme='dark'] .composer-round-action.mode-auto-approve.selected")
   })
 
   it('keeps the dark palette neutral and overrides status notices with sufficient contrast', () => {

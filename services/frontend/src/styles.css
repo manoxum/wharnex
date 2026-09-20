@@ -1246,6 +1246,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .composer-round-action.mode-unprotected.selected { border-color: #c98a80; background: #f6e2de; color: #803d34; box-shadow: inset 0 0 0 1px rgba(128,61,52,.07); }
 .composer-round-action.mode-manual.selected { border-color: #c3a36b; background: #f4ead7; color: #6b5126; box-shadow: inset 0 0 0 1px rgba(107,81,38,.07); }
 .composer-round-action.mode-auto.selected { border-color: #89a978; background: #e4efe0; color: #3b622f; box-shadow: inset 0 0 0 1px rgba(59,98,47,.07); }
+.composer-round-action.mode-auto-approve.selected { border-color: #7e86b8; background: #e8e8f6; color: #424a82; box-shadow: inset 0 0 0 1px rgba(66,74,130,.08); }
 .composer-round-action.mode-scraper.selected { border-color: #8b7fc9; background: #e7e3f7; color: #423583; box-shadow: inset 0 0 0 1px rgba(66,53,131,.08); }
 .composer-round-action.mode-manual-transport.selected { border-color: #6ba3a3; background: #dcf0ef; color: #23615f; box-shadow: inset 0 0 0 1px rgba(35,97,95,.07); }
 .composer-round-action.plan-first.selected { background: #243044; color: #bcd9ff; border-color: #334c70; }

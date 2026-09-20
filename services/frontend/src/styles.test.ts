@@ -252,6 +252,7 @@ describe('composer layout CSS', () => {
     const unprotectedMode = lastRule('.composer-round-action.mode-unprotected.selected')
     const manualMode = lastRule('.composer-round-action.mode-manual.selected')
     const autoMode = lastRule('.composer-round-action.mode-auto.selected')
+    const autoApproveMode = lastRule('.composer-round-action.mode-auto-approve.selected')
 
     expect(protectedMode).toContain('border-color: #7f9fbd')
     expect(protectedMode).toContain('background: #e2edf7')
@@ -261,6 +262,8 @@ describe('composer layout CSS', () => {
     expect(manualMode).toContain('background: #f4ead7')
     expect(manualMode).toContain('color: #6b5126')
     expect(autoMode).toContain('background: #e4efe0')
+    expect(autoApproveMode).toContain('border-color: #7e86b8')
+    expect(autoApproveMode).toContain('background: #e8e8f6')
   })
 
   it('gives the chat transport mode icons their own distinct palette from execution/automation', () => {

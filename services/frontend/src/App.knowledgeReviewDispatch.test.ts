@@ -19,7 +19,7 @@ describe('App knowledge-review dispatch', () => {
     const effectEnd = source.indexOf('}, [session, activeChatOwnsSession, activeChatId, chats])', start)
     const body = source.slice(effectStart, effectEnd)
     expect(body).toContain("session.pending_knowledge_review_request_id")
-    expect(body).toContain("session.automation_mode !== 'auto'")
+    expect(body).toContain('!isAutomaticAutomationMode(session.automation_mode)')
     expect(body).toContain('transportPlannerContinuation(session, targetChat)')
     expect(body).toContain('knowledge:${targetChat.id}:${session.pending_knowledge_review_request_id}')
     // The comment above may mention session.state in prose (explaining why

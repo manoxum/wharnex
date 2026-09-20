@@ -2718,6 +2718,9 @@ func TestAutoModeRequiresProtected(t *testing.T) {
 	if _, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeUnprotected, domain.AutomationModeAuto); err == nil {
 		t.Fatal("expected auto/unprotected rejection")
 	}
+	if _, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeUnprotected, domain.AutomationModeAutoApprove); err == nil {
+		t.Fatal("expected auto_approve/unprotected rejection")
+	}
 }
 
 func TestStartSessionCreatesWhanessProjectConfig(t *testing.T) {
@@ -3108,6 +3111,38 @@ func TestAutoApprovalPauseReturnsActionableError(t *testing.T) {
 	result := service.runAutomaticPlan(context.Background(), started.ID, "test")
 	if !strings.Contains(result.AutoError, "still requires explicit approval") || result.AutoExecuted {
 		t.Fatalf("approval gate should be visible and non-executing: result=%#v session=%#v", result, current)
+	}
+}
+
+func TestAutoApproveExecutesEligibleApprovalGates(t *testing.T) {
+	root := t.TempDir()
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV2, PlanID: "auto-approved", Status: "ready", Summary: "auto approved", Document: "## Resultado\nExecutar a verificação solicitada.", Risk: "medium", RequiresApproval: true,
+		ImpactFiles: []string{}, Dependencies: []domain.PlanDependency{}, SystemTools: []domain.PlanSystemTool{},
+		Operations: []domain.Operation{{Type: "command", Command: appCommand("go", "test", "./...")}},
+	}
+	bus := audit.NewBus()
+	service := NewService(session.NewStore(), bus, contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAutoApprove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, updated, err := service.SubmitMessage(context.Background(), started.ID, "Execute com aprovação automática")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State != "verified" || updated.LastExecution == nil || !updated.LastExecution.Success {
+		t.Fatalf("auto_approve should execute an eligible approval-gated plan: %#v", updated)
+	}
+	if updated.ExecutionApprovedRootID == "" {
+		t.Fatalf("auto_approve must record consent through the normal execution path: %#v", updated)
+	}
+	found := false
+	for _, event := range bus.History(started.ID) {
+		found = found || event.Type == "automation.approval_auto_granted"
+	}
+	if !found {
+		t.Fatal("expected an audit event for the automatic approval")
 	}
 }
 

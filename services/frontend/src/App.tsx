@@ -1,6 +1,7 @@
 import { type ComponentProps, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
+import { isAutomaticAutomationMode, isAutoApproveAutomationMode } from './lib/automationMode'
 import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
 import type { ReasoningEffort } from './types'
 import { Bootstrap } from './components/Bootstrap'
@@ -23,7 +24,7 @@ import { Icon } from './components/Icon'
 import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, archiveSavedChat as archiveStoredSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat,
-  loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveChatForLater as saveStoredChatForLater, saveComposerDraft, saveComposerFileDraft,
+  loadAutomationMode, loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveChatForLater as saveStoredChatForLater, saveComposerDraft, saveComposerFileDraft,
   conflictChatGPTCacheKey, durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
@@ -537,7 +538,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         const known = hydrated.active
         const selected = known.find((chat) => chat.id === active.chatId) || known[0]
         const projectExecutionMode: ExecutionMode = 'protected'
-        const projectAutomationMode: AutomationMode = 'auto'
+        const projectAutomationMode: AutomationMode = loadAutomationMode(active.projectPath)
         const projectEffortLevel: EffortLevel = loadEffortLevel(active.projectPath)
         let restored: Session
         try {
@@ -689,7 +690,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [session, activeChatId, chats])
 
   useEffect(() => {
-	if (!session || !activeChatOwnsSession || !['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
+	if (!session || !activeChatOwnsSession || !['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state) || !isAutomaticAutomationMode(session.automation_mode) || !session.last_manual_prompt || !activeChatId) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
 	if (session.state === 'conflict_resolution_pending') void submitConflictPrompt(session, targetChat)
@@ -712,7 +713,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     // that, so this is keyed on its own field instead of joining the
     // repair/conflict/baseline dispatch above, which would either compete
     // with those states or require "restoring" state afterward.
-    if (!session || !activeChatOwnsSession || !session.pending_knowledge_review_request_id || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
+    if (!session || !activeChatOwnsSession || !session.pending_knowledge_review_request_id || !isAutomaticAutomationMode(session.automation_mode) || !session.last_manual_prompt || !activeChatId) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
     const dispatchKey = `knowledge:${targetChat.id}:${session.pending_knowledge_review_request_id}`
@@ -727,7 +728,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   async function syncSessionModes(value: Session, nextExecution: ExecutionMode, nextAutomation: AutomationMode, nextEffort: EffortLevel = effortLevel) {
     let current = value
     const currentAutomation = current.automation_mode || 'manual'
-    if (currentAutomation === 'auto' && nextAutomation === 'manual') current = await api.setAutomationMode(current.id, 'manual')
+    if (isAutomaticAutomationMode(currentAutomation) && nextAutomation === 'manual') current = await api.setAutomationMode(current.id, 'manual')
     if (current.execution_mode !== nextExecution) current = await api.setExecutionMode(current.id, nextExecution)
     if ((current.automation_mode || 'manual') !== nextAutomation) current = await api.setAutomationMode(current.id, nextAutomation)
     if ((current.effort_level || 'medium') !== nextEffort) current = await api.setEffortLevel(current.id, nextEffort)
@@ -738,7 +739,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setBusy(true); setError(undefined)
     try {
       const projectExecutionMode: ExecutionMode = 'protected'
-      const projectAutomationMode: AutomationMode = 'auto'
+      const projectAutomationMode: AutomationMode = loadAutomationMode(projectPath)
       const projectEffortLevel: EffortLevel = loadEffortLevel(projectPath)
       const created = await api.createSession(projectPath, projectExecutionMode, projectAutomationMode, undefined, projectEffortLevel)
       rememberRecent(created.project_path); setRecent(loadRecentWorkspaces())
@@ -1353,7 +1354,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             meta: notice.relevant ? 'Concorrência · revisão necessária' : 'Concorrência · sem interseção conhecida',
           })
         }
-        if (notice.relevant && peer.state === 'baseline_update_pending' && peer.last_manual_prompt && peer.automation_mode === 'auto') {
+        if (notice.relevant && peer.state === 'baseline_update_pending' && peer.last_manual_prompt && isAutomaticAutomationMode(peer.automation_mode)) {
           const dispatchKey = `dispatch:${target.id}:${peer.last_request_id || notice.id}`
           if (baselineSeenRef.current.has(dispatchKey)) return
           baselineSeenRef.current.add(dispatchKey)
@@ -1573,7 +1574,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		  // work. A transcript note is not delivery evidence: the durable Worker
 		  // may subsequently fail. Reconcile the queue itself, retry an initial
 		  // write at most three times, and never duplicate an accepted submit.
-		  const automaticContinuation = candidate.automation_mode === 'auto' && candidate.last_manual_prompt && (
+		  const automaticContinuation = isAutomaticAutomationMode(candidate.automation_mode) && candidate.last_manual_prompt && (
 			['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)
 			|| (candidate.state === 'awaiting_plan' && Number(candidate.remote_recovery_attempt || 0) > 0)
 		  )
@@ -1770,7 +1771,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           if (activeChatIdRef.current === targetChat.id) setTransportProgress('A preparar o bundle ZIP e a publicar apenas os túneis selecionados…')
           const prepared = await bridge.chatgpt.preparePrompt({
             cacheKey: targetChat.id, workspaceChatId: targetChat.id, text: prompt, transport, tunnelInstanceIds, bootstrapText: message, url: targetChat.chatgptUrl, sessionId: response.session.id,
-            requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: automationMode === 'auto',
+            requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: isAutomaticAutomationMode(automationMode),
             expectedFilename: expectedResponseBundleName(prompt, requestId),
             projectFiles,
             contextSha256: sessionContextSHA(response.session), lastContextSha256: targetChat.lastContextSha256,
@@ -2173,7 +2174,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       acceptSessionForChat(targetChat, updated)
       if (targetChat.id === activeChatIdRef.current) setManualPrompt(updated.last_manual_prompt || '')
       const waitingForKnowledgeReview = submission.auto_applied && Boolean(updated.pending_knowledge_review_request_id)
-      if (waitingForKnowledgeReview && updated.automation_mode === 'auto' && updated.last_manual_prompt) {
+      if (waitingForKnowledgeReview && isAutomaticAutomationMode(updated.automation_mode) && updated.last_manual_prompt) {
         const dispatchKey = `knowledge:${targetChat.id}:${updated.pending_knowledge_review_request_id}`
         if (!baselineSeenRef.current.has(dispatchKey)) {
           baselineSeenRef.current.add(dispatchKey)
@@ -2189,7 +2190,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (waitingForKnowledgeReview) {
         appendChatItem(targetChat, updated.project_path, {
           id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-          text: updated.automation_mode === 'auto' ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.',
+          text: isAutomaticAutomationMode(updated.automation_mode) ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.',
           meta: 'Host aplicado · revisão final',
         })
       } else if (appliedTerminalPackage) {
@@ -2231,7 +2232,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         workflowSubmitted = await submitWorkflowPrompt(updated, targetChat)
       } else if (updated.state === 'repair_pending' && updated.last_manual_prompt) {
         await submitRepairPrompt(updated, targetChat)
-      } else if (updated.state === 'baseline_update_pending' && updated.last_manual_prompt && updated.automation_mode === 'auto') {
+      } else if (updated.state === 'baseline_update_pending' && updated.last_manual_prompt && isAutomaticAutomationMode(updated.automation_mode)) {
         const dispatchKey = `dispatch:${targetChat.id}:${updated.last_request_id || requestId}`
         if (!baselineSeenRef.current.has(dispatchKey)) {
           baselineSeenRef.current.add(dispatchKey)
@@ -2620,7 +2621,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       markContextDirtyForOtherChats(updated.project_path, targetChat.id)
       void syncPeerBaselineUpdates(updated.project_path, targetChat.id)
       const waitingForKnowledgeReview = Boolean(updated.pending_knowledge_review_request_id)
-      if (waitingForKnowledgeReview && updated.automation_mode === 'auto' && updated.last_manual_prompt) {
+      if (waitingForKnowledgeReview && isAutomaticAutomationMode(updated.automation_mode) && updated.last_manual_prompt) {
         const dispatchKey = `knowledge:${targetChat.id}:${updated.pending_knowledge_review_request_id}`
         if (!baselineSeenRef.current.has(dispatchKey)) {
           baselineSeenRef.current.add(dispatchKey)
@@ -2632,7 +2633,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           }
         }
       }
-      const notice: ChatItem = { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: waitingForKnowledgeReview ? (updated.automation_mode === 'auto' ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.') : (updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.'), meta: waitingForKnowledgeReview ? 'Host aplicado · revisão final' : (updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado') }
+      const notice: ChatItem = { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: waitingForKnowledgeReview ? (isAutomaticAutomationMode(updated.automation_mode) ? 'Alterações incorporadas no host. A revisão final foi enviada ao ChatGPT antes de apresentar o resultado aplicado.' : 'Alterações incorporadas no host. A revisão final está preparada; envie-a ao ChatGPT para concluir a apresentação.') : (updated.self_evolution ? 'Auto-evolução aplicada: a sandbox passou e o host foi reconstruído. O novo runtime só será ativado quando confirmar o reinício.' : 'Patch aplicado ao projeto real após a verificação da sandbox.'), meta: waitingForKnowledgeReview ? 'Host aplicado · revisão final' : (updated.self_evolution ? 'AUTO-EVOLUÇÃO · reinício pendente' : 'Host alterado') }
       mutateChatItems(targetChat, updated.project_path, (current) => mergeAppliedChangePresentationItems([...current, notice], waitingForKnowledgeReview ? [] : appliedChangePresentationItems(updated)))
     } catch (e) {
       setError(messageOf(e))
@@ -2791,8 +2792,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (targetSession.self_evolution && next === 'unprotected') { setError('A auto-evolução do próprio Wharnex é bloqueada em Unprotected. Use Protected para manter sandbox, build transacional e rollback.'); return }
     let nextAutomation = automationMode
     if (next === 'unprotected') {
-      const warning = automationMode === 'auto'
-        ? 'Ativar UNPROTECTED? O modo Auto será desativado porque Auto sempre exige sandbox Protected antes de aplicar no host.'
+      const warning = isAutomaticAutomationMode(automationMode)
+        ? 'Ativar UNPROTECTED? O modo automático será desativado porque Auto e Auto + Aprovar sempre exigem sandbox Protected antes de aplicar no host.'
         : 'Ativar UNPROTECTED para este projeto? Os planos do Agent poderão alterar ficheiros e executar comandos diretamente no host, sem sandbox e sem etapa Apply.'
       if (!(await confirmDialog({
         title: 'Ativar Unprotected?',
@@ -2810,7 +2811,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, next, nextAutomation) } catch { /* stale chat is repaired on selection */ }
       }))
-      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'unprotected' ? 'Modo Unprotected ativado. Auto foi desativado; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' })
+      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'unprotected' ? 'Modo Unprotected ativado. A automação foi desativada; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -2819,22 +2820,32 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
-    if (next === 'auto' && !(await confirmDialog({
-      title: 'Ativar modo Auto?',
-      message: 'Somente pedidos classificados como mudança, com plano válido, serão executados na sandbox Protected e aplicados após verificação. Perguntas e análises nunca serão executadas. No ChatGPT web, ainda é necessário iniciar o download do resultado; com provider API não há download.',
-      tone: 'warning',
-      confirmLabel: 'Ativar Auto',
-    }))) return
+    if (next !== 'manual') {
+      const autoApprove = isAutoApproveAutomationMode(next)
+      if (!(await confirmDialog({
+        title: autoApprove ? 'Ativar Auto + Aprovar?' : 'Ativar modo Auto?',
+        message: autoApprove
+          ? 'Mudanças com plano ready e permitidas pela Policy serão executadas em Protected sem pedir o consentimento inicial do contrato nem a aprovação de Policy. Bloqueios da Policy, autorizações interativas/debug, reparos de infraestrutura e a confirmação de reinício da auto-evolução continuam explícitos. Perguntas e análises nunca são executadas.'
+          : 'Somente pedidos classificados como mudança, com plano válido, serão executados na sandbox Protected e aplicados após verificação. Perguntas e análises nunca serão executadas. No ChatGPT web, ainda é necessário iniciar o download do resultado; com provider API não há download.',
+        tone: 'warning',
+        confirmLabel: autoApprove ? 'Ativar Auto + Aprovar' : 'Ativar Auto',
+      }))) return
+    }
     setBusy(true); setError(undefined)
     try {
-      const nextExecution: ExecutionMode = next === 'auto' ? 'protected' : executionMode
+      const nextExecution: ExecutionMode = isAutomaticAutomationMode(next) ? 'protected' : executionMode
       const updated = await syncSessionModes(targetSession, nextExecution, next)
       acceptSessionForChat(targetChat, updated); setExecutionMode(nextExecution); setAutomationMode(next)
       saveExecutionMode(updated.project_path, nextExecution); saveAutomationMode(updated.project_path, next)
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, nextExecution, next) } catch { /* stale chat is repaired on selection */ }
       }))
-      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'auto' ? 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.' : 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: next === 'auto' ? 'AUTO · Protected' : 'Manual' })
+      const notice = next === 'auto_approve'
+        ? { text: 'Modo Auto + Aprovar ativado. Mudanças válidas e permitidas seguem Protected e as aprovações de execução elegíveis são concedidas automaticamente; a ativação por reinício da auto-evolução continua explícita.', meta: 'AUTO + APROVAR · Protected' }
+        : next === 'auto'
+          ? { text: 'Modo Auto ativado. Respostas e análises continuam sem execução. Somente mudanças com plano válido seguem pela sandbox e são aplicadas após verificação; no ChatGPT web o download do resultado ainda precisa ser iniciado na superfície remota.', meta: 'AUTO · Protected' }
+          : { text: 'Modo Manual ativado. Executar e aplicar mudanças voltam a exigir ação do utilizador.', meta: 'Manual' }
+      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), ...notice })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 

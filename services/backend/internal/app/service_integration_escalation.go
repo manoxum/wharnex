@@ -119,7 +119,7 @@ type integrationEscalation struct {
 // human, which is the only point at which a human is actually needed.
 func classifyIntegrationEscalation(item domain.Session, conflicts []domain.IntegrationConflictDetail) integrationEscalation {
 	complexity := hardestComplexity(conflicts)
-	if item.AutomationMode != domain.AutomationModeAuto {
+	if !domain.AutomationModeIsAutomatic(item.AutomationMode) {
 		return integrationEscalation{Reason: "manual automation mode: the operator dispatches the correction request", Complexity: complexity}
 	}
 	if conflictResolutionExhausted(item) {

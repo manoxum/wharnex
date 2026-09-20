@@ -447,6 +447,15 @@ test('Desktop direct transport collapses prompt, context and attachments into on
   assert.doesNotMatch(prepare, /for \(let index = 0; index < transportPaths\.length/)
 })
 
+
+test('automatic ChatGPT transport accepts auto-approve projects', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function requireAutoSession')
+  const end = source.indexOf('\nfunction decodeChatAttachmentSet', start)
+  const guard = source.slice(start, end)
+  assert.match(guard, /\['auto', 'auto_approve'\]\.includes\(sessionState\?\.automation_mode\)/)
+})
+
 test('automatic and confirmed submissions wait for a stable loaded definitive ChatGPT conversation URL', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const waiterStart = source.indexOf('async function waitForConcreteChatGPTConversation')

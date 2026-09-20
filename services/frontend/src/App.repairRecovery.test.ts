@@ -17,7 +17,7 @@ describe('App policy-repair recovery', () => {
 	const recovery = source.slice(source.indexOf('const requests = pendingBundleRequestIDs(candidate)') - 2400, source.indexOf('const requests = pendingBundleRequestIDs(candidate)') + 100)
 	expect(recovery).toContain("['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)")
 	expect(recovery).toContain("candidate.state === 'awaiting_plan' && Number(candidate.remote_recovery_attempt || 0) > 0")
-	expect(recovery).toMatch(/candidate\.automation_mode === 'auto'/)
+	expect(recovery).toContain('isAutomaticAutomationMode(candidate.automation_mode)')
 	expect(recovery).toMatch(/api\.chatAgentTasksForRequest\(continuationRequestID\)/)
 	expect(recovery).toMatch(/failedWrites < 3/)
 	expect(recovery).toMatch(/await submitConflictPrompt\(candidate, chat, true\)/)
