@@ -134,7 +134,7 @@ func Fetch(ctx context.Context, root, remote string) error {
 	if remote == "" || strings.HasPrefix(remote, "-") {
 		return errors.New("a remote is required")
 	}
-	if output, err := run(ctx, root, "fetch", "--quiet", "--no-tags", "--", remote); err != nil {
+	if output, err := run(ctx, root, "fetch", "--quiet", "--prune", "--no-tags", "--", remote); err != nil {
 		return errors.New("fetch " + remote + ": " + RedactRemoteURL(output))
 	}
 	return nil

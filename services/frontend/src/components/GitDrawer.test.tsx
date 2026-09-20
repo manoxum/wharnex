@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitOverview, Session } from '../types'
 import { api } from '../lib/api'
@@ -29,6 +29,7 @@ vi.mock('../lib/api', async () => {
       gitSwitch: vi.fn().mockResolvedValue({ outcome: 'switched', branch: 'feature' }),
       gitHistory: vi.fn().mockResolvedValue([]),
       gitMerge: vi.fn().mockResolvedValue({ outcome: 'merged', ref: 'feature' }),
+      gitRemoteMerge: vi.fn().mockResolvedValue({ outcome: 'merged', target_ref: 'origin/main', source_refs: ['origin/feature'], push_outcome: 'pushed' }),
     },
   }
 })
@@ -40,9 +41,10 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
     project_path: '/w/alpha', available: true, commit_mode: 'manual', detached: false, has_identity: true,
     current_branch: 'main',
     branches: [
-      { name: 'main', current: true, commit_sha: 'a1', subject: 'feat: applied by whx', upstream: 'origin/main', ahead: 1, behind: 0, has_upstream: true, gone: false },
+      { name: 'main', current: true, commit_sha: 'a1', subject: 'feat: applied by whx', upstream: 'origin/main', ahead: 1, behind: 0, has_upstream: true, gone: false, counterpart: 'origin/main', has_counterpart: true },
       { name: 'feature', current: false, commit_sha: 'a2', subject: 'chore: earlier', ahead: 0, behind: 0, has_upstream: false, gone: false },
-      { name: 'origin/main', remote: 'origin', current: false, commit_sha: 'a2', subject: 'chore: earlier', ahead: 0, behind: 0, has_upstream: false, gone: false },
+      { name: 'origin/main', remote: 'origin', current: false, commit_sha: 'a2', subject: 'chore: earlier', ahead: 1, behind: 0, has_upstream: false, gone: false, counterpart: 'main', has_counterpart: true },
+      { name: 'origin/feature', remote: 'origin', current: false, commit_sha: 'a2', subject: 'chore: earlier', ahead: 0, behind: 0, has_upstream: false, gone: false, counterpart: 'feature', has_counterpart: true },
     ],
     remotes: [{ name: 'origin', url: 'https://github.com/org/repo.git' }],
     commits: [
@@ -96,7 +98,8 @@ describe('GitDrawer', () => {
     openTab('Branches')
     expect(screen.getAllByText('main').length).toBeGreaterThan(0)
     expect(screen.getAllByText('feature').length).toBeGreaterThan(0)
-    expect(screen.getByRole('option', { name: 'origin/main' })).toBeTruthy()
+    const mergeSelect = screen.getByRole('combobox', { name: 'Branch a fazer merge' })
+    expect(within(mergeSelect).getByRole('option', { name: 'origin/main' })).toBeTruthy()
 
     openTab('Definições')
     expect(screen.getByRole('group', { name: 'Modo de commit' })).toBeTruthy()
@@ -240,10 +243,13 @@ describe('GitDrawer', () => {
     expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin')
 
     fireEvent.click(screen.getByRole('button', { name: /Pull/ }))
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Alternar' }) as HTMLButtonElement).disabled).toBe(false))
+    const featureRow = screen.getByText('feature', { selector: '.git-branch-name' }).closest('li')
+    const featureSwitch = featureRow ? within(featureRow).getByRole('button', { name: 'Alternar' }) : null
+    if (!featureSwitch) throw new Error('feature switch missing')
+    await waitFor(() => expect((featureSwitch as HTMLButtonElement).disabled).toBe(false))
     expect(api.gitPull).toHaveBeenCalledWith('ses_1', 'origin', 'main')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Alternar' }))
+    fireEvent.click(featureSwitch)
     await waitFor(() => expect(api.gitSwitch).toHaveBeenCalledWith('ses_1', 'feature'))
   })
 
@@ -301,8 +307,37 @@ describe('GitDrawer', () => {
     openTab('Branches')
     const select = screen.getByRole('combobox', { name: 'Branch a fazer merge' })
     fireEvent.change(select, { target: { value: 'feature' } })
-    fireEvent.click(screen.getByRole('button', { name: /Merge/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Merge' }))
     await waitFor(() => expect(api.gitMerge).toHaveBeenCalledWith('ses_1', 'feature'))
+  })
+
+
+  it('shows branch divergence and local/remote counterpart flags and can switch from a remote row', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Ficheiros alterados')
+    openTab('Branches')
+    expect(screen.getAllByTitle('1 commit(s) para enviar').length).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Existe remotamente como origin/main')).toBeTruthy()
+    expect(screen.getByLabelText('Existe localmente como main')).toBeTruthy()
+    const remoteRow = screen.getByText('origin/feature', { selector: '.git-branch-name' }).closest('li')
+    const switchButton = remoteRow?.querySelector<HTMLButtonElement>('.git-branch-switch')
+    if (!switchButton) throw new Error('remote switch missing')
+    fireEvent.click(switchButton)
+    await waitFor(() => expect(api.gitSwitch).toHaveBeenCalledWith('ses_1', 'origin/feature'))
+  })
+
+  it('merges selected remote branches into a remote target without changing the local checkout', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Ficheiros alterados')
+    openTab('Branches')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Branch remota de destino' }), { target: { value: 'origin/main' } })
+    const sources = screen.getByRole('listbox', { name: 'Branches remotas a integrar' }) as HTMLSelectElement
+    const source = Array.from(sources.options).find((option) => option.value === 'origin/feature')
+    if (!source) throw new Error('remote source missing')
+    source.selected = true
+    fireEvent.change(sources)
+    fireEvent.click(screen.getByRole('button', { name: /Merge remoto \(1\)/ }))
+    await waitFor(() => expect(api.gitRemoteMerge).toHaveBeenCalledWith('ses_1', 'origin/main', ['origin/feature']))
   })
 
   it('warns when the repository has no Git identity for manual commits', async () => {

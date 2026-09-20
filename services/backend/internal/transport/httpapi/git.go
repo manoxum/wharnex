@@ -32,6 +32,7 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/git/pull", a.gitPull)
 	mux.HandleFunc("POST /api/sessions/{id}/git/switch", a.gitSwitch)
 	mux.HandleFunc("POST /api/sessions/{id}/git/merge", a.gitMerge)
+	mux.HandleFunc("POST /api/sessions/{id}/git/remote-merge", a.gitRemoteMerge)
 }
 
 func (a *API) gitOverview(w http.ResponseWriter, r *http.Request) {
@@ -268,6 +269,27 @@ func (a *API) gitMerge(w http.ResponseWriter, r *http.Request) {
 	result, err := a.service.MergeBranchIntoCurrent(r.Context(), r.PathValue("id"), body.Ref)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_merge_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) gitRemoteMerge(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		TargetRef    string   `json:"target_ref"`
+		SourceRefs   []string `json:"source_refs"`
+		Confirmation string   `json:"confirmation"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Confirmation) != "merge_remote" {
+		writeError(w, http.StatusBadRequest, "git_remote_merge_unconfirmed", "remote branch merge requires an explicit confirmation")
+		return
+	}
+	result, err := a.service.MergeRemoteBranches(r.Context(), r.PathValue("id"), body.TargetRef, body.SourceRefs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_remote_merge_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

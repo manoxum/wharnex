@@ -31,6 +31,11 @@ type Branch struct {
 	Behind      int  `json:"behind"`
 	HasUpstream bool `json:"has_upstream"`
 	Gone        bool `json:"gone"`
+	// Counterpart names the matching local/remote-tracking ref when one exists.
+	// Ahead/Behind are then expressed from the local branch point of view on
+	// both rows, so the UI can render the same outgoing/incoming indicators.
+	Counterpart    string `json:"counterpart,omitempty"`
+	HasCounterpart bool   `json:"has_counterpart"`
 }
 
 // Remote is a configured remote with its URL redacted for display.
@@ -74,7 +79,102 @@ func Branches(ctx context.Context, root string) ([]Branch, error) {
 		}
 		branches = append(branches, branch)
 	}
+	annotateBranchCounterparts(ctx, root, branches)
 	return branches, nil
+}
+
+func annotateBranchCounterparts(ctx context.Context, root string, branches []Branch) {
+	locals := make(map[string]int)
+	remotes := make(map[string]int)
+	remoteUpstreams := make(map[string]string)
+	for i := range branches {
+		branch := branches[i]
+		if branch.Remote == "" {
+			locals[branch.Name] = i
+			if branch.HasUpstream && !branch.Gone {
+				if _, exists := remoteUpstreams[branch.Upstream]; !exists {
+					remoteUpstreams[branch.Upstream] = branch.Name
+				}
+			}
+		} else {
+			remotes[branch.Name] = i
+		}
+	}
+
+	// Every remote row reports whether a local branch tracks it or, as a
+	// fallback, whether a same-named local branch exists. This remains true
+	// even when several remotes expose the same branch name.
+	for i := range branches {
+		remote := &branches[i]
+		if remote.Remote == "" {
+			continue
+		}
+		localName := remoteUpstreams[remote.Name]
+		if localName == "" {
+			_, candidate, found := strings.Cut(remote.Name, "/")
+			if found {
+				if _, ok := locals[candidate]; ok {
+					localName = candidate
+				}
+			}
+		}
+		if localName == "" {
+			continue
+		}
+		remote.Counterpart, remote.HasCounterpart = localName, true
+		if ahead, behind, err := branchDivergence(ctx, root, localName, remote.Name); err == nil {
+			remote.Ahead, remote.Behind = ahead, behind
+		}
+	}
+
+	for name, localIndex := range locals {
+		local := &branches[localIndex]
+		remoteName := ""
+		if local.HasUpstream && !local.Gone {
+			if _, ok := remotes[local.Upstream]; ok {
+				remoteName = local.Upstream
+			}
+		}
+		if remoteName == "" {
+			// Branches is already ordered by for-each-ref, so the fallback is
+			// deterministic even when more than one remote has the same name.
+			for i := range branches {
+				candidate := branches[i]
+				if candidate.Remote == "" {
+					continue
+				}
+				_, remoteBranch, found := strings.Cut(candidate.Name, "/")
+				if found && remoteBranch == name {
+					remoteName = candidate.Name
+					break
+				}
+			}
+		}
+		if remoteName == "" {
+			continue
+		}
+		local.Counterpart, local.HasCounterpart = remoteName, true
+		if ahead, behind, err := branchDivergence(ctx, root, name, remoteName); err == nil {
+			local.Ahead, local.Behind = ahead, behind
+		}
+	}
+}
+
+func branchDivergence(ctx context.Context, root, local, remote string) (ahead, behind int, err error) {
+	output, runErr := run(ctx, root, "rev-list", "--left-right", "--count", local+"..."+remote)
+	if runErr != nil {
+		return 0, 0, fmt.Errorf("compare %s with %s: %s", local, remote, output)
+	}
+	fields := strings.Fields(output)
+	if len(fields) != 2 {
+		return 0, 0, fmt.Errorf("unexpected branch comparison output: %s", output)
+	}
+	ahead, err = strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, 0, err
+	}
+	behind, err = strconv.Atoi(fields[1])
+	return ahead, behind, err
 }
 
 // parseBranchRef turns a full refname into a short name plus its remote.
@@ -188,4 +288,18 @@ func SwitchBranch(ctx context.Context, root, branch string) error {
 		return fmt.Errorf("switch branch %s: %s", branch, RedactRemoteURL(output))
 	}
 	return nil
+}
+
+// SwitchRemoteBranch creates a local tracking branch from a remote-tracking
+// ref and checks it out. The returned name is the new local branch.
+func SwitchRemoteBranch(ctx context.Context, root, remoteRef string) (string, error) {
+	remoteRef = strings.TrimSpace(remoteRef)
+	remote, branch, found := strings.Cut(remoteRef, "/")
+	if !found || remote == "" || branch == "" || strings.HasPrefix(remoteRef, "-") {
+		return "", fmt.Errorf("a remote branch is required")
+	}
+	if output, err := run(ctx, root, "switch", "--track", "--no-guess", remoteRef); err != nil {
+		return "", fmt.Errorf("switch remote branch %s: %s", remoteRef, RedactRemoteURL(output))
+	}
+	return branch, nil
 }

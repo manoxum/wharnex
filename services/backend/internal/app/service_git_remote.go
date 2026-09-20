@@ -236,9 +236,10 @@ func (s *Service) FetchRemote(ctx context.Context, sessionID, remote string) (Gi
 	return GitBranchActionResult{Outcome: "fetched", Remote: remote}, nil
 }
 
-// SwitchBranch changes to an existing local branch. Wharnex refuses to switch
-// across uncommitted work so the branch picker cannot silently carry edits to
-// another line of development.
+// SwitchBranch changes to an existing local branch or creates a local tracking
+// branch from a selected remote ref. Wharnex refuses to switch across
+// uncommitted work so the branch picker cannot silently carry edits to another
+// line of development.
 func (s *Service) SwitchBranch(ctx context.Context, sessionID, branch string) (GitBranchActionResult, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
@@ -258,15 +259,31 @@ func (s *Service) SwitchBranch(ctx context.Context, sessionID, branch string) (G
 	if err != nil {
 		return GitBranchActionResult{}, err
 	}
-	found := false
-	for _, candidate := range branches {
+	var local *hostrepo.Branch
+	var remote *hostrepo.Branch
+	for i := range branches {
+		candidate := &branches[i]
 		if candidate.Remote == "" && candidate.Name == branch {
-			found = true
-			break
+			local = candidate
+		}
+		if candidate.Remote != "" && candidate.Name == branch {
+			remote = candidate
 		}
 	}
-	if !found {
-		return GitBranchActionResult{}, fmt.Errorf("unknown local branch %q", branch)
+	if local == nil && remote == nil {
+		return GitBranchActionResult{}, fmt.Errorf("unknown branch %q", branch)
+	}
+	if remote != nil {
+		if remote.HasCounterpart {
+			branch = remote.Counterpart
+		} else {
+			localName, switchErr := hostrepo.SwitchRemoteBranch(ctx, item.ProjectPath, remote.Name)
+			if switchErr != nil {
+				return GitBranchActionResult{}, switchErr
+			}
+			s.bus.Publish(sessionID, "git.branch_switched", map[string]any{"branch": localName, "ref": remote.Name})
+			return GitBranchActionResult{Outcome: "tracked", Branch: localName, Ref: remote.Name}, nil
+		}
 	}
 	if hostrepo.CurrentBranch(ctx, item.ProjectPath) == branch {
 		return GitBranchActionResult{Outcome: "unchanged", Branch: branch}, nil
@@ -276,6 +293,96 @@ func (s *Service) SwitchBranch(ctx context.Context, sessionID, branch string) (G
 	}
 	s.bus.Publish(sessionID, "git.branch_switched", map[string]any{"branch": branch})
 	return GitBranchActionResult{Outcome: "switched", Branch: branch}, nil
+}
+
+// MergeRemoteBranches integrates remote-tracking branches in a disposable
+// worktree and publishes only the resulting target ref. The checked-out local
+// branch and worktree remain untouched.
+func (s *Service) MergeRemoteBranches(ctx context.Context, sessionID, targetRef string, sourceRefs []string) (hostrepo.RemoteBranchMergeResult, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return hostrepo.RemoteBranchMergeResult{}, err
+	}
+	lock := s.projectApplyLock(item.ProjectPath)
+	lock.Lock()
+	defer lock.Unlock()
+	if !hostrepo.HasCommitIdentity(ctx, item.ProjectPath) {
+		return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("configure git user.name and user.email before merging remote branches")
+	}
+	targetRef = strings.TrimSpace(targetRef)
+	cleanSources := make([]string, 0, len(sourceRefs))
+	seenSources := make(map[string]bool, len(sourceRefs))
+	for _, ref := range sourceRefs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("remote source is required")
+		}
+		if ref == targetRef {
+			return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("remote target cannot also be a source")
+		}
+		if !seenSources[ref] {
+			seenSources[ref] = true
+			cleanSources = append(cleanSources, ref)
+		}
+	}
+	if len(cleanSources) == 0 {
+		return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("at least one remote source is required")
+	}
+	sourceRefs = cleanSources
+	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	if err != nil {
+		return hostrepo.RemoteBranchMergeResult{}, err
+	}
+	remoteRefs := make(map[string]hostrepo.Branch)
+	for _, branch := range branches {
+		if branch.Remote != "" {
+			remoteRefs[branch.Name] = branch
+		}
+	}
+	target, ok := remoteRefs[strings.TrimSpace(targetRef)]
+	if !ok {
+		return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("unknown remote target %q", targetRef)
+	}
+	remotes := map[string]struct{}{target.Remote: {}}
+	for _, ref := range sourceRefs {
+		source, exists := remoteRefs[strings.TrimSpace(ref)]
+		if !exists {
+			return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("unknown remote source %q", ref)
+		}
+		remotes[source.Remote] = struct{}{}
+	}
+	for remote := range remotes {
+		if err := gitRemoteFetch(ctx, item.ProjectPath, remote); err != nil {
+			return hostrepo.RemoteBranchMergeResult{}, err
+		}
+	}
+	// Fetch prunes stale remote-tracking refs. Re-read the branch set so a ref
+	// deleted on the server cannot be merged or accidentally recreated.
+	refreshed, err := hostrepo.Branches(ctx, item.ProjectPath)
+	if err != nil {
+		return hostrepo.RemoteBranchMergeResult{}, err
+	}
+	available := make(map[string]bool)
+	for _, branch := range refreshed {
+		if branch.Remote != "" {
+			available[branch.Name] = true
+		}
+	}
+	if !available[strings.TrimSpace(targetRef)] {
+		return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("remote target %q no longer exists after fetch", targetRef)
+	}
+	for _, ref := range sourceRefs {
+		if !available[strings.TrimSpace(ref)] {
+			return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("remote source %q no longer exists after fetch", ref)
+		}
+	}
+	s.bus.Publish(sessionID, "git.remote_merge_started", map[string]any{"target": targetRef, "sources": sourceRefs})
+	result, err := hostrepo.MergeRemoteBranches(ctx, item.ProjectPath, targetRef, sourceRefs)
+	if err != nil {
+		return result, err
+	}
+	s.bus.Publish(sessionID, "git.remote_merge_completed", map[string]any{"target": targetRef, "sources": sourceRefs, "outcome": result.Outcome, "push_outcome": result.PushOutcome})
+	return result, nil
 }
 
 // PullBranch fetches then merges the selected remote branch into the checked
