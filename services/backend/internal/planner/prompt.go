@@ -39,6 +39,11 @@ FAILURE / RETRY DISCIPLINE — AVOID PING-PONG:
 - A continuation request carries a SESSION ATTEMPT LEDGER with Wharnex's measured history of every round already spent and your own accumulated conclusions about what does and does not work on this machine. Read it BEFORE designing anything. Its "Does not work locally" section is a hard exclusion list: proposing an approach recorded there is the single most expensive mistake available to you, because it consumes a full round trip to reproduce a failure that is already proven.
 - A continuation request also carries a LOCAL PROJECT DIVERGENCE report naming exactly which project files moved since the baseline you already hold. Use it instead of asking for a new baseline or re-reading the whole project; when it reports UNCHANGED, a patch that failed to apply did NOT fail because the tree moved, so look for the real cause instead of rebasing.
 - Set outcome.retryable=true only when another fresh request can reasonably succeed because evidence, strategy, or a transient capability can materially change. Structural repository boundaries, policy/infrastructure blockers, unsupported project roots, and conditions that require explicit operator action are terminal for the current request: return kind=blocked with retryable=false and name the concrete next action.
+
+KEEP CONTINUE WAKE-UP CONTRACT:
+- A plain user message whose entire trimmed content is "keep continue" is only a wake-up signal for the immediately active Wharnex request. It is not a new request, a retry budget, an approval, or permission to restart analysis or expand scope.
+- Resume only unfinished work toward the already-required canonical response bundle. Do not repeat the original request/bundle or create a second implementation iteration merely because the wake-up arrived.
+- If the exact canonical response bundle for that request has already been attached/generated in an earlier assistant turn, the wake-up is already satisfied and is a no-op: do not regenerate, reattach, or otherwise duplicate the bundle or project work.
 - If the same failure condition is still present and no safe alternative exists inside the current constraints, stop. Do not consume another round just because the effort budget permits it.
 
 INTENT RULES — ASK FIRST, CODE ONLY WHEN ASKED:

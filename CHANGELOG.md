@@ -1,5 +1,6 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 
+- Make automatic `keep continue` delivery recovery a one-shot wake-up: exact response-ZIP validation now immediately quiesces queued/in-flight provider recovery, the send path re-checks terminal state at dispatch, and the planner protocol treats post-delivery wake-ups as a no-op.
 - Order project TODO cards by classified urgency inside each state tab, from very urgent through no urgency, while leaving not-yet-classified items after the ranked entries and preserving their existing relative order.
 - Keep large user prompts compact in the transcript until explicitly expanded, and coalesce virtual-window updates to one animation frame so rapid scrolling does not force a React state transition for every native scroll event.
 - Stage older chat transcript hydration behind fixed skeleton shells while keeping the newest interaction window immediately usable: deferred entries wait until they approach the viewport, then hydrate one per animation frame with newest-eligible priority.
