@@ -1,0 +1,382 @@
+/* Self-evolution activation review: keep the decision footer visible while the diff owns the flexible space. */
+.restart-confirmation-backdrop {
+  padding: clamp(8px, 2vw, 24px);
+  background: color-mix(in srgb, #080a08 72%, transparent);
+  backdrop-filter: blur(10px) saturate(.86);
+}
+
+.restart-confirmation-dialog {
+  width: min(1240px, calc(100vw - 32px));
+  height: min(880px, calc(100vh - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 88%, transparent);
+  border-radius: 20px;
+  background: var(--theme-bg);
+  box-shadow: 0 32px 90px color-mix(in srgb, #000 42%, transparent), 0 1px 0 color-mix(in srgb, #fff 5%, transparent) inset;
+}
+
+.restart-confirmation-hero {
+  min-width: 0;
+  padding: 20px 22px 16px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg));
+}
+
+.restart-confirmation-icon {
+  width: 42px;
+  height: 42px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-elevated));
+  color: var(--theme-accent);
+  box-shadow: inset 0 1px color-mix(in srgb, #fff 7%, transparent);
+}
+
+.restart-confirmation-copy { min-width: 0; }
+.restart-confirmation-dialog h2 {
+  margin: 4px 0 5px;
+  color: var(--theme-text);
+  font-size: calc(21px * var(--ui-font-scale));
+  letter-spacing: -.035em;
+}
+.restart-confirmation-dialog p { color: var(--theme-text-soft); }
+.restart-confirmation-copy p { max-width: 780px; font-size: calc(9.5px * var(--ui-font-scale)); line-height: 1.5; }
+
+.restart-confirmation-state {
+  min-height: 28px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 30%, var(--theme-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-surface));
+  color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text));
+  font: 700 calc(7.5px * var(--ui-font-scale))/1 var(--mono-font-family);
+  white-space: nowrap;
+}
+
+.restart-confirmation-overview {
+  min-width: 0;
+  padding: 11px 14px 12px;
+  display: grid;
+  grid-template-columns: minmax(250px, .72fr) minmax(0, 1.28fr);
+  gap: 10px;
+  border-bottom: 1px solid var(--theme-border-soft);
+  background: var(--theme-surface);
+}
+.restart-confirmation-overview.single { grid-template-columns: 1fr; }
+
+.restart-confirmation-card {
+  min-width: 0;
+  min-height: 68px;
+  padding: 11px 12px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--theme-elevated) 76%, var(--theme-surface));
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 4%, transparent) inset;
+}
+
+.restart-confirmation-card-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.restart-confirmation-card-heading small {
+  color: var(--theme-text-muted);
+  font: 600 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family);
+  white-space: nowrap;
+}
+.restart-confirmation-summary-label { color: var(--theme-text-muted); }
+
+.restart-confirmation-impact-list {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.restart-confirmation-impact-list > span {
+  min-height: 25px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 999px;
+  background: var(--theme-surface);
+  color: var(--theme-text-soft);
+  font-size: calc(8.5px * var(--ui-font-scale));
+  font-weight: 650;
+}
+.restart-confirmation-impact-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--theme-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 12%, transparent);
+}
+.restart-confirmation-impact-list > .restart-confirmation-impact-empty { color: var(--theme-text-muted); }
+
+.restart-confirmation-work-summary {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.restart-confirmation-summary-icon {
+  width: 30px;
+  height: 30px;
+  border-color: color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface));
+  color: var(--theme-accent);
+}
+.restart-confirmation-work-summary > div { min-width: 0; display: grid; gap: 3px; }
+.restart-confirmation-work-summary p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--theme-text);
+  font-size: calc(9.4px * var(--ui-font-scale));
+  font-weight: 560;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.restart-confirmation-changes {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  margin: 12px 14px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--theme-border);
+  border-radius: 13px;
+  background: var(--theme-surface);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--theme-shadow) 62%, transparent);
+}
+.restart-confirmation-changes > header {
+  min-height: 56px;
+  padding: 9px 12px;
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-elevated) 68%, var(--theme-surface));
+}
+.restart-confirmation-changes-copy { min-width: 0; display: grid; gap: 2px; }
+.restart-confirmation-changes-copy strong { color: var(--theme-text); font-size: calc(10.5px * var(--ui-font-scale)); }
+.restart-confirmation-changes-copy small {
+  overflow: hidden;
+  color: var(--theme-text-muted);
+  font-size: calc(7.5px * var(--ui-font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.restart-confirmation-total {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--theme-text-muted);
+  font: 650 calc(7.8px * var(--ui-font-scale))/1 var(--mono-font-family);
+  white-space: nowrap;
+}
+.restart-confirmation-total > b {
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 6px;
+  background: var(--theme-surface);
+  color: var(--theme-text-soft);
+}
+.restart-confirmation-total > i { color: #5f9f69; font-style: normal; }
+.restart-confirmation-total > em { color: #c06d63; font-style: normal; }
+
+.restart-confirmation-diff-layout { min-height: 0; grid-template-columns: minmax(215px, 27%) minmax(0, 1fr); }
+.restart-confirmation-files {
+  min-width: 0;
+  min-height: 0;
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-bg) 64%, var(--theme-surface));
+  scrollbar-width: thin;
+}
+.restart-confirmation-files button {
+  min-height: 48px;
+  padding: 7px 9px 7px 11px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  border-color: var(--theme-border-soft);
+  color: var(--theme-text-soft);
+  transition: background-color .12s ease, box-shadow .12s ease;
+}
+.restart-confirmation-files button:hover { background: var(--theme-hover); }
+.restart-confirmation-files button.active {
+  background: color-mix(in srgb, var(--theme-accent-soft) 34%, var(--theme-surface));
+  box-shadow: inset 3px 0 var(--theme-accent);
+}
+.restart-confirmation-file-copy { min-width: 0; display: grid; gap: 2px; }
+.restart-confirmation-file-copy strong,
+.restart-confirmation-file-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.restart-confirmation-file-copy strong { color: var(--theme-text); font: 650 calc(8.2px * var(--ui-font-scale))/1.2 var(--mono-font-family); }
+.restart-confirmation-file-copy small { color: var(--theme-text-muted); font: 500 calc(6.8px * var(--ui-font-scale))/1.2 var(--mono-font-family); }
+.restart-confirmation-file-stats {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: 700 calc(7.3px * var(--ui-font-scale))/1 var(--mono-font-family);
+  white-space: nowrap;
+}
+.restart-confirmation-diff-view { background: var(--theme-bg); }
+.restart-confirmation-diff-heading {
+  min-height: 38px;
+  padding: 7px 10px;
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-elevated) 82%, var(--theme-bg));
+}
+.restart-confirmation-diff-heading code { color: var(--theme-text-soft); }
+
+.change-diff-shell {
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--theme-bg);
+}
+.change-diff-toolbar {
+  min-height: 42px;
+  padding: 5px 8px 5px 10px;
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface) 86%, var(--theme-bg));
+}
+.change-diff-legend { gap: 6px; }
+.change-diff-legend > span {
+  min-height: 28px;
+  padding: 4px 8px;
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font: inherit;
+}
+.change-diff-legend > span small {
+  font: 750 calc(6.4px * var(--ui-font-scale))/1 var(--mono-font-family);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.change-diff-legend > span strong { font-size: calc(7.4px * var(--ui-font-scale)); font-weight: 650; }
+.change-diff-legend .diff-before {
+  border-color: color-mix(in srgb, #bd6f67 24%, var(--theme-border));
+  background: color-mix(in srgb, #a45249 9%, var(--theme-surface));
+  color: color-mix(in srgb, #d58d85 76%, var(--theme-text));
+}
+.change-diff-legend .diff-after {
+  border-color: color-mix(in srgb, #6fa378 24%, var(--theme-border));
+  background: color-mix(in srgb, #4b8955 9%, var(--theme-surface));
+  color: color-mix(in srgb, #91c298 76%, var(--theme-text));
+}
+.change-diff-legend .diff-fragment-badge {
+  min-height: 24px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  background: var(--theme-elevated);
+  color: var(--theme-text-muted);
+  font: 600 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family);
+}
+.change-diff-loading {
+  min-height: 0;
+  background: var(--theme-bg);
+  color: var(--theme-text-muted);
+}
+
+.restart-confirmation-actions {
+  grid-column: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 11px 14px 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface) 94%, var(--theme-bg));
+}
+.restart-confirmation-action-note {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--theme-text-muted);
+  font-size: calc(7.7px * var(--ui-font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.restart-confirmation-action-buttons { display: flex; align-items: center; gap: 7px; }
+.restart-confirmation-actions button {
+  min-height: 36px;
+  padding: 0 13px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+/* Override the legacy theme-specific activation rules with the current theme tokens. */
+:root[data-theme] .restart-confirmation-dialog { border-color: var(--theme-border); background: var(--theme-bg); }
+:root[data-theme] .restart-confirmation-dialog h2 { color: var(--theme-text); }
+:root[data-theme] .restart-confirmation-dialog p { color: var(--theme-text-soft); }
+:root[data-theme] .restart-confirmation-summary-icon {
+  border-color: color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent) 9%, var(--theme-surface));
+  color: var(--theme-accent);
+}
+:root[data-theme] .restart-confirmation-changes { border-color: var(--theme-border); background: var(--theme-surface); }
+:root[data-theme] .restart-confirmation-changes > header { border-color: var(--theme-border-soft); }
+:root[data-theme] .restart-confirmation-files { border-color: var(--theme-border-soft); background: color-mix(in srgb, var(--theme-bg) 64%, var(--theme-surface)); }
+:root[data-theme] .restart-confirmation-files button { border-color: var(--theme-border-soft); color: var(--theme-text-soft); }
+:root[data-theme] .restart-confirmation-files button:hover { background: var(--theme-hover); }
+:root[data-theme] .restart-confirmation-files button.active {
+  background: color-mix(in srgb, var(--theme-accent-soft) 34%, var(--theme-surface));
+  box-shadow: inset 3px 0 var(--theme-accent);
+}
+:root[data-theme] .change-diff-shell,
+:root[data-theme] .change-diff-loading { background: var(--theme-bg); color: var(--theme-text-muted); }
+:root[data-theme] .change-diff-toolbar { border-color: var(--theme-border-soft); background: color-mix(in srgb, var(--theme-surface) 86%, var(--theme-bg)); }
+
+@media (max-width: 860px) {
+  .restart-confirmation-dialog { width: min(100%, calc(100vw - 16px)); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
+  .restart-confirmation-hero { grid-template-columns: 40px minmax(0, 1fr); padding: 16px; }
+  .restart-confirmation-state { grid-column: 2; justify-self: start; }
+  .restart-confirmation-overview { grid-template-columns: 1fr; padding: 9px 10px; }
+  .restart-confirmation-work-summary p { -webkit-line-clamp: 2; }
+  .restart-confirmation-changes { margin: 9px 10px; }
+  .restart-confirmation-diff-layout { grid-template-columns: minmax(180px, 32%) minmax(0, 1fr); }
+}
+
+@media (max-width: 680px) {
+  .restart-confirmation-backdrop { padding: 6px; }
+  .restart-confirmation-dialog { width: 100%; height: calc(100vh - 12px); max-height: calc(100vh - 12px); border-radius: 14px; }
+  .restart-confirmation-icon { width: 38px; height: 38px; }
+  .restart-confirmation-copy p { display: none; }
+  .restart-confirmation-card { min-height: 0; }
+  .restart-confirmation-changes > header { align-items: flex-start; }
+  .restart-confirmation-changes-copy small { display: none; }
+  .restart-confirmation-diff-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .restart-confirmation-files { max-height: 104px; display: flex; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid var(--theme-border-soft); }
+  .restart-confirmation-files button { min-width: 190px; border-right: 1px solid var(--theme-border-soft); border-bottom: 0; }
+  .change-diff-toolbar { align-items: stretch; }
+  .change-diff-legend { width: 100%; }
+  .change-diff-legend > .diff-before,
+  .change-diff-legend > .diff-after { flex: 1; }
+  .change-diff-controls { width: 100%; justify-content: flex-end; }
+  .restart-confirmation-action-note { display: none; }
+  .restart-confirmation-action-buttons { width: 100%; }
+  .restart-confirmation-action-buttons button { min-width: 0; flex: 1; white-space: normal; }
+}

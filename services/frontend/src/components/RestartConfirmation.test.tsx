@@ -19,13 +19,24 @@ describe('RestartConfirmation', () => {
   it('shows the applied diff before restart actions and lets the user switch files', () => {
     render(<RestartConfirmation sessionId="ses-self" change={change} impacts={['backend']} busy={false} onLater={vi.fn()} onActivate={vi.fn()}/>)
 
+    expect(screen.getByText('Build concluído')).toBeTruthy()
     expect(screen.getByText('Alterações desta versão')).toBeTruthy()
-    expect(screen.getByText('2 ficheiro(s) ·', { exact: false })).toBeTruthy()
+    expect(screen.getByText('2', { selector: '.restart-confirmation-total > b' })).toBeTruthy()
     expect(screen.getByTestId('restart-diff').textContent).toBe('src/first.ts')
     fireEvent.click(screen.getByRole('button', { name: 'src/second.ts' }))
     expect(screen.getByTestId('restart-diff').textContent).toBe('src/second.ts')
     expect(screen.getByRole('button', { name: 'Mais tarde' })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Aplicar agora/ })).toBeTruthy()
+    expect(screen.getByText(/Pode ativar agora ou deixar a nova versão pronta/)).toBeTruthy()
+  })
+
+  it('presents affected components as a compact activation scope', () => {
+    render(<RestartConfirmation sessionId="ses-self" change={change} impacts={['backend', 'frontend']} busy={false} onLater={vi.fn()} onActivate={vi.fn()}/>)
+
+    const scope = screen.getByLabelText('Componentes afetados')
+    expect(scope.textContent).toContain('Backend')
+    expect(scope.textContent).toContain('Frontend')
+    expect(scope.textContent).toContain('2 selecionados')
   })
 
   it('explains what the restart activates using the planner summary', () => {
