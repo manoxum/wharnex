@@ -15,13 +15,9 @@ import {
   recordChatGPTConversationTransport,
 } from './chatgpt-recovery.mjs'
 
-test('delivery continuation resumes interrupted work before requesting the same bundle', () => {
-  const prompt = chatGPTDeliveryContinuationPrompt('req_20260912T140000_abcd1234', 'whx_bundle_res_chat_req_20260912T140000_abcd1234.zip', 'Fix the scheduler')
-  assert.match(prompt, /SAME REQUEST req_20260912T140000_abcd1234/)
-  assert.match(prompt, /Continue exactly where it stopped/)
-  assert.match(prompt, /analysis, tool use, implementation, or verification is incomplete/)
-  assert.match(prompt, /ORIGINAL REQUEST CONTENT[\s\S]*Fix the scheduler/)
-  assert.match(prompt, /Only after the ORIGINAL request is fully satisfied/)
+test('delivery continuation is the minimal keep-continue nudge', () => {
+  assert.equal(chatGPTDeliveryContinuationPrompt(), 'keep continue')
+  assert.equal(chatGPTDeliveryContinuationPrompt('ignored', 'ignored.zip', 'ignored original prompt'), 'keep continue')
 })
 
 
@@ -82,13 +78,24 @@ test('recoverable socket and internet errors request a bounded reload first', ()
   assert.equal(state.reloadCount, 1)
 })
 
-test('completed response without a validated bundle reloads before continuation', () => {
+test('completed response without a validated bundle nudges the same conversation instead of reloading', () => {
   const state = createChatGPTRecoveryState(1_000)
   const action = chooseChatGPTRecoveryAction(state, { complete: true, thinking: false }, 2_000, { actionCooldownMs: 0 })
-  assert.equal(action?.type, 'reload')
+  assert.equal(action?.type, 'prompt')
   assert.equal(action?.reason, 'completed-without-bundle')
   commitChatGPTRecoveryAction(state, action, 2_000)
+  assert.equal(state.completionContinued, true)
   assert.equal(chooseChatGPTRecoveryAction(state, { complete: true }, 9_000, { actionCooldownMs: 0 }), undefined)
+})
+
+test('processing that visibly stops before a new assistant turn also gets the short continuation nudge', () => {
+  const state = createChatGPTRecoveryState(1_000)
+  const action = chooseChatGPTRecoveryAction(state, { processingInterrupted: true, thinking: false, responseStarted: false }, 2_000, { actionCooldownMs: 0 })
+  assert.deepEqual(action, {
+    type: 'prompt',
+    reason: 'processing-interrupted',
+    detail: 'visible processing stopped without producing a new assistant turn or validated bundle',
+  })
 })
 
 test('structural response errors reload once and then require human attention', () => {
