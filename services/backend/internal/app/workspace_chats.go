@@ -23,8 +23,9 @@ const (
 )
 
 var (
-	ErrInvalidWorkspaceChat = errors.New("invalid workspace chat")
-	ErrWorkspaceChatSaved   = errors.New("workspace chat is saved and execution is on standby")
+	ErrInvalidWorkspaceChat  = errors.New("invalid workspace chat")
+	ErrWorkspaceChatSaved    = errors.New("workspace chat is saved and execution is on standby")
+	ErrWorkspaceChatRequired = errors.New("a visible workspace chat bound to this session is required")
 )
 
 func normalizeProjectPath(value string) (string, error) {
@@ -191,6 +192,26 @@ func (s *Service) ensureWorkspaceChatExecutable(item domain.Session) error {
 	}
 	if saved {
 		return ErrWorkspaceChatSaved
+	}
+	return nil
+}
+
+// ensureWorkspaceChatBound refuses maintenance work that cannot be surfaced
+// and controlled by its owning workspace chat. Unlike execution compatibility
+// paths, a new maintenance request must never fall back to the synthetic
+// "system" chat identity: that produces an invisible prompt and an unrouteable
+// bundle name.
+func (s *Service) ensureWorkspaceChatBound(item domain.Session) error {
+	chatID := strings.TrimSpace(item.ChatID)
+	if chatID == "" {
+		return ErrWorkspaceChatRequired
+	}
+	chat, err := s.store.GetWorkspaceChat(chatID)
+	if err != nil {
+		return ErrWorkspaceChatRequired
+	}
+	if chat.SessionID != item.ID || chat.ProjectPath != item.ProjectPath || chat.Archived() {
+		return ErrWorkspaceChatRequired
 	}
 	return nil
 }

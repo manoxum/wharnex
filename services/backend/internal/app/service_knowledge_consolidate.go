@@ -39,6 +39,9 @@ func (s *Service) StartKnowledgeConsolidation(ctx context.Context, sessionID str
 	if item.PlannerInFlight || len(item.PendingManualRequestIDs) > 0 {
 		return item, errors.New("finish the pending planner request before consolidating knowledge")
 	}
+	if err := s.ensureWorkspaceChatBound(item); err != nil {
+		return item, err
+	}
 	catalog, err := s.loadProjectKnowledgeCatalog(sessionID, item.ProjectPath)
 	if err != nil {
 		return item, err

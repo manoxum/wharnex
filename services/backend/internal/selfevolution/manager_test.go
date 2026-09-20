@@ -580,6 +580,35 @@ func TestBuildHostStreamsOutputAsItArrivesInsteadOfOnlyAtCompletion(t *testing.T
 	}
 }
 
+func TestBuildHostRetainsTerminalFailureAfterVerboseBuildOutput(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	// More than the bounded capture limit precedes the actual failure. The
+	// terminal diagnostic must remain available for classification/recovery.
+	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n"+
+		"\t@yes x | head -c 600000\n"+
+		"\t@printf 'TERMINAL BUILD FAILURE: missing generated symbol\\n' >&2\n"+
+		"\t@exit 2\n", 0o644)
+	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
+	manager := New(root)
+	tx, err := manager.Prepare("ses-terminal-output", "plan-terminal-output", []string{patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+
+	output, err := manager.BuildHost(context.Background(), tx, nil)
+	if err == nil {
+		t.Fatal("expected build failure")
+	}
+	if !strings.Contains(output, "TERMINAL BUILD FAILURE: missing generated symbol") {
+		t.Fatalf("terminal build diagnostic was discarded: %q", output[len(output)-min(len(output), 512):])
+	}
+	if !strings.Contains(output, "middle build output truncated") {
+		t.Fatalf("expected bounded-output truncation marker, got %q", output[:min(len(output), 512)])
+	}
+}
+
 func TestIsHostToolchainMismatchIsNarrow(t *testing.T) {
 	positive := []string{
 		"Error [ERR_REQUIRE_ESM]: require() of ES Module ... not supported",

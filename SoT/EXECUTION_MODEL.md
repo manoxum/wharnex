@@ -85,7 +85,7 @@ Self-evolution is locked to `Protected`; switching that session to `Unprotected`
 1. acquire a durable `.harness/self-evolution/active.lock` for the pending activation batch and a short-lived `stage.lock` for the current mutation stage;
 2. for the first batch member, snapshot patch-touched source files, root/frontend compiled artifacts, build stamp and known-good lifecycle scripts;
 3. apply validated patches to the real root and run `make build-stage` while the old Wharness remains healthy; this may build replacement application images but MUST NOT recreate the running backend/frontend/database/tunnel containers;
-4. rollback the whole batch immediately on host Apply/build failure;
+4. rollback the whole batch immediately on host Apply/build failure. Build diagnostics are bounded but MUST retain both initial provenance and the terminal output tail, so a verbose passing test stream cannot erase the actual failure. Once rollback finishes, the Engine MUST complete a durable recovery classification from a bounded context independent of the initiating HTTP client: source defects enter the normal bounded repair continuation, while recognized host/toolchain/network infrastructure faults retain the candidate with their explicit local recovery action;
 5. on success, persist `restart_pending`, keep `active.lock`, and release only `stage.lock`;
 6. another verified self-evolution plan MAY extend that same `restart_pending` transaction: it reuses the original runtime rollback baseline, snapshots only newly touched source paths, records its session/plan membership, applies, rebuilds, and returns to `restart_pending`;
 7. Apply/build/revert/restart stages remain mutually exclusive through `stage.lock`, so only the idle pending state is batch-extendable;

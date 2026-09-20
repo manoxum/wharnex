@@ -53,6 +53,17 @@ func knowledgeService(t *testing.T, entries ...domain.ProjectKnowledgeEntry) (*S
 	return service, store, started.ID, root
 }
 
+func bindKnowledgeSession(t *testing.T, service *Service, sessionID, root string) {
+	t.Helper()
+	const chatID = "knowledge-maintenance-chat"
+	if _, err := service.SaveWorkspaceChat(domain.WorkspaceChat{ID: chatID, ProjectPath: root, SessionID: sessionID, Title: "Knowledge maintenance"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetChatID(sessionID, chatID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExportCarriesEveryRecordWithItsDigest(t *testing.T) {
 	service, _, sessionID, _ := knowledgeService(t,
 		domain.ProjectKnowledgeEntry{ID: "apply-order", Content: "Persist after Apply."},
@@ -229,7 +240,8 @@ func TestLegacyProjectFilesAreAdoptedOnceIntoTheDatabase(t *testing.T) {
 }
 
 func TestConsolidationNeedsSomethingToConsolidate(t *testing.T) {
-	service, _, sessionID, _ := knowledgeService(t, domain.ProjectKnowledgeEntry{ID: "only-one", Content: "single record"})
+	service, _, sessionID, root := knowledgeService(t, domain.ProjectKnowledgeEntry{ID: "only-one", Content: "single record"})
+	bindKnowledgeSession(t, service, sessionID, root)
 	if _, err := service.StartKnowledgeConsolidation(context.Background(), sessionID); err == nil {
 		t.Fatal("consolidating a single-record catalog has nothing to do")
 	}
@@ -241,6 +253,7 @@ func TestConsolidationRefusesAnEmptyResult(t *testing.T) {
 		domain.ProjectKnowledgeEntry{ID: "one", Content: "first"},
 		domain.ProjectKnowledgeEntry{ID: "two", Content: "second"},
 	)
+	bindKnowledgeSession(t, service, sessionID, root)
 	prepared, err := service.StartKnowledgeConsolidation(context.Background(), sessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -254,7 +267,7 @@ func TestConsolidationRefusesAnEmptyResult(t *testing.T) {
 		"turn.json":            `{"protocol":"harness.turn/v1","request_id":"` + requestID + `","kind":"answer","message":"merged","outcome":{"status":"completed","retryable":false}}`,
 		"knowledge/index.json": `{"protocol":"harness.knowledge/v2","base_revision":1,"mode":"replace","entries":[]}`,
 	}
-	if _, err := service.SubmitExecutionBundle(context.Background(), sessionID, "whx_bundle_res_system_"+requestID+".zip", zipEntries(t, entries)); err == nil {
+	if _, err := service.SubmitExecutionBundle(context.Background(), sessionID, "whx_bundle_res_knowledge-maintenance-chat_"+requestID+".zip", zipEntries(t, entries)); err == nil {
 		t.Fatal("an empty consolidation result must be refused")
 	}
 	catalog, err := service.ProjectKnowledgeCatalog(sessionID)
@@ -267,10 +280,11 @@ func TestConsolidationRefusesAnEmptyResult(t *testing.T) {
 }
 
 func TestConsolidationInstallsTheReorganizedCatalog(t *testing.T) {
-	service, _, sessionID, _ := knowledgeService(t,
+	service, _, sessionID, root := knowledgeService(t,
 		domain.ProjectKnowledgeEntry{ID: "one", Content: "first"},
 		domain.ProjectKnowledgeEntry{ID: "two", Content: "second"},
 	)
+	bindKnowledgeSession(t, service, sessionID, root)
 	prepared, err := service.StartKnowledgeConsolidation(context.Background(), sessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -283,7 +297,7 @@ func TestConsolidationInstallsTheReorganizedCatalog(t *testing.T) {
 		"knowledge/index.json": `{"protocol":"harness.knowledge/v2","base_revision":1,"mode":"replace","entries":[{"id":"one","file":"knowledge/one.md","sha256":"` + knowledgeDigest(merged) + `"}]}`,
 		"knowledge/one.md":     merged,
 	}
-	if _, err := service.SubmitExecutionBundle(context.Background(), sessionID, "whx_bundle_res_system_"+requestID+".zip", zipEntries(t, entries)); err != nil {
+	if _, err := service.SubmitExecutionBundle(context.Background(), sessionID, "whx_bundle_res_knowledge-maintenance-chat_"+requestID+".zip", zipEntries(t, entries)); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := service.ProjectKnowledgeCatalog(sessionID)
@@ -295,6 +309,20 @@ func TestConsolidationInstallsTheReorganizedCatalog(t *testing.T) {
 	}
 	if catalog.Revision <= 1 {
 		t.Fatalf("consolidation must advance the catalog revision, got %d", catalog.Revision)
+	}
+}
+
+func TestConsolidationRefusesAnOrphanSessionBeforePreparingAPrompt(t *testing.T) {
+	service, _, sessionID, _ := knowledgeService(t,
+		domain.ProjectKnowledgeEntry{ID: "one", Content: "first"},
+		domain.ProjectKnowledgeEntry{ID: "two", Content: "second"},
+	)
+	prepared, err := service.StartKnowledgeConsolidation(context.Background(), sessionID)
+	if !errors.Is(err, ErrWorkspaceChatRequired) {
+		t.Fatalf("expected visible workspace chat refusal, got session=%+v err=%v", prepared, err)
+	}
+	if prepared.LastRequestID != "" || len(prepared.PendingManualRequestIDs) != 0 {
+		t.Fatalf("orphan consolidation must not prepare a request: %+v", prepared)
 	}
 }
 
