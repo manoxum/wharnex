@@ -174,3 +174,39 @@ func toString(value any) string {
 	}
 	return ""
 }
+
+func TestCloseAllInteractiveTerminalsClosesEverySession(t *testing.T) {
+	runner := &interactiveRecordingRunner{}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), runner)
+	firstSession, err := service.StartSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSession, err := service.StartSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.StartInteractiveTerminal(context.Background(), firstSession.ID, domain.TerminalTargetSandbox, ".", false, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.StartInteractiveTerminal(context.Background(), secondSession.ID, domain.TerminalTargetSandbox, ".", false, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.terminals) != 2 {
+		t.Fatalf("expected two live terminal handles, got %d", len(runner.terminals))
+	}
+
+	service.CloseAllInteractiveTerminals()
+
+	if !runner.terminals[0].closed || !runner.terminals[1].closed {
+		t.Fatalf("shutdown did not close every terminal: first=%v second=%v", runner.terminals[0].closed, runner.terminals[1].closed)
+	}
+	if err := service.WriteInteractiveTerminal(firstSession.ID, first.TerminalID, "echo stale\n"); err == nil {
+		t.Fatal("first terminal remained addressable after global shutdown")
+	}
+	if err := service.WriteInteractiveTerminal(secondSession.ID, second.TerminalID, "echo stale\n"); err == nil {
+		t.Fatal("second terminal remained addressable after global shutdown")
+	}
+}

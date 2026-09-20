@@ -185,6 +185,41 @@ func (s *Service) CloseInteractiveTerminal(sessionID, terminalID string) error {
 	s.terminalMu.Lock()
 	delete(s.terminals, terminalID)
 	s.terminalMu.Unlock()
+	s.closeInteractiveTerminalState(terminalID, state)
+	return nil
+}
+
+func (s *Service) closeInteractiveTerminals(sessionID string) {
+	s.terminalMu.Lock()
+	states := make(map[string]*terminalSessionState)
+	for id, state := range s.terminals {
+		if state.sessionID == sessionID {
+			states[id] = state
+			delete(s.terminals, id)
+		}
+	}
+	s.terminalMu.Unlock()
+	for id, state := range states {
+		s.closeInteractiveTerminalState(id, state)
+	}
+}
+
+// CloseAllInteractiveTerminals closes every live PTY before the backend process
+// exits so attached Docker runner containers cannot outlive their owner.
+func (s *Service) CloseAllInteractiveTerminals() {
+	s.terminalMu.Lock()
+	states := make(map[string]*terminalSessionState, len(s.terminals))
+	for id, state := range s.terminals {
+		states[id] = state
+		delete(s.terminals, id)
+	}
+	s.terminalMu.Unlock()
+	for id, state := range states {
+		s.closeInteractiveTerminalState(id, state)
+	}
+}
+
+func (s *Service) closeInteractiveTerminalState(terminalID string, state *terminalSessionState) {
 	state.mu.Lock()
 	handle := state.terminal
 	wasOpen := !state.exited
@@ -201,36 +236,5 @@ func (s *Service) CloseInteractiveTerminal(sessionID, terminalID string) error {
 	if handle != nil {
 		_ = handle.Close()
 	}
-	s.bus.Publish(sessionID, "terminal.session_closed", map[string]any{"terminal_id": terminalID, "target": state.target})
-	return nil
-}
-
-func (s *Service) closeInteractiveTerminals(sessionID string) {
-	s.terminalMu.Lock()
-	states := make([]*terminalSessionState, 0)
-	for id, state := range s.terminals {
-		if state.sessionID == sessionID {
-			states = append(states, state)
-			delete(s.terminals, id)
-		}
-	}
-	s.terminalMu.Unlock()
-	for _, state := range states {
-		state.mu.Lock()
-		handle := state.terminal
-		wasOpen := !state.exited
-		state.exited = true
-		if state.orphanTimer != nil {
-			state.orphanTimer.Stop()
-			state.orphanTimer = nil
-		}
-		state.mu.Unlock()
-		if wasOpen {
-			code := -1
-			state.publish(TerminalFrame{Type: "exit", Code: &code, Message: "terminal session closed"})
-		}
-		if handle != nil {
-			_ = handle.Close()
-		}
-	}
+	s.bus.Publish(state.sessionID, "terminal.session_closed", map[string]any{"terminal_id": terminalID, "target": state.target})
 }

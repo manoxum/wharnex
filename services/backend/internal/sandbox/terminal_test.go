@@ -121,3 +121,62 @@ func TestInteractiveBashUsesAnExplicitLoginShell(t *testing.T) {
 		t.Fatalf("non-bash user shell must retain its login semantics: %q", got)
 	}
 }
+
+func TestOwnedInteractiveTerminalContainerUsesLabelsAndScopedLegacyMounts(t *testing.T) {
+	root := t.TempDir()
+	privateTemp := filepath.Join(root, ".harness", "bridge", "tmp")
+	legacyWorkspace := filepath.Join(privateTemp, "kernl-workspace-legacy")
+
+	owned := terminalContainerInspectionForTest("/wharnex-terminal-pty_owned", map[string]string{
+		"wharness.role": "terminal",
+		"wharness.root": root,
+	})
+	if !ownedInteractiveTerminalContainer(owned, root, privateTemp) {
+		t.Fatal("terminal carrying this checkout's ownership labels must be reclaimable")
+	}
+
+	foreign := terminalContainerInspectionForTest("/wharnex-terminal-pty_foreign", map[string]string{
+		"wharness.role": "terminal",
+		"wharness.root": filepath.Join(root, "other-checkout"),
+	}, legacyWorkspace)
+	if ownedInteractiveTerminalContainer(foreign, root, privateTemp) {
+		t.Fatal("an explicitly foreign terminal must never fall back to legacy mount ownership")
+	}
+
+	legacy := terminalContainerInspectionForTest("/wharnex-terminal-pty_legacy", nil, legacyWorkspace)
+	if !ownedInteractiveTerminalContainer(legacy, root, privateTemp) {
+		t.Fatal("legacy terminal inside this checkout's private TMPDIR must be reclaimable")
+	}
+
+	outside := terminalContainerInspectionForTest("/wharnex-terminal-pty_outside", nil, filepath.Join(t.TempDir(), "kernl-workspace-other"))
+	if ownedInteractiveTerminalContainer(outside, root, privateTemp) {
+		t.Fatal("legacy terminal outside this checkout's private TMPDIR must be preserved")
+	}
+
+	unscopedTemp := terminalContainerInspectionForTest("/wharnex-terminal-pty_unscoped", nil, legacyWorkspace)
+	if ownedInteractiveTerminalContainer(unscopedTemp, root, "/tmp") {
+		t.Fatal("a shared TMPDIR outside the checkout must not authorize legacy reclamation")
+	}
+
+	unrelated := terminalContainerInspectionForTest("/other-terminal-pty", map[string]string{
+		"wharness.role": "terminal",
+		"wharness.root": root,
+	})
+	if ownedInteractiveTerminalContainer(unrelated, root, privateTemp) {
+		t.Fatal("ownership labels must not turn an unrelated container into a terminal candidate")
+	}
+}
+
+func terminalContainerInspectionForTest(name string, labels map[string]string, mounts ...string) dockerContainerInspection {
+	var container dockerContainerInspection
+	container.ID = strings.TrimPrefix(name, "/")
+	container.Name = name
+	container.Config.Labels = labels
+	container.Mounts = make([]struct {
+		Source string `json:"Source"`
+	}, len(mounts))
+	for index, source := range mounts {
+		container.Mounts[index].Source = source
+	}
+	return container
+}
