@@ -22,6 +22,7 @@ type gitConflictRequest struct {
 	remote       string
 	remoteBranch string
 	targetBranch string
+	sourceRefs   []string
 	sides        hostrepo.MergeSides
 	paths        []string
 }
@@ -79,7 +80,7 @@ func (s *Service) prepareGitConflictResolution(ctx context.Context, sessionID st
 		OriginalPlanIDs: []string{}, Origin: request.origin,
 		Git: &conflictCapsuleGit{
 			Ref: request.ref, TargetBranch: request.targetBranch, Remote: request.remote,
-			BaseSHA: request.sides.BaseSHA, OursSHA: request.sides.OursSHA, TheirsSHA: request.sides.TheirsSHA,
+			BaseSHA: request.sides.BaseSHA, OursSHA: request.sides.OursSHA, TheirsSHA: request.sides.TheirsSHA, SourceRefs: append([]string(nil), request.sourceRefs...),
 		},
 		Intent: s.gitConflictIntent(ctx, item, request, resolvable),
 		Files:  files,
@@ -108,7 +109,7 @@ func (s *Service) prepareGitConflictResolution(ctx context.Context, sessionID st
 		Git: &domain.GitConflictContext{
 			Origin: request.origin, Ref: request.ref, Remote: request.remote, RemoteBranch: request.remoteBranch,
 			BaseSHA: request.sides.BaseSHA, OursSHA: request.sides.OursSHA, TheirsSHA: request.sides.TheirsSHA,
-			TargetBranch: request.targetBranch,
+			TargetBranch: request.targetBranch, SourceRefs: append([]string(nil), request.sourceRefs...),
 		},
 	}
 	var prunedContexts []string

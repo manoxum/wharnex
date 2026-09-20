@@ -11,14 +11,16 @@ import (
 // RemoteBranchMergeResult is a disposable-worktree merge result. It never
 // changes the caller's checked-out branch or worktree.
 type RemoteBranchMergeResult struct {
-	Outcome     string   `json:"outcome"`
-	TargetRef   string   `json:"target_ref"`
-	SourceRefs  []string `json:"source_refs"`
-	CommitSHA   string   `json:"commit_sha,omitempty"`
-	PushOutcome string   `json:"push_outcome,omitempty"`
-	ConflictRef string   `json:"conflict_ref,omitempty"`
-	Paths       []string `json:"paths,omitempty"`
-	Detail      string   `json:"detail,omitempty"`
+	Outcome     string     `json:"outcome"`
+	TargetRef   string     `json:"target_ref"`
+	SourceRefs  []string   `json:"source_refs"`
+	CommitSHA   string     `json:"commit_sha,omitempty"`
+	PushOutcome string     `json:"push_outcome,omitempty"`
+	ConflictRef string     `json:"conflict_ref,omitempty"`
+	Paths       []string   `json:"paths,omitempty"`
+	Detail      string     `json:"detail,omitempty"`
+	ConflictID  string     `json:"conflict_id,omitempty"`
+	Sides       MergeSides `json:"-"`
 }
 
 func splitRemoteBranchRef(ref string) (remote, branch string, err error) {
@@ -34,20 +36,20 @@ func splitRemoteBranchRef(ref string) (remote, branch string, err error) {
 // remote-tracking ref in a temporary Git worktree, then fast-forward-pushes the
 // resulting commit to the target remote branch. The operator's local checkout
 // is never switched or modified.
-func MergeRemoteBranches(ctx context.Context, root, targetRef string, sourceRefs []string) (RemoteBranchMergeResult, error) {
+func MergeRemoteBranches(ctx context.Context, root, targetRef string, sourceRefs []string, identities ...CommitIdentity) (RemoteBranchMergeResult, error) {
 	targetRef = strings.TrimSpace(targetRef)
 	targetRemote, targetBranch, err := splitRemoteBranchRef(targetRef)
 	if err != nil {
 		return RemoteBranchMergeResult{}, err
 	}
 	if len(sourceRefs) == 0 {
-		return RemoteBranchMergeResult{}, errors.New("at least one source remote branch is required")
+		return RemoteBranchMergeResult{}, errors.New("at least one merge source is required")
 	}
 	cleanSources := make([]string, 0, len(sourceRefs))
 	for _, ref := range sourceRefs {
 		ref = strings.TrimSpace(ref)
-		if _, _, refErr := splitRemoteBranchRef(ref); refErr != nil {
-			return RemoteBranchMergeResult{}, fmt.Errorf("invalid source %q: %w", ref, refErr)
+		if ref == "" || strings.HasPrefix(ref, "-") {
+			return RemoteBranchMergeResult{}, fmt.Errorf("invalid source %q", ref)
 		}
 		if ref == targetRef {
 			return RemoteBranchMergeResult{}, errors.New("target branch cannot also be a merge source")
@@ -71,12 +73,12 @@ func MergeRemoteBranches(ctx context.Context, root, targetRef string, sourceRefs
 
 	outcome := "up_to_date"
 	for _, sourceRef := range sourceRefs {
-		merge, mergeErr := MergeBranch(ctx, worktree, sourceRef)
+		merge, mergeErr := MergeBranch(ctx, worktree, sourceRef, identities...)
 		if mergeErr != nil {
 			return RemoteBranchMergeResult{}, mergeErr
 		}
 		if merge.Outcome == MergeOutcomeConflict {
-			return RemoteBranchMergeResult{Outcome: "conflict", TargetRef: targetRef, SourceRefs: append([]string(nil), sourceRefs...), ConflictRef: sourceRef, Paths: merge.Paths}, nil
+			return RemoteBranchMergeResult{Outcome: "conflict", TargetRef: targetRef, SourceRefs: append([]string(nil), sourceRefs...), ConflictRef: sourceRef, Paths: merge.Paths, Sides: merge.Sides}, nil
 		}
 		if merge.Outcome == MergeOutcomeMerged {
 			outcome = "merged"

@@ -1167,6 +1167,7 @@ const (
 	GitConflictOriginPush        = "push"
 	GitConflictOriginBranchMerge = "branch_merge"
 	GitConflictOriginPull        = "pull"
+	GitConflictOriginRemoteMerge = "remote_branch_merge"
 )
 
 // GitConflictContext describes a host Git merge whose conflict is awaiting a
@@ -1186,6 +1187,8 @@ type GitConflictContext struct {
 	TheirsSHA string `json:"theirs_sha"`
 	// TargetBranch is the local branch the merge lands on.
 	TargetBranch string `json:"target_branch,omitempty"`
+	// SourceRefs preserves the ordered source set of an isolated remote merge.
+	SourceRefs []string `json:"source_refs,omitempty"`
 }
 
 type RequestLineage struct {

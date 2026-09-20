@@ -784,6 +784,9 @@ export type ProjectTodo = {
  * the planner-authored commit message preserved as a pending record.
  */
 export type GitCommitMode = 'auto' | 'manual'
+export type GitConflictStrategy = 'gpt_only' | 'user_only' | 'user_decide'
+export type GitCommitAuthorStrategy = 'wharnex' | 'git_user' | 'custom' | 'wharnex_git_user' | 'wharnex_custom'
+export type GitAuthorSettings = { commit_author_strategy: GitCommitAuthorStrategy; custom_author_name?: string; custom_author_email?: string }
 
 export type GitBranch = {
   name: string
@@ -798,6 +801,7 @@ export type GitBranch = {
   gone: boolean
   counterpart?: string
   has_counterpart?: boolean
+  unmerged_commits?: number
 }
 
 export type GitRemote = { name: string; url: string }
@@ -819,6 +823,9 @@ export type GitCommit = {
   merge: boolean
   /** Reachable from the valid upstream, or from any remote-tracking ref when no upstream exists. */
   pushed: boolean
+  files_changed?: number
+  additions?: number
+  deletions?: number
 }
 
 export type GitPendingCommit = {
@@ -839,6 +846,8 @@ export type GitPendingCommit = {
 export type GitWorkingFile = {
   path: string
   kind: 'change' | 'gitlink' | 'submodule' | 'embedded_repository' | 'unmerged'
+  additions?: number
+  deletions?: number
 }
 
 export type GitWorkingSummary = {
@@ -851,7 +860,7 @@ export type GitWorkingSummary = {
 }
 
 export type GitConflictContext = {
-  origin: 'integration' | 'push' | 'branch_merge' | 'pull'
+  origin: 'integration' | 'push' | 'branch_merge' | 'pull' | 'remote_branch_merge'
   ref: string
   remote?: string
   remote_branch?: string
@@ -859,6 +868,7 @@ export type GitConflictContext = {
   ours_sha: string
   theirs_sha: string
   target_branch?: string
+  source_refs?: string[]
 }
 
 export type GitFileDiff = { path: string; diff: string; truncated?: boolean }
@@ -878,12 +888,16 @@ export type GitCommitDetail = {
   diff_truncated?: boolean
 }
 
+export type GitHistoryPage = { commits: GitCommit[]; next_offset: number; has_more: boolean }
+
 export type GitOverview = {
   project_path: string
   project_version?: string
   available: boolean
   unavailable?: string
   commit_mode: GitCommitMode
+  conflict_strategy?: GitConflictStrategy
+  author_settings?: GitAuthorSettings
   /** Self-evolution always commits, so the toggle is presented as fixed. */
   commit_mode_fixed?: boolean
   current_branch?: string
@@ -910,7 +924,7 @@ export type GitPushResult = {
   conflict_id?: string
 }
 export type GitMergeResult = { outcome: string; ref: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
-export type GitRemoteMergeResult = { outcome: string; target_ref: string; source_refs: string[]; commit_sha?: string; push_outcome?: string; conflict_ref?: string; paths?: string[]; detail?: string }
+export type GitRemoteMergeResult = { outcome: string; target_ref: string; source_refs: string[]; commit_sha?: string; push_outcome?: string; conflict_ref?: string; conflict_id?: string; paths?: string[]; detail?: string }
 export type GitBranchActionResult = { outcome: string; remote?: string; branch?: string; ref?: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
 
 // One conversation a chat with a lost binding may belong to, with the evidence

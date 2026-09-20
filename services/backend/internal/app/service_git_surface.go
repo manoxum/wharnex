@@ -27,15 +27,58 @@ func (s *Service) SetGitSurface(settingsFile string, pending *pendingcommit.Stor
 // successful Apply. A settings document that cannot be read degrades to auto,
 // which is the historical behavior: a configuration fault must never silently
 // switch a project into leaving changes uncommitted.
-func (s *Service) projectCommitMode(projectPath string) gitsettings.CommitMode {
+func (s *Service) projectGitSettings(projectPath string) gitsettings.ProjectSettings {
 	if s.gitSettingsFile == "" {
-		return gitsettings.CommitModeAuto
+		return gitsettings.DefaultProject()
 	}
 	document, err := gitsettings.Read(s.gitSettingsFile)
 	if err != nil {
-		return gitsettings.CommitModeAuto
+		return gitsettings.DefaultProject()
 	}
-	return document.ForProject(projectPath).CommitMode
+	return document.ForProject(projectPath)
+}
+
+func (s *Service) projectCommitMode(projectPath string) gitsettings.CommitMode {
+	return s.projectGitSettings(projectPath).CommitMode
+}
+func (s *Service) projectConflictStrategy(projectPath string) gitsettings.ConflictStrategy {
+	return s.projectGitSettings(projectPath).ConflictStrategy
+}
+
+func (s *Service) globalGitSettings() gitsettings.GlobalSettings {
+	if s.gitSettingsFile == "" {
+		return gitsettings.DefaultGlobal()
+	}
+	document, err := gitsettings.Read(s.gitSettingsFile)
+	if err != nil {
+		return gitsettings.DefaultGlobal()
+	}
+	return document.GlobalSettings()
+}
+
+func (s *Service) projectCommitIdentity(ctx context.Context, projectPath string) hostrepo.CommitIdentity {
+	settings := s.globalGitSettings()
+	configured, hasConfigured := hostrepo.ConfiguredCommitIdentity(ctx, projectPath)
+	custom := hostrepo.CommitIdentity{Name: settings.CustomAuthorName, Email: settings.CustomAuthorEmail}
+	switch settings.CommitAuthorStrategy {
+	case gitsettings.CommitAuthorGitUser:
+		if hasConfigured {
+			return configured
+		}
+	case gitsettings.CommitAuthorCustom:
+		if custom.Name != "" && custom.Email != "" {
+			return custom
+		}
+	case gitsettings.CommitAuthorWharnexGit:
+		if hasConfigured {
+			return hostrepo.CommitIdentity{Name: "WHX - " + configured.Name, Email: configured.Email}
+		}
+	case gitsettings.CommitAuthorWharnexCustom:
+		if custom.Name != "" && custom.Email != "" {
+			return hostrepo.CommitIdentity{Name: "WHX - " + custom.Name, Email: custom.Email}
+		}
+	}
+	return hostrepo.DefaultCommitIdentity()
 }
 
 // GitCommitMode reports the mode a project is currently using.
@@ -62,11 +105,57 @@ func (s *Service) SetGitCommitMode(projectPath string, mode gitsettings.CommitMo
 	if err != nil {
 		return "", err
 	}
-	updated := document.WithProject(projectPath, gitsettings.ProjectSettings{CommitMode: mode})
+	settings := document.ForProject(projectPath)
+	settings.CommitMode = mode
+	updated := document.WithProject(projectPath, settings)
 	if err := gitsettings.Save(s.gitSettingsFile, updated); err != nil {
 		return "", err
 	}
 	return mode, nil
+}
+
+func (s *Service) SetGitConflictStrategy(projectPath string, strategy gitsettings.ConflictStrategy) (gitsettings.ConflictStrategy, error) {
+	if !gitsettings.ValidConflictStrategy(strategy) {
+		return "", fmt.Errorf("unsupported conflict strategy %q", strategy)
+	}
+	if s.gitSettingsFile == "" {
+		return "", errors.New("the Git settings document is not configured")
+	}
+	s.gitSettingsMu.Lock()
+	defer s.gitSettingsMu.Unlock()
+	document, err := gitsettings.Read(s.gitSettingsFile)
+	if err != nil {
+		return "", err
+	}
+	settings := document.ForProject(projectPath)
+	settings.ConflictStrategy = strategy
+	if err := gitsettings.Save(s.gitSettingsFile, document.WithProject(projectPath, settings)); err != nil {
+		return "", err
+	}
+	return strategy, nil
+}
+
+func (s *Service) SetGitAuthorSettings(settings gitsettings.GlobalSettings) (gitsettings.GlobalSettings, error) {
+	if !gitsettings.ValidCommitAuthorStrategy(settings.CommitAuthorStrategy) {
+		return gitsettings.GlobalSettings{}, fmt.Errorf("unsupported commit author strategy %q", settings.CommitAuthorStrategy)
+	}
+	if (settings.CommitAuthorStrategy == gitsettings.CommitAuthorCustom || settings.CommitAuthorStrategy == gitsettings.CommitAuthorWharnexCustom) && (strings.TrimSpace(settings.CustomAuthorName) == "" || strings.TrimSpace(settings.CustomAuthorEmail) == "") {
+		return gitsettings.GlobalSettings{}, errors.New("custom commit authorship requires name and email")
+	}
+	if s.gitSettingsFile == "" {
+		return gitsettings.GlobalSettings{}, errors.New("the Git settings document is not configured")
+	}
+	s.gitSettingsMu.Lock()
+	defer s.gitSettingsMu.Unlock()
+	document, err := gitsettings.Read(s.gitSettingsFile)
+	if err != nil {
+		return gitsettings.GlobalSettings{}, err
+	}
+	updated := document.WithGlobal(settings)
+	if err := gitsettings.Save(s.gitSettingsFile, updated); err != nil {
+		return gitsettings.GlobalSettings{}, err
+	}
+	return updated.GlobalSettings(), nil
 }
 
 // recordAndUnwindIntegration turns a completed, verified integration into
@@ -139,8 +228,10 @@ func firstLineOf(message string) string {
 
 // GitWorkingFile is one changed worktree path shown by the Git surface.
 type GitWorkingFile struct {
-	Path string `json:"path"`
-	Kind string `json:"kind"`
+	Path      string `json:"path"`
+	Kind      string `json:"kind"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
 }
 
 // GitWorkingSummary reports both aggregate counts and the concrete paths. The
@@ -155,7 +246,7 @@ type GitWorkingSummary struct {
 	UnmergedPaths        []string         `json:"unmerged_paths,omitempty"`
 }
 
-func gitWorkingFiles(state hostrepo.WorkingState) []GitWorkingFile {
+func gitWorkingFiles(state hostrepo.WorkingState, stats ...map[string]hostrepo.DiffStat) []GitWorkingFile {
 	kinds := make(map[string]string)
 	for _, path := range state.Stageable {
 		kinds[path] = "change"
@@ -174,7 +265,11 @@ func gitWorkingFiles(state hostrepo.WorkingState) []GitWorkingFile {
 	}
 	files := make([]GitWorkingFile, 0, len(kinds))
 	for path, kind := range kinds {
-		files = append(files, GitWorkingFile{Path: path, Kind: kind})
+		file := GitWorkingFile{Path: path, Kind: kind}
+		if len(stats) > 0 {
+			file.Additions, file.Deletions = stats[0][path].Additions, stats[0][path].Deletions
+		}
+		files = append(files, file)
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return files
@@ -182,22 +277,24 @@ func gitWorkingFiles(state hostrepo.WorkingState) []GitWorkingFile {
 
 // GitOverview is everything the Git surface renders in one round trip.
 type GitOverview struct {
-	ProjectPath     string                     `json:"project_path"`
-	ProjectVersion  string                     `json:"project_version"`
-	Available       bool                       `json:"available"`
-	Unavailable     string                     `json:"unavailable,omitempty"`
-	CommitMode      string                     `json:"commit_mode"`
-	CommitModeFixed bool                       `json:"commit_mode_fixed,omitempty"`
-	CurrentBranch   string                     `json:"current_branch,omitempty"`
-	Detached        bool                       `json:"detached"`
-	InProgress      string                     `json:"in_progress,omitempty"`
-	HasIdentity     bool                       `json:"has_identity"`
-	Branches        []hostrepo.Branch          `json:"branches"`
-	Remotes         []hostrepo.Remote          `json:"remotes"`
-	Commits         []hostrepo.Commit          `json:"commits"`
-	Pending         []pendingcommit.Record     `json:"pending"`
-	Working         GitWorkingSummary          `json:"working"`
-	Conflict        *domain.GitConflictContext `json:"conflict,omitempty"`
+	ProjectPath      string                     `json:"project_path"`
+	ProjectVersion   string                     `json:"project_version"`
+	Available        bool                       `json:"available"`
+	Unavailable      string                     `json:"unavailable,omitempty"`
+	CommitMode       string                     `json:"commit_mode"`
+	ConflictStrategy string                     `json:"conflict_strategy"`
+	AuthorSettings   gitsettings.GlobalSettings `json:"author_settings"`
+	CommitModeFixed  bool                       `json:"commit_mode_fixed,omitempty"`
+	CurrentBranch    string                     `json:"current_branch,omitempty"`
+	Detached         bool                       `json:"detached"`
+	InProgress       string                     `json:"in_progress,omitempty"`
+	HasIdentity      bool                       `json:"has_identity"`
+	Branches         []hostrepo.Branch          `json:"branches"`
+	Remotes          []hostrepo.Remote          `json:"remotes"`
+	Commits          []hostrepo.Commit          `json:"commits"`
+	Pending          []pendingcommit.Record     `json:"pending"`
+	Working          GitWorkingSummary          `json:"working"`
+	Conflict         *domain.GitConflictContext `json:"conflict,omitempty"`
 }
 
 // GitOverview reads the project's whole Git situation.
@@ -250,9 +347,12 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 	if err != nil {
 		return GitOverview{}, err
 	}
+	projectSettings := s.projectGitSettings(item.ProjectPath)
 	overview := GitOverview{
-		ProjectPath: item.ProjectPath,
-		CommitMode:  string(s.projectCommitMode(item.ProjectPath)),
+		ProjectPath:      item.ProjectPath,
+		CommitMode:       string(projectSettings.CommitMode),
+		ConflictStrategy: string(projectSettings.ConflictStrategy),
+		AuthorSettings:   s.globalGitSettings(),
 	}
 	if version, _, versionErr := projectversion.Ensure(item.ProjectPath); versionErr == nil {
 		overview.ProjectVersion = version
@@ -284,7 +384,7 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 	}
 	if state, stateErr := hostrepo.Working(ctx, item.ProjectPath); stateErr == nil {
 		overview.Working = GitWorkingSummary{
-			Clean: state.Clean(), StageableCount: len(state.Stageable), Files: gitWorkingFiles(state),
+			Clean: state.Clean(), StageableCount: len(state.Stageable), Files: gitWorkingFiles(state, hostrepo.WorktreeStats(ctx, item.ProjectPath)),
 			DirtySubmodules: state.DirtySubmodules, EmbeddedRepositories: state.EmbeddedRepositories,
 			UnmergedPaths: state.Unmerged,
 		}
@@ -431,6 +531,93 @@ func (s *Service) GitHistory(ctx context.Context, sessionID string, refs []strin
 		return hostrepo.Log(ctx, item.ProjectPath, 50)
 	}
 	return hostrepo.LogRefs(ctx, item.ProjectPath, selected, false, 200)
+}
+
+type GitHistoryPage struct {
+	Commits    []hostrepo.Commit `json:"commits"`
+	NextOffset int               `json:"next_offset"`
+	HasMore    bool              `json:"has_more"`
+}
+
+func (s *Service) GitHistoryPage(ctx context.Context, sessionID string, refs []string, all bool, limit, offset int) (GitHistoryPage, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitHistoryPage{}, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	selected, err := s.validHistoryRefs(ctx, item.ProjectPath, refs, all)
+	if err != nil {
+		return GitHistoryPage{}, err
+	}
+	commits, err := hostrepo.LogRefsPage(ctx, item.ProjectPath, selected, all, limit+1, offset)
+	if err != nil {
+		return GitHistoryPage{}, err
+	}
+	hasMore := len(commits) > limit
+	if hasMore {
+		commits = commits[:limit]
+	}
+	return GitHistoryPage{Commits: commits, NextOffset: offset + len(commits), HasMore: hasMore}, nil
+}
+
+func (s *Service) validHistoryRefs(ctx context.Context, projectPath string, refs []string, all bool) ([]string, error) {
+	if all {
+		return nil, nil
+	}
+	branches, err := hostrepo.Branches(ctx, projectPath)
+	if err != nil {
+		return nil, err
+	}
+	allowed := map[string]bool{}
+	for _, branch := range branches {
+		allowed[branch.Name] = true
+	}
+	selected := []string{}
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			continue
+		}
+		if !allowed[ref] {
+			return nil, fmt.Errorf("unknown branch %q", ref)
+		}
+		seen[ref] = true
+		selected = append(selected, ref)
+		if len(selected) >= 32 {
+			break
+		}
+	}
+	return selected, nil
+}
+
+func (s *Service) GitHistoryCommit(ctx context.Context, sessionID, sha string) (GitCommitDetail, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitCommitDetail{}, err
+	}
+	commit, err := hostrepo.CommitBySHA(ctx, item.ProjectPath, sha)
+	if err != nil {
+		return GitCommitDetail{}, err
+	}
+	diff, truncated, err := hostrepo.CommitDiff(ctx, item.ProjectPath, commit.SHA, 512<<10)
+	if err != nil {
+		return GitCommitDetail{}, err
+	}
+	return GitCommitDetail{Commit: commit, Diff: diff, DiffTruncated: truncated}, nil
+}
+
+func (s *Service) GitMergeCandidates(ctx context.Context, sessionID, targetRef string) ([]hostrepo.Branch, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return hostrepo.MergeCandidates(ctx, item.ProjectPath, targetRef)
 }
 
 // pendingRecordsWithoutDiffs lists the queue with diffs stripped. A diff is up

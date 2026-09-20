@@ -111,7 +111,7 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
               <span><code>{commit.short_sha}</code> · {commit.author_name} · <time dateTime={commit.committed_at}>{formatDate(commit.committed_at)}</time></span>
             </span>
           </button>
-          <button type="button" className="git-file-diff-action" aria-label={`Abrir diff do commit ${commit.short_sha}`} disabled={blocked} onClick={() => void openDetail(commit.sha)}><Icon name="code" size={11}/><span>Diff</span></button>
+          <button type="button" className="git-file-diff-action git-line-stats" aria-label={`Abrir diff do commit ${commit.short_sha}`} disabled={blocked} onClick={() => void openDetail(commit.sha)}><b>+{commit.additions || 0}</b><i>−{commit.deletions || 0}</i></button>
         </li>)}
       </ul>
     </>}
@@ -125,7 +125,7 @@ function CommitDetailModal({ sessionId, detail, onClose }: { sessionId: string; 
   return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}>
     <div className="git-diff-modal git-commit-detail-modal" role="dialog" aria-modal="true" aria-label={`Commit ${commit.short_sha}`} onMouseDown={(event) => event.stopPropagation()}>
       <header>
-        <div><span className="panel-kicker">Commit local</span><strong>{commit.subject}</strong></div>
+        <div><span className="panel-kicker">Commit local</span><strong>{commit.subject}</strong><small>+{commit.additions || 0} −{commit.deletions || 0} · {commit.files_changed || 0} ficheiro(s)</small></div>
         <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button>
       </header>
       <details className="git-commit-detail-disclosure">

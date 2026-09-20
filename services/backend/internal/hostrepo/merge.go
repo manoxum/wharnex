@@ -55,7 +55,7 @@ type MergeResult struct {
 // planner round — took to resolve it. Aborting keeps the repository usable and
 // loses nothing: MergeSides carries everything needed to reconstruct the
 // conflict, and replaying the merge after a resolution reproduces it exactly.
-func MergeBranch(ctx context.Context, root, ref string) (MergeResult, error) {
+func MergeBranch(ctx context.Context, root, ref string, identities ...CommitIdentity) (MergeResult, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" || strings.HasPrefix(ref, "-") {
 		return MergeResult{}, errors.New("a branch to merge is required")
@@ -91,7 +91,11 @@ func MergeBranch(ctx context.Context, root, ref string) (MergeResult, error) {
 	// write. That refusal is correct and must reach the operator as itself,
 	// not be worked around by committing their files for them: this is their
 	// merge, not Wharnex integration plumbing.
-	output, mergeErr := run(ctx, root, "merge", "--no-edit", "--", ref)
+	args := []string{"merge", "--no-edit", "--", ref}
+	if len(identities) > 0 {
+		args = append(AuthorGitArgs(identities[0]), args...)
+	}
+	output, mergeErr := run(ctx, root, args...)
 	if mergeErr == nil {
 		if strings.Contains(output, "Already up to date") {
 			return MergeResult{Outcome: MergeOutcomeUpToDate, Sides: sides}, nil
@@ -169,7 +173,7 @@ func BeginMergeResolution(ctx context.Context, root, ref string, conflictPaths [
 // CompleteMergeResolution stages the resolved paths and concludes the merge.
 // It refuses to commit while any path is still unresolved, so a partial
 // resolution can never be recorded as a finished merge.
-func CompleteMergeResolution(ctx context.Context, root string, conflictPaths []string, message string) (commitSHA string, err error) {
+func CompleteMergeResolution(ctx context.Context, root string, conflictPaths []string, message string, identities ...CommitIdentity) (commitSHA string, err error) {
 	if strings.TrimSpace(message) == "" {
 		return "", errors.New("a commit message is required")
 	}
@@ -180,7 +184,11 @@ func CompleteMergeResolution(ctx context.Context, root string, conflictPaths []s
 	if remaining, _ := run(ctx, root, "diff", "--name-only", "--diff-filter=U"); strings.TrimSpace(remaining) != "" {
 		return "", fmt.Errorf("resolution left unresolved paths: %s", strings.Join(strings.Fields(remaining), ", "))
 	}
-	if output, commitErr := run(ctx, root, "commit", "-q", "--no-edit", "-m", message); commitErr != nil {
+	commitArgs := []string{"commit", "-q", "--no-edit", "-m", message}
+	if len(identities) > 0 {
+		commitArgs = append(AuthorGitArgs(identities[0]), commitArgs...)
+	}
+	if output, commitErr := run(ctx, root, commitArgs...); commitErr != nil {
 		return "", hostGitFailure(ctx, root, output, "commit merge resolution")
 	}
 	head, err := run(ctx, root, "rev-parse", "HEAD")

@@ -708,3 +708,103 @@ func TestMergeRemoteBranchesUsesDisposableWorktreeAndPreservesCurrentBranch(t *t
 		t.Fatal("target does not contain source after remote merge")
 	}
 }
+
+func TestMergeCandidatesOnlyReturnsRefsWithCommitsMissingFromTarget(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+
+	git(t, root, "checkout", "-qb", "integrated")
+	write(t, root, "integrated.txt", "integrated\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: integrated")
+	git(t, root, "checkout", "-q", "main")
+	git(t, root, "merge", "-q", "--ff-only", "integrated")
+
+	git(t, root, "checkout", "-qb", "local-only")
+	write(t, root, "local-only.txt", "local\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: local only")
+	git(t, root, "checkout", "-q", "main")
+
+	git(t, root, "checkout", "-qb", "remote-only")
+	write(t, root, "remote-only.txt", "remote\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: remote only")
+	git(t, root, "push", "-q", "origin", "remote-only")
+	git(t, root, "checkout", "-q", "main")
+
+	candidates, err := MergeCandidates(context.Background(), root, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]Branch{}
+	for _, branch := range candidates {
+		byName[branch.Name] = branch
+	}
+	if _, ok := byName["integrated"]; ok {
+		t.Fatalf("already integrated branch must not be offered: %+v", candidates)
+	}
+	if byName["local-only"].UnmergedCommits != 1 {
+		t.Fatalf("expected one missing local commit, got %+v", byName["local-only"])
+	}
+	if byName["origin/remote-only"].UnmergedCommits != 1 {
+		t.Fatalf("expected one missing remote commit, got %+v", byName["origin/remote-only"])
+	}
+}
+
+func TestMergeRemoteBranchesAcceptsLocalSourceRef(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+	git(t, root, "branch", "target")
+	git(t, root, "push", "-q", "origin", "target")
+
+	git(t, root, "checkout", "-qb", "local-source")
+	write(t, root, "local-source.txt", "local source\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: local source")
+	git(t, root, "checkout", "-q", "main")
+
+	result, err := MergeRemoteBranches(context.Background(), root, "origin/target", []string{"local-source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != "merged" || result.PushOutcome != string(PushOutcomePushed) {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	git(t, root, "fetch", "-q", "origin")
+	if _, err := run(context.Background(), root, "merge-base", "--is-ancestor", "local-source", "origin/target"); err != nil {
+		t.Fatal("remote target must contain the selected local source")
+	}
+}
+
+func TestLogPageIncludesLineStatsAndOffset(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	write(t, root, "one.txt", "one\ntwo\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: two lines")
+	write(t, root, "one.txt", "one\nchanged\nthree\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "fix: replace and add")
+
+	first, err := LogRefsPage(context.Background(), root, nil, false, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := LogRefsPage(context.Background(), root, nil, false, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || len(second) != 1 || first[0].SHA == second[0].SHA {
+		t.Fatalf("offset paging did not return distinct commits: first=%+v second=%+v", first, second)
+	}
+	if first[0].FilesChanged != 1 || first[0].Additions != 2 || first[0].Deletions != 1 {
+		t.Fatalf("unexpected numstat for newest commit: %+v", first[0])
+	}
+}

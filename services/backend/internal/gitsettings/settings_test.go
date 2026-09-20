@@ -58,3 +58,41 @@ func TestRejectsAnUnsupportedMode(t *testing.T) {
 		t.Fatal("a stored unsupported mode must be refused on read, not silently coerced")
 	}
 }
+
+func TestNewGitSettingsDefaultsAndRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "git-settings.json")
+	document := Default().
+		WithProject("/w/alpha", ProjectSettings{CommitMode: CommitModeAuto, ConflictStrategy: ConflictStrategyGPTOnly}).
+		WithGlobal(GlobalSettings{CommitAuthorStrategy: CommitAuthorWharnexCustom, CustomAuthorName: "Release Bot", CustomAuthorEmail: "release@example.com"})
+	if err := Save(path, document); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.ForProject("/w/alpha").ConflictStrategy; got != ConflictStrategyGPTOnly {
+		t.Fatalf("conflict strategy = %q", got)
+	}
+	global := reloaded.GlobalSettings()
+	if global.CommitAuthorStrategy != CommitAuthorWharnexCustom || global.CustomAuthorName != "Release Bot" || global.CustomAuthorEmail != "release@example.com" {
+		t.Fatalf("global author settings not preserved: %+v", global)
+	}
+}
+
+func TestLegacyGitSettingsAcquireNewDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "git-settings.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"projects":{"/w/a":{"commit_mode":"manual"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	document, err := Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.ForProject("/w/a").ConflictStrategy != ConflictStrategyUserDecide {
+		t.Fatalf("legacy project must default to user_decide: %+v", document.ForProject("/w/a"))
+	}
+	if document.GlobalSettings().CommitAuthorStrategy != CommitAuthorWharnexGit {
+		t.Fatalf("legacy document must default to Wharnex + Git user: %+v", document.GlobalSettings())
+	}
+}
