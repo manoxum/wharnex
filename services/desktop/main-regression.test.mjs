@@ -1519,7 +1519,11 @@ test('expected bundle supervision is armed only around submissions that can leav
   const submitCount = (prepare.match(/await submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ rateLimitExempt: !pacedWorker \}\)/g) || []).length
   const disarmCount = (prepare.match(/disarmExpectedChatGPTBundle\(key, requestId\)/g) || []).length
   assert.equal(submitCount, 1, 'the mandatory ZIP autoSubmit path calls submitChatGPTDraft once')
-  assert.equal(disarmCount, 1, 'a failed autoSubmit disarms the bundle armed before dispatch')
+  // One disarm for a failed submitChatGPTDraft, one for a failed durable
+  // AWAIT_RESPONSE task enqueue: the task is this Main Request's only durable
+  // record, so exhausting enqueueChatAgentFollowups' retries must not leave a
+  // live in-memory expectation behind either (see adr/ADR-0056).
+  assert.equal(disarmCount, 2, 'both a failed autoSubmit and a failed durable follow-up enqueue disarm the bundle armed before dispatch')
 
   const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(')
   const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)
@@ -1527,7 +1531,7 @@ test('expected bundle supervision is armed only around submissions that can leav
   const preparedSubmit = prepared.indexOf('await submitChatGPTDraft(key, entry, prepared.conversationUrl || entry.affinity.boundURL)')
   const preparedArm = prepared.indexOf('armExpectedChatGPTBundle(key, prepared.requestId')
   assert.ok(preparedSubmit >= 0 && preparedArm > preparedSubmit, 'manual prepared submit arms supervision only after submit confirmation')
-  assert.doesNotMatch(prepared, /disarmExpectedChatGPTBundle\(key, prepared\.requestId\)/)
+  assert.match(prepared, /disarmExpectedChatGPTBundle\(key, prepared\.requestId\)/)
 
   const repairStart = source.indexOf('async function submitPromptToChatGPT')
   const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)

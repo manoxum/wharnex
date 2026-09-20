@@ -897,6 +897,11 @@ function armExpectedChatGPTBundle(cacheKey, requestId, assistantBaseline = 0, re
       : (sameRequest && prior?.requestMetadata ? { ...prior.requestMetadata } : {}),
     liveTunnels: Array.isArray(liveTunnels) && liveTunnels.length ? liveTunnels.slice(0, 16) : (sameRequest && Array.isArray(prior?.liveTunnels) ? prior.liveTunnels.slice(0, 16) : []),
     recovery: createChatGPTRecoveryState(Date.now()),
+    // Anchors every later recovery/bundle-validation/human-escalation event to
+    // the durable AWAIT_RESPONSE task this Main Request created (see
+    // enqueueChatAgentFollowups / recordChatGPTTaskEvent). Set once that task
+    // is guaranteed to exist, since arming happens before the enqueue.
+    mainRequestTaskId: sameRequest ? String(prior?.mainRequestTaskId || '') : '',
   })
   return filename
 }
@@ -4626,14 +4631,22 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
     if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
     if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, conversationUrl, { remoteState: 'awaiting-response' })
     try {
-      await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
+      const mainRequestTask = await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
         expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap, originalPrompt: directPrompt,
         sessionId: request?.sessionId || '', liveTunnels: remoteInput?.tunnels || [],
         requestMetadata: input.requestMetadata,
         projectName: request?.projectName || '', projectPath: request?.projectPath || '', workspaceChatId,
       })
+      const armed = expectedChatGPTBundles.get(key)
+      if (armed?.requestId === requestId) armed.mainRequestTaskId = String(mainRequestTask?.task_id || '')
     } catch (error) {
-      console.error(`[chatgpt-supervision] submitted request ${requestId} but durable follow-up scheduling failed: ${error instanceof Error ? error.message : String(error)}`)
+      // The AWAIT_RESPONSE task is this Main Request's only durable record
+      // (see enqueueChatAgentFollowups). Every retry already ran; treat the
+      // whole submission as failed rather than leaving an in-memory
+      // expectation with nothing behind it that survives a Desktop restart.
+      disarmExpectedChatGPTBundle(key, requestId)
+      console.error(`[chatgpt-supervision] submitted request ${requestId} but durable follow-up scheduling failed after retries: ${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(`Não foi possível registar de forma durável o pedido ${requestId}: ${error instanceof Error ? error.message : String(error)}`)
     }
     preparedChatGPTDrafts.delete(key)
   } else {
@@ -4841,14 +4854,21 @@ async function submitPreparedChatGPTDraft(cacheKey, entryOverride = undefined) {
   const workspaceChatId = durableWorkspaceChatID(key, prepared.workspaceChatId)
   if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, conversationUrl, { remoteState: 'awaiting-response' })
   try {
-    await enqueueChatAgentFollowups(key, prepared.requestId, conversationUrl, {
+    const mainRequestTask = await enqueueChatAgentFollowups(key, prepared.requestId, conversationUrl, {
       expectedFilename, assistantBaseline, recoveryBootstrap: prepared.recoveryBootstrap,
       originalPrompt: prepared.originalPrompt || '', sessionId: prepared.sessionId || '', liveTunnels: prepared.liveTunnels || [],
       requestMetadata: prepared.requestMetadata || {},
       projectName: prepared.projectName || '', projectPath: prepared.projectPath || '', fallbackTitle: prepared.chatTitle || '', workspaceChatId,
     })
+    const armed = expectedChatGPTBundles.get(key)
+    if (armed?.requestId === prepared.requestId) armed.mainRequestTaskId = String(mainRequestTask?.task_id || '')
   } catch (error) {
-    console.error(`[chatgpt-supervision] submitted request ${prepared.requestId} but durable follow-up scheduling failed: ${error instanceof Error ? error.message : String(error)}`)
+    // See attachPromptToChatGPT's autoSubmit path: every retry already ran,
+    // so a Main Request with no durable AWAIT_RESPONSE task must not be left
+    // as a live in-memory expectation nobody will recover after a restart.
+    disarmExpectedChatGPTBundle(key, prepared.requestId)
+    console.error(`[chatgpt-supervision] submitted request ${prepared.requestId} but durable follow-up scheduling failed after retries: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(`Não foi possível registar de forma durável o pedido ${prepared.requestId}: ${error instanceof Error ? error.message : String(error)}`)
   }
   preparedChatGPTDrafts.delete(key)
   touchChatGPTEntry(entry)
@@ -5015,15 +5035,21 @@ function chatAgentRequestEligibleAt(type, payload = {}, explicit = undefined) {
   return new Date(Date.now() + chatAgentInitialRequestWaitMs()).toISOString()
 }
 
-async function enqueueChatAgentTask(type, { key, requestId = '', rootRequestId = '', conversationURL = '', parentTaskID = '', dedupeKey = '', payload = {}, maxAttempts = 8, notBefore = undefined, projectID = '', sessionID = '' }) {
+async function enqueueChatAgentTask(type, { key, requestId = '', rootRequestId = '', conversationURL = '', parentTaskID = '', dedupeKey = '', payload = {}, maxAttempts = 8, notBefore = undefined, projectID = '', sessionID = '', retry = false }) {
   if (!chatAgentScheduler) throw new Error('Chat-agent scheduler is not ready')
   const conversationID = chatAgentConversationID(conversationURL)
-  const queued = await chatAgentScheduler.enqueue({
+  const body = {
     type, project_id: String(projectID || ''), chat_id: sanitizeChatCacheKey(key), session_id: String(sessionID || ''),
     request_id: String(requestId || ''), root_request_id: String(rootRequestId || requestId || ''), conversation_id: conversationID,
     parent_task_id: String(parentTaskID || ''), dedupe_key: String(dedupeKey || ''), max_attempts: Number(maxAttempts || 8),
     not_before: chatAgentRequestEligibleAt(type, payload, notBefore), payload: { ...payload, conversation_url: canonicalChatGPTConversationURL(conversationURL) },
-  })
+  }
+  // A Main Request's AWAIT_RESPONSE task is its only durable record (see
+  // AGENTS.md §8): a transient enqueue failure there must not leave a request
+  // running with zero trace of it, so that one caller opts into a bounded
+  // retry instead of the ordinary single-attempt enqueue every other task
+  // type uses.
+  const queued = retry ? await chatAgentScheduler.enqueueWithRetry(body) : await chatAgentScheduler.enqueue(body)
   // Supervisor and Worker claims are separate loops over the same queue. The
   // enqueue call wakes the Worker client that owns the HTTP request; explicitly
   // wake the complementary pool too so Supervisor work is seen immediately.
@@ -5083,7 +5109,22 @@ async function enqueueChatAgentFollowups(key, requestId, conversationURL, values
   // The canonical host project path, never the ChatGPT display name. An empty
   // value is resolved by the backend from the task's own chat or session.
   const common = { key, requestId, rootRequestId: requestId, conversationURL, sessionID: payload.session_id, projectID: payload.project_path, payload, notBefore: requestEligibleAt }
-  await enqueueChatAgentTask('AWAIT_RESPONSE', { ...common, dedupeKey: `await:${requestId}`, maxAttempts: 30 })
+  // Guaranteed, not best-effort: this AWAIT_RESPONSE task is the Main
+  // Request's only durable record, so the caller needs the resulting task id
+  // (to anchor every later recovery/bundle decision event) and needs a
+  // failure here to be a real failure, not a swallowed console.error.
+  return enqueueChatAgentTask('AWAIT_RESPONSE', { ...common, dedupeKey: `await:${requestId}`, maxAttempts: 30, retry: true })
+}
+
+// Durably records one decision against the Main Request's own AWAIT_RESPONSE
+// task (see armExpectedChatGPTBundle's mainRequestTaskId). Best-effort by
+// construction: recordTaskEvent itself never throws, and a missing task id
+// (arming raced the enqueue, or the enqueue never reached this expectation)
+// silently skips rather than blocking the caller's own automation.
+function recordChatGPTTaskEvent(expected, type, data = {}) {
+  const taskId = String(expected?.mainRequestTaskId || '')
+  if (!taskId || !chatAgentScheduler) return
+  void chatAgentScheduler.recordTaskEvent(taskId, type, data, { requestId: expected?.requestId || '', rootRequestId: expected?.requestId || '' })
 }
 
 function hydrateExpectedChatAgentBundle(key, task, payload) {
