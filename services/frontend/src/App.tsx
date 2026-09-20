@@ -75,6 +75,7 @@ const EXECUTION_TERMINAL_EVENT_TYPES = new Set(['execution.completed', 'executio
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
+import { storedAttachmentFile, withProjectTodoPrePlan } from './lib/projectTodoForwarding'
 import { appliedChangePresentationItems, buildChangeSummary, mergeAppliedChangePresentationItems } from './lib/changeSummary'
 import { confirmDialog } from './lib/appDialog'
 import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable, promptGPTRepairDetail } from './lib/plannerRecovery'
@@ -853,18 +854,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       for (const attachment of todo.attachments || []) {
         if (!bridge) throw new Error('Recuperar anexos do TODO requer o Wharnex Desktop.')
         const stored = await bridge.attachments.read({ storageRef: attachment.storage_ref })
-        const binary = atob(stored.contentBase64)
-        const bytes = new Uint8Array(binary.length)
-        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
-        files.push(new File([bytes], stored.name, { type: stored.mime || attachment.mime || 'application/octet-stream' }))
+        files.push(storedAttachmentFile(stored, attachment.mime || 'application/octet-stream'))
       }
+      const forwardedFiles = withProjectTodoPrePlan(todo, files)
       const chatId = crypto.randomUUID()
       const created = await api.createSession(session.project_path, executionMode, automationMode, chatId, effortLevel)
       const title = `TODO · ${deriveChatTitle(todo.body)}`
       const chat = newWorkspaceChat(created.id, title, chatId)
       await api.saveWorkspaceChat(durableWorkspaceChat(created.project_path, chat))
       saveComposerDraft(created.project_path, chat.id, { message: `@{[todo]${todo.id}} ${todo.body}`, height: 156 })
-      saveComposerFileDraft(created.project_path, chat.id, { attachments: files, projectFiles: todo.project_files || [] })
+      saveComposerFileDraft(created.project_path, chat.id, { attachments: forwardedFiles, projectFiles: todo.project_files || [] })
       const next = [chat, ...chats]
       persistChats(created.project_path, next)
       transcriptReadyRef.current.add(chat.id)

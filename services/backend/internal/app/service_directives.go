@@ -40,7 +40,8 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	seen := directives.Values(parsed, directives.KindSee)
 	chatFiles := directives.Values(parsed, directives.KindChat)
 	libraryFiles := directives.Values(parsed, directives.KindLib)
-	if len(files) == 0 && len(refs) == 0 && len(attached) == 0 && len(seen) == 0 && len(chatFiles) == 0 && len(libraryFiles) == 0 {
+	todos := directives.Values(parsed, directives.KindTodo)
+	if len(files) == 0 && len(refs) == 0 && len(attached) == 0 && len(seen) == 0 && len(chatFiles) == 0 && len(libraryFiles) == 0 && len(todos) == 0 {
 		return ""
 	}
 	var shapes []string
@@ -61,6 +62,9 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	}
 	if len(libraryFiles) > 0 {
 		shapes = append(shapes, "@{[lib]<library file>}")
+	}
+	if len(todos) > 0 {
+		shapes = append(shapes, "@{[todo]<todo id>}")
 	}
 	var builder strings.Builder
 	builder.WriteString("\n\nINLINE REFERENCE MARKERS (Wharnex-owned scope metadata):\n")
@@ -85,6 +89,9 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	}
 	if len(libraryFiles) > 0 {
 		builder.WriteString("- @{[lib]…} identifies a file from the Wharnex library. The UI resolves it into the request attachment transport before submission; the marker preserves where the operator referred to it.\n")
+	}
+	if len(todos) > 0 {
+		builder.WriteString("- @{[todo]…} identifies a project TODO. Wharnex resolves the stable ID into its original text plus Worker classification, context and pre-plan; the composer also carries a synthetic Markdown pre-analysis and the TODO's stored artifacts in the request attachment transport.\n")
 	}
 	if missing := missingContextFiles(files, context.Manifest); len(missing) > 0 {
 		builder.WriteString("Referenced with @{[file]…} but absent from the context snapshot, so their contents are not available in this request: " + strings.Join(missing, ", ") + ".\n")

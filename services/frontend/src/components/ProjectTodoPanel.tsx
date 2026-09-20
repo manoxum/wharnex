@@ -121,7 +121,7 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
         sourceFiles.push(storedAttachmentFile(stored, attachment.mime || 'application/octet-stream'))
       }
       const files = withProjectTodoPrePlan(todo, sourceFiles)
-      if (files.length && !bridge) throw new Error('Encaminhar o pré-plano do TODO requer o Wharnex Desktop.')
+      if (files.length && !bridge) throw new Error('Encaminhar a pré-análise do TODO requer o Wharnex Desktop.')
 
       let attachments: Array<{ name: string; size: number; mime: string; storage_ref: string }> | undefined
       if (files.length && bridge) {

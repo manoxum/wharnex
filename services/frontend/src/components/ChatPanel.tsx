@@ -41,7 +41,7 @@ import { promptDialog } from '../lib/appDialog'
 import { plannerDeclaredNonRetryable, promptGPTRepairDetail } from '../lib/plannerRecovery'
 import { activePendingRequestId } from '../lib/pendingRequest'
 import { ARTIFACT_INDEX_EVENT, artifactIndexMarker, type ArtifactIndexRequest } from '../lib/artifactIndexing'
-import { storedAttachmentFile } from '../lib/projectTodoForwarding'
+import { projectTodoPrePlanAttachment, storedAttachmentFile } from '../lib/projectTodoForwarding'
 
 const COMPOSER_MIN_HEIGHT = 118
 const COMPOSER_MAX_HEIGHT = 420
@@ -605,7 +605,32 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   async function resolveIndexedArtifactFiles(text: string, existing: File[]) {
     const files = [...existing]
     const seen = new Set(files.map((file) => `${file.name}:${file.size}`))
-    for (const directive of parseDirectives(text).filter((item) => item.kind === 'chat' || item.kind === 'lib')) {
+    const append = (file: File) => {
+      const key = `${file.name}:${file.size}`
+      if (!seen.has(key)) { files.push(file); seen.add(key) }
+    }
+    const indexedDirectives = parseDirectives(text).filter((item) => item.kind === 'chat' || item.kind === 'lib' || item.kind === 'todo')
+    let currentTodos = projectTodos
+    if (indexedDirectives.some((item) => item.kind === 'todo')) {
+      const refreshed = await api.projectTodos(session.id)
+      currentTodos = refreshed.todos || projectTodos
+    }
+    for (const directive of indexedDirectives) {
+      if (directive.kind === 'todo') {
+        const todo = currentTodos.find((item) => item.id === directive.value)
+        if (!todo) throw new Error(`O TODO @todo ${directive.value} já não está disponível neste projeto.`)
+        append(projectTodoPrePlanAttachment(todo))
+        if (todo.attachments?.length) {
+          const bridge = desktopBridge()
+          if (!bridge) throw new Error(`Recuperar os artefactos do TODO ${directive.value} requer o Wharnex Desktop.`)
+          for (const attachment of todo.attachments) {
+            const stored = await bridge.attachments.read({ storageRef: attachment.storage_ref })
+            append(storedAttachmentFile(stored, attachment.mime || 'application/octet-stream'))
+          }
+        }
+        continue
+      }
+
       let url = ''
       let name = ''
       let contentType = 'application/octet-stream'
@@ -631,9 +656,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       const response = await fetch(url)
       if (!response.ok) throw new Error(`Falha ao carregar ${name || directive.value} para o próximo bundle (HTTP ${response.status}).`)
       const blob = await response.blob()
-      const file = new File([blob], name || 'artifact.bin', { type: blob.type || contentType })
-      const key = `${file.name}:${file.size}`
-      if (!seen.has(key)) { files.push(file); seen.add(key) }
+      append(new File([blob], name || 'artifact.bin', { type: blob.type || contentType }))
     }
     return files
   }

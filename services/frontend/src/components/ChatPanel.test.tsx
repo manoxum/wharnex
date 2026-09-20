@@ -30,6 +30,15 @@ function composerText(ref: RefObject<ChatPanelHandle | null>) {
   return editor ? deltaToCanonicalText(editor.getContents() as never) : ''
 }
 
+function readFileText(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error || new Error(`Não foi possível ler ${file.name}.`))
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.readAsText(file)
+  })
+}
+
 const session = {
   id: 'ses-test',
   project_path: '/tmp/demo',
@@ -1014,6 +1023,45 @@ describe('ChatPanel', () => {
     fireEvent.click(screen.getByLabelText('Conteúdo dos caminhos anexados'))
     expect(view.container.querySelector('.composer-attachment-panel')).toBeTruthy()
     view.unmount()
+  })
+
+  it('materializes the complete @todo analysis and stored artifacts on submit', async () => {
+    const ref = panelRef()
+    const onSend = vi.fn().mockResolvedValue(undefined)
+    const todo = {
+      id: 'todo_1', project_path: session.project_path, body: 'Melhorar a pesquisa', status: 'open' as const,
+      classification_status: 'classified' as const, kind: 'improvement' as const, urgency: 'urgent' as const,
+      description: 'Preservar o fluxo atual.', pre_plan: ['Medir o fluxo.', 'Cobrir com testes.'],
+      project_files: ['src/search.ts'],
+      attachments: [{ name: 'evidence.txt', size: 8, mime: 'text/plain', storage_ref: 'todo/evidence.txt' }],
+      created_at: '2026-09-20T04:00:00Z', updated_at: '2026-09-20T04:01:00Z',
+    }
+    vi.spyOn(api, 'projectTodos').mockResolvedValue({ todos: [todo] })
+    const read = vi.fn().mockResolvedValue({ name: 'evidence.txt', mime: 'text/plain', contentBase64: btoa('evidence') })
+    Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: { attachments: { read } } })
+    render(<ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="todo-submit" busy={false} attachmentsEnabled onSend={onSend} {...chatActions} />)
+
+    await waitFor(() => expect(api.projectTodos).toHaveBeenCalledWith(session.id))
+    const prompt = 'Executa @{[todo]todo_1}'
+    typeInComposer(ref, prompt, prompt.length)
+    const editor = ref.current?.getComposerEditor()
+    if (!editor) throw new Error('composer editor not mounted')
+    fireEvent.keyDown(editor.root, { key: 'Enter' })
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1))
+    const [message, files] = onSend.mock.calls[0]
+    expect(message).toBe(prompt)
+    expect(files.map((file: File) => file.name)).toEqual(expect.arrayContaining([
+      'wharnex-todo-todo_1-pre-analysis.md',
+      'evidence.txt',
+    ]))
+    expect(read).toHaveBeenCalledWith({ storageRef: 'todo/evidence.txt' })
+    const analysis = files.find((file: File) => file.name === 'wharnex-todo-todo_1-pre-analysis.md')
+    if (!analysis) throw new Error('TODO pre-analysis attachment not found')
+    const markdown = await readFileText(analysis)
+    expect(markdown).toContain('Preservar o fluxo atual.')
+    expect(markdown).toContain('1. Medir o fluxo.')
+    expect(markdown).toContain('src/search.ts')
   })
 
   // Completed canonical references get a secondary thumbnail above the editor,
