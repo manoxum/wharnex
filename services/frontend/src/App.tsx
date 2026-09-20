@@ -25,7 +25,7 @@ import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, archiveSavedChat as archiveStoredSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat,
   loadAutomationMode, loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveChatForLater as saveStoredChatForLater, saveComposerDraft, saveComposerFileDraft,
-  conflictChatGPTCacheKey, durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
+  durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
 // Background chat maintenance runs rarely on purpose: it drives real ChatGPT
@@ -275,8 +275,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // leaves valid downloads stranded in Desktop's durable inbox until Agent is
   // opened again.
   const bundleRoutingReadyKey = session && chats.length > 0 ? `${session.project_path}:${chats.map((chat) => `${chat.id}:${chat.sessionId}`).join(',')}` : ''
-  const activeConflictKey = activeChatOwnsSession && session?.integration_conflict && activeChatId ? conflictChatGPTCacheKey(activeChatId, session.integration_conflict.id) : ''
-  const chatgptHumanAction = chatgptHumanActions[activeChatId] || chatgptHumanActions[activeConflictKey]
+  const chatgptHumanAction = chatgptHumanActions[activeChatId]
   const activeBusy = busy || Boolean(busyChats[activeChatId])
 
   useEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
@@ -1468,6 +1467,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
     const target = chats.find((chat) => chat.id === chatId)
     if (!target) return false
+    if (target.chatgptUrl && !sameChatGPTConversation(target.chatgptUrl, conversation)) {
+      setError('Este Harness Chat já possui uma conversa ChatGPT permanente. A conversa vinculada será mantida.')
+      void desktopBridge()?.chatgpt.rejectAffinity(chatId, conversation)
+      return false
+    }
     if (!sameChatGPTConversation(target.chatgptUrl, conversation)) {
       updateWorkspaceChat(chatId, projectPath, {
         chatgptUrl: conversation,
@@ -1585,7 +1589,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 			// the write was submitted. Legacy failed prompts could leave only an
 			// await task behind, which previously suppressed the one BOT_WRITE
 			// that could actually recover the conversation.
-			const writes = delivery.tasks.filter((task) => ['BOT_WRITE', 'RECOVERY_WRITE'].includes(task.type))
+			// A legacy conflict build could finish BOT_WRITE on a synthetic `_cf_`
+			// chat while its globally deduplicated AWAIT_RESPONSE watched the real
+			// chat. That write is not delivery evidence for this immutable affinity.
+			const writes = delivery.tasks.filter((task) => ['BOT_WRITE', 'RECOVERY_WRITE'].includes(task.type) && task.chat_id === chat.id)
 			const accepted = writes.some((task) => task.status === 'DONE')
 			const live = writes.some((task) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(task.status))
 			const failedWrites = writes.filter((task) => task.type === 'BOT_WRITE' && task.status === 'FAILED').length
@@ -1602,12 +1609,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 			  }
 			}
 		  }
-          const requests = pendingBundleRequestIDs(candidate)
+		  const requests = pendingBundleRequestIDs(candidate)
           await Promise.all(requests.map(async (requestId) => {
-            const cacheKey = chat.id
-            // Conflict, repair and workflow recovery remain turns of this
-            // Harness Chat's one durable ChatGPT conversation.
-            const url = chat.chatgptUrl
+			const url = chat.chatgptUrl
+			const cacheKey = chat.id
             if (!url) return
             const resumeKey = `${candidate.id}:${requestId}:${cacheKey}`
             if (cancelled || resumedBundleKeysRef.current.has(resumeKey) || livePromptDeliveryKeysRef.current.has(resumeKey) || failedPromptDeliveryKeysRef.current.has(resumeKey)) return
@@ -1709,7 +1714,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) throw new Error('Harness Chat ativo não encontrado.')
-    if (!await authorizeChatGPTConversationMismatch(targetChat)) return
+    if (!await restoreChatGPTConversationAffinity(targetChat)) return
     const projectPath = targetSession.project_path
     const transport = targetChat.transport || globalTransport
     const tunnelInstanceIds = enabledTunnelIds(transport, config?.remote_input?.instances || [])
@@ -1775,7 +1780,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             expectedFilename: expectedResponseBundleName(prompt, requestId),
             projectFiles,
             contextSha256: sessionContextSHA(response.session), lastContextSha256: targetChat.lastContextSha256,
-            lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: artifacts.context || projectFiles.length > 0, preferCurrentConversation: true,
+            lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: artifacts.context || projectFiles.length > 0, preferCurrentConversation: false,
             firstRequest, chatTitle: generatedChatTitle, requestedAt: userItem.createdAt, projectName: chatGPTProjectName(projectPath),
             // The owning project of every task this request enqueues. The
             // backend can also resolve it from the chat, but a first request
@@ -2212,17 +2217,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (submission.auto_applied) {
         markContextDirtyForOtherChats(updated.project_path, targetChat.id)
         void syncPeerBaselineUpdates(updated.project_path, targetChat.id)
-		const resolvedConflict = targetSession.integration_conflict
-		if (resolvedConflict && !updated.integration_conflict) {
-			const surface = targetChat.conflictSurfaces?.[resolvedConflict.id]
-			if (surface) {
-				updateWorkspaceChat(targetChat.id, updated.project_path, { conflictSurfaces: { ...targetChat.conflictSurfaces, [resolvedConflict.id]: { ...surface, resolvedAt: new Date().toISOString() } } })
-				void desktopBridge()?.chatgpt.release(surface.cacheKey)
-			}
-		}
       }
       let workflowSubmitted = false
-      if (submission.remote_recovery_prepared && updated.state === 'awaiting_plan' && updated.last_manual_prompt) {
+      if (submission.conflict_prepared && updated.state === 'conflict_resolution_pending' && updated.last_manual_prompt) {
+		await submitConflictPrompt(updated, targetChat)
+	  } else if (submission.remote_recovery_prepared && updated.state === 'awaiting_plan' && updated.last_manual_prompt) {
         const dispatchKey = `auto-terminal-recovery:${targetChat.id}:${updated.last_request_id || requestId}`
         if (!repairDispatchRef.current.has(dispatchKey)) {
           repairDispatchRef.current.add(dispatchKey)
@@ -2269,19 +2268,19 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } finally { if (busyTargetChatId) setChatBusy(busyTargetChatId, false) }
   }
 
-  async function authorizeChatGPTConversationMismatch(targetChat: WorkspaceChat) {
+  async function restoreChatGPTConversationAffinity(targetChat: WorkspaceChat) {
     const bridge = desktopBridge()
     const linked = chatgptConversationURL(targetChat.chatgptUrl || '')
     if (!bridge || !linked) return true
     const current = chatgptConversationURL((await bridge.chatgpt.state(targetChat.id)).url)
     if (!current || sameChatGPTConversation(current, linked)) return true
-    return confirmDialog({
-      title: 'Autorizar nova vinculação ChatGPT?',
-      message: 'A conversa aberta no ChatGPT é diferente da conversa vinculada a este Harness Chat. Ao continuar, o pedido será enviado para a conversa aberta e a vinculação será atualizada.',
-      tone: 'warning',
-      confirmLabel: 'Autorizar e vincular',
-      cancelLabel: 'Cancelar',
-    })
+    try {
+      await bridge.chatgpt.navigate(linked, targetChat.id)
+      return true
+    } catch (error) {
+      setError(`Não foi possível restaurar a conversa ChatGPT permanente: ${messageOf(error)}`)
+      return false
+    }
   }
 
   async function execute(approved: boolean) {
@@ -2395,7 +2394,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (tab) setInspectorAttention((current) => ({ tab, nonce: current.nonce + 1 }))
   }
 
-  async function transportPlannerContinuation(promptSession: Session, targetChat: WorkspaceChat, surface?: { cacheKey?: string; url?: string; preferCurrentConversation?: boolean; forceContext?: boolean; chatTitle?: string }) {
+  async function transportPlannerContinuation(promptSession: Session, targetChat: WorkspaceChat, options?: { forceContext?: boolean }) {
     const text = promptSession.last_manual_prompt || ''
     if (!text) throw new Error('Continuação do planner vazia.')
     if (promptSession.chat_transport_mode === 'manual') throw new Error('Este chat está em modo Manual: copie o prompt e submeta o bundle de resposta manualmente.')
@@ -2404,25 +2403,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const bridge = desktopBridge()
     if (!bridge) throw new Error('Desktop bridge indisponível')
 	const continuationArtifacts = continuationArtifactSelection(promptSession)
-	const cacheKey = surface?.cacheKey || targetChat.id
-	const isolatedSurface = cacheKey !== targetChat.id
-	const targetURL = surface ? surface.url : targetChat.chatgptUrl
     const transport = targetChat.transport || globalTransport
     const continuationRequestId = activePendingRequestId(promptSession)
 	const prepared = await bridge.chatgpt.preparePrompt({
-	  cacheKey, background: true, workspaceChatId: targetChat.id, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetURL, sessionId: promptSession.id,
+	  cacheKey: targetChat.id, background: true, workspaceChatId: targetChat.id, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetChat.chatgptUrl, sessionId: promptSession.id,
       requestId: continuationRequestId, attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
       expectedFilename: expectedResponseBundleName(text, continuationRequestId),
       projectFiles: [],
-	  contextSha256: sessionContextSHA(promptSession), lastContextSha256: isolatedSurface ? '' : targetChat.lastContextSha256,
-	  lastContextChatgptUrl: isolatedSurface ? undefined : targetChat.lastContextChatgptUrl, includeContext: surface?.forceContext ?? continuationArtifacts.context, preferCurrentConversation: surface?.preferCurrentConversation ?? true,
-      chatTitle: surface?.chatTitle || targetChat.title, requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
+	  contextSha256: sessionContextSHA(promptSession), lastContextSha256: targetChat.lastContextSha256,
+	  lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: options?.forceContext ?? continuationArtifacts.context, preferCurrentConversation: false,
+      chatTitle: targetChat.title, requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
       projectPath: promptSession.project_path,
       reasoningEffort: promptSession.reasoning_effort || 'high',
     })
-	const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForOwnedKey(cacheKey, promptSession.project_path, prepared.conversationUrl) : true
+	const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForOwnedKey(targetChat.id, promptSession.project_path, prepared.conversationUrl) : true
     const patch: Partial<WorkspaceChat> = {}
-	if (!isolatedSurface && !prepared.queued && prepared.includedContext && bindingAccepted) {
+	if (!prepared.queued && prepared.includedContext && bindingAccepted) {
       patch.lastContextSha256 = sessionContextSHA(promptSession)
       patch.lastContextChatgptUrl = prepared.conversationUrl || targetChat.chatgptUrl
     }
@@ -2439,30 +2435,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		repairDispatchRef.current.add(dispatchKey)
 		appendChatItem(targetChat, conflictedSession.project_path, {
 			id: `conflict-${conflict.request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-			text: `Foi detetado um conflito real em ${conflict.paths.join(', ')}. A resolução GPT usa uma conversa automática dedicada, separada da conversa principal.`,
-			meta: `Conflito ${conflict.id} · conversa dedicada`,
+			text: `Foi detetado um conflito real em ${conflict.paths.join(', ')}. A resolução GPT continuará na conversa ChatGPT já vinculada a este chat.`,
+			meta: `Conflito ${conflict.id} · mesma conversa`,
 			iteration: iterationRef(conflict.request_id, 'conflict', selectedArtifactKinds(continuationArtifactSelection(conflictedSession)), targetChat.chatgptUrl),
 		})
 		try {
-			const existingSurface = targetChat.conflictSurfaces?.[conflict.id]
-			const cacheKey = existingSurface?.cacheKey || conflictChatGPTCacheKey(targetChat.id, conflict.id)
-			const prepared = await transportPlannerContinuation(conflictedSession, targetChat, {
-				cacheKey, url: existingSurface?.url, preferCurrentConversation: Boolean(existingSurface?.url),
-				forceContext: true, chatTitle: `Conflito · ${conflict.paths[0] || conflict.id}`,
-			})
-			const conversation = chatgptConversationURL(prepared.conversationUrl || existingSurface?.url || '')
-			updateWorkspaceChat(targetChat.id, conflictedSession.project_path, {
-				conflictSurfaces: { ...targetChat.conflictSurfaces, [conflict.id]: { cacheKey, url: conversation || prepared.conversationUrl || existingSurface?.url } },
-			})
+			const prepared = await transportPlannerContinuation(conflictedSession, targetChat, { forceContext: true })
 			appendChatItem(targetChat, conflictedSession.project_path, {
 				id: `conflict-dispatch-${conflict.request_id}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-				text: prepared.submitted ? 'Capsule de conflito enviado automaticamente numa conversa ChatGPT dedicada.' : 'Capsule preparado na conversa dedicada; confirme o envio para continuar.',
+				text: prepared.submitted ? 'Capsule de conflito enviado automaticamente na conversa ChatGPT vinculada.' : 'Capsule preparado na conversa vinculada; confirme o envio para continuar.',
 				meta: prepared.submitted ? 'Resolução de conflito em curso' : 'Resolução aguarda confirmação',
 				iteration: iterationRef(conflict.request_id, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds(continuationArtifactSelection(conflictedSession)), prepared.conversationUrl || targetChat.chatgptUrl),
 			})
 		} catch (error) {
 			repairDispatchRef.current.delete(dispatchKey)
-			setError(`Falha ao preparar a conversa dedicada para resolver o conflito: ${messageOf(error)}`)
+			setError(`Falha ao preparar a conversa vinculada para resolver o conflito: ${messageOf(error)}`)
 		}
 	}
 
@@ -2706,16 +2693,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }))) return
     setBusy(true); setError(undefined)
     try {
-      const cancelledConflict = targetSession.integration_conflict
       const updated = await api.rejectPendingChanges(targetSession.id)
       acceptSessionForChat(targetChat, updated)
-      if (cancelledConflict) {
-        const surface = targetChat.conflictSurfaces?.[cancelledConflict.id]
-        if (surface) {
-          updateWorkspaceChat(targetChat.id, updated.project_path, { conflictSurfaces: { ...targetChat.conflictSurfaces, [cancelledConflict.id]: { ...surface, resolvedAt: new Date().toISOString() } } })
-          void desktopBridge()?.chatgpt.release(surface.cacheKey)
-        }
-      }
       appendChatItem(targetChat, updated.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
         text: 'Todas as alterações pendentes foram rejeitadas. A candidata verificada foi descartada e nada foi incorporado no host.',
@@ -3260,14 +3239,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   if (!session) return <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={restoring} onStart={start} onCreate={createProject} onClone={cloneProject} />
   const workspaceProjectPath = session.project_path
   const activeChat = chats.find((chat) => chat.id === activeChatId)
-	const integrationConflict = session.integration_conflict
-	const activeConflictSurface = integrationConflict ? activeChat?.conflictSurfaces?.[integrationConflict.id] : undefined
-	const chatgptSurface = integrationConflict && activeConflictSurface ? {
-		cacheKey: activeConflictSurface.cacheKey,
-		title: `Conflito · ${integrationConflict.paths[0] || integrationConflict.id}`,
-		url: activeConflictSurface.url,
-		conflictId: integrationConflict.id,
-	} : undefined
   const contextArtifactRequired = Boolean(activeChat && (!activeChat.lastContextSha256 || activeChat.lastContextSha256 !== sessionContextSHA(session) || activeChat.artifactSelection?.context || (activeChat.chatgptUrl && activeChat.lastContextChatgptUrl && !sameChatGPTConversation(activeChat.chatgptUrl, activeChat.lastContextChatgptUrl))))
   const errorArtifactRequired = session.state === 'repair_pending' || session.last_execution?.success === false || Boolean(session.last_repair_error)
   const composerArtifacts: ChatArtifactSelection = {
@@ -3501,7 +3472,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       <ErrorToast open={Boolean(error)} message={error} onDismiss={() => setError(undefined)} />
       <div className={`workspace-surface-content ${splitSurface ? `is-split split-${splitSurface.direction}` : ''}`} style={splitSurface ? { ['--workspace-split-primary' as string]: `${Math.round(splitSurface.ratio * 1000) / 10}%` } as React.CSSProperties : undefined}>
         <div className="workspace-surface-primary">
-          {activeSurface.kind === 'chat' && <AgentWorkspace session={session} busy={activeBusy} attentionItems={attentionItems} onOpenAttention={openAttentionItem} onAttentionAction={runAttentionItemAction} chatgptAttentionNonce={chatgptAttentionNonce} inspectorAttention={inspectorAttention} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onOpenAttentionDrawer={() => undefined} onExportChat={exportActiveChat} onReorderChat={reorderChat} chatProps={focusedChatProps} onSplitChat={surfaceRequest.host === 'split' ? undefined : (chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)} inspectorProps={{ config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive, onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT }} />}
+          {activeSurface.kind === 'chat' && <AgentWorkspace session={session} busy={activeBusy} attentionItems={attentionItems} onOpenAttention={openAttentionItem} onAttentionAction={runAttentionItemAction} chatgptAttentionNonce={chatgptAttentionNonce} inspectorAttention={inspectorAttention} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onOpenAttentionDrawer={() => undefined} onExportChat={exportActiveChat} onReorderChat={reorderChat} chatProps={focusedChatProps} onSplitChat={surfaceRequest.host === 'split' ? undefined : (chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)} inspectorProps={{ config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSuspended: !shellActive, onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT }} />}
           {activeSurface.kind === 'editor' && <EditorWorkspace session={session} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onError={setError} onRunInTerminal={runInTerminal} openPath={activeSurface.path} openNonce={editorOpenNonce} onSplitFile={surfaceRequest.host === 'split' ? undefined : (path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />}
           {activeSurface.kind === 'terminal' && <TerminalWorkspace session={session} height={terminalHeight} visible fill runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onSplitTerminal={surfaceRequest.host === 'split' ? undefined : (direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />}
         </div>
@@ -3623,7 +3594,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           onSplitChat={(chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)}
           chatProps={{ ...sharedChatProps, chats: mainVisibleChats }}
           inspectorProps={{
-  		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
+		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
 		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges,
             onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT,
           }}

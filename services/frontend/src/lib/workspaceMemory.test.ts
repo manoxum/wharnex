@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-	archiveChat, archiveSavedChat, clearActiveWorkspace, conflictChatGPTCacheKey, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
+	archiveChat, archiveSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
   durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
 } from './workspaceMemory'
 
@@ -12,7 +12,6 @@ describe('workspace memory', () => {
 			...newWorkspaceChat('ses-1', 'Principal', 'chat-1'),
 			chatgptUrl: 'https://chatgpt.com/c/main',
 			pendingPlan: { requestId: 'req-1', originalMessage: 'corrigir' },
-			conflictSurfaces: { 'conflict-1': { cacheKey: 'chat-1_cf_conflict-1', url: 'https://chatgpt.com/c/conflict' } },
 		}
 		const record = durableWorkspaceChat('/tmp/project', local)
 		const restored = mergeDurableWorkspaceChats([], [record])
@@ -25,27 +24,19 @@ describe('workspace memory', () => {
 		expect(mergeDurableWorkspaceChats([local], [durableOnly]).map((chat) => chat.id)).toEqual(['chat-local', 'chat-durable'])
 	})
 
-	it('creates stable isolated cache keys for dedicated conflict surfaces', () => {
-		const key = conflictChatGPTCacheKey('chat-123', 'conflict-456')
-		expect(key).toBe('chat-123_cf_conflict-456')
-		expect(key).toMatch(/^[A-Za-z0-9_-]+$/)
-		expect(key.length).toBeLessThanOrEqual(128)
-	})
-	it('persists conflict affinity separately from the primary ChatGPT conversation', () => {
+	it('discards legacy auxiliary conflict affinity and keeps the primary conversation', () => {
 		const base = newWorkspaceChat('ses-conflict', 'Principal')
-		const cacheKey = conflictChatGPTCacheKey(base.id, 'conflict-1')
 		const chat = {
 			...base,
 			chatgptUrl: 'https://chatgpt.com/c/main',
 			conflictSurfaces: {
-				'conflict-1': { cacheKey, url: 'https://chatgpt.com/c/conflict' },
+				'conflict-1': { cacheKey: `${base.id}_cf_conflict-1`, url: 'https://chatgpt.com/c/conflict' },
 			},
 		}
 		saveWorkspaceChats('/tmp/project', [chat])
 		const restored = loadWorkspaceChats('/tmp/project')[0]
 		expect(restored.chatgptUrl).toBe('https://chatgpt.com/c/main')
-		expect(restored.conflictSurfaces?.['conflict-1']).toEqual({ cacheKey, url: 'https://chatgpt.com/c/conflict' })
-		expect(restored.conflictSurfaces?.['conflict-1'].cacheKey).not.toBe(restored.id)
+		expect(restored).not.toHaveProperty('conflictSurfaces')
 	})
   it('persists active workspace, active chat and recent paths', () => {
     saveActiveWorkspace({ sessionId: 's1', projectPath: '/tmp/project', mode: 'agent', chatId: 'chat-1' })

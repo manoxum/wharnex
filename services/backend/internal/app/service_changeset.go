@@ -609,7 +609,7 @@ func (s *Service) prepareConflictResolution(ctx context.Context, sessionID strin
 	})
 	if err == nil {
 		s.cleanupPrunedRequestContexts(prunedContexts)
-		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{"conflict_id": conflictID, "request_id": requestID, "paths": paths, "surface_key": conflictSurfaceKey(sessionID, conflictID)})
+		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{"conflict_id": conflictID, "request_id": requestID, "paths": paths})
 	}
 	return updated, err
 }
@@ -719,7 +719,7 @@ func (s *Service) prepareConflictResolutionRetry(ctx context.Context, sessionID 
 	})
 	if err == nil {
 		s.cleanupPrunedRequestContexts(prunedContexts)
-		s.bus.Publish(sessionID, "conflict.retry_prompt_ready", map[string]any{"conflict_id": conflict.ID, "request_id": requestID, "parent_request_id": parentRequestID, "paths": conflict.Paths, "surface_key": conflictSurfaceKey(sessionID, conflict.ID)})
+		s.bus.Publish(sessionID, "conflict.retry_prompt_ready", map[string]any{"conflict_id": conflict.ID, "request_id": requestID, "parent_request_id": parentRequestID, "paths": conflict.Paths})
 	}
 	return updated, err
 }
@@ -878,14 +878,6 @@ func hashBytes(value []byte) string {
 	}
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
-}
-
-func conflictSurfaceKey(sessionID, conflictID string) string {
-	value := sessionID + "_cf_" + conflictID
-	if len(value) > 128 {
-		value = value[:128]
-	}
-	return value
 }
 
 // replayIntegrationCommitAsPatch reproduces a pending Git-native candidate

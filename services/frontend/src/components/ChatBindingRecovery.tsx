@@ -7,10 +7,9 @@ import { Icon } from './Icon'
 // ChatGPT home surface as if it had never been bound, and until now the only
 // way back was for the operator to remember which conversation it was.
 //
-// Recovery proposes; it never rebinds on its own. Pointing a chat at the wrong
-// conversation would send its next request into somebody else's thread, so the
-// operator confirms — which is also what makes this an explicit rebind under
-// the affinity invariant rather than silent navigation.
+// Recovery proposes; it can establish only the missing first binding. Pointing
+// a chat at the wrong conversation would send its next request into somebody
+// else's thread, so the operator confirms the candidate.
 
 const EVIDENCE_LABEL: Record<WorkspaceChatBindingCandidate['evidence'], string> = {
   agent_queue: 'fila de agentes deste chat',

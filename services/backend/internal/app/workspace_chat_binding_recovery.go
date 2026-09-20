@@ -20,9 +20,10 @@ import (
 // half: recovering the chats already broken, and giving a broken chat a way
 // back that does not depend on the operator remembering a URL.
 //
-// Recovery proposes candidates from evidence Wharnex already holds and never
-// rebinds on its own. Binding a chat to the wrong conversation would send the
-// next request into somebody else's thread, so the operator confirms.
+// Recovery proposes candidates from evidence Wharnex already holds and can
+// establish only a missing first binding. Binding a chat to the wrong
+// conversation would send the next request into somebody else's thread, so
+// the operator confirms.
 
 // BindingEvidence names where a candidate conversation came from, so the
 // operator can judge it rather than trust a bare URL.

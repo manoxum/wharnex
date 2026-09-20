@@ -67,23 +67,19 @@ test('rejected first settled candidate rearms new-chat affinity and requires ano
   assert.deepEqual(tracker, { phase: 'armed', boundURL: '', candidateURL: '', homeSeen: false, submitted: false })
 })
 
-test('explicit send can propose a different visible conversation while retaining the previous binding until validation', () => {
+test('a bound affinity refuses to propose a different visible conversation', () => {
   const tracker = createChatGPTAffinityTracker('https://chatgpt.com/c/original')
-  assert.equal(proposeChatGPTAffinity(tracker, 'https://chatgpt.com/c/other'), 'https://chatgpt.com/c/other')
-  assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'candidate', boundConversationUrl: 'https://chatgpt.com/c/original', bindingCandidate: 'https://chatgpt.com/c/other' })
-  rejectChatGPTAffinity(tracker, 'https://chatgpt.com/c/other')
+  assert.equal(proposeChatGPTAffinity(tracker, 'https://chatgpt.com/c/other'), '')
+  assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'bound', boundConversationUrl: 'https://chatgpt.com/c/original', bindingCandidate: '' })
   assert.equal(tracker.phase, 'bound')
   assert.equal(tracker.boundURL, 'https://chatgpt.com/c/original')
 })
 
-test('explicit confirmation can rebind only to the currently visible concrete conversation', () => {
+test('confirmation cannot replace an established binding', () => {
   const tracker = createChatGPTAffinityTracker('https://chatgpt.com/c/original')
   assert.throws(() => confirmChatGPTAffinity(tracker, 'https://chatgpt.com/c/other'), /conflicts with the current binding/)
-  assert.equal(confirmChatGPTAffinity(tracker, 'https://chatgpt.com/c/other?model=auto', 'https://chatgpt.com/c/other'), 'https://chatgpt.com/c/other')
-  assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'bound', boundConversationUrl: 'https://chatgpt.com/c/other', bindingCandidate: '' })
-
-  const mismatched = createChatGPTAffinityTracker('https://chatgpt.com/c/original')
-  assert.throws(() => confirmChatGPTAffinity(mismatched, 'https://chatgpt.com/c/other', 'https://chatgpt.com/c/third'), /conflicts with the current binding/)
+  assert.throws(() => confirmChatGPTAffinity(tracker, 'https://chatgpt.com/c/other?model=auto', 'https://chatgpt.com/c/other'), /conflicts with the current binding/)
+  assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'bound', boundConversationUrl: 'https://chatgpt.com/c/original', bindingCandidate: '' })
 })
 
 test('syncing an existing persisted binding resets stale candidate state', () => {

@@ -182,15 +182,9 @@ test('Chromium duplicate suffix normalizes only when the embedded bundle request
   )
 })
 
-test('a strict canonical bundle name is accepted for a conflict-resolution surface cacheKey containing underscores', () => {
-  // Reproduces a real production incident: a conflict-resolution surface's
-  // cacheKey is always "<chatId>_cf_<conflictId>" (see conflictSurfaceKey,
-  // internal/app/service_changeset.go), but the bundle naming scheme forbids
-  // '_' in its chat_id segment (it is the scheme's own field separator — see
-  // bundlename.mjs), so any real downloaded filename necessarily carries the
-  // hyphen-sanitized form of that cacheKey. Comparing the raw underscored
-  // cacheKey against the filename's already-sanitized chat_id must never
-  // reject a bundle that genuinely belongs to this exact surface.
+test('a strict canonical bundle name accepts a legacy cache key containing underscores', () => {
+  // Upgrade compatibility: old queued tasks may still carry a synthetic key,
+  // whose underscores are sanitized in the canonical filename.
   const requestId = 'req_20260907T150015_22475c9e3adb3473'
   const chatId = '7f91c76e-029e-4d2d-b8bc-ca6bc8f8c85e'
   const cacheKey = `${chatId}_cf_conflict_20260907T150015_22475c9e3adb3473`

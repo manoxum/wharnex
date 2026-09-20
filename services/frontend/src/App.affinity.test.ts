@@ -13,6 +13,8 @@ describe('App ChatGPT affinity ownership', () => {
   })
 
   it('confirms the same conversation idempotently instead of depending on pane visibility', () => {
+	expect(source).toMatch(/if \(target\.chatgptUrl && !sameChatGPTConversation\(target\.chatgptUrl, conversation\)\)/)
+	expect(source).toMatch(/chatgpt\.rejectAffinity\(chatId, conversation\)/)
     expect(source).toMatch(/if \(!sameChatGPTConversation\(target\.chatgptUrl, conversation\)\)/)
     expect(source).toMatch(/desktopBridge\(\)\?\.chatgpt\.confirmAffinity\(chatId, conversation\)/)
   })
@@ -39,9 +41,9 @@ describe('App ChatGPT affinity ownership', () => {
     expect(source).toMatch(/submitBundleFileRef\.current\(bundle\.contentBase64, bundle\.requestId, bundle\.filename\)/)
   })
 
-  it('asks for explicit authorization before sending into a different remote conversation', () => {
-    expect(source).toMatch(/authorizeChatGPTConversationMismatch\(targetChat\)/)
-    expect(source).toMatch(/title: 'Autorizar nova vinculação ChatGPT\?'/)
+  it('restores the immutable affinity before sending from a mismatched view', () => {
+	expect(source).toMatch(/restoreChatGPTConversationAffinity\(targetChat\)/)
+	expect(source).not.toMatch(/Autorizar nova vinculação ChatGPT/)
   })
 
   it('keeps remote account lifecycle operations on the durable worker queue', () => {

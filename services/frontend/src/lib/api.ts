@@ -164,8 +164,8 @@ export const api = {
   }),
   deleteWorkspaceChat: (chatId: string) => request<{ ok: boolean }>(`/api/workspace-chats/${encodeURIComponent(chatId)}`, { method: 'DELETE' }),
   // Proposes the conversations a chat with a lost binding may belong to. It is
-  // read-only: rebinding stays the explicit remote update below, so recovery
-  // can never silently point a chat at another chat's conversation.
+  // Read-only: recovery proposes a first binding and can never replace an
+  // existing chat affinity.
   // Archiving must reach the durable row, not only localStorage: the durable
   // record wins the merge on restart, so a browser-only archive reopened every
   // archived chat the next time the instance started.

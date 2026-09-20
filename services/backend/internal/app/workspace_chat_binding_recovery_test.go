@@ -49,9 +49,8 @@ func TestAnOrdinaryChatSaveCannotClearAnExistingBinding(t *testing.T) {
 	}
 }
 
-// Establishing or changing a binding through a save is still allowed: only
-// dropping one is reserved for the explicit remote endpoint.
-func TestAChatSaveMayStillSetOrChangeABinding(t *testing.T) {
+// A save may establish the first binding, but later saves cannot replace it.
+func TestAChatSaveMaySetButNeverChangeABinding(t *testing.T) {
 	service := bindingService(t)
 	root := t.TempDir()
 	if _, err := service.SaveWorkspaceChat(domain.WorkspaceChat{ID: "chat-2", ProjectPath: root, Title: "New"}); err != nil {
@@ -69,19 +68,23 @@ func TestAChatSaveMayStillSetOrChangeABinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.ChatGPTURL != other {
-		t.Fatalf("a save must still be able to change a binding, got %q", saved.ChatGPTURL)
+	if saved.ChatGPTURL != boundConversation {
+		t.Fatalf("a save replaced the immutable binding: %q", saved.ChatGPTURL)
 	}
 }
 
-// Unbinding remains possible, but only through the explicit remote action.
-func TestExplicitRemoteUpdateStillUnbinds(t *testing.T) {
+// Remote lifecycle updates must preserve both the URL and its conversation id.
+func TestRemoteUpdateCannotClearOrReplaceBinding(t *testing.T) {
 	service := bindingService(t)
 	root := t.TempDir()
 	if _, err := service.SaveWorkspaceChat(domain.WorkspaceChat{ID: "chat-3", ProjectPath: root, Title: "Bound", ChatGPTURL: boundConversation}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.UpdateWorkspaceChatRemote("chat-3", "", "", "", ""); err != nil {
+	if err := service.UpdateWorkspaceChatRemote("chat-3", "", "project", "WHX: Renamed", "ready"); err != nil {
+		t.Fatal(err)
+	}
+	other := "https://chatgpt.com/c/6aa5d491-59f8-83ea-8ce8-600000000000"
+	if err := service.UpdateWorkspaceChatRemote("chat-3", other, "project", "WHX: Renamed again", "ready"); err != nil {
 		t.Fatal(err)
 	}
 	chats, err := service.ListWorkspaceChats(root)
@@ -89,8 +92,8 @@ func TestExplicitRemoteUpdateStillUnbinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, chat := range chats {
-		if chat.ID == "chat-3" && chat.ChatGPTURL != "" {
-			t.Fatalf("an explicit unbind must still clear the binding, got %q", chat.ChatGPTURL)
+		if chat.ID == "chat-3" && (chat.ChatGPTURL != boundConversation || chat.ConversationID == "") {
+			t.Fatalf("remote update changed the immutable binding: url=%q id=%q", chat.ChatGPTURL, chat.ConversationID)
 		}
 	}
 }
@@ -149,7 +152,8 @@ func TestBindingRecoveryMarksAConversationOwnedByAnotherChat(t *testing.T) {
 	}
 }
 
-// Recovery never writes: it proposes, and the explicit rebind applies.
+// Recovery never writes: it proposes, and confirmation establishes the missing
+// first binding.
 func TestBindingRecoveryDoesNotRebindOnItsOwn(t *testing.T) {
 	service := bindingService(t)
 	root := t.TempDir()

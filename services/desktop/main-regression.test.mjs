@@ -2286,7 +2286,7 @@ test('supervision scheduled after a write waits for the turn to start', async ()
   assert.match(write, /notBefore: new Date\(Date\.now\(\) \+ chatAgentInitialRequestWaitMs\(\)\)\.toISOString\(\)/)
 })
 
-test('auxiliary conflict surfaces never overwrite the primary durable chat affinity', async () => {
+test('legacy auxiliary conflict tasks cannot overwrite durable chat affinity', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const helper = source.slice(source.indexOf('function durableWorkspaceChatID('), source.indexOf('\nfunction chatAgentTaskPayload', source.indexOf('function durableWorkspaceChatID(')))
   assert.match(helper, /_cf_/)

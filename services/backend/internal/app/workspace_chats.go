@@ -72,20 +72,17 @@ func (s *Service) SaveWorkspaceChat(chat domain.WorkspaceChat) (domain.Workspace
 	// a chat silently lost its conversation and fell back to the ChatGPT home
 	// surface, permanently, on an ordinary title or transcript save.
 	//
-	// Unbinding is an explicit act with its own endpoint
-	// (UpdateWorkspaceChatRemote). A generic save may establish or change a
-	// binding, never drop one: that matches the affinity invariant, where only
-	// an explicit rebind or an explicit Send against a different conversation
-	// counts as intent.
+	// The first concrete URL is permanent for this chat. No generic save or
+	// remote-state update may clear or replace it.
 	//
 	// Saved/archive lifecycle state is omitted by the same serializer for the
 	// same reason and is protected the same way. Those transitions have explicit
 	// endpoints; an ordinary title/transcript save must never reactivate a chat.
-	if chat.ChatGPTURL == "" || chat.SavedAt == nil || chat.ArchivedAt == nil {
-		if existing, err := s.store.GetWorkspaceChat(chat.ID); err == nil {
-			if chat.ChatGPTURL == "" {
-				chat.ChatGPTURL = normalizeChatGPTConversationURL(existing.ChatGPTURL)
-			}
+	if existing, err := s.store.GetWorkspaceChat(chat.ID); err == nil {
+		if established := normalizeChatGPTConversationURL(existing.ChatGPTURL); established != "" {
+			chat.ChatGPTURL = established
+		}
+		if chat.SavedAt == nil || chat.ArchivedAt == nil {
 			if chat.SavedAt == nil {
 				chat.SavedAt = existing.SavedAt
 			}
@@ -116,6 +113,11 @@ func (s *Service) UpdateWorkspaceChatRemote(chatID, chatGPTURL, projectRef, remo
 	url := normalizeChatGPTConversationURL(chatGPTURL)
 	if chatGPTURL != "" && url == "" {
 		return ErrInvalidWorkspaceChat
+	}
+	if existing, err := s.store.GetWorkspaceChat(id); err == nil {
+		if established := normalizeChatGPTConversationURL(existing.ChatGPTURL); established != "" {
+			url = established
+		}
 	}
 	return s.store.UpdateWorkspaceChatRemote(id, url, chatGPTConversationIDFromURL(url),
 		boundedText(projectRef, 256), boundedText(remoteTitle, maxChatTitleLength), boundedText(remoteState, 64))

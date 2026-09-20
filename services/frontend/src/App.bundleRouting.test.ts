@@ -62,11 +62,12 @@ describe('App bundle routing', () => {
     expect(body).toContain('pendingStates.has(session.state)')
   })
 
-  it('does not rehydrate an unbound conflict surface through the primary conversation', () => {
+  it('rehydrates conflict supervision through the immutable owning conversation', () => {
     const recoveryStart = source.indexOf('const candidates = await Promise.all(chats.map(async (chat) =>')
     expect(recoveryStart).toBeGreaterThan(-1)
     const recovery = source.slice(recoveryStart, recoveryStart + 3200)
-    expect(recovery).toContain('const url = conflict ? surface?.url : chat.chatgptUrl')
-    expect(recovery).not.toContain('const url = surface?.url || chat.chatgptUrl')
+    expect(recovery).toContain('const url = chat.chatgptUrl')
+    expect(recovery).toContain('const cacheKey = chat.id')
+    expect(recovery).not.toContain('conflictSurfaces')
   })
 })

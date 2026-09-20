@@ -19,6 +19,7 @@ describe('App policy-repair recovery', () => {
 	expect(recovery).toContain("candidate.state === 'awaiting_plan' && Number(candidate.remote_recovery_attempt || 0) > 0")
 	expect(recovery).toContain('isAutomaticAutomationMode(candidate.automation_mode)')
 	expect(recovery).toMatch(/api\.chatAgentTasksForRequest\(continuationRequestID\)/)
+	expect(recovery).toMatch(/task\.chat_id === chat\.id/)
 	expect(recovery).toMatch(/failedWrites < 3/)
 	expect(recovery).toMatch(/await submitConflictPrompt\(candidate, chat, true\)/)
 	expect(recovery).toMatch(/await submitRepairPrompt\(candidate, chat, true\)/)
@@ -27,8 +28,7 @@ describe('App policy-repair recovery', () => {
 	expect(source).toMatch(/window\.setInterval\(\(\) => \{ void reconcile\(\) \}, 30_000\)/)
 
 	const continuation = source.slice(source.indexOf('async function transportPlannerContinuation'), source.indexOf('async function submitConflictPrompt'))
-	expect(continuation).toMatch(/cacheKey, background: true/)
-	expect(continuation).toMatch(/!dedicatedConflict \? \{ workspaceChatId: targetChat\.id \}/)
+	expect(continuation).toMatch(/cacheKey: targetChat\.id, background: true, workspaceChatId: targetChat\.id/)
   })
 
   it('dispatches a conflict immediately after importing the bundle that prepared it', () => {
@@ -65,10 +65,11 @@ describe('App policy-repair recovery', () => {
     expect(source).toMatch(/requestAlreadyRecorded\(workflowSession\.project_path, targetChat\.id, requestId, \['workflow'\]\)/)
   })
 
-  it('never seeds a new dedicated conflict surface with the main ChatGPT conversation', () => {
-	expect(source).toMatch(/const dedicatedURL = surface\?\.url && !sameChatGPTConversation\(surface\.url, targetChat\.chatgptUrl\)/)
-	expect(source).toMatch(/const targetURL = dedicatedConflict \? dedicatedURL : targetChat\.chatgptUrl/)
-  })
+	it('keeps conflict writes and supervision on the owning chat conversation', () => {
+		const conflict = source.slice(source.indexOf('async function submitConflictPrompt'), source.indexOf('async function resolveConflictWithGPT'))
+		expect(conflict).toMatch(/transportPlannerContinuation\(conflictedSession, targetChat, \{ forceContext: true \}\)/)
+		expect(conflict).not.toMatch(/conflictChatGPTCacheKey|conflictSurfaces|conversa dedicada/)
+	})
 
   it('retries a terminal protocol failure through a fresh durable backend request', () => {
     const retry = source.slice(source.indexOf('async function retryTransportFailure('), source.indexOf('async function cancelPendingRequest('))

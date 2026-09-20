@@ -555,7 +555,7 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 	})
 	if err == nil {
 		s.cleanupPrunedRequestContexts(prunedContexts)
-		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{"conflict_id": conflictID, "request_id": requestID, "paths": paths, "surface_key": conflictSurfaceKey(sessionID, conflictID)})
+		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{"conflict_id": conflictID, "request_id": requestID, "paths": paths})
 	}
 	return updated, err
 }

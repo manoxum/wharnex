@@ -276,17 +276,6 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     })
   }
 
-  function bindCurrentConversation() {
-    const conversation = chatgptConversationURL(state.url)
-    if (!conversation) { setNotice('Abra primeiro uma conversa concreta do ChatGPT.'); return }
-    if (!onChatGPTURL(conversation)) {
-      setNotice('Esta conversa já está vinculada a outro chat.')
-      return
-    }
-    linkedURLRef.current = conversation
-    setNotice('Conversa vinculada ao chat atual.')
-  }
-
   async function restoreLinkedConversation() {
     const conversation = chatgptConversationURL(chatgptUrl || '')
     if (!bridge || !conversation) return
@@ -452,7 +441,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       </div>}
     </div>}
 
-    {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button><button className="text-button" onClick={bindCurrentConversation}>Vincular esta</button></div>}
+    {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa; a vinculação permanente não será alterada.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button></div>}
     {/* An unbound chat opens the ChatGPT home surface and looks indistinguishable
         from a brand-new one, so the way back has to be offered here rather than
         left to the operator's memory of which conversation it was. Only show

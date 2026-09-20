@@ -135,7 +135,7 @@ func (s *Service) prepareGitConflictResolution(ctx context.Context, sessionID st
 		s.cleanupPrunedRequestContexts(prunedContexts)
 		s.bus.Publish(sessionID, "conflict.prompt_ready", map[string]any{
 			"conflict_id": conflictID, "request_id": requestID, "paths": resolvable,
-			"origin": request.origin, "surface_key": conflictSurfaceKey(sessionID, conflictID),
+			"origin": request.origin,
 		})
 	}
 	return updated, conflictID, err

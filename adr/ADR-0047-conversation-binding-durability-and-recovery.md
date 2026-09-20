@@ -1,6 +1,6 @@
 # ADR-0047 — Conversation binding durability and recovery
 
-- Status: accepted
+- Status: accepted; permanence amended by v1.3.3
 - Amends: the chat conversation affinity invariant (v1.2.6)
 - Evidence: `wharnex-statable` workspace chats, 2026-09-11 → 2026-09-13
 
@@ -31,18 +31,18 @@ list bound and later revived from the localStorage cache) was silently unbound
 the next time anything touched the list. The statable instance shows the
 signature directly: one bulk write at `2026-09-12 18:18:44` touching 26 chats.
 
-None of this is what the affinity invariant intends. It already says that once a
-chat has a URL, navigation alone must not replace the binding, and that only an
-explicit rebind or an explicit Send against a different conversation counts as
-intent. A generic row save is neither.
+None of this is what the affinity invariant intends. As amended in v1.3.3, once
+a chat has a URL no later action may clear or replace it. A generic row save,
+remote-state update, navigation, send, recovery or conflict continuation must
+all preserve that first concrete binding.
 
 ## Decision
 
-**1. A binding is never cleared by omission.** `SaveWorkspaceChat` may establish
-or change a binding, never drop one: when the incoming row carries no URL and
-the stored row has one, the stored value is kept. Unbinding stays the dedicated
-`PATCH .../remote` action, which is the explicit operator intent the affinity
-invariant describes.
+**1. A binding is permanent.** `SaveWorkspaceChat` and `PATCH .../remote` may
+establish the first binding only. When the stored row already has a concrete
+URL, an incoming empty or different URL preserves the stored URL and derived
+conversation id. Deleting the Harness chat is the only lifecycle operation
+that removes its binding.
 
 This is fixed on the server rather than in the renderer on purpose. The renderer
 has many save paths and will grow more; the durable store is the one place that
@@ -63,11 +63,10 @@ descending order of authority:
 A conversation another chat already owns is reported as a conflict and never
 offered, because taking it would send the next request into that chat's thread.
 
-**3. Recovery proposes; it never rebinds.** The endpoint is read-only and the
+**3. Recovery fills only a missing binding.** The endpoint is read-only and the
 surface requires the operator to confirm a candidate, or to paste the address
-when no evidence survived. Confirming is itself the explicit rebind the
-invariant sanctions. Automatic rebinding is rejected: a wrong guess writes into
-somebody else's conversation, which is worse than staying unbound.
+when no evidence survived. It is shown only for a legacy unbound chat and can
+establish its first concrete binding; it cannot replace an existing one.
 
 ## Consequences
 
@@ -79,7 +78,7 @@ somebody else's conversation, which is worse than staying unbound.
   to nothing. Measured on the statable instance, all three currently unbound
   chats fall in this class — and all three were never bound in the first place,
   so there was nothing to restore.
-- Unbinding remains possible, but only deliberately.
+- Once established, a binding remains until the Harness chat itself is deleted.
 
 ## Not decided here
 

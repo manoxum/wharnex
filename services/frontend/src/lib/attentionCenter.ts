@@ -57,8 +57,7 @@ export function collectAttentionItems(
 ): AttentionItem[] {
   const items = chats.flatMap((chat) => {
     const session = sessions[chat.id]
-    const actionKeys = new Set([chat.id, ...Object.values(chat.conflictSurfaces || {}).filter((surface) => !surface.resolvedAt).map((surface) => surface.cacheKey)])
-    const humanAction = Object.values(humanActions).find((action) => action.active && actionKeys.has(action.cacheKey))
+    const humanAction = humanActions[chat.id]?.active ? humanActions[chat.id] : undefined
     return attentionItemsForChat(chat, session, humanAction)
   })
   // localStorage and the durable chat index are reconciled asynchronously. A

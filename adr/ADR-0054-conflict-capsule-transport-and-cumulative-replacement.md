@@ -1,6 +1,6 @@
 # ADR-0054 — File-first conflict capsules and cumulative path replacement
 
-- Status: accepted
+- Status: accepted; conflict transport amended by v1.3.3
 - Amends: `ADR-0025`, `ADR-0048`, `ADR-0051`, `ADR-0052`
 - Evidence: chat `65a2830d-6b2a-4616-b75b-74b11d9b813f`, context hash `07e8eabdd520e812b7d2923b766a618ddfc4cfd7a73abb328a6a7edcf220ad6e`, 2026-09-14
 
@@ -24,11 +24,11 @@ A focused resolution is cumulative path replacement. The engine removes only the
 
 An active `IntegrationConflict` is itself an Apply guard, independent of UI/session state labels. If a focused resolution fails, the next bounded conflict request copies the same immutable capsule artifact and appends the observed local failure. Git-native conflicts are never retried through absent ChangeSet details.
 
-Upload discovery is scoped to the currently usable composer and uses a closed selector preference ladder. Confirmation understands both the staged metadata/final-ack sequence and the legacy stream, and all observed request ids are cleaned up together. File-selection retry is permitted only while absence is provable: before an upload request starts or after an explicit provider rejection. Network errors and completion timeouts after a provider upload starts are ambiguous, so they fail closed without selecting the same archive again; otherwise ChatGPT may retain the first upload and reject the replay as an already-loaded file. Active semantic deduplication now covers write tasks in both durable stores and the Desktop projection. Both local launch paths sanitize Electron-as-Node mode before the splash and converge on the same lifecycle identity. Auxiliary `_cf_` surfaces never persist their conversation URL as a durable workspace-chat binding, including during restart recovery.
+Upload discovery is scoped to the currently usable composer and uses a closed selector preference ladder. Confirmation understands both the staged metadata/final-ack sequence and the legacy stream, and all observed request ids are cleaned up together. File-selection retry is permitted only while absence is provable: before an upload request starts or after an explicit provider rejection. Network errors and completion timeouts after a provider upload starts are ambiguous, so they fail closed without selecting the same archive again; otherwise ChatGPT may retain the first upload and reject the replay as an already-loaded file. Active semantic deduplication now covers write tasks in both durable stores and the Desktop projection. Both local launch paths sanitize Electron-as-Node mode before the splash and converge on the same lifecycle identity. As amended in v1.3.3, focused conflict requests continue on the owning chat's immutable conversation and cache key; auxiliary `_cf_` surfaces are no longer created. This prevents a conflict write and its globally deduplicated supervision from landing on different conversations.
 
 ## Consequences
 
-- Conflict size is bounded as archive data instead of prompt text, so multi-file capsules no longer make the dedicated window structurally unsendable.
+- Conflict size is bounded as archive data instead of prompt text, so multi-file capsules remain structurally sendable on the owning chat conversation.
 - A three-file correction is tested and applied on top of all seventeen non-conflicting files from its original candidate.
 - A failed correction cannot expose the stale predecessor to Apply or manufacture a larger second conflict.
 - Existing response bundle schemas remain unchanged. Request archives gain one optional, fixed-path engine-owned entry; persisted sessions gain server-only support artifacts and an automatic compatibility migration.
@@ -38,4 +38,4 @@ Upload discovery is scoped to the currently usable composer and uses a closed se
 
 ## Verification
 
-The incident is encoded as a deterministic Git replay regression: original candidate changes one conflicting and one non-conflicting file, host drift forces conflict, a later host change forces archive-based execution, and the correction compiles only if the original non-conflicting file survives. Separate tests cover legacy prompt migration, a 2 MiB capsule in the Desktop ZIP, retry reuse, the durable Apply guard, staged upload acknowledgement and cleanup, composer-scoped file selection, write-task deduplication, auxiliary-surface recovery, and launcher environment parity.
+The incident is encoded as a deterministic Git replay regression: original candidate changes one conflicting and one non-conflicting file, host drift forces conflict, a later host change forces archive-based execution, and the correction compiles only if the original non-conflicting file survives. Separate tests cover legacy prompt migration, a 2 MiB capsule in the Desktop ZIP, retry reuse, the durable Apply guard, staged upload acknowledgement and cleanup, composer-scoped file selection, write-task deduplication, same-conversation conflict recovery, and launcher environment parity.

@@ -1,7 +1,7 @@
 # ADR-0006 — Harness chat / ChatGPT conversation affinity
 
 ## Status
-Accepted for v1.2.6; amended for v1.2.18.2, v1.2.25, v1.2.33, v1.2.38.1 and v1.2.43.
+Accepted for v1.2.6; amended for v1.2.18.2, v1.2.25, v1.2.33, v1.2.38.1, v1.2.43 and v1.3.3.
 
 ## Context
 A workspace may contain several independent coding threads. Reusing one Harness transcript and one arbitrary ChatGPT page causes context collisions and makes reopening work unreliable.
@@ -15,9 +15,9 @@ A new Harness chat navigates to `https://chatgpt.com/`. Observing that trusted n
 
 Every DOM/input/navigation operation is addressed by Harness chat id. The main process verifies that the resolved entry is still registered under the same owner id before executing allowlisted JavaScript or native input; active-view fallback is not used for these operations. A concrete ChatGPT conversation may belong to only one active Harness chat. Automatic or explicit binding rejects a `/c/...` URL already owned by another Harness chat and leaves the current chat unchanged.
 
-If an existing linked chat is manually navigated to another ChatGPT conversation, navigation alone does not overwrite the binding. Rebinding requires explicit user action. An explicit Harness Send while that different concrete conversation is open is considered such an action: transport stays on the visible conversation, updates the local binding, and sends a fresh context ZIP before the new prompt.
+After the first concrete binding, the URL is immutable for the lifetime of the Harness chat. Manual navigation, ordinary saves, Desktop remote-state updates, explicit sends, recovery and conflict resolution cannot clear or replace it. If a different conversation is visible, the UI offers only restoration of the linked conversation and transport restores it before preparing the prompt. The durable backend is authoritative and preserves the established URL and derived conversation id even when a caller submits an empty or different value.
 
-Before that explicit Send is accepted, the trusted local UI asks for authorization when both the stored binding and the currently open concrete conversation exist and differ. The mismatch banner offers both explicit choices: bind the open conversation or restore the already-linked conversation. The first request derives only a provisional local title from the first words so the tab is immediately identifiable. The planner returns the definitive semantic title as `turn.chat_title`; after the response bundle is accepted, Wharnex promotes that title unless the user already supplied a definitive title, then queues the remote `WHX: <chat_title>` rename together with the existing project assignment path. The planner is explicitly forbidden from deriving this title from WHARNEX/ZIP/bundle transport wording. Archiving first stops an active remote generation and confirms remote archive before moving the local chat to its archive. These are narrow named account-management operations, never generic DOM access.
+The first request derives only a provisional local title from the first words so the tab is immediately identifiable. The planner returns the definitive semantic title as `turn.chat_title`; after the response bundle is accepted, Wharnex promotes that title unless the user already supplied a definitive title, then queues the remote `WHX: <chat_title>` rename together with the existing project assignment path. The planner is explicitly forbidden from deriving this title from WHARNEX/ZIP/bundle transport wording. Archiving first stops an active remote generation and confirms remote archive before moving the local chat to its archive. These are narrow named account-management operations, never generic DOM access.
 
 Each chat persists the context snapshot hash and ChatGPT conversation URL for which project context was last transported. A later prompt omits the ZIP only when both the snapshot hash and concrete conversation are unchanged. This avoids duplicate context on sequential turns while still refreshing a stale chat after parallel project mutations.
 

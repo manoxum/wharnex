@@ -4122,7 +4122,7 @@ async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentCo
     const linkedConversation = canonicalChatGPTConversationURL(target)
     if (linkedConversation && entry.affinity.boundURL !== linkedConversation && entry.affinity.phase !== 'candidate') syncChatGPTAffinityURL(key, entry, linkedConversation)
     const currentConversation = canonicalChatGPTConversationURL(wc.getURL())
-    const keepCurrent = preferCurrentConversation && Boolean(currentConversation)
+    const keepCurrent = !linkedConversation && preferCurrentConversation && Boolean(currentConversation)
     if (!sameConversationURL(wc.getURL(), target) && !keepCurrent) await loadOwnedChatGPTURL(key, entry, target, 'composer-target')
     else if (keepCurrent) proposeCurrentChatGPTAffinity(key, entry, linkedConversation, currentConversation)
   }
@@ -4813,10 +4813,8 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
 
 function durableWorkspaceChatID(cacheKey, requestedChatID = '') {
   const key = sanitizeChatCacheKey(cacheKey)
-  // Conflict and other auxiliary surfaces own an independent remote
-  // conversation, but they are not workspace chats. Persisting their URL
-  // under either the synthetic key or the parent chat silently corrupts the
-  // parent's stable conversation affinity.
+  // Legacy releases created `_cf_` auxiliary surfaces. Never project one into
+  // durable chat affinity while old queued work drains after an upgrade.
   if (key.includes('_cf_')) return ''
   const requested = String(requestedChatID || '').trim()
   if (!requested) return key

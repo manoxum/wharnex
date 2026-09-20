@@ -27,10 +27,10 @@ describe('attention center', () => {
   })
 
   it('surfaces human action and integration conflicts ahead of ready applies', () => {
-    const conflictChat = { ...chat('chat-1', 'Conflito'), conflictSurfaces: { cf: { cacheKey: 'chat-1_cf', url: 'https://chatgpt.com/c/one' } } }
+    const conflictChat = chat('chat-1', 'Conflito')
     const conflicted = session('ses-chat-1')
     conflicted.integration_conflict = { id: 'cf', request_id: 'req-cf', original_plan_ids: ['plan-cf'], paths: ['a.ts'], details: [], created_at: '2026-09-07T10:00:00.000Z' }
-    const items = collectAttentionItems([conflictChat], { 'chat-1': conflicted }, { 'chat-1_cf': { cacheKey: 'chat-1_cf', active: true, kind: 'verification', message: 'Confirme no navegador.' } })
+    const items = collectAttentionItems([conflictChat], { 'chat-1': conflicted }, { 'chat-1': { cacheKey: 'chat-1', active: true, kind: 'verification', message: 'Confirme no navegador.' } })
     expect(items[0].title).toBe('Conflito de integração')
     expect(items.map((entry) => entry.title)).toContain('Ação humana necessária no ChatGPT')
   })

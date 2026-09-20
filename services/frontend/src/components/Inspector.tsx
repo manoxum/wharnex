@@ -22,7 +22,7 @@ import { ChangeDiffEditor } from './ChangeDiffEditor'
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSurface, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -30,7 +30,6 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   busy: boolean
   chat?: WorkspaceChat
   chats?: WorkspaceChat[]
-  chatgptSurface?: { cacheKey: string; title: string; url?: string; conflictId?: string }
   chatgptSuspended?: boolean
   activeTab?: InspectorTab
   onTabChange?: (tab: InspectorTab) => void
@@ -106,7 +105,6 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
           globallySuspended={chatgptSuspended}
           chats={chats && chats.length ? chats : (chat ? [chat] : [])}
           activeChatId={chat?.id || ''}
-          chatgptSurface={chatgptSurface}
           busy={busy}
           session={session}
           onChatGPTURL={onChatGPTURL}
@@ -242,12 +240,11 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 // the durable backend queue, so React must not keep a pane mounted per chat.
 // Re-rendering the same component with another chat id preserves one Supervisor
 // surface while Desktop coalesces navigation around submit/write critical phases.
-function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, chatgptSurface, busy, session, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onPlanFile, onBundleFile }: {
+function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, busy, session, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onPlanFile, onBundleFile }: {
   visible: boolean
   globallySuspended: boolean
   chats: WorkspaceChat[]
   activeChatId: string
-  chatgptSurface?: { cacheKey: string; title: string; url?: string; conflictId?: string }
   busy: boolean
   session: Session
   onChatGPTURL: (url: string) => boolean
@@ -262,16 +259,15 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, ch
   // finish. Never mount a remote surface using the previous chat's Session in
   // that interval: its pending request/conflict identity belongs elsewhere.
   if (!activeChat || activeChat.sessionId !== session.id) return <div className="desktop-chatgpt-pool" hidden />
-  const surface = chatgptSurface
   const manualTransport = session.chat_transport_mode === 'manual'
   return <div className="desktop-chatgpt-pool" hidden={!visible}>
     <div className="desktop-chatgpt-pool-item active">
       <ChatGPTDesktopPane
         suspended={globallySuspended || !visible || manualTransport}
         busy={busy}
-        chatId={surface?.cacheKey || activeChat.id}
-        chatTitle={surface?.title || activeChat.title}
-        chatgptUrl={surface ? surface.url : activeChat.chatgptUrl}
+        chatId={activeChat.id}
+        chatTitle={activeChat.title}
+        chatgptUrl={activeChat.chatgptUrl}
         pendingRequestId={activePendingRequestId(session)}
         sessionId={session.id}
         chatHash={session.context.workspace_sha256 || session.context.manifest.sha256}

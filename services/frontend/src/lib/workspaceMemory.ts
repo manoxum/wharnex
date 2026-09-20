@@ -64,7 +64,6 @@ export type WorkspaceChat = {
   requestMode?: ChatRequestMode
   transport?: TransportOptions
   pendingPlan?: { requestId: string; originalMessage?: string }
-  conflictSurfaces?: Record<string, { cacheKey: string; url?: string; resolvedAt?: string }>
   purpose?: 'standard' | 'self-evolution'
   createdAt: string
   updatedAt: string
@@ -139,12 +138,6 @@ export function mergeDurableWorkspaceChats(local: WorkspaceChat[], durable: Dura
     if (chat && !localIDs.has(chat.id)) merged.push(chat)
   }
   return merged.slice(0, 60)
-}
-
-export function conflictChatGPTCacheKey(chatId: string, conflictId: string) {
-  const cleanChat = chatId.replace(/[^A-Za-z0-9_-]/g, '_')
-  const cleanConflict = conflictId.replace(/[^A-Za-z0-9_-]/g, '_')
-  return `${cleanChat}_cf_${cleanConflict}`.slice(0, 128)
 }
 
 export function loadActiveWorkspace(): ActiveWorkspace | undefined {
@@ -447,7 +440,7 @@ function validChat(value: WorkspaceChat) {
 }
 
 function normalizeWorkspaceChatAffinity(chat: WorkspaceChat): WorkspaceChat {
-  const normalized = { ...chat }
+  const normalized = { ...chat } as WorkspaceChat & { conflictSurfaces?: unknown }
   const chatgptUrl = chatgptConversationURL(chat.chatgptUrl || '')
   const lastContextChatgptUrl = chatgptConversationURL(chat.lastContextChatgptUrl || '')
   if (chatgptUrl) normalized.chatgptUrl = chatgptUrl

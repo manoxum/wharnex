@@ -585,12 +585,12 @@ func TestVerifiedChangeSetCreatesDedicatedConflictResolutionRequest(t *testing.T
 	}
 	seen := false
 	for _, event := range bus.History(started.ID) {
-		if event.Type == "conflict.prompt_ready" && strings.Contains(fmt.Sprint(event.Data["surface_key"]), "_cf_") {
+		if event.Type == "conflict.prompt_ready" && event.Data["request_id"] == conflicted.IntegrationConflict.RequestID && event.Data["surface_key"] == nil {
 			seen = true
 		}
 	}
 	if !seen {
-		t.Fatal("dedicated conflict ChatGPT surface was not announced")
+		t.Fatal("same-conversation conflict request was not announced")
 	}
 	rejected, rejectErr := service.RejectPendingHostChanges(started.ID)
 	if rejectErr != nil {

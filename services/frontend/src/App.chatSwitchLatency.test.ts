@@ -63,9 +63,8 @@ describe('chat switching stays local and immediate', () => {
     expect(source).toMatch(/if \(activeChatOwnsSession && session && activeChatId\) sessionCacheRef\.current\[activeChatId\] = session/)
   })
 
-  it('never derives a conflict surface from the previous chat during an uncached switch', () => {
-    expect(source).toMatch(/const activeConflictKey = activeChatOwnsSession && session\?\.integration_conflict/)
-    expect(source).toMatch(/const activeConflict = activeChat\?\.sessionId === session\.id \? session\.integration_conflict : undefined/)
+  it('never derives conflict ownership from a synthetic remote surface', () => {
+	expect(source).not.toMatch(/activeConflictKey|conflictChatGPTCacheKey|conflictSurfaces/)
   })
 
   it('blocks every active-chat automatic dispatcher until session ownership is proven', () => {
@@ -74,9 +73,9 @@ describe('chat switching stays local and immediate', () => {
     expect(source).toContain('if (!session || !activeChatOwnsSession || !activeChatId || activeBusy')
   })
 
-  it('does not seed an unbound dedicated conflict surface with the primary conversation URL', () => {
-    expect(inspectorSource).toContain('chatgptUrl={surface ? surface.url : activeChat.chatgptUrl}')
-    expect(inspectorSource).not.toContain('chatgptUrl={surface?.url || activeChat.chatgptUrl}')
+  it('always renders the owning chat conversation in the Engine', () => {
+	expect(inspectorSource).toContain('chatgptUrl={activeChat.chatgptUrl}')
+	expect(inspectorSource).not.toContain('chatgptSurface')
     expect(inspectorSource).toContain('activeChat.sessionId !== session.id')
   })
 
@@ -112,7 +111,7 @@ describe('chat switching stays local and immediate', () => {
     const start = source.indexOf('async function transportPlannerContinuation')
     const end = source.indexOf('\n\tasync function submitConflictPrompt', start)
     const continuation = source.slice(start, end)
-    expect(continuation).toMatch(/cacheKey, background: true, \.\.\.\(!dedicatedConflict \? \{ workspaceChatId: targetChat\.id \} : \{\}\)/)
-    expect(continuation).toMatch(/const dedicatedConflict = Boolean\(surface\)/)
+	expect(continuation).toMatch(/cacheKey: targetChat\.id, background: true, workspaceChatId: targetChat\.id/)
+	expect(continuation).not.toMatch(/dedicatedConflict|surface\?/)
   })
 })
