@@ -1209,21 +1209,38 @@ func transactionID() string {
 }
 
 type limitedBuffer struct {
-	mu     sync.Mutex
-	buffer bytes.Buffer
+	mu        sync.Mutex
+	head      bytes.Buffer
+	tail      []byte
+	truncated bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	const limit = 512 * 1024
+	// Build output often starts with dependency hydration and thousands of
+	// passing test lines. Retaining only that prefix used to discard the final
+	// compiler/runtime diagnostic -- precisely the part needed to classify a
+	// failed self-evolution Apply. Keep enough provenance at the start and a
+	// much larger rolling tail containing the terminal failure instead.
+	const headLimit = 64 * 1024
+	const tailLimit = limit - headLimit
 	original := len(p)
-	if b.buffer.Len() < limit {
-		remaining := limit - b.buffer.Len()
-		if len(p) > remaining {
-			p = p[:remaining]
+	if b.head.Len() < headLimit {
+		remaining := headLimit - b.head.Len()
+		if remaining > len(p) {
+			remaining = len(p)
 		}
-		_, _ = b.buffer.Write(p)
+		_, _ = b.head.Write(p[:remaining])
+		p = p[remaining:]
+	}
+	if len(p) > 0 {
+		b.tail = append(b.tail, p...)
+		if len(b.tail) > tailLimit {
+			b.tail = append([]byte(nil), b.tail[len(b.tail)-tailLimit:]...)
+			b.truncated = true
+		}
 	}
 	return original, nil
 }
@@ -1231,7 +1248,10 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 func (b *limitedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buffer.String()
+	if !b.truncated {
+		return b.head.String() + string(b.tail)
+	}
+	return b.head.String() + "\n...[middle build output truncated by Wharnex; terminal output retained]...\n" + string(b.tail)
 }
 
 func copyFile(source, destination string, mode os.FileMode) error {

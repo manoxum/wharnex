@@ -1429,7 +1429,13 @@ func (a *API) apply(w http.ResponseWriter, r *http.Request) {
 		// starting a repair round for either just spends a request on something
 		// the model cannot fix.
 		if !errors.Is(err, app.ErrIntegrationConflict) && !errors.Is(err, app.ErrManagedStateConflict) {
-			_, _ = a.service.TriggerApplyFailureRepair(r.Context(), r.PathValue("id"), err)
+			// A host build may outlive the browser/proxy request that initiated
+			// Apply. Its rollback already completed, so losing the request context
+			// must not also lose the durable recovery transition and strand the
+			// verified candidate. Bound recovery independently of client lifetime.
+			recoveryCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
+			_, _ = a.service.TriggerApplyFailureRepair(recoveryCtx, r.PathValue("id"), err)
+			cancel()
 		}
 		writeError(w, 409, "apply_failed", err.Error())
 		return
