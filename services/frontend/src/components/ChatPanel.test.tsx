@@ -792,15 +792,20 @@ describe('ChatPanel', () => {
     expect(writeText).toHaveBeenCalledWith('mensagem anterior')
   })
 
-  it('reports real composer text edits for active-project attention', () => {
+  it('reinforces active-project attention directly on the composer while typing', () => {
     const onComposerTyping = vi.fn()
     const ref = panelRef()
-    render(
+    const view = render(
       <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="typing" busy={false} onSend={async () => undefined} onComposerTyping={onComposerTyping} {...chatActions} />,
     )
 
+    const composer = view.container.querySelector('form.composer')
+    expect(composer?.classList.contains('composer-typing-attention')).toBe(false)
     typeInComposer(ref, 'confirmar projeto atual', 'confirmar projeto atual'.length)
     expect(onComposerTyping).toHaveBeenCalledTimes(1)
+    expect(composer?.classList.contains('composer-typing-attention')).toBe(true)
+    expect(screen.getByRole('status', { name: 'Projeto ativo: demo' }).textContent).toContain('demo')
+    expect(screen.getByTitle('/tmp/demo').textContent).toBe('demo')
   })
 
   it('selects files and submits them with the message', async () => {
