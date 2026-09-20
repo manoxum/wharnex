@@ -875,3 +875,27 @@ func TestFinishRemoteMergeResolutionUsesInjectedPushTransport(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
+
+func TestCreateDeleteBranchAndReleaseTagAreSafeAndIdempotent(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	if err := CreateBranch(context.Background(), root, "feature/release", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentBranch(context.Background(), root); got != "main" {
+		t.Fatalf("creating a branch changed checkout to %q", got)
+	}
+	sha, err := CreateTagAtRef(context.Background(), root, "v1.0.0", "feature/release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := CreateTagAtRef(context.Background(), root, "v1.0.0", "feature/release"); err != nil || again != sha {
+		t.Fatalf("idempotent tag retry = %q, %v; want %q", again, err, sha)
+	}
+	if err := DeleteBranch(context.Background(), root, "feature/release"); err != nil {
+		t.Fatal(err)
+	}
+	if err := DeleteBranch(context.Background(), root, "main"); err == nil {
+		t.Fatal("checked-out branch deletion must be rejected")
+	}
+}

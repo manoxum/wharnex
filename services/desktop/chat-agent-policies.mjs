@@ -11,6 +11,7 @@ export const CHAT_AGENT_WORKER_TASK_TYPES = Object.freeze([
   'TITLE_GENERATE_TEMP',
   'TITLE_AWAIT',
   'TODO_CLASSIFY',
+  'RELEASE_NOTES',
 ])
 
 export const DEFAULT_SUSPENDED_WORKER_TASK_TYPES = Object.freeze([

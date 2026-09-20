@@ -4,6 +4,7 @@ import type { GitAuthorSettings, GitBranch, GitCommitDetail, GitCommitMode, GitC
 import { api, APIError } from '../lib/api'
 import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
 import { announceGitChanged, subscribeGitLiveSync } from '../lib/gitLiveSync'
+import { confirmDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
@@ -106,11 +107,13 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
       if (syncSession && onSession) onSession(await api.getSession(session.id))
       setNotice(actionMessage)
       setOperation({ title, detail, phase: 'success', message: actionMessage })
+      return true
     } catch (error) {
       const cause = error instanceof APIError ? error.message : error instanceof Error ? error.message : String(error)
       const message = phase === 'refreshing' && actionMessage ? `${actionMessage} Não foi possível atualizar o painel: ${cause}` : cause
       report(error)
       setOperation({ title, detail, phase: 'error', message, failedPhase: phase })
+      return false
     } finally {
       setWorking(false)
     }
@@ -297,7 +300,25 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             await api.gitSwitch(session.id, branch)
             setNotice(`Branch alterada para ${branch}.`)
           }, true)}
+          onCreateBranch={(branch, startPoint) => run(async () => {
+            await api.gitCreateBranch(session.id, branch, startPoint)
+            setNotice(`Branch ${branch} criada a partir de ${startPoint || 'HEAD'}.`)
+          })}
+          onDeleteBranch={(branch) => void (async () => {
+            const confirmed = await confirmDialog({ title: `Remover branch ${branch}?`, message: 'Branches locais usam remoção segura sem força; branches remotas são removidas do remoto selecionado sem force push.', tone: 'danger', confirmLabel: 'Remover branch' })
+            if (!confirmed) return
+            await run(async () => { await api.gitDeleteBranch(session.id, branch); setNotice(`Branch ${branch} removida.`) })
+          })()}
           onCopyBranch={(branch) => void copyGitText(branch, `Nome da branch ${branch} copiado.`)}
+          onGenerateReleaseNotes={async (branch) => (await api.gitGenerateReleaseNotes(session.id, branch)).body}
+          onCreateRelease={(input) => runGitOperation(
+            'A publicar release',
+            `A criar ${input.tag} a partir de ${input.branch} e a publicar a release em ${input.remote}.`,
+            async () => {
+              const result = await api.gitCreateRelease(session.id, input)
+              return `Release ${result.tag} publicada${result.release_url ? ` · ${result.release_url}` : ''}.`
+            },
+          )}
           onPush={(remote, branch, setUpstream) => runGitOperation(
             'A publicar alterações',
             `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
@@ -479,12 +500,16 @@ function CommitModeSection({ overview, disabled, onChange }: { overview: GitOver
   </section>
 }
 
-function BranchSection({ sessionId, current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onCopyBranch, onPush }: {
+type GitReleaseDraftInput = { remote: string; branch: string; tag: string; title: string; body: string }
+
+function BranchSection({ sessionId, current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onCreateBranch, onDeleteBranch, onCopyBranch, onGenerateReleaseNotes, onCreateRelease, onPush }: {
   sessionId: string; current?: string; detached: boolean; localBranches: GitOverview['branches']; remoteBranches: GitOverview['branches']; remotes: GitOverview['remotes']
   disabled: boolean; mergeRef: string; onMergeRefChange: (value: string) => void; onMerge: () => void
   remoteMergeTarget: string; remoteMergeSources: string[]; onRemoteMergeTargetChange: (value: string) => void; onRemoteMergeSourcesChange: (values: string[]) => void; onRemoteMerge: () => void
   onFetch: (remote: string) => void; onPull: (remote: string, branch: string) => void; onSwitch: (branch: string) => void
-  onCopyBranch: (branch: string) => void; onPush: (remote: string, branch: string, setUpstream: boolean) => void
+  onCreateBranch: (branch: string, startPoint: string) => void; onDeleteBranch: (branch: string) => void; onCopyBranch: (branch: string) => void
+  onGenerateReleaseNotes: (branch: string) => Promise<string>; onCreateRelease: (input: GitReleaseDraftInput) => Promise<boolean>
+  onPush: (remote: string, branch: string, setUpstream: boolean) => void
 }) {
   const active = localBranches.find((branch) => branch.current)
   const upstreamRemote = active?.upstream?.split('/')[0]
@@ -492,6 +517,18 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
   const canSync = Boolean(current) && !detached && remotes.length > 0
   const [localMergeOptions, setLocalMergeOptions] = useState<GitBranch[]>([])
   const [remoteMergeOptions, setRemoteMergeOptions] = useState<GitBranch[]>([])
+  const [newBranch, setNewBranch] = useState('')
+  const [newBranchBase, setNewBranchBase] = useState(current || 'HEAD')
+  const [releaseBranch, setReleaseBranch] = useState('')
+  const [releaseRemote, setReleaseRemote] = useState(remotes[0]?.name || '')
+  const [releaseTag, setReleaseTag] = useState('')
+  const [releaseTitle, setReleaseTitle] = useState('')
+  const [releaseBody, setReleaseBody] = useState('')
+  const [releaseMode, setReleaseMode] = useState<'manual' | 'gpt'>('manual')
+  const [releaseGenerating, setReleaseGenerating] = useState(false)
+  const [releaseError, setReleaseError] = useState('')
+  useEffect(() => { if (current) setNewBranchBase((value) => value === 'HEAD' || !value ? current : value) }, [current])
+  useEffect(() => { if (!releaseRemote && remotes[0]?.name) setReleaseRemote(remotes[0].name) }, [releaseRemote, remotes])
   useEffect(() => {
     let alive = true
     if (!current || detached) { setLocalMergeOptions([]); return () => { alive = false } }
@@ -533,6 +570,19 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
         </div>}
       </div>
       <div className="git-branch-refresh-note"><Icon name="refresh" size={11}/><span>Branch sincronizada em tempo real · referências remotas atualizadas a cada 60 s</span></div>
+    </div>
+
+    <div className="git-branch-management">
+      <div className="git-branch-operations-heading">
+        <div><span>Gestão</span><strong>Criar branch local</strong></div>
+        <small>A nova branch é criada sem trocar o checkout atual.</small>
+      </div>
+      <div className="git-branch-create-row">
+        <label><span>Nome</span><input aria-label="Nome da nova branch" value={newBranch} disabled={disabled} onChange={(event) => setNewBranch(event.target.value)} placeholder="feature/minha-branch"/></label>
+        <label><span>A partir de</span><select aria-label="Branch base da nova branch" value={newBranchBase} disabled={disabled} onChange={(event) => setNewBranchBase(event.target.value)}><option value="HEAD">HEAD atual</option>{localBranches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}</select></label>
+        <button type="button" className="git-action primary git-branch-create-action" disabled={disabled || !newBranch.trim()} onClick={() => { const branch = newBranch.trim(); onCreateBranch(branch, newBranchBase); setNewBranch('') }}>Criar branch</button>
+      </div>
+      <p className="git-hint">Branches locais usam <code>git branch -d</code>; referências remotas são removidas no respetivo remoto. Nenhuma remoção usa força.</p>
     </div>
 
     <div className="git-branch-operations">
@@ -588,13 +638,35 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
         <div><span>Repositório</span><strong>Branches disponíveis</strong></div>
         <span>{localBranches.length + remoteBranches.length} no total</span>
       </div>
-      <BranchList title="Locais" description="Branches disponíveis no workspace" branches={localBranches} disabled={disabled} onSwitch={onSwitch} onCopy={onCopyBranch}/>
-      <BranchList title="Remotas" description="Referências conhecidas no servidor" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch} onCopy={onCopyBranch}/>
+      <BranchList title="Locais" description="Branches disponíveis no workspace" branches={localBranches} disabled={disabled} onSwitch={onSwitch} onDelete={onDeleteBranch} onCopy={onCopyBranch}/>
+      <BranchList title="Remotas" description="Referências conhecidas no servidor" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch} onDelete={onDeleteBranch} onCopy={onCopyBranch}/>
     </div>
+
+    <GitReleaseSection
+      branches={localBranches} remotes={remotes} disabled={disabled}
+      branch={releaseBranch} remote={releaseRemote} tag={releaseTag} title={releaseTitle} body={releaseBody} mode={releaseMode}
+      generating={releaseGenerating} error={releaseError}
+      onBranch={setReleaseBranch} onRemote={setReleaseRemote} onTag={setReleaseTag} onTitle={setReleaseTitle} onBody={setReleaseBody}
+      onMode={(mode) => { setReleaseMode(mode); setReleaseError(''); setReleaseBody('') }}
+      onGenerate={async () => {
+        if (!releaseBranch) return
+        setReleaseGenerating(true); setReleaseError('')
+        try { setReleaseBody(await onGenerateReleaseNotes(releaseBranch)) }
+        catch (error) { setReleaseError(error instanceof Error ? error.message : String(error)) }
+        finally { setReleaseGenerating(false) }
+      }}
+      onPublish={async () => {
+        setReleaseError('')
+        const confirmed = await confirmDialog({ title: `Publicar ${releaseTag}?`, message: `Será criada a tag em ${releaseBranch} e uma release pública no remoto ${releaseRemote}.`, tone: 'warning', confirmLabel: 'Criar tag e release' })
+        if (!confirmed) return
+        const ok = await onCreateRelease({ remote: releaseRemote, branch: releaseBranch, tag: releaseTag.trim(), title: releaseTitle.trim(), body: releaseBody.trim() })
+        if (ok) { setReleaseTag(''); setReleaseTitle(''); setReleaseBody('') }
+      }}
+    />
   </section>
 }
 
-function BranchList({ title, description, branches, disabled = false, onSwitch, onCopy }: { title: string; description: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void; onCopy: (branch: string) => void }) {
+function BranchList({ title, description, branches, disabled = false, onSwitch, onDelete, onCopy }: { title: string; description: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void; onDelete?: (branch: string) => void; onCopy: (branch: string) => void }) {
   return <div className="git-branch-group">
     <div className="git-branch-group-heading">
       <div className="git-branch-group-title"><span className="git-branch-group-icon"><Icon name="git" size={12}/></span><div><strong>{title}</strong><small>{description}</small></div></div>
@@ -621,10 +693,64 @@ function BranchList({ title, description, branches, disabled = false, onSwitch, 
             <span className={`git-branch-counterpart ${branch.has_counterpart ? 'active' : ''}`} title={counterpartLabel} aria-label={counterpartLabel}><Icon name="link" size={10}/><b>{counterpartText}</b></span>
           </span>
           <button type="button" className="git-inline-copy git-branch-copy-action" aria-label={`Copiar nome da branch ${branch.name}`} title="Copiar nome da branch" onClick={() => onCopy(branch.name)}><Icon name="copy" size={11}/></button>
-          {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}><Icon name="bridge" size={11}/><span>{branch.remote && !branch.has_counterpart ? 'Criar local' : 'Alternar'}</span></button>}
+          {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}>{branch.remote && !branch.has_counterpart ? 'Criar local' : 'Alternar'}</button>}
+          {onDelete && !branch.current && <button type="button" className="git-action small danger git-branch-delete" disabled={disabled} onClick={() => onDelete(branch.name)}>Remover</button>}
         </div>
       </li>
     })}</ul>
+  </div>
+}
+
+function GitReleaseSection({ branches, remotes, disabled, branch, remote, tag, title, body, mode, generating, error, onBranch, onRemote, onTag, onTitle, onBody, onMode, onGenerate, onPublish }: {
+  branches: GitBranch[]; remotes: GitOverview['remotes']; disabled: boolean
+  branch: string; remote: string; tag: string; title: string; body: string; mode: 'manual' | 'gpt'; generating: boolean; error: string
+  onBranch: (value: string) => void; onRemote: (value: string) => void; onTag: (value: string) => void; onTitle: (value: string) => void; onBody: (value: string) => void
+  onMode: (value: 'manual' | 'gpt') => void; onGenerate: () => Promise<void>; onPublish: () => Promise<void>
+}) {
+  const canPublish = Boolean(branch && remote && tag.trim() && body.trim())
+  return <div className="git-release-panel">
+    <div className="git-branch-operations-heading">
+      <div><span>Publicação</span><strong>Tag e release no GitHub</strong></div>
+      <small>Seleciona explicitamente a branch que ficará associada à release.</small>
+    </div>
+    <div className="git-release-grid">
+      <label><span>Branch *</span><select aria-label="Branch da release" value={branch} disabled={disabled} onChange={(event) => { onBranch(event.target.value); onBody('') }}><option value="">Selecionar branch…</option>{branches.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
+      <label><span>Remoto</span><select aria-label="Remoto da release" value={remote} disabled={disabled} onChange={(event) => onRemote(event.target.value)}><option value="">Selecionar remoto…</option>{remotes.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
+      <label><span>Tag *</span><input aria-label="Tag da release" value={tag} disabled={disabled} onChange={(event) => onTag(event.target.value)} placeholder="v1.3.0"/></label>
+      <label><span>Título</span><input aria-label="Título da release" value={title} disabled={disabled} onChange={(event) => onTitle(event.target.value)} placeholder="Opcional · usa a tag se vazio"/></label>
+    </div>
+    <div className="git-release-mode" role="group" aria-label="Modo das notas de release">
+      <button type="button" className={mode === 'manual' ? 'active' : ''} disabled={disabled} onClick={() => onMode('manual')}>Escrever manualmente</button>
+      <button type="button" className={mode === 'gpt' ? 'active' : ''} disabled={disabled} onClick={() => onMode('gpt')}>Gerar com GPT</button>
+    </div>
+    {mode === 'manual' ? <GitReleaseRichText value={body} disabled={disabled} onChange={onBody}/> : <div className="git-release-gpt">
+      <button type="button" className="git-action" disabled={disabled || generating || !branch} onClick={() => void onGenerate()}>{generating ? 'A gerar…' : 'Gerar notas da branch'}</button>
+      <textarea aria-label="Notas de release geradas pelo GPT" value={body} disabled={disabled || generating} onChange={(event) => onBody(event.target.value)} placeholder={branch ? 'O GPT irá resumir os commits recentes desta branch.' : 'Seleciona primeiro uma branch.'}/>
+      <p className="git-hint">O GPT gera apenas as notas; podes revê-las antes de publicar.</p>
+    </div>}
+    {error && <p className="git-notice error-card" role="alert">{error}</p>}
+    <div className="git-release-footer"><span>A tag é criada no commit da branch selecionada e enviada sem force.</span><button type="button" className="git-action primary" disabled={disabled || generating || !canPublish} onClick={() => void onPublish()}>Criar tag e release</button></div>
+  </div>
+}
+
+function GitReleaseRichText({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (value: string) => void }) {
+  const editor = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (editor.current && editor.current.innerHTML !== value) editor.current.innerHTML = value
+  }, [value])
+  const format = (command: string) => {
+    if (disabled) return
+    editor.current?.focus()
+    document.execCommand?.(command, false)
+    onChange(editor.current?.innerHTML || '')
+  }
+  return <div className="git-release-editor">
+    <div className="git-release-toolbar" role="toolbar" aria-label="Formatação das notas de release">
+      <button type="button" disabled={disabled} onClick={() => format('bold')} aria-label="Negrito"><strong>B</strong></button>
+      <button type="button" disabled={disabled} onClick={() => format('italic')} aria-label="Itálico"><em>I</em></button>
+      <button type="button" disabled={disabled} onClick={() => format('insertUnorderedList')} aria-label="Lista">• Lista</button>
+    </div>
+    <div ref={editor} className="git-release-editable" contentEditable={!disabled} role="textbox" aria-multiline="true" aria-label="Texto manual da release" data-placeholder="Descreve as mudanças desta release…" onInput={(event) => onChange(event.currentTarget.innerHTML)} suppressContentEditableWarning/>
   </div>
 }
 

@@ -32,7 +32,7 @@ func claimTypes(t *testing.T, store *Store, role string, count int) []string {
 func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 	store := NewStore()
 	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE", "ORCHESTRATOR_PLAN"}
-	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "TITLE_DISCOVER"}
+	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "RELEASE_NOTES", "TITLE_DISCOVER"}
 	translatorTypes := []string{"TRANSLATE_MARKDOWN"}
 	allTypes := append(append(append([]string{}, supervisorTypes...), workerTypes...), translatorTypes...)
 	for index, taskType := range allTypes {
@@ -61,7 +61,7 @@ func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 
 func TestRateLimitPauseBlocksOnlyWorkerRole(t *testing.T) {
 	store := NewStore()
-	for _, taskType := range []string{"TODO_CLASSIFY", "BOT_WRITE", "TRANSLATE_MARKDOWN"} {
+	for _, taskType := range []string{"TODO_CLASSIFY", "RELEASE_NOTES", "BOT_WRITE", "TRANSLATE_MARKDOWN"} {
 		if _, err := store.EnqueueChatAgentTask(testChatAgentTask(taskType, "chat-"+taskType, "conv-"+taskType, "pause:"+taskType)); err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +161,7 @@ func TestChatAgentSupervisorSQLMatchesTheTypeList(t *testing.T) {
 			t.Fatalf("supervisor SQL predicate is missing %q: %s", taskType, rendered)
 		}
 	}
-	for _, taskType := range []string{"RENAME_CHAT", "TRANSLATE_MARKDOWN", "TODO_CLASSIFY", "DELETE_BUNDLE"} {
+	for _, taskType := range []string{"RENAME_CHAT", "TRANSLATE_MARKDOWN", "RELEASE_NOTES", "TODO_CLASSIFY", "DELETE_BUNDLE"} {
 		if strings.Contains(rendered, "'"+taskType+"'") {
 			t.Fatalf("supervisor SQL predicate must not contain small Worker work %q", taskType)
 		}
