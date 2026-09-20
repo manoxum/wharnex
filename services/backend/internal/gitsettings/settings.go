@@ -38,9 +38,57 @@ func ValidCommitMode(mode CommitMode) bool {
 	return mode == CommitModeAuto || mode == CommitModeManual
 }
 
+// ConflictStrategy decides who may resolve a Git-origin merge conflict.
+type ConflictStrategy string
+
+const (
+	ConflictStrategyGPTOnly    ConflictStrategy = "gpt_only"
+	ConflictStrategyUserOnly   ConflictStrategy = "user_only"
+	ConflictStrategyUserDecide ConflictStrategy = "user_decide"
+)
+
+func ValidConflictStrategy(strategy ConflictStrategy) bool {
+	return strategy == ConflictStrategyGPTOnly || strategy == ConflictStrategyUserOnly || strategy == ConflictStrategyUserDecide
+}
+
+// CommitAuthorStrategy controls the identity used by commits Wharnex creates
+// automatically. Manual Git-surface commits continue to use the repository's
+// configured identity because they are explicit human actions.
+type CommitAuthorStrategy string
+
+const (
+	CommitAuthorWharnex       CommitAuthorStrategy = "wharnex"
+	CommitAuthorGitUser       CommitAuthorStrategy = "git_user"
+	CommitAuthorCustom        CommitAuthorStrategy = "custom"
+	CommitAuthorWharnexGit    CommitAuthorStrategy = "wharnex_git_user"
+	CommitAuthorWharnexCustom CommitAuthorStrategy = "wharnex_custom"
+)
+
+func ValidCommitAuthorStrategy(strategy CommitAuthorStrategy) bool {
+	switch strategy {
+	case CommitAuthorWharnex, CommitAuthorGitUser, CommitAuthorCustom, CommitAuthorWharnexGit, CommitAuthorWharnexCustom:
+		return true
+	default:
+		return false
+	}
+}
+
+// GlobalSettings applies to every project because commit identity is a user
+// preference, not repository content.
+type GlobalSettings struct {
+	CommitAuthorStrategy CommitAuthorStrategy `json:"commit_author_strategy"`
+	CustomAuthorName     string               `json:"custom_author_name,omitempty"`
+	CustomAuthorEmail    string               `json:"custom_author_email,omitempty"`
+}
+
+func DefaultGlobal() GlobalSettings {
+	return GlobalSettings{CommitAuthorStrategy: CommitAuthorWharnexGit}
+}
+
 // ProjectSettings is one project's Git surface configuration.
 type ProjectSettings struct {
-	CommitMode CommitMode `json:"commit_mode"`
+	CommitMode       CommitMode       `json:"commit_mode"`
+	ConflictStrategy ConflictStrategy `json:"conflict_strategy"`
 }
 
 // Document holds Git settings for every project, keyed by canonical
@@ -53,12 +101,13 @@ type ProjectSettings struct {
 // very diff the mode exists to keep clean.
 type Document struct {
 	Version  int                        `json:"version"`
+	Global   GlobalSettings             `json:"global"`
 	Projects map[string]ProjectSettings `json:"projects"`
 }
 
 // Default is an empty document; every project resolves to auto.
 func Default() Document {
-	return Document{Version: 1, Projects: map[string]ProjectSettings{}}
+	return Document{Version: 1, Global: DefaultGlobal(), Projects: map[string]ProjectSettings{}}
 }
 
 // DefaultProject is what a project with no stored entry uses.
@@ -66,25 +115,57 @@ func Default() Document {
 // project already has, so upgrading changes nothing until an operator chooses
 // otherwise.
 func DefaultProject() ProjectSettings {
-	return ProjectSettings{CommitMode: CommitModeAuto}
+	return ProjectSettings{CommitMode: CommitModeAuto, ConflictStrategy: ConflictStrategyUserDecide}
 }
 
 // ForProject resolves one project's settings, falling back to the default.
 func (d Document) ForProject(projectPath string) ProjectSettings {
 	settings, ok := d.Projects[canonicalProjectKey(projectPath)]
-	if !ok || !ValidCommitMode(settings.CommitMode) {
+	if !ok {
 		return DefaultProject()
 	}
+	defaults := DefaultProject()
+	if !ValidCommitMode(settings.CommitMode) {
+		settings.CommitMode = defaults.CommitMode
+	}
+	if !ValidConflictStrategy(settings.ConflictStrategy) {
+		settings.ConflictStrategy = defaults.ConflictStrategy
+	}
+	return settings
+}
+
+func (d Document) GlobalSettings() GlobalSettings {
+	settings := d.Global
+	if !ValidCommitAuthorStrategy(settings.CommitAuthorStrategy) {
+		settings.CommitAuthorStrategy = DefaultGlobal().CommitAuthorStrategy
+	}
+	settings.CustomAuthorName = strings.TrimSpace(settings.CustomAuthorName)
+	settings.CustomAuthorEmail = strings.TrimSpace(settings.CustomAuthorEmail)
 	return settings
 }
 
 // WithProject returns a copy carrying one project's updated settings.
 func (d Document) WithProject(projectPath string, settings ProjectSettings) Document {
-	updated := Document{Version: 1, Projects: map[string]ProjectSettings{}}
+	defaults := DefaultProject()
+	if !ValidCommitMode(settings.CommitMode) {
+		settings.CommitMode = defaults.CommitMode
+	}
+	if !ValidConflictStrategy(settings.ConflictStrategy) {
+		settings.ConflictStrategy = defaults.ConflictStrategy
+	}
+	updated := Document{Version: 1, Global: d.GlobalSettings(), Projects: map[string]ProjectSettings{}}
 	for key, value := range d.Projects {
 		updated.Projects[key] = value
 	}
 	updated.Projects[canonicalProjectKey(projectPath)] = settings
+	return updated
+}
+
+func (d Document) WithGlobal(settings GlobalSettings) Document {
+	updated := Document{Version: 1, Global: settings, Projects: map[string]ProjectSettings{}}
+	for key, value := range d.Projects {
+		updated.Projects[key] = value
+	}
 	return updated
 }
 
@@ -122,10 +203,26 @@ func Read(path string) (Document, error) {
 	if document.Projects == nil {
 		document.Projects = map[string]ProjectSettings{}
 	}
+	if document.Global.CommitAuthorStrategy == "" {
+		document.Global = DefaultGlobal()
+	}
+	if !ValidCommitAuthorStrategy(document.Global.CommitAuthorStrategy) {
+		return Document{}, fmt.Errorf("unsupported commit_author_strategy %q", document.Global.CommitAuthorStrategy)
+	}
 	for project, settings := range document.Projects {
+		if settings.CommitMode == "" {
+			settings.CommitMode = CommitModeAuto
+		}
+		if settings.ConflictStrategy == "" {
+			settings.ConflictStrategy = ConflictStrategyUserDecide
+		}
 		if !ValidCommitMode(settings.CommitMode) {
 			return Document{}, fmt.Errorf("unsupported commit_mode %q for %s", settings.CommitMode, project)
 		}
+		if !ValidConflictStrategy(settings.ConflictStrategy) {
+			return Document{}, fmt.Errorf("unsupported conflict_strategy %q for %s", settings.ConflictStrategy, project)
+		}
+		document.Projects[project] = settings
 	}
 	return document, nil
 }
@@ -138,9 +235,15 @@ func Save(path string, document Document) error {
 	if document.Version != 1 {
 		return errors.New("git settings require version 1")
 	}
+	if !ValidCommitAuthorStrategy(document.Global.CommitAuthorStrategy) {
+		return fmt.Errorf("unsupported commit_author_strategy %q", document.Global.CommitAuthorStrategy)
+	}
 	for project, settings := range document.Projects {
 		if !ValidCommitMode(settings.CommitMode) {
 			return fmt.Errorf("unsupported commit_mode %q for %s", settings.CommitMode, project)
+		}
+		if !ValidConflictStrategy(settings.ConflictStrategy) {
+			return fmt.Errorf("unsupported conflict_strategy %q for %s", settings.ConflictStrategy, project)
 		}
 	}
 	return writeJSONAtomic(path, ".git-settings-*.json", document)

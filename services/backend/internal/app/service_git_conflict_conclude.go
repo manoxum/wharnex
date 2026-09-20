@@ -32,6 +32,9 @@ func (s *Service) concludeGitConflict(ctx context.Context, sessionID string, ite
 	if len(patches) == 0 && len(resolution.ManualPaths) != len(resolution.Paths) {
 		return item, fmt.Errorf("a Git conflict resolution must carry a patch or manual decision for: %s", strings.Join(resolution.Paths, ", "))
 	}
+	if gitContext.Origin == domain.GitConflictOriginRemoteMerge {
+		return s.concludeRemoteGitConflictLocked(ctx, sessionID, item, plan, patches)
+	}
 	if err := hostrepo.BeginMergeResolution(ctx, item.ProjectPath, gitContext.Ref, resolution.Paths); err != nil {
 		return item, err
 	}
@@ -53,7 +56,7 @@ func (s *Service) concludeGitConflict(ctx context.Context, sessionID string, ite
 		}
 	}
 	message := gitMergeCommitMessage(gitContext, resolution, plan)
-	sha, err := hostrepo.CompleteMergeResolution(ctx, item.ProjectPath, resolution.Paths, message)
+	sha, err := hostrepo.CompleteMergeResolution(ctx, item.ProjectPath, resolution.Paths, message, s.projectCommitIdentity(ctx, item.ProjectPath))
 	if err != nil {
 		hostrepo.AbortMerge(ctx, item.ProjectPath)
 		return item, err
@@ -73,6 +76,63 @@ func (s *Service) concludeGitConflict(ctx context.Context, sessionID string, ite
 	s.bus.Publish(sessionID, "git.conflict_resolved", map[string]any{
 		"conflict_id": resolution.ID, "commit": sha, "ref": gitContext.Ref, "origin": gitContext.Origin,
 		"note": "the merge is committed locally; publishing it remains an explicit push",
+	})
+	return updated, nil
+}
+
+func (s *Service) concludeRemoteGitConflictLocked(ctx context.Context, sessionID string, item domain.Session, plan *domain.ExecutionPlan, patches []string) (domain.Session, error) {
+	resolution := item.IntegrationConflict
+	gitContext := resolution.Git
+	if len(gitContext.SourceRefs) == 0 {
+		return item, fmt.Errorf("remote merge conflict is missing its ordered source refs")
+	}
+	identity := s.projectCommitIdentity(ctx, item.ProjectPath)
+	remoteWorkspace, err := hostrepo.PrepareRemoteMergeResolution(ctx, item.ProjectPath, gitContext.TargetBranch, gitContext.SourceRefs, gitContext.Ref, resolution.Paths, identity)
+	if err != nil {
+		return item, err
+	}
+	defer hostrepo.CleanupRemoteMergeResolution(item.ProjectPath, remoteWorkspace)
+	workspace, err := s.hostRunner.Prepare(ctx, remoteWorkspace.Path)
+	if err != nil {
+		return item, err
+	}
+	defer s.hostRunner.Cleanup(workspace)
+	for _, patch := range patches {
+		result, applyErr := s.hostRunner.ApplyPatch(ctx, workspace, patch)
+		if applyErr != nil || !result.Success {
+			detail := strings.TrimSpace(result.Stderr)
+			if applyErr != nil {
+				detail = applyErr.Error()
+			}
+			return item, fmt.Errorf("apply remote Git conflict resolution: %s", detail)
+		}
+	}
+	message := gitMergeCommitMessage(gitContext, resolution, plan)
+	if _, err := hostrepo.CompleteMergeResolution(ctx, remoteWorkspace.Path, resolution.Paths, message, identity); err != nil {
+		return item, err
+	}
+	result, err := hostrepo.FinishRemoteMergeResolution(ctx, item.ProjectPath, remoteWorkspace, identity)
+	if err != nil {
+		return item, err
+	}
+	if result.PushOutcome != "pushed" && result.PushOutcome != "up_to_date" {
+		return item, fmt.Errorf("remote merge resolution could not publish %s: %s", gitContext.TargetBranch, result.PushOutcome)
+	}
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.IntegrationConflict = nil
+		current.ConflictAttempt = 0
+		current.State = "ready"
+		current.PendingManualRequestIDs = removeString(current.PendingManualRequestIDs, plan.RequestID)
+		current.LastManualPrompt = ""
+		clearSessionFailure(current)
+		return nil
+	})
+	if err != nil {
+		return item, err
+	}
+	s.bus.Publish(sessionID, "git.conflict_resolved", map[string]any{
+		"conflict_id": resolution.ID, "commit": result.CommitSHA, "ref": gitContext.Ref, "origin": gitContext.Origin,
+		"target": gitContext.TargetBranch, "push_outcome": result.PushOutcome,
 	})
 	return updated, nil
 }

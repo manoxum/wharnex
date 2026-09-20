@@ -294,9 +294,9 @@ func (s *Service) stageHostIntegration(ctx context.Context, sessionID string, it
 		var commit string
 		var commitErr error
 		if len(candidate.Writes) == 0 {
-			commit, commitErr = sandbox.CommitVerifiedPatchAllowEmpty(ctx, workspace.Path, branch, commitMessageForPlan(&converted[index].Plan), paths)
+			commit, commitErr = sandbox.CommitVerifiedPatchAllowEmpty(ctx, workspace.Path, branch, commitMessageForPlan(&converted[index].Plan), paths, s.projectCommitIdentity(ctx, item.ProjectPath))
 		} else {
-			commit, commitErr = sandbox.CommitVerifiedPatch(ctx, workspace.Path, branch, commitMessageForPlan(&converted[index].Plan), paths)
+			commit, commitErr = sandbox.CommitVerifiedPatch(ctx, workspace.Path, branch, commitMessageForPlan(&converted[index].Plan), paths, s.projectCommitIdentity(ctx, item.ProjectPath))
 		}
 		if commitErr != nil {
 			_ = s.runner.Cleanup(workspace)
@@ -448,12 +448,13 @@ type conflictCapsule struct {
 
 // conflictCapsuleGit names the merge a Git-origin conflict is reconciling.
 type conflictCapsuleGit struct {
-	Ref          string `json:"ref"`
-	TargetBranch string `json:"target_branch,omitempty"`
-	Remote       string `json:"remote,omitempty"`
-	BaseSHA      string `json:"base_sha"`
-	OursSHA      string `json:"ours_sha"`
-	TheirsSHA    string `json:"theirs_sha"`
+	Ref          string   `json:"ref"`
+	TargetBranch string   `json:"target_branch,omitempty"`
+	Remote       string   `json:"remote,omitempty"`
+	BaseSHA      string   `json:"base_sha"`
+	OursSHA      string   `json:"ours_sha"`
+	TheirsSHA    string   `json:"theirs_sha"`
+	SourceRefs   []string `json:"source_refs,omitempty"`
 }
 
 // conflictCapsuleIntent describes the purpose of both colliding sides and how

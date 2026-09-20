@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/gitsettings"
 	"kernl.local/harness/backend/internal/hostrepo"
 	"kernl.local/harness/backend/internal/planner"
 )
@@ -103,6 +104,9 @@ func (s *Service) ResolveConflictManually(ctx context.Context, sessionID string,
 	if err != nil {
 		return ConflictManualResult{}, err
 	}
+	if item.IntegrationConflict != nil && item.IntegrationConflict.Git != nil && s.projectConflictStrategy(item.ProjectPath) == gitsettings.ConflictStrategyGPTOnly {
+		return ConflictManualResult{}, errors.New("this project resolves Git conflicts with GPT only")
+	}
 	workbench, err := s.conflictWorkbench(ctx, item)
 	if err != nil {
 		return ConflictManualResult{}, err
@@ -160,6 +164,9 @@ func (s *Service) DelegateConflictToGPT(ctx context.Context, sessionID string, r
 	if err != nil {
 		return item, err
 	}
+	if item.IntegrationConflict != nil && item.IntegrationConflict.Git != nil && s.projectConflictStrategy(item.ProjectPath) == gitsettings.ConflictStrategyUserOnly {
+		return item, errors.New("this project resolves Git conflicts manually only")
+	}
 	workbench, err := s.conflictWorkbench(ctx, item)
 	if err != nil {
 		return item, err
@@ -192,9 +199,9 @@ func (s *Service) DelegateConflictToGPT(ctx context.Context, sessionID string, r
 	if item.IntegrationConflict.Git != nil {
 		g := item.IntegrationConflict.Git
 		capsule.Origin = g.Origin
-		capsule.Git = &conflictCapsuleGit{Ref: g.Ref, TargetBranch: g.TargetBranch, Remote: g.Remote, BaseSHA: g.BaseSHA, OursSHA: g.OursSHA, TheirsSHA: g.TheirsSHA}
+		capsule.Git = &conflictCapsuleGit{Ref: g.Ref, TargetBranch: g.TargetBranch, Remote: g.Remote, BaseSHA: g.BaseSHA, OursSHA: g.OursSHA, TheirsSHA: g.TheirsSHA, SourceRefs: append([]string(nil), g.SourceRefs...)}
 		capsule.Intent = s.gitConflictIntent(ctx, item, gitConflictRequest{
-			origin: g.Origin, ref: g.Ref, remote: g.Remote, remoteBranch: g.RemoteBranch, targetBranch: g.TargetBranch,
+			origin: g.Origin, ref: g.Ref, remote: g.Remote, remoteBranch: g.RemoteBranch, targetBranch: g.TargetBranch, sourceRefs: append([]string(nil), g.SourceRefs...),
 			sides: hostrepo.MergeSides{BaseSHA: g.BaseSHA, OursSHA: g.OursSHA, TheirsSHA: g.TheirsSHA, Ref: g.Ref}, paths: remaining,
 		}, remaining)
 		capsule.Intent.UserGuidance = strings.TrimSpace(guidance)

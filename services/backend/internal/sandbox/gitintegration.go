@@ -12,10 +12,9 @@ import (
 	"kernl.local/harness/backend/internal/hostrepo"
 )
 
-// gitCommitAuthor* mirror the identity already used for the synthetic
-// sandbox baseline commit (see cloneGitBaseline/initializeWorkspaceGit in
-// copy.go): a fixed, non-human identity for commits Wharnex itself makes,
-// never the operator's own configured Git identity.
+// gitCommitAuthor* are reserved for Wharnex-internal synthetic commits such
+// as request-base snapshots. User-visible integration commits resolve their
+// identity through hostrepo.CommitIdentity instead of reusing these values.
 const (
 	gitCommitAuthorName  = "Wharnex"
 	gitCommitAuthorEmail = "wharness@localhost"
@@ -80,24 +79,24 @@ func CurrentHeadSHA(ctx context.Context, repoPath string) (string, error) {
 // (snapshotUncommittedHostState) commits separately for the exact same
 // paths — producing a spurious merge conflict on files the plan never
 // touched.
-func CommitVerifiedPatch(ctx context.Context, workspacePath, branch, message string, paths []string) (commitSHA string, err error) {
+func CommitVerifiedPatch(ctx context.Context, workspacePath, branch, message string, paths []string, identities ...hostrepo.CommitIdentity) (commitSHA string, err error) {
 	// This function is called only after the candidate patch and every declared
 	// verification gate have succeeded against this exact workspace. Therefore
 	// an empty staged diff is a valid idempotent outcome (for example, a focused
 	// conflict resolution whose bytes are already present after replay), not
 	// evidence that verification failed. Allow the empty commit up front instead
 	// of first relying on Git's human-readable, locale-dependent no-op message.
-	return commitVerifiedPatch(ctx, workspacePath, branch, message, paths, true)
+	return commitVerifiedPatch(ctx, workspacePath, branch, message, paths, true, identityOrDefault(identities))
 }
 
 // CommitVerifiedPatchAllowEmpty is retained as the explicit compatibility
 // entry point for legacy callers. Verified commits are idempotent by default,
 // so both entry points now share the same traceable empty-commit behavior.
-func CommitVerifiedPatchAllowEmpty(ctx context.Context, workspacePath, branch, message string, paths []string) (commitSHA string, err error) {
-	return commitVerifiedPatch(ctx, workspacePath, branch, message, paths, true)
+func CommitVerifiedPatchAllowEmpty(ctx context.Context, workspacePath, branch, message string, paths []string, identities ...hostrepo.CommitIdentity) (commitSHA string, err error) {
+	return commitVerifiedPatch(ctx, workspacePath, branch, message, paths, true, identityOrDefault(identities))
 }
 
-func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message string, paths []string, allowEmpty bool) (commitSHA string, err error) {
+func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message string, paths []string, allowEmpty bool, identity hostrepo.CommitIdentity) (commitSHA string, err error) {
 	if strings.TrimSpace(branch) == "" {
 		return "", errors.New("branch name is required")
 	}
@@ -114,7 +113,7 @@ func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message str
 	if output, err := runGit(ctx, workspacePath, addArgs...); err != nil {
 		return "", fmt.Errorf("stage verified changes: %s", output)
 	}
-	return commitStagedVerifiedPatch(ctx, workspacePath, message, allowEmpty)
+	return commitStagedVerifiedPatch(ctx, workspacePath, message, allowEmpty, identity)
 }
 
 // commitStagedVerifiedPatch records an already-staged, already-verified patch.
@@ -124,10 +123,11 @@ func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message str
 // by CheckoutRequestBase (see CommitBaseRootedPatch). Carrying two copies is
 // what let a fix applied to one of them leave the other — the base-rooted
 // path, which is the normal path for every new request — still failing.
-func commitStagedVerifiedPatch(ctx context.Context, workspacePath, message string, allowEmpty bool) (string, error) {
+func commitStagedVerifiedPatch(ctx context.Context, workspacePath, message string, allowEmpty bool, identities ...hostrepo.CommitIdentity) (string, error) {
+	identity := identityOrDefault(identities)
 	commitArgs := []string{
-		"-c", "user.name=" + gitCommitAuthorName,
-		"-c", "user.email=" + gitCommitAuthorEmail,
+		"-c", "user.name=" + identity.Name,
+		"-c", "user.email=" + identity.Email,
 		"-c", "commit.gpgSign=false",
 		"commit", "-q",
 	}
@@ -136,6 +136,12 @@ func commitStagedVerifiedPatch(ctx context.Context, workspacePath, message strin
 	}
 	commitArgs = append(commitArgs, "-m", message)
 	output, commitErr := runGit(ctx, workspacePath, commitArgs...)
+	if commitErr != nil && !allowEmpty && isNothingToCommitOutput(output) {
+		// A base-rooted replay can legitimately stage bytes already present on
+		// its request base. Record that verified candidate as an empty commit
+		// instead of discarding it because Git reported a benign no-op.
+		output, commitErr = runGit(ctx, workspacePath, append(commitArgs, "--allow-empty")...)
+	}
 	if commitErr != nil {
 		return "", fmt.Errorf("commit verified changes: %s", output)
 	}
@@ -144,6 +150,17 @@ func commitStagedVerifiedPatch(ctx context.Context, workspacePath, message strin
 		return "", fmt.Errorf("resolve integration commit: %w", err)
 	}
 	return sha, nil
+}
+
+func isNothingToCommitOutput(output string) bool {
+	return strings.Contains(output, "nothing to commit") || strings.Contains(output, "no changes added to commit")
+}
+
+func identityOrDefault(identities []hostrepo.CommitIdentity) hostrepo.CommitIdentity {
+	if len(identities) > 0 {
+		return identities[0].Normalized()
+	}
+	return hostrepo.DefaultCommitIdentity()
 }
 
 // PushBranchToHost transfers commits from a sandbox clone's branch into the
@@ -209,16 +226,16 @@ type HostMerge struct {
 // hold, and refuses to move a submodule pointer out from under uncommitted
 // work. Afterwards it realigns the submodule checkouts the merge moved, which
 // Git itself leaves stale.
-func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (HostMerge, error) {
-	return mergeBranchOnHost(ctx, hostPath, branch, "", nil, nil)
+func MergeBranchOnHost(ctx context.Context, hostPath, branch string, identities ...hostrepo.CommitIdentity) (HostMerge, error) {
+	return mergeBranchOnHost(ctx, hostPath, branch, "", nil, nil, identityOrDefault(identities))
 }
 
-func mergeBranchOnHost(ctx context.Context, hostPath, branch, requestBaseRef string, gitlinkResolutions map[string]string, sync func([]hostrepo.Submodule) hostrepo.SyncResult) (HostMerge, error) {
+func mergeBranchOnHost(ctx context.Context, hostPath, branch, requestBaseRef string, gitlinkResolutions map[string]string, sync func([]hostrepo.Submodule) hostrepo.SyncResult, identity hostrepo.CommitIdentity) (HostMerge, error) {
 	topology, err := hostrepo.Inspect(ctx, hostPath)
 	if err != nil {
 		return HostMerge{}, err
 	}
-	preservation, err := hostrepo.Preserve(ctx, hostPath, hostSnapshotMessage)
+	preservation, err := hostrepo.Preserve(ctx, hostPath, hostSnapshotMessage, identity)
 	if err != nil {
 		return HostMerge{}, err
 	}
@@ -240,7 +257,7 @@ func mergeBranchOnHost(ctx context.Context, hostPath, branch, requestBaseRef str
 	if preMergeErr != nil {
 		preMerge = topology
 	}
-	mergeArgs := append(hostrepo.InternalGitArgs(topology), "merge", "--no-ff", "--no-edit", branch)
+	mergeArgs := append(hostrepo.InternalGitArgs(topology, identity), "merge", "--no-ff", "--no-edit", branch)
 	if output, mergeErr := runGit(ctx, hostPath, mergeArgs...); mergeErr != nil {
 		conflicted, conflictErr := runGit(ctx, hostPath, "diff", "--name-only", "--diff-filter=U")
 		if conflictErr == nil && strings.TrimSpace(conflicted) != "" {

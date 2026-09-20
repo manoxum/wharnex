@@ -143,14 +143,14 @@ func ValidateRepositoryIntegrations(ctx context.Context, hostRoot string, integr
 // every affected submodule on the branch it had when verification started.
 // Git's ordinary submodule update checks out a detached HEAD; this branch-aware
 // path keeps repositories such as devup, main and master selected.
-func MergeRepositoryTreeOnHost(ctx context.Context, hostRoot, branch, requestBaseRef string, integrations []domain.RepositoryIntegration) (HostMerge, error) {
+func MergeRepositoryTreeOnHost(ctx context.Context, hostRoot, branch, requestBaseRef string, integrations []domain.RepositoryIntegration, identities ...hostrepo.CommitIdentity) (HostMerge, error) {
 	gitlinks, err := repositoryGitlinkResolutions(ctx, hostRoot, integrations)
 	if err != nil {
 		return HostMerge{}, err
 	}
 	return mergeBranchOnHost(ctx, hostRoot, branch, requestBaseRef, gitlinks, func(before []hostrepo.Submodule) hostrepo.SyncResult {
 		return syncRepositoryIntegrations(ctx, hostRoot, before, integrations, false)
-	})
+	}, identityOrDefault(identities))
 }
 
 // repositoryGitlinkResolutions selects the descendant side of every validated

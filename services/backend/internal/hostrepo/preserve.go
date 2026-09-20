@@ -184,7 +184,7 @@ type Preservation struct {
 // — is the one that made every Apply on such a project fail permanently, since
 // `git commit` exits non-zero with "no changes added to commit" and nothing in
 // the flow could ever clear the condition.
-func Preserve(ctx context.Context, root, message string) (Preservation, error) {
+func Preserve(ctx context.Context, root, message string, identities ...CommitIdentity) (Preservation, error) {
 	topology, err := Inspect(ctx, root)
 	if err != nil {
 		return Preservation{}, err
@@ -229,7 +229,7 @@ func Preserve(ctx context.Context, root, message string) (Preservation, error) {
 		}
 		return Preservation{}, fmt.Errorf("stage host working tree before integration: %s", output)
 	}
-	commitArgs := append(internalCommitArgs(topology), "commit", "-q", "--no-verify", "-m", message)
+	commitArgs := append(internalCommitArgs(topology, firstCommitIdentity(identities)), "commit", "-q", "--no-verify", "-m", message)
 	if output, err := run(ctx, root, commitArgs...); err != nil {
 		// The classification above says a commit should capture something, but
 		// the worktree is live: an operator can revert their own edit between
@@ -273,10 +273,11 @@ func StageArgs(embedded []string) []string {
 // bookkeeping, not the operator's contribution, so a project's own pre-commit
 // lint has no authority over it — and a failing hook would otherwise block
 // every host integration on any repository that has one.
-func internalCommitArgs(topology Topology) []string {
+func internalCommitArgs(topology Topology, identity CommitIdentity) []string {
+	identity = identity.Normalized()
 	return []string{
-		"-c", "user.name=" + CommitAuthorName,
-		"-c", "user.email=" + CommitAuthorEmail,
+		"-c", "user.name=" + identity.Name,
+		"-c", "user.email=" + identity.Email,
 		"-c", "commit.gpgSign=false",
 		"-c", "core.hooksPath=" + disabledHooksPath(topology),
 	}
@@ -284,7 +285,16 @@ func internalCommitArgs(topology Topology) []string {
 
 // InternalGitArgs exposes internalCommitArgs to other packages performing
 // Wharnex-owned commits and merges on a host repository.
-func InternalGitArgs(topology Topology) []string { return internalCommitArgs(topology) }
+func InternalGitArgs(topology Topology, identities ...CommitIdentity) []string {
+	return internalCommitArgs(topology, firstCommitIdentity(identities))
+}
+
+// AuthorGitArgs applies only commit identity/signing preferences, preserving
+// repository hooks for explicit human Git-surface operations.
+func AuthorGitArgs(identity CommitIdentity) []string {
+	identity = identity.Normalized()
+	return []string{"-c", "user.name=" + identity.Name, "-c", "user.email=" + identity.Email, "-c", "commit.gpgSign=false"}
+}
 
 // disabledHooksPath points core.hooksPath at a location guaranteed not to
 // contain hooks. A directory that does not exist disables hooks on every Git
@@ -303,6 +313,40 @@ const (
 	CommitAuthorName  = "Wharnex"
 	CommitAuthorEmail = "wharness@localhost"
 )
+
+// CommitIdentity is the identity used by an automatic Wharnex-owned commit.
+type CommitIdentity struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func DefaultCommitIdentity() CommitIdentity {
+	return CommitIdentity{Name: CommitAuthorName, Email: CommitAuthorEmail}
+}
+
+func (identity CommitIdentity) Normalized() CommitIdentity {
+	identity.Name = strings.TrimSpace(identity.Name)
+	identity.Email = strings.TrimSpace(identity.Email)
+	if identity.Name == "" || identity.Email == "" {
+		return DefaultCommitIdentity()
+	}
+	return identity
+}
+
+func firstCommitIdentity(identities []CommitIdentity) CommitIdentity {
+	if len(identities) > 0 {
+		return identities[0].Normalized()
+	}
+	return DefaultCommitIdentity()
+}
+
+// ConfiguredCommitIdentity reads the repository's authenticated Git identity.
+func ConfiguredCommitIdentity(ctx context.Context, root string) (CommitIdentity, bool) {
+	name, nameErr := run(ctx, root, "config", "user.name")
+	email, emailErr := run(ctx, root, "config", "user.email")
+	identity := CommitIdentity{Name: strings.TrimSpace(name), Email: strings.TrimSpace(email)}
+	return identity, nameErr == nil && emailErr == nil && identity.Name != "" && identity.Email != ""
+}
 
 // hostGitFailure wraps a failed host Git write, returning the typed
 // operator-owned condition when the output names one and an ordinary error

@@ -59,7 +59,7 @@ func (s *Service) PushBranch(ctx context.Context, sessionID, remote, branch stri
 		return result, nil
 	}
 	trackingRef := remote + "/" + branch
-	merge, mergeErr := hostrepo.MergeBranch(ctx, item.ProjectPath, trackingRef)
+	merge, mergeErr := hostrepo.MergeBranch(ctx, item.ProjectPath, trackingRef, s.projectCommitIdentity(ctx, item.ProjectPath))
 	if mergeErr != nil {
 		result.Detail = mergeErr.Error()
 		return result, nil
@@ -189,7 +189,7 @@ func (s *Service) MergeBranchIntoCurrent(ctx context.Context, sessionID, ref str
 	defer lock.Unlock()
 
 	s.bus.Publish(sessionID, "git.merge_started", map[string]any{"ref": ref})
-	merge, err := hostrepo.MergeBranch(ctx, item.ProjectPath, ref)
+	merge, err := hostrepo.MergeBranch(ctx, item.ProjectPath, ref, s.projectCommitIdentity(ctx, item.ProjectPath))
 	if err != nil {
 		return GitMergeResult{}, err
 	}
@@ -306,9 +306,6 @@ func (s *Service) MergeRemoteBranches(ctx context.Context, sessionID, targetRef 
 	lock := s.projectApplyLock(item.ProjectPath)
 	lock.Lock()
 	defer lock.Unlock()
-	if !hostrepo.HasCommitIdentity(ctx, item.ProjectPath) {
-		return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("configure git user.name and user.email before merging remote branches")
-	}
 	targetRef = strings.TrimSpace(targetRef)
 	cleanSources := make([]string, 0, len(sourceRefs))
 	seenSources := make(map[string]bool, len(sourceRefs))
@@ -326,60 +323,81 @@ func (s *Service) MergeRemoteBranches(ctx context.Context, sessionID, targetRef 
 		}
 	}
 	if len(cleanSources) == 0 {
-		return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("at least one remote source is required")
+		return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("at least one merge source is required")
 	}
 	sourceRefs = cleanSources
 	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
 	if err != nil {
 		return hostrepo.RemoteBranchMergeResult{}, err
 	}
-	remoteRefs := make(map[string]hostrepo.Branch)
+	allRefs := make(map[string]hostrepo.Branch, len(branches))
 	for _, branch := range branches {
-		if branch.Remote != "" {
-			remoteRefs[branch.Name] = branch
-		}
+		allRefs[branch.Name] = branch
 	}
-	target, ok := remoteRefs[strings.TrimSpace(targetRef)]
-	if !ok {
+	target, ok := allRefs[targetRef]
+	if !ok || target.Remote == "" {
 		return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("unknown remote target %q", targetRef)
 	}
 	remotes := map[string]struct{}{target.Remote: {}}
 	for _, ref := range sourceRefs {
-		source, exists := remoteRefs[strings.TrimSpace(ref)]
+		source, exists := allRefs[ref]
 		if !exists {
-			return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("unknown remote source %q", ref)
+			return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("unknown merge source %q", ref)
 		}
-		remotes[source.Remote] = struct{}{}
+		if source.Remote != "" {
+			remotes[source.Remote] = struct{}{}
+		}
 	}
 	for remote := range remotes {
 		if err := gitRemoteFetch(ctx, item.ProjectPath, remote); err != nil {
 			return hostrepo.RemoteBranchMergeResult{}, err
 		}
 	}
-	// Fetch prunes stale remote-tracking refs. Re-read the branch set so a ref
-	// deleted on the server cannot be merged or accidentally recreated.
+	// Fetch may prune remote refs, so validate the selected set again. Local
+	// sources remain valid without being forced through a remote-only map.
 	refreshed, err := hostrepo.Branches(ctx, item.ProjectPath)
 	if err != nil {
 		return hostrepo.RemoteBranchMergeResult{}, err
 	}
-	available := make(map[string]bool)
+	available := make(map[string]hostrepo.Branch, len(refreshed))
 	for _, branch := range refreshed {
-		if branch.Remote != "" {
-			available[branch.Name] = true
-		}
+		available[branch.Name] = branch
 	}
-	if !available[strings.TrimSpace(targetRef)] {
+	if current, exists := available[targetRef]; !exists || current.Remote == "" {
 		return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("remote target %q no longer exists after fetch", targetRef)
 	}
 	for _, ref := range sourceRefs {
-		if !available[strings.TrimSpace(ref)] {
-			return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("remote source %q no longer exists after fetch", ref)
+		if _, exists := available[ref]; !exists {
+			return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("merge source %q no longer exists after fetch", ref)
+		}
+	}
+	candidates, err := hostrepo.MergeCandidates(ctx, item.ProjectPath, targetRef)
+	if err != nil {
+		return hostrepo.RemoteBranchMergeResult{}, err
+	}
+	eligible := make(map[string]bool, len(candidates))
+	for _, candidate := range candidates {
+		eligible[candidate.Name] = true
+	}
+	for _, ref := range sourceRefs {
+		if !eligible[ref] {
+			return hostrepo.RemoteBranchMergeResult{}, fmt.Errorf("merge source %q has no commits missing from %s", ref, targetRef)
 		}
 	}
 	s.bus.Publish(sessionID, "git.remote_merge_started", map[string]any{"target": targetRef, "sources": sourceRefs})
-	result, err := hostrepo.MergeRemoteBranches(ctx, item.ProjectPath, targetRef, sourceRefs)
+	result, err := hostrepo.MergeRemoteBranches(ctx, item.ProjectPath, targetRef, sourceRefs, s.projectCommitIdentity(ctx, item.ProjectPath))
 	if err != nil {
 		return result, err
+	}
+	if result.Outcome == "conflict" {
+		_, conflictID, prepareErr := s.prepareGitConflictResolution(ctx, sessionID, item, gitConflictRequest{
+			origin: domain.GitConflictOriginRemoteMerge, ref: result.ConflictRef, remote: target.Remote, remoteBranch: strings.TrimPrefix(targetRef, target.Remote+"/"),
+			targetBranch: targetRef, sourceRefs: append([]string(nil), sourceRefs...), sides: result.Sides, paths: result.Paths,
+		})
+		if prepareErr != nil {
+			return result, prepareErr
+		}
+		result.ConflictID = conflictID
 	}
 	s.bus.Publish(sessionID, "git.remote_merge_completed", map[string]any{"target": targetRef, "sources": sourceRefs, "outcome": result.Outcome, "push_outcome": result.PushOutcome})
 	return result, nil
@@ -404,7 +422,7 @@ func (s *Service) PullBranch(ctx context.Context, sessionID, remote, branch stri
 		return GitBranchActionResult{}, err
 	}
 	ref := remote + "/" + branch
-	merge, err := hostrepo.MergeBranch(ctx, item.ProjectPath, ref)
+	merge, err := hostrepo.MergeBranch(ctx, item.ProjectPath, ref, s.projectCommitIdentity(ctx, item.ProjectPath))
 	if err != nil {
 		return GitBranchActionResult{}, err
 	}

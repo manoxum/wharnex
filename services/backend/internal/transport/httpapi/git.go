@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"kernl.local/harness/backend/internal/gitsettings"
@@ -19,9 +20,14 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git/context", a.gitRequestContext)
 	mux.HandleFunc("GET /api/sessions/{id}/git/diff", a.gitFileDiff)
 	mux.HandleFunc("GET /api/sessions/{id}/git/history", a.gitHistory)
+	mux.HandleFunc("GET /api/sessions/{id}/git/history/page", a.gitHistoryPage)
+	mux.HandleFunc("GET /api/sessions/{id}/git/history/{sha}", a.gitHistoryCommit)
+	mux.HandleFunc("GET /api/sessions/{id}/git/merge-candidates", a.gitMergeCandidates)
 	mux.HandleFunc("GET /api/sessions/{id}/git/unpushed", a.gitUnpushed)
 	mux.HandleFunc("GET /api/sessions/{id}/git/unpushed/{sha}", a.gitUnpushedCommit)
 	mux.HandleFunc("PUT /api/sessions/{id}/git/commit-mode", a.setGitCommitMode)
+	mux.HandleFunc("PUT /api/sessions/{id}/git/conflict-strategy", a.setGitConflictStrategy)
+	mux.HandleFunc("PUT /api/sessions/{id}/git/author-settings", a.setGitAuthorSettings)
 	mux.HandleFunc("GET /api/sessions/{id}/git/pending/{pending_id}", a.gitPendingCommit)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pending/commit", a.commitGitPending)
 	mux.HandleFunc("POST /api/sessions/{id}/git/worktree/commit", a.commitGitWorktree)
@@ -61,6 +67,36 @@ func (a *API) gitHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, commits)
+}
+
+func (a *API) gitHistoryPage(w http.ResponseWriter, r *http.Request) {
+	all := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("all")), "true")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	page, err := a.service.GitHistoryPage(r.Context(), r.PathValue("id"), r.URL.Query()["ref"], all, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_history_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+func (a *API) gitHistoryCommit(w http.ResponseWriter, r *http.Request) {
+	detail, err := a.service.GitHistoryCommit(r.Context(), r.PathValue("id"), r.PathValue("sha"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "git_history_commit_not_found", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (a *API) gitMergeCandidates(w http.ResponseWriter, r *http.Request) {
+	branches, err := a.service.GitMergeCandidates(r.Context(), r.PathValue("id"), r.URL.Query().Get("target"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_merge_candidates_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, branches)
 }
 
 func (a *API) gitUnpushed(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +144,39 @@ func (a *API) setGitCommitMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"commit_mode": string(mode)})
+}
+
+func (a *API) setGitConflictStrategy(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ConflictStrategy string `json:"conflict_strategy"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.GetSession(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+		return
+	}
+	strategy, err := a.service.SetGitConflictStrategy(item.ProjectPath, gitsettings.ConflictStrategy(strings.TrimSpace(body.ConflictStrategy)))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_conflict_strategy_invalid", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"conflict_strategy": string(strategy)})
+}
+
+func (a *API) setGitAuthorSettings(w http.ResponseWriter, r *http.Request) {
+	var body gitsettings.GlobalSettings
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	settings, err := a.service.SetGitAuthorSettings(body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_author_settings_invalid", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
 }
 
 func (a *API) gitPendingCommit(w http.ResponseWriter, r *http.Request) {

@@ -28,6 +28,12 @@ vi.mock('../lib/api', async () => {
       gitPull: vi.fn().mockResolvedValue({ outcome: 'merged', remote: 'origin', branch: 'main', ref: 'origin/main' }),
       gitSwitch: vi.fn().mockResolvedValue({ outcome: 'switched', branch: 'feature' }),
       gitHistory: vi.fn().mockResolvedValue([]),
+      gitHistoryPage: vi.fn().mockResolvedValue({ commits: [], next_offset: 0, has_more: false }),
+      gitHistoryCommit: vi.fn(),
+      gitMergeCandidates: vi.fn(),
+      setGitConflictStrategy: vi.fn().mockResolvedValue({ conflict_strategy: 'user_decide' }),
+      setGitAuthorSettings: vi.fn().mockResolvedValue({ commit_author_strategy: 'wharnex_git_user' }),
+      delegateConflictToGPT: vi.fn(),
       gitMerge: vi.fn().mockResolvedValue({ outcome: 'merged', ref: 'feature' }),
       gitRemoteMerge: vi.fn().mockResolvedValue({ outcome: 'merged', target_ref: 'origin/main', source_refs: ['origin/feature'], push_outcome: 'pushed' }),
     },
@@ -76,6 +82,8 @@ describe('GitDrawer', () => {
     vi.clearAllMocks()
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
     vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [] })
+    vi.mocked(api.gitHistoryPage).mockResolvedValue({ commits: overview().commits, next_offset: overview().commits.length, has_more: false })
+    vi.mocked(api.gitMergeCandidates).mockImplementation(async (_id, target) => overview().branches.filter((branch) => branch.name !== target).map((branch) => ({ ...branch, unmerged_commits: 1 })))
   })
 
   it('separates worktree files from unpublished commits while keeping Wharnex records available in settings', async () => {
@@ -98,7 +106,7 @@ describe('GitDrawer', () => {
     expect(screen.getByText('Commits por publicar')).toBeTruthy()
 
     openTab('Histórico')
-    expect(screen.getByText('feat: applied by whx')).toBeTruthy()
+    expect(await screen.findByText('feat: applied by whx')).toBeTruthy()
     expect(document.querySelector('.git-commit-graph')).toBeTruthy()
     expect(screen.getByText('WHX')).toBeTruthy()
 
@@ -106,7 +114,7 @@ describe('GitDrawer', () => {
     expect(screen.getAllByText('main').length).toBeGreaterThan(0)
     expect(screen.getAllByText('feature').length).toBeGreaterThan(0)
     const mergeSelect = screen.getByRole('combobox', { name: 'Branch a fazer merge' })
-    expect(within(mergeSelect).getByRole('option', { name: 'origin/main' })).toBeTruthy()
+    expect(await within(mergeSelect).findByRole('option', { name: /origin\/main/ })).toBeTruthy()
 
     openTab('Definições')
     expect(screen.getByRole('group', { name: 'Modo de commit' })).toBeTruthy()
@@ -194,7 +202,7 @@ describe('GitDrawer', () => {
   })
 
   it('loads selected and all-branch commit timelines', async () => {
-    vi.mocked(api.gitHistory).mockResolvedValue([{ sha: 'f1', short_sha: 'f1', subject: 'feat: feature timeline', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-11T10:00:00Z', parents: ['a2'], wharnex: false, merge: false, pushed: false }])
+    vi.mocked(api.gitHistoryPage).mockResolvedValue({ commits: [{ sha: 'f1', short_sha: 'f1', subject: 'feat: feature timeline', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-11T10:00:00Z', parents: ['a2'], wharnex: false, merge: false, pushed: false }], next_offset: 1, has_more: false })
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
     await screen.findByText('Alterações locais')
     openTab('Histórico')
@@ -203,11 +211,11 @@ describe('GitDrawer', () => {
     const featureOption = screen.getByRole('option', { name: 'feature' }) as HTMLOptionElement
     featureOption.selected = true
     fireEvent.change(branchSelect)
-    await waitFor(() => expect(api.gitHistory).toHaveBeenCalledWith('ses_1', ['feature'], false))
+    await waitFor(() => expect(api.gitHistoryPage).toHaveBeenCalledWith('ses_1', ['feature'], false, 0, 50))
     expect(await screen.findByText('feat: feature timeline')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Todas' }))
-    await waitFor(() => expect(api.gitHistory).toHaveBeenCalledWith('ses_1', [], true))
+    await waitFor(() => expect(api.gitHistoryPage).toHaveBeenCalledWith('ses_1', [], true, 0, 50))
   })
 
   it('shows visible processing and a terminal modal for commit and fetch actions', async () => {
@@ -319,6 +327,7 @@ describe('GitDrawer', () => {
     await screen.findByText('Alterações locais')
     openTab('Branches')
     const select = screen.getByRole('combobox', { name: 'Branch a fazer merge' })
+    await waitFor(() => expect(Array.from((select as HTMLSelectElement).options).some((option) => option.value === 'feature')).toBe(true))
     fireEvent.change(select, { target: { value: 'feature' } })
     fireEvent.click(screen.getByRole('button', { name: 'Merge' }))
     await waitFor(() => expect(api.gitMerge).toHaveBeenCalledWith('ses_1', 'feature'))
@@ -344,7 +353,7 @@ describe('GitDrawer', () => {
     await screen.findByText('Alterações locais')
     openTab('Branches')
     fireEvent.change(screen.getByRole('combobox', { name: 'Branch remota de destino' }), { target: { value: 'origin/main' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Integrar origin/feature' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Integrar origin/feature' }))
     fireEvent.click(screen.getByRole('button', { name: /Merge remoto \(1\)/ }))
     await waitFor(() => expect(api.gitRemoteMerge).toHaveBeenCalledWith('ses_1', 'origin/main', ['origin/feature']))
   })

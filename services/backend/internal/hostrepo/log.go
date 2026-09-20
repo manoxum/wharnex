@@ -2,7 +2,9 @@ package hostrepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,7 +39,10 @@ type Commit struct {
 	Merge bool `json:"merge"`
 	// Pushed is true when the commit is reachable from the valid upstream, or
 	// from any remote-tracking ref when the current branch has no upstream.
-	Pushed bool `json:"pushed"`
+	Pushed       bool `json:"pushed"`
+	FilesChanged int  `json:"files_changed"`
+	Additions    int  `json:"additions"`
+	Deletions    int  `json:"deletions"`
 }
 
 // commitFieldSeparator/commitRecordSeparator are ASCII control characters that
@@ -67,7 +72,7 @@ func Unpushed(ctx context.Context, root string, limit int) ([]Commit, error) {
 	if err == nil && strings.TrimSpace(upstream) != "" {
 		return LogRefs(ctx, root, []string{strings.TrimSpace(upstream) + "..HEAD"}, false, limit)
 	}
-	return logCommits(ctx, root, []string{"HEAD", "--not", "--remotes"}, limit)
+	return logCommits(ctx, root, []string{"HEAD", "--not", "--remotes"}, limit, 0)
 }
 
 // LogRefs reads history for selected branch refs or the whole repository.
@@ -87,15 +92,55 @@ func LogRefs(ctx context.Context, root string, refs []string, all bool, limit in
 			revArgs = append(revArgs, ref)
 		}
 	}
-	return logCommits(ctx, root, revArgs, limit)
+	return logCommits(ctx, root, revArgs, limit, 0)
 }
 
-func logCommits(ctx context.Context, root string, revArgs []string, limit int) ([]Commit, error) {
+// LogRefsPage reads a stable page of history for lazy loading.
+func LogRefsPage(ctx context.Context, root string, refs []string, all bool, limit, offset int) ([]Commit, error) {
+	revArgs := make([]string, 0, len(refs)+1)
+	if all {
+		revArgs = append(revArgs, "--all")
+	} else {
+		for _, ref := range refs {
+			ref = strings.TrimSpace(ref)
+			if ref == "" || strings.HasPrefix(ref, "-") {
+				return nil, fmt.Errorf("invalid history ref %q", ref)
+			}
+			revArgs = append(revArgs, ref)
+		}
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return logCommits(ctx, root, revArgs, limit, offset)
+}
+
+// CommitBySHA returns one commit by its full or abbreviated object name.
+func CommitBySHA(ctx context.Context, root, sha string) (Commit, error) {
+	sha = strings.TrimSpace(sha)
+	if sha == "" || strings.HasPrefix(sha, "-") {
+		return Commit{}, errors.New("commit sha is required")
+	}
+	commits, err := logCommits(ctx, root, []string{sha}, 1, 0)
+	if err != nil {
+		return Commit{}, err
+	}
+	if len(commits) == 0 {
+		return Commit{}, errors.New("commit not found")
+	}
+	return commits[0], nil
+}
+
+func logCommits(ctx context.Context, root string, revArgs []string, limit, offset int) ([]Commit, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	format := strings.Join([]string{"%H", "%h", "%an", "%ae", "%cI", "%P", "%s", "%b"}, commitFieldSeparator) + commitRecordSeparator
-	args := []string{"log", "--no-color", "--topo-order", fmt.Sprintf("--max-count=%d", limit), "--format=" + format}
+	format := commitRecordSeparator + strings.Join([]string{"%H", "%h", "%an", "%ae", "%cI", "%P", "%s", "%b"}, commitFieldSeparator) + commitFieldSeparator
+	args := []string{"log", "--no-color", "--topo-order", "--numstat", "--diff-merges=first-parent", fmt.Sprintf("--max-count=%d", limit)}
+	if offset > 0 {
+		args = append(args, fmt.Sprintf("--skip=%d", offset))
+	}
+	args = append(args, "--format="+format)
 	args = append(args, revArgs...)
 	output, err := run(ctx, root, args...)
 	if err != nil {
@@ -112,8 +157,8 @@ func logCommits(ctx context.Context, root string, revArgs []string, limit int) (
 		if strings.TrimSpace(record) == "" {
 			continue
 		}
-		fields := strings.Split(record, commitFieldSeparator)
-		if len(fields) < 8 {
+		fields := strings.SplitN(record, commitFieldSeparator, 9)
+		if len(fields) < 9 {
 			continue
 		}
 		parents := strings.Fields(fields[5])
@@ -127,6 +172,19 @@ func logCommits(ctx context.Context, root string, revArgs []string, limit int) (
 		}
 		if when, parseErr := time.Parse(time.RFC3339, fields[4]); parseErr == nil {
 			commit.CommittedAt = when.UTC()
+		}
+		for _, line := range strings.Split(fields[8], "\n") {
+			parts := strings.SplitN(strings.TrimSpace(line), "\t", 3)
+			if len(parts) != 3 {
+				continue
+			}
+			commit.FilesChanged++
+			if value, convErr := strconv.Atoi(parts[0]); convErr == nil {
+				commit.Additions += value
+			}
+			if value, convErr := strconv.Atoi(parts[1]); convErr == nil {
+				commit.Deletions += value
+			}
 		}
 		commit.RequestID = trailerValue(commit.Body, "Request-Id")
 		commit.PlanID = trailerValue(commit.Body, "Plan-Id")
@@ -199,7 +257,7 @@ func CommitDiff(ctx context.Context, root, sha string, limitBytes int) (diff str
 	if err != nil {
 		return "", false, err
 	}
-	output, err := runRaw(ctx, root, "show", "--format=", "--no-color", "--no-ext-diff", sha)
+	output, err := runRaw(ctx, root, "show", "--format=", "--no-color", "--no-ext-diff", "--diff-merges=first-parent", sha)
 	if err != nil {
 		return "", false, fmt.Errorf("read commit diff failed")
 	}

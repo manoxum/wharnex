@@ -3550,6 +3550,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onAnalyzeEvolution={analyzeEvolutionEvidence}
         onError={setError}
         onSession={setSession}
+        onResolveConflictWithGPT={resolveConflictWithGPT}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />
@@ -3647,6 +3648,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onAnalyzeEvolution={analyzeEvolutionEvidence}
         onError={setError}
         onSession={setSession}
+        onResolveConflictWithGPT={resolveConflictWithGPT}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
       />

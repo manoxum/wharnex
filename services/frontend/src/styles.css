@@ -7046,3 +7046,17 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .git-diff-modal { height: calc(100dvh - 16px); border-radius: 9px; }
   .git-commit-detail-meta { grid-template-columns: 1fr; }
 }
+
+/* Git surface: line-level change density, global authorship settings and history lazy-load affordances. */
+.git-line-stats { min-width: 64px; justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.git-line-stats b, .git-line-stats i { font: 700 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); font-style: normal; }
+.git-line-stats b { color: var(--success); }
+.git-line-stats i { color: var(--danger, #d96b6b); }
+.git-settings-field { display: grid; gap: 5px; }
+.git-settings-field > span { color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); font-weight: 700; }
+.git-settings-field select, .git-settings-field input { width: 100%; min-height: 30px; border: 1px solid var(--theme-border); border-radius: 7px; background: var(--theme-bg); color: var(--theme-text); padding: 0 8px; font-size: calc(7.5px * var(--ui-font-scale)); }
+.git-author-custom-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 6px; }
+.git-history-open { min-width: 0; border: 0; padding: 0; text-align: left; background: transparent; color: inherit; cursor: pointer; }
+.git-history-open:hover .git-commit-subject { color: var(--theme-accent); }
+.git-history-sentinel { min-height: 24px; display: grid; place-items: center; color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); }
+@media (max-width: 560px) { .git-author-custom-grid { grid-template-columns: 1fr; } }

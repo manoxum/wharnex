@@ -244,7 +244,7 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			s.bus.Publish(sessionID, "integration.merge_preflight_conflict", map[string]any{"plan_id": planID, "branch": branch, "paths": conflict.Paths})
 			return integrated, preMergeSHA, planID, conflict
 		}
-		merge, mergeErr := sandbox.MergeRepositoryTreeOnHost(ctx, projectPath, branch, requestBaseRef, pending[index].SubmoduleIntegrations)
+		merge, mergeErr := sandbox.MergeRepositoryTreeOnHost(ctx, projectPath, branch, requestBaseRef, pending[index].SubmoduleIntegrations, s.projectCommitIdentity(ctx, projectPath))
 		s.publishHostStatePreservation(sessionID, planID, merge.Preservation)
 		// Preserve() may have committed an operator's dirty tree immediately
 		// before the first merge. That snapshot is the true rollback boundary:

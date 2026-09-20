@@ -2,6 +2,7 @@ package hostrepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -36,6 +37,9 @@ type Branch struct {
 	// both rows, so the UI can render the same outgoing/incoming indicators.
 	Counterpart    string `json:"counterpart,omitempty"`
 	HasCounterpart bool   `json:"has_counterpart"`
+	// UnmergedCommits is populated by MergeCandidates and counts commits that
+	// are reachable from this branch but not from the selected merge target.
+	UnmergedCommits int `json:"unmerged_commits,omitempty"`
 }
 
 // Remote is a configured remote with its URL redacted for display.
@@ -223,6 +227,40 @@ func parseUpstreamTrack(value string) (ahead, behind int, gone bool) {
 		}
 	}
 	return ahead, behind, false
+}
+
+// MergeCandidates returns only branches that contain commits the selected
+// target does not yet have. Both local and remote-tracking refs are eligible,
+// which keeps the UI honest for local merges and isolated remote-target merges.
+func MergeCandidates(ctx context.Context, root, targetRef string) ([]Branch, error) {
+	targetRef = strings.TrimSpace(targetRef)
+	if targetRef == "" || strings.HasPrefix(targetRef, "-") {
+		return nil, errors.New("a merge target branch is required")
+	}
+	if output, err := run(ctx, root, "rev-parse", "--verify", "-q", targetRef+"^{commit}"); err != nil {
+		return nil, fmt.Errorf("unknown merge target %s: %s", targetRef, output)
+	}
+	branches, err := Branches(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]Branch, 0, len(branches))
+	for _, branch := range branches {
+		if branch.Name == targetRef {
+			continue
+		}
+		output, countErr := run(ctx, root, "rev-list", "--count", targetRef+".."+branch.Name)
+		if countErr != nil {
+			continue
+		}
+		count, convErr := strconv.Atoi(strings.TrimSpace(output))
+		if convErr != nil || count <= 0 {
+			continue
+		}
+		branch.UnmergedCommits = count
+		candidates = append(candidates, branch)
+	}
+	return candidates, nil
 }
 
 // Remotes lists configured remotes with credentials stripped from their URLs.

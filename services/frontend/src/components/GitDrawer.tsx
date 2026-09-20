@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { GitBranch, GitCommitMode, GitFileDiff, GitOverview, GitPendingCommit, Session } from '../types'
+import type { GitAuthorSettings, GitBranch, GitCommitDetail, GitCommitMode, GitConflictStrategy, GitFileDiff, GitOverview, GitPendingCommit, Session } from '../types'
 import { api, APIError } from '../lib/api'
 import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
 import { Icon } from './Icon'
@@ -11,12 +11,13 @@ import { GitOperationModal, type GitOperation } from './GitOperationModal'
 type GitTab = 'changes' | 'history' | 'branches' | 'settings'
 type GitChangesTab = 'working' | 'pending'
 
-export function GitDrawer({ session, busy, onClose, onError, onSession }: {
+export function GitDrawer({ session, busy, onClose, onError, onSession, onResolveConflictWithGPT }: {
   session: Session
   busy: boolean
   onClose: () => void
   onError?: (message: string) => void
   onSession?: (session: Session) => void
+  onResolveConflictWithGPT?: (session: Session) => Promise<void>
 }) {
   const [overview, setOverview] = useState<GitOverview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -113,6 +114,19 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
 
   const disabled = busy || working || loading
 
+  async function conflictMessage(conflictID: string | undefined, context: string) {
+    if (!conflictID) return context
+    const strategy = overview?.conflict_strategy || 'user_decide'
+    if (strategy === 'gpt_only') {
+      const updated = await api.delegateConflictToGPT(session.id, [], '')
+      onSession?.(updated)
+      await onResolveConflictWithGPT?.(updated)
+      return `${context} O conflito foi delegado automaticamente ao GPT.`
+    }
+    if (strategy === 'user_only') return `${context} A estratégia deste projeto exige resolução manual pelo utilizador.`
+    return `${context} Escolha no chat se pretende resolver manualmente ou delegar ao GPT.`
+  }
+
   function toggle(id: string) {
     setSelected((currentSelection) => {
       const next = new Set(currentSelection)
@@ -205,7 +219,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
               `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
               async () => {
                 const result = await api.gitPush(session.id, remote, branch, setUpstream)
-                return pushMessage(result.outcome, result.integrated, result.conflict_id)
+                return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
               },
               true,
             )}
@@ -214,13 +228,14 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
               `A enviar ${commitSHAs.length} commit(s) para o upstream da branch atual.`,
               async () => {
                 const result = await api.gitPushSelected(session.id, commitSHAs)
-                return pushMessage(result.outcome, result.integrated, result.conflict_id)
+                return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
               },
             )}
           />}
         </>}
-        {activeTab === 'history' && <HistorySection sessionId={session.id} commits={overview.commits} branches={overview.branches}/>}
+        {activeTab === 'history' && <HistorySection sessionId={session.id} branches={overview.branches}/>}
         {activeTab === 'branches' && <BranchSection
+          sessionId={session.id}
           current={current?.name || overview.current_branch} detached={overview.detached}
           localBranches={localBranches} remoteBranches={remoteBranches} remotes={overview.remotes}
           disabled={disabled} mergeRef={mergeRef} onMergeRefChange={setMergeRef}
@@ -231,10 +246,11 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
             `A integrar ${remoteMergeSources.join(', ')} em ${remoteMergeTarget} sem alterar a branch local.`,
             async () => {
               const result = await api.gitRemoteMerge(session.id, remoteMergeTarget, remoteMergeSources)
-              if (result.outcome === 'conflict') return `Merge remoto encontrou conflito em ${result.conflict_ref}; nenhuma branch local ou remota foi alterada.`
+              if (result.outcome === 'conflict') return conflictMessage(result.conflict_id, `Merge remoto encontrou conflito em ${result.conflict_ref}; nenhuma branch local ou remota foi alterada.`)
               setRemoteMergeSources([])
               return `Merge remoto em ${result.target_ref}: ${result.outcome}${result.push_outcome ? ` · push ${result.push_outcome}` : ''}.`
             },
+            true,
           )}
           onMerge={() => runGitOperation(
             'A integrar branch',
@@ -242,7 +258,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
             async () => {
               const result = await api.gitMerge(session.id, mergeRef)
               setMergeRef('')
-              return result.conflict_id ? `Merge de ${result.ref} entrou em conflito; escolha resolução manual ou GPT no chat.` : `Merge de ${result.ref}: ${result.outcome}.`
+              return result.conflict_id ? conflictMessage(result.conflict_id, `Merge de ${result.ref} entrou em conflito.`) : `Merge de ${result.ref}: ${result.outcome}.`
             },
             true,
           )}
@@ -259,7 +275,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
             `A trazer ${remote}/${branch} para a branch local.`,
             async () => {
               const result = await api.gitPull(session.id, remote, branch)
-              return result.conflict_id ? `Pull de ${result.ref} encontrou conflito; escolha resolução manual ou GPT no chat.` : `Pull de ${result.ref}: ${result.outcome}.`
+              return result.conflict_id ? conflictMessage(result.conflict_id, `Pull de ${result.ref} encontrou conflito.`) : `Pull de ${result.ref}: ${result.outcome}.`
             },
             true,
           )}
@@ -272,15 +288,17 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
             `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
             async () => {
               const result = await api.gitPush(session.id, remote, branch, setUpstream)
-              return pushMessage(result.outcome, result.integrated, result.conflict_id)
+              return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
             },
             true,
           )}
         />}
         {activeTab === 'settings' && <>
-          <RepositorySettings overview={overview} disabled={disabled} onChange={(mode) => run(async () => {
-            await api.setGitCommitMode(session.id, mode)
-          })}/>
+          <RepositorySettings overview={overview} disabled={disabled}
+            onChange={(mode) => run(async () => { await api.setGitCommitMode(session.id, mode) })}
+            onConflictStrategy={(strategy) => run(async () => { await api.setGitConflictStrategy(session.id, strategy) })}
+            onAuthorSettings={(settings) => run(async () => { await api.setGitAuthorSettings(session.id, settings) })}
+          />
           <PendingSection
             pending={pending} selected={selected} disabled={disabled} hasIdentity={overview.has_identity}
             commitMode={overview.commit_mode} onToggle={toggle} onCommitAll={() => void commit([])}
@@ -359,7 +377,7 @@ function WorktreeFiles({ overview, disabled, hasIdentity, selected, message, onM
           </label>
           <span className="git-worktree-file-icon"><Icon name={file.kind === 'unmerged' ? 'alert' : 'file'} size={12}/></span>
           <span className="git-worktree-file-copy"><strong title={file.path}>{file.path}</strong><small>{worktreeKind(file.kind)}</small></span>
-          <button type="button" className="git-file-diff-action" disabled={disabled || !diffable} title={diffable ? 'Ver alterações deste ficheiro' : 'Este tipo de entrada não tem diff inline'} aria-label={`Abrir diff de ${file.path}`} onClick={() => onOpenDiff(file.path)}><Icon name="code" size={11}/><span>Diff</span></button>
+          <button type="button" className="git-file-diff-action git-line-stats" disabled={disabled || !diffable} title={diffable ? 'Ver alterações deste ficheiro' : 'Este tipo de entrada não tem diff inline'} aria-label={`Abrir diff de ${file.path}`} onClick={() => onOpenDiff(file.path)}><b>+{file.additions || 0}</b><i>−{file.deletions || 0}</i></button>
         </li>
       })}</ul>
       {committableCount > 0 && <div className="git-worktree-commit">
@@ -393,9 +411,35 @@ function pushMessage(outcome: string, integrated?: boolean, conflictID?: string)
   }
 }
 
-function RepositorySettings({ overview, disabled, onChange }: { overview: GitOverview; disabled: boolean; onChange: (mode: GitCommitMode) => void }) {
+function RepositorySettings({ overview, disabled, onChange, onConflictStrategy, onAuthorSettings }: {
+  overview: GitOverview; disabled: boolean; onChange: (mode: GitCommitMode) => void
+  onConflictStrategy: (strategy: GitConflictStrategy) => void
+  onAuthorSettings: (settings: GitAuthorSettings) => void
+}) {
+  const authorSettings = overview.author_settings || { commit_author_strategy: 'wharnex_git_user' as const }
+  const [authorStrategy, setAuthorStrategy] = useState(authorSettings.commit_author_strategy)
+  const [customName, setCustomName] = useState(authorSettings.custom_author_name || '')
+  const [customEmail, setCustomEmail] = useState(authorSettings.custom_author_email || '')
+  useEffect(() => {
+    setAuthorStrategy(authorSettings.commit_author_strategy)
+    setCustomName(authorSettings.custom_author_name || '')
+    setCustomEmail(authorSettings.custom_author_email || '')
+  }, [authorSettings.commit_author_strategy, authorSettings.custom_author_name, authorSettings.custom_author_email])
+  const needsCustom = authorStrategy === 'custom' || authorStrategy === 'wharnex_custom'
   return <div className="git-settings-stack">
     <CommitModeSection overview={overview} disabled={disabled} onChange={onChange}/>
+    <section className="git-section">
+      <div className="git-section-heading"><div><span>Conflitos</span><strong>Estratégia de resolução</strong></div></div>
+      <label className="git-settings-field"><span>Quando o Git não consegue fazer merge sozinho</span><select aria-label="Estratégia de resolução de conflitos" value={overview.conflict_strategy || 'user_decide'} disabled={disabled} onChange={(event) => onConflictStrategy(event.target.value as GitConflictStrategy)}><option value="gpt_only">GPT only</option><option value="user_only">User only</option><option value="user_decide">User decide</option></select></label>
+      <p className="git-hint">GPT only delega automaticamente; User only bloqueia delegação ao GPT; User decide mantém a escolha caso a caso.</p>
+    </section>
+    <section className="git-section">
+      <div className="git-section-heading"><div><span>Global</span><strong>Autoria dos commits automáticos</strong></div></div>
+      <label className="git-settings-field"><span>Identidade</span><select aria-label="Estratégia de autoria de commit" value={authorStrategy} disabled={disabled} onChange={(event) => setAuthorStrategy(event.target.value as GitAuthorSettings['commit_author_strategy'])}><option value="wharnex_git_user">WHX + utilizador Git (padrão)</option><option value="wharnex">Wharnex</option><option value="git_user">Utilizador Git autenticado</option><option value="custom">Utilizador específico</option><option value="wharnex_custom">WHX + utilizador específico</option></select></label>
+      {needsCustom && <div className="git-author-custom-grid"><label><span>Nome</span><input value={customName} disabled={disabled} onChange={(event) => setCustomName(event.target.value)} placeholder="Nome do autor"/></label><label><span>Email</span><input type="email" value={customEmail} disabled={disabled} onChange={(event) => setCustomEmail(event.target.value)} placeholder="autor@example.com"/></label></div>}
+      <div className="git-row"><button type="button" className="git-action primary" disabled={disabled || (needsCustom && (!customName.trim() || !customEmail.trim()))} onClick={() => onAuthorSettings({ commit_author_strategy: authorStrategy, custom_author_name: customName.trim() || undefined, custom_author_email: customEmail.trim() || undefined })}><Icon name="check" size={13}/> Guardar autoria</button></div>
+      <p className="git-hint">A configuração é global. A combinação padrão produz autores como <code>WHX - Nome &lt;email&gt;</code> quando o Git tem user.name/user.email.</p>
+    </section>
     <section className="git-section git-remotes-section">
       <div className="git-section-heading"><div><span>Remotos</span><strong>Destinos configurados</strong></div><span className="git-section-count">{overview.remotes.length}</span></div>
       {overview.remotes.length === 0 ? <p className="git-empty inline">Nenhum remoto configurado.</p> : <ul className="git-remote-list">
@@ -418,8 +462,8 @@ function CommitModeSection({ overview, disabled, onChange }: { overview: GitOver
   </section>
 }
 
-function BranchSection({ current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onPush }: {
-  current?: string; detached: boolean; localBranches: GitOverview['branches']; remoteBranches: GitOverview['branches']; remotes: GitOverview['remotes']
+function BranchSection({ sessionId, current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onPush }: {
+  sessionId: string; current?: string; detached: boolean; localBranches: GitOverview['branches']; remoteBranches: GitOverview['branches']; remotes: GitOverview['remotes']
   disabled: boolean; mergeRef: string; onMergeRefChange: (value: string) => void; onMerge: () => void
   remoteMergeTarget: string; remoteMergeSources: string[]; onRemoteMergeTargetChange: (value: string) => void; onRemoteMergeSourcesChange: (values: string[]) => void; onRemoteMerge: () => void
   onFetch: (remote: string) => void; onPull: (remote: string, branch: string) => void; onSwitch: (branch: string) => void
@@ -429,7 +473,25 @@ function BranchSection({ current, detached, localBranches, remoteBranches, remot
   const upstreamRemote = active?.upstream?.split('/')[0]
   const defaultRemote = upstreamRemote || remotes[0]?.name || 'origin'
   const canSync = Boolean(current) && !detached && remotes.length > 0
-  const remoteMergeOptions = remoteBranches.filter((branch) => branch.name !== remoteMergeTarget)
+  const [localMergeOptions, setLocalMergeOptions] = useState<GitBranch[]>([])
+  const [remoteMergeOptions, setRemoteMergeOptions] = useState<GitBranch[]>([])
+  useEffect(() => {
+    let alive = true
+    if (!current || detached) { setLocalMergeOptions([]); return () => { alive = false } }
+    api.gitMergeCandidates(sessionId, current).then((items) => { if (alive) setLocalMergeOptions(items) }).catch(() => { if (alive) setLocalMergeOptions([]) })
+    return () => { alive = false }
+  }, [sessionId, current, detached, localBranches, remoteBranches])
+  useEffect(() => {
+    let alive = true
+    if (!remoteMergeTarget) { setRemoteMergeOptions([]); return () => { alive = false } }
+    api.gitMergeCandidates(sessionId, remoteMergeTarget).then((items) => {
+      if (!alive) return
+      setRemoteMergeOptions(items)
+      const eligible = new Set(items.map((item) => item.name))
+      onRemoteMergeSourcesChange(remoteMergeSources.filter((ref) => eligible.has(ref)))
+    }).catch(() => { if (alive) setRemoteMergeOptions([]) })
+    return () => { alive = false }
+  }, [sessionId, remoteMergeTarget, localBranches, remoteBranches])
   const toggleRemoteMergeSource = (ref: string) => onRemoteMergeSourcesChange(remoteMergeSources.includes(ref) ? remoteMergeSources.filter((value) => value !== ref) : [...remoteMergeSources, ref])
   return <section className="git-section git-branches-section">
     <div className="git-branch-overview">
@@ -471,7 +533,7 @@ function BranchSection({ current, detached, localBranches, remoteBranches, remot
           <label className="sr-only" htmlFor="git-merge-ref">Branch a fazer merge</label>
           <select id="git-merge-ref" value={mergeRef} disabled={disabled} onChange={(event) => onMergeRefChange(event.target.value)}>
             <option value="">Escolher branch a integrar…</option>
-            {[...localBranches.filter((branch) => !branch.current), ...remoteBranches].map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
+            {localMergeOptions.map((branch) => <option key={branch.name} value={branch.name}>{branch.name} · {branch.unmerged_commits || 0} commit(s)</option>)}
           </select>
           <button type="button" className="git-action" disabled={disabled || !mergeRef} onClick={onMerge}><Icon name="bridge" size={13}/> Merge</button>
         </div>
@@ -486,13 +548,13 @@ function BranchSection({ current, detached, localBranches, remoteBranches, remot
           <fieldset className="git-remote-source-picker" disabled={disabled || !remoteMergeTarget}>
             <legend>Branches a integrar</legend>
             {!remoteMergeTarget && <p>Escolha primeiro a branch de destino.</p>}
-            {remoteMergeTarget && remoteMergeOptions.length === 0 && <p>Não existem outras branches remotas disponíveis.</p>}
+            {remoteMergeTarget && remoteMergeOptions.length === 0 && <p>Não existem branches locais ou remotas com alterações por integrar.</p>}
             {remoteMergeTarget && remoteMergeOptions.length > 0 && <div className="git-remote-source-list">{remoteMergeOptions.map((branch) => {
               const selected = remoteMergeSources.includes(branch.name)
               return <label key={branch.name} className={`git-remote-source-option ${selected ? 'selected' : ''}`}>
                 <input type="checkbox" checked={selected} onChange={() => toggleRemoteMergeSource(branch.name)} aria-label={`Integrar ${branch.name}`}/>
                 <span className="git-remote-source-check"><Icon name={selected ? 'check' : 'git'} size={11}/></span>
-                <span title={branch.name}>{branch.name}</span>
+                <span title={branch.name}>{branch.name} <small>{branch.remote ? `· remoto · ${branch.unmerged_commits || 0}` : `· local · ${branch.unmerged_commits || 0}`}</small></span>
               </label>
             })}</div>}
           </fieldset>
@@ -569,60 +631,79 @@ function PendingSection({ pending, selected, disabled, hasIdentity, commitMode, 
   </section>
 }
 
-function HistorySection({ sessionId, commits, branches }: { sessionId: string; commits: GitOverview['commits']; branches: GitOverview['branches'] }) {
+function HistorySection({ sessionId, branches }: { sessionId: string; branches: GitOverview['branches'] }) {
   const [mode, setMode] = useState<'current' | 'selected' | 'all'>('current')
   const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set())
-  const [history, setHistory] = useState(commits)
+  const [history, setHistory] = useState<GitOverview['commits']>([])
+  const [offset, setOffset] = useState(0)
+  const [hasMore, setHasMore] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [detail, setDetail] = useState<GitCommitDetail | null>(null)
+  const sentinel = useRef<HTMLDivElement>(null)
+  const refsKey = Array.from(selectedRefs).sort().join('\u0000')
+
+  const loadPage = useCallback(async (reset: boolean) => {
+    if (loading || (!reset && !hasMore)) return
+    setLoading(true); setError('')
+    try {
+      const next = await api.gitHistoryPage(sessionId, mode === 'selected' ? Array.from(selectedRefs) : [], mode === 'all', reset ? 0 : offset, 50)
+      setHistory((current) => reset ? next.commits : [...current, ...next.commits])
+      setOffset(next.next_offset); setHasMore(next.has_more)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally { setLoading(false) }
+  }, [sessionId, mode, refsKey, offset, hasMore, loading])
 
   useEffect(() => {
-    if (mode === 'current') {
-      setHistory(commits)
-      return
-    }
-    let alive = true
-    setLoading(true); setError('')
-    api.gitHistory(sessionId, mode === 'selected' ? Array.from(selectedRefs) : [], mode === 'all')
-      .then((next) => { if (alive) setHistory(next) })
-      .catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : String(cause)) })
-      .finally(() => { if (alive) setLoading(false) })
-    return () => { alive = false }
-  }, [sessionId, commits, mode, selectedRefs])
+    setHistory([]); setOffset(0); setHasMore(true); setDetail(null); setLoading(true)
+    void api.gitHistoryPage(sessionId, mode === 'selected' ? Array.from(selectedRefs) : [], mode === 'all', 0, 50)
+      .then((next) => { setHistory(next.commits); setOffset(next.next_offset); setHasMore(next.has_more); setError('') })
+      .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setLoading(false))
+  }, [sessionId, mode, refsKey])
 
-  function selectRefs(values: string[]) {
-    setSelectedRefs(new Set(values))
-    setMode('selected')
-  }
+  useEffect(() => {
+    const node = sentinel.current
+    if (!node || !hasMore || history.length === 0 || loading) return
+    const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) void loadPage(false) }, { rootMargin: '180px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [hasMore, history.length, loading, loadPage])
+
+  function selectRefs(values: string[]) { setSelectedRefs(new Set(values)); setMode('selected') }
+  async function openCommit(sha: string) { try { setDetail(await api.gitHistoryCommit(sessionId, sha)) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } }
 
   const rows = buildGitGraphRows(history)
   const refsBySHA = new Map<string, GitBranch[]>()
   for (const branch of branches) refsBySHA.set(branch.commit_sha, [...(refsBySHA.get(branch.commit_sha) || []), branch])
   return <section className="git-section git-history-section">
-    <div className="git-section-heading"><div><span>Timeline</span><strong>Histórico de commits</strong></div><span className="git-section-count">{history.length}</span></div>
+    <div className="git-section-heading"><div><span>Timeline</span><strong>Histórico de commits</strong></div><span className="git-section-count">{history.length}{hasMore ? '+' : ''}</span></div>
     <div className="git-history-scope" role="group" aria-label="Âmbito do histórico">
       <button type="button" className={mode === 'current' ? 'active' : ''} onClick={() => setMode('current')}>Branch atual</button>
       <button type="button" className={mode === 'selected' ? 'active' : ''} onClick={() => setMode('selected')}>Selecionadas {selectedRefs.size ? `(${selectedRefs.size})` : ''}</button>
       <button type="button" className={mode === 'all' ? 'active' : ''} onClick={() => setMode('all')}>Todas</button>
     </div>
-    <label className="git-history-branch-picker">
-      <span>Branches específicas <small>{selectedRefs.size ? `${selectedRefs.size} selecionada(s)` : 'Selecione uma ou mais'}</small></span>
-      <select multiple value={Array.from(selectedRefs)} aria-label="Branches do histórico" onChange={(event) => selectRefs(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}>
-        {branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.current ? ' · atual' : ''}</option>)}
-      </select>
-    </label>
-    {loading && <p className="git-empty inline">A carregar timeline…</p>}
+    <label className="git-history-branch-picker"><span>Branches específicas <small>{selectedRefs.size ? `${selectedRefs.size} selecionada(s)` : 'Selecione uma ou mais'}</small></span><select multiple value={Array.from(selectedRefs)} aria-label="Branches do histórico" onChange={(event) => selectRefs(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}>{branches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.current ? ' · atual' : ''}</option>)}</select></label>
     {error && <p className="git-notice warning-card">{error}</p>}
     {!loading && history.length === 0 && <p className="git-empty inline">Sem commits para o âmbito selecionado.</p>}
     <ul className="git-commit-list">{rows.map((row) => <li key={row.commit.sha} className="git-history-row">
       <CommitGraph row={row}/>
-      <div className="git-history-copy">
+      <button type="button" className="git-history-copy git-history-open" onClick={() => void openCommit(row.commit.sha)}>
         <div className="git-history-subject-line"><span className="git-commit-subject">{row.commit.subject}</span>{(refsBySHA.get(row.commit.sha) || []).slice(0, 3).map((branch) => <span key={branch.name} className={`git-ref-badge ${branch.current ? 'current' : ''}`}>{branch.current && <Icon name="git" size={10}/>} {branch.name}</span>)}</div>
         <div className="git-history-details"><span>{row.commit.author_name}</span><time dateTime={row.commit.committed_at}>{formatCommitDate(row.commit.committed_at)}</time></div>
-      </div>
+      </button>
+      <button type="button" className="git-file-diff-action git-line-stats" aria-label={`Abrir diff do commit ${row.commit.short_sha}`} onClick={() => void openCommit(row.commit.sha)}><b>+{row.commit.additions || 0}</b><i>−{row.commit.deletions || 0}</i></button>
       <span className="git-commit-meta"><code>{row.commit.short_sha}</code>{row.commit.wharnex && <span className="git-commit-tag" title="Originado por uma alteração do Wharnex">WHX</span>}{row.commit.merge && <span className="git-commit-tag">merge</span>}{!row.commit.pushed && <span className="git-commit-tag local">local</span>}</span>
     </li>)}</ul>
+    <div ref={sentinel} className="git-history-sentinel" aria-hidden="true">{loading ? 'A carregar mais…' : hasMore ? '' : history.length ? 'Fim do histórico' : ''}</div>
+    {detail && <HistoryCommitDetailModal sessionId={sessionId} detail={detail} onClose={() => setDetail(null)}/>}
   </section>
+}
+
+function HistoryCommitDetailModal({ sessionId, detail, onClose }: { sessionId: string; detail: GitCommitDetail; onClose: () => void }) {
+  const commit = detail.commit
+  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}><div className="git-diff-modal git-commit-detail-modal" role="dialog" aria-modal="true" aria-label={`Commit ${commit.short_sha}`} onMouseDown={(event) => event.stopPropagation()}><header><div><span className="panel-kicker">Histórico Git</span><strong>{commit.subject}</strong><small>+{commit.additions || 0} −{commit.deletions || 0} · {commit.files_changed || 0} ficheiro(s)</small></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button></header><GitDiffReview sessionId={sessionId} diff={detail.diff} emptyText="Este commit não contém alterações de ficheiros."/>{detail.diff_truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}</div></div>, document.body)
 }
 
 function CommitGraph({ row }: { row: GitGraphRow }) {
