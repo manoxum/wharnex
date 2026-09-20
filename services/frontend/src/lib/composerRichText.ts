@@ -9,11 +9,11 @@
 // string whenever it changes from outside the editor, and reduced back to that
 // same string on every edit. Nothing downstream of `message` in ChatPanel needs
 // to know a rich editor is involved at all — draft persistence, submission and
-// the summary strip all keep reading and writing plain canonical text exactly
-// as before.
+// the reference-thumbnail projection all keep reading plain canonical text;
+// only that text remains persisted and submitted.
 
 import type ReactQuill from 'react-quill-new'
-import { canonicalDirective, directiveSegments, type ComposerDirective, type DirectiveKind } from './composerDirectives'
+import { canonicalDirective, directiveSegments, isCanonicalDirective, type ComposerDirective, type DirectiveKind } from './composerDirectives'
 
 type QuillEditor = ReturnType<ReactQuill['getEditor']>
 
@@ -65,9 +65,9 @@ export function directivesToDelta(text: string): Delta {
   const ops: DeltaOp[] = []
   for (const segment of segments) {
     // A typed-form directive (`@file:path`, not yet `@{[file]path}`) is left
-    // as plain, editable text — see isCanonicalMarker. Only a canonical
+    // as plain, editable text — see isCanonicalDirective. Only a canonical
     // marker becomes an embed here.
-    if (segment.directive && isCanonicalMarker(text, segment.directive)) ops.push({ insert: { 'directive-chip': toChipValue(segment.directive) } })
+    if (segment.directive && isCanonicalDirective(text, segment.directive)) ops.push({ insert: { 'directive-chip': toChipValue(segment.directive) } })
     else if (segment.text) ops.push({ insert: segment.text })
   }
   ops.push({ insert: '\n' })
@@ -76,27 +76,6 @@ export function directivesToDelta(text: string): Delta {
 
 function toChipValue(directive: ComposerDirective): DirectiveChipValue {
   return { kind: directive.kind, value: directive.value, project: directive.project, path: directive.path, rules: directive.rules }
-}
-
-/**
- * Whether a parsed directive is already written in its canonical `@{[kind]…}`
- * form, as opposed to a typed form like `@file:path`.
- *
- * This distinction is what the index-mapping functions below actually need,
- * not "is this text a directive" in general. `directiveSegments` recognizes
- * both spellings — that is correct for parsing and for the summary strip —
- * but only a canonical marker is guaranteed to correspond to a real Quill
- * embed: a canonical marker only ever reaches the text either by being typed
- * out by hand (rare, and still a deliberate one-shot canonical string) or by
- * being written by this editor's own `deltaToCanonicalText`, which writes
- * canonical form for every embed it walks and nothing else. A typed form like
- * `@file:App` is recognized as a directive the instant a value follows the
- * colon, which is normal mid-composition — the operator is still typing
- * towards a menu selection — and at that point it is genuinely N ordinary
- * characters in the live Quill document, not yet a 1-index embed.
- */
-function isCanonicalMarker(text: string, directive: Pick<ComposerDirective, 'start' | 'end'>) {
-  return text.startsWith('@{[', directive.start)
 }
 
 /**
@@ -125,7 +104,7 @@ export function textOffsetToQuillIndex(text: string, offset: number): number {
   let textCursor = 0
   let quillCursor = 0
   for (const segment of segments) {
-    const embedded = Boolean(segment.directive) && isCanonicalMarker(text, segment.directive!)
+    const embedded = Boolean(segment.directive) && isCanonicalDirective(text, segment.directive!)
     const length = segment.text.length
     if (offset <= textCursor + length) {
       // A click that lands inside an embedded directive's own marker resolves
@@ -148,7 +127,7 @@ export function quillIndexToTextOffset(text: string, index: number): number {
   let textCursor = 0
   let quillCursor = 0
   for (const segment of segments) {
-    const embedded = Boolean(segment.directive) && isCanonicalMarker(text, segment.directive!)
+    const embedded = Boolean(segment.directive) && isCanonicalDirective(text, segment.directive!)
     const length = segment.text.length
     const span = embedded ? 1 : length
     if (index <= quillCursor + span) {
@@ -168,5 +147,8 @@ export function directiveChipBadge(kind: DirectiveKind): string {
   if (kind === 'file') return 'FILE'
   if (kind === 'ref') return 'REF'
   if (kind === 'attach') return 'EXT'
-  return 'SEE'
+  if (kind === 'see') return 'SEE'
+  if (kind === 'chat') return 'CHAT'
+  if (kind === 'lib') return 'LIB'
+  return 'TODO'
 }

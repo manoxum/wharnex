@@ -1016,18 +1016,39 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
-  // The canonical marker is represented only where it occurs in the prompt;
-  // there is no second summary row competing with the editing surface.
-  it('renders a completed directive only as the rich chip in the text', () => {
+  // Completed canonical references get a secondary thumbnail above the editor,
+  // while a typed autocomplete fragment remains only editable text until a
+  // concrete reference is selected.
+  it('projects completed directives to distinct thumbnails without promoting incomplete queries', () => {
     const ref = panelRef()
     const view = render(
       <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="summary-test" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
+    const references = 'usa @{[file]src/App.tsx} @{[ref]flowcore} @{[attach]/srv/contracts} @{[see]upload|mock.png} @{[chat]artifact|artifact-1} @{[lib]session|ses-a|artifact-b} @{[todo]todo_1}'
+    typeInComposer(ref, references, references.length)
+    for (const kind of ['file', 'ref', 'attach', 'see', 'chat', 'lib', 'todo']) expect(view.container.querySelector(`.composer-reference-thumbnail.${kind}`)).toBeTruthy()
+    expect(view.container.querySelector('.composer-directive-chip.file')).toBeTruthy()
+
+    typeInComposer(ref, 'Revê @file:App', 14)
+    expect(view.container.querySelector('.composer-reference-thumbnail.file')).toBeNull()
+    view.unmount()
+  })
+
+  it('opens a dedicated project-file viewer from a reference thumbnail', () => {
+    const referencedSession = {
+      ...session,
+      context: { ...session.context, manifest: { ...session.context.manifest, files: [{ path: 'src/App.tsx', size: 10, sha256: 'abc' }] } },
+    }
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={referencedSession} items={[]} chats={[]} activeChatId="thumbnail-viewer-test" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
     typeInComposer(ref, 'Revê @{[file]src/App.tsx} agora', 30)
-    const chip = view.container.querySelector('.composer-directive-chip.file')
-    expect(chip).toBeTruthy()
-    expect(chip?.textContent).not.toContain('@{[file]')
-    expect(view.container.querySelector('.composer-directive-summary')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Visualizar referência @file App.tsx' }))
+    expect(document.querySelector('.composer-reference-viewer.file')).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: 'Visualizar referência @file App.tsx' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar visualização da referência' }))
+    expect(document.querySelector('.composer-reference-viewer.file')).toBeNull()
     view.unmount()
   })
 
