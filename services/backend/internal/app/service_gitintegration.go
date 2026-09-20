@@ -216,6 +216,9 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			continue
 		}
 		planID := pending[index].Plan.PlanID
+		// A missing anchor is intentionally harmless: BaseContinuationPaths
+		// degrades to the ordinary merge path when the ref cannot be read.
+		requestBaseRef := sandbox.RequestBaseRef(pending[index].Plan.RequestID)
 		s.bus.Publish(sessionID, "integration.merge_started", map[string]any{"plan_id": planID, "branch": branch})
 		// Ask Git whether this merge can succeed before letting it touch the
 		// host at all. A doomed merge would otherwise still commit the host's
@@ -230,7 +233,7 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 		// reconciles locally. Counting it as an ordinary conflict
 		// would abort a legitimate integration and hand a planner a commit id to
 		// patch, which the validator rejects on arrival every round.
-		conflict, preflightErr := sandbox.PreflightMergeIntoHostExcept(ctx, projectPath, branch, submoduleIntegrationPaths(pending[index].SubmoduleIntegrations))
+		conflict, preflightErr := sandbox.PreflightMergeIntoHostExcept(ctx, projectPath, branch, requestBaseRef, submoduleIntegrationPaths(pending[index].SubmoduleIntegrations))
 		if preflightErr != nil {
 			// The preflight is advisory, so its failure never blocks a merge —
 			// but it is no longer allowed to be silent. It failing means the
@@ -241,7 +244,7 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 			s.bus.Publish(sessionID, "integration.merge_preflight_conflict", map[string]any{"plan_id": planID, "branch": branch, "paths": conflict.Paths})
 			return integrated, preMergeSHA, planID, conflict
 		}
-		merge, mergeErr := sandbox.MergeRepositoryTreeOnHost(ctx, projectPath, branch, pending[index].SubmoduleIntegrations)
+		merge, mergeErr := sandbox.MergeRepositoryTreeOnHost(ctx, projectPath, branch, requestBaseRef, pending[index].SubmoduleIntegrations)
 		s.publishHostStatePreservation(sessionID, planID, merge.Preservation)
 		// Preserve() may have committed an operator's dirty tree immediately
 		// before the first merge. That snapshot is the true rollback boundary:

@@ -165,7 +165,7 @@ func captureWorkingTreeCommit(ctx context.Context, repoPath, message string, exc
 // on planner-resolvable paths never reaches the host and never leaves a
 // pre-merge snapshot commit behind for nothing.
 func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*MergeConflictError, error) {
-	return PreflightMergeIntoHostExcept(ctx, hostPath, branch, nil)
+	return PreflightMergeIntoHostExcept(ctx, hostPath, branch, "", nil)
 }
 
 // PreflightMergeIntoHostExcept is PreflightMergeIntoHost with the gitlinks of
@@ -180,7 +180,7 @@ func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*Merg
 // selecting the proven descendant gitlink locally. Counting it as an ordinary
 // conflict would abort a legitimate integration and hand a planner a commit id
 // to patch (adr/ADR-0039).
-func PreflightMergeIntoHostExcept(ctx context.Context, hostPath, branch string, integratingUnits []string) (*MergeConflictError, error) {
+func PreflightMergeIntoHostExcept(ctx context.Context, hostPath, branch, requestBaseRef string, integratingUnits []string) (*MergeConflictError, error) {
 	comparison, err := CaptureWorkingTreeCommit(ctx, hostPath, "Wharnex merge preflight")
 	if err != nil {
 		return nil, err
@@ -191,6 +191,10 @@ func PreflightMergeIntoHostExcept(ctx context.Context, hostPath, branch string, 
 	}
 	_, ordinary := partitionManagedMergePaths(preflight.ConflictPaths)
 	ordinary = withoutIntegratingUnits(ordinary, integratingUnits)
+	// A path the candidate's own request base already holds exactly as the host
+	// holds it now has not diverged — the real merge reconciles it locally, so
+	// reporting it here would abort an integration that can actually succeed.
+	ordinary = withoutPaths(ordinary, BaseContinuationPaths(ctx, hostPath, requestBaseRef, comparison, ordinary))
 	if len(ordinary) == 0 {
 		return nil, nil
 	}

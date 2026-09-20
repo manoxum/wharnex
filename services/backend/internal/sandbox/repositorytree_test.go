@@ -42,7 +42,7 @@ func TestRepositoryTreeVersionsSubmoduleAndRollsBackAtomically(t *testing.T) {
 	}
 
 	childBefore := mustGit(t, filepath.Join(host, "services", "admin"), "rev-parse", "HEAD")
-	rootMerge, err := MergeRepositoryTreeOnHost(context.Background(), host, branch, integrations)
+	rootMerge, err := MergeRepositoryTreeOnHost(context.Background(), host, branch, "", integrations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestRepositoryTreeApplyIsIdempotentAfterNestedCommitAlreadyMerged(t *testin
 	if err := ValidateRepositoryIntegrations(context.Background(), host, integrations); err != nil {
 		t.Fatalf("validate partially applied candidate: %v", err)
 	}
-	merge, err := MergeRepositoryTreeOnHost(context.Background(), host, branch, integrations)
+	merge, err := MergeRepositoryTreeOnHost(context.Background(), host, branch, "", integrations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestRepositoryTreeSupportsNestedSubmodules(t *testing.T) {
 	if len(integrations) != 2 || integrations[0].Path != "modules/child" || integrations[1].Path != "modules/child/modules/leaf" {
 		t.Fatalf("nested repository candidates = %+v", integrations)
 	}
-	merge, err := MergeRepositoryTreeOnHost(context.Background(), root, branch, integrations)
+	merge, err := MergeRepositoryTreeOnHost(context.Background(), root, branch, "", integrations)
 	if err != nil {
 		t.Fatal(err)
 	}

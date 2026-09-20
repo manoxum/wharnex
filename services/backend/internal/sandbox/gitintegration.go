@@ -229,10 +229,10 @@ type HostMerge struct {
 // work. Afterwards it realigns the submodule checkouts the merge moved, which
 // Git itself leaves stale.
 func MergeBranchOnHost(ctx context.Context, hostPath, branch string) (HostMerge, error) {
-	return mergeBranchOnHost(ctx, hostPath, branch, nil, nil)
+	return mergeBranchOnHost(ctx, hostPath, branch, "", nil, nil)
 }
 
-func mergeBranchOnHost(ctx context.Context, hostPath, branch string, gitlinkResolutions map[string]string, sync func([]hostrepo.Submodule) hostrepo.SyncResult) (HostMerge, error) {
+func mergeBranchOnHost(ctx context.Context, hostPath, branch, requestBaseRef string, gitlinkResolutions map[string]string, sync func([]hostrepo.Submodule) hostrepo.SyncResult) (HostMerge, error) {
 	topology, err := hostrepo.Inspect(ctx, hostPath)
 	if err != nil {
 		return HostMerge{}, err
@@ -265,13 +265,21 @@ func mergeBranchOnHost(ctx context.Context, hostPath, branch string, gitlinkReso
 		if conflictErr == nil && strings.TrimSpace(conflicted) != "" {
 			paths := strings.Fields(conflicted)
 			local, ordinary := partitionLocallyResolvedMergePaths(paths, gitlinkResolutions)
-			if len(local) > 0 && len(ordinary) == 0 {
-				if preserveErr := resolveLocalMergeConflicts(ctx, hostPath, topology, result.PreMergeSHA, local, gitlinkResolutions); preserveErr == nil {
+			// A path whose conflict is only this candidate's own request base and
+			// the host's pre-merge snapshot recording the operator's same
+			// uncommitted bytes twice has not diverged: the candidate was
+			// authored from what the host holds now. Take the candidate's side
+			// so the merge can finish, instead of sending a resolver a collision
+			// that regenerates itself on every attempt.
+			continuations := BaseContinuationPaths(ctx, hostPath, requestBaseRef, result.PreMergeSHA, ordinary)
+			ordinary = withoutPaths(ordinary, continuations)
+			if len(ordinary) == 0 && (len(local) > 0 || len(continuations) > 0) {
+				if reconcileErr := reconcileMergeLocally(ctx, hostPath, topology, branch, result.PreMergeSHA, local, continuations, gitlinkResolutions); reconcileErr == nil {
 					result.SubmoduleSync = runSubmoduleSync(ctx, hostPath, preMerge.Submodules, sync)
 					return result, nil
 				} else {
 					_, _ = runGit(ctx, hostPath, "merge", "--abort")
-					return result, preserveErr
+					return result, reconcileErr
 				}
 			}
 			_, _ = runGit(ctx, hostPath, "merge", "--abort")
