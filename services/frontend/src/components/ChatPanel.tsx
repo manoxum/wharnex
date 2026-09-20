@@ -6,7 +6,7 @@ import { Icon } from './Icon'
 import { ChatItemBoundary } from './ChatItemBoundary'
 import { StatusPill } from './StatusPill'
 import { stateLabel } from '../lib/risk'
-import { addChatAttachments, encodeChatAttachments, uniquifyPastedChatFiles } from '../lib/chatAttachments'
+import { addChatAttachments, encodeChatAttachments, pastedTextChatFile, uniquifyPastedChatFiles } from '../lib/chatAttachments'
 import { MessageAttachmentCard, ComposerAttachmentChip } from './ChatAttachmentCard'
 import { MarkdownContent } from './MarkdownContent'
 import {
@@ -30,7 +30,7 @@ import { ComposerDirectiveConfigPopover, type DirectivePopoverAnchor } from './C
 import { ComposerRichEditor, type CaretRequest, type ComposerRichEditorHandle } from './ComposerRichEditor'
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel'
 import { ComposerDirectiveMenuLayer } from './ComposerDirectiveMenuLayer'
-import { ComposerReferenceThumbnail, ComposerTransportThumbnail } from './ComposerReferenceThumbnail'
+import { ComposerReferenceThumbnail } from './ComposerReferenceThumbnail'
 import { desktopBridge } from '../lib/desktop'
 import { api } from '../lib/api'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
@@ -42,6 +42,7 @@ import { plannerDeclaredNonRetryable, promptGPTRepairDetail } from '../lib/plann
 import { activePendingRequestId } from '../lib/pendingRequest'
 import { ARTIFACT_INDEX_EVENT, artifactIndexMarker, type ArtifactIndexRequest } from '../lib/artifactIndexing'
 import { projectTodoPrePlanAttachment, storedAttachmentFile } from '../lib/projectTodoForwarding'
+import { loadUIPreferences } from '../lib/uiPreferences'
 
 const COMPOSER_MIN_HEIGHT = 118
 const COMPOSER_MAX_HEIGHT = 420
@@ -344,7 +345,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     return () => { alive = false }
   }, [session.id])
   const attachmentNames = useMemo(() => attachments.map((file) => file.name), [attachments])
-  const chatFileCandidates = useMemo(() => chatFiles.map((file) => ({ value: file.direct ? `artifact|${file.artifact_id}` : `entry|${file.artifact_id}|${file.path || ''}`, label: file.name, detail: file.source === 'attachment' ? 'Anexo enviado' : file.source === 'returned' ? 'Ficheiro devolvido' : file.direction })), [chatFiles])
+  const promptIndexByRequest = useMemo(() => {
+    const index = new Map<string, number>()
+    let prompt = 0
+    for (const item of items) {
+      if (item.role !== 'user') continue
+      prompt += 1
+      if (item.iteration?.requestId) index.set(item.iteration.requestId, prompt)
+    }
+    return index
+  }, [items])
+  const chatFileCandidates = useMemo(() => chatFiles.map((file) => {
+    const promptIndex = file.request_id ? promptIndexByRequest.get(file.request_id) : undefined
+    const promptPrefix = promptIndex ? `Prompt ${String(promptIndex).padStart(2, '0')} · ` : ''
+    return {
+      value: file.direct ? `artifact|${file.artifact_id}` : `entry|${file.artifact_id}|${file.path || ''}`,
+      label: `${promptPrefix}${file.name}`,
+      detail: file.source === 'attachment' ? 'Anexo enviado' : file.source === 'returned' ? 'Ficheiro devolvido' : file.direction,
+    }
+  }), [chatFiles, promptIndexByRequest])
   const libraryFileCandidates = useMemo(() => libraryArtifacts.map((item) => ({ value: `session|${item.session_id}|${item.artifact.id}`, label: item.artifact.name, detail: `${item.project_path} · ${item.artifact.kind}` })), [libraryArtifacts])
   const todoCandidates = useMemo(() => projectTodos.filter((todo) => todo.status === 'open').map((todo) => ({ value: todo.id, label: todo.body.slice(0, 90), detail: todo.execution_status === 'processing' ? 'Em execução' : todo.id })), [projectTodos])
   const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, eligibleProjectFiles, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates) : [], [eligibleProjectFiles, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates])
@@ -359,7 +378,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const parsedDirectives = useMemo(() => parseDirectives(message), [message])
   // Miniatures are a projection only of completed canonical markers. Typed
   // autocomplete fragments stay plain text until a concrete reference is chosen.
-  const canonicalReferenceDirectives = useMemo(() => parsedDirectives.filter((directive) => isCanonicalDirective(message, directive)), [message, parsedDirectives])
+  const canonicalReferenceDirectives = useMemo(() => {
+    const seen = new Set<string>()
+    return parsedDirectives.filter((directive) => isCanonicalDirective(message, directive)).filter((directive) => {
+      const key = canonicalDirective(directive)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [message, parsedDirectives])
+  const nextPromptIndex = useMemo(() => items.filter((item) => item.role === 'user').length + 1, [items])
   const attachedPaths = useMemo(() => parsedDirectives.filter((directive) => directive.kind === 'attach'), [parsedDirectives])
   const attachmentDirectiveKey = useMemo(() => attachedPaths.map(canonicalDirective).join(' '), [attachedPaths])
   useEffect(() => {
@@ -666,7 +694,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       setAttachmentError('Colar ficheiros requer o Wharnex Desktop com o planner manual.')
       return
     }
-    addFiles(uniquifyPastedChatFiles(attachments, files))
+    addFiles(uniquifyPastedChatFiles(attachments, files, nextPromptIndex))
+  }
+
+  function pasteText(text: string) {
+    if (!attachmentsEnabled) return false
+    if (text.length < loadUIPreferences().largePasteThresholdChars) return false
+    addFiles([pastedTextChatFile(attachments, text, nextPromptIndex)])
+    return true
   }
 
   // The two menus are mutually exclusive by construction: a value query only
@@ -965,13 +1000,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       />
       <div className="composer-scroll-area">
       {planAdjustment && <div className="plan-adjustment-context"><span className="plan-adjustment-icon"><Icon name="plan" size={13}/></span><div><strong>Ajustar plano de execução</strong><small>{planAdjustment.summary}</small><code>{planAdjustment.fileName}</code></div><button type="button" aria-label="Cancelar ajuste do plano" title="Cancelar ajuste" onClick={() => { persistAttachments(attachments.filter((file) => file.name !== planAdjustment.fileName)); setPlanAdjustment(undefined) }}><Icon name="close" size={12}/></button></div>}
-      {(attachments.length || canonicalReferenceDirectives.length || (!compactComposer && Object.values(selectedArtifacts).some(Boolean))) ? <div className="composer-attachments composer-reference-tray" aria-label="Conteúdo e referências da próxima iteração">
+      {(attachments.length || canonicalReferenceDirectives.length) ? <div className="composer-attachments composer-reference-tray" aria-label="Conteúdo e referências da próxima iteração">
         {attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}
         {canonicalReferenceDirectives.map((directive) => <ComposerReferenceThumbnail key={`${directive.kind}-${directive.start}-${directive.end}-${directive.value}`} session={session} directive={directive} attachments={attachments} chatFiles={chatFiles} libraryArtifacts={libraryArtifacts} projectTodos={projectTodos} onRemove={() => removeDirectiveChip(directive)}/>)}
-        {!compactComposer && selectedArtifacts.context && <ComposerTransportThumbnail kind="context" label="Contexto ZIP" onOpen={() => setInspectedArtifact('context')}/>}
-        {!compactComposer && selectedArtifacts.prompt && <ComposerTransportThumbnail kind="prompt" label="Prompt" onOpen={() => setInspectedArtifact('prompt')}/>}
-        {!compactComposer && selectedArtifacts.result && <ComposerTransportThumbnail kind="result" label="Resultado" onOpen={() => setInspectedArtifact('result')}/>}
-        {!compactComposer && selectedArtifacts.error && <ComposerTransportThumbnail kind="error" label="Erro" onOpen={() => setInspectedArtifact('error')}/>}
       </div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       {bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
@@ -980,7 +1011,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         <ComposerRichEditor
           ref={richEditorRef} value={message} caret={pendingCaret} onChange={updateMessage}
           onClickDirective={openDirectivePopover} onConfigureDirective={configureDirective} onRemoveDirective={removeDirectiveChip}
-          onPasteFiles={pasteFiles} disabled={Boolean(preparedAttachmentCount)} lang="pt-PT"
+          onPasteFiles={pasteFiles} onPasteText={pasteText} disabled={Boolean(preparedAttachmentCount)} lang="pt-PT"
           placeholder={composerPlaceholder || "Pergunte, analise, diagnostique ou descreva uma alteração…"}
           onKeyDownCapture={(event) => {
             if ((fileSuggestions.length || kindSuggestions.length || fileQuery?.kind === 'attach') && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setFileQuery(undefined); setKindQuery(undefined); return }
