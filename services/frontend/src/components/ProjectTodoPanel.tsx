@@ -22,6 +22,7 @@ type Props = {
 
 const KIND_LABEL: Record<string, string> = { feature: 'Funcionalidade', improvement: 'Melhoria', error: 'Erro' }
 const URGENCY_LABEL: Record<string, string> = { very_urgent: 'Muito urgente', urgent: 'Urgente', normal: 'Normal', no_urgency: 'Sem urgência' }
+const URGENCY_ORDER: Record<string, number> = { very_urgent: 0, urgent: 1, normal: 2, no_urgency: 3 }
 
 type TodoFilter = 'open' | 'pending' | 'executed' | 'failed' | 'completed'
 
@@ -145,7 +146,9 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
     } finally { setBusy(false) }
   }
 
-  const visible = useMemo(() => items.filter((item) => todoFilter(item) === filter), [items, filter])
+  const visible = useMemo(() => items
+    .filter((item) => todoFilter(item) === filter)
+    .sort((left, right) => (URGENCY_ORDER[left.urgency || ''] ?? 4) - (URGENCY_ORDER[right.urgency || ''] ?? 4)), [items, filter])
   const counts = useMemo(() => ({
     open: items.filter((item) => todoFilter(item) === 'open').length,
     pending: items.filter((item) => todoFilter(item) === 'pending').length,

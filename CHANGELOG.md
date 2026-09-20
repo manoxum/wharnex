@@ -1,5 +1,6 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 
+- Order project TODO cards by classified urgency inside each state tab, from very urgent through no urgency, while leaving not-yet-classified items after the ranked entries and preserving their existing relative order.
 - Keep large user prompts compact in the transcript until explicitly expanded, and coalesce virtual-window updates to one animation frame so rapid scrolling does not force a React state transition for every native scroll event.
 - Stage older chat transcript hydration behind fixed skeleton shells while keeping the newest interaction window immediately usable: deferred entries wait until they approach the viewport, then hydrate one per animation frame with newest-eligible priority.
 - Reduce chat renderer main-thread and compositor work without removing transcript functionality: composer drafts now debounce synchronous localStorage writes and lazy-load initial state, collapsed long Markdown parses only a bounded preview until expansion, closed WHX notices defer rich-body hydration, returned-artifact galleries no longer refetch presentation metadata when only object identity changes, and the collapsed fade no longer uses backdrop blur.
