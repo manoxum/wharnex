@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, APIError } from '../lib/api'
 import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
-import { confirmDialog } from '../lib/appDialog'
 import { editorExecutableOptions, loadEditorRunHistory, parentDirectory, recentEditorRunOptions, rememberEditorRun, selectionCommand } from '../lib/editorExecution'
 import { workspaceDragEndedOutside, type WorkspaceSurfaceTransferPoint } from '../lib/workspaceSurface'
 import type { FileEntry, GitFileDiff, Session, TerminalRunInput, WorkspaceFile } from '../types'
@@ -15,6 +14,8 @@ import { ChangeDiffEditor } from './ChangeDiffEditor'
 type EditorDocument = WorkspaceFile & { draft: string }
 type Cursor = { line: number; column: number }
 type WorkspaceMutation = { kind: 'create'; path: string } | { kind: 'rename'; from: string; to: string } | { kind: 'delete'; path: string }
+
+const EDITOR_AUTOSAVE_DELAY_MS = 650
 
 export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, openNonce = 0, hiddenPaths = [], surfaceMode = false, minimalSurface = false, onDetachFile, onSplitFile }: {
   session: Session
@@ -31,8 +32,13 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const [files, setFiles] = useState<FileEntry[]>([])
   const [documents, setDocuments] = useState<EditorDocument[]>([])
   const documentsRef = useRef<EditorDocument[]>([])
+  const sessionIDRef = useRef(session.id)
+  sessionIDRef.current = session.id
   const [activePath, setActivePath] = useState<string>()
-  const [savingPath, setSavingPath] = useState<string>()
+  const [savingPaths, setSavingPaths] = useState<Set<string>>(new Set())
+  const autosaveTimersRef = useRef(new Map<string, { id: number; draft: string }>())
+  const savePromisesRef = useRef(new Map<string, Promise<boolean>>())
+  const failedAutosaveDraftsRef = useRef(new Map<string, string>())
   const [cursor, setCursor] = useState<Cursor>({ line: 1, column: 1 })
   const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set())
   const [gitDiff, setGitDiff] = useState<GitFileDiff>()
@@ -72,12 +78,17 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   useEffect(() => { void refreshFiles() }, [refreshFiles])
   useEffect(() => {
     setDocuments([])
+    documentsRef.current = []
+    setSavingPaths(new Set())
     setActivePath(undefined)
     setCursor({ line: 1, column: 1 })
     setPreviewPaths(new Set())
     setGitDiff(undefined)
     setRecentRuns(loadEditorRunHistory(session.project_path))
+    failedAutosaveDraftsRef.current.clear()
     return () => {
+      for (const timer of autosaveTimersRef.current.values()) window.clearTimeout(timer.id)
+      autosaveTimersRef.current.clear()
       for (const document of documentsRef.current) disposeEditorModel(document.path)
     }
   }, [session.id, session.project_path])
@@ -132,21 +143,70 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     // openFile intentionally reads the latest document state for explicit cross-mode navigation.
   }, [openPath, openNonce])
 
-  async function save(path = activePath) {
-    const document = documents.find((item) => item.path === path)
-    if (!document || document.draft === document.content) return
-    setSavingPath(document.path)
-    try {
-      const saved = await api.writeFile(session.id, { path: document.path, content: document.draft, sha256: document.sha256 })
-      setDocuments((items) => items.map((item) => item.path === document.path ? { ...saved, draft: saved.content } : item))
-      await refreshFiles()
-    } catch (error) { onError(messageOf(error)) }
-    finally { setSavingPath(undefined) }
-  }
+  const save = useCallback(async (path: string): Promise<boolean> => {
+    const saveKey = `${session.id}:${path}`
+    const existing = savePromisesRef.current.get(saveKey)
+    if (existing) return existing
+    const operation = (async () => {
+      const document = documentsRef.current.find((item) => item.path === path)
+      if (!document || document.draft === document.content || isBinaryPreview(document.path)) return true
+      const scheduled = autosaveTimersRef.current.get(path)
+      if (scheduled) { window.clearTimeout(scheduled.id); autosaveTimersRef.current.delete(path) }
+      const draft = document.draft
+      const operationSessionID = session.id
+      setSavingPaths((items) => new Set(items).add(path))
+      try {
+        const saved = await api.writeFile(operationSessionID, { path: document.path, content: draft, sha256: document.sha256 })
+        if (sessionIDRef.current !== operationSessionID) return false
+        failedAutosaveDraftsRef.current.delete(path)
+        let fullySaved = true
+        const nextDocuments = documentsRef.current.map((item) => {
+          if (item.path !== document.path) return item
+          if (item.draft === draft) return { ...saved, draft: saved.content }
+          fullySaved = false
+          return { ...item, content: saved.content, sha256: saved.sha256, size: saved.size }
+        })
+        documentsRef.current = nextDocuments
+        setDocuments(nextDocuments)
+        await refreshFiles()
+        return fullySaved
+      } catch (error) {
+        if (sessionIDRef.current !== operationSessionID) return false
+        failedAutosaveDraftsRef.current.set(path, draft)
+        onError(messageOf(error))
+        return false
+      } finally {
+        setSavingPaths((items) => { const next = new Set(items); next.delete(path); return next })
+      }
+    })()
+    savePromisesRef.current.set(saveKey, operation)
+    try { return await operation } finally { savePromisesRef.current.delete(saveKey) }
+  }, [onError, refreshFiles, session.id])
+
+  useEffect(() => {
+    const openPaths = new Set(documents.map((document) => document.path))
+    for (const [path, timer] of autosaveTimersRef.current) {
+      const document = documents.find((item) => item.path === path)
+      if (!openPaths.has(path) || !document || document.draft === document.content || failedAutosaveDraftsRef.current.get(path) === document.draft) {
+        window.clearTimeout(timer.id)
+        autosaveTimersRef.current.delete(path)
+      }
+    }
+    for (const document of documents) {
+      if (isBinaryPreview(document.path) || document.draft === document.content || failedAutosaveDraftsRef.current.get(document.path) === document.draft) continue
+      const existing = autosaveTimersRef.current.get(document.path)
+      if (existing?.draft === document.draft) continue
+      if (existing) window.clearTimeout(existing.id)
+      const id = window.setTimeout(() => { autosaveTimersRef.current.delete(document.path); void save(document.path) }, EDITOR_AUTOSAVE_DELAY_MS)
+      autosaveTimersRef.current.set(document.path, { id, draft: document.draft })
+    }
+  }, [documents, save])
 
   function updateDraft(value: string) {
     if (!activePath) return
-    setDocuments((items) => items.map((item) => item.path === activePath ? { ...item, draft: value } : item))
+    const nextDocuments = documentsRef.current.map((item) => item.path === activePath ? { ...item, draft: value } : item)
+    documentsRef.current = nextDocuments
+    setDocuments(nextDocuments)
   }
 
   async function showGitDiff() {
@@ -175,12 +235,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   async function closeDocument(path: string) {
     const document = documents.find((item) => item.path === path)
     if (!document) return
-    if (document.draft !== document.content && !(await confirmDialog({
-      title: 'Descartar alterações não guardadas?',
-      message: `Fechar “${path}” agora descartará as alterações ainda não guardadas deste ficheiro.`,
-      tone: 'warning',
-      confirmLabel: 'Fechar e descartar',
-    }))) return
+    if (document.draft !== document.content && !(await save(path))) return
     disposeEditorModel(path)
     const index = documents.findIndex((item) => item.path === path)
     const remaining = documents.filter((item) => item.path !== path)
@@ -192,7 +247,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   return <section className="editor-workspace">
     <div className="editor-main">
       <div className="editor-area">
-        {visibleDocuments.length > 0 && !minimalSurface && <EditorTabs documents={visibleDocuments} activePath={activePath} savingPath={savingPath} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} />}
+        {visibleDocuments.length > 0 && !minimalSurface && <EditorTabs documents={visibleDocuments} activePath={activePath} savingPaths={savingPaths} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} />}
         {selected ? <>
           {!minimalSurface && <div className="editor-contextbar">
             <div className="editor-breadcrumbs">{selected.path.split('/').map((part, index, parts) => <span key={`${part}-${index}`}>{part}{index < parts.length - 1 && <i>›</i>}</span>)}</div>
@@ -214,16 +269,16 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     </div>
     {gitDiff && <div className="diff-inspector-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}>
       <section className="diff-inspector editor-git-diff">
-        <header><div><strong>{gitDiff.path}</strong><span>{selected?.draft !== selected?.content ? 'O diff reflete o ficheiro guardado; guarde o rascunho para o incluir.' : gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Diferença do worktree em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff">×</button></header>
+        <header><div><strong>{gitDiff.path}</strong><span>{selected?.draft !== selected?.content ? 'O diff reflete o ficheiro guardado; aguarde o salvamento automático ou use Ctrl+S para o incluir.' : gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Diferença do worktree em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff">×</button></header>
         {gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile} /> : <div className="editor-git-diff-empty"><Icon name="check" size={18}/><strong>Sem alterações Git neste ficheiro</strong><span>O conteúdo guardado coincide com HEAD ou o ficheiro ainda não faz parte de um diff rastreado.</span></div>}
       </section>
     </div>}
   </section>
 }
 
-function EditorTabs({ documents, activePath, savingPath, surfaceMode = false, onSelect, onClose, onSave, onDetach, onSplit }: {
-  documents: EditorDocument[]; activePath?: string; savingPath?: string; surfaceMode?: boolean
-  onSelect: (path: string) => void; onClose: (path: string) => void; onSave: (path: string) => Promise<void>
+function EditorTabs({ documents, activePath, savingPaths, surfaceMode = false, onSelect, onClose, onSave, onDetach, onSplit }: {
+  documents: EditorDocument[]; activePath?: string; savingPaths: Set<string>; surfaceMode?: boolean
+  onSelect: (path: string) => void; onClose: (path: string) => void; onSave: (path: string) => Promise<boolean>
   onDetach?: (path: string, point?: WorkspaceSurfaceTransferPoint) => void; onSplit?: (path: string, direction: 'vertical' | 'horizontal') => void
 }) {
   return <div className="editor-tabbar">
@@ -238,7 +293,8 @@ function EditorTabs({ documents, activePath, savingPath, surfaceMode = false, on
     <div className="editor-surface-actions">
       {onSplit && activePath && <div className="surface-layout-actions" role="group" aria-label="Dividir editor"><button type="button" onClick={() => onSplit(activePath, 'vertical')} title="Dividir editor verticalmente" aria-label="Dividir editor verticalmente"><Icon name="arrow-right" size={13}/></button><button type="button" onClick={() => onSplit(activePath, 'horizontal')} title="Dividir editor horizontalmente" aria-label="Dividir editor horizontalmente"><Icon name="arrow-down" size={13}/></button></div>}
       {onDetach && activePath && <button type="button" className="surface-detach-action" onClick={() => onDetach(activePath)} title="Abrir ficheiro numa janela independente" aria-label="Abrir ficheiro numa janela independente"><Icon name="external" size={13}/></button>}
-    <button className="editor-save" disabled={!activePath || !documents.some((item) => item.path === activePath && item.draft !== item.content) || Boolean(savingPath)} onClick={() => activePath && void onSave(activePath)} title="Guardar (Ctrl+S)"><Icon name="save" size={14}/>{savingPath ? 'A guardar…' : 'Guardar'}</button>
+    {activePath && <span className={`editor-autosave-status ${savingPaths.has(activePath) ? 'saving' : documents.some((item) => item.path === activePath && item.draft !== item.content) ? 'pending' : 'saved'}`}><i/>{savingPaths.has(activePath) ? 'A guardar…' : documents.some((item) => item.path === activePath && item.draft !== item.content) ? 'Auto-save pendente' : 'Guardado'}</span>}
+    <button className="editor-save" disabled={!activePath || !documents.some((item) => item.path === activePath && item.draft !== item.content) || Boolean(activePath && savingPaths.has(activePath))} onClick={() => activePath && void onSave(activePath)} title="Guardar agora (Ctrl+S)"><Icon name="save" size={14}/>Guardar agora</button>
     </div>
   </div>
 }

@@ -4,8 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { api, APIError } from '../lib/api'
 import { desktopBridge } from '../lib/desktop'
-import type { Session, TerminalFrame, TerminalRunRequest, TerminalTarget } from '../types'
-import { Icon } from './Icon'
+import type { Session, TerminalFrame, TerminalRunRequest } from '../types'
 import { subscribeUIPreferences } from '../lib/uiPreferences'
 
 const terminalThemes = {
@@ -37,21 +36,20 @@ function activeTerminalTheme() {
   return terminalThemes[scheme === 'light' || scheme === 'high-contrast' ? scheme : 'dark']
 }
 
-type ConnectionStatus = 'connecting' | 'connected' | 'closed' | 'error'
+export type ConnectionStatus = 'connecting' | 'connected' | 'closed' | 'error'
 
-export function InteractiveTerminal({ session, height, onHeight, onError, visible = true, runRequest, initialTarget = 'sandbox' }: { session: Session; height: number; onHeight: (value: number) => void; onError: (message: string) => void; visible?: boolean; runRequest?: TerminalRunRequest; initialTarget?: TerminalTarget }) {
-  const [target, setTarget] = useState<TerminalTarget>(initialTarget)
-  const [hostConfirmed, setHostConfirmed] = useState(initialTarget === 'host')
-  const [network, setNetwork] = useState(false)
-  const [generation, setGeneration] = useState(0)
+export function InteractiveTerminal({ session, height, onError, visible = true, runRequest, reconnectNonce = 0, onStatusChange }: { session: Session; height: number; onError: (message: string) => void; visible?: boolean; runRequest?: TerminalRunRequest; reconnectNonce?: number; onStatusChange?: (status: ConnectionStatus) => void }) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
+  const statusRef = useRef<ConnectionStatus>('connecting')
   const terminalRootRef = useRef<HTMLDivElement>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const terminalIDRef = useRef('')
   const terminalRef = useRef<XTerm | null>(null)
   const deliveredRunRef = useRef(0)
   const onErrorRef = useRef(onError)
+  const onStatusChangeRef = useRef(onStatusChange)
   onErrorRef.current = onError
+  onStatusChangeRef.current = onStatusChange
 
   useEffect(() => {
     const root = terminalRootRef.current
@@ -71,10 +69,15 @@ export function InteractiveTerminal({ session, height, onHeight, onError, visibl
     const fit = new FitAddon()
     terminal.loadAddon(fit); terminal.open(root); fitRef.current = fit; terminalRef.current = terminal
 
+    const setConnectionStatus = (next: ConnectionStatus) => {
+      statusRef.current = next
+      setStatus(next)
+      onStatusChangeRef.current?.(next)
+    }
     const reportError = (error: unknown) => {
       if (!active) return
       const message = messageOf(error)
-      setStatus('error'); terminal.writeln(`\r\n\x1b[38;2;227;106;96m${message}\x1b[0m`); onErrorRef.current(message)
+      setConnectionStatus('error'); terminal.writeln(`\r\n\x1b[38;2;227;106;96m${message}\x1b[0m`); onErrorRef.current(message)
     }
     const flushInput = () => {
       window.clearTimeout(inputTimer)
@@ -125,9 +128,9 @@ export function InteractiveTerminal({ session, height, onHeight, onError, visibl
     observer?.observe(root)
 
     async function connect() {
-      setStatus('connecting')
+      setConnectionStatus('connecting')
       try {
-        const descriptor = await api.openTerminal(session.id, { cwd: '.', network: target === 'sandbox' && network, cols: terminal.cols || 80, rows: terminal.rows || 24 }, target, target === 'host' && hostConfirmed)
+        const descriptor = await api.openTerminal(session.id, { cwd: '.', network: false, cols: terminal.cols || 80, rows: terminal.rows || 24 }, 'host', true)
         if (!active) { void api.closeTerminal(session.id, descriptor.terminal_id).catch(() => undefined); return }
         terminalID = descriptor.terminal_id; terminalIDRef.current = terminalID
         void api.resizeTerminal(session.id, terminalID, terminal.cols || 80, terminal.rows || 24).catch(reportError)
@@ -136,16 +139,16 @@ export function InteractiveTerminal({ session, height, onHeight, onError, visibl
           if (!active) return
           try {
             const terminalFrame = JSON.parse(event.data) as TerminalFrame
-            if (terminalFrame.type === 'ready') { setStatus('connected'); terminal.focus() }
+            if (terminalFrame.type === 'ready') { setConnectionStatus('connected'); terminal.focus() }
             else if (terminalFrame.type === 'output' && terminalFrame.data) terminal.write(terminalFrame.data)
             else if (terminalFrame.type === 'exit') {
-              setStatus('closed')
+              setConnectionStatus('closed')
               if (terminalFrame.message) terminal.writeln(`\r\n\x1b[38;2;214;165;107m${terminalFrame.message}\x1b[0m`)
               source?.close()
             } else if (terminalFrame.type === 'error') reportError(terminalFrame.message || 'Erro no terminal')
           } catch { /* ignore malformed transport frames */ }
         }
-        source.onerror = () => { if (active) setStatus((value) => value === 'closed' ? value : 'connecting') }
+        source.onerror = () => { if (active && statusRef.current !== 'closed') setConnectionStatus('connecting') }
       } catch (error) { reportError(error) }
     }
     void connect()
@@ -159,7 +162,7 @@ export function InteractiveTerminal({ session, height, onHeight, onError, visibl
       if (terminalIDRef.current === terminalID) terminalIDRef.current = ''
       if (terminalID) void api.closeTerminal(session.id, terminalID).catch(() => undefined)
     }
-  }, [session.id, target, hostConfirmed, network, generation])
+  }, [session.id, reconnectNonce])
 
   useEffect(() => subscribeUIPreferences(() => {
     if (terminalRef.current) terminalRef.current.options.theme = activeTerminalTheme()
@@ -173,43 +176,9 @@ export function InteractiveTerminal({ session, height, onHeight, onError, visibl
     void api.terminalInput(session.id, terminalIDRef.current, `${runRequest.command}\r`).catch((error) => onErrorRef.current(messageOf(error)))
   }, [runRequest, session.id, status])
 
-  async function selectTarget(next: TerminalTarget) {
-    if (next === target) return
-    if (next === 'host') {
-      setHostConfirmed(true); setNetwork(false); setTarget('host')
-    } else {
-      setHostConfirmed(false); setTarget('sandbox')
-    }
-  }
-
-  async function reset() {
-    if (target !== 'sandbox') return
-    const terminalID = terminalIDRef.current
-    terminalIDRef.current = ''
-    try {
-      if (terminalID) await api.closeTerminal(session.id, terminalID)
-      await api.resetTerminal(session.id)
-      setGeneration((value) => value + 1)
-    } catch (error) { onError(messageOf(error)) }
-  }
-
-  return <section className={`ide-terminal terminal-target-${target}`} style={{ height }}>
-    <header>
-      <div><Icon name="terminal" size={14}/><strong>Terminal</strong><div className="terminal-target-switch" role="group" aria-label="Destino do terminal"><button className={target === 'sandbox' ? 'active' : ''} onClick={() => void selectTarget('sandbox')}>Sandbox</button><button className={target === 'host' ? 'active host' : 'host'} onClick={() => void selectTarget('host')}>Host</button></div><span className={`terminal-status terminal-status-${status}`}>{statusLabel(status)}</span></div>
-      <div className="terminal-controls">
-        {target === 'sandbox' ? <label title="Reabrir a sessão com acesso à rede"><input type="checkbox" checked={network} onChange={(event) => setNetwork(event.target.checked)}/><Icon name="network" size={13}/> rede</label> : <span className="host-network-label">acesso total</span>}
-        <button className="icon-button" title="Reconectar shell" onClick={() => setGeneration((value) => value + 1)}><Icon name="refresh" size={14}/></button>
-        <button className="icon-button" disabled={target !== 'sandbox'} title="Recriar sandbox a partir do projeto host" onClick={() => void reset()}><Icon name="reset" size={14}/></button>
-        <button className="terminal-size-button" title="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}>↕</button>
-      </div>
-    </header>
-    {target === 'host' && <div className="terminal-host-warning"><strong>HOST DIRECTO</strong><span>Sessão real do utilizador do sistema, com HOME, PATH, hostname e ferramentas do host. Ctrl+Shift+C/V copia e cola.</span></div>}
+  return <section className="ide-terminal" style={{ height }}>
     <div ref={terminalRootRef} className="terminal-xterm" aria-label="Terminal interactivo" title="Tab completa; Ctrl+R pesquisa; ↑/↓ navega; Ctrl+C interrompe; Ctrl+Shift+C/V copia e cola (⌘C/⌘V no macOS)." />
   </section>
-}
-
-function statusLabel(status: ConnectionStatus) {
-  return ({ connecting: 'a ligar…', connected: 'ligado', closed: 'encerrado', error: 'erro' })[status]
 }
 
 function messageOf(error: unknown) {
