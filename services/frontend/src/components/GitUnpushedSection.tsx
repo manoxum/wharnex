@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { GitBranch, GitCommitDetail, GitRemote, GitUnpushedOverview } from '../types'
 import { api, APIError } from '../lib/api'
 import { Icon } from './Icon'
@@ -70,15 +71,14 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
   }
 
   const blocked = disabled || loading || actionBusy
-  return <section className="git-section git-unpushed-section">
-    <div className="git-section-heading">
-      <div><span>Origem</span><strong>Commits por publicar</strong></div>
+  return <section className="git-change-surface git-unpushed-section">
+    <div className="git-change-surface-heading">
+      <div><span>Branch local</span><strong>Commits por publicar</strong></div>
       <span className="git-section-count">{overview?.commits.length || 0}</span>
     </div>
 
     <div className="git-unpushed-summary">
-      <div>
-        <span>Branch atual</span>
+      <div className="git-unpushed-branch-copy">
         <strong>{branch || 'HEAD destacado'}</strong>
         <small>{overview?.has_upstream ? `upstream ${overview.upstream}` : 'sem upstream configurado'}</small>
       </div>
@@ -90,31 +90,28 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
     {error && <p className="git-notice error-card" role="alert">{error}</p>}
     {loading && <p className="git-empty inline">A comparar a branch local com a origem…</p>}
     {!loading && overview && !overview.has_upstream && <p className="git-empty inline">{overview.commits.length > 0
-      ? 'Sem upstream, a lista abaixo mostra commits de HEAD que ainda não são alcançáveis por nenhuma referência remota local. Faça o push completo para publicar a branch e estabelecer a origem.'
-      : 'Ainda não existe upstream e não há commits de HEAD fora das referências remotas locais. Faça o push completo para publicar a branch e estabelecer a origem.'}</p>}
-    {!loading && overview?.has_upstream && overview.commits.length === 0 && <p className="git-empty inline">Não há commits locais por publicar nesta branch.</p>}
+      ? 'Sem upstream, estes são os commits locais que ainda não aparecem em nenhuma referência remota. O push completo publica a branch e configura a origem.'
+      : 'Ainda não existe upstream e não há commits locais por publicar. O push completo publica a branch e configura a origem.'}</p>}
+    {!loading && overview?.has_upstream && overview.commits.length === 0 && <div className="git-clean-state"><span><Icon name="check" size={13}/></span><div><strong>Branch sincronizada</strong><small>Não há commits locais por publicar nesta branch.</small></div></div>}
 
     {!loading && overview && overview.commits.length > 0 && <>
       <div className="git-unpushed-actions">
-        <p>{canPushSelected
-          ? 'O push seletivo publica apenas um prefixo contínuo a partir do commit mais antigo, preservando a história da branch sem reescrita.'
-          : 'Estes commits podem ser inspecionados agora, mas o push seletivo só fica disponível depois de existir um upstream para definir a branch remota de destino.'}</p>
+        <span>{canPushSelected ? 'Selecione um prefixo contínuo desde o commit mais antigo.' : 'Configure um upstream para ativar o push seletivo.'}</span>
         {canPushSelected && <button type="button" className="git-action" disabled={blocked || selected.size === 0} onClick={() => void run(() => onSelectedPush(oldestFirst.filter((commit) => selected.has(commit.sha)).map((commit) => commit.sha)))}>
           <Icon name="arrow-up" size={13}/> Push selecionado ({selected.size})
         </button>}
       </div>
       <ul className="git-unpushed-list">
         {overview.commits.map((commit) => <li key={commit.sha}>
-          <div className="git-unpushed-check">
-            <input type="checkbox" aria-label={`Selecionar ${commit.subject}`} checked={selected.has(commit.sha)} disabled={blocked || !canPushSelected} onChange={(event) => toggleCommit(commit.sha, event.target.checked)}/>
-            <button type="button" className="git-unpushed-commit-link" disabled={blocked} onClick={() => void openDetail(commit.sha)}>
-              <span className="git-unpushed-copy">
-                <strong>{commit.subject}</strong>
-                <span><code>{commit.short_sha}</code> · {commit.author_name} · <time dateTime={commit.committed_at}>{formatDate(commit.committed_at)}</time></span>
-              </span>
-            </button>
-          </div>
-          <button type="button" className="git-action small" disabled={blocked} onClick={() => void openDetail(commit.sha)}><Icon name="file" size={12}/> Ver alterações</button>
+          <input type="checkbox" aria-label={`Selecionar ${commit.subject}`} checked={selected.has(commit.sha)} disabled={blocked || !canPushSelected} onChange={(event) => toggleCommit(commit.sha, event.target.checked)}/>
+          <span className="git-unpushed-commit-icon"><Icon name="git" size={12}/></span>
+          <button type="button" className="git-unpushed-commit-link" disabled={blocked} onClick={() => void openDetail(commit.sha)}>
+            <span className="git-unpushed-copy">
+              <strong>{commit.subject}</strong>
+              <span><code>{commit.short_sha}</code> · {commit.author_name} · <time dateTime={commit.committed_at}>{formatDate(commit.committed_at)}</time></span>
+            </span>
+          </button>
+          <button type="button" className="git-file-diff-action" aria-label={`Abrir diff do commit ${commit.short_sha}`} disabled={blocked} onClick={() => void openDetail(commit.sha)}><Icon name="code" size={11}/><span>Diff</span></button>
         </li>)}
       </ul>
     </>}
@@ -125,20 +122,28 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
 
 function CommitDetailModal({ sessionId, detail, onClose }: { sessionId: string; detail: GitCommitDetail; onClose: () => void }) {
   const commit = detail.commit
-  return <div className="git-diff-modal git-commit-detail-modal" role="dialog" aria-label={`Commit ${commit.short_sha}`}>
-    <header><strong>{commit.subject}</strong><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button></header>
-    <div className="git-commit-detail-meta">
-      <span><strong>SHA</strong><code>{commit.sha}</code></span>
-      <span><strong>Autor</strong>{commit.author_name} &lt;{commit.author_email}&gt;</span>
-      <span><strong>Data</strong><time dateTime={commit.committed_at}>{formatDate(commit.committed_at, true)}</time></span>
-      <span><strong>Pais</strong><code>{commit.parents.length ? commit.parents.join(', ') : 'commit inicial'}</code></span>
-      {commit.request_id && <span><strong>Request</strong><code>{commit.request_id}</code></span>}
-      {commit.plan_id && <span><strong>Plano</strong><code>{commit.plan_id}</code></span>}
+  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}>
+    <div className="git-diff-modal git-commit-detail-modal" role="dialog" aria-modal="true" aria-label={`Commit ${commit.short_sha}`} onMouseDown={(event) => event.stopPropagation()}>
+      <header>
+        <div><span className="panel-kicker">Commit local</span><strong>{commit.subject}</strong></div>
+        <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button>
+      </header>
+      <details className="git-commit-detail-disclosure">
+        <summary><span>Metadados do commit</span><code>{commit.short_sha}</code></summary>
+        <div className="git-commit-detail-meta">
+          <span><strong>SHA</strong><code>{commit.sha}</code></span>
+          <span><strong>Autor</strong>{commit.author_name} &lt;{commit.author_email}&gt;</span>
+          <span><strong>Data</strong><time dateTime={commit.committed_at}>{formatDate(commit.committed_at, true)}</time></span>
+          <span><strong>Pais</strong><code>{commit.parents.length ? commit.parents.join(', ') : 'commit inicial'}</code></span>
+          {commit.request_id && <span><strong>Request</strong><code>{commit.request_id}</code></span>}
+          {commit.plan_id && <span><strong>Plano</strong><code>{commit.plan_id}</code></span>}
+        </div>
+        {(commit.body || commit.subject) && <pre className="git-commit-message-inline">{commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject}</pre>}
+      </details>
+      <GitDiffReview sessionId={sessionId} diff={detail.diff} emptyText="Este commit não contém alterações de ficheiros."/>
+      {detail.diff_truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
     </div>
-    {(commit.body || commit.subject) && <details className="git-message-preview" open><summary>Mensagem</summary><pre>{commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject}</pre></details>}
-    <GitDiffReview sessionId={sessionId} diff={detail.diff} emptyText="Este commit não contém alterações de ficheiros."/>
-    {detail.diff_truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
-  </div>
+  </div>, document.body)
 }
 
 function formatDate(value: string, full = false) {

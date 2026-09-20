@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { GitBranch, GitCommitMode, GitFileDiff, GitOverview, GitPendingCommit, Session } from '../types'
 import { api, APIError } from '../lib/api'
 import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
@@ -179,42 +180,25 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
           <ChangesTabs
             active={activeChangesTab}
             workingCount={overview.working.files.length}
-            pendingCount={pending.length}
+            pendingCount={unpushedCount(overview)}
             onChange={setActiveChangesTab}
           />
-          {activeChangesTab === 'working' && pending.length > 0 && <div className="git-row git-pending-actions">
-            <button type="button" className="git-action small" disabled={disabled || !overview.has_identity} onClick={() => void commit([])}>
-              <Icon name="check" size={12}/> Commitar todos os commits pendentes
-            </button>
-          </div>}
-          {activeChangesTab === 'working' && <>
-            <WorktreeSummary overview={overview}/>
-            <WorktreeFiles
-              overview={overview} disabled={disabled} hasIdentity={overview.has_identity}
-              selected={selectedWorktree} message={worktreeCommitMessage}
-              onMessageChange={setWorktreeCommitMessage}
-              onToggle={(path) => setSelectedWorktree((currentSelection) => {
-                const next = new Set(currentSelection)
-                if (next.has(path)) next.delete(path)
-                else next.add(path)
-                return next
-              })}
-              onCommit={() => void commitWorktree()}
-              onOpenDiff={(path) => void (async () => {
-                try { setWorktreeDiff(await api.gitFileDiff(session.id, path)) } catch (error) { report(error) }
-              })()}
-            />
-          </>}
-          {activeChangesTab === 'pending' && <PendingSection
-            pending={pending} selected={selected} disabled={disabled} hasIdentity={overview.has_identity}
-            commitMode={overview.commit_mode} onToggle={toggle} onCommitAll={() => void commit([])}
-            onCommitSelected={() => void commit(Array.from(selected))}
-            onDiscard={(id) => void run(async () => { await api.discardGitPending(session.id, [id]) })}
-            onOpenDiff={(record) => void (async () => {
-              try { setOpenDiff(await api.gitPendingCommit(session.id, record.id)) } catch (error) { report(error) }
+          {activeChangesTab === 'working' && <WorktreeFiles
+            overview={overview} disabled={disabled} hasIdentity={overview.has_identity}
+            selected={selectedWorktree} message={worktreeCommitMessage}
+            onMessageChange={setWorktreeCommitMessage}
+            onToggle={(path) => setSelectedWorktree((currentSelection) => {
+              const next = new Set(currentSelection)
+              if (next.has(path)) next.delete(path)
+              else next.add(path)
+              return next
+            })}
+            onCommit={() => void commitWorktree()}
+            onOpenDiff={(path) => void (async () => {
+              try { setWorktreeDiff(await api.gitFileDiff(session.id, path)) } catch (error) { report(error) }
             })()}
           />}
-          <GitUnpushedSection
+          {activeChangesTab === 'pending' && <GitUnpushedSection
             sessionId={session.id} activeBranch={current} remotes={overview.remotes} disabled={disabled}
             onFullPush={(remote, branch, setUpstream) => runGitOperation(
               'A publicar alterações',
@@ -233,7 +217,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
                 return pushMessage(result.outcome, result.integrated, result.conflict_id)
               },
             )}
-          />
+          />}
         </>}
         {activeTab === 'history' && <HistorySection sessionId={session.id} commits={overview.commits} branches={overview.branches}/>}
         {activeTab === 'branches' && <BranchSection
@@ -293,9 +277,20 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
             true,
           )}
         />}
-        {activeTab === 'settings' && <RepositorySettings overview={overview} disabled={disabled} onChange={(mode) => run(async () => {
-          await api.setGitCommitMode(session.id, mode)
-        })}/>}
+        {activeTab === 'settings' && <>
+          <RepositorySettings overview={overview} disabled={disabled} onChange={(mode) => run(async () => {
+            await api.setGitCommitMode(session.id, mode)
+          })}/>
+          <PendingSection
+            pending={pending} selected={selected} disabled={disabled} hasIdentity={overview.has_identity}
+            commitMode={overview.commit_mode} onToggle={toggle} onCommitAll={() => void commit([])}
+            onCommitSelected={() => void commit(Array.from(selected))}
+            onDiscard={(id) => void run(async () => { await api.discardGitPending(session.id, [id]) })}
+            onOpenDiff={(record) => void (async () => {
+              try { setOpenDiff(await api.gitPendingCommit(session.id, record.id)) } catch (error) { report(error) }
+            })()}
+          />
+        </>}
       </div>
     </>}
 
@@ -310,7 +305,7 @@ function gitTabLabel(tab: GitTab) {
 }
 
 function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (tab: GitTab) => void; overview: GitOverview }) {
-  const localChanges = Math.max(overview.pending.length, overview.working.files?.length || overview.working.stageable_count)
+  const localChanges = overview.working.files?.length || overview.working.stageable_count
   const current = overview.branches.find((branch) => !branch.remote && branch.current)
   const unpublished = current?.has_upstream && !current.gone
     ? current.ahead
@@ -342,49 +337,49 @@ function ChangesTabs({ active, workingCount, pendingCount, onChange }: {
   </nav>
 }
 
-function WorktreeSummary({ overview }: { overview: GitOverview }) {
-  const clean = overview.working.clean
-  return <section className="git-worktree-card">
-    <span className={`git-worktree-status ${clean ? 'clean' : 'dirty'}`}><Icon name={clean ? 'check' : 'edit'} size={14}/></span>
-    <div><strong>{clean ? 'Worktree limpo' : `${overview.working.files?.length || overview.working.stageable_count} alteração(ões) no worktree`}</strong>
-      <p>{clean ? 'Não há ficheiros locais por commitar.' : 'As alterações locais permanecem separadas dos registos pendentes do Wharnex.'}</p></div>
-    <span className="git-worktree-badge">{overview.working.files.length} ficheiro(s)</span>
-  </section>
-}
-
-
 function WorktreeFiles({ overview, disabled, hasIdentity, selected, message, onMessageChange, onToggle, onCommit, onOpenDiff }: {
   overview: GitOverview; disabled: boolean; hasIdentity: boolean; selected: Set<string>; message: string
   onMessageChange: (value: string) => void; onToggle: (path: string) => void; onCommit: () => void; onOpenDiff: (path: string) => void
 }) {
   const files = overview.working.files || []
-  if (files.length === 0) return null
   const canCommit = (kind: GitOverview['working']['files'][number]['kind']) => kind === 'change' || kind === 'gitlink'
-  return <section className="git-section git-worktree-files-section">
-    <div className="git-section-heading"><div><span>Worktree</span><strong>Ficheiros alterados</strong></div><span className="git-section-count">{files.length}</span></div>
-    <p className="git-hint">Pode criar um commit manual destes ficheiros em qualquer modo, incluindo Auto-commit.</p>
-    <ul className="git-worktree-files">{files.map((file) => {
-      const diffable = file.kind !== 'submodule' && file.kind !== 'embedded_repository'
-      const committable = canCommit(file.kind)
-      return <li key={`${file.kind}:${file.path}`}>
-        <label className="git-worktree-file-select" title={committable ? 'Selecionar ficheiro para commit' : 'Este tipo de entrada não pode ser commitado daqui'}>
-          <input type="checkbox" checked={selected.has(file.path)} disabled={disabled || !committable} aria-label={`Selecionar ${file.path}`} onChange={() => onToggle(file.path)}/>
-          <span className="git-worktree-file-icon"><Icon name={file.kind === 'unmerged' ? 'alert' : 'file'} size={12}/></span>
-        </label>
-        <span className="git-worktree-file-copy"><strong>{file.path}</strong><small>{worktreeKind(file.kind)}</small></span>
-        <button type="button" className="git-action small" disabled={disabled || !diffable} title={diffable ? 'Ver alterações deste ficheiro' : 'Este tipo de entrada não tem diff inline'} onClick={() => onOpenDiff(file.path)}><Icon name="code" size={11}/> Diff</button>
-      </li>
-    })}</ul>
-    <div className="git-worktree-commit">
-      <label><span>Mensagem do commit</span><input type="text" value={message} disabled={disabled || !hasIdentity} onChange={(event) => onMessageChange(event.target.value)} placeholder="ex.: fix(ui): ajustar painel Git"/></label>
-      <button type="button" className="git-action primary" disabled={disabled || !hasIdentity || selected.size === 0 || !message.trim()} onClick={onCommit}><Icon name="check" size={13}/> Commitar selecionados ({selected.size})</button>
+  const committableCount = files.filter((file) => canCommit(file.kind)).length
+  return <section className="git-change-surface git-worktree-files-section">
+    <div className="git-change-surface-heading">
+      <div><span>Worktree</span><strong>{files.length ? 'Alterações locais' : 'Worktree limpo'}</strong></div>
+      <span className="git-section-count">{files.length}</span>
     </div>
-    {!hasIdentity && <p className="git-hint warning-card">Configure <code>user.name</code> e <code>user.email</code> para criar commits manuais.</p>}
+    {files.length === 0 ? <div className="git-clean-state"><span><Icon name="check" size={13}/></span><div><strong>Sem alterações por commitar</strong><small>O worktree está sincronizado com o último commit local.</small></div></div> : <>
+      <ul className="git-worktree-files">{files.map((file) => {
+        const diffable = file.kind !== 'submodule' && file.kind !== 'embedded_repository'
+        const committable = canCommit(file.kind)
+        return <li key={`${file.kind}:${file.path}`}>
+          <label className="git-worktree-file-select" title={committable ? 'Selecionar ficheiro para commit' : 'Este tipo de entrada não pode ser commitado daqui'}>
+            <input type="checkbox" checked={selected.has(file.path)} disabled={disabled || !committable} aria-label={`Selecionar ${file.path}`} onChange={() => onToggle(file.path)}/>
+          </label>
+          <span className="git-worktree-file-icon"><Icon name={file.kind === 'unmerged' ? 'alert' : 'file'} size={12}/></span>
+          <span className="git-worktree-file-copy"><strong title={file.path}>{file.path}</strong><small>{worktreeKind(file.kind)}</small></span>
+          <button type="button" className="git-file-diff-action" disabled={disabled || !diffable} title={diffable ? 'Ver alterações deste ficheiro' : 'Este tipo de entrada não tem diff inline'} aria-label={`Abrir diff de ${file.path}`} onClick={() => onOpenDiff(file.path)}><Icon name="code" size={11}/><span>Diff</span></button>
+        </li>
+      })}</ul>
+      {committableCount > 0 && <div className="git-worktree-commit">
+        <label><span>Mensagem do commit</span><input type="text" value={message} disabled={disabled || !hasIdentity} onChange={(event) => onMessageChange(event.target.value)} placeholder="ex.: fix(ui): ajustar painel Git"/></label>
+        <button type="button" className="git-action primary" disabled={disabled || !hasIdentity || selected.size === 0 || !message.trim()} onClick={onCommit}><Icon name="check" size={13}/> Commitar ({selected.size})</button>
+      </div>}
+      {!hasIdentity && committableCount > 0 && <p className="git-hint warning-card">Configure <code>user.name</code> e <code>user.email</code> para criar commits manuais.</p>}
+    </>}
   </section>
 }
 
+
 function worktreeKind(kind: GitOverview['working']['files'][number]['kind']) {
   return ({ change: 'alterado', gitlink: 'gitlink alterado', submodule: 'submódulo com alterações', embedded_repository: 'repositório embebido', unmerged: 'conflito não resolvido' } as const)[kind]
+}
+
+function unpushedCount(overview: GitOverview) {
+  const current = overview.branches.find((branch) => !branch.remote && branch.current)
+  if (current?.has_upstream && !current.gone) return current.ahead
+  return overview.commits.filter((commit) => !commit.pushed).length
 }
 
 function pushMessage(outcome: string, integrated?: boolean, conflictID?: string) {
@@ -490,9 +485,9 @@ function PendingSection({ pending, selected, disabled, hasIdentity, commitMode, 
   pending: GitPendingCommit[]; selected: Set<string>; disabled: boolean; hasIdentity: boolean; commitMode: GitCommitMode
   onToggle: (id: string) => void; onCommitAll: () => void; onCommitSelected: () => void; onDiscard: (id: string) => void; onOpenDiff: (record: GitPendingCommit) => void
 }) {
-  return <section className="git-section">
-    <div className="git-section-heading"><div><span>Fila local</span><strong>Commits pendentes</strong></div><span className="git-section-count">{pending.length}</span></div>
-    {pending.length === 0 && <p className="git-empty inline">{commitMode === 'manual' ? 'Nada por commitar. As alterações aplicadas aparecem aqui com a mensagem do planner.' : 'O projeto usa auto-commit, por isso não acumula registos pendentes.'}</p>}
+  return <section className="git-section git-wharnex-queue">
+    <div className="git-section-heading"><div><span>Automação</span><strong>Registos Wharnex por commitar</strong></div><span className="git-section-count">{pending.length}</span></div>
+    {pending.length === 0 && <p className="git-empty inline">{commitMode === 'manual' ? 'Não existem registos de aplicação à espera de commit.' : 'O projeto usa auto-commit, por isso não acumula registos de aplicação.'}</p>}
     {pending.length > 0 && <>
       <div className="git-row git-pending-actions">
         <button type="button" className="git-action primary" disabled={disabled || !hasIdentity} onClick={onCommitAll}><Icon name="check" size={13}/> Commitar todos</button>
@@ -590,18 +585,22 @@ function formatCommitDate(value: string) {
 
 
 function WorktreeDiffModal({ sessionId, file, onClose }: { sessionId: string; file: GitFileDiff; onClose: () => void }) {
-  return <div className="git-diff-modal" role="dialog" aria-label={`Diff de ${file.path}`}>
-    <header><strong>{file.path}</strong><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
-    <GitDiffReview sessionId={sessionId} diff={file.diff} emptyText="Sem diferenças de conteúdo para apresentar."/>
-    {file.truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
-  </div>
+  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}>
+    <div className="git-diff-modal" role="dialog" aria-modal="true" aria-label={`Diff de ${file.path}`} onMouseDown={(event) => event.stopPropagation()}>
+      <header><div><span className="panel-kicker">Alteração no worktree</span><strong>{file.path}</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
+      <GitDiffReview sessionId={sessionId} diff={file.diff} emptyText="Sem diferenças de conteúdo para apresentar."/>
+      {file.truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
+    </div>
+  </div>, document.body)
 }
 
 function DiffModal({ sessionId, record, onClose }: { sessionId: string; record: GitPendingCommit; onClose: () => void }) {
-  return <div className="git-diff-modal" role="dialog" aria-label={`Diff de ${record.subject}`}>
-    <header><strong>{record.subject}</strong><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
-    <GitDiffReview sessionId={sessionId} diff={record.diff} emptyText="Sem diff registado."/>
-    {record.diff_truncated && <p className="git-hint">O diff foi truncado para apresentação; o commit usa sempre o conteúdo atual dos ficheiros.</p>}
-    <details className="git-message-preview"><summary>Mensagem de commit</summary><pre>{record.message}</pre></details>
-  </div>
+  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}>
+    <div className="git-diff-modal" role="dialog" aria-modal="true" aria-label={`Diff de ${record.subject}`} onMouseDown={(event) => event.stopPropagation()}>
+      <header><div><span className="panel-kicker">Registo Wharnex</span><strong>{record.subject}</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
+      <GitDiffReview sessionId={sessionId} diff={record.diff} emptyText="Sem diff registado."/>
+      {record.diff_truncated && <p className="git-hint">O diff foi truncado para apresentação; o commit usa sempre o conteúdo atual dos ficheiros.</p>}
+      <details className="git-message-preview"><summary>Mensagem de commit</summary><pre>{record.message}</pre></details>
+    </div>
+  </div>, document.body)
 }
