@@ -115,3 +115,45 @@ func (s *Service) reverifyPendingCandidate(ctx context.Context, sessionID string
 	s.bus.Publish(sessionID, "baseline.candidate_reverified", map[string]any{"base_context_sha256": baseline, "plan_count": len(next)})
 	return updated, nil
 }
+
+// promoteLegacyPatchBranches upgrades pre-Git-native pending patches while
+// their immutable request-base refs are still retained. Reapplying such a
+// patch to today's host is neither a rebase nor a safety check: it loses the
+// three-way ancestor that Git needs to reconcile ordinary drift. The upgrade
+// writes only a private integration ref; host content is still untouched until
+// the normal Apply merge transaction and its verification gates succeed.
+func (s *Service) promoteLegacyPatchBranches(ctx context.Context, sessionID string, item domain.Session, pending []domain.PendingHostChange) ([]domain.PendingHostChange, bool, error) {
+	upgraded := append([]domain.PendingHostChange(nil), pending...)
+	changed := false
+	for index := range upgraded {
+		if upgraded[index].ChangeSet != nil || strings.TrimSpace(upgraded[index].IntegrationBranch) != "" || len(actualPatchFiles(&upgraded[index].Plan)) == 0 {
+			continue
+		}
+		workspace, err := s.runner.Prepare(ctx, item.ProjectPath)
+		if err != nil {
+			return pending, false, err
+		}
+		branch, _, rooted := s.prepareBaseRootedWorkspace(ctx, sessionID, item, &upgraded[index].Plan, workspace.Path)
+		if !rooted {
+			_ = s.runner.Cleanup(workspace)
+			return pending, false, fmt.Errorf("legacy pending plan %s has no recoverable immutable request base", upgraded[index].Plan.PlanID)
+		}
+		result := domain.ExecutionResult{PlanID: upgraded[index].Plan.PlanID}
+		replayErr := s.replayPlanPatches(ctx, s.runner, workspace, upgraded[index], &result)
+		if replayErr != nil {
+			_ = s.runner.Cleanup(workspace)
+			return pending, false, replayErr
+		}
+		commit, submodules, commitErr := sandbox.CommitVerifiedRepositoryTree(ctx, workspace.Path, item.ProjectPath, branch, commitMessageForPlan(&upgraded[index].Plan), actualPatchFiles(&upgraded[index].Plan), true)
+		_ = s.runner.Cleanup(workspace)
+		if commitErr != nil {
+			return pending, false, fmt.Errorf("commit promoted legacy plan %s: %w", upgraded[index].Plan.PlanID, commitErr)
+		}
+		upgraded[index].IntegrationBranch = branch
+		upgraded[index].IntegrationCommit = commit
+		upgraded[index].SubmoduleIntegrations = submodules
+		changed = true
+		s.bus.Publish(sessionID, "integration.legacy_patch_promoted", map[string]any{"plan_id": upgraded[index].Plan.PlanID, "branch": branch, "commit": commit})
+	}
+	return upgraded, changed, nil
+}

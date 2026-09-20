@@ -3059,6 +3059,24 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		item = updated
 		s.bus.Publish(sessionID, "integration.legacy_units_upgraded", map[string]any{"plan_count": len(pending)})
 	}
+	pending, legacyPatchesPromoted, err := s.promoteLegacyPatchBranches(ctx, sessionID, item, pending)
+	if err != nil {
+		return item, fmt.Errorf("promote legacy patch candidate: %w", err)
+	}
+	if legacyPatchesPromoted {
+		updated, persistErr := s.store.Update(sessionID, func(current *domain.Session) error {
+			for index := range pending {
+				current.PendingHostChanges = upsertPendingHostChange(current.PendingHostChanges, pending[index])
+			}
+			clearSessionFailure(current)
+			current.State = "verified"
+			return nil
+		})
+		if persistErr != nil {
+			return item, fmt.Errorf("persist promoted legacy patch candidate: %w", persistErr)
+		}
+		item = updated
+	}
 	expectedBaselines := make([]string, len(pending))
 	for index := range pending {
 		expectedBaselines[index] = planBaseline(item, &pending[index].Plan)
