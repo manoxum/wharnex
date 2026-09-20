@@ -70,7 +70,16 @@ func main() {
 		}
 		runner = sandbox.NewLocalRunner()
 	} else {
-		runner = sandbox.NewDockerRunnerWithDependencyCache(cfg.RunnerImage, cfg.DependencyCacheDir)
+		dockerRunner := sandbox.NewDockerRunnerWithDependencyCache(cfg.RunnerImage, cfg.DependencyCacheDir)
+		runner = dockerRunner
+		reclaimCtx, reclaimCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		reclaimed, reclaimErr := dockerRunner.ReclaimInteractiveTerminals(reclaimCtx, os.Getenv("WHARNESS_ROOT"), os.TempDir())
+		reclaimCancel()
+		if reclaimErr != nil {
+			log.Printf("stale interactive terminal reclaim failed: %v", reclaimErr)
+		} else if reclaimed > 0 {
+			log.Printf("stale interactive terminal containers reclaimed: %d", reclaimed)
+		}
 	}
 
 	service := app.NewService(store, bus, builder, p, policies, runner)
@@ -119,6 +128,7 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
+	service.CloseAllInteractiveTerminals()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {

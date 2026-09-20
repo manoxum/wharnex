@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +15,19 @@ import (
 
 	"github.com/creack/pty"
 )
+
+const interactiveTerminalContainerPrefix = "wharnex-terminal-"
+
+type dockerContainerInspection struct {
+	ID     string `json:"Id"`
+	Name   string `json:"Name"`
+	Config struct {
+		Labels map[string]string `json:"Labels"`
+	} `json:"Config"`
+	Mounts []struct {
+		Source string `json:"Source"`
+	} `json:"Mounts"`
+}
 
 type processTerminal struct {
 	file      *os.File
@@ -161,7 +175,7 @@ func (r *DockerRunner) StartInteractive(workspace Workspace, options TerminalOpt
 	if options.Cwd != "" && options.Cwd != "." {
 		containerCwd += "/" + filepath.ToSlash(filepath.Clean(options.Cwd))
 	}
-	name := "wharnex-terminal-" + sanitizeContainerName(options.ID)
+	name := interactiveTerminalContainerPrefix + sanitizeContainerName(options.ID)
 	limits := CurrentRunnerLimits()
 	args := []string{"run", "--rm", "--interactive", "--tty", "--name", name, "--read-only", "--network", network,
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
@@ -173,6 +187,12 @@ func (r *DockerRunner) StartInteractive(workspace Workspace, options TerminalOpt
 		"--user", strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid()),
 		"--volume", workspace.Path + ":/workspace:rw", "--workdir", containerCwd,
 	}
+	if ownerRoot := strings.TrimSpace(os.Getenv("WHARNESS_ROOT")); ownerRoot != "" {
+		args = append(args, "--label", "wharness.role=terminal", "--label", "wharness.root="+filepath.Clean(ownerRoot))
+	}
+	if stackID := strings.TrimSpace(os.Getenv("WHARNESS_STACK_ID")); stackID != "" {
+		args = append(args, "--label", "wharness.stack="+stackID)
+	}
 	if !options.Network {
 		args = append(args, "--env", "GOPROXY=off")
 	}
@@ -183,6 +203,95 @@ func (r *DockerRunner) StartInteractive(workspace Workspace, options TerminalOpt
 		_ = exec.CommandContext(ctx, "docker", "rm", "-f", name).Run()
 	}
 	return startProcessTerminal(exec.Command("docker", args...), options, cleanup, onOutput, onExit)
+}
+
+// ReclaimInteractiveTerminals removes terminal containers left behind by a
+// previous backend process for the same Wharnex checkout. New containers carry
+// explicit ownership labels; legacy containers are accepted only when their
+// workspace bind mount lives under this checkout's private TMPDIR.
+func (r *DockerRunner) ReclaimInteractiveTerminals(ctx context.Context, ownerRoot, tempRoot string) (int, error) {
+	ownerRoot = strings.TrimSpace(ownerRoot)
+	if ownerRoot == "" {
+		return 0, nil
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		return 0, errors.New("docker CLI not found while reclaiming interactive terminals")
+	}
+	list := exec.CommandContext(ctx, "docker", "ps", "-aq", "--filter", "name="+interactiveTerminalContainerPrefix)
+	rawIDs, err := list.Output()
+	if err != nil {
+		return 0, fmt.Errorf("list interactive terminal containers: %w", err)
+	}
+	ids := strings.Fields(string(rawIDs))
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	inspectArgs := append([]string{"inspect"}, ids...)
+	rawInspect, err := exec.CommandContext(ctx, "docker", inspectArgs...).Output()
+	if err != nil {
+		return 0, fmt.Errorf("inspect interactive terminal containers: %w", err)
+	}
+	var containers []dockerContainerInspection
+	if err := json.Unmarshal(rawInspect, &containers); err != nil {
+		return 0, fmt.Errorf("decode interactive terminal container inspection: %w", err)
+	}
+	reclaimed := 0
+	var reclaimErr error
+	for _, container := range containers {
+		if !ownedInteractiveTerminalContainer(container, ownerRoot, tempRoot) {
+			continue
+		}
+		if output, err := exec.CommandContext(ctx, "docker", "rm", "-f", container.ID).CombinedOutput(); err != nil {
+			reclaimErr = errors.Join(reclaimErr, fmt.Errorf("remove stale terminal container %s: %w: %s", container.ID, err, strings.TrimSpace(string(output))))
+			continue
+		}
+		reclaimed++
+	}
+	return reclaimed, reclaimErr
+}
+
+func ownedInteractiveTerminalContainer(container dockerContainerInspection, ownerRoot, tempRoot string) bool {
+	if !strings.HasPrefix(strings.TrimPrefix(strings.TrimSpace(container.Name), "/"), interactiveTerminalContainerPrefix) {
+		return false
+	}
+	ownerRoot = filepath.Clean(strings.TrimSpace(ownerRoot))
+	if ownerRoot == "" || ownerRoot == "." {
+		return false
+	}
+	labels := container.Config.Labels
+	if labels != nil {
+		labelRoot := strings.TrimSpace(labels["wharness.root"])
+		role := strings.TrimSpace(labels["wharness.role"])
+		if labelRoot != "" || role != "" {
+			return role == "terminal" && filepath.Clean(labelRoot) == ownerRoot
+		}
+	}
+	tempRoot = filepath.Clean(strings.TrimSpace(tempRoot))
+	if tempRoot == "" || tempRoot == "." || !pathWithin(ownerRoot, tempRoot) {
+		return false
+	}
+	for _, mount := range container.Mounts {
+		if pathWithin(tempRoot, mount.Source) {
+			return true
+		}
+	}
+	return false
+}
+
+func pathWithin(base, candidate string) bool {
+	base, err := filepath.Abs(filepath.Clean(strings.TrimSpace(base)))
+	if err != nil {
+		return false
+	}
+	candidate, err = filepath.Abs(filepath.Clean(strings.TrimSpace(candidate)))
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(base, candidate)
+	if err != nil {
+		return false
+	}
+	return relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func sanitizeContainerName(value string) string {
