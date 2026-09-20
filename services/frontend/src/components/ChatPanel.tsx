@@ -26,6 +26,7 @@ import {
   type ReferenceableProject,
 } from '../lib/composerDirectives'
 import { ComposerDirectiveConfigPopover, type DirectivePopoverAnchor } from './ComposerDirectiveConfigPopover'
+import { ComposerReferenceStrip } from './ComposerReferenceStrip'
 import { ComposerRichEditor, type CaretRequest, type ComposerRichEditorHandle } from './ComposerRichEditor'
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel'
 import { ComposerDirectiveMenuLayer } from './ComposerDirectiveMenuLayer'
@@ -938,6 +939,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       <div className="composer-scroll-area">
       {planAdjustment && <div className="plan-adjustment-context"><span className="plan-adjustment-icon"><Icon name="plan" size={13}/></span><div><strong>Ajustar plano de execução</strong><small>{planAdjustment.summary}</small><code>{planAdjustment.fileName}</code></div><button type="button" aria-label="Cancelar ajuste do plano" title="Cancelar ajuste" onClick={() => { persistAttachments(attachments.filter((file) => file.name !== planAdjustment.fileName)); setPlanAdjustment(undefined) }}><Icon name="close" size={12}/></button></div>}
       {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
+      <ComposerReferenceStrip sessionId={session.id} directives={parsedDirectives} todos={projectTodos} chatFiles={chatFiles} libraryArtifacts={libraryArtifacts} uploads={attachments} onRemove={removeDirectiveChip}/>
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       {bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
       {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={(value) => { composerMessageRef.current = value; setMessage(value) }} initialPath={attachmentsPanelPath} initialKind={attachmentsPanelKind} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>}
