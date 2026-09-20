@@ -504,6 +504,25 @@ func CommitDiffPaths(ctx context.Context, repoPath, commitSHA string, paths []st
 	return string(output), nil
 }
 
+// CommitIsAncestorOfHead reports whether a commit is already contained in the
+// repository's current HEAD.
+//
+// This is what makes Apply idempotent. A candidate whose integration commit is
+// already an ancestor of HEAD has nothing left to integrate: merging it again
+// is a no-op at best, and at worst — for a self-evolution candidate — it
+// re-runs a full host rebuild for work the host already carries. A real chat
+// stalled exactly there: its merge had succeeded, the rebuild that follows was
+// OOM-killed, and the candidate stayed pending forever, so every later Apply
+// would have repeated the same expensive no-op.
+func CommitIsAncestorOfHead(ctx context.Context, repoPath, commitSHA string) bool {
+	commitSHA = strings.TrimSpace(commitSHA)
+	if commitSHA == "" || !HasCommit(ctx, repoPath, commitSHA) {
+		return false
+	}
+	_, err := runGit(ctx, repoPath, "merge-base", "--is-ancestor", commitSHA, "HEAD")
+	return err == nil
+}
+
 // ResolveRef returns the commit a ref currently points at.
 //
 // A conflict record outlives the branch that produced it — a superseded
