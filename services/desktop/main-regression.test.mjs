@@ -624,18 +624,21 @@ test('expected bundle polling rehydrates recoverable ChatGPT transport and stall
   assert.match(recovery, /CHATGPT_AFFINITY_RECOVERY_GRACE_MS/)
 })
 
-test('a failed delivery continuation escalates once instead of looping behind a reset DOM failure counter', async () => {
+test('a failed delivery wake-up escalates once without a second poll-loop submission path', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
-  const end = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', start)
-  const poll = source.slice(start, end)
-  const continuation = poll.indexOf('await submitChatGPTContinuation(')
-  const escalation = poll.indexOf("escalateChatGPTContinuationFailure(key, expected, error, 'delivery-continuation')", continuation)
-  const genericCatch = poll.indexOf('expected.domProbeFailures = Number(expected.domProbeFailures || 0) + 1', continuation)
-  assert.notEqual(continuation, -1)
-  assert.ok(escalation > continuation)
-  assert.ok(genericCatch > escalation)
-  assert.match(poll.slice(continuation, genericCatch), /catch \(error\) \{[\s\S]*escalateChatGPTContinuationFailure[\s\S]*return/)
+  const recoveryStart = source.indexOf('async function performChatGPTRecoveryAction(')
+  const recoveryEnd = source.indexOf('\nfunction escalateChatGPTContinuationFailure', recoveryStart)
+  const recovery = source.slice(recoveryStart, recoveryEnd)
+  assert.match(recovery, /submitChatGPTContinuation\(key, entry\.affinity\.boundURL, expected\.requestId, entry\)/)
+  assert.match(recovery, /escalateChatGPTContinuationFailure\(key, expected, error, 'automatic-recovery'\)/)
+  assert.match(recovery, /MAX_AUTOMATIC_BUNDLE_CONTINUATIONS/)
+  assert.doesNotMatch(recovery, /expected\.recovery = createChatGPTRecoveryState/)
+
+  const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
+  const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', pollStart)
+  const poll = source.slice(pollStart, pollEnd)
+  const afterRecovery = poll.slice(poll.indexOf('if (recoveryAction)'))
+  assert.doesNotMatch(afterRecovery, /submitChatGPTContinuation/)
 })
 
 test('pending bundles resume as durable AWAIT_RESPONSE tasks without allocating a hidden chat view', async () => {
@@ -925,8 +928,9 @@ test('in-flight comments defer stale bundle capture and rearm after the comment 
   const polling = source.slice(pollStart, pollEnd)
   assert.match(polling, /hasPendingChatGPTComments\(key\)\) return/)
   assert.match(polling, /chatGPTResponseCompletionScript\(expected\.assistantBaseline\)/)
-  assert.match(polling, /submitChatGPTContinuation/)
-  assert.match(polling, /MAX_BUNDLE_CONTINUATIONS/)
+  assert.match(polling, /performChatGPTRecoveryAction/)
+  assert.match(polling, /MAX_AUTOMATIC_BUNDLE_CONTINUATIONS/)
+  assert.doesNotMatch(polling.slice(polling.indexOf('if (recoveryAction)')), /submitChatGPTContinuation/)
 })
 
 test('manual pending-request continuation classifies active versus stale transport and stays request scoped', async () => {
@@ -2069,6 +2073,41 @@ test('AWAIT_RESPONSE confirms a completion before concluding the bundle is missi
   assert.match(continuation, /BUNDLE_CONTINUATION_BASE_MS/)
   assert.match(continuation, /lastContinuationAt/)
   assert.match(continuation, /operation: 'CONTINUE_REQUEST'/)
+  assert.match(continuation, /MAX_AUTOMATIC_BUNDLE_CONTINUATIONS/)
+})
+
+test('automatic bundle recovery is one wake-up and validation quiesces queued or in-flight recovery', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const MAX_AUTOMATIC_BUNDLE_CONTINUATIONS = 1/)
+
+  const quiesceStart = source.indexOf('function quiesceChatGPTRecoveryAfterValidatedBundle(')
+  const quiesceEnd = source.indexOf('\nfunction pendingBundleDirectory(', quiesceStart)
+  const quiesce = source.slice(quiesceStart, quiesceEnd)
+  assert.match(quiesce, /abortChatGPTTransportPreparations/)
+  assert.match(quiesce, /chatAgentScheduler\.cancelLineage/)
+
+  const handlerValidation = source.indexOf('quiesceChatGPTRecoveryAfterValidatedBundle(validated.requestId')
+  const publish = source.indexOf('publishBundleDownload(', handlerValidation)
+  assert.ok(handlerValidation >= 0 && publish > handlerValidation, 'valid bundle must quiesce recovery before publication/ack')
+
+  const helperStart = source.indexOf('async function submitChatGPTContinuation(')
+  const helperEnd = source.indexOf('\n\nfunction durableWorkspaceChatID(', helperStart)
+  const helper = source.slice(helperStart, helperEnd)
+  assert.match(helper, /beforeDispatch: preDispatch/)
+  assert.match(helper, /automaticChatGPTContinuationBlockReason/)
+  assert.match(helper, /throwIfChatGPTTransportAborted/)
+
+  const recoveryStart = source.indexOf('async function performChatGPTRecoveryAction(')
+  const recoveryEnd = source.indexOf('\nfunction escalateChatGPTContinuationFailure', recoveryStart)
+  const recovery = source.slice(recoveryStart, recoveryEnd)
+  assert.doesNotMatch(recovery, /expected\.recovery = createChatGPTRecoveryState/)
+  assert.match(recovery, /MAX_AUTOMATIC_BUNDLE_CONTINUATIONS/)
+
+  const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(')
+  const pollEnd = source.indexOf('\nfunction scheduleExpectedChatGPTBundlePolling', pollStart)
+  const poll = source.slice(pollStart, pollEnd)
+  const afterRecovery = poll.slice(poll.indexOf('if (recoveryAction)'))
+  assert.doesNotMatch(afterRecovery, /submitChatGPTContinuation/)
 })
 
 test('Worker recovery writes send only keep continue and never rebuild the request bundle', async () => {
@@ -2085,6 +2124,8 @@ test('Worker recovery writes send only keep continue and never rebuild the reque
   const write = source.slice(writeStart, writeEnd)
   assert.match(write, /payload\.operation === 'CONTINUE_REQUEST'/)
   assert.match(write, /submitChatGPTContinuation\(key, conversationURL, task\.request_id, entry\)/)
+  assert.match(write, /chatGPTBundleAlreadyValidated\(task\.request_id\)/)
+  assert.match(write, /result\?\.skipped/)
 })
 
 test('autonomous submissions are spaced process-wide and re-check the provider cooldown', async () => {
@@ -2432,7 +2473,6 @@ test('Worker cooldown does not block Supervisor continuation paths', async () =>
 
   const polling = source.slice(source.indexOf('async function pollExpectedChatGPTDownloadKey('), source.indexOf('\nasync function pollExpectedChatGPTDownloads('))
   assert.doesNotMatch(polling, /chatAgentRateLimitResumeBlocked\(\)/)
-  assert.match(polling, /error instanceof ChatGPTRateLimitDeferral\) return/)
 
   const recovery = source.slice(source.indexOf('async function performChatGPTRecoveryAction('), source.indexOf('\nfunction escalateChatGPTContinuationFailure'))
   assert.match(recovery, /error instanceof ChatGPTRateLimitDeferral\) return true/)

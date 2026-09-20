@@ -1,3 +1,11 @@
+## 2026-09-20 — `keep continue` is a one-shot wake-up
+
+- `node --check services/desktop/main.mjs`
+- `cd services/desktop && node --test chatgpt-recovery.test.mjs main-regression.test.mjs`
+- `cd services/backend && go test ./internal/planner`
+- `git diff --check`
+- Regression contract: a validated exact response ZIP quiesces recovery before frontend/backend acknowledgement, aborts prepared transport, cancels durable recovery lineage, and no second automatic `keep continue` can be submitted.
+
 ## Unreleased Git/Plan visual ergonomics and manual patch fallback
 
 - `GitDrawer.test.tsx` verifies history branch selection through the new multi-select while keeping selected/all history fetch semantics.
