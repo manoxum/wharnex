@@ -3398,7 +3398,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setHiddenSurfaceKeys((current) => current.includes(key) ? current : [...current, key])
     if (target.kind === 'chat' && target.chatId === activeChatId) {
       const hidden = new Set([...hiddenSurfaceKeys, key])
-      const replacement = chats.find((chat) => !hidden.has(workspaceSurfaceKey({ projectPath: session.project_path, kind: 'chat', chatId: chat.id })))
+      const replacement = chats.find((chat) => !hidden.has(workspaceSurfaceKey({ kind: 'chat', chatId: chat.id })))
       if (replacement) void selectChat(replacement.id)
     }
   }
