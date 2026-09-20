@@ -31,6 +31,7 @@ vi.mock('../lib/api', async () => {
       gitHistory: vi.fn().mockResolvedValue([]),
       gitHistoryPage: vi.fn().mockResolvedValue({ commits: [], next_offset: 0, has_more: false }),
       gitHistoryCommit: vi.fn(),
+      gitContributors: vi.fn(),
       gitMergeCandidates: vi.fn(),
       setGitConflictStrategy: vi.fn().mockResolvedValue({ conflict_strategy: 'user_decide' }),
       setGitAuthorSettings: vi.fn().mockResolvedValue({ commit_author_strategy: 'wharnex_git_user' }),
@@ -67,7 +68,7 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
   }
 }
 
-function openTab(name: 'Alterações' | 'Histórico' | 'Branches' | 'Definições') {
+function openTab(name: 'Alterações' | 'Histórico' | 'Contribuidores' | 'Branches' | 'Definições') {
   const tabs = screen.getByRole('tablist', { name: 'Secções do Git' })
   const tab = Array.from(tabs.querySelectorAll<HTMLButtonElement>('[role=tab]')).find((candidate) => candidate.textContent?.includes(name))
   if (!tab) throw new Error(`tab ${name} not found`)
@@ -85,6 +86,17 @@ describe('GitDrawer', () => {
     vi.mocked(api.gitHead).mockResolvedValue({ current_branch: 'main', detached: false, commit_sha: 'a1' })
     vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [] })
     vi.mocked(api.gitHistoryPage).mockResolvedValue({ commits: overview().commits, next_offset: overview().commits.length, has_more: false })
+    vi.mocked(api.gitContributors).mockResolvedValue({
+      total_commits: 5, truncated: false,
+      weeks: [
+        { started_at: '2026-08-31T00:00:00Z', commits: 2, additions: 18, deletions: 3 },
+        { started_at: '2026-09-07T00:00:00Z', commits: 3, additions: 27, deletions: 5 },
+      ],
+      contributors: [
+        { name: 'Ana Costa', email: 'ana@example.test', commits: 3, additions: 32, deletions: 6, first_commit_at: '2026-08-31T10:00:00Z', last_commit_at: '2026-09-10T10:00:00Z', weekly_commits: [1, 2] },
+        { name: 'Bruno Lima', email: 'bruno@example.test', commits: 2, additions: 13, deletions: 2, first_commit_at: '2026-09-01T10:00:00Z', last_commit_at: '2026-09-08T10:00:00Z', weekly_commits: [1, 1] },
+      ],
+    })
     vi.mocked(api.gitMergeCandidates).mockImplementation(async (_id, target) => overview().branches.filter((branch) => branch.name !== target).map((branch) => ({ ...branch, unmerged_commits: 1 })))
   })
 
@@ -224,6 +236,22 @@ describe('GitDrawer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Todas' }))
     await waitFor(() => expect(api.gitHistoryPage).toHaveBeenCalledWith('ses_1', [], true, 0, 50))
+  })
+
+  it('shows contributor ranking and weekly Git activity like repository insights', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Contribuidores')
+
+    expect(await screen.findByText('Ranking')).toBeTruthy()
+    await waitFor(() => expect(api.gitContributors).toHaveBeenCalledWith('ses_1'))
+    expect(screen.getByText('Ana Costa')).toBeTruthy()
+    expect(screen.getByText('Bruno Lima')).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Commits por semana em 2 semanas' })).toBeTruthy()
+    const ranking = document.querySelector('.git-contributor-ranking')
+    expect(ranking?.textContent).toContain('Ana Costa')
+    expect(ranking?.textContent).toContain('32')
+    expect(document.querySelectorAll('.git-contribution-week').length).toBe(2)
   })
 
   it('presents branch history commit details with a dedicated visual hierarchy', async () => {

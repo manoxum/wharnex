@@ -21,6 +21,7 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git/context", a.gitRequestContext)
 	mux.HandleFunc("GET /api/sessions/{id}/git/diff", a.gitFileDiff)
 	mux.HandleFunc("GET /api/sessions/{id}/git/history", a.gitHistory)
+	mux.HandleFunc("GET /api/sessions/{id}/git/contributors", a.gitContributors)
 	mux.HandleFunc("GET /api/sessions/{id}/git/history/page", a.gitHistoryPage)
 	mux.HandleFunc("GET /api/sessions/{id}/git/history/{sha}", a.gitHistoryCommit)
 	mux.HandleFunc("GET /api/sessions/{id}/git/merge-candidates", a.gitMergeCandidates)
@@ -77,6 +78,15 @@ func (a *API) gitHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, commits)
+}
+
+func (a *API) gitContributors(w http.ResponseWriter, r *http.Request) {
+	overview, err := a.service.GitContributors(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_contributors_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, overview)
 }
 
 func (a *API) gitHistoryPage(w http.ResponseWriter, r *http.Request) {

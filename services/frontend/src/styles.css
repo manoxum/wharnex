@@ -7256,3 +7256,50 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .git-history-commit-modal > .git-history-commit-header { min-height: 60px; padding-left: 12px; }
   .git-history-commit-disclosure { padding: 0 12px; }
 }
+
+
+/* Git contributors insights */
+.git-contributors-section { gap: 12px; }
+.git-contributor-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.git-contributor-summary > div { min-width: 0; padding: 9px 10px; display: grid; gap: 3px; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: color-mix(in srgb, var(--theme-elevated) 82%, var(--theme-accent) 2%); }
+.git-contributor-summary strong { color: var(--theme-text); font: 760 calc(13px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); }
+.git-contributor-summary span { overflow: hidden; color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); text-overflow: ellipsis; white-space: nowrap; }
+.git-contribution-chart-card { padding: 10px 10px 8px; display: grid; gap: 8px; border: 1px solid var(--theme-border-soft); border-radius: 10px; background: color-mix(in srgb, var(--theme-bg) 72%, var(--theme-surface)); }
+.git-contribution-chart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.git-contribution-chart-heading > div { display: grid; gap: 2px; }
+.git-contribution-chart-heading strong { color: var(--theme-text); font-size: calc(8.7px * var(--ui-font-scale)); }
+.git-contribution-chart-heading span, .git-contribution-sampled { color: var(--theme-text-muted); font-size: calc(6.8px * var(--ui-font-scale)); }
+.git-contribution-sampled { padding: 3px 6px; border: 1px solid var(--theme-border-soft); border-radius: 999px; background: var(--theme-muted); white-space: nowrap; }
+.git-contribution-chart { height: 116px; display: flex; align-items: end; gap: 2px; padding: 8px 3px 3px; border-bottom: 1px solid var(--theme-border-soft); background: linear-gradient(to top, transparent 24%, color-mix(in srgb, var(--theme-border-soft) 35%, transparent) 25%, transparent 26%, transparent 49%, color-mix(in srgb, var(--theme-border-soft) 35%, transparent) 50%, transparent 51%, transparent 74%, color-mix(in srgb, var(--theme-border-soft) 35%, transparent) 75%, transparent 76%); }
+.git-contribution-week { min-width: 2px; height: 100%; flex: 1 1 0; display: flex; align-items: end; }
+.git-contribution-week > span { width: 100%; min-height: 2px; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-text) 8%); opacity: .82; transition: opacity .15s ease, filter .15s ease; }
+.git-contribution-week:hover > span { opacity: 1; filter: brightness(1.12); }
+.git-contribution-chart-axis { display: flex; justify-content: space-between; color: var(--theme-text-muted); font-size: calc(6.5px * var(--ui-font-scale)); }
+.git-contributor-ranking-heading { display: flex; align-items: end; justify-content: space-between; gap: 10px; padding: 2px 2px 0; }
+.git-contributor-ranking-heading > div { display: grid; gap: 2px; }
+.git-contributor-ranking-heading > div > span { color: var(--theme-text-muted); font-size: calc(6.7px * var(--ui-font-scale)); font-weight: 760; letter-spacing: .07em; text-transform: uppercase; }
+.git-contributor-ranking-heading strong { color: var(--theme-text); font-size: calc(9px * var(--ui-font-scale)); }
+.git-contributor-ranking-heading small { color: var(--theme-text-muted); font-size: calc(6.5px * var(--ui-font-scale)); }
+.git-contributor-ranking { margin: 0; padding: 0; display: grid; list-style: none; border-top: 1px solid var(--theme-border-soft); }
+.git-contributor-ranking > li { min-width: 0; min-height: 52px; padding: 7px 3px; display: grid; grid-template-columns: 25px 30px minmax(120px, 1fr) 86px auto; align-items: center; gap: 8px; border-bottom: 1px solid var(--theme-border-soft); }
+.git-contributor-ranking > li:last-child { border-bottom: 0; }
+.git-contributor-ranking > li:hover { background: color-mix(in srgb, var(--theme-hover) 72%, transparent); }
+.git-contributor-rank { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 7px; color: var(--theme-text-muted); font: 760 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); }
+.git-contributor-rank.top { border: 1px solid color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border)); background: var(--theme-accent-soft); color: var(--theme-text); }
+.git-contributor-avatar { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--theme-border-soft); border-radius: 50%; background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface)); color: var(--theme-text-soft); font: 760 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); }
+.git-contributor-copy { min-width: 0; display: grid; gap: 3px; }
+.git-contributor-copy strong, .git-contributor-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-contributor-copy strong { color: var(--theme-text); font-size: calc(8.4px * var(--ui-font-scale)); }
+.git-contributor-copy span { color: var(--theme-text-muted); font-size: calc(6.6px * var(--ui-font-scale)); }
+.git-contributor-sparkline { width: 86px; height: 24px; overflow: visible; }
+.git-contributor-sparkline polyline { fill: none; stroke: var(--theme-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; opacity: .82; }
+.git-contributor-totals { min-width: 64px; display: grid; justify-items: end; gap: 3px; }
+.git-contributor-totals > strong { color: var(--theme-text); font: 760 calc(9px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); }
+.git-contributor-totals > span { display: flex; gap: 5px; font: 700 calc(6.4px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); }
+.git-contributor-totals b { color: #78b884; }
+.git-contributor-totals i { color: #cf7d75; font-style: normal; }
+@media (max-width: 700px) {
+  .git-contributor-ranking > li { grid-template-columns: 23px 28px minmax(0, 1fr) auto; }
+  .git-contributor-sparkline { display: none; }
+  .git-contributor-ranking-heading small { display: none; }
+}
