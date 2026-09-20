@@ -132,4 +132,22 @@ describe('WorkspaceTopbar self-evolution', () => {
     expect(onMode).toHaveBeenCalledWith('orchestrator')
   })
 
+  it('renders workspace modes as icon-only controls with accessible names', () => {
+    render(<WorkspaceTopbar
+      session={session()}
+      mode="agent"
+      executionMode="protected"
+      automationMode="auto"
+      busy={false}
+      onMode={vi.fn()}
+      onSettings={vi.fn()}
+      onClose={vi.fn()}
+    />)
+    for (const name of ['Editor', 'Agent', 'Orchestrator']) {
+      const button = screen.getByRole('button', { name })
+      expect(button.textContent).toBe('')
+      expect(button.getAttribute('title')).toBe(name)
+    }
+  })
+
 })
