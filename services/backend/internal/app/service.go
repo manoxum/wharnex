@@ -3100,6 +3100,19 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		s.bus.Publish(sessionID, "host.apply_duplicate_blocked", map[string]any{"state": item.State, "reason": "no unconsumed verified candidate remains after acquiring the project apply lock"})
 		return item, ErrExecutionRequired
 	}
+	// Retire what later rounds already superseded and release a conflict record
+	// whose round can no longer arrive, before the guard below reads either.
+	// Both are states earlier rounds left behind, and both otherwise park
+	// verified work permanently: the guard refuses every Apply while a record
+	// exists, and nothing else ever clears an orphaned one.
+	pending, item, err = s.healPendingIntegrationState(ctx, sessionID, item, pending)
+	if err != nil {
+		return item, err
+	}
+	if len(pending) == 0 {
+		s.bus.Publish(sessionID, "host.apply_duplicate_blocked", map[string]any{"state": item.State, "reason": "every pending candidate was superseded by a later resolution"})
+		return item, ErrExecutionRequired
+	}
 	if pendingHostResolutionBlocked(item) {
 		return item, errors.New("finish the active planner/repair turn before applying pending host changes")
 	}
