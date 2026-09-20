@@ -571,12 +571,18 @@ describe('Git workbench CSS', () => {
   it('gives branch-history commit diffs a dedicated review hierarchy', () => {
     const modal = firstRule('.git-history-commit-modal')
     const header = firstRule('.git-history-commit-modal > .git-history-commit-header')
+    const heading = firstRule('.git-history-commit-modal > .git-history-commit-header > .git-history-commit-heading')
+    const actions = firstRule('.git-history-commit-modal > .git-history-commit-header > .git-history-commit-actions')
+    const stats = firstRule('.git-history-commit-stats')
     const activeFile = lastRule('.git-history-commit-modal .git-diff-review-files button.active')
 
     expect(modal).toContain('width: min(1320px, calc(100vw - 56px))')
     expect(modal).toContain('border-radius: 16px')
-    expect(header).toContain('min-height: 70px')
+    expect(header).toContain('min-height: 78px')
     expect(header).toContain('linear-gradient')
+    expect(heading).toContain('display: flex')
+    expect(actions).toContain('display: flex')
+    expect(stats).toContain('grid-template-columns: repeat(3, minmax(54px, auto))')
     expect(activeFile).toContain('box-shadow: inset 2px 0 0 var(--theme-accent)')
   })
 
