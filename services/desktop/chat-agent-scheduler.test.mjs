@@ -483,3 +483,61 @@ test('a caller that does not scope by project claims exactly as before', async (
   assert.equal(bodies[0].project_scoped, false)
   assert.deepEqual(bodies[0].open_projects, [])
 })
+
+test('enqueueWithRetry retries a transient enqueue failure and eventually succeeds', async () => {
+  let attempts = 0
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    fetchImpl: async (url) => {
+      if (url.endsWith('/api/chat-agent/tasks')) {
+        attempts += 1
+        if (attempts < 3) return { ok: false, status: 503, json: async () => ({ error: { message: 'unavailable' } }) }
+        return { ok: true, json: async () => ({ task_id: 'cat_1' }) }
+      }
+      throw new Error(`unexpected url ${url}`)
+    },
+    execute: async () => ({ status: 'done' }),
+  })
+  const queued = await scheduler.enqueueWithRetry({ type: 'AWAIT_RESPONSE' }, { attempts: 5, baseMs: 1 })
+  assert.equal(queued.task_id, 'cat_1')
+  assert.equal(attempts, 3)
+})
+
+test('enqueueWithRetry surfaces the failure once every attempt is exhausted, so a Main Request never proceeds untracked', async () => {
+  let attempts = 0
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    fetchImpl: async () => { attempts += 1; return { ok: false, status: 500, json: async () => ({ error: { message: 'down' } }) } },
+    execute: async () => ({ status: 'done' }),
+  })
+  await assert.rejects(() => scheduler.enqueueWithRetry({ type: 'AWAIT_RESPONSE' }, { attempts: 3, baseMs: 1 }))
+  assert.equal(attempts, 3)
+})
+
+test('recordTaskEvent posts the event to the task-scoped endpoint', async () => {
+  const posted = []
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    fetchImpl: async (url, init) => {
+      posted.push({ url, body: JSON.parse(init.body) })
+      return { ok: true, json: async () => ({ id: 'cae_1' }) }
+    },
+    execute: async () => ({ status: 'done' }),
+  })
+  await scheduler.recordTaskEvent('cat_1', 'chatgpt.recovery_keep_continue', { reason: 'completed-without-bundle' }, { requestId: 'req_1', rootRequestId: 'req_root' })
+  assert.equal(posted.length, 1)
+  assert.ok(posted[0].url.endsWith('/api/chat-agent/tasks/cat_1/events'))
+  assert.equal(posted[0].body.type, 'chatgpt.recovery_keep_continue')
+  assert.equal(posted[0].body.request_id, 'req_1')
+  assert.equal(posted[0].body.root_request_id, 'req_root')
+})
+
+test('recordTaskEvent never throws into the caller, matching the best-effort observability contract', async () => {
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080',
+    fetchImpl: async () => { throw new Error('network down') },
+    execute: async () => ({ status: 'done' }),
+  })
+  const result = await scheduler.recordTaskEvent('cat_1', 'chatgpt.recovery_reload', {})
+  assert.equal(result, undefined)
+})
