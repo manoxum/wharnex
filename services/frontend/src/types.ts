@@ -793,6 +793,8 @@ export type GitBranch = {
   behind: number
   has_upstream: boolean
   gone: boolean
+  counterpart?: string
+  has_counterpart?: boolean
 }
 
 export type GitRemote = { name: string; url: string }
@@ -905,6 +907,7 @@ export type GitPushResult = {
   conflict_id?: string
 }
 export type GitMergeResult = { outcome: string; ref: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
+export type GitRemoteMergeResult = { outcome: string; target_ref: string; source_refs: string[]; commit_sha?: string; push_outcome?: string; conflict_ref?: string; paths?: string[]; detail?: string }
 export type GitBranchActionResult = { outcome: string; remote?: string; branch?: string; ref?: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
 
 // One conversation a chat with a lost binding may belong to, with the evidence

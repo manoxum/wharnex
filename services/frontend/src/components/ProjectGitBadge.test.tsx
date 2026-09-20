@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitOverview } from '../types'
 import { api } from '../lib/api'
@@ -45,6 +45,26 @@ describe('ProjectGitBadge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
+  })
+
+  it('refreshes remote refs every minute without opening the popup', async () => {
+    vi.useFakeTimers()
+    vi.mocked(api.gitFetch).mockResolvedValue({ outcome: 'fetched', remote: 'origin' })
+    const view = render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    try {
+      await act(async () => { await Promise.resolve() })
+      await act(async () => {
+        vi.advanceTimersByTime(60_000)
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin')
+      expect(vi.mocked(api.gitOverview).mock.calls.length).toBeGreaterThanOrEqual(3)
+    } finally {
+      view.unmount()
+      vi.useRealTimers()
+    }
   })
 
   it('dismisses the branch popup when the user clicks outside or presses Escape', async () => {

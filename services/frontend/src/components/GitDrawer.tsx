@@ -26,6 +26,8 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
   const [openDiff, setOpenDiff] = useState<GitPendingCommit | null>(null)
   const [worktreeDiff, setWorktreeDiff] = useState<GitFileDiff | null>(null)
   const [mergeRef, setMergeRef] = useState('')
+  const [remoteMergeTarget, setRemoteMergeTarget] = useState('')
+  const [remoteMergeSources, setRemoteMergeSources] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<GitTab>('changes')
   const [operation, setOperation] = useState<GitOperation | null>(null)
   const [activeChangesTab, setActiveChangesTab] = useState<GitChangesTab>('working')
@@ -238,6 +240,18 @@ export function GitDrawer({ session, busy, onClose, onError, onSession }: {
           current={current?.name || overview.current_branch} detached={overview.detached}
           localBranches={localBranches} remoteBranches={remoteBranches} remotes={overview.remotes}
           disabled={disabled} mergeRef={mergeRef} onMergeRefChange={setMergeRef}
+          remoteMergeTarget={remoteMergeTarget} remoteMergeSources={remoteMergeSources}
+          onRemoteMergeTargetChange={setRemoteMergeTarget} onRemoteMergeSourcesChange={setRemoteMergeSources}
+          onRemoteMerge={() => runGitOperation(
+            'A integrar branches remotas',
+            `A integrar ${remoteMergeSources.join(', ')} em ${remoteMergeTarget} sem alterar a branch local.`,
+            async () => {
+              const result = await api.gitRemoteMerge(session.id, remoteMergeTarget, remoteMergeSources)
+              if (result.outcome === 'conflict') return `Merge remoto encontrou conflito em ${result.conflict_ref}; nenhuma branch local ou remota foi alterada.`
+              setRemoteMergeSources([])
+              return `Merge remoto em ${result.target_ref}: ${result.outcome}${result.push_outcome ? ` · push ${result.push_outcome}` : ''}.`
+            },
+          )}
           onMerge={() => runGitOperation(
             'A integrar branch',
             `A fazer merge de ${mergeRef} na branch atual.`,
@@ -409,9 +423,10 @@ function CommitModeSection({ overview, disabled, onChange }: { overview: GitOver
   </section>
 }
 
-function BranchSection({ current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, onFetch, onPull, onSwitch, onPush }: {
+function BranchSection({ current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onPush }: {
   current?: string; detached: boolean; localBranches: GitOverview['branches']; remoteBranches: GitOverview['branches']; remotes: GitOverview['remotes']
   disabled: boolean; mergeRef: string; onMergeRefChange: (value: string) => void; onMerge: () => void
+  remoteMergeTarget: string; remoteMergeSources: string[]; onRemoteMergeTargetChange: (value: string) => void; onRemoteMergeSourcesChange: (values: string[]) => void; onRemoteMerge: () => void
   onFetch: (remote: string) => void; onPull: (remote: string, branch: string) => void; onSwitch: (branch: string) => void
   onPush: (remote: string, branch: string, setUpstream: boolean) => void
 }) {
@@ -419,12 +434,14 @@ function BranchSection({ current, detached, localBranches, remoteBranches, remot
   const upstreamRemote = active?.upstream?.split('/')[0]
   const defaultRemote = upstreamRemote || remotes[0]?.name || 'origin'
   const canSync = Boolean(current) && !detached && remotes.length > 0
+  const remoteMergeOptions = remoteBranches.filter((branch) => branch.name !== remoteMergeTarget)
   return <section className="git-section git-branches-section">
     <div className="git-branch-hero">
       <span className="git-branch-icon"><Icon name="git" size={16}/></span>
       <div><span>Branch atual</span><strong>{detached ? 'HEAD destacado' : current || '—'}</strong>{active?.has_upstream && <small>↑{active.ahead} ↓{active.behind} · {active.upstream}</small>}{active && !active.has_upstream && <small>sem upstream</small>}</div>
       {canSync && active && <div className="git-branch-hero-actions"><button type="button" className="git-action" disabled={disabled} onClick={() => onFetch(defaultRemote)}><Icon name="refresh" size={13}/> Fetch</button><button type="button" className="git-action" disabled={disabled} onClick={() => onPull(defaultRemote, active.name)}><Icon name="arrow-down" size={13}/> Pull</button><button type="button" className="git-action" disabled={disabled} onClick={() => onPush(defaultRemote, active.name, !active.has_upstream)}><Icon name="arrow-up" size={13}/> Push</button></div>}
     </div>
+    <p className="git-hint git-auto-fetch-hint"><Icon name="refresh" size={11}/> As referências remotas do projeto são atualizadas automaticamente a cada 60 s.</p>
     <div className="git-merge-card">
       <div><span>Integrar branch</span><strong>Merge no branch atual</strong></div>
       <div className="git-row">
@@ -436,16 +453,36 @@ function BranchSection({ current, detached, localBranches, remoteBranches, remot
         <button type="button" className="git-action" disabled={disabled || !mergeRef} onClick={onMerge}><Icon name="bridge" size={13}/> Merge</button>
       </div>
     </div>
+    <div className="git-merge-card git-remote-merge-card">
+      <div><span>Integração remota isolada</span><strong>Merge entre branches remotas</strong></div>
+      <div className="git-remote-merge-controls">
+        <label>Destino remoto<select aria-label="Branch remota de destino" value={remoteMergeTarget} disabled={disabled} onChange={(event) => { onRemoteMergeTargetChange(event.target.value); onRemoteMergeSourcesChange(remoteMergeSources.filter((ref) => ref !== event.target.value)) }}><option value="">Escolher destino…</option>{remoteBranches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}</select></label>
+        <label>Branches a integrar<select aria-label="Branches remotas a integrar" multiple value={remoteMergeSources} disabled={disabled || !remoteMergeTarget} onChange={(event) => onRemoteMergeSourcesChange(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}>{remoteMergeOptions.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}</select></label>
+        <button type="button" className="git-action" disabled={disabled || !remoteMergeTarget || remoteMergeSources.length === 0} onClick={onRemoteMerge}><Icon name="network" size={13}/> Merge remoto ({remoteMergeSources.length})</button>
+      </div>
+      <p className="git-hint">Executa num worktree temporário e só publica o resultado no destino; a branch local atual não é alternada.</p>
+    </div>
     <BranchList title="Locais" branches={localBranches} disabled={disabled} onSwitch={onSwitch}/>
-    <BranchList title="Remotas" branches={remoteBranches}/>
+    <BranchList title="Remotas" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch}/>
   </section>
 }
 
 function BranchList({ title, branches, disabled = false, onSwitch }: { title: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void }) {
   return <div className="git-branch-group"><div className="git-section-heading compact"><div><span>{title}</span></div><span className="git-section-count">{branches.length}</span></div>
-    <ul className="git-branch-list">{branches.map((branch) => <li key={branch.name} className={`${branch.current ? 'current' : ''} ${branch.remote ? 'remote' : ''}`}>
-      <span className="git-branch-marker"><Icon name="git" size={12}/></span><span className="git-branch-name">{branch.name}</span><span className="git-branch-subject">{branch.subject}</span>{onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}><Icon name="bridge" size={11}/><span>Alternar</span></button>}
-    </li>)}</ul>
+    <ul className="git-branch-list">{branches.map((branch) => {
+      const counterpartLabel = branch.remote ? (branch.has_counterpart ? `Existe localmente como ${branch.counterpart}` : 'Ainda não existe localmente') : (branch.has_counterpart ? `Existe remotamente como ${branch.counterpart}` : 'Ainda não existe remotamente')
+      return <li key={branch.name} className={`${branch.current ? 'current' : ''} ${branch.remote ? 'remote' : ''}`}>
+        <span className="git-branch-marker"><Icon name="git" size={12}/></span>
+        <span className="git-branch-name">{branch.name}</span>
+        <span className="git-branch-sync" aria-label={`Sincronização de ${branch.name}`}>
+          <span className={branch.ahead > 0 ? 'active outgoing' : ''} title={`${branch.ahead} commit(s) para enviar`}><Icon name="arrow-up" size={11}/><b>{branch.ahead}</b></span>
+          <span className={branch.behind > 0 ? 'active incoming' : ''} title={`${branch.behind} commit(s) para receber`}><Icon name="arrow-down" size={11}/><b>{branch.behind}</b></span>
+          <span className={`git-branch-counterpart ${branch.has_counterpart ? 'active' : ''}`} title={counterpartLabel} aria-label={counterpartLabel}><Icon name="link" size={11}/></span>
+        </span>
+        <span className="git-branch-subject">{branch.subject}</span>
+        {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}><Icon name="bridge" size={11}/><span>{branch.remote && !branch.has_counterpart ? 'Criar local' : 'Alternar'}</span></button>}
+      </li>
+    })}</ul>
   </div>
 }
 

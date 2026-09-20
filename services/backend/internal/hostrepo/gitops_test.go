@@ -597,3 +597,114 @@ func TestUnpushedAndPushCommitPublishOnlySelectedTip(t *testing.T) {
 		t.Fatalf("selective push must not move local HEAD, got %s want %s", localHead, second)
 	}
 }
+
+func TestFetchPrunesDeletedRemoteTrackingBranches(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+	git(t, root, "branch", "stale")
+	git(t, root, "push", "-q", "origin", "stale")
+	git(t, remote, "update-ref", "-d", "refs/heads/stale")
+	if err := Fetch(context.Background(), root, "origin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(context.Background(), root, "show-ref", "--verify", "refs/remotes/origin/stale"); err == nil {
+		t.Fatal("fetch must prune a remote-tracking branch deleted on the server")
+	}
+}
+
+func TestBranchesPairsLocalAndRemoteAndMirrorsDivergence(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+	write(t, root, "local.txt", "local\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: local")
+
+	branches, err := Branches(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]Branch{}
+	for _, branch := range branches {
+		byName[branch.Name] = branch
+	}
+	local, remoteBranch := byName["main"], byName["origin/main"]
+	if !local.HasCounterpart || local.Counterpart != "origin/main" || local.Ahead != 1 || local.Behind != 0 {
+		t.Fatalf("unexpected local pairing: %+v", local)
+	}
+	if !remoteBranch.HasCounterpart || remoteBranch.Counterpart != "main" || remoteBranch.Ahead != 1 || remoteBranch.Behind != 0 {
+		t.Fatalf("unexpected remote pairing: %+v", remoteBranch)
+	}
+}
+
+func TestSwitchRemoteBranchCreatesTrackingLocalBranch(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+	git(t, root, "branch", "feature")
+	git(t, root, "push", "-q", "origin", "feature")
+	git(t, root, "branch", "-D", "feature")
+	local, err := SwitchRemoteBranch(context.Background(), root, "origin/feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local != "feature" || CurrentBranch(context.Background(), root) != "feature" {
+		t.Fatalf("remote switch created %q on %q", local, CurrentBranch(context.Background(), root))
+	}
+	branches, err := Branches(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, branch := range branches {
+		if branch.Name == "feature" && branch.Upstream == "origin/feature" {
+			return
+		}
+	}
+	t.Fatal("new local branch does not track origin/feature")
+}
+
+func TestMergeRemoteBranchesUsesDisposableWorktreeAndPreservesCurrentBranch(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "README.md", "root\n")
+	remote := newBareRemote(t)
+	git(t, root, "remote", "add", "origin", remote)
+	git(t, root, "push", "-q", "--set-upstream", "origin", "main")
+	git(t, root, "checkout", "-qb", "target")
+	write(t, root, "target.txt", "target\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: target")
+	git(t, root, "push", "-q", "origin", "target")
+	git(t, root, "checkout", "-qb", "source", "main")
+	write(t, root, "source.txt", "source\n")
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-qm", "feat: source")
+	git(t, root, "push", "-q", "origin", "source")
+	git(t, root, "checkout", "-q", "main")
+	before, _ := run(context.Background(), root, "rev-parse", "HEAD")
+
+	result, err := MergeRemoteBranches(context.Background(), root, "origin/target", []string{"origin/source"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != "merged" || result.PushOutcome != string(PushOutcomePushed) {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if CurrentBranch(context.Background(), root) != "main" {
+		t.Fatalf("current branch changed to %q", CurrentBranch(context.Background(), root))
+	}
+	after, _ := run(context.Background(), root, "rev-parse", "HEAD")
+	if before != after {
+		t.Fatalf("local HEAD changed from %s to %s", before, after)
+	}
+	git(t, root, "fetch", "-q", "origin")
+	if _, err := run(context.Background(), root, "merge-base", "--is-ancestor", "origin/source", "origin/target"); err != nil {
+		t.Fatal("target does not contain source after remote merge")
+	}
+}

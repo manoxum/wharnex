@@ -14,6 +14,7 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
   const [notice, setNotice] = useState('')
   const [operation, setOperation] = useState<GitOperation | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const autoFetchRunning = useRef(false)
 
   const refresh = useCallback(async () => {
     if (!id) throw new Error('Sessão Git ainda não disponível.')
@@ -33,6 +34,32 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
     }).catch(() => {})
     return () => { alive = false }
   }, [id, session?.state, session?.last_host_applied_at])
+
+  useEffect(() => {
+    if (!id) return
+    let alive = true
+    const timer = window.setInterval(() => {
+      if (busy || working || autoFetchRunning.current) return
+      autoFetchRunning.current = true
+      void (async () => {
+        try {
+          const snapshot = await api.gitOverview(id)
+          if (!snapshot.available || snapshot.remotes.length === 0) return
+          for (const remote of snapshot.remotes) await api.gitFetch(id, remote.name)
+          const updated = await api.gitOverview(id)
+          if (alive) setOverview(updated)
+        } catch {
+          // Periodic remote refresh is best-effort; explicit actions report failures.
+        } finally {
+          autoFetchRunning.current = false
+        }
+      })()
+    }, 60_000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [id, busy, working])
 
   useEffect(() => {
     if (!open) return

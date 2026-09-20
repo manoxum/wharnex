@@ -6270,3 +6270,19 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .composer-reference-thumbnail, .composer-attachment-chip { min-width: min(100%, 230px); max-width: 100%; flex: 1 1 220px; }
   .composer-reference-viewer { width: 100%; height: calc(100vh - 14px); }
 }
+
+
+/* Branch synchronization metadata and isolated remote merge controls. */
+.git-auto-fetch-hint { display:flex; align-items:center; gap:5px; }
+.git-remote-merge-controls { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto; gap:8px; align-items:end; }
+.git-remote-merge-controls label { display:grid; gap:4px; color:var(--theme-text-muted); font-size:calc(7.4px * var(--ui-font-scale)); }
+.git-remote-merge-controls select[multiple] { min-height:72px; }
+.git-branch-list li { grid-template-columns:18px minmax(90px,auto) auto minmax(0,1fr) auto; }
+.git-branch-sync { display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.git-branch-sync > span { min-width:28px; height:22px; padding:0 4px; display:inline-flex; align-items:center; justify-content:center; gap:2px; border:1px solid var(--theme-border-soft); border-radius:6px; color:var(--theme-text-muted); background:var(--theme-bg); }
+.git-branch-sync > span.active { color:var(--theme-text); border-color:var(--theme-border); }
+.git-branch-sync > span.outgoing.active { color:var(--theme-success, var(--theme-accent)); }
+.git-branch-sync > span.incoming.active { color:var(--theme-warning, var(--theme-accent)); }
+.git-branch-sync b { font-size:calc(7px * var(--ui-font-scale)); font-weight:700; }
+.git-branch-counterpart.active { color:var(--theme-accent) !important; }
+@media (max-width: 820px) { .git-remote-merge-controls { grid-template-columns:1fr; } .git-branch-list li { grid-template-columns:18px minmax(80px,1fr) auto; } .git-branch-subject { grid-column:2 / -1; } .git-branch-switch { grid-column:2 / -1; justify-self:start; } }
