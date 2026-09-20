@@ -3,6 +3,7 @@ import type { ChatAgentQueueSummary, ChatAgentTask } from '../types'
 import { api } from '../lib/api'
 import { desktopBridge } from '../lib/desktop'
 import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../lib/chatAgentTaskNav'
+import { ChatAgentTaskTimeline } from './ChatAgentTaskTimeline'
 import { Icon } from './Icon'
 
 const RUNNING = new Set(['LEASED', 'RUNNING'])
@@ -185,6 +186,11 @@ function TaskCard({ task, disposition, guardReason, queuePosition, chats = [], o
   const [assignmentWorker, setAssignmentWorker] = useState(task.assigned_worker || '')
   const [assignmentMode, setAssignmentMode] = useState<'standard' | 'keep_flowing'>(task.keep_flowing ? 'keep_flowing' : 'standard')
   const [assigning, setAssigning] = useState(false)
+  // Fetching the durable per-task ledger for every visible card on every 5s
+  // refresh would fan the drawer's one poll out into one request per card.
+  // Load it only once the operator actually opens "Detalhes", and keep it
+  // loaded afterwards even if they collapse it again.
+  const [detailsOpened, setDetailsOpened] = useState(false)
   useEffect(() => { setAssignmentWorker(task.assigned_worker || ''); setAssignmentMode(task.keep_flowing ? 'keep_flowing' : 'standard') }, [task.assigned_worker, task.keep_flowing])
   const workerId = running ? extractWorkerId(task.lease_owner) : undefined
   const resolvedChatId = resolveTaskChatId(task, chats)
@@ -217,7 +223,7 @@ function TaskCard({ task, disposition, guardReason, queuePosition, chats = [], o
       <TaskMetric label="Tentativa" value={`${task.attempt}/${task.max_attempts}`}/>
     </div>
     {task.last_error ? <div className="chat-agent-task-error"><Icon name="bell" size={13}/><span>{task.last_error}</span></div> : null}
-    <details className="chat-agent-task-details"><summary><span>Detalhes</span></summary><div className="chat-agent-task-detail-grid">
+    <details className="chat-agent-task-details" onToggle={(event) => { if (event.currentTarget.open) setDetailsOpened(true) }}><summary><span>Detalhes</span></summary><div className="chat-agent-task-detail-grid">
       <TaskDetails title="Execução" rows={[
         ['Entrou na fila', `${timeLabel(task.created_at)} · ${relativeAge(task.created_at)}`],
         ['Último trabalho', `${statusLabel(task.status, disposition)} · ${timeLabel(task.updated_at)} · ${relativeAge(task.updated_at)}`],
@@ -230,6 +236,7 @@ function TaskCard({ task, disposition, guardReason, queuePosition, chats = [], o
         ['Parent task', task.parent_task_id || '—'], ['Dedupe', task.dedupe_key || '—'], ['Lease owner', task.lease_owner || '—'],
       ]}/>
       <pre>{formatPayload(task.payload)}</pre>
+      <ChatAgentTaskTimeline taskId={task.task_id} enabled={detailsOpened}/>
     </div></details>
   </article>
 }
