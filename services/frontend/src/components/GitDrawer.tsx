@@ -8,8 +8,9 @@ import { Icon } from './Icon'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
 import { GitOperationModal, type GitOperation } from './GitOperationModal'
+import { GitContributorsSection } from './GitContributorsSection'
 
-type GitTab = 'changes' | 'history' | 'branches' | 'settings'
+type GitTab = 'changes' | 'history' | 'contributors' | 'branches' | 'settings'
 type GitChangesTab = 'working' | 'pending'
 
 export function GitDrawer({ session, busy, onClose, onError, onSession, onResolveConflictWithGPT }: {
@@ -248,6 +249,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
           />}
         </>}
         {activeTab === 'history' && <HistorySection sessionId={session.id} branches={overview.branches}/>}
+        {activeTab === 'contributors' && <GitContributorsSection sessionId={session.id}/>}
         {activeTab === 'branches' && <BranchSection
           sessionId={session.id}
           current={current?.name || overview.current_branch} detached={overview.detached}
@@ -335,7 +337,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
 }
 
 function gitTabLabel(tab: GitTab) {
-  return ({ changes: 'Alterações', history: 'Histórico', branches: 'Branches', settings: 'Definições' } as const)[tab]
+  return ({ changes: 'Alterações', history: 'Histórico', contributors: 'Contribuidores', branches: 'Branches', settings: 'Definições' } as const)[tab]
 }
 
 function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (tab: GitTab) => void; overview: GitOverview }) {
@@ -345,9 +347,10 @@ function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (ta
     ? current.ahead
     : overview.commits.filter((commit) => !commit.pushed).length
   const changes = localChanges + unpublished
-  const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'bridge' | 'settings'; count?: number }> = [
+  const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'agent' | 'bridge' | 'settings'; count?: number }> = [
     { id: 'changes', icon: 'edit', count: changes },
     { id: 'history', icon: 'git', count: overview.commits.length },
+    { id: 'contributors', icon: 'agent' },
     { id: 'branches', icon: 'bridge', count: overview.branches.length },
     { id: 'settings', icon: 'settings' },
   ]
