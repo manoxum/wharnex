@@ -1108,12 +1108,36 @@ type IntegrationConflictDetail struct {
 	ConflictLines int                `json:"conflict_lines,omitempty"`
 }
 
+// ConflictPathSource records where one conflicting path's BASE and RESULT
+// versions can still be read from once the round that discovered it has ended.
+//
+// A conflict thread can own paths discovered by more than one candidate:
+// applying several pending candidates in one pass may collide on candidate A,
+// receive a resolution, and then collide on candidate B on the very next
+// Apply. Keeping each path's own source is what lets a later round rebuild the
+// capsule for every path the thread still owes a resolution, instead of only
+// the paths of the most recent collision.
+type ConflictPathSource struct {
+	// PlanID is the candidate whose integration branch collided on this path.
+	// It is what retirement needs: the conflicting content has to be removed
+	// from that specific candidate, or it collides again on the next Apply.
+	PlanID string `json:"plan_id,omitempty"`
+	// CandidateSHA is that candidate's own commit (RESULT).
+	CandidateSHA string `json:"candidate_sha,omitempty"`
+	// MergeBaseSHA is the common ancestor the collision was measured against
+	// (BASE). CURRENT is always re-read from the host as it is now.
+	MergeBaseSHA string `json:"merge_base_sha,omitempty"`
+}
+
 type ConflictResolution struct {
-	ID              string                      `json:"id"`
-	RequestID       string                      `json:"request_id"`
-	OriginalPlanIDs []string                    `json:"original_plan_ids"`
-	Paths           []string                    `json:"paths"`
-	Details         []IntegrationConflictDetail `json:"details"`
+	ID              string   `json:"id"`
+	RequestID       string   `json:"request_id"`
+	OriginalPlanIDs []string `json:"original_plan_ids"`
+	Paths           []string `json:"paths"`
+	// PathSources maps each entry in Paths to the commits its BASE and RESULT
+	// versions are read from. See ConflictPathSource.
+	PathSources map[string]ConflictPathSource `json:"path_sources,omitempty"`
+	Details     []IntegrationConflictDetail   `json:"details"`
 	// AttemptHistory records what each earlier round of this same conflict
 	// tried, oldest first. It travels back to the resolver so a repeated
 	// collision is visibly a repeated collision: without it every round looks

@@ -295,14 +295,5 @@ func CommitBaseRootedPatch(ctx context.Context, workspacePath, message string, p
 	if output, err := runGit(ctx, workspacePath, addArgs...); err != nil {
 		return "", fmt.Errorf("stage verified changes: %s", output)
 	}
-	commitArgs := []string{
-		"-c", "user.name=" + gitCommitAuthorName,
-		"-c", "user.email=" + gitCommitAuthorEmail,
-		"-c", "commit.gpgSign=false",
-		"commit", "-q", "-m", message,
-	}
-	if output, err := runGit(ctx, workspacePath, commitArgs...); err != nil {
-		return "", fmt.Errorf("commit verified changes: %s", output)
-	}
-	return CurrentHeadSHA(ctx, workspacePath)
+	return commitStagedVerifiedPatch(ctx, workspacePath, message, false)
 }

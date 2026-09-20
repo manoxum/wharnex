@@ -111,6 +111,17 @@ func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message str
 	if output, err := runGit(ctx, workspacePath, addArgs...); err != nil {
 		return "", fmt.Errorf("stage verified changes: %s", output)
 	}
+	return commitStagedVerifiedPatch(ctx, workspacePath, message, allowEmpty)
+}
+
+// commitStagedVerifiedPatch records an already-staged, already-verified patch.
+//
+// It is the single implementation of this step for every candidate, whether
+// its branch was just created here or was already rooted at the request base
+// by CheckoutRequestBase (see CommitBaseRootedPatch). Carrying two copies is
+// what let a fix applied to one of them leave the other — the base-rooted
+// path, which is the normal path for every new request — still failing.
+func commitStagedVerifiedPatch(ctx context.Context, workspacePath, message string, allowEmpty bool) (string, error) {
 	commitArgs := []string{
 		"-c", "user.name=" + gitCommitAuthorName,
 		"-c", "user.email=" + gitCommitAuthorEmail,
@@ -485,6 +496,24 @@ func CommitDiffPaths(ctx context.Context, repoPath, commitSHA string, paths []st
 		return "", fmt.Errorf("read commit %s as diff: %w", commitSHA, err)
 	}
 	return string(output), nil
+}
+
+// ResolveRef returns the commit a ref currently points at.
+//
+// A conflict record outlives the branch that produced it — a superseded
+// candidate's integration branch is deleted on retirement — so a path's RESULT
+// version must be remembered as a commit, never as a branch name that will
+// stop resolving.
+func ResolveRef(ctx context.Context, repoPath, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", errors.New("a ref is required")
+	}
+	output, err := runGit(ctx, repoPath, "rev-parse", "--verify", "-q", ref+"^{commit}")
+	if err != nil {
+		return "", fmt.Errorf("resolve ref %s: %s", ref, output)
+	}
+	return output, nil
 }
 
 // HasCommit reports whether repoPath's object database contains commitSHA.

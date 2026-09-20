@@ -433,6 +433,42 @@ func (s *Service) deleteSubmoduleIntegrationBranches(ctx context.Context, sessio
 // candidate's branch into a NEW verification sandbox — that conflict's
 // HostSHA/MergeBaseSHA/Branch (an "origin/..." remote-tracking ref) only
 // resolve inside that sandbox's own .git, never the host's.
+// accumulateConflictPaths merges this round's collision into whatever the same
+// conflict thread already owed, returning the full outstanding path set, each
+// path's source commits, and every candidate that has to be retired.
+//
+// Carrying a path forward costs nothing when its refs are gone: ReadFileAtRef
+// reports a missing ref as an absent version, which the capsule already
+// represents, so a path is never silently dropped just because the repository
+// it was measured in has moved on.
+func (s *Service) accumulateConflictPaths(ctx context.Context, item domain.Session, repoPath, failedPlanID string, conflict *sandbox.MergeConflictError, paths []string, continuing bool) ([]string, map[string]domain.ConflictPathSource, []string) {
+	candidateSHA := conflict.Branch
+	if resolved, err := sandbox.ResolveRef(ctx, repoPath, conflict.Branch); err == nil && resolved != "" {
+		candidateSHA = resolved
+	}
+	sources := make(map[string]domain.ConflictPathSource, len(paths))
+	for _, path := range paths {
+		sources[path] = domain.ConflictPathSource{PlanID: failedPlanID, CandidateSHA: candidateSHA, MergeBaseSHA: conflict.MergeBaseSHA}
+	}
+	planIDs := []string{failedPlanID}
+	if !continuing || item.IntegrationConflict == nil {
+		return normalizedPaths(paths), sources, planIDs
+	}
+	// Anything still recorded is still outstanding: the record is cleared the
+	// moment a resolution verifies successfully.
+	for _, path := range item.IntegrationConflict.Paths {
+		if _, fresh := sources[path]; fresh {
+			continue
+		}
+		paths = append(paths, path)
+		sources[path] = item.IntegrationConflict.PathSources[path]
+	}
+	for _, planID := range item.IntegrationConflict.OriginalPlanIDs {
+		planIDs = appendUnique(planIDs, planID)
+	}
+	return normalizedPaths(paths), sources, planIDs
+}
+
 func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessionID string, item domain.Session, repoPath, failedPlanID string, conflict *sandbox.MergeConflictError) (domain.Session, error) {
 	requestID := ids.New("req")
 	conflictID := ids.New("conflict")
@@ -476,20 +512,37 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 	}
 	paths = resolvable
 
+	// A conflict thread owns every path it still owes a resolution for, not
+	// only the paths of the latest collision.
+	//
+	// Applying several pending candidates in one pass can collide on candidate
+	// A, receive a resolution, and then collide on candidate B on the very next
+	// Apply. Rebuilding this record from the newest collision alone dropped the
+	// earlier (path, candidate) pair entirely, so retireConflictingMutations —
+	// which reads exactly this record — never retired it, candidate A kept its
+	// conflicting content and collided again, and the two collisions then
+	// alternated indefinitely, each erasing the other's record. Neither could
+	// ever converge, and every round looked like a fresh first failure.
+	paths, sources, planIDs := s.accumulateConflictPaths(ctx, item, repoPath, failedPlanID, conflict, paths, continuing)
+
 	if conflictResolutionExhausted(item) {
 		return s.exhaustConflictResolution(sessionID, item, conflictID, paths)
 	}
 	files := make([]conflictCapsuleFile, 0, len(paths))
 	for _, path := range paths {
-		base, baseExists, err := sandbox.ReadFileAtRef(ctx, repoPath, conflict.MergeBaseSHA, path)
+		source := sources[path]
+		base, baseExists, err := sandbox.ReadFileAtRef(ctx, repoPath, source.MergeBaseSHA, path)
 		if err != nil {
 			return item, fmt.Errorf("read merge-base content for %s: %w", path, err)
 		}
+		// CURRENT is always the host as it is now, for every path: there is one
+		// host, and a carried path's own older host SHA would show the resolver
+		// content that has since moved.
 		current, currentExists, err := sandbox.ReadFileAtRef(ctx, repoPath, conflict.HostSHA, path)
 		if err != nil {
 			return item, fmt.Errorf("read host content for %s: %w", path, err)
 		}
-		result, resultExists, err := sandbox.ReadFileAtRef(ctx, repoPath, conflict.Branch, path)
+		result, resultExists, err := sandbox.ReadFileAtRef(ctx, repoPath, source.CandidateSHA, path)
 		if err != nil {
 			return item, fmt.Errorf("read candidate content for %s: %w", path, err)
 		}
@@ -527,7 +580,7 @@ func (s *Service) prepareConflictResolutionFromMerge(ctx context.Context, sessio
 	// Carry forward what this round tried, so the next round of the same
 	// conflict can see the shape of the loop rather than restarting blind.
 	history := appendConflictAttempt(intentHistory(item), conflictAttemptRecord(item, paths))
-	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: []string{failedPlanID}, Paths: paths, Details: nil, AttemptHistory: history, CreatedAt: time.Now().UTC()}
+	resolution := domain.ConflictResolution{ID: conflictID, RequestID: requestID, OriginalPlanIDs: planIDs, Paths: paths, PathSources: sources, Details: nil, AttemptHistory: history, CreatedAt: time.Now().UTC()}
 	var prunedContexts []string
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		recordRequestSupportArtifact(current, requestID, conflictCapsuleArtifactPath, capsuleJSON)

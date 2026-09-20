@@ -143,6 +143,45 @@ func TestBaseRootedPatchAppliesAfterHostAdvanced(t *testing.T) {
 	}
 }
 
+// TestCommitBaseRootedPatchToleratesNoopAfterVerification covers the
+// base-rooted commit path — the normal path for every new request — with the
+// same verified no-op CommitVerifiedPatch already tolerates.
+//
+// The two were separate copies of one step, and the copy fixed first was the
+// one this path does not use, so a focused conflict-resolution round whose
+// resolution the base already carried kept failing with Git's own "nothing to
+// commit, working tree clean" and reproduced identically on every retry: the
+// resolver had nothing further it could legitimately change, so no round could
+// ever succeed.
+func TestCommitBaseRootedPatchToleratesNoopAfterVerification(t *testing.T) {
+	requireGit(t)
+	host := newTestHostRepo(t, "TODO.md", "- already resolved\n")
+	ctx := context.Background()
+	base, err := CaptureRequestBase(ctx, host, "req_noop")
+	if err != nil {
+		t.Fatalf("capture request base: %v", err)
+	}
+	workspace := cloneSandbox(t, host)
+	if err := FetchRefFromHost(ctx, workspace, host, RequestBaseRef("req_noop")); err != nil {
+		t.Fatalf("fetch request base: %v", err)
+	}
+	if err := CheckoutRequestBase(ctx, workspace, "whx/req_noop", base); err != nil {
+		t.Fatalf("checkout request base: %v", err)
+	}
+	before := mustGit(t, workspace, "rev-parse", "HEAD")
+	// The resolution reproduces exactly what the base already holds.
+	sha, err := CommitBaseRootedPatch(ctx, workspace, "fix: reconcile TODO.md", []string{"TODO.md"})
+	if err != nil {
+		t.Fatalf("expected a verified no-op to be tolerated, got error: %v", err)
+	}
+	if sha == "" || sha == before {
+		t.Fatalf("expected a distinct traceable commit, before=%s after=%s", before, sha)
+	}
+	if changed := mustGit(t, workspace, "diff", "--name-only", before, sha); changed != "" {
+		t.Fatalf("the tolerated no-op commit must stay content-empty, got %q", changed)
+	}
+}
+
 func TestDeleteRequestBaseRefReleasesAnchor(t *testing.T) {
 	requireGit(t)
 	host := newTestHostRepo(t, "a.txt", "x\n")
