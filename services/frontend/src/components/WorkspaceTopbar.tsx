@@ -33,9 +33,9 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
     <div className="workspace-switches">
       <ProjectGitBadge session={session} busy={busy} onSession={onSession} />
       <div className="mode-switch" role="group" aria-label="Modo do workspace">
-        <button className={mode === 'editor' ? 'active' : ''} onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={15}/> Editor</button>
-        <button className={mode === 'agent' ? 'active' : ''} onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={15}/> Agent</button>
-        <button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={15}/> Orchestrator</button>
+        <button className={mode === 'editor' ? 'active' : ''} aria-label="Editor" title="Editor" onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={15}/></button>
+        <button className={mode === 'agent' ? 'active' : ''} aria-label="Agent" title="Agent" onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={15}/></button>
+        <button className={mode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" title="Orchestrator" onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={15}/></button>
       </div>
     </div>
     <div className="workspace-status">

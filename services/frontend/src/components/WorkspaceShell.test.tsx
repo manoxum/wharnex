@@ -145,6 +145,15 @@ describe('WorkspaceShell project actions', () => {
   })
 
 
+  it('renders shell workspace modes as icon-only controls with accessible names', () => {
+    render(<ShellChrome projects={['/tmp/legacy']} activeProject="/tmp/legacy" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    for (const name of ['Editor', 'Agent', 'Orchestrator']) {
+      const button = screen.getByRole('button', { name })
+      expect(button.textContent).toBe('')
+      expect(button.getAttribute('title')).toBe(name)
+    }
+  })
+
   it('shows recent projects before opening the native folder chooser', async () => {
     vi.spyOn(api, 'config').mockResolvedValue({ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false })
     rememberRecent('/tmp/recent-project')

@@ -32,6 +32,8 @@ export function WorkspaceShell() {
   const [projectRuntime, setProjectRuntime] = useState<Record<string, ProjectRuntimeState>>({})
   const [projectAttention, setProjectAttention] = useState<Record<string, ProjectAttentionState>>({})
   const [composerTypingProject, setComposerTypingProject] = useState('')
+  const activeProjectRef = useRef(activeProject)
+  activeProjectRef.current = activeProject
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [busy, setBusy] = useState(true)
   const [initialized, setInitialized] = useState(false)
@@ -109,7 +111,7 @@ export function WorkspaceShell() {
       if (event.data?.type === 'wharness:composer-typing') {
         const projectPath = String(event.data.projectPath || '')
         const frame = frames.current.get(projectPath)
-        if (projectPath && projectPath === activeProject && frame?.contentWindow === event.source) {
+        if (projectPath && projectPath === activeProjectRef.current && frame?.contentWindow === event.source) {
           setComposerTypingProject(projectPath)
           if (composerTypingTimerRef.current !== undefined) window.clearTimeout(composerTypingTimerRef.current)
           composerTypingTimerRef.current = window.setTimeout(() => {
@@ -329,7 +331,7 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
       })}
     </nav>
     {activeProject && <ProjectGitBadge sessionID={activeSessionID} busy={busy} onSync={onGitSync} />}
-    {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={14}/> Agent</button><button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={14}/> Orchestrator</button></div>}
+    {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} aria-label="Editor" title="Editor" onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={14}/></button><button className={mode === 'agent' ? 'active' : ''} aria-label="Agent" title="Agent" onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={14}/></button><button className={mode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" title="Orchestrator" onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={14}/></button></div>}
     {projects.length > 1 && <span className="multi-project-context" title="O Agent recebe contexto separado de todos os projetos vinculados; execução e Apply continuam isolados por projeto."><Icon name="bridge" size={12}/>{projects.length} projetos no contexto</span>}
     <div className="multi-project-actions">
       <button type="button" onClick={() => { announceHeaderPopover('tunnels'); setTunnelsOpen(true) }} aria-label="Túneis ativos" title="Túneis ativos"><Icon name="network" size={14}/></button>
