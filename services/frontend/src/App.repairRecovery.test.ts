@@ -54,10 +54,16 @@ describe('App policy-repair recovery', () => {
     expect(applyBody).toMatch(/await submitRepairPrompt\(latest, targetChat\)/)
   })
 
+  it('refreshes durable session state when plans, controls, or repair prompts arrive over SSE', () => {
+    expect(source).toMatch(/sessionMutationEvents = new Set\(\['plan\.received', 'plan\.control_changed', 'plan\.reversal_requested', 'repair\.prompt_ready'/)
+    expect(source).toMatch(/sessionMutationEvents\.has\(parsed\.type\)/)
+  })
+
   it('sends each repair request only once across app lifetimes and exposes a delivery failure', () => {
     expect(source).toMatch(/const requestId = failedSession\.last_request_id \|\| ''/)
     expect(source).toMatch(/requestAlreadyRecorded\(failedSession\.project_path, targetChat\.id, requestId, \['repair', 'prepared', 'submitted'\]\)/)
     expect(source).toMatch(/repairDispatchRef\.current\.has\(dispatchKey\)/)
+    expect(source).toMatch(/repairDispatchRef\.current\.delete\(dispatchKey\)/)
     expect(source).toMatch(/setError\(messageOf\(sendError\)\)/)
   })
 

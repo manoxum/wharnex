@@ -423,7 +423,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         // One workspace-chat read for the whole batch, not two per frame.
         const needsOwner = batch.some((parsed) => parsed.type === 'execution.started' || (parsed.data.plan_id && EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)))
         const owner = needsOwner ? loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId) : undefined
-        if (batch.some((parsed) => parsed.type === 'artifact.persisted' && parsed.data.kind === 'bundle')) {
+        const sessionMutationEvents = new Set(['plan.received', 'plan.control_changed', 'plan.reversal_requested', 'repair.prompt_ready', 'baseline.continuation_ready', 'conflict.prompt_ready', 'host.applied', 'host.apply_paused', 'automation.paused', 'host.reverted', 'host.restored'])
+        if (batch.some((parsed) => (parsed.type === 'artifact.persisted' && parsed.data.kind === 'bundle') || sessionMutationEvents.has(parsed.type))) {
           void api.getSession(id).then((updated) => {
             sessionCacheRef.current[chatId] = updated
             if (activeChatIdRef.current === chatId) setSession(updated)
@@ -2523,6 +2524,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const prepared = await transportPlannerContinuation(failedSession, targetChat)
       appendChatItem(targetChat, failedSession.project_path, { id: `repair-dispatch-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: improvement ? (prepared.submitted ? 'Ronda de melhoria contínua enviada automaticamente ao ChatGPT. O Wharnex aguarda o novo bundle ou a indicação de que não há mais melhorias materiais.' : 'Ronda de melhoria contínua preparada no ChatGPT; confirme o envio para continuar.') : (prepared.submitted ? 'Requisição de correção enviada automaticamente ao ChatGPT em background. O Wharnex vigia agora o download do novo bundle ZIP.' : 'Requisição de correção preparada no ChatGPT; confirme o envio para continuar.'), meta: prepared.submitted ? 'ChatGPT acionado automaticamente' : 'Confirmação pendente', iteration: requestId ? iterationRef(requestId, prepared.submitted ? 'submitted' : 'prepared', selectedArtifactKinds({ ...continuationArtifactSelection(failedSession), context: prepared.includedContext }), prepared.conversationUrl || targetChat.chatgptUrl) : undefined })
     } catch (sendError) {
+      repairDispatchRef.current.delete(dispatchKey)
       appendChatItem(targetChat, failedSession.project_path, { id: `repair-failed-${requestId || attempt}`, role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `A requisição de correção foi preparada, mas o envio automático ao ChatGPT falhou: ${messageOf(sendError)}`, meta: 'Abra a aba ChatGPT para retomar', iteration: requestId ? iterationRef(requestId, 'failed', selectedArtifactKinds(continuationArtifactSelection(failedSession)), targetChat.chatgptUrl) : undefined })
       setError(messageOf(sendError))
     }
@@ -2725,6 +2727,60 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
 
+  async function controlExecutionPlan(action: 'pause' | 'resume' | 'suspend') {
+    if (!session?.plan) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
+    setError(undefined)
+    try {
+      let updated = await api.controlExecutionPlan(targetSession.id, action)
+      acceptSessionForChat(targetChat, updated)
+      if (action === 'resume') {
+        if ((updated.pending_host_changes?.length || 0) > 0) {
+          updated = await api.apply(updated.id)
+          acceptSessionForChat(targetChat, updated)
+          markContextDirtyForOtherChats(updated.project_path, targetChat.id)
+          void syncPeerBaselineUpdates(updated.project_path, targetChat.id)
+        } else if (updated.state === 'planned' && updated.plan && !updated.interrupted_execution) {
+          const response = await api.execute(updated.id, true)
+          updated = response.session
+          acceptSessionForChat(targetChat, updated)
+        }
+      }
+      appendChatItem(targetChat, updated.project_path, {
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        text: action === 'pause' ? 'Plano auto-aprovado pausado antes do Apply. O plano continua disponível para leitura.' : action === 'suspend' ? 'Plano auto-aprovado suspenso antes do Apply. Nenhuma integração automática no host ocorrerá até retomar.' : 'Plano retomado. O Wharnex continua a execução/integração a partir do estado durável.',
+        meta: `Controlo do plano · ${action}`,
+      })
+    } catch (cause) { setError(messageOf(cause)) }
+  }
+
+  async function prepareExecutionPlanReversal() {
+    if (!session || busy) return
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat || !(await confirmDialog({
+      title: 'Calcular reversão com GPT?',
+      message: 'O Wharnex enviará ao GPT o plano/diff aplicado, o estado atual do repositório e o histórico da Main Request para calcular uma reversão que preserve trabalho paralelo.',
+      tone: 'warning',
+      confirmLabel: 'Preparar reversão',
+    }))) return
+    setBusy(true); setError(undefined)
+    try {
+      const response = await api.prepareExecutionPlanReversal(targetSession.id)
+      acceptSessionForChat(targetChat, response.session)
+      if (activeChatIdRef.current === targetChat.id) setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
+      appendChatItem(targetChat, response.session.project_path, {
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        text: 'Reversão segura preparada como uma nova iteração GPT. O pedido usa a alteração aplicada, o estado atual do repositório e o histórico da Main Request; nenhuma inversão mecânica foi aplicada ao host.',
+        meta: 'Reversão calculada por GPT',
+        iteration: response.session.last_request_id ? iterationRef(response.session.last_request_id, 'prepared', selectedArtifactKinds(continuationArtifactSelection(response.session)), targetChat.chatgptUrl) : undefined,
+      })
+      if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) await transportPlannerContinuation(response.session, targetChat)
+    } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
+  }
+
   function openFileFromChat(path: string) {
     setEditorOpenPath(path)
     setEditorOpenNonce((value) => value + 1)
@@ -2746,20 +2802,32 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       return
     }
     if (!(await confirmDialog({
-      title: restoring ? 'Repor alteração revertida?' : 'Reverter alterações aplicadas?',
-      message: restoring ? `O plano ${item.change.planId} será reposto no projeto real.` : `O plano ${item.change.planId} será revertido no projeto real.`,
-      tone: restoring ? 'warning' : 'danger',
-      confirmLabel: restoring ? 'Repor alteração' : 'Reverter plano',
+      title: restoring ? 'Repor alteração revertida?' : 'Calcular reversão com GPT?',
+      message: restoring ? `O plano ${item.change.planId} será reposto no projeto real.` : `O GPT calculará uma reversão segura do plano ${item.change.planId} usando o diff aplicado, o estado atual e o histórico da Main Request. O host não será alterado mecanicamente nesta etapa.`,
+      tone: 'warning',
+      confirmLabel: restoring ? 'Repor alteração' : 'Preparar reversão',
     }))) return
     setBusy(true); setError(undefined)
     try {
-      const updated = restoring ? await api.restoreReverted(targetSession.id) : await api.revert(targetSession.id)
-      acceptSessionForChat(targetChat, updated)
-      if (!restoring || updated.state === 'applied') {
-        mutateChatItems(targetChat, updated.project_path, (current) => current.map((candidate) => candidate.change?.planId === item.change?.planId ? { ...candidate, change: { ...candidate.change!, reverted: !restoring } } : candidate))
+      if (restoring) {
+        const updated = await api.restoreReverted(targetSession.id)
+        acceptSessionForChat(targetChat, updated)
+        if (updated.state === 'applied') {
+          mutateChatItems(targetChat, updated.project_path, (current) => current.map((candidate) => candidate.change?.planId === item.change?.planId ? { ...candidate, change: { ...candidate.change!, reverted: false } } : candidate))
+        }
+        markContextDirtyForOtherChats(updated.project_path, targetChat.id)
+        void syncPeerBaselineUpdates(updated.project_path, targetChat.id)
+        return
       }
-      markContextDirtyForOtherChats(updated.project_path, targetChat.id)
-      void syncPeerBaselineUpdates(updated.project_path, targetChat.id)
+      const response = await api.prepareExecutionPlanReversal(targetSession.id)
+      acceptSessionForChat(targetChat, response.session)
+      if (activeChatIdRef.current === targetChat.id) setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
+      appendChatItem(targetChat, response.session.project_path, {
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        text: 'Pedido de reversão enviado ao ciclo GPT. O Wharnex preserva o plano aplicado e o estado atual como evidência até a reversão calculada ser verificada e aplicada.',
+        meta: 'Reversão GPT preparada',
+      })
+      if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) await transportPlannerContinuation(response.session, targetChat)
     } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
   }
 
@@ -3472,7 +3540,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       <ErrorToast open={Boolean(error)} message={error} onDismiss={() => setError(undefined)} />
       <div className={`workspace-surface-content ${splitSurface ? `is-split split-${splitSurface.direction}` : ''}`} style={splitSurface ? { ['--workspace-split-primary' as string]: `${Math.round(splitSurface.ratio * 1000) / 10}%` } as React.CSSProperties : undefined}>
         <div className="workspace-surface-primary">
-          {activeSurface.kind === 'chat' && <AgentWorkspace session={session} busy={activeBusy} attentionItems={attentionItems} onOpenAttention={openAttentionItem} onAttentionAction={runAttentionItemAction} chatgptAttentionNonce={chatgptAttentionNonce} inspectorAttention={inspectorAttention} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onOpenAttentionDrawer={() => undefined} onExportChat={exportActiveChat} onReorderChat={reorderChat} chatProps={focusedChatProps} onSplitChat={surfaceRequest.host === 'split' ? undefined : (chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)} inspectorProps={{ config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSuspended: !shellActive, onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT }} />}
+          {activeSurface.kind === 'chat' && <AgentWorkspace session={session} busy={activeBusy} attentionItems={attentionItems} onOpenAttention={openAttentionItem} onAttentionAction={runAttentionItemAction} chatgptAttentionNonce={chatgptAttentionNonce} inspectorAttention={inspectorAttention} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onOpenAttentionDrawer={() => undefined} onExportChat={exportActiveChat} onReorderChat={reorderChat} chatProps={focusedChatProps} onSplitChat={surfaceRequest.host === 'split' ? undefined : (chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)} inspectorProps={{ config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSuspended: !shellActive, onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onControlExecutionPlan: controlExecutionPlan, onPrepareExecutionPlanReversal: prepareExecutionPlanReversal, onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT }} />}
           {activeSurface.kind === 'editor' && <EditorWorkspace session={session} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onError={setError} onRunInTerminal={runInTerminal} openPath={activeSurface.path} openNonce={editorOpenNonce} onSplitFile={surfaceRequest.host === 'split' ? undefined : (path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />}
           {activeSurface.kind === 'terminal' && <TerminalWorkspace session={session} height={terminalHeight} visible fill runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onSplitTerminal={surfaceRequest.host === 'split' ? undefined : (direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />}
         </div>
@@ -3596,7 +3664,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           chatProps={{ ...sharedChatProps, chats: mainVisibleChats }}
           inspectorProps={{
 		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
-		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges,
+		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onControlExecutionPlan: controlExecutionPlan, onPrepareExecutionPlanReversal: prepareExecutionPlanReversal,
             onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT,
           }}
         />}

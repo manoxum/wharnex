@@ -29,6 +29,9 @@ func (s *Service) ResumeInterruptedExecution(sessionID string) (ExecutionRecover
 	if item.Plan == nil || item.Plan.PlanID != planID {
 		return ExecutionRecoveryResponse{}, fmt.Errorf("interrupted plan %s is no longer the active plan", planID)
 	}
+	if planExecutionHeld(item, planID) {
+		return ExecutionRecoveryResponse{}, errors.New("interrupted execution is paused or suspended by the operator")
+	}
 	if planExecutionAlreadyCompleted(item, planID) {
 		cleared, clearErr := s.clearInterruptedExecution(sessionID, planID)
 		if clearErr != nil {
@@ -89,6 +92,11 @@ func (s *Service) runInterruptedExecutionResume(sessionID, planID string, approv
 	// same outcome instead of stranding the candidate in "verified" with
 	// nothing left to prompt the operator to finish it.
 	if approved && cleared.ExecutionMode == domain.ExecutionModeProtected && len(hostApplicablePendingChanges(pendingHostChanges(cleared))) > 0 {
+		if planExecutionHeld(cleared, planID) {
+			s.bus.Publish(sessionID, "host.apply_paused", map[string]any{"plan_id": planID, "state": planControlState(cleared, planID), "source": "execution_recovery"})
+			s.bus.Publish(sessionID, "execution.recovery_completed", map[string]any{"plan_id": planID, "host_apply_paused": true})
+			return
+		}
 		if _, applyErr := s.applyToHostWithLocalRetry(ctx, sessionID); applyErr != nil {
 			s.bus.Publish(sessionID, "execution.recovery_apply_failed", map[string]any{"plan_id": planID, "error": applyErr.Error()})
 			return

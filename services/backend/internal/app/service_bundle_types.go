@@ -21,6 +21,7 @@ const (
 	bundleTypePlanCorrection         = "plan_correction"
 	bundleTypePlanAdjustment         = "adjustment"
 	bundleTypeRevertRestore          = "revert_restore"
+	bundleTypePlanReversal           = "plan_reversal"
 	bundleTypeImprovement            = "improvement"
 	bundleTypeConflict               = "conflict"
 	bundleTypeKnowledgeReview        = "knowledge_review"
@@ -76,6 +77,8 @@ func inputBundleType(lineageKind string) string {
 		return bundleTypeCorrection
 	case requestKindRevertRestore:
 		return bundleTypeRevertRestore
+	case requestKindPlanReversal:
+		return bundleTypePlanReversal
 	case requestKindImprovement:
 		return bundleTypeImprovement
 	case requestKindEvidence:

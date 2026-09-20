@@ -1262,6 +1262,12 @@ type RelatedProjectContext struct {
 	Manifest    ContextManifest `json:"manifest"`
 }
 
+type PlanExecutionControl struct {
+	PlanID    string    `json:"plan_id"`
+	State     string    `json:"state"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Session struct {
 	ID                  string   `json:"id"`
 	ChatID              string   `json:"chat_id,omitempty"`
@@ -1275,42 +1281,43 @@ type Session struct {
 	// CrossProjectRanPlanID is the last plan whose cross-project units were
 	// dispatched, so an Apply path reached twice for one candidate cannot
 	// install the same change in another project twice.
-	CrossProjectRanPlanID   string               `json:"cross_project_ran_plan_id,omitempty"`
-	ExecutionMode           ExecutionMode        `json:"execution_mode"`
-	AutomationMode          AutomationMode       `json:"automation_mode"`
-	DebugEnabled            bool                 `json:"debug_enabled,omitempty"`
-	DebugApprovedRootID     string               `json:"debug_approved_root_request_id,omitempty"`
-	DebugApprovedPlanID     string               `json:"debug_approved_plan_id,omitempty"`
-	InteractiveGrant        *InteractiveGrant    `json:"interactive_grant,omitempty"`
-	ApprovedChatPlan        *ApprovedChatPlan    `json:"approved_chat_plan,omitempty"`
-	ExecutionApprovedRootID string               `json:"execution_approved_root_request_id,omitempty"`
-	ApprovedBoundaryKeys    []string             `json:"approved_execution_boundary_keys,omitempty"`
-	EffortLevel             EffortLevel          `json:"effort_level"`
-	ReasoningEffort         ReasoningEffort      `json:"reasoning_effort"`
-	ChatTransportMode       ChatTransportMode    `json:"chat_transport_mode"`
-	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
-	WharnexInstanceID       string               `json:"wharnex_instance_id,omitempty"`
-	SelfEvolutionActivation string               `json:"self_evolution_activation,omitempty"`
-	SelfEvolutionImpacts    []string             `json:"self_evolution_impacts,omitempty"`
-	ResolvedEvidenceIDs     map[string]time.Time `json:"resolved_evidence_ids,omitempty"`
-	EvidenceReviewIDs       []string             `json:"evidence_review_ids,omitempty"`
-	State                   string               `json:"state"`
-	CreatedAt               time.Time            `json:"created_at"`
-	Context                 ContextBundle        `json:"context"`
-	Plan                    *ExecutionPlan       `json:"plan,omitempty"`
-	Policy                  *PolicyDecision      `json:"policy,omitempty"`
-	LastExecution           *ExecutionResult     `json:"last_execution,omitempty"`
-	PendingHostChanges      []PendingHostChange  `json:"pending_host_changes,omitempty"`
-	LastAppliedChanges      []PendingHostChange  `json:"last_applied_changes,omitempty"`
-	LastRevertedChanges     []PendingHostChange  `json:"last_reverted_changes,omitempty"`
-	LastHostCommands        []CommandResult      `json:"last_host_commands,omitempty"`
-	LastHostAppliedAt       time.Time            `json:"last_host_applied_at,omitempty"`
-	LastVersionBefore       string               `json:"last_version_before,omitempty"`
-	LastVersionAfter        string               `json:"last_version_after,omitempty"`
-	LastProviderResponseID  string               `json:"last_provider_response_id,omitempty"`
-	LastRequestID           string               `json:"last_request_id,omitempty"`
-	PendingManualRequestIDs []string             `json:"pending_manual_request_ids,omitempty"`
-	LastManualPrompt        string               `json:"last_manual_prompt,omitempty"`
+	CrossProjectRanPlanID   string                `json:"cross_project_ran_plan_id,omitempty"`
+	ExecutionMode           ExecutionMode         `json:"execution_mode"`
+	AutomationMode          AutomationMode        `json:"automation_mode"`
+	DebugEnabled            bool                  `json:"debug_enabled,omitempty"`
+	DebugApprovedRootID     string                `json:"debug_approved_root_request_id,omitempty"`
+	DebugApprovedPlanID     string                `json:"debug_approved_plan_id,omitempty"`
+	InteractiveGrant        *InteractiveGrant     `json:"interactive_grant,omitempty"`
+	ApprovedChatPlan        *ApprovedChatPlan     `json:"approved_chat_plan,omitempty"`
+	ExecutionApprovedRootID string                `json:"execution_approved_root_request_id,omitempty"`
+	ApprovedBoundaryKeys    []string              `json:"approved_execution_boundary_keys,omitempty"`
+	EffortLevel             EffortLevel           `json:"effort_level"`
+	ReasoningEffort         ReasoningEffort       `json:"reasoning_effort"`
+	ChatTransportMode       ChatTransportMode     `json:"chat_transport_mode"`
+	SelfEvolution           bool                  `json:"self_evolution,omitempty"`
+	WharnexInstanceID       string                `json:"wharnex_instance_id,omitempty"`
+	SelfEvolutionActivation string                `json:"self_evolution_activation,omitempty"`
+	SelfEvolutionImpacts    []string              `json:"self_evolution_impacts,omitempty"`
+	ResolvedEvidenceIDs     map[string]time.Time  `json:"resolved_evidence_ids,omitempty"`
+	EvidenceReviewIDs       []string              `json:"evidence_review_ids,omitempty"`
+	State                   string                `json:"state"`
+	CreatedAt               time.Time             `json:"created_at"`
+	Context                 ContextBundle         `json:"context"`
+	Plan                    *ExecutionPlan        `json:"plan,omitempty"`
+	PlanControl             *PlanExecutionControl `json:"plan_control,omitempty"`
+	Policy                  *PolicyDecision       `json:"policy,omitempty"`
+	LastExecution           *ExecutionResult      `json:"last_execution,omitempty"`
+	PendingHostChanges      []PendingHostChange   `json:"pending_host_changes,omitempty"`
+	LastAppliedChanges      []PendingHostChange   `json:"last_applied_changes,omitempty"`
+	LastRevertedChanges     []PendingHostChange   `json:"last_reverted_changes,omitempty"`
+	LastHostCommands        []CommandResult       `json:"last_host_commands,omitempty"`
+	LastHostAppliedAt       time.Time             `json:"last_host_applied_at,omitempty"`
+	LastVersionBefore       string                `json:"last_version_before,omitempty"`
+	LastVersionAfter        string                `json:"last_version_after,omitempty"`
+	LastProviderResponseID  string                `json:"last_provider_response_id,omitempty"`
+	LastRequestID           string                `json:"last_request_id,omitempty"`
+	PendingManualRequestIDs []string              `json:"pending_manual_request_ids,omitempty"`
+	LastManualPrompt        string                `json:"last_manual_prompt,omitempty"`
 	// PendingKnowledgeReviewRequestID marks an in-flight post-apply
 	// knowledge_review round. Deliberately independent of State: the apply
 	// that triggered this round already succeeded and State already

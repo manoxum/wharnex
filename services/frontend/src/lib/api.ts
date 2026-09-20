@@ -230,6 +230,10 @@ export const api = {
     request<Session>(`/api/sessions/${id}/execution-plan/reject`, { method: 'POST', body: '{}' }),
   adjustExecutionPlan: (id: string, guidance: string) =>
     request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/execution-plan/adjust`, { method: 'POST', body: JSON.stringify({ guidance }) }),
+  controlExecutionPlan: (id: string, action: 'pause' | 'resume' | 'suspend') =>
+    request<Session>(`/api/sessions/${id}/execution-plan/control`, { method: 'POST', body: JSON.stringify({ action }) }),
+  prepareExecutionPlanReversal: (id: string) =>
+    request<{ session: Session; turn?: AgentTurn; plan?: ExecutionPlan; manual_prompt?: string }>(`/api/sessions/${id}/execution-plan/reversal`, { method: 'POST', body: '{}' }),
   manualPlan: (id: string, rawJSON: string) =>
     request<Session>(`/api/sessions/${id}/manual-plan`, { method: 'POST', body: rawJSON }),
   executionBundle: (id: string, filename: string, contentBase64: string) =>

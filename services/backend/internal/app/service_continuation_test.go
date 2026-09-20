@@ -431,3 +431,21 @@ func truncateForFailure(value string) string {
 	}
 	return value[:4000] + "\n...[truncated]"
 }
+
+func TestPlanReversalCapsuleTravelsWithItsDerivedRequest(t *testing.T) {
+	item := domain.Session{ID: "sess", LastRequestID: "req_reversal", RequestLineages: map[string]domain.RequestLineage{
+		"req_root":     {RequestID: "req_root", RootRequestID: "req_root", Kind: requestKindStandard},
+		"req_reversal": {RequestID: "req_reversal", RootRequestID: "req_root", ParentRequestID: "req_root", Kind: requestKindPlanReversal},
+	}}
+	recordRequestSupportArtifact(&item, "req_root", mainRequestArtifactPath, []byte("pedido principal"))
+	capsule := []byte(`{"protocol":"harness.plan-reversal/v1","current_context_sha256":"abc"}`)
+	recordRequestSupportArtifact(&item, "req_reversal", planReversalArtifactPath, capsule)
+
+	byName := map[string][]byte{}
+	for _, artifact := range continuationArtifacts(item, "req_reversal") {
+		byName[artifact.Name] = artifact.Raw
+	}
+	if string(byName[mainRequestArtifactPath]) != "pedido principal" || !bytes.Equal(byName[planReversalArtifactPath], capsule) {
+		t.Fatalf("reversal continuation lost authoritative evidence: %#v", byName)
+	}
+}

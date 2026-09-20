@@ -22,7 +22,7 @@ import { ChangeDiffEditor } from './ChangeDiffEditor'
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onControlExecutionPlan, onPrepareExecutionPlanReversal, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -46,6 +46,8 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   onRetryHostDependencyRepair?: () => Promise<void>
   onRejectExecutionPlan?: () => Promise<void>
   onRejectPendingChanges?: () => Promise<void>
+  onControlExecutionPlan?: (action: 'pause' | 'resume' | 'suspend') => Promise<void>
+  onPrepareExecutionPlanReversal?: () => Promise<void>
   onManualPlan: (json: string) => Promise<void>
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
@@ -96,7 +98,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
 
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''} ${selectedTab === 'files' ? 'files-content' : ''}`}>
         {selectedTab === 'files' && <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
-        {selectedTab === 'plan' && <PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}
+        {selectedTab === 'plan' && <PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} onControlExecutionPlan={onControlExecutionPlan} onPrepareExecutionPlanReversal={onPrepareExecutionPlanReversal} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}
         {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode !== 'manual' && !desktop && <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
@@ -284,7 +286,7 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, bu
   </div>
 }
 
-export function PlanView({ session, busy = false, canExecute = false, needsApproval = false, canRejectPending = false, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, conflictGuidance = '', onConflictGuidance, onResolveManually, onResolveWithGPT }: {
+export function PlanView({ session, busy = false, canExecute = false, needsApproval = false, canRejectPending = false, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onControlExecutionPlan, onPrepareExecutionPlanReversal, conflictGuidance = '', onConflictGuidance, onResolveManually, onResolveWithGPT }: {
   session: Session
   busy?: boolean
   canExecute?: boolean
@@ -295,6 +297,8 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
   onAdjustExecutionPlan?: () => void
   onRejectExecutionPlan?: () => Promise<void>
   onRejectPendingChanges?: () => Promise<void>
+  onControlExecutionPlan?: (action: 'pause' | 'resume' | 'suspend') => Promise<void>
+  onPrepareExecutionPlanReversal?: () => Promise<void>
   conflictGuidance?: string
   onConflictGuidance?: (value: string) => void
   onResolveManually?: () => void
@@ -316,6 +320,10 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
   const hostTools = systemTools.filter((tool) => tool.target === 'host' && tool.action !== 'use')
   const policyStatus = session.policy ? (session.policy.allowed ? (workflow ? 'Probe autorizada' : 'Policy OK') : 'Bloqueado') : 'Histórico'
   const pendingCount = session.pending_host_changes?.length || 0
+  const planControl = session.plan_control?.plan_id === plan.plan_id ? session.plan_control.state : 'active'
+  const hostApplied = Boolean(session.last_applied_changes?.some((change) => change.plan.plan_id === plan.plan_id))
+  const canControlAutoApprovedPlan = session.automation_mode === 'auto_approve' && session.execution_mode === 'protected' && !workflow && plan.status === 'ready' && !hostApplied
+  const canReverseAppliedPlan = session.execution_mode === 'protected' && hostApplied
 
   async function savePatchesToProject() {
     if (!manualPatches.length) return
@@ -347,10 +355,15 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
         <div className="plan-decision-actions">
           {session.state === 'debug_approval_required' && session.plan.debug && <button type="button" className="apply-button" disabled={busy} onClick={() => void onApproveDebug?.()}><Icon name="terminal" size={14}/> {session.plan.debug.protocol === 'harness.interactive/v2' ? `Autorizar Interactive v2 · ${session.plan.debug.target} · ${session.plan.debug.access || 'observe'}` : session.plan.debug.target === 'host' && session.plan.debug.access === 'modify' ? 'Autorizar alteração de debug no host' : `Autorizar debug ${session.plan.debug.target}`}</button>}
           {busy && session.plan.debug?.protocol === 'harness.interactive/v2' && <button type="button" className="danger-button" onClick={() => void api.cancelInteractive(session.id).then(() => setManualNotice('Cancelamento da ronda Interactive v2 solicitado.')).catch((error) => setManualNotice(error instanceof Error ? error.message : String(error)))}><Icon name="close" size={13}/> Parar ronda</button>}
+          {canControlAutoApprovedPlan && planControl === 'active' && <button type="button" className="secondary-button" onClick={() => void onControlExecutionPlan?.('pause')}><Icon name="pause" size={13}/> Pausar</button>}
+          {canControlAutoApprovedPlan && planControl !== 'active' && <button type="button" className="apply-button" onClick={() => void onControlExecutionPlan?.('resume')}><Icon name="play" size={13}/> Retomar</button>}
+          {canControlAutoApprovedPlan && planControl !== 'suspended' && <button type="button" className="secondary-button" onClick={() => void onControlExecutionPlan?.('suspend')}><Icon name="close" size={13}/> Suspender</button>}
           {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><button type="button" className="secondary-button" disabled={busy} onClick={() => onAdjustExecutionPlan?.()}><Icon name="edit" size={13}/> Ajustar</button><button type="button" className={session.execution_mode === 'unprotected' ? 'danger-button' : 'apply-button'} disabled={busy} onClick={() => void onExecute?.(true)}><Icon name="check" size={14}/> {session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
           {canRejectPending && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={13}/> Rejeitar</button>}
+          {canReverseAppliedPlan && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onPrepareExecutionPlanReversal?.()}><Icon name="history" size={13}/> Reverter com GPT</button>}
         </div>
       </div>
+      {canControlAutoApprovedPlan && <div className="plan-manual-tools"><div className="plan-manual-copy"><span className="plan-manual-mark"><Icon name="shield" size={13}/></span><div><span className="panel-kicker">Auto + Aprovar</span><strong>{planControl === 'active' ? 'Plano ativo antes do Apply' : planControl === 'paused' ? 'Plano pausado antes do Apply' : 'Plano suspenso antes do Apply'}</strong><small>O plano permanece legível e a integração no host respeita este controlo mesmo se a sandbox já estiver a executar.</small></div></div></div>}
       {manualPatches.length > 0 && <div className="plan-manual-tools"><div className="plan-manual-copy"><span className="plan-manual-mark"><Icon name="download" size={13}/></span><div><span className="panel-kicker">Fallback manual</span><strong>Aplicação alternativa dos patches</strong><small>Guarde uma cópia em /patches ou copie um lote com quoting seguro para executar manualmente na raiz do projeto.</small></div></div><div className="plan-manual-actions"><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void savePatchesToProject()}><Icon name="download" size={13}/> Descarregar patches</button><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void copyManualCommands()}><Icon name="copy" size={13}/> Copiar lote de comandos</button></div></div>}
     </div>
     {manualNotice && <p className="plan-manual-notice" role="status">{manualNotice}</p>}
