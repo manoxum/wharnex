@@ -3139,7 +3139,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		reverified, reverifyErr := s.reverifyPendingCandidate(ctx, sessionID, item, pending, currentBaseline)
 		if reverifyErr != nil {
 			s.bus.Publish(sessionID, "baseline.reverify_failed", map[string]any{"current_sha256": currentBaseline, "error": reverifyErr.Error()})
-			return item, fmt.Errorf("reverify pending candidate on current baseline: %w", reverifyErr)
+			return item, baselineReverifyCandidateFailure(reverifyErr)
 		}
 		item = reverified
 		pending = hostApplicablePendingChanges(pendingHostChanges(item))
@@ -3529,6 +3529,14 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		updated = committed
 	}
 	return updated, nil
+}
+
+// baselineReverifyCandidateFailure identifies an already verified candidate
+// whose patches no longer replay on the newest baseline. No host mutation has
+// happened at this point: requesting a focused repair is safe and necessary
+// to avoid leaving the same stale candidate permanently pending.
+func baselineReverifyCandidateFailure(cause error) error {
+	return plannerRepairableApplyFailure(fmt.Errorf("reverify pending candidate on current baseline: %w", cause))
 }
 
 func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domain.Session, error) {

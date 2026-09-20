@@ -155,6 +155,13 @@ func TestApplyFailureRepairRequiresExplicitCandidateDefectEvidence(t *testing.T)
 	}
 }
 
+func TestBaselineReverifyFailureIsEligibleForCandidateRepair(t *testing.T) {
+	cause := baselineReverifyCandidateFailure(errors.New("patch does not apply cleanly"))
+	if !isPlannerRepairableApplyFailure(cause) {
+		t.Fatalf("baseline reverify failure must prepare a candidate repair, got %v", cause)
+	}
+}
+
 func TestPlannerLocalCoordinationReasonsDoNotRequestFreshGPTTurn(t *testing.T) {
 	cases := map[string]string{
 		"host_build_toolchain_mismatch":                domain.FailureKindHostBuildToolchain,

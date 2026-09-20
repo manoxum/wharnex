@@ -2271,7 +2271,12 @@ async function loadOwnedChatGPTURL(cacheKey, entry, value, reason = 'navigate') 
   // instead of leaving the user beneath the local loading placeholder forever.
   if (reason === 'initial-show') {
     setTimeout(() => {
-      if (entry.navigationPromise !== operation || wc.isDestroyed() || isTrustedChatGPTOrigin(wc.getURL())) return
+      // Electron exposes the target URL at navigation start. That only proves
+      // routing accepted it; it does not prove the document has loaded. Keep
+      // the one bounded recovery attempt for a renderer still loading at a
+      // trusted URL, otherwise the native pane can remain behind its loading
+      // cover indefinitely without emitting a load failure.
+      if (entry.navigationPromise !== operation || wc.isDestroyed() || (!wc.isLoading() && isTrustedChatGPTOrigin(wc.getURL()))) return
       console.warn(`[chatgpt-load] initial navigation stalled; retrying once key=${key}`)
       entry.navigationPromise = undefined
       entry.navigationTarget = ''

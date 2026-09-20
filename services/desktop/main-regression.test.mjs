@@ -2762,6 +2762,19 @@ test('primeChatGPTWorkerPool paces worker creation with a defined helper', async
   assert.doesNotMatch(fn, /await delay\(/)
 })
 
+// A navigation can expose its trusted target URL before its document finishes
+// loading. Treating that URL alone as success leaves the native ChatGPT pane
+// indefinitely beneath the local loading cover: the first-load retry must
+// recover a still-loading renderer as well.
+test('initial Supervisor navigation retries when a trusted URL remains loading', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf("if (reason === 'initial-show') {")
+  assert.notEqual(start, -1)
+  const retry = source.slice(start, source.indexOf('\n  return operation', start))
+
+  assert.match(retry, /if \(entry\.navigationPromise !== operation \|\| wc\.isDestroyed\(\) \|\| \(!wc\.isLoading\(\) && isTrustedChatGPTOrigin\(wc\.getURL\(\)\)\)\) return/)
+})
+
 // Clicking the result-download control on every poll tick fired a real
 // ChatGPT download each time a tick elapsed before will-download resolved
 // the previous one, and the browser's own duplicate-name suffix on the

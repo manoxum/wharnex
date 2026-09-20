@@ -122,6 +122,14 @@ if ! grep -Fq 'launcher-splash.mjs' "$SPLASH_LIB" || ! grep -Fq 'WHARNESS_SPLASH
   echo 'lifecycle regression: launcher must splash before a source-change build/restart' >&2
   exit 1
 fi
+
+# `make start` is also the normal launcher path when Desktop is already alive.
+# It must create Electron's short-lived second-instance handoff so clicking the
+# launcher restores/focuses the existing window instead of silently returning.
+if ! grep -Fq 'Requested foreground handoff to the running Desktop.' "$START" || ! grep -Fq '"$focus_electron" "$ROOT/services/desktop/main.mjs"' "$START"; then
+  echo 'lifecycle regression: an already-running Desktop must receive a foreground handoff' >&2
+  exit 1
+fi
 WHARNESS_ROOT="$ROOT" "$INSTALL_DEV_CHECK"
 if [ ! -x "$DOCKER_DAEMON_GUARD_CHECK" ]; then
   echo 'lifecycle regression: Docker lifecycle needs an isolated daemon-start regression check' >&2
