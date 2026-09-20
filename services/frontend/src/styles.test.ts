@@ -208,6 +208,21 @@ describe('composer layout CSS', () => {
     expect(handle).toContain('touch-action: none')
   })
 
+  it('uses a high-contrast project cue instead of the generic accent while typing', () => {
+    const typingAttention = firstRule('.composer.composer-typing-attention')
+    const darkTypingAttention = lastRule(":root[data-theme='dark'] .composer.composer-typing-attention")
+    const projectBadge = lastRule('.composer-project-attention')
+    const projectName = lastRule('.composer-project-attention > strong')
+    const projectIcon = lastRule('.composer-project-attention svg')
+
+    expect(typingAttention).toContain('--composer-project-attention-tone: #5b8619')
+    expect(typingAttention).toContain('var(--composer-project-attention-tone) 88%')
+    expect(darkTypingAttention).toContain('--composer-project-attention-tone: #b9ff56')
+    expect(projectBadge).toContain('var(--composer-project-attention-tone) 28%')
+    expect(projectName).toContain('var(--composer-project-attention-tone) 76%')
+    expect(projectIcon).toContain('color: var(--composer-project-attention-tone)')
+  })
+
   it('anchors send to the far-right composer edge independently of toolbar intrinsic width', () => {
     const footer = lastRule('.composer-footer')
     const toolbar = lastRule('.composer-toolbar-row')
