@@ -81,15 +81,18 @@ func CurrentHeadSHA(ctx context.Context, repoPath string) (string, error) {
 // paths — producing a spurious merge conflict on files the plan never
 // touched.
 func CommitVerifiedPatch(ctx context.Context, workspacePath, branch, message string, paths []string) (commitSHA string, err error) {
-	return commitVerifiedPatch(ctx, workspacePath, branch, message, paths, false)
+	// This function is called only after the candidate patch and every declared
+	// verification gate have succeeded against this exact workspace. Therefore
+	// an empty staged diff is a valid idempotent outcome (for example, a focused
+	// conflict resolution whose bytes are already present after replay), not
+	// evidence that verification failed. Allow the empty commit up front instead
+	// of first relying on Git's human-readable, locale-dependent no-op message.
+	return commitVerifiedPatch(ctx, workspacePath, branch, message, paths, true)
 }
 
-// CommitVerifiedPatchAllowEmpty preserves the history of a legacy candidate
-// whose result is already present in the current host baseline. New candidates
-// never need this: their patch necessarily changes their request base. During
-// migration, however, a peer may already have produced the same bytes; an
-// empty, traceable commit is safer than falling back to a host write path that
-// silently bypasses commit mode.
+// CommitVerifiedPatchAllowEmpty is retained as the explicit compatibility
+// entry point for legacy callers. Verified commits are idempotent by default,
+// so both entry points now share the same traceable empty-commit behavior.
 func CommitVerifiedPatchAllowEmpty(ctx context.Context, workspacePath, branch, message string, paths []string) (commitSHA string, err error) {
 	return commitVerifiedPatch(ctx, workspacePath, branch, message, paths, true)
 }
@@ -122,19 +125,6 @@ func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message str
 	}
 	commitArgs = append(commitArgs, "-m", message)
 	output, commitErr := runGit(ctx, workspacePath, commitArgs...)
-	if commitErr != nil && !allowEmpty && isNothingToCommitOutput(output) {
-		// The plan's patch was already applied and every verification gate
-		// already ran against this exact working tree before this call, so an
-		// empty result here cannot mean the change failed to apply — it means
-		// these paths already hold this exact content on the branch this
-		// commit is extending (a focused conflict-resolution replay whose
-		// resolution the target already carries, a peer that landed the same
-		// bytes first, patched content restoring what was already there). That
-		// is the same condition CommitVerifiedPatchAllowEmpty exists to record
-		// for a legacy candidate, and discarding a verified candidate over it
-		// is strictly worse than a traceable empty commit.
-		output, commitErr = runGit(ctx, workspacePath, append(commitArgs, "--allow-empty")...)
-	}
 	if commitErr != nil {
 		return "", fmt.Errorf("commit verified changes: %s", output)
 	}
@@ -143,15 +133,6 @@ func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message str
 		return "", fmt.Errorf("resolve integration commit: %w", err)
 	}
 	return sha, nil
-}
-
-// isNothingToCommitOutput reports whether a failed `git commit`'s output
-// names the benign "nothing staged differs from HEAD" condition rather than a
-// real Git failure. Both phrasings occur depending on whether anything at all
-// is staged ("nothing to commit, working tree clean") or the staged paths
-// matched HEAD exactly ("no changes added to commit").
-func isNothingToCommitOutput(output string) bool {
-	return strings.Contains(output, "nothing to commit") || strings.Contains(output, "no changes added to commit")
 }
 
 // PushBranchToHost transfers commits from a sandbox clone's branch into the
