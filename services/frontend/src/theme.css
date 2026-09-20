@@ -256,7 +256,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='light'] .menu-separator { background: var(--theme-border); }
 :root[data-theme='light'] .editor-tabbar { border-color: var(--theme-border); background: #e6eae2; }
 :root[data-theme='light'] .editor-tab { border-color: var(--theme-border); background: #e9ece5; color: #687265; }
-:root[data-theme='light'] .editor-tab.active { border-top-color: #648f26; background: #f7f8f4; color: #242a21; }
+:root[data-theme='light'] .editor-tab.active { border-top-color: transparent; background: color-mix(in srgb, var(--theme-accent-soft) 72%, #f7f8f4); color: #242a21; box-shadow: inset 0 -2px var(--theme-accent), inset 0 1px color-mix(in srgb, var(--theme-accent) 16%, transparent); }
 :root[data-theme='light'] .editor-tab:hover { background: #f0f2ed; color: #3f473c; }
 :root[data-theme='light'] .editor-tab-close { color: #818a7e; }
 :root[data-theme='light'] .editor-tab-close:hover { background: #dce1d8; color: #343c31; }
@@ -560,11 +560,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 :root[data-theme='dark'] .multi-project-bar { border-color: var(--theme-border); background: #171717; box-shadow: 0 1px 0 rgba(255,255,255,.025); }
 :root[data-theme='dark'] .multi-project-brand { color: var(--theme-text); }
-:root[data-theme='dark'] .project-quick-switch button,
+:root[data-theme='dark'] .project-quick-switch .project-quick-tab-main,
+:root[data-theme='dark'] .project-quick-switch .project-quick-tab-unbind,
 :root[data-theme='dark'] .multi-project-actions button { color: var(--theme-text-muted); }
-:root[data-theme='dark'] .project-quick-switch button:hover,
+:root[data-theme='dark'] .project-quick-switch .project-quick-tab-main:hover,
 :root[data-theme='dark'] .multi-project-actions button:hover { background: var(--theme-hover); color: var(--theme-text); }
-:root[data-theme='dark'] .project-quick-switch button.active { border-color: var(--theme-border); background: var(--theme-elevated); color: var(--theme-text); box-shadow: 0 2px 7px rgba(0,0,0,.28); }
+:root[data-theme='dark'] .project-quick-switch .project-quick-tab-main.active { border-color: var(--theme-border); background: var(--theme-elevated); color: var(--theme-text); box-shadow: 0 2px 7px rgba(0,0,0,.28); }
 :root[data-theme='dark'] .multi-project-actions button { border-color: var(--theme-border); background: var(--theme-muted); }
 :root[data-theme='dark'] .project-actions-popover { border-color: var(--theme-border); background: #292929; box-shadow: 0 14px 34px rgba(0,0,0,.42); }
 :root[data-theme='dark'] .multi-project-actions .project-actions-popover button { color: var(--theme-text-soft); background: transparent; }
@@ -664,7 +665,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .chat-archive-toggle:hover:not(:disabled),
 :root[data-theme='dark'] .chat-archive-toggle.active,
 :root[data-theme='dark'] .chat-tab-group:hover { border-color: #5c5c5c; background: var(--theme-hover); color: var(--theme-text); }
-:root[data-theme='dark'] .chat-tab-group.active { border-color: var(--theme-border); background: var(--theme-elevated); box-shadow: 0 1px 4px rgba(0,0,0,.24); }
+:root[data-theme='dark'] .chat-tab-group.active { border-color: transparent; background: color-mix(in srgb, var(--theme-accent-soft) 72%, var(--theme-elevated)); box-shadow: inset 0 -2px var(--theme-accent), inset 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent); }
 :root[data-theme='dark'] .chat-tab { color: var(--theme-text-muted); }
 :root[data-theme='dark'] .chat-tab:hover,
 :root[data-theme='dark'] .chat-tab.active { color: var(--theme-text); }
@@ -1003,7 +1004,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .workspace-topbar,
 :root[data-theme='dark'] .agent-commandbar { background: #171717; }
 :root[data-theme='dark'] .project-actions-popover,
-:root[data-theme='dark'] .project-quick-switch button.active { background: #2f2f2f; }
+:root[data-theme='dark'] .project-quick-switch .project-quick-tab-main.active { background: #2f2f2f; }
 :root[data-theme='dark'] .topbar-indicator { border-color: #424242; background: #292929; color: #a1a1a1; }
 :root[data-theme='dark'] .topbar-indicator.actionable:hover:not(:disabled) { background: #333; color: #f2f2f2; }
 :root[data-theme='dark'] .topbar-indicator .indicator-dot { box-shadow: 0 0 0 2px #292929; }
@@ -1097,7 +1098,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .menu-separator { background: #424242; }
 :root[data-theme='dark'] .editor-tabbar { border-color: #383838; background: #171717; }
 :root[data-theme='dark'] .editor-tab { border-color: #383838; background: #292929; color: #aaa; }
-:root[data-theme='dark'] .editor-tab.active { border-top-color: #d0d0d0; background: #212121; color: #ececec; }
+:root[data-theme='dark'] .editor-tab.active { border-top-color: transparent; background: color-mix(in srgb, var(--theme-accent-soft) 72%, #212121); color: #ececec; box-shadow: inset 0 -2px var(--theme-accent), inset 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent); }
 :root[data-theme='dark'] .editor-tab:hover { background: #303030; color: #dedede; }
 :root[data-theme='dark'] .editor-contextbar,
 :root[data-theme='dark'] .editor-statusbar { border-color: #333; background: #171717; color: #999; }
@@ -1523,7 +1524,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .bundle-preview { background: #1d1d1d; }
 
 /* Linked projects keep their path-derived accent visible in dark mode. */
-:root[data-theme='dark'] .project-quick-switch button.active {
+:root[data-theme='dark'] .project-quick-switch .project-quick-tab-main.active {
   border-color: color-mix(in srgb, hsl(var(--project-hue) 70% 58%) 24%, var(--theme-border));
   background: color-mix(in srgb, #2f2f2f 96%, hsl(var(--project-hue) 64% 46%));
   color: #f2f2f2;
@@ -1534,7 +1535,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   background: color-mix(in srgb, #2f2f2f 90%, hsl(var(--project-hue) 66% 52%));
   color: hsl(var(--project-hue) 68% 72%);
 }
-:root[data-theme='dark'] .project-quick-switch button.active .project-color-mark { box-shadow: none; }
+:root[data-theme='dark'] .project-quick-switch .project-quick-tab-main.active .project-color-mark { box-shadow: none; }
 
 /* Workbench theme registry extensions. `data-theme` remains the compatibility
  * bridge for existing component selectors; `data-ui-theme` is the durable UI

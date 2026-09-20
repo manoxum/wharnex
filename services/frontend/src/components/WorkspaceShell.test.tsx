@@ -155,11 +155,13 @@ describe('WorkspaceShell project actions', () => {
     const onActivate = vi.fn()
 
     render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
-    const alpha = screen.getByRole('button', { name: /alpha/ })
-    const gamma = screen.getByRole('button', { name: /gamma/ })
-    expect(alpha.style.getPropertyValue('--project-hue')).not.toBe('')
-    expect(gamma.style.getPropertyValue('--project-hue')).not.toBe('')
-    expect(alpha.style.getPropertyValue('--project-hue')).not.toBe(gamma.style.getPropertyValue('--project-hue'))
+    const alpha = screen.getByRole('button', { name: 'alpha' })
+    const gamma = screen.getByRole('button', { name: 'gamma' })
+    const alphaTab = alpha.closest('.project-quick-tab') as HTMLDivElement
+    const gammaTab = gamma.closest('.project-quick-tab') as HTMLDivElement
+    expect(alphaTab.style.getPropertyValue('--project-hue')).not.toBe('')
+    expect(gammaTab.style.getPropertyValue('--project-hue')).not.toBe('')
+    expect(alphaTab.style.getPropertyValue('--project-hue')).not.toBe(gammaTab.style.getPropertyValue('--project-hue'))
 
     fireEvent.click(alpha)
     expect(await screen.findByText('Outras janelas')).toBeTruthy()
@@ -168,20 +170,20 @@ describe('WorkspaceShell project actions', () => {
     expect(onActivate).not.toHaveBeenCalledWith('/tmp/beta')
   })
 
-  it('can unlink any project bound to the current window from the project switcher', async () => {
+  it('keeps unlink controls inside the linked-project tabs', () => {
     const onActivate = vi.fn()
     const onUnbind = vi.fn()
-    window.wharnessDesktop = {
-      windows: { projects: vi.fn().mockResolvedValue({ currentWindowId: 'window-a', items: [] }) },
-    } as unknown as WharnessDesktopBridge
 
-    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: /alpha/ }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Desvincular gamma desta janela' }))
+    const { container } = render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    const unlinkGamma = screen.getByRole('button', { name: 'Desvincular projeto gamma' })
+
+    expect(unlinkGamma.closest('.project-quick-tab')).toBeTruthy()
+    expect(unlinkGamma.closest('.multi-project-actions')).toBeNull()
+    fireEvent.click(unlinkGamma)
 
     expect(onUnbind).toHaveBeenCalledWith('/tmp/gamma')
     expect(onActivate).not.toHaveBeenCalledWith('/tmp/gamma')
-    expect(screen.queryByText('Projetos abertos')).toBeNull()
+    expect(container.querySelector('.multi-project-actions [aria-label="Desvincular projeto"]')).toBeNull()
   })
 
   it('answers a loaded project readiness handshake with its current activation state', async () => {
