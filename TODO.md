@@ -1174,5 +1174,3 @@ ficheiros) — nenhum commit foi pedido nesta sessão.
 aad
 dwdw
  wdw dw dwdw
-
- wwddwdwdw
