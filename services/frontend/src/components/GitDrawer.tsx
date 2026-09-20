@@ -711,16 +711,18 @@ function HistoryCommitDetailModal({ sessionId, detail, onClose }: { sessionId: s
         <div className="git-history-commit-heading">
           <span className="git-history-commit-icon"><Icon name="git" size={15}/></span>
           <div className="git-history-commit-copy">
-            <span className="panel-kicker">Histórico Git · commit {commit.short_sha}</span>
+            <span className="git-history-commit-eyebrow"><span className="panel-kicker">Histórico Git</span><code>{commit.short_sha}</code></span>
             <strong>{commit.subject}</strong>
             <span className="git-history-commit-byline"><span>{commit.author_name}</span><time dateTime={commit.committed_at}>{formatCommitDate(commit.committed_at)}</time></span>
           </div>
         </div>
         <div className="git-history-commit-actions">
-          <span className="git-history-commit-stat additions">+{commit.additions || 0}</span>
-          <span className="git-history-commit-stat deletions">−{commit.deletions || 0}</span>
-          <span className="git-history-commit-stat files">{commit.files_changed || 0} ficheiro(s)</span>
-          <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button>
+          <div className="git-history-commit-stats" role="group" aria-label="Resumo do commit">
+            <span className="git-history-commit-stat additions"><b>+{commit.additions || 0}</b><small>adições</small></span>
+            <span className="git-history-commit-stat deletions"><b>−{commit.deletions || 0}</b><small>remoções</small></span>
+            <span className="git-history-commit-stat files"><b>{commit.files_changed || 0}</b><small>ficheiro(s)</small></span>
+          </div>
+          <button type="button" className="agent-drawer-icon git-history-commit-close" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button>
         </div>
       </header>
       <details className="git-commit-detail-disclosure git-history-commit-disclosure">

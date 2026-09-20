@@ -17,15 +17,20 @@ describe('restart confirmation layout CSS', () => {
     const actions = firstRule('.restart-confirmation-actions')
 
     expect(dialog).toContain('grid-template-rows: auto auto minmax(0, 1fr) auto')
-    expect(dialog).toContain('height: min(880px, calc(100vh - 32px))')
+    expect(dialog).toContain('height: min(820px, calc(100dvh - 56px))')
     expect(changes).toContain('min-height: 0')
     expect(changes).toContain('height: auto')
     expect(actions).toContain('grid-column: auto')
     expect(actions).toContain('justify-content: space-between')
   })
 
-  it('keeps the file list and comparison pane as the flexible review surface', () => {
-    expect(firstRule('.restart-confirmation-diff-layout')).toContain('grid-template-columns: minmax(215px, 27%) minmax(0, 1fr)')
+  it('reuses the Git diff review hierarchy for the activation comparison', () => {
+    const review = firstRule('.restart-confirmation-changes > .git-diff-review')
+    const activeFile = firstRule('.restart-confirmation-changes .git-diff-review-files button.active')
+
+    expect(review).toContain('grid-template-columns: minmax(230px, 27%) minmax(0, 1fr)')
+    expect(review).toContain('border-radius: 0')
+    expect(activeFile).toContain('box-shadow: inset 2px 0 0 var(--theme-accent)')
     expect(firstRule('.change-diff-shell')).toContain('grid-template-rows: auto minmax(0, 1fr)')
     expect(css).toContain('.change-diff-legend .diff-before')
     expect(css).toContain('.change-diff-legend .diff-after')
