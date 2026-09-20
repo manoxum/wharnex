@@ -32,11 +32,26 @@ func splitRemoteBranchRef(ref string) (remote, branch string, err error) {
 	return remote, branch, nil
 }
 
+// PushCommitFunc publishes a specific commit to a remote branch. Higher layers
+// can inject their authenticated transport while hostrepo keeps a direct Git
+// default for local/library callers and tests.
+type PushCommitFunc func(context.Context, string, string, string, string) (PushResult, error)
+
 // MergeRemoteBranches merges one or more remote-tracking refs into a target
 // remote-tracking ref in a temporary Git worktree, then fast-forward-pushes the
 // resulting commit to the target remote branch. The operator's local checkout
 // is never switched or modified.
 func MergeRemoteBranches(ctx context.Context, root, targetRef string, sourceRefs []string, identities ...CommitIdentity) (RemoteBranchMergeResult, error) {
+	return MergeRemoteBranchesWithPush(ctx, root, targetRef, sourceRefs, PushCommit, identities...)
+}
+
+// MergeRemoteBranchesWithPush is MergeRemoteBranches with an explicit commit
+// publisher. The app layer uses it to route the final push through the same
+// host Git bridge as ordinary push/fetch/pull operations.
+func MergeRemoteBranchesWithPush(ctx context.Context, root, targetRef string, sourceRefs []string, push PushCommitFunc, identities ...CommitIdentity) (RemoteBranchMergeResult, error) {
+	if push == nil {
+		return RemoteBranchMergeResult{}, errors.New("remote merge push transport is required")
+	}
 	targetRef = strings.TrimSpace(targetRef)
 	targetRemote, targetBranch, err := splitRemoteBranchRef(targetRef)
 	if err != nil {
@@ -88,13 +103,13 @@ func MergeRemoteBranches(ctx context.Context, root, targetRef string, sourceRefs
 	if err != nil {
 		return RemoteBranchMergeResult{}, fmt.Errorf("resolve remote merge result: %s", head)
 	}
-	push, err := PushCommit(ctx, root, targetRemote, targetBranch, head)
+	publish, err := push(ctx, root, targetRemote, targetBranch, head)
 	if err != nil {
 		return RemoteBranchMergeResult{}, err
 	}
-	result := RemoteBranchMergeResult{Outcome: outcome, TargetRef: targetRef, SourceRefs: append([]string(nil), sourceRefs...), CommitSHA: head, PushOutcome: string(push.Outcome), Detail: push.Detail}
-	if !push.Succeeded() {
-		result.Outcome = string(push.Outcome)
+	result := RemoteBranchMergeResult{Outcome: outcome, TargetRef: targetRef, SourceRefs: append([]string(nil), sourceRefs...), CommitSHA: head, PushOutcome: string(publish.Outcome), Detail: publish.Detail}
+	if !publish.Succeeded() {
+		result.Outcome = string(publish.Outcome)
 	}
 	return result, nil
 }
