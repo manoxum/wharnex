@@ -73,6 +73,8 @@ interface WharnessDesktopBridge {
     onActivateProject(callback: (payload: { projectPath: string }) => void): () => void
     open(): Promise<{ ok: boolean; windowId: string }>
     openSurface(request: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string }): Promise<{ ok: boolean; windowId: string }>
+    moveSurface(request: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string; screenX?: number; screenY?: number }): Promise<{ ok: boolean; action: 'moved' | 'opened' | 'blocked'; windowId?: string; reason?: string; message?: string }>
+    onSurfaceReceived(callback: (payload: { surface: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string } }) => void): () => void
     minimize(): Promise<{ ok: boolean }>
     toggleMaximize(): Promise<{ ok: boolean; maximized: boolean }>
     close(): Promise<{ ok: boolean }>

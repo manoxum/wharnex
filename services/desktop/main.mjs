@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ClipboardItem, Notification, WebContentsView, clipboard, dialog, ipcMain, nativeImage, session, shell } from 'electron'
+import { app, BrowserWindow, ClipboardItem, Notification, WebContentsView, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -6666,7 +6666,7 @@ function openInternalChatGPTBrowser(windowState, value) {
 function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true, launch = {}) {
   const id = /^[A-Za-z0-9_-]{1,80}$/.test(String(windowId || '')) ? String(windowId) : `window-${randomUUID()}`
   const surface = launch?.surface && typeof launch.surface === 'object' ? launch.surface : undefined
-  const initialWindowSize = loadWindowSize(id)
+  const initialWindowSize = { ...loadWindowSize(id) }
   if (surface) Object.assign(initialWindowSize, { width: 1280, height: 820 })
   const win = new BrowserWindow({
     width: initialWindowSize.width,
@@ -6770,6 +6770,34 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
   return state
 }
 
+
+function normalizedWorkspaceSurface(request) {
+  const projectPath = canonicalProjectPath(request?.projectPath)
+  const kind = request?.kind === 'chat' || request?.kind === 'editor' || request?.kind === 'terminal' ? request.kind : ''
+  if (!kind) throw new Error('Tipo de superfície inválido.')
+  const chatId = typeof request?.chatId === 'string' ? request.chatId.trim().slice(0, 200) : ''
+  const filePath = typeof request?.path === 'string' ? request.path.trim().replace(/^\/+/, '').slice(0, 4096) : ''
+  if (kind === 'chat' && !chatId) throw new Error('Chat inválido para mover entre janelas.')
+  if (kind === 'editor' && !filePath) throw new Error('Ficheiro inválido para mover entre janelas.')
+  return { projectPath, kind, ...(chatId ? { chatId } : {}), ...(filePath ? { path: filePath } : {}) }
+}
+
+function desktopWindowAtScreenPoint(point, excludeWindowId = '') {
+  const x = Number(point?.x)
+  const y = Number(point?.y)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return undefined
+  const focused = BrowserWindow.getFocusedWindow()
+  const candidates = [...desktopWindows.values()]
+    .filter((state) => state.id !== excludeWindowId && state.window && !state.window.isDestroyed())
+    .sort((left, right) => Number(right.window === focused) - Number(left.window === focused))
+  return candidates.find((state) => {
+    try {
+      const bounds = state.window.getBounds()
+      return x >= bounds.x && y >= bounds.y && x < bounds.x + bounds.width && y < bounds.y + bounds.height
+    } catch { return false }
+  })
+}
+
 function registerIPC() {
   ipcMain.handle('wharness:projects:pick-directory', async (event, request) => {
     const windowState = trustedSender(event)
@@ -6826,15 +6854,28 @@ function registerIPC() {
   })
   ipcMain.handle('wharness:windows:open-surface', (event, request) => {
     const owner = trustedSender(event)
-    const projectPath = canonicalProjectPath(request?.projectPath)
-    if (!owner.projects.has(projectPath)) throw new Error('A superfície só pode ser destacada a partir de um projeto aberto nesta janela.')
-    const kind = request?.kind === 'chat' || request?.kind === 'editor' || request?.kind === 'terminal' ? request.kind : ''
-    if (!kind) throw new Error('Tipo de superfície inválido.')
-    const chatId = typeof request?.chatId === 'string' ? request.chatId.trim().slice(0, 200) : ''
-    const filePath = typeof request?.path === 'string' ? request.path.trim().replace(/^\/+/, '').slice(0, 4096) : ''
-    const windowState = createWindow(`surface-${randomUUID()}`, false, { surface: { projectPath, kind, chatId, path: filePath } })
+    const surface = normalizedWorkspaceSurface(request)
+    if (!owner.projects.has(surface.projectPath)) throw new Error('A superfície só pode ser destacada a partir de um projeto aberto nesta janela.')
+    const windowState = createWindow(`surface-${randomUUID()}`, false, { surface })
     windowState.window.show(); windowState.window.focus()
     return { ok: true, windowId: windowState.id }
+  })
+  ipcMain.handle('wharness:windows:move-surface', (event, request) => {
+    const owner = trustedSender(event)
+    const surface = normalizedWorkspaceSurface(request)
+    if (!owner.projects.has(surface.projectPath)) throw new Error('A superfície só pode ser movida a partir de um projeto aberto nesta janela.')
+    let point = { x: Number(request?.screenX), y: Number(request?.screenY) }
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || (point.x === 0 && point.y === 0)) point = screen.getCursorScreenPoint()
+    const destination = desktopWindowAtScreenPoint(point, owner.id)
+    if (destination) {
+      if (destination.activeProject !== surface.projectPath) return { ok: false, action: 'blocked', reason: 'different-project', message: 'Não é possível mover tabs entre janelas de projetos diferentes.' }
+      sendToWindowState(destination, 'wharness:windows:receive-surface', { surface })
+      destination.window.show(); destination.window.focus()
+      return { ok: true, action: 'moved', windowId: destination.id }
+    }
+    const windowState = createWindow(`surface-${randomUUID()}`, false, { surface })
+    windowState.window.show(); windowState.window.focus()
+    return { ok: true, action: 'opened', windowId: windowState.id }
   })
   ipcMain.handle('wharness:windows:minimize', (event) => {
     const windowState = trustedSender(event)

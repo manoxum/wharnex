@@ -4,7 +4,7 @@ import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
 import { confirmDialog } from '../lib/appDialog'
 import { editorExecutableOptions, loadEditorRunHistory, parentDirectory, recentEditorRunOptions, rememberEditorRun, selectionCommand } from '../lib/editorExecution'
-import { workspaceDragEndedOutside } from '../lib/workspaceSurface'
+import { workspaceDragEndedOutside, type WorkspaceSurfaceTransferPoint } from '../lib/workspaceSurface'
 import type { FileEntry, GitFileDiff, Session, TerminalRunInput, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
@@ -16,14 +16,16 @@ type EditorDocument = WorkspaceFile & { draft: string }
 type Cursor = { line: number; column: number }
 type WorkspaceMutation = { kind: 'create'; path: string } | { kind: 'rename'; from: string; to: string } | { kind: 'delete'; path: string }
 
-export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, openNonce = 0, surfaceMode = false, onDetachFile, onSplitFile }: {
+export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, openNonce = 0, hiddenPaths = [], surfaceMode = false, minimalSurface = false, onDetachFile, onSplitFile }: {
   session: Session
   onError: (message: string) => void
   onRunInTerminal: (input: TerminalRunInput) => void
   openPath?: string
   openNonce?: number
+  hiddenPaths?: string[]
   surfaceMode?: boolean
-  onDetachFile?: (path: string) => void
+  minimalSurface?: boolean
+  onDetachFile?: (path: string, point?: WorkspaceSurfaceTransferPoint) => void
   onSplitFile?: (path: string, direction: 'vertical' | 'horizontal') => void
 }) {
   const [files, setFiles] = useState<FileEntry[]>([])
@@ -49,7 +51,12 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     [gitDiff?.path, gitDiff?.diff],
   )
   const [recentRuns, setRecentRuns] = useState(() => loadEditorRunHistory(session.project_path))
-  const selected = documents.find((item) => item.path === activePath)
+  const hiddenPathSet = useMemo(() => new Set(hiddenPaths), [hiddenPaths])
+  const visibleDocuments = useMemo(() => documents.filter((item) => !hiddenPathSet.has(item.path)), [documents, hiddenPathSet])
+  const selected = documents.find((item) => item.path === activePath && !hiddenPathSet.has(item.path))
+  useEffect(() => {
+    if (activePath && hiddenPathSet.has(activePath)) setActivePath(visibleDocuments[0]?.path)
+  }, [activePath, hiddenPathSet, visibleDocuments])
   const dirtyCount = documents.filter((item) => item.draft !== item.content).length
   const runOptions = selected ? editorExecutableOptions(selected.path, selected.draft, files) : []
   const recentRunOptions = recentEditorRunOptions(runOptions.filter((option) => option.line !== undefined), recentRuns)
@@ -185,9 +192,9 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   return <section className="editor-workspace">
     <div className="editor-main">
       <div className="editor-area">
-        {documents.length > 0 && <EditorTabs documents={documents} activePath={activePath} savingPath={savingPath} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} />}
+        {visibleDocuments.length > 0 && !minimalSurface && <EditorTabs documents={visibleDocuments} activePath={activePath} savingPath={savingPath} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} />}
         {selected ? <>
-          <div className="editor-contextbar">
+          {!minimalSurface && <div className="editor-contextbar">
             <div className="editor-breadcrumbs">{selected.path.split('/').map((part, index, parts) => <span key={`${part}-${index}`}>{part}{index < parts.length - 1 && <i>›</i>}</span>)}</div>
             <div className="editor-shortcuts">
               <button title="Comparar o ficheiro guardado com o Git" disabled={gitDiffLoading || isBinaryPreview(selected.path)} onClick={() => void showGitDiff()}><Icon name="git" size={12}/>{gitDiffLoading ? 'A comparar…' : 'Git diff'}</button>
@@ -196,12 +203,12 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
               {isRichPreview(selected.path) && !isBinaryPreview(selected.path) && <button title="Alternar editor e pré-visualização" onClick={() => setPreviewPaths((items) => { const next = new Set(items); if (next.has(selected.path)) next.delete(selected.path); else next.add(selected.path); return next })}><Icon name={previewPaths.has(selected.path) ? 'code' : 'external'} size={12}/>{previewPaths.has(selected.path) ? 'Editar' : 'Pré-visualizar'}</button>}
               {!previewPaths.has(selected.path) && <><span>Ctrl+Shift+Enter executar seleção</span><span>F1 comandos</span><span>Alt+Z wrap</span></>}
             </div>
-          </div>
+          </div>}
           {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} />}
-          <div className="editor-statusbar">
+          {!minimalSurface && <div className="editor-statusbar">
             <span>{selected.path}</span>
             <div><span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
-          </div>
+          </div>}
         </> : <div className="editor-empty"><div className="empty-mark">&lt;/&gt;</div><h3>Abra um ficheiro no Explorador do projeto</h3><p>O Editor agora usa o explorador único do workbench. Abra a tool window Projeto numa das barras e escolha um ficheiro; as tabs preservam rascunhos, undo, pesquisa, folding e navegação por linha.</p></div>}
       </div>
     </div>
@@ -217,13 +224,13 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
 function EditorTabs({ documents, activePath, savingPath, surfaceMode = false, onSelect, onClose, onSave, onDetach, onSplit }: {
   documents: EditorDocument[]; activePath?: string; savingPath?: string; surfaceMode?: boolean
   onSelect: (path: string) => void; onClose: (path: string) => void; onSave: (path: string) => Promise<void>
-  onDetach?: (path: string) => void; onSplit?: (path: string, direction: 'vertical' | 'horizontal') => void
+  onDetach?: (path: string, point?: WorkspaceSurfaceTransferPoint) => void; onSplit?: (path: string, direction: 'vertical' | 'horizontal') => void
 }) {
   return <div className="editor-tabbar">
     <div className="editor-tabs-scroll">{documents.map((document) => {
       const dirty = document.draft !== document.content
       const name = document.path.split('/').pop() || document.path
-      return <button className={`editor-tab ${activePath === document.path ? 'active' : ''}`} key={document.path} draggable={Boolean(onDetach)} onDragEnd={(event) => { if (onDetach && workspaceDragEndedOutside(event)) onDetach(document.path) }} onClick={() => onSelect(document.path)} title={document.path}>
+      return <button className={`editor-tab ${activePath === document.path ? 'active' : ''}`} key={document.path} draggable={Boolean(onDetach)} onDragEnd={(event) => { if (onDetach && workspaceDragEndedOutside(event)) onDetach(document.path, { screenX: event.screenX, screenY: event.screenY }) }} onClick={() => onSelect(document.path)} title={document.path}>
         <FileGlyph path={document.path} size={13}/><span>{name}</span>{dirty && <i className="dirty-dot"/>}
         {!surfaceMode && <span className="editor-tab-close" aria-hidden="true" onClick={(event) => { event.stopPropagation(); onClose(document.path) }}>×</span>}
       </button>
