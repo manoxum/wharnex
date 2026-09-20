@@ -1415,6 +1415,12 @@ describe('ChatPanel', () => {
     expect(onChatTransport).toHaveBeenCalledWith({ disabledTunnelIds: ['secondary', 'primary'] })
     fireEvent.click(screen.getByRole('button', { name: /Usar padrão global/ }))
     expect(onChatTransport).toHaveBeenLastCalledWith(undefined)
+
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByText('Canais remotos')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Túneis do ChatGPT' }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByText('Canais remotos')).toBeNull()
   })
 
   it('can enable one tunnel from the migrated all-disabled selection', () => {
