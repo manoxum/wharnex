@@ -479,32 +479,6 @@ func TestGitOverviewReportsBranchesPendingAndWorkingState(t *testing.T) {
 	}
 }
 
-func TestGitHeadTracksCheckoutChanges(t *testing.T) {
-	requireGitForApp(t)
-	service, _ := gitSurfaceService(t)
-	root := gitRepo(t, "app.go", "package main\n")
-	sessionID := startGitSession(t, service, root)
-	runGitForApp(t, root, "add", "-A")
-	runGitForApp(t, root, "commit", "-qm", "chore: project config")
-
-	head, err := service.GitHead(context.Background(), sessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if head.CurrentBranch == "" || head.Detached || head.CommitSHA == "" {
-		t.Fatalf("expected attached HEAD state, got %+v", head)
-	}
-
-	runGitForApp(t, root, "checkout", "-q", "-b", "feature")
-	head, err = service.GitHead(context.Background(), sessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if head.CurrentBranch != "feature" || head.Detached || head.CommitSHA == "" {
-		t.Fatalf("expected externally changed branch to be visible, got %+v", head)
-	}
-}
-
 func startGitSession(t *testing.T, service *Service, root string) string {
 	t.Helper()
 	item, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)

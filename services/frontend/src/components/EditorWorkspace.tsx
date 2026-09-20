@@ -31,7 +31,6 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const [files, setFiles] = useState<FileEntry[]>([])
   const [documents, setDocuments] = useState<EditorDocument[]>([])
   const documentsRef = useRef<EditorDocument[]>([])
-  const runMenuRef = useRef<HTMLDetailsElement>(null)
   const [activePath, setActivePath] = useState<string>()
   const [savingPath, setSavingPath] = useState<string>()
   const [cursor, setCursor] = useState<Cursor>({ line: 1, column: 1 })
@@ -64,21 +63,6 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const directRunOption = runOptions.length === 1 && runOptions[0].line === undefined ? runOptions[0] : undefined
 
   documentsRef.current = documents
-
-  useEffect(() => {
-    const closeRunMenu = (event: Event) => {
-      const menu = runMenuRef.current
-      if (!menu?.open) return
-      if (event.type === 'keydown' && (event as globalThis.KeyboardEvent).key === 'Escape') { menu.open = false; return }
-      if (event.type === 'pointerdown' && event.target instanceof Node && !menu.contains(event.target)) menu.open = false
-    }
-    document.addEventListener('pointerdown', closeRunMenu)
-    document.addEventListener('keydown', closeRunMenu)
-    return () => {
-      document.removeEventListener('pointerdown', closeRunMenu)
-      document.removeEventListener('keydown', closeRunMenu)
-    }
-  }, [])
 
   const refreshFiles = useCallback(async () => {
     try { setFiles((await api.listFiles(session.id)).files) }
@@ -215,7 +199,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
             <div className="editor-shortcuts">
               <button title="Comparar o ficheiro guardado com o Git" disabled={gitDiffLoading || isBinaryPreview(selected.path)} onClick={() => void showGitDiff()}><Icon name="git" size={12}/>{gitDiffLoading ? 'A comparar…' : 'Git diff'}</button>
               {directRunOption && <button title={directRunOption.label} onClick={() => runAction(directRunOption.id)}><Icon name="play" size={11}/> Executar</button>}
-              {recentRunOptions.length > 0 && <details ref={runMenuRef} className="editor-run-menu"><summary><Icon name="play" size={11}/> Recentes</summary><div>{recentRunOptions.map((option) => <button type="button" key={`${option.cwd}:${option.command}`} onClick={(event) => { runAction(option.id); (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open') }}><span>{option.label}</span><code>{option.command}</code></button>)}</div></details>}
+              {recentRunOptions.length > 0 && <details className="editor-run-menu"><summary><Icon name="play" size={11}/> Recentes</summary><div>{recentRunOptions.map((option) => <button type="button" key={`${option.cwd}:${option.command}`} onClick={(event) => { runAction(option.id); (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open') }}><span>{option.label}</span><code>{option.command}</code></button>)}</div></details>}
               {isRichPreview(selected.path) && !isBinaryPreview(selected.path) && <button title="Alternar editor e pré-visualização" onClick={() => setPreviewPaths((items) => { const next = new Set(items); if (next.has(selected.path)) next.delete(selected.path); else next.add(selected.path); return next })}><Icon name={previewPaths.has(selected.path) ? 'code' : 'external'} size={12}/>{previewPaths.has(selected.path) ? 'Editar' : 'Pré-visualizar'}</button>}
               {!previewPaths.has(selected.path) && <><span>Ctrl+Shift+Enter executar seleção</span><span>F1 comandos</span><span>Alt+Z wrap</span></>}
             </div>

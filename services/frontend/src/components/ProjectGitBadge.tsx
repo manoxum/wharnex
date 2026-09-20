@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { GitBranch, GitOverview, Session } from '../types'
+import type { GitOverview, Session } from '../types'
 import { api } from '../lib/api'
-import { announceGitChanged, subscribeGitLiveSync } from '../lib/gitLiveSync'
 import { Icon } from './Icon'
 import { GitOperationModal, type GitOperation } from './GitOperationModal'
 
@@ -10,13 +9,11 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
   const id = session?.id || sessionID || ''
   const [overview, setOverview] = useState<GitOverview>()
   const [open, setOpen] = useState(false)
-  const [branchPickerOpen, setBranchPickerOpen] = useState(false)
   const [working, setWorking] = useState(false)
   const [branch, setBranch] = useState('')
   const [notice, setNotice] = useState('')
   const [operation, setOperation] = useState<GitOperation | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
-  const pickerRef = useRef<HTMLDivElement>(null)
   const autoFetchRunning = useRef(false)
 
   const refresh = useCallback(async () => {
@@ -40,11 +37,6 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
 
   useEffect(() => {
     if (!id) return
-    return subscribeGitLiveSync(id, () => { void refresh().catch(() => {}) })
-  }, [id, refresh])
-
-  useEffect(() => {
-    if (!id) return
     let alive = true
     const timer = window.setInterval(() => {
       if (busy || working || autoFetchRunning.current) return
@@ -55,11 +47,7 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
           if (!snapshot.available || snapshot.remotes.length === 0) return
           for (const remote of snapshot.remotes) await api.gitFetch(id, remote.name)
           const updated = await api.gitOverview(id)
-          if (alive) {
-            setOverview(updated)
-            setBranch(updated.current_branch || '')
-            announceGitChanged(id)
-          }
+          if (alive) setOverview(updated)
         } catch {
           // Periodic remote refresh is best-effort; explicit actions report failures.
         } finally {
@@ -74,48 +62,29 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
   }, [id, busy, working])
 
   useEffect(() => {
-    if (!open) { setBranchPickerOpen(false); return }
+    if (!open) return
     const onPointerDown = (event: PointerEvent) => {
-      if (!(event.target instanceof Node)) return
-      if (!rootRef.current?.contains(event.target)) setOpen(false)
-      else if (branchPickerOpen && !pickerRef.current?.contains(event.target)) setBranchPickerOpen(false)
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false)
     }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (branchPickerOpen) setBranchPickerOpen(false)
-        else setOpen(false)
-      }
-    }
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [open, branchPickerOpen])
+  }, [open])
 
   const locals = useMemo(() => (overview?.branches || []).filter((item) => !item.remote), [overview])
-  const remotes = useMemo(() => (overview?.branches || []).filter((item) => item.remote), [overview])
   const current = locals.find((item) => item.current)
-  const selected = (overview?.branches || []).find((item) => item.name === branch)
   const remote = current?.upstream?.split('/')[0] || overview?.remotes[0]?.name || ''
   const currentBranch = overview?.detached ? 'HEAD destacado' : overview?.current_branch || 'sem branch'
-
-  async function copyBranch(name: string) {
-    try {
-      await navigator.clipboard.writeText(name)
-      setNotice(`Nome da branch ${name} copiado.`)
-    } catch {
-      setNotice('Não foi possível copiar o nome da branch.')
-    }
-  }
 
   async function run(action: () => Promise<string>, syncSession = false) {
     setWorking(true); setNotice('')
     try {
       const message = await action()
       await refresh()
-      announceGitChanged(id)
       if (syncSession && onSession) onSession(await api.getSession(id))
       if (syncSession) onSync?.()
       setNotice(message)
@@ -134,7 +103,6 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
       phase = 'refreshing'
       setOperation({ title, detail, phase })
       await refresh()
-      announceGitChanged(id)
       if (syncSession && onSession) onSession(await api.getSession(id))
       if (syncSession) onSync?.()
       setNotice(actionMessage)
@@ -155,25 +123,8 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
       <Icon name="chevron" size={11}/>
     </button>
     {open && <section className="project-git-menu" aria-label="Operações da branch atual">
-      <header className="project-git-menu-header">
-        <span className="project-git-menu-icon"><Icon name="git" size={15}/></span>
-        <div><span>Branch de trabalho</span><strong>{currentBranch}</strong></div>
-        {overview?.current_branch && <button type="button" className="project-git-copy-button" aria-label={`Copiar nome da branch ${overview.current_branch}`} title="Copiar nome da branch" onClick={() => void copyBranch(overview.current_branch || '')}><Icon name="copy" size={12}/></button>}
-        <span className="project-git-menu-version">{overview?.project_version || '—'}</span>
-      </header>
-
-      <div ref={pickerRef} className="project-git-picker">
-        <span className="project-git-picker-label">Alternar branch</span>
-        <button type="button" className="project-git-picker-trigger" disabled={disabled} aria-haspopup="menu" aria-expanded={branchPickerOpen} onClick={() => setBranchPickerOpen((value) => !value)}>
-          <span className="project-git-picker-copy"><strong>{branch || 'Escolher branch…'}</strong><small>{selected ? branchSummary(selected) : 'Local ou remota'}</small></span>
-          <Icon name="chevron" size={11}/>
-        </button>
-        {branchPickerOpen && <div className="project-git-branch-menu" role="menu" aria-label="Branches disponíveis">
-          <BranchPickerGroup label="Locais" branches={locals} branch={branch} onPick={(name) => { setBranch(name); setBranchPickerOpen(false) }} onCopy={copyBranch}/>
-          {remotes.length > 0 && <BranchPickerGroup label="Remotas" branches={remotes} branch={branch} onPick={(name) => { setBranch(name); setBranchPickerOpen(false) }} onCopy={copyBranch}/>}
-        </div>}
-      </div>
-
+      <header><div><span>Branch de trabalho</span><strong>{currentBranch}</strong></div><span className="project-git-menu-version">{overview?.project_version || '—'}</span></header>
+      <label>Alternar branch<select value={branch} disabled={disabled} onChange={(event) => setBranch(event.target.value)}>{locals.map((item) => <option key={item.name} value={item.name}>{item.name}{item.current ? ' · atual' : ''}</option>)}</select></label>
       <div className="project-git-actions">
         <button type="button" disabled={disabled || !branch || branch === overview?.current_branch} onClick={() => void run(async () => { await api.gitSwitch(id, branch); return `Branch alterada para ${branch}.` }, true)}><Icon name="bridge" size={12}/> Alternar</button>
         <button type="button" disabled={disabled || !remote} onClick={() => void runGitOperation(
@@ -201,31 +152,5 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
       <div className="project-git-operation-layer"><GitOperationModal operation={operation} onClose={() => setOperation(null)}/></div>,
       document.body,
     )}
-  </div>
-}
-
-function branchSummary(branch: GitBranch) {
-  const location = branch.remote ? 'Remota' : branch.current ? 'Local · atual' : 'Local'
-  const sync = branch.ahead > 0 || branch.behind > 0 ? ` · ↑${branch.ahead} ↓${branch.behind}` : ' · em dia'
-  return `${location}${sync}`
-}
-
-function BranchPickerGroup({ label, branches, branch, onPick, onCopy }: { label: string; branches: GitBranch[]; branch: string; onPick: (branch: string) => void; onCopy: (branch: string) => Promise<void> }) {
-  return <div className="project-git-branch-group">
-    <span className="project-git-branch-group-label">{label}<b>{branches.length}</b></span>
-    {branches.map((item) => <div key={item.name} className={`project-git-branch-option ${item.name === branch ? 'selected' : ''} ${item.current ? 'current' : ''}`}>
-      <button type="button" className="project-git-branch-option-main" role="menuitem" onClick={() => onPick(item.name)}>
-        <span className="project-git-branch-option-icon"><Icon name="git" size={11}/></span>
-        <span className="project-git-branch-option-copy"><strong>{item.name}</strong><small>{item.subject || (item.remote ? 'Referência remota' : 'Branch local')}</small></span>
-        <span className="project-git-branch-option-meta">
-          {item.current && <b className="current">Atual</b>}
-          {item.ahead > 0 && <b className="outgoing" title={`${item.ahead} commit(s) para enviar`}><Icon name="arrow-up" size={9}/>{item.ahead}</b>}
-          {item.behind > 0 && <b className="incoming" title={`${item.behind} commit(s) para receber`}><Icon name="arrow-down" size={9}/>{item.behind}</b>}
-          {item.ahead === 0 && item.behind === 0 && <b className="clean"><Icon name="check" size={9}/>Em dia</b>}
-          <b className="scope">{item.remote ? 'Remota' : 'Local'}</b>
-        </span>
-      </button>
-      <button type="button" className="project-git-copy-button" aria-label={`Copiar nome da branch ${item.name}`} title="Copiar nome da branch" onClick={() => void onCopy(item.name)}><Icon name="copy" size={11}/></button>
-    </div>)}
   </div>
 }
