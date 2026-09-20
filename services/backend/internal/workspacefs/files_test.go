@@ -224,3 +224,86 @@ func TestWorkspaceRenameRejectsSymlink(t *testing.T) {
 		t.Fatal("expected symlink rename rejection")
 	}
 }
+
+func TestSearchSupportsLiteralRegexCaseWholeWordAndFuzzyMatches(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "const DatabaseClient = connect()\nconst literal = 'a+b'\nconst database = 'small'\n"
+	if err := os.WriteFile(filepath.Join(root, "src", "app.ts"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	literal, err := Search(root, SearchOptions{Query: "a+b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(literal.Matches) != 1 || literal.Matches[0].Line != 2 {
+		t.Fatalf("literal matches=%#v", literal.Matches)
+	}
+
+	caseSensitive, err := Search(root, SearchOptions{Query: "databaseclient", CaseSensitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(caseSensitive.Matches) != 0 {
+		t.Fatalf("case-sensitive matches=%#v", caseSensitive.Matches)
+	}
+
+	regex, err := Search(root, SearchOptions{Query: `Database\w+`, Regex: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(regex.Matches) != 1 || regex.Matches[0].Column != 7 {
+		t.Fatalf("regex matches=%#v", regex.Matches)
+	}
+
+	wholeWord, err := Search(root, SearchOptions{Query: "database", WholeWord: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wholeWord.Matches) != 1 || wholeWord.Matches[0].Line != 3 {
+		t.Fatalf("whole-word matches=%#v", wholeWord.Matches)
+	}
+
+	fuzzy, err := Search(root, SearchOptions{Query: "DatabseClient", Fuzzy: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fuzzy.Matches) != 1 || fuzzy.Matches[0].Line != 1 {
+		t.Fatalf("fuzzy matches=%#v", fuzzy.Matches)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "unicode.txt"), []byte("olá 😊 mundo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unicodeResult, err := Search(root, SearchOptions{Query: "mundo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unicodeMatch *SearchMatch
+	for index := range unicodeResult.Matches {
+		if unicodeResult.Matches[index].Path == "unicode.txt" {
+			unicodeMatch = &unicodeResult.Matches[index]
+			break
+		}
+	}
+	if unicodeMatch == nil || unicodeMatch.Column != 8 {
+		t.Fatalf("unicode match=%#v", unicodeMatch)
+	}
+}
+
+func TestSearchHonorsResultLimit(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "many.txt"), []byte("needle\nneedle\nneedle\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Search(root, SearchOptions{Query: "needle", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Matches) != 2 || !result.Truncated {
+		t.Fatalf("result=%#v", result)
+	}
+}

@@ -612,6 +612,27 @@ export type WorkspaceFile = {
   size: number
 }
 
+export type WorkspaceSearchOptions = {
+  query: string
+  case_sensitive: boolean
+  regex: boolean
+  whole_word: boolean
+  fuzzy: boolean
+  limit?: number
+}
+
+export type WorkspaceSearchMatch = {
+  path: string
+  line: number
+  column: number
+  preview: string
+}
+
+export type WorkspaceSearchResult = {
+  matches: WorkspaceSearchMatch[]
+  truncated: boolean
+}
+
 
 export type ProjectConfig = {
   version: number

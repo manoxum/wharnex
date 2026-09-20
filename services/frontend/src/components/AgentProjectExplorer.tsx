@@ -1,28 +1,30 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { api, APIError } from '../lib/api'
 import { confirmDialog, promptDialog } from '../lib/appDialog'
 import type { FileEntry, Session } from '../types'
-import { FileGlyph } from './FileGlyph'
+import { DirectoryGlyph, FileGlyph } from './FileGlyph'
 import { Icon } from './Icon'
 
 type TreeNode = { name: string; path: string; kind: 'file' | 'directory'; children: TreeNode[] }
 type ContextMenu = { x: number; y: number; node: TreeNode }
 type WorkspaceMutation = { kind: 'create'; path: string } | { kind: 'rename'; from: string; to: string } | { kind: 'delete'; path: string }
 
-export function AgentProjectExplorer({ session, onOpen, onError, onClose }: {
+export function AgentProjectExplorer({ session, onOpen, onError, onClose, revealPath, revealNonce = 0 }: {
   session: Session
   onOpen: (path: string) => void
   onError: (message: string) => void
   onClose: () => void
+  revealPath?: string
+  revealNonce?: number
 }) {
   const [entries, setEntries] = useState<FileEntry[]>([])
-  const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [focusedPath, setFocusedPath] = useState<string>()
   const [menu, setMenu] = useState<ContextMenu>()
   const [loading, setLoading] = useState(false)
+  const treeRef = useRef<HTMLDivElement>(null)
   const fullTree = useMemo(() => buildTree(entries), [entries])
-  const tree = useMemo(() => filterTree(fullTree, query.trim().toLowerCase()), [fullTree, query])
+  const tree = fullTree
   const focused = useMemo(() => focusedPath ? findNode(fullTree, focusedPath) : undefined, [fullTree, focusedPath])
 
   const refresh = useCallback(async () => {
@@ -33,6 +35,16 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose }: {
   }, [session.id, onError])
 
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (!revealPath || !findNode(fullTree, revealPath)) return
+    setFocusedPath(revealPath)
+    setExpanded((current) => withAncestors(current, revealPath))
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      const row = [...(treeRef.current?.querySelectorAll<HTMLElement>('[data-workspace-path]') || [])].find((item) => item.dataset.workspacePath === revealPath)
+      row?.scrollIntoView({ block: 'center' })
+      row?.focus({ preventScroll: true })
+    }))
+  }, [fullTree, revealNonce, revealPath])
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(undefined)
@@ -138,16 +150,11 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose }: {
         <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar explorador" title="Fechar explorador"><Icon name="close" size={13}/></button>
       </div>
     </header>
-    <label className="panel-search-field agent-explorer-search">
-      <Icon name="search" size={13}/>
-      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar no projeto" aria-label="Pesquisar ficheiros" />
-      {query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={11}/></button>}
-    </label>
-    <div className="agent-project-tree" tabIndex={0} onKeyDown={(event) => {
+    <div className="agent-project-tree" ref={treeRef} tabIndex={0} onKeyDown={(event) => {
       if (event.key === 'F2' && focused) { event.preventDefault(); void rename() }
       if (event.key === 'Delete' && focused) { event.preventDefault(); void remove() }
     }}>
-      {loading && !entries.length ? <div className="agent-drawer-empty">A carregar ficheiros…</div> : tree.length ? tree.map((node) => <TreeItem key={node.path} node={node} depth={0} expanded={expanded} focusedPath={focusedPath} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu}/>) : <div className="agent-drawer-empty">Nenhum caminho corresponde à pesquisa.</div>}
+      {loading && !entries.length ? <div className="agent-drawer-empty">A carregar ficheiros…</div> : tree.length ? tree.map((node) => <TreeItem key={node.path} node={node} depth={0} expanded={expanded} focusedPath={focusedPath} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu}/>) : <div className="agent-drawer-empty">Este projeto não contém ficheiros visíveis no Explorer.</div>}
     </div>
     <footer className="agent-project-footer"><span>{entries.filter((entry) => entry.kind === 'file').length} ficheiros</span><span>explorador único</span></footer>
     {menu && <div className="explorer-context-menu agent-explorer-context-menu" data-chatgpt-overlay-blocker="true" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()}>
@@ -172,12 +179,12 @@ function TreeItem({ node, depth, expanded, focusedPath, onToggle, onOpen, onFocu
 }) {
   const open = expanded.has(node.path)
   if (node.kind === 'directory') return <div className="agent-tree-group">
-    <button type="button" className={`agent-tree-row folder${focusedPath === node.path ? ' selected-node' : ''}`} style={{ paddingLeft: 9 + depth * 13 }} onClick={() => onToggle(node.path)} onContextMenu={(event) => onContextMenu(event, node)} title={node.path}>
-      <span className={`agent-tree-chevron ${open ? 'open' : ''}`}><Icon name="chevron" size={11}/></span><Icon name="folder" size={13}/><span>{node.name}</span>
+    <button type="button" className={`agent-tree-row folder${focusedPath === node.path ? ' selected-node' : ''}`} data-workspace-path={node.path} style={{ paddingLeft: 9 + depth * 13 }} onClick={() => onToggle(node.path)} onContextMenu={(event) => onContextMenu(event, node)} title={node.path}>
+      <span className={`agent-tree-chevron ${open ? 'open' : ''}`}><Icon name="chevron" size={11}/></span><DirectoryGlyph path={node.path}/><span>{node.name}</span>
     </button>
     {open && node.children.map((child) => <TreeItem key={child.path} node={child} depth={depth + 1} expanded={expanded} focusedPath={focusedPath} onToggle={onToggle} onOpen={onOpen} onFocus={onFocus} onContextMenu={onContextMenu}/>) }
   </div>
-  return <button type="button" className={`agent-tree-row file${focusedPath === node.path ? ' selected-node' : ''}`} style={{ paddingLeft: 23 + depth * 13 }} onClick={() => { onFocus(node.path); onOpen(node.path) }} onContextMenu={(event) => onContextMenu(event, node)} title={`Abrir ${node.path}`} aria-label={`Abrir ${node.path}`}><FileGlyph path={node.path}/><span>{node.name}</span></button>
+  return <button type="button" className={`agent-tree-row file${focusedPath === node.path ? ' selected-node' : ''}`} data-workspace-path={node.path} style={{ paddingLeft: 23 + depth * 13 }} onClick={() => { onFocus(node.path); onOpen(node.path) }} onContextMenu={(event) => onContextMenu(event, node)} title={`Abrir ${node.path}`} aria-label={`Abrir ${node.path}`}><FileGlyph path={node.path}/><span>{node.name}</span></button>
 }
 
 function publishMutation(detail: WorkspaceMutation) { window.dispatchEvent(new CustomEvent('wharnex:workspace-files-changed', { detail })) }
@@ -204,16 +211,6 @@ function ensureDir(root: TreeNode, map: Map<string, TreeNode>, path: string) {
     current = child
   }
   return current
-}
-
-function filterTree(nodes: TreeNode[], query: string): TreeNode[] {
-  if (!query) return nodes
-  const visit = (node: TreeNode): TreeNode | undefined => {
-    const children = node.children.map(visit).filter((child): child is TreeNode => Boolean(child))
-    if (node.path.toLowerCase().includes(query) || children.length) return { ...node, children }
-    return undefined
-  }
-  return nodes.map(visit).filter((node): node is TreeNode => Boolean(node))
 }
 
 function findNode(nodes: TreeNode[], path: string): TreeNode | undefined {
