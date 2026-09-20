@@ -1743,8 +1743,20 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			if executed.State == "planned" && executed.Plan != nil && executed.Plan.PlanID != planID {
 				continue
 			}
+			// Execute also performs the already-authorized Protected host Apply.
+			// A candidate defect discovered there therefore returns through this
+			// execution-error branch, not through the explicit Apply block below.
+			// Route the marked failure through the same bounded repair transition
+			// so a rolled-back self-evolution build cannot remain stranded as a
+			// verified candidate waiting for an operator to rediscover the error.
+			if isPlannerRepairableApplyFailure(execErr) {
+				if repaired, repairErr := s.TriggerApplyFailureRepair(ctx, sessionID, execErr); repairErr == nil {
+					result.Session = repaired
+					result.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
+				}
+			}
 			result.AutoError = execErr.Error()
-			s.bus.Publish(sessionID, "automation.execution_failed", map[string]any{"error": execErr.Error(), "repair_pending": executed.State == "repair_pending"})
+			s.bus.Publish(sessionID, "automation.execution_failed", map[string]any{"error": execErr.Error(), "repair_pending": result.Session.State == "repair_pending"})
 			return result
 		}
 		if len(executed.LastAppliedChanges) > 0 && (executed.State == "applied" || executed.State == "restart_pending") {

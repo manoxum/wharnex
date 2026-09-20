@@ -155,6 +155,52 @@ func TestApplyFailureRepairRequiresExplicitCandidateDefectEvidence(t *testing.T)
 	}
 }
 
+func TestAutomaticExecutionRoutesEmbeddedHostApplyFailureIntoRepair(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "hello.txt"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{
+		Protocol: domain.ProtocolV1, PlanID: "auto-host-apply-failure", Status: "ready",
+		Summary: "replace the greeting", Risk: "low", CommitMessage: "fix(demo): replace greeting",
+		Operations:   []domain.Operation{{Type: "apply_patch", Patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n"}},
+		Verification: []domain.CommandSpec{appCommand("git", "diff", "--check")},
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan: plan}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, planned, err := service.SubmitMessage(context.Background(), started.ID, "change hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalRequestID := planned.LastRequestID
+	if _, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.ExecutionApprovedRootID = executionConsentRoot(*item, item.Plan.RequestID)
+		item.ApprovedBoundaryKeys = executionBoundaryKeys(item.Plan)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service.hostRunner = &scriptedHostRunner{fail: map[string]bool{"git diff --check": true}}
+	service.planner = manualplanner.New()
+
+	result := service.runAutomaticPlan(context.Background(), started.ID, "test")
+	if result.AutoError == "" {
+		t.Fatal("expected the embedded host Apply to fail")
+	}
+	if !result.RepairPrepared || result.Session.State != "repair_pending" {
+		t.Fatalf("automatic host Apply failure was stranded instead of routed to repair: %#v", result)
+	}
+	if result.Session.LastRequestID == originalRequestID || result.Session.LastManualPrompt == "" || len(result.Session.PendingManualRequestIDs) != 1 {
+		t.Fatalf("automatic host Apply repair did not create a fresh bounded request: %#v", result.Session)
+	}
+	if len(result.Session.PendingHostChanges) != 1 {
+		t.Fatalf("automatic host Apply repair discarded the verified candidate: %#v", result.Session.PendingHostChanges)
+	}
+}
+
 func TestBaselineReverifyFailureIsEligibleForCandidateRepair(t *testing.T) {
 	cause := baselineReverifyCandidateFailure(errors.New("patch does not apply cleanly"))
 	if !isPlannerRepairableApplyFailure(cause) {
