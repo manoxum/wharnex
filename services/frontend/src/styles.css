@@ -6272,6 +6272,44 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 }
 
 
+/* Reinforce the active-project cue at the point of composition. The shell
+   keeps pulsing the selected project tab; this local cue mirrors that burst
+   beside the text being entered so the operator sees the project identity
+   without looking away from the composer. */
+.composer.composer-typing-attention {
+  animation: current-composer-project-pulse .9s ease-in-out infinite;
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border));
+}
+.composer-project-attention {
+  position: absolute; z-index: 6; top: -13px; right: 13px; min-height: 25px; max-width: min(72%, 360px); padding: 0 9px;
+  display: inline-flex; align-items: center; gap: 6px; pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border)); border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-elevated) 90%, var(--theme-accent) 10%); color: var(--theme-text-soft);
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 46%, transparent), 0 0 0 2px color-mix(in srgb, var(--theme-accent) 9%, transparent);
+  font-size: calc(7.6px * var(--ui-font-scale)); line-height: 1; white-space: nowrap;
+}
+.composer-project-attention > span { color: var(--theme-text-muted); }
+.composer-project-attention > strong { min-width: 0; overflow: hidden; color: var(--theme-text); text-overflow: ellipsis; white-space: nowrap; }
+.composer-project-attention svg { flex: 0 0 auto; color: var(--theme-accent); }
+@keyframes current-composer-project-pulse {
+  0%, 100% {
+    box-shadow: 0 10px 28px var(--theme-shadow), 0 1px 0 color-mix(in srgb, var(--theme-border) 70%, var(--theme-text-muted)), 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  }
+  50% {
+    border-color: color-mix(in srgb, var(--theme-accent) 84%, var(--theme-border));
+    box-shadow: 0 12px 34px var(--theme-shadow), 0 0 0 4px color-mix(in srgb, var(--theme-accent) 18%, transparent), 0 0 24px color-mix(in srgb, var(--theme-accent) 20%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer.composer-typing-attention {
+    animation: none;
+    border-color: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-border));
+    box-shadow: 0 10px 28px var(--theme-shadow), 0 0 0 3px color-mix(in srgb, var(--theme-accent) 15%, transparent);
+    outline: 2px solid color-mix(in srgb, var(--theme-accent) 58%, transparent);
+    outline-offset: 2px;
+  }
+}
+
 /* Branch synchronization metadata and isolated remote merge controls. */
 .git-auto-fetch-hint { display:flex; align-items:center; gap:5px; }
 .git-remote-merge-controls { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto; gap:8px; align-items:end; }
