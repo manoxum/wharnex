@@ -62,10 +62,10 @@ func (s *Store) AppendChatAgentTaskEvent(event ChatAgentTaskEvent) (ChatAgentTas
 	event.TaskID = strings.TrimSpace(event.TaskID)
 	event.Type = strings.TrimSpace(event.Type)
 	if event.TaskID == "" {
-		return ChatAgentTaskEvent{}, errors.New("chat agent task event requires task_id")
+		return ChatAgentTaskEvent{}, errors.New("task_id is required")
 	}
 	if event.Type == "" {
-		return ChatAgentTaskEvent{}, errors.New("chat agent task event requires type")
+		return ChatAgentTaskEvent{}, errors.New("type is required")
 	}
 	if event.ID == "" {
 		event.ID = newChatAgentTaskEventID()
