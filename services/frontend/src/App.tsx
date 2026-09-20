@@ -688,10 +688,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [session, activeChatId, chats])
 
   useEffect(() => {
-	if (!session || !activeChatOwnsSession || !['repair_pending', 'baseline_update_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
+	if (!session || !activeChatOwnsSession || !['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state) || session.automation_mode !== 'auto' || !session.last_manual_prompt || !activeChatId) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
-	if (session.state === 'repair_pending') void submitRepairPrompt(session, targetChat)
+	if (session.state === 'conflict_resolution_pending') void submitConflictPrompt(session, targetChat)
+	else if (session.state === 'repair_pending') void submitRepairPrompt(session, targetChat)
 	else {
 		const dispatchKey = `dispatch:${targetChat.id}:${session.last_request_id || session.id}`
 		if (baselineSeenRef.current.has(dispatchKey)) return
@@ -1574,18 +1575,23 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		  // may subsequently fail. Reconcile the queue itself, retry an initial
 		  // write at most three times, and never duplicate an accepted submit.
 		  const automaticContinuation = candidate.automation_mode === 'auto' && candidate.last_manual_prompt && (
-			['repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)
+			['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)
 			|| (candidate.state === 'awaiting_plan' && Number(candidate.remote_recovery_attempt || 0) > 0)
 		  )
 		  const continuationRequestID = candidate.state === 'conflict_resolution_pending' ? candidate.integration_conflict?.request_id : candidate.last_request_id
 		  if (!cancelled && automaticContinuation && continuationRequestID) {
 			const delivery = await api.chatAgentTasksForRequest(continuationRequestID)
-			const writes = delivery.tasks.filter((task) => ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(task.type))
+			// AWAIT_RESPONSE observes a submission; it is never evidence that
+			// the write was submitted. Legacy failed prompts could leave only an
+			// await task behind, which previously suppressed the one BOT_WRITE
+			// that could actually recover the conversation.
+			const writes = delivery.tasks.filter((task) => ['BOT_WRITE', 'RECOVERY_WRITE'].includes(task.type))
 			const accepted = writes.some((task) => task.status === 'DONE')
 			const live = writes.some((task) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(task.status))
 			const failedWrites = writes.filter((task) => task.type === 'BOT_WRITE' && task.status === 'FAILED').length
 			if (!accepted && !live && failedWrites < 3) {
-			  if (candidate.state === 'repair_pending') await submitRepairPrompt(candidate, chat, true)
+			  if (candidate.state === 'conflict_resolution_pending') await submitConflictPrompt(candidate, chat, true)
+			  else if (candidate.state === 'repair_pending') await submitRepairPrompt(candidate, chat, true)
 			  else if (candidate.state === 'workflow_pending') await submitWorkflowPrompt(candidate, chat, true)
 			  else {
 				const dispatchKey = `dispatch:${chat.id}:${continuationRequestID}`
