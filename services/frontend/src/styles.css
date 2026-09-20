@@ -1727,21 +1727,26 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .project-quick-switch { min-width: 0; max-width: min(42vw, 560px); height: 100%; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .project-quick-switch:empty { flex: 0 0 0; }
 .project-quick-switch::-webkit-scrollbar { display: none; }
+.project-quick-tab { --project-hue: 92; min-width: 0; max-width: 214px; flex: 0 0 auto; position: relative; display: inline-flex; align-items: center; }
 .project-quick-switch button, .multi-project-actions button { height: 30px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #677061; cursor: pointer; font-size: calc(9px * var(--ui-font-scale)); font-weight: 650; }
-.project-quick-switch button { --project-hue: 92; position: relative; transition: border-color .16s ease, box-shadow .16s ease, background .16s ease, color .16s ease; }
-.project-quick-switch button:hover, .multi-project-actions button:hover { background: #e9ece4; color: #31382d; }
-.project-quick-switch button.active { border-color: color-mix(in srgb, hsl(var(--project-hue) 70% 48%) 24%, var(--theme-border)); background: color-mix(in srgb, hsl(var(--project-hue) 74% 50%) 5%, var(--theme-surface)); color: var(--theme-text, #20251e); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent); }
-.project-quick-switch button.active::after { content: ''; width: 18px; height: 2px; position: absolute; left: 50%; bottom: -1px; border-radius: 999px; background: hsl(var(--project-hue) 78% 50%); transform: translateX(-50%); }
-.project-quick-switch button > span:not(.project-color-mark) { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-quick-switch .project-quick-tab-main { min-width: 0; max-width: 214px; padding-right: 28px; position: relative; transition: border-color .16s ease, box-shadow .16s ease, background .16s ease, color .16s ease; }
+.project-quick-switch .project-quick-tab-main:hover, .multi-project-actions button:hover { background: #e9ece4; color: #31382d; }
+.project-quick-switch .project-quick-tab-main.active { border-color: color-mix(in srgb, hsl(var(--project-hue) 70% 48%) 24%, var(--theme-border)); background: color-mix(in srgb, hsl(var(--project-hue) 74% 50%) 5%, var(--theme-surface)); color: var(--theme-text, #20251e); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent); }
+.project-quick-switch .project-quick-tab-main.active::after { content: ''; width: 18px; height: 2px; position: absolute; left: 50%; bottom: -1px; border-radius: 999px; background: hsl(var(--project-hue) 78% 50%); transform: translateX(-50%); }
+.project-quick-switch .project-quick-tab-main > span:not(.project-color-mark) { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-quick-switch .project-quick-tab-unbind { width: 22px; height: 22px; padding: 0; position: absolute; right: 4px; z-index: 1; display: grid; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--theme-text-muted, #7d8578); opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease; }
+.project-quick-tab:hover .project-quick-tab-unbind, .project-quick-tab.active .project-quick-tab-unbind, .project-quick-tab-unbind:focus-visible { opacity: 1; }
+.project-quick-switch .project-quick-tab-unbind:hover:not(:disabled) { background: color-mix(in srgb, var(--theme-danger, #a34d3f) 13%, transparent); color: var(--theme-danger, #a34d3f); }
+.project-quick-switch .project-quick-tab-unbind:focus-visible { outline: 1px solid var(--theme-accent); outline-offset: 1px; }
 .project-color-mark { width: 20px; height: 20px; display: inline-grid; place-items: center; flex: 0 0 20px; border: 1px solid color-mix(in srgb, hsl(var(--project-hue) 62% 48%) 16%, var(--theme-border)); border-radius: 5px; background: color-mix(in srgb, hsl(var(--project-hue) 70% 50%) 7%, var(--theme-muted)); color: hsl(var(--project-hue) 62% 42%); }
-.project-quick-switch button.active .project-color-mark { border-color: hsl(var(--project-hue) 72% 48% / .28); background: hsl(var(--project-hue) 82% 52% / .09); color: hsl(var(--project-hue) 72% 40%); box-shadow: none; }
-.project-quick-switch button.active.composer-typing-attention { animation: current-project-composer-pulse .9s ease-in-out infinite; }
+.project-quick-switch .project-quick-tab-main.active .project-color-mark { border-color: hsl(var(--project-hue) 72% 48% / .28); background: hsl(var(--project-hue) 82% 52% / .09); color: hsl(var(--project-hue) 72% 40%); box-shadow: none; }
+.project-quick-switch .project-quick-tab-main.active.composer-typing-attention { animation: current-project-composer-pulse .9s ease-in-out infinite; }
 @keyframes current-project-composer-pulse {
   0%, 100% { border-color: color-mix(in srgb, hsl(var(--project-hue) 78% 52%) 30%, var(--theme-border)); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent), 0 0 0 0 hsl(var(--project-hue) 78% 52% / .1); }
   50% { border-color: hsl(var(--project-hue) 78% 52% / .72); background: color-mix(in srgb, hsl(var(--project-hue) 82% 54%) 13%, var(--theme-surface)); box-shadow: 0 2px 8px color-mix(in srgb, var(--theme-shadow) 38%, transparent), 0 0 0 4px hsl(var(--project-hue) 78% 52% / .15), 0 0 18px hsl(var(--project-hue) 78% 52% / .16); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .project-quick-switch button.active.composer-typing-attention { animation: none; border-color: hsl(var(--project-hue) 78% 52% / .72); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent), 0 0 0 3px hsl(var(--project-hue) 78% 52% / .14); outline: 2px solid hsl(var(--project-hue) 78% 52% / .58); outline-offset: 2px; }
+  .project-quick-switch .project-quick-tab-main.active.composer-typing-attention { animation: none; border-color: hsl(var(--project-hue) 78% 52% / .72); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent), 0 0 0 3px hsl(var(--project-hue) 78% 52% / .14); outline: 2px solid hsl(var(--project-hue) 78% 52% / .58); outline-offset: 2px; }
 }
 .multi-project-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .multi-project-actions button { border-color: #d6dbd0; background: #fafbf7; }
@@ -5727,9 +5732,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .chat-tab-group.active {
   border-color: transparent;
   border-radius: 0;
-  background: transparent;
-  box-shadow: inset 0 -2px var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent-soft) 62%, var(--theme-surface));
+  box-shadow: inset 0 -2px var(--theme-accent), inset 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent);
 }
+.chat-tab.active { color: var(--theme-text); font-weight: 720; }
 .editor-tabbar {
   border-bottom: 1px solid var(--theme-border);
   background: var(--theme-surface);
@@ -5746,9 +5752,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .editor-tab:hover { background: color-mix(in srgb, var(--theme-hover) 64%, transparent); color: var(--theme-text-soft); }
 .editor-tab.active {
   border-top-color: transparent;
-  background: transparent;
+  background: color-mix(in srgb, var(--theme-accent-soft) 62%, var(--theme-surface));
   color: var(--theme-text);
-  box-shadow: inset 0 -2px var(--theme-accent);
+  font-weight: 720;
+  box-shadow: inset 0 -2px var(--theme-accent), inset 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent);
 }
 .terminal-tabs {
   min-width: 0;
