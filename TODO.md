@@ -1170,7 +1170,3 @@ completo), `npm run typecheck`/`lint`/`test -- --run` (52 ficheiros, 227 testes)
 (Desktop, 140+ testes) — todos verdes. Existem alterações por commitar no repositório
 (Frente E itens 1 e 7, mais trabalho de outra sessão paralela já terminado nos mesmos
 ficheiros) — nenhum commit foi pedido nesta sessão.
-
-aad
-dwdw
- wdw dw dwdw
