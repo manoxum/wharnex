@@ -189,7 +189,10 @@ export function saveExecutionMode(projectPath: string, mode: ExecutionMode) {
 }
 
 export function loadAutomationMode(projectPath: string): AutomationMode {
-  try { return localStorage.getItem(AUTOMATION_MODE_PREFIX + projectPath) === 'manual' ? 'manual' : 'auto' } catch { return 'auto' }
+  try {
+    const value = localStorage.getItem(AUTOMATION_MODE_PREFIX + projectPath)
+    return value === 'manual' || value === 'auto_approve' ? value : 'auto'
+  } catch { return 'auto' }
 }
 
 export function saveAutomationMode(projectPath: string, mode: AutomationMode) {

@@ -1349,8 +1349,10 @@ describe('ChatPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Unprotected' }))
     fireEvent.click(screen.getByRole('button', { name: 'Auto' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Auto + Aprovar' }))
     expect(onExecutionMode).toHaveBeenCalledWith('unprotected')
     expect(onAutomationMode).toHaveBeenCalledWith('auto')
+    expect(onAutomationMode).toHaveBeenCalledWith('auto_approve')
   })
 
   it('keeps provider reasoning separate from the autonomous attempt budget', () => {
@@ -1413,10 +1415,10 @@ describe('ChatPanel', () => {
 
   it('keeps Unprotected disabled in the composer during self-evolution', () => {
     render(
-      <ChatPanel session={{ ...session, self_evolution: true }} items={[]} chats={[]} activeChatId="chat-1" busy={false} executionMode="protected" automationMode="auto" onExecutionMode={vi.fn()} onAutomationMode={vi.fn()} onSend={async () => undefined} {...chatActions} />,
+      <ChatPanel session={{ ...session, self_evolution: true }} items={[]} chats={[]} activeChatId="chat-1" busy={false} executionMode="protected" automationMode="auto_approve" onExecutionMode={vi.fn()} onAutomationMode={vi.fn()} onSend={async () => undefined} {...chatActions} />,
     )
     expect((screen.getByRole('button', { name: 'Unprotected' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByRole('button', { name: 'Auto' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Auto + Aprovar' }).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('keeps composer actions outside the scrolling text surface', () => {

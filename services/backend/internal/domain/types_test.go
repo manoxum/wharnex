@@ -15,3 +15,15 @@ func TestExecutionResultMarshalsNilCommandsAsEmptyArray(t *testing.T) {
 		t.Fatalf("execution commands must be a JSON array: %s", payload)
 	}
 }
+
+func TestAutoApproveIsAProtectedAutomaticMode(t *testing.T) {
+	if !ValidAutomationMode(AutomationModeAutoApprove) {
+		t.Fatal("auto_approve must be a valid automation mode")
+	}
+	if !AutomationModeIsAutomatic(AutomationModeAutoApprove) {
+		t.Fatal("auto_approve must inherit automatic continuation semantics")
+	}
+	if !AutomationModeApproves(AutomationModeAutoApprove) || AutomationModeApproves(AutomationModeAuto) {
+		t.Fatal("only auto_approve may pre-authorize eligible execution approvals")
+	}
+}

@@ -350,11 +350,11 @@ func (s *Service) runCrossProjectUnit(ctx context.Context, sessionID string, pla
 		return outcome, fmt.Errorf("policy denied the change for %s: %s", projectPath, strings.Join(decision.Reasons, "; "))
 	}
 	// The target project's own modes decide what happens next, exactly as they
-	// would for a request made in that project. Auto + Protected runs and
+	// would for a request made in that project. Automatic + Protected runs and
 	// applies; anything else leaves the plan installed for the operator to act
 	// on from that project's own surface, which is where the approval for a
 	// change to that project belongs.
-	if installed.AutomationMode != domain.AutomationModeAuto || installed.ExecutionMode != domain.ExecutionModeProtected {
+	if !domain.AutomationModeIsAutomatic(installed.AutomationMode) || installed.ExecutionMode != domain.ExecutionModeProtected {
 		s.bus.Publish(target.ID, "cross_project.awaiting_operator", map[string]any{
 			"plan_id": derived.PlanID, "automation_mode": string(installed.AutomationMode), "execution_mode": string(installed.ExecutionMode),
 		})

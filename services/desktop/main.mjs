@@ -3480,7 +3480,7 @@ async function requireAutoSession(sessionId, signal) {
   const response = await fetch(target, { redirect: 'error', signal })
   if (!response.ok) throw new Error(`Session lookup HTTP ${response.status}`)
   const sessionState = await response.json()
-  if (sessionState?.automation_mode !== 'auto') throw new Error('Automatic ChatGPT submission requires project Auto mode')
+  if (!['auto', 'auto_approve'].includes(sessionState?.automation_mode)) throw new Error('Automatic ChatGPT submission requires a project automatic mode')
 }
 
 function decodeChatAttachmentSet(values) {

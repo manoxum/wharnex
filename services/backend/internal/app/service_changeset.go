@@ -702,7 +702,7 @@ func (s *Service) prepareConflictResolutionRetry(ctx context.Context, sessionID 
 		recordRequestLineage(current, requestID, parentRequestID, requestKindConflict)
 		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
 		current.ConflictAttempt++
-		if current.AutomationMode == domain.AutomationModeAuto {
+		if domain.AutomationModeIsAutomatic(current.AutomationMode) {
 			current.AutomationAttempt = automaticAttemptsSpent(*current) + 1
 		}
 		current.IntegrationConflict = &resolution

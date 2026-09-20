@@ -653,6 +653,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .composer-round-action.mode-unprotected.selected { border-color: #8c5249; background: #412722; color: #f2a49a; }
 :root[data-theme='dark'] .composer-round-action.mode-manual.selected { border-color: #866938; background: #3a2e1b; color: #eac47c; }
 :root[data-theme='dark'] .composer-round-action.mode-auto.selected { border-color: #557c4b; background: #243722; color: #9ed495; }
+:root[data-theme='dark'] .composer-round-action.mode-auto-approve.selected { border-color: #6871a8; background: #2d3048; color: #bec4ff; }
 :root[data-theme='dark'] .composer-round-action.mode-scraper.selected { border-color: #7266ad; background: #2b264a; color: #c8bff0; }
 :root[data-theme='dark'] .composer-round-action.mode-manual-transport.selected { border-color: #4c8888; background: #1c3535; color: #a3e0dd; }
 :root[data-theme='dark'] .composer-round-action.plan-first.selected { border-color: #526f99; background: #27364d; color: #bdd7ff; }
@@ -1276,6 +1277,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-theme='dark'] .composer-round-action.selected,
 :root[data-theme='dark'] .composer-artifact-button.selected { border-color: #737373; background: #383838; color: #f2f2f2; }
 :root[data-theme='dark'] .composer-round-action.mode-auto.selected { border-color: #557c5e; background: #303030; color: #8fd19e; }
+:root[data-theme='dark'] .composer-round-action.mode-auto-approve.selected { border-color: #747db5; background: #303244; color: #c7ccff; }
 :root[data-theme='dark'] .composer-file-reference-chip { border-color: #4f6250; background: #253128; color: #b9d4b4; box-shadow: none; }
 :root[data-theme='dark'] .composer-file-reference-chip button:hover { background: #354339; color: #eef6ec; }
 :root[data-theme='dark'] .file-reference-menu { border-color: #4a4f48; background: rgba(31,32,30,.98); }

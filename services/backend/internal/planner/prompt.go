@@ -430,7 +430,7 @@ INTENT REMINDER:
 - Do not assume this is coding work merely because a project ZIP is attached.
 - If this is a question/advice request and the current context is sufficient, return kind=answer with the COMPLETE useful answer in turn.message and no plan; never return a generic one-line summary such as 'recommendation prepared'.
 - If the user explicitly asks for a plan, return kind=plan even when REQUEST STRATEGY is DIRECT. This is a non-mutating approval proposal and carries no plan.json.
-- If local evidence is genuinely missing, kind=workflow may request a small evidence step. Ordinary workflow requires AUTOMATION MODE auto and Protected sandbox; harness.interactive/v1 follows its closed observation protocol; harness.interactive/v2 follows its capability/scope protocol.
+- If local evidence is genuinely missing, kind=workflow may request a small evidence step. Ordinary workflow requires AUTOMATION MODE auto or auto_approve and Protected sandbox; harness.interactive/v1 follows its closed observation protocol; harness.interactive/v2 follows its capability/scope protocol.
 - If AUTOMATION MODE is manual and this is not a harness.interactive/v1 or harness.interactive/v2 step, do not emit workflow; answer/investigate from current context or ask the user for the needed information.
 - Only explicit mutation intent may end in kind=change.
 

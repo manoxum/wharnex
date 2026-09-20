@@ -411,8 +411,8 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	if !domain.ValidEffortLevel(effortLevel) {
 		return domain.Session{}, fmt.Errorf("unsupported effort level %q", effortLevel)
 	}
-	if automationMode == domain.AutomationModeAuto && executionMode != domain.ExecutionModeProtected {
-		return domain.Session{}, errors.New("auto mode requires protected execution mode")
+	if domain.AutomationModeIsAutomatic(automationMode) && executionMode != domain.ExecutionModeProtected {
+		return domain.Session{}, errors.New("automatic modes require protected execution mode")
 	}
 	if err := s.ensureProjectVersion(id, projectPath); err != nil {
 		return domain.Session{}, fmt.Errorf("prepare project VERSION: %w", err)
@@ -638,8 +638,8 @@ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) 
 		if mode == domain.ExecutionModeUnprotected && len(pendingHostChanges(*current)) > 0 {
 			return errors.New("apply or reject the pending Protected changes before switching to Unprotected mode")
 		}
-		if mode == domain.ExecutionModeUnprotected && current.AutomationMode == domain.AutomationModeAuto {
-			return errors.New("disable auto mode before switching to unprotected")
+		if mode == domain.ExecutionModeUnprotected && domain.AutomationModeIsAutomatic(current.AutomationMode) {
+			return errors.New("disable automatic mode before switching to unprotected")
 		}
 		current.ExecutionMode = mode
 		return nil
@@ -687,8 +687,8 @@ func (s *Service) SetAutomationMode(sessionID string, mode domain.AutomationMode
 		return domain.Session{}, fmt.Errorf("unsupported automation mode %q", mode)
 	}
 	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
-		if mode == domain.AutomationModeAuto && current.ExecutionMode != domain.ExecutionModeProtected {
-			return errors.New("auto mode requires protected execution mode")
+		if domain.AutomationModeIsAutomatic(mode) && current.ExecutionMode != domain.ExecutionModeProtected {
+			return errors.New("automatic modes require protected execution mode")
 		}
 		current.AutomationMode = mode
 		return nil
@@ -1027,15 +1027,15 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			s.bus.Publish(sessionID, "debug.approval_required", map[string]any{"plan_id": result.Plan.PlanID, "request_id": result.Plan.RequestID, "target": result.Plan.Debug.Target})
 			return result, updated, nil
 		}
-		if !isDebug && updated.AutomationMode != domain.AutomationModeAuto {
-			return planner.Result{}, updated, errors.New("workflow turn requires project Auto mode; return a terminal answer/investigation or enable Auto")
+		if !isDebug && !domain.AutomationModeIsAutomatic(updated.AutomationMode) {
+			return planner.Result{}, updated, errors.New("workflow turn requires a project automatic mode; return a terminal answer/investigation or enable Auto/Auto + Approve")
 		}
 		workflow, workflowErr := s.runWorkflowLoop(ctx, sessionID, "provider")
 		if workflowErr != nil {
 			return planner.Result{}, updated, workflowErr
 		}
 		updated = workflow.Session
-	} else if result.Plan != nil && updated.AutomationMode == domain.AutomationModeAuto && updated.Policy != nil && result.Plan.Status == "ready" {
+	} else if result.Plan != nil && domain.AutomationModeIsAutomatic(updated.AutomationMode) && updated.Policy != nil && result.Plan.Status == "ready" {
 		if updated.Policy.Allowed {
 			automated := s.runAutomaticPlan(ctx, sessionID, "provider")
 			updated = automated.Session
@@ -1268,7 +1268,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		if failureKind == domain.FailureKindOfflineGoModuleCache {
 			s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": parsed.Turn.RequestID, "error": detail, "scope": "go_dependency_commands"})
 		}
-		if !blocksAutomaticRepair && outcome.Retryable && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
+		if !blocksAutomaticRepair && outcome.Retryable && domain.AutomationModeIsAutomatic(updated.AutomationMode) && updated.RemoteRecoveryAttempt < 1 {
 			if recovered, retryErr := s.retryFailedRequest(ctx, sessionID, true); retryErr == nil {
 				s.bus.Publish(sessionID, "turn.auto_recovery_prepared", map[string]any{"request_id": recovered.LastRequestID, "replaces_request_id": parsed.Turn.RequestID, "reason_code": outcome.ReasonCode})
 				return BundleSubmission{Session: recovered, AutoError: detail, RemoteRecoveryPrepared: true}, nil
@@ -1351,8 +1351,8 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 	if parsed.Turn.Kind == domain.TurnKindWorkflow {
 		isDebug := parsed.Plan != nil && parsed.Plan.Debug != nil
-		if !isDebug && current.AutomationMode != domain.AutomationModeAuto {
-			return BundleSubmission{}, errors.New("workflow bundle requires project Auto mode; return a terminal answer/investigation bundle or enable Auto")
+		if !isDebug && !domain.AutomationModeIsAutomatic(current.AutomationMode) {
+			return BundleSubmission{}, errors.New("workflow bundle requires a project automatic mode; return a terminal answer/investigation bundle or enable Auto/Auto + Approve")
 		}
 		if !isDebug && current.ExecutionMode != domain.ExecutionModeProtected {
 			return BundleSubmission{}, errors.New("workflow bundle requires Protected execution mode")
@@ -1518,7 +1518,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	s.bus.Publish(sessionID, "plan.received", map[string]any{"plan_id": parsed.Plan.PlanID, "allowed": decision.Allowed, "requires_approval": decision.RequiresApproval, "risk": decision.Risk, "transport": "zip_bundle"})
 
 	submission := BundleSubmission{Session: updated}
-	if updated.AutomationMode == domain.AutomationModeAuto && !decision.Allowed && parsed.Plan.Status == "ready" {
+	if domain.AutomationModeIsAutomatic(updated.AutomationMode) && !decision.Allowed && parsed.Plan.Status == "ready" {
 		submission.PolicyBlocked = true
 		submission.PolicyReasons = append([]string(nil), decision.Reasons...)
 		repaired, repairErr := s.preparePolicyRepairRequest(ctx, sessionID, parsed.Plan.PlanID, decision.Reasons, "zip_bundle")
@@ -1531,11 +1531,11 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		submission.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
 		return submission, nil
 	}
-	if updated.AutomationMode != domain.AutomationModeAuto || !decision.Allowed || parsed.Plan.Status != "ready" {
+	if !domain.AutomationModeIsAutomatic(updated.AutomationMode) || !decision.Allowed || parsed.Plan.Status != "ready" {
 		return submission, nil
 	}
 	if updated.ExecutionMode != domain.ExecutionModeProtected {
-		submission.AutoError = "auto mode requires protected execution mode"
+		submission.AutoError = "automatic modes require protected execution mode"
 		return submission, nil
 	}
 
@@ -1706,13 +1706,17 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			return result
 		}
 		planID := current.Plan.PlanID
-		if planNeedsInitialConsent(current) {
+		autoApprove := domain.AutomationModeApproves(current.AutomationMode)
+		initialConsentRequired := planNeedsInitialConsent(current)
+		coveredByPriorConsent := planCoveredByChatApproval(current) || priorExecutionConsentCovers(current)
+		if initialConsentRequired && !autoApprove {
 			result.AutoError = "automatic execution paused for the Main Request execution-contract consent"
 			s.bus.Publish(sessionID, "automation.approval_required", map[string]any{"plan_id": planID, "transport": transport, "risk": current.Policy.Risk, "reasons": []string{"initial Main Request execution contract requires consent"}, "error": result.AutoError})
 			result.Session = current
 			return result
 		}
-		if current.Policy.RequiresApproval && !planCoveredByChatApproval(current) && !priorExecutionConsentCovers(current) {
+		policyApprovalRequired := current.Policy.RequiresApproval && !coveredByPriorConsent
+		if policyApprovalRequired && !autoApprove {
 			reason := strings.Join(current.Policy.Reasons, "; ")
 			if strings.TrimSpace(reason) == "" {
 				reason = "policy requires explicit approval"
@@ -1722,8 +1726,12 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			result.Session = current
 			return result
 		}
+		approved := autoApprove || coveredByPriorConsent
+		if autoApprove && (initialConsentRequired || policyApprovalRequired) {
+			s.bus.Publish(sessionID, "automation.approval_auto_granted", map[string]any{"plan_id": planID, "transport": transport, "risk": current.Policy.Risk, "reasons": current.Policy.Reasons})
+		}
 		s.bus.Publish(sessionID, "automation.started", map[string]any{"plan_id": planID, "transport": transport, "attempt": attempt + 1})
-		execution, executed, execErr := s.Execute(ctx, sessionID, planCoveredByChatApproval(current) || priorExecutionConsentCovers(current))
+		execution, executed, execErr := s.Execute(ctx, sessionID, approved)
 		result.AutoExecuted = true
 		result.Execution = &execution
 		result.Session = executed

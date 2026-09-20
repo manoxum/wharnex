@@ -88,7 +88,7 @@ func (s *Service) FailRemoteInputRequestWithKind(ctx context.Context, sessionID,
 	}
 	s.closeRemoteInputChannel(sessionID, closeReason)
 	s.bus.Publish(sessionID, "remote_input.failed", map[string]any{"request_id": requestID, "reason": reason, "kind": kind})
-	if kind == "bundle_validation" && updated.AutomationMode == domain.AutomationModeAuto && updated.RemoteRecoveryAttempt < 1 {
+	if kind == "bundle_validation" && domain.AutomationModeIsAutomatic(updated.AutomationMode) && updated.RemoteRecoveryAttempt < 1 {
 		recovered, retryErr := s.retryFailedRequest(ctx, sessionID, true)
 		if retryErr != nil {
 			s.bus.Publish(sessionID, "request.auto_recovery_failed", map[string]any{"replaces_request_id": requestID, "error": retryErr.Error()})

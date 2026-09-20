@@ -255,7 +255,7 @@ export type KnownProjectRef = {
 }
 
 export type ExecutionMode = 'protected' | 'unprotected'
-export type AutomationMode = 'manual' | 'auto'
+export type AutomationMode = 'manual' | 'auto' | 'auto_approve'
 export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ultra' | 'loop'
 export type ReasoningEffort = 'instant' | 'medium' | 'high'
 /** Scraper: Desktop drives the embedded ChatGPT DOM directly, as it always

@@ -252,12 +252,21 @@ func ValidExecutionMode(mode ExecutionMode) bool {
 type AutomationMode string
 
 const (
-	AutomationModeManual AutomationMode = "manual"
-	AutomationModeAuto   AutomationMode = "auto"
+	AutomationModeManual      AutomationMode = "manual"
+	AutomationModeAuto        AutomationMode = "auto"
+	AutomationModeAutoApprove AutomationMode = "auto_approve"
 )
 
 func ValidAutomationMode(mode AutomationMode) bool {
-	return mode == AutomationModeManual || mode == AutomationModeAuto
+	return mode == AutomationModeManual || mode == AutomationModeAuto || mode == AutomationModeAutoApprove
+}
+
+func AutomationModeIsAutomatic(mode AutomationMode) bool {
+	return mode == AutomationModeAuto || mode == AutomationModeAutoApprove
+}
+
+func AutomationModeApproves(mode AutomationMode) bool {
+	return mode == AutomationModeAutoApprove
 }
 
 type EffortLevel string
@@ -306,7 +315,7 @@ func ValidReasoningEffort(effort ReasoningEffort) bool {
 // download interception, as it always has) or never touches that DOM at all
 // (Manual — the prompt is only ever shown to the human to copy/paste, and a
 // completed response bundle is only ever imported by the human uploading
-// it). Independent of AutomationMode: Auto+Manual is a valid, meaningful
+// it). Independent of AutomationMode: automatic execution + Manual is a valid, meaningful
 // combination — Wharnex still decides execute/apply automatically, only
 // the conversation transport itself is human-driven.
 type ChatTransportMode string

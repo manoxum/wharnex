@@ -35,8 +35,8 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 			return result, errors.New("no workflow step is ready")
 		}
 		isDebug := current.Plan.Debug != nil
-		if !isDebug && current.AutomationMode != domain.AutomationModeAuto {
-			result.AutoError = "iterative workflow requires project Auto mode"
+		if !isDebug && !domain.AutomationModeIsAutomatic(current.AutomationMode) {
+			result.AutoError = "iterative workflow requires a project automatic mode"
 			return result, nil
 		}
 		if isDebug && !debugAuthorized(current) {
@@ -104,7 +104,7 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 			transport = "provider_workflow"
 			continue
 		}
-		if updated.LastTurn != nil && updated.LastTurn.Kind == domain.TurnKindChange && updated.Plan != nil && updated.AutomationMode == domain.AutomationModeAuto && updated.Policy != nil && updated.Plan.Status == "ready" {
+		if updated.LastTurn != nil && updated.LastTurn.Kind == domain.TurnKindChange && updated.Plan != nil && domain.AutomationModeIsAutomatic(updated.AutomationMode) && updated.Policy != nil && updated.Plan.Status == "ready" {
 			if !updated.Policy.Allowed {
 				repaired, repairErr := s.preparePolicyRepairRequest(ctx, sessionID, updated.Plan.PlanID, updated.Policy.Reasons, "provider_workflow")
 				if repairErr != nil {

@@ -71,6 +71,8 @@ describe('workspace memory', () => {
     expect(loadAutomationMode('/tmp/project')).toBe('manual')
     saveAutomationMode('/tmp/project', 'auto')
     expect(loadAutomationMode('/tmp/project')).toBe('auto')
+    saveAutomationMode('/tmp/project', 'auto_approve')
+    expect(loadAutomationMode('/tmp/project')).toBe('auto_approve')
   })
 
   it('persists disabled tunnel choices while the request ZIP stays mandatory', () => {
