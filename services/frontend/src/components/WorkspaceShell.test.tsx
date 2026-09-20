@@ -106,6 +106,20 @@ describe('WorkspaceShell project actions', () => {
     expect(onAttention).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps header popovers mutually exclusive', async () => {
+    render(<ShellChrome projects={['/tmp/alpha']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'alpha' }))
+    expect(screen.getByText('Projetos abertos')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Aparência rápida' }))
+    expect(screen.queryByText('Projetos abertos')).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Aparência rápida' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'alpha' }))
+    expect(screen.queryByRole('dialog', { name: 'Aparência rápida' })).toBeNull()
+    expect(screen.getByText('Projetos abertos')).toBeTruthy()
+  })
+
   it('binds an additional project from its complete local path', () => {
     const onBindPath = vi.fn()
     render(<ShellChrome projects={['/work/current']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={onBindPath} onNewWindow={vi.fn()} />)
@@ -215,6 +229,23 @@ describe('WorkspaceShell project actions', () => {
 
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith(
       { type: 'wharness:project-active', active: true, projects: ['/tmp/active-project'] },
+      window.location.origin,
+    ))
+  })
+
+  it('asks the active embedded project to close its header overlay when another shell control opens', async () => {
+    vi.spyOn(api, 'config').mockResolvedValue({ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: false, chatgpt_web_embed: true })
+    saveBoundProjects(['/tmp/active-project'])
+    saveBoundActiveProject('/tmp/active-project')
+    window.wharnessDesktop = { projects: { acquire: vi.fn().mockResolvedValue({ ok: true, path: '/tmp/active-project' }) } } as unknown as WharnessDesktopBridge
+
+    render(<WorkspaceShell />)
+    const frame = await screen.findByTitle('Wharnex · active-project') as HTMLIFrameElement
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage')
+    fireEvent.click(screen.getByRole('button', { name: 'Aparência rápida' }))
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith(
+      { type: 'wharness:close-header-overlays' },
       window.location.origin,
     ))
   })

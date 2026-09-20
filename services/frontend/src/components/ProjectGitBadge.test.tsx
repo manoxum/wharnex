@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitOverview } from '../types'
 import { api } from '../lib/api'
+import { announceHeaderPopover } from '../lib/headerPopover'
 import { ProjectGitBadge } from './ProjectGitBadge'
 
 vi.mock('../lib/api', async () => {
@@ -76,6 +77,13 @@ describe('ProjectGitBadge', () => {
 
     await openBadge()
     fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
+  })
+
+  it('closes when another header popover is opened', async () => {
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    await openBadge()
+    act(() => announceHeaderPopover('appearance'))
     expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
   })
 

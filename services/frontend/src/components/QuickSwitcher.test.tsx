@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { announceHeaderPopover } from '../lib/headerPopover'
 import { loadUIPreferences } from '../lib/uiPreferences'
 import { QuickSwitcher } from './QuickSwitcher'
 
@@ -28,4 +29,12 @@ describe('QuickSwitcher', () => {
     expect(preferences.contentScheme).toBe('light')
     expect(preferences.density).toBe('compact')
   })
+  it('closes when another header popover is opened', () => {
+    render(<QuickSwitcher />)
+    fireEvent.click(screen.getByRole('button', { name: 'Aparência rápida' }))
+    expect(screen.getByRole('dialog', { name: 'Aparência rápida' })).toBeTruthy()
+    act(() => announceHeaderPopover('git'))
+    expect(screen.queryByRole('dialog', { name: 'Aparência rápida' })).toBeNull()
+  })
+
 })

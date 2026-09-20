@@ -96,8 +96,9 @@ import { reconcileTunnelConfig } from './lib/tunnelConfigState'
 import { mergeDurableChatItems } from './lib/chatHistory'
 import { executionStartedNotice } from './lib/executionNotice'
 import { createEventStreamCoalescer, type EventStreamCoalescer } from './lib/eventStream'
-import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
+import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
 import { loadWorkbenchState, saveWorkbenchState } from './lib/workbenchPreferences'
+import { subscribeHeaderPopover } from './lib/headerPopover'
 import { workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget, type WorkspaceSurfaceTransferPoint } from './lib/workspaceSurface'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
@@ -153,8 +154,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // operator in Orchestrator, so it always opens on the planning queue that
   // sent them there instead of whichever section was last left open.
   const [orchestratorFocusNonce, setOrchestratorFocusNonce] = useState(0)
-  // Workbench geometry is project-scoped: tool-window visibility and sizes
-  // survive mode switches and project restarts without leaking to another root.
+  // Drawer geometry remains project-scoped, but the activity-rail ordering is
+  // shared across projects so the IDE chrome stays structurally consistent.
   const initialWorkbench = useRef(loadWorkbenchState(embeddedProject)).current
   const [sideDrawer, setSideDrawer] = useState<Drawer>(() => initialWorkbench.left.open ? (initialWorkbench.left.tool as Drawer) : '')
   const [rightDrawer, setRightDrawer] = useState<Drawer>(() => initialWorkbench.right.open ? (initialWorkbench.right.tool as Drawer) : '')
@@ -597,6 +598,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     return () => window.removeEventListener('storage', syncTransport)
   }, [])
 
+  useEffect(() => subscribeWorkspaceRailLayout(setRailLayout), [])
+
+  useEffect(() => subscribeHeaderPopover((source) => {
+    if (source !== 'attention') setAttentionPreviewOpen(false)
+  }), [])
+
   useEffect(() => {
     if (!embeddedProject) return
     const handler = (event: MessageEvent) => {
@@ -608,6 +615,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (event.data?.type === 'wharness:set-workspace-mode' && (event.data.mode === 'editor' || event.data.mode === 'agent' || event.data.mode === 'orchestrator')) setMode(event.data.mode)
       if (event.data?.type === 'wharness:open-project-settings') setProjectSettingsOpen(true)
       if (event.data?.type === 'wharness:open-attention') setAttentionPreviewOpen((open) => !open)
+      if (event.data?.type === 'wharness:close-header-overlays') setAttentionPreviewOpen(false)
     }
     window.addEventListener('message', handler)
     window.parent.postMessage({ type: 'wharness:project-ready', projectPath: embeddedProject }, window.location.origin)

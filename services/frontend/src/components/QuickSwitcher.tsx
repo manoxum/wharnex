@@ -10,6 +10,7 @@ import {
   type UIDensity,
   type UIPreferences,
 } from '../lib/uiPreferences'
+import { announceHeaderPopover, subscribeOtherHeaderPopover } from '../lib/headerPopover'
 import { Icon } from './Icon'
 
 const CONTENT_SCHEMES: Array<{ id: ContentSchemePreference; label: string }> = [
@@ -28,10 +29,13 @@ export function QuickSwitcher({ compact = true }: { compact?: boolean }) {
   const activeAccent = UI_ACCENT_REGISTRY.find((accent) => accent.id === preferences.accent) || UI_ACCENT_REGISTRY[0]
 
   useEffect(() => subscribeUIPreferences(setPreferences), [])
+  useEffect(() => subscribeOtherHeaderPopover('appearance', () => setOpen(false)), [])
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.altKey && event.key.toLowerCase() === 'q') {
-        event.preventDefault(); setOpen((current) => !current)
+        event.preventDefault()
+        if (!open) announceHeaderPopover('appearance')
+        setOpen((current) => !current)
       } else if (event.key === 'Escape') setOpen(false)
     }
     const onPointerDown = (event: PointerEvent) => {
@@ -40,12 +44,12 @@ export function QuickSwitcher({ compact = true }: { compact?: boolean }) {
     window.addEventListener('keydown', onKeyDown)
     document.addEventListener('pointerdown', onPointerDown)
     return () => { window.removeEventListener('keydown', onKeyDown); document.removeEventListener('pointerdown', onPointerDown) }
-  }, [])
+  }, [open])
 
   function update(next: Partial<UIPreferences>) { setPreferences(saveUIPreferences({ ...preferences, ...next })) }
 
   return <div className="quick-switcher" ref={rootRef}>
-    <button type="button" className={`quick-switcher-trigger${compact ? ' compact' : ''}`} aria-label="Aparência rápida" aria-expanded={open} title="Aparência rápida · Ctrl/⌘ + Alt + Q" onClick={() => setOpen((current) => !current)}><Icon name="monitor" size={14}/>{!compact && <span>Aparência</span>}</button>
+    <button type="button" className={`quick-switcher-trigger${compact ? ' compact' : ''}`} aria-label="Aparência rápida" aria-expanded={open} title="Aparência rápida · Ctrl/⌘ + Alt + Q" onClick={() => { if (!open) announceHeaderPopover('appearance'); setOpen((current) => !current) }}><Icon name="monitor" size={14}/>{!compact && <span>Aparência</span>}</button>
     {open && <div className="quick-switcher-popover" role="dialog" aria-label="Aparência rápida" data-chatgpt-overlay-blocker="true">
       <header>
         <div><span className="quick-switcher-eyebrow">Workbench</span><strong>Aparência</strong><small>{activeTheme.family} · {activeTheme.label}</small></div>
