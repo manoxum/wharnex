@@ -1569,6 +1569,55 @@ func TestRequestFailureRepairRetriesTerminalPlannerFailureWithGuidance(t *testin
 	}
 }
 
+// TestRequestFailureRepairResumesExhaustedConflictResolutionWithGuidance
+// reproduces a real production incident: a session's automatic effort budget
+// was fully spent retrying a conflict-resolution round that failed only
+// because of an Engine defect (a verified no-op commit wrongly treated as a
+// failure), leaving it in conflict_resolution_exhausted with no published way
+// back — neither this endpoint nor RetryFailedRequest accepted that state, so
+// fixing the underlying defect could never help an already-exhausted session.
+// Explicit operator guidance must now resume it and reset the spent budget,
+// exactly like a manual retry already resets RemoteRecoveryAttempt.
+func TestRequestFailureRepairResumesExhaustedConflictResolutionWithGuidance(t *testing.T) {
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	exhausted, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "conflict_resolution_exhausted"
+		item.LastRequestID = "req-exhausted"
+		item.LastRepairError = "automatic conflict resolution exhausted after 2 attempts: TODO.md"
+		item.IntegrationConflict = &domain.ConflictResolution{ID: "conflict-exhausted", RequestID: "req-exhausted", Paths: []string{"TODO.md"}}
+		item.ConflictAttempt = 2
+		item.AutomationAttempt = 10
+		item.LastExecution = nil
+		item.PendingManualRequestIDs = nil
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.RequestFailureRepair(context.Background(), exhausted.ID, ""); err == nil {
+		t.Fatal("expected exhausted conflict resolution to require explicit operator guidance")
+	}
+
+	resumed, err := service.RequestFailureRepair(context.Background(), exhausted.ID, "The Engine's no-op commit bug is fixed; retry the same TODO.md resolution.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.State != "awaiting_plan" || resumed.LastManualPrompt == "" || resumed.LastRequestID == exhausted.LastRequestID {
+		t.Fatalf("exhausted conflict resolution was not resumed: %#v", resumed)
+	}
+	if !strings.Contains(resumed.LastManualPrompt, "The Engine's no-op commit bug is fixed") {
+		t.Fatalf("operator guidance missing from resumed prompt: %q", resumed.LastManualPrompt)
+	}
+	if resumed.ConflictAttempt != 0 || resumed.AutomationAttempt != 0 {
+		t.Fatalf("resuming after exhaustion must reset the spent attempt budget: conflict=%d automation=%d", resumed.ConflictAttempt, resumed.AutomationAttempt)
+	}
+}
+
 func TestRequestFailureRepairRejectsInfrastructureFailure(t *testing.T) {
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
 	started, err := service.StartSession(context.Background(), t.TempDir())

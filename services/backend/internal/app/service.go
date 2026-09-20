@@ -1628,8 +1628,26 @@ func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID 
 	if err != nil {
 		return domain.Session{}, err
 	}
-	if current.State != "failed" || strings.TrimSpace(current.LastRepairError) == "" {
+	// conflict_resolution_exhausted is a spent safety budget (the session's own
+	// effort-level attempt cap), not a structural blocker the planner named —
+	// see conflictResolutionExhausted/exhaustConflictResolution. It used to be
+	// a genuine dead end: neither this path nor any dedicated endpoint accepted
+	// it, so a session that ran out of automatic rounds chasing a real Engine
+	// defect had no published way back once the defect was fixed. Treat it the
+	// same shape as "failed" here, but require guidance unconditionally —
+	// resuming after the budget is spent must always be an explicit human
+	// decision, never inferred from an empty retry.
+	exhaustedConflict := current.State == "conflict_resolution_exhausted"
+	if !exhaustedConflict && (current.State != "failed" || strings.TrimSpace(current.LastRepairError) == "") {
 		return domain.Session{}, errors.New("no terminal failed request is available to retry")
+	}
+	if exhaustedConflict {
+		if strings.TrimSpace(current.LastRepairError) == "" {
+			return domain.Session{}, errors.New("no terminal failed request is available to retry")
+		}
+		if strings.TrimSpace(guidance) == "" {
+			return current, errors.New("automatic conflict resolution already spent its attempt budget; resuming requires explicit operator guidance stating what changed")
+		}
 	}
 	if kind := sessionFailureKind(current); kind != "" && kind != domain.FailureKindRemoteInputTransport && kind != domain.FailureKindPlannerGuidanceRequired {
 		return current, fmt.Errorf("failure %s is terminal for fresh GPT retry and requires its dedicated recovery action", kind)
@@ -1657,6 +1675,9 @@ func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID 
 	failureKind := sessionFailureKind(current)
 	if failureKind == "" {
 		failureKind = "unclassified_planner_failure"
+		if exhaustedConflict {
+			failureKind = "conflict_resolution_exhausted"
+		}
 	}
 	message := fmt.Sprintf(`FRESH REQUEST RECOVERY
 
@@ -1685,6 +1706,16 @@ RECOVERY STRATEGY RULES:
 			item.RemoteRecoveryAttempt = current.RemoteRecoveryAttempt + 1
 		} else {
 			item.RemoteRecoveryAttempt = 0
+		}
+		if exhaustedConflict {
+			// An explicit human authorization to resume after the automatic
+			// effort budget was spent starts that budget fresh for this one
+			// resumed round, exactly like RemoteRecoveryAttempt already does
+			// for a manual retry above. Without this the very next automatic
+			// round would immediately re-trip the same exhaustion check this
+			// call just overrode, making the override a no-op.
+			item.ConflictAttempt = 0
+			item.AutomationAttempt = 0
 		}
 		return nil
 	})
@@ -2687,6 +2718,16 @@ func (s *Service) RequestFailureRepair(ctx context.Context, sessionID, guidance 
 	}
 	if current.State != "failed" || current.LastExecution == nil || current.LastExecution.Success {
 		if current.State == "failed" && strings.TrimSpace(current.LastRepairError) != "" && current.LastExecution == nil {
+			return s.retryFailedRequestWithGuidance(ctx, sessionID, false, cleanGuidance)
+		}
+		// conflict_resolution_exhausted has no LastExecution of its own (it is
+		// set from the Git-merge conflict path, never from a run
+		// execution), so it can never reach the "failed" branch above — it
+		// used to fall straight through to the generic "no repairable
+		// failure" refusal below with no way back at all. Route it through
+		// the same guided-retry path, which requires guidance unconditionally
+		// for this state and resets the spent attempt budget on success.
+		if current.State == "conflict_resolution_exhausted" {
 			return s.retryFailedRequestWithGuidance(ctx, sessionID, false, cleanGuidance)
 		}
 		return current, errors.New("no repairable failure is available")
