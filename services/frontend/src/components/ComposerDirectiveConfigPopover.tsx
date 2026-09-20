@@ -6,8 +6,8 @@ export type DirectivePopoverAnchor = { left: number; top: number; bottom: number
 
 /**
  * The configuration surface for one directive, opened by clicking its chip —
- * in the composer's rich text (see `ComposerRichEditor`) or its miniature in
- * the summary strip above the composer.
+ * in the composer's rich text (see `ComposerRichEditor`). Reference thumbnails
+ * use dedicated source-aware viewers instead of this editing popover.
  *
  * A small anchored popover rather than a global modal: it is positioned from
  * the exact element that was clicked (`anchor`'s own `getBoundingClientRect()`,

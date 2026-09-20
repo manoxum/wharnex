@@ -112,5 +112,8 @@ describe('directiveChipBadge', () => {
     expect(directiveChipBadge('ref')).toBe('REF')
     expect(directiveChipBadge('attach')).toBe('EXT')
     expect(directiveChipBadge('see')).toBe('SEE')
+    expect(directiveChipBadge('chat')).toBe('CHAT')
+    expect(directiveChipBadge('lib')).toBe('LIB')
+    expect(directiveChipBadge('todo')).toBe('TODO')
   })
 })

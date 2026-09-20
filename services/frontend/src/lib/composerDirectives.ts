@@ -280,6 +280,11 @@ export function canonicalDirective(directive: Pick<ComposerDirective, 'kind' | '
   return `@{[${directive.kind}]${directive.value}}`
 }
 
+/** True only for the completed canonical marker projected as a rich chip/thumbnail. */
+export function isCanonicalDirective(text: string, directive: Pick<ComposerDirective, 'kind' | 'value' | 'start' | 'end'>) {
+  return text.slice(directive.start, directive.end) === canonicalDirective(directive)
+}
+
 /**
  * Rewrites every directive to its canonical form and leaves everything else —
  * including malformed near-misses — exactly as written.

@@ -16,6 +16,7 @@ import {
   directiveKindQuery,
   directiveKindSuggestions,
   directiveQuery,
+  isCanonicalDirective,
   directiveSuggestions,
   parseDirectives,
   removeDirective,
@@ -29,6 +30,7 @@ import { ComposerDirectiveConfigPopover, type DirectivePopoverAnchor } from './C
 import { ComposerRichEditor, type CaretRequest, type ComposerRichEditorHandle } from './ComposerRichEditor'
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel'
 import { ComposerDirectiveMenuLayer } from './ComposerDirectiveMenuLayer'
+import { ComposerReferenceThumbnail, ComposerTransportThumbnail } from './ComposerReferenceThumbnail'
 import { desktopBridge } from '../lib/desktop'
 import { api } from '../lib/api'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
@@ -355,6 +357,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const selectedSuggestionIndex = activeSuggestionCount ? Math.min(activeSuggestionIndex, activeSuggestionCount - 1) : 0
   useEffect(() => { setActiveSuggestionIndex(0) }, [fileQuery?.kind, fileQuery?.start, fileQuery?.end, fileQuery?.query, kindQuery?.start, kindQuery?.end, kindQuery?.query])
   const parsedDirectives = useMemo(() => parseDirectives(message), [message])
+  // Miniatures are a projection only of completed canonical markers. Typed
+  // autocomplete fragments stay plain text until a concrete reference is chosen.
+  const canonicalReferenceDirectives = useMemo(() => parsedDirectives.filter((directive) => isCanonicalDirective(message, directive)), [message, parsedDirectives])
   const attachedPaths = useMemo(() => parsedDirectives.filter((directive) => directive.kind === 'attach'), [parsedDirectives])
   const attachmentDirectiveKey = useMemo(() => attachedPaths.map(canonicalDirective).join(' '), [attachedPaths])
   useEffect(() => {
@@ -937,7 +942,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       />
       <div className="composer-scroll-area">
       {planAdjustment && <div className="plan-adjustment-context"><span className="plan-adjustment-icon"><Icon name="plan" size={13}/></span><div><strong>Ajustar plano de execução</strong><small>{planAdjustment.summary}</small><code>{planAdjustment.fileName}</code></div><button type="button" aria-label="Cancelar ajuste do plano" title="Cancelar ajuste" onClick={() => { persistAttachments(attachments.filter((file) => file.name !== planAdjustment.fileName)); setPlanAdjustment(undefined) }}><Icon name="close" size={12}/></button></div>}
-      {attachments.length ? <div className="composer-attachments">{attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}</div> : null}
+      {(attachments.length || canonicalReferenceDirectives.length || (!compactComposer && Object.values(selectedArtifacts).some(Boolean))) ? <div className="composer-attachments composer-reference-tray" aria-label="Conteúdo e referências da próxima iteração">
+        {attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}
+        {canonicalReferenceDirectives.map((directive) => <ComposerReferenceThumbnail key={`${directive.kind}-${directive.start}-${directive.end}-${directive.value}`} session={session} directive={directive} attachments={attachments} chatFiles={chatFiles} libraryArtifacts={libraryArtifacts} projectTodos={projectTodos} onRemove={() => removeDirectiveChip(directive)}/>)}
+        {!compactComposer && selectedArtifacts.context && <ComposerTransportThumbnail kind="context" label="Contexto ZIP" onOpen={() => setInspectedArtifact('context')}/>}
+        {!compactComposer && selectedArtifacts.prompt && <ComposerTransportThumbnail kind="prompt" label="Prompt" onOpen={() => setInspectedArtifact('prompt')}/>}
+        {!compactComposer && selectedArtifacts.result && <ComposerTransportThumbnail kind="result" label="Resultado" onOpen={() => setInspectedArtifact('result')}/>}
+        {!compactComposer && selectedArtifacts.error && <ComposerTransportThumbnail kind="error" label="Erro" onOpen={() => setInspectedArtifact('error')}/>}
+      </div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       {bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
       {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={(value) => { composerMessageRef.current = value; setMessage(value) }} initialPath={attachmentsPanelPath} initialKind={attachmentsPanelKind} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>}
