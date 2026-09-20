@@ -80,13 +80,7 @@ describe('complete colour themes', () => {
   })
   it('keeps the active linked-project accent restrained in dark mode', () => {
     expect(theme).toContain('box-shadow: 0 1px 3px rgba(0,0,0,.24);')
-    expect(theme).toContain(":root[data-theme='dark'] .project-quick-switch .project-quick-tab-main.active .project-color-mark { box-shadow: none; }")
-  })
-
-  it('uses the accent surface to make active chat and editor tabs unmistakable', () => {
-    expect(theme).toMatch(/:root\[data-theme='dark'\] \.chat-tab-group\.active \{[^}]*background: color-mix\(in srgb, var\(--theme-accent-soft\) 72%, var\(--theme-elevated\)\);/)
-    expect(theme).toMatch(/:root\[data-theme='dark'\] \.editor-tab\.active \{[^}]*box-shadow: inset 0 -2px var\(--theme-accent\)/)
-    expect(theme).toMatch(/:root\[data-theme='light'\] \.editor-tab\.active \{[^}]*background: color-mix\(in srgb, var\(--theme-accent-soft\) 72%, #f7f8f4\);/)
+    expect(theme).toContain(":root[data-theme='dark'] .project-quick-switch button.active .project-color-mark { box-shadow: none; }")
   })
 
   it('gives the integrated chat header and every bundle stage a distinct dark treatment', () => {

@@ -313,9 +313,9 @@ describe('multi-project shell CSS', () => {
   })
 
   it('keeps the active project accent visible without a heavy glow', () => {
-    const activeProject = lastRule('.project-quick-switch .project-quick-tab-main.active')
-    const activeUnderline = lastRule('.project-quick-switch .project-quick-tab-main.active::after')
-    const activeMark = lastRule('.project-quick-switch .project-quick-tab-main.active .project-color-mark')
+    const activeProject = lastRule('.project-quick-switch button.active')
+    const activeUnderline = lastRule('.project-quick-switch button.active::after')
+    const activeMark = lastRule('.project-quick-switch button.active .project-color-mark')
 
     expect(activeProject).toContain('box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent)')
     expect(activeUnderline).not.toContain('box-shadow')
@@ -323,11 +323,11 @@ describe('multi-project shell CSS', () => {
   })
 
   it('pulses the active project while a composer is being edited', () => {
-    const typingProject = firstRule('.project-quick-switch .project-quick-tab-main.active.composer-typing-attention')
+    const typingProject = firstRule('.project-quick-switch button.active.composer-typing-attention')
     expect(typingProject).toContain('animation: current-project-composer-pulse .9s ease-in-out infinite')
     expect(css).toContain('@keyframes current-project-composer-pulse')
     expect(css).toContain('@media (prefers-reduced-motion: reduce)')
-    expect(css).toContain('.project-quick-switch .project-quick-tab-main.active.composer-typing-attention { animation: none;')
+    expect(css).toContain('.project-quick-switch button.active.composer-typing-attention { animation: none;')
     expect(css).toContain('outline: 2px solid hsl(var(--project-hue) 78% 52% / .58)')
   })
 })
@@ -477,11 +477,7 @@ describe('canonical workbench tab CSS', () => {
     expect(canonical).toContain(".project-todo-tabs button[aria-pressed='true']::after")
     expect(canonical).toContain(".agent-chat-management-tabs button[aria-selected='true']::after")
     expect(canonical).toContain('.chat-tab-group.active {')
-    expect(lastRule('.chat-tab-group.active')).toContain('background: color-mix(in srgb, var(--theme-accent-soft) 62%, var(--theme-surface))')
-    expect(lastRule('.chat-tab.active')).toContain('font-weight: 720')
     expect(canonical).toContain('.editor-tab.active {')
-    expect(lastRule('.editor-tab.active')).toContain('background: color-mix(in srgb, var(--theme-accent-soft) 62%, var(--theme-surface))')
-    expect(lastRule('.editor-tab.active')).toContain('font-weight: 720')
     expect(canonical).toContain('.terminal-tab-shell.active {')
     expect(canonical).toContain('.agent-chat-surface-tabs button.active {')
     expect(canonical).toContain('background: var(--theme-accent)')

@@ -310,13 +310,9 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
       {orderedProjects.map((projectPath) => {
         const active = projectPath === activeProject
         const composerTyping = active && composerTypingProject === projectPath
-        const name = projectName(projectPath)
-        return <div key={projectPath} className={`project-quick-tab${active ? ' active' : ''}`} style={projectAccentStyle(projectPath)}>
-          <button ref={active ? activeProjectButtonRef : undefined} className={`project-quick-tab-main${active ? ' active' : ''}${composerTyping ? ' composer-typing-attention' : ''}`} onClick={(event) => active ? void toggleProjectWindowMenu(event.currentTarget) : onActivate(projectPath)} title={active ? `${projectPath} · clique para ver projetos abertos` : projectPath} aria-label={name} aria-expanded={active ? projectWindowOpen : undefined}>
-            <span className="project-color-mark"><Icon name="workspace" size={13}/></span><span>{name}</span>{active && <Icon name="chevron" size={11}/>}
-          </button>
-          <button type="button" className="project-quick-tab-unbind" disabled={busy} onClick={() => onUnbind(projectPath)} aria-label={`Desvincular projeto ${name}`} title={`Desvincular ${name} desta janela`}><Icon name="close" size={11}/></button>
-        </div>
+        return <button key={projectPath} ref={active ? activeProjectButtonRef : undefined} style={projectAccentStyle(projectPath)} className={`${active ? 'active' : ''}${composerTyping ? ' composer-typing-attention' : ''}`.trim()} onClick={(event) => active ? void toggleProjectWindowMenu(event.currentTarget) : onActivate(projectPath)} title={active ? `${projectPath} · clique para ver projetos abertos` : projectPath} aria-expanded={active ? projectWindowOpen : undefined}>
+          <span className="project-color-mark"><Icon name="workspace" size={13}/></span><span>{projectName(projectPath)}</span>{active && <Icon name="chevron" size={11}/>}
+        </button>
       })}
     </nav>
     {activeProject && <ProjectGitBadge sessionID={activeSessionID} busy={busy} onSync={onGitSync} />}
@@ -335,6 +331,7 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
       </div>
       {activeProject && <button type="button" data-attention-trigger="true" className={`workspace-attention-button${activeAttention?.total ? ' has-alerts' : ''}${activeAttention?.urgent ? ' urgent' : ''}`} onClick={onAttention} aria-label={`Centro de notificações, ${activeAttention?.total || 0} alerta(s), ${activeAttention?.urgent || 0} urgente(s), ${activeAttention?.actionable || 0} com ação`} title="Notificações · ver alertas recentes"><Icon name="bell" size={16}/>{Boolean(activeAttention?.total) && <b className="workspace-attention-count" aria-hidden="true">{activeAttention!.total > 99 ? '99+' : activeAttention!.total}</b>}</button>}
       {activeProject && <button type="button" disabled={busy} onClick={onSettings} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
+      {activeProject && <button type="button" disabled={busy} onClick={() => onUnbind(activeProject)} aria-label="Desvincular projeto" title="Desvincular projeto desta janela"><Icon name="close" size={14}/></button>}
     </div>
     {!useNativeWindowControls && <div className="window-chrome-controls" role="group" aria-label="Controlos da janela">
       {(activeRuntime?.selfEvolution || activeRuntime?.instanceId) && <span className="window-runtime-badge self-evolution-badge"><Icon name="refresh" size={12}/>{activeRuntime.selfEvolution ? ' WHX · AUTO-EVOLUÇÃO' : ` WHX · EVOLUÇÃO DA INSTÂNCIA ${activeRuntime.instanceId}`}</span>}

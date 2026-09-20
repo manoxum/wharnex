@@ -3347,12 +3347,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', finish, { once: true })
   }
-  const surfaceTarget = (kind: WorkspaceSurfaceTarget['kind'], detail: Pick<WorkspaceSurfaceTarget, 'chatId' | 'path'> = {}): WorkspaceSurfaceTarget => {
-    const target: WorkspaceSurfaceTarget = { projectPath: session.project_path, kind }
-    if (detail.chatId) target.chatId = detail.chatId
-    if (detail.path) target.path = detail.path
-    return target
-  }
+  const surfaceTarget = (kind: WorkspaceSurfaceTarget['kind'], detail: Pick<WorkspaceSurfaceTarget, 'chatId' | 'path'> = {}): WorkspaceSurfaceTarget => ({ projectPath: session.project_path, kind, ...detail })
 
   const sharedChatProps: ComponentProps<typeof ChatPanel> = {
     session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, reasoningEffort: session.reasoning_effort || 'high', chatTransportMode,
