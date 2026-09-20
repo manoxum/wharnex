@@ -173,6 +173,14 @@ func TestTruncateBuildFailureTextPreservesTerminalDiagnostic(t *testing.T) {
 	}
 }
 
+func TestBuildRepairMessagePreservesTerminalHostBuildDiagnostic(t *testing.T) {
+	cause := errors.New("self-evolution host build failed: exit status 2\n" + strings.Repeat("passing test output\n", 2000) + "TS2353: projectPath is not assignable\n")
+	message := buildRepairMessage(domain.Session{ExecutionMode: domain.ExecutionModeProtected}, domain.ExecutionResult{PlanID: "plan-build"}, cause, 1, 1, false, "")
+	if !strings.Contains(message, "TS2353: projectPath is not assignable") {
+		t.Fatalf("repair prompt lost terminal host-build diagnostic: %q", message[len(message)-min(len(message), 800):])
+	}
+}
+
 func TestPlannerLocalCoordinationReasonsDoNotRequestFreshGPTTurn(t *testing.T) {
 	cases := map[string]string{
 		"host_build_toolchain_mismatch":                domain.FailureKindHostBuildToolchain,

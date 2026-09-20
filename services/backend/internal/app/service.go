@@ -2894,6 +2894,10 @@ Use the current Wharnex project context as authoritative. Replace denied command
 	if item.ExecutionMode == domain.ExecutionModeUnprotected {
 		modeNote = "The failed Unprotected execution may have partially changed the host. Wharnex refreshed the project context before creating this repair request; use that current context as authoritative."
 	}
+	failureText := truncateRepairText(cause.Error(), 12000)
+	if strings.Contains(cause.Error(), "self-evolution host build failed") {
+		failureText = truncateBuildFailureText(cause.Error(), 12000)
+	}
 	var diagnostics strings.Builder
 	for index, command := range result.Commands {
 		fmt.Fprintf(&diagnostics, "\n[%d] %s (exit %d, success=%t)\n%s\n", index+1, strings.Join(command.Argv, " "), command.ExitCode, command.Success, truncateRepairText(commandResultDiagnostic(command), 6000))
@@ -2925,7 +2929,7 @@ CAPTURED COMMAND / VERIFICATION DIAGNOSTICS:%s
 KNOWLEDGE PROMOTION:
 This repair response may be the last planner turn before verification and host Apply. If the failure exposed a reusable operational cause, fixture invariant, verification pattern, environment constraint, or repair strategy, update or consolidate the relevant knowledge/<id>.md record NOW in this response. Do not defer learning until after success because there is no post-Apply planner round. Prefer editing/merging an existing record on the same topic over creating a duplicate. Keep transient one-off details only in attempts/ledger.md.
 
-Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharnex file-first delivery contract.%s`, requestHeading, modeNote, result.PlanID, item.ExecutionMode, truncateRepairText(cause.Error(), 12000), truncateRepairText(executionFailureCauseSummary(result, cause), 4000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges), operatorGuidance)
+Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharnex file-first delivery contract.%s`, requestHeading, modeNote, result.PlanID, item.ExecutionMode, failureText, truncateRepairText(executionFailureCauseSummary(result, cause), 4000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges), operatorGuidance)
 }
 
 func truncateRepairText(value string, limit int) string {
