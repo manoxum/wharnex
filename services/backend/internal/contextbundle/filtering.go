@@ -120,6 +120,13 @@ func autoExclude(rel string, isDir bool) (string, bool) {
 
 var automaticDirectoryReasons = map[string]string{
 	".svn": "vcs metadata", ".hg": "vcs metadata", ".idea": "ide metadata", ".vscode": "ide metadata",
+	// AI coding assistants can materialize session state, caches and even full
+	// shadow worktrees under project-local hidden directories. Keep those roots
+	// out of the default context so a helper checkout cannot recursively inflate
+	// the planner bundle. Explicit include/include_overrides may still restore a
+	// deliberately selected path because these are heuristic, not security,
+	// exclusions.
+	".claude": "ai assistant state", ".codex": "ai assistant state", ".gemini": "ai assistant state", ".opencode": "ai assistant state",
 	"__pycache__": "language cache", ".pytest_cache": "test cache", ".mypy_cache": "language cache", ".ruff_cache": "language cache",
 	".venv": "dependency environment", "venv": "dependency environment", "target": "generated build output", "out": "generated build output",
 	".gradle": "build cache", ".dart_tool": "dependency cache", ".terraform": "dependency cache", ".serverless": "generated deployment output",
