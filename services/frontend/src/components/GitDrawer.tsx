@@ -705,7 +705,40 @@ function HistorySection({ sessionId, branches }: { sessionId: string; branches: 
 
 function HistoryCommitDetailModal({ sessionId, detail, onClose }: { sessionId: string; detail: GitCommitDetail; onClose: () => void }) {
   const commit = detail.commit
-  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}><div className="git-diff-modal git-commit-detail-modal" role="dialog" aria-modal="true" aria-label={`Commit ${commit.short_sha}`} onMouseDown={(event) => event.stopPropagation()}><header><div><span className="panel-kicker">Histórico Git</span><strong>{commit.subject}</strong><small>+{commit.additions || 0} −{commit.deletions || 0} · {commit.files_changed || 0} ficheiro(s)</small></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button></header><GitDiffReview sessionId={sessionId} diff={detail.diff} emptyText="Este commit não contém alterações de ficheiros."/>{detail.diff_truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}</div></div>, document.body)
+  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}>
+    <div className="git-diff-modal git-commit-detail-modal git-history-commit-modal" role="dialog" aria-modal="true" aria-label={`Commit ${commit.short_sha}`} onMouseDown={(event) => event.stopPropagation()}>
+      <header className="git-history-commit-header">
+        <div className="git-history-commit-heading">
+          <span className="git-history-commit-icon"><Icon name="git" size={15}/></span>
+          <div className="git-history-commit-copy">
+            <span className="panel-kicker">Histórico Git · commit {commit.short_sha}</span>
+            <strong>{commit.subject}</strong>
+            <span className="git-history-commit-byline"><span>{commit.author_name}</span><time dateTime={commit.committed_at}>{formatCommitDate(commit.committed_at)}</time></span>
+          </div>
+        </div>
+        <div className="git-history-commit-actions">
+          <span className="git-history-commit-stat additions">+{commit.additions || 0}</span>
+          <span className="git-history-commit-stat deletions">−{commit.deletions || 0}</span>
+          <span className="git-history-commit-stat files">{commit.files_changed || 0} ficheiro(s)</span>
+          <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button>
+        </div>
+      </header>
+      <details className="git-commit-detail-disclosure git-history-commit-disclosure">
+        <summary><span>Detalhes do commit</span><code>{commit.short_sha}</code></summary>
+        <div className="git-commit-detail-meta">
+          <span><strong>SHA</strong><code>{commit.sha}</code></span>
+          <span><strong>Autor</strong>{commit.author_name} &lt;{commit.author_email}&gt;</span>
+          <span><strong>Data</strong><time dateTime={commit.committed_at}>{formatCommitDate(commit.committed_at)}</time></span>
+          <span><strong>Pais</strong><code>{commit.parents.length ? commit.parents.join(', ') : 'commit inicial'}</code></span>
+          {commit.request_id && <span><strong>Request</strong><code>{commit.request_id}</code></span>}
+          {commit.plan_id && <span><strong>Plano</strong><code>{commit.plan_id}</code></span>}
+        </div>
+        {(commit.body || commit.subject) && <pre className="git-commit-message-inline">{commit.body ? `${commit.subject}\n\n${commit.body}` : commit.subject}</pre>}
+      </details>
+      <GitDiffReview sessionId={sessionId} diff={detail.diff} emptyText="Este commit não contém alterações de ficheiros."/>
+      {detail.diff_truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
+    </div>
+  </div>, document.body)
 }
 
 function CommitGraph({ row }: { row: GitGraphRow }) {

@@ -568,6 +568,18 @@ describe('Git workbench CSS', () => {
     expect(css).toContain('@keyframes git-operation-progress')
   })
 
+  it('gives branch-history commit diffs a dedicated review hierarchy', () => {
+    const modal = firstRule('.git-history-commit-modal')
+    const header = firstRule('.git-history-commit-modal > .git-history-commit-header')
+    const activeFile = lastRule('.git-history-commit-modal .git-diff-review-files button.active')
+
+    expect(modal).toContain('width: min(1320px, calc(100vw - 56px))')
+    expect(modal).toContain('border-radius: 16px')
+    expect(header).toContain('min-height: 70px')
+    expect(header).toContain('linear-gradient')
+    expect(activeFile).toContain('box-shadow: inset 2px 0 0 var(--theme-accent)')
+  })
+
   it('keeps history rows graph-first and compact', () => {
     const row = lastRule('.git-history-row')
     const compactRow = lastRule('.git-drawer .git-history-row')
