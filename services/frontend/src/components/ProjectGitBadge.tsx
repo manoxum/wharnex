@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { GitOverview, Session } from '../types'
 import { api } from '../lib/api'
+import { announceHeaderPopover, subscribeOtherHeaderPopover } from '../lib/headerPopover'
 import { Icon } from './Icon'
 import { GitOperationModal, type GitOperation } from './GitOperationModal'
 
@@ -61,6 +62,8 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
     }
   }, [id, busy, working])
 
+  useEffect(() => subscribeOtherHeaderPopover('git', () => setOpen(false)), [])
+
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
@@ -117,7 +120,7 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
 
   const disabled = busy || working || !id || !overview?.available
   return <div ref={rootRef} className="project-git-badge-wrap">
-    <button type="button" className={`project-git-badge ${open ? 'active' : ''}`} onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label={`Git: ${currentBranch}, projeto ${overview?.project_version || 'sem versão'}`}>
+    <button type="button" className={`project-git-badge ${open ? 'active' : ''}`} onClick={() => { if (!open) announceHeaderPopover('git'); setOpen((value) => !value) }} aria-expanded={open} aria-label={`Git: ${currentBranch}, projeto ${overview?.project_version || 'sem versão'}`}>
       <span className="project-git-branch"><Icon name="git" size={13}/><strong>{currentBranch}</strong></span>
       <span className="project-git-version">{overview?.project_version || 'v…'}</span>
       <Icon name="chevron" size={11}/>

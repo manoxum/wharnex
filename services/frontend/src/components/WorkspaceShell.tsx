@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { api } from '../lib/api'
 import { desktopBridge } from '../lib/desktop'
+import { announceHeaderPopover, subscribeHeaderPopover, subscribeOtherHeaderPopover } from '../lib/headerPopover'
 import { desktopWindowScope, loadBoundActiveProject, loadBoundProjects, saveBoundActiveProject, saveBoundProjects } from '../lib/projectBindings'
 import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent } from '../lib/workspaceMemory'
 import type { AppConfig, WorkspaceMode } from '../types'
@@ -145,6 +146,10 @@ export function WorkspaceShell() {
     if (composerTypingTimerRef.current !== undefined) window.clearTimeout(composerTypingTimerRef.current)
   }, [])
 
+  useEffect(() => subscribeHeaderPopover((source) => {
+    if (source !== 'attention') sendToProject(frames.current.get(activeProject), { type: 'wharness:close-header-overlays' })
+  }), [activeProject])
+
   useEffect(() => {
     const windows = desktopBridge()?.windows
     if (!windows?.onActivateProject) return
@@ -272,6 +277,10 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
   const activeProjectButtonRef = useRef<HTMLButtonElement>(null)
   const useNativeWindowControls = false
 
+  useEffect(() => subscribeOtherHeaderPopover('project-list', () => setProjectWindowOpen(false)), [])
+  useEffect(() => subscribeOtherHeaderPopover('project-actions', () => setProjectActionsOpen(false)), [])
+  useEffect(() => subscribeOtherHeaderPopover('tunnels', () => setTunnelsOpen(false)), [])
+
   useEffect(() => {
     if (!projectActionsOpen && !projectWindowOpen) return
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { setProjectActionsOpen(false); setProjectWindowOpen(false) } }
@@ -287,9 +296,10 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
 
   async function toggleProjectWindowMenu(button: HTMLButtonElement) {
     if (projectWindowOpen) { setProjectWindowOpen(false); return }
+    announceHeaderPopover('project-list')
     const rect = button.getBoundingClientRect()
     setProjectWindowAnchor({ left: rect.left, top: rect.bottom + 7, width: rect.width })
-    setProjectActionsOpen(false); setProjectWindowOpen(true)
+    setProjectWindowOpen(true)
     const windows = desktopBridge()?.windows
     if (!windows?.projects) return
     try { setProjectWindows(await windows.projects()) } catch { /* local bindings remain available */ }
@@ -311,7 +321,7 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
         const active = projectPath === activeProject
         const composerTyping = active && composerTypingProject === projectPath
         return <div key={projectPath} style={projectAccentStyle(projectPath)} className={`project-tab-shell${active ? ' active' : ''}`}>
-          <button ref={active ? activeProjectButtonRef : undefined} style={projectAccentStyle(projectPath)} className={`project-tab-main${active ? ' active' : ''}${composerTyping ? ' composer-typing-attention' : ''}`} onClick={(event) => active ? void toggleProjectWindowMenu(event.currentTarget) : onActivate(projectPath)} title={active ? `${projectPath} · clique para ver projetos abertos` : projectPath} aria-expanded={active ? projectWindowOpen : undefined}>
+          <button ref={active ? activeProjectButtonRef : undefined} style={projectAccentStyle(projectPath)} className={`project-tab-main${active ? ' active' : ''}${composerTyping ? ' composer-typing-attention' : ''}`} onClick={(event) => { if (active) void toggleProjectWindowMenu(event.currentTarget); else { announceHeaderPopover('workspace-action'); onActivate(projectPath) } }} title={active ? `${projectPath} · clique para ver projetos abertos` : projectPath} aria-expanded={active ? projectWindowOpen : undefined}>
             <span className="project-color-mark"><Icon name="workspace" size={13}/></span><span>{projectName(projectPath)}</span>{active && <Icon name="chevron" size={11}/>}
           </button>
           <button type="button" className="project-tab-unbind" disabled={busy} onClick={() => { setProjectWindowOpen(false); onUnbind(projectPath) }} aria-label={`Desvincular ${projectName(projectPath)} desta janela`} title={`Desvincular ${projectName(projectPath)} desta janela`}><Icon name="close" size={11}/></button>
@@ -319,21 +329,21 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
       })}
     </nav>
     {activeProject && <ProjectGitBadge sessionID={activeSessionID} busy={busy} onSync={onGitSync} />}
-    {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={14}/> Agent</button><button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => onMode('orchestrator')}><Icon name="plan" size={14}/> Orchestrator</button></div>}
+    {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={14}/> Editor</button><button className={mode === 'agent' ? 'active' : ''} onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={14}/> Agent</button><button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={14}/> Orchestrator</button></div>}
     {projects.length > 1 && <span className="multi-project-context" title="O Agent recebe contexto separado de todos os projetos vinculados; execução e Apply continuam isolados por projeto."><Icon name="bridge" size={12}/>{projects.length} projetos no contexto</span>}
     <div className="multi-project-actions">
-      <button type="button" onClick={() => setTunnelsOpen(true)} aria-label="Túneis ativos" title="Túneis ativos"><Icon name="network" size={14}/></button>
+      <button type="button" onClick={() => { announceHeaderPopover('tunnels'); setTunnelsOpen(true) }} aria-label="Túneis ativos" title="Túneis ativos"><Icon name="network" size={14}/></button>
       <QuickSwitcher compact />
       <div ref={projectActionsRef} className="project-actions-menu">
-        <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => { setProjectWindowOpen(false); setProjectActionsOpen((current) => !current) }} aria-label="Ações de projeto" aria-expanded={projectActionsOpen} title="Ações de projeto"><Icon name="plus" size={15}/></button>
+        <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => { if (!projectActionsOpen) announceHeaderPopover('project-actions'); setProjectActionsOpen((current) => !current) }} aria-label="Ações de projeto" aria-expanded={projectActionsOpen} title="Ações de projeto"><Icon name="plus" size={15}/></button>
         {projectActionsOpen && <div className="project-actions-popover" role="menu" data-chatgpt-overlay-blocker="true">
           <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBind() }}><Icon name="workspace" size={14}/><span><strong>Vincular projeto</strong><small>Recentes, novo, clone ou pasta</small></span></button>
           <label className="project-path-link"><span>Caminho completo</span><input aria-label="Caminho completo do projeto" value={projectPath} onChange={(event) => setProjectPath(event.target.value)} placeholder="/home/user/projeto" spellCheck={false}/><button type="button" role="menuitem" disabled={busy || !projectPath.trim()} onClick={() => { const path = projectPath.trim(); setProjectPath(''); setProjectActionsOpen(false); onBindPath(path) }}><Icon name="bridge" size={14}/><span><strong>Vincular por caminho</strong><small>Adiciona esta raiz ao workspace</small></span></button></label>
           <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onNewWindow() }}><Icon name="external" size={14}/><span><strong>Nova janela</strong><small>Workspace independente</small></span></button>
         </div>}
       </div>
-      {activeProject && <button type="button" data-attention-trigger="true" className={`workspace-attention-button${activeAttention?.total ? ' has-alerts' : ''}${activeAttention?.urgent ? ' urgent' : ''}`} onClick={onAttention} aria-label={`Centro de notificações, ${activeAttention?.total || 0} alerta(s), ${activeAttention?.urgent || 0} urgente(s), ${activeAttention?.actionable || 0} com ação`} title="Notificações · ver alertas recentes"><Icon name="bell" size={16}/>{Boolean(activeAttention?.total) && <b className="workspace-attention-count" aria-hidden="true">{activeAttention!.total > 99 ? '99+' : activeAttention!.total}</b>}</button>}
-      {activeProject && <button type="button" disabled={busy} onClick={onSettings} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
+      {activeProject && <button type="button" data-attention-trigger="true" className={`workspace-attention-button${activeAttention?.total ? ' has-alerts' : ''}${activeAttention?.urgent ? ' urgent' : ''}`} onClick={() => { announceHeaderPopover('attention'); onAttention?.() }} aria-label={`Centro de notificações, ${activeAttention?.total || 0} alerta(s), ${activeAttention?.urgent || 0} urgente(s), ${activeAttention?.actionable || 0} com ação`} title="Notificações · ver alertas recentes"><Icon name="bell" size={16}/>{Boolean(activeAttention?.total) && <b className="workspace-attention-count" aria-hidden="true">{activeAttention!.total > 99 ? '99+' : activeAttention!.total}</b>}</button>}
+      {activeProject && <button type="button" disabled={busy} onClick={() => { announceHeaderPopover('settings'); onSettings() }} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
     </div>
     {!useNativeWindowControls && <div className="window-chrome-controls" role="group" aria-label="Controlos da janela">
       {(activeRuntime?.selfEvolution || activeRuntime?.instanceId) && <span className="window-runtime-badge self-evolution-badge"><Icon name="refresh" size={12}/>{activeRuntime.selfEvolution ? ' WHX · AUTO-EVOLUÇÃO' : ` WHX · EVOLUÇÃO DA INSTÂNCIA ${activeRuntime.instanceId}`}</span>}
