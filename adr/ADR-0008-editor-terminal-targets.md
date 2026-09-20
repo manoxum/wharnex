@@ -1,26 +1,24 @@
-# ADR-0008: Explicit Editor terminal targets
+# ADR-0008: Host-only human Editor terminal
 
-**Status:** Accepted
+**Status:** Accepted (amended)
 
 ## Context
 
-The original Editor terminal was deliberately sandbox-only. That is the safest default for exploratory commands, but it prevents a developer from using the same IDE surface for deliberate commands that must inspect or affect the real checkout. Reusing Agent `Unprotected` for this purpose would couple two different trust decisions and could silently widen execution scope.
+The Editor terminal is a direct human IDE capability, separate from Agent execution. Earlier versions exposed both a copied `Sandbox` PTY and a real `Host` PTY with a target selector and a persistent Host warning. The product now treats the terminal as the developer's workstation shell, while Agent Protected execution remains the dedicated isolated execution path. Keeping two human terminal targets duplicates the trust choice, consumes vertical chrome, and creates ambiguity about where ordinary IDE commands run.
 
 ## Decision
 
-The Editor terminal exposes two independent human-selected targets:
+The normal Editor terminal exposes one human target: `Host`.
 
-- `Sandbox` remains the default and keeps the persistent copied workspace, optional per-command network access, and reset-from-host behavior.
-- `Host` opens a real interactive PTY in the real project root. Entering Host requires a dedicated warning/confirmation. While active, the terminal displays a persistent host-direct warning and a distinct prompt/visual state. In stack mode, the PTY is delegated to `wharnex-host-pty`, a native helper launched by the Desktop coordinator as the logged-in operating-system user; the backend container only proxies bounded PTY frames through the checkout bridge socket. Local non-stack mode may own the PTY directly.
-
-The backend validates the target and rejects Host requests that do not carry the explicit host-confirmation marker. Interactive PTY bytes are deliberately separate from planner/model `CommandSpec` execution; Agent Protected/Unprotected mode never changes the Editor terminal target. The native bridge inherits the user's HOME/SHELL/PATH/session environment and host hostname, restoring parity with an ordinary workstation terminal while keeping the model outside that capability.
+- Creating/opening a terminal tab is the explicit human gesture to start a Host PTY. The frontend always supplies the backend's dedicated host-confirmation marker, so there is no second confirmation modal, target selector, or persistent `HOST DIRECTO` banner.
+- The Host PTY runs in the real project root as the logged-in operating-system user. In stack mode it is delegated to `wharnex-host-pty`, a native helper launched by the Desktop coordinator; the containerized backend proxies only bounded PTY frames over the checkout-scoped Unix socket. Local non-stack mode may own the PTY directly.
+- The backend may retain its Sandbox terminal target for compatibility/internal callers, but normal workbench UI does not expose it. Agent Protected mode continues to execute plans in its separate copied sandbox and is not affected by this decision.
+- The backend still validates the target and rejects Host requests that do not carry the host-confirmation marker. Interactive PTY bytes remain separate from planner/model `CommandSpec` execution; Agent automation cannot select or drive the human terminal.
 
 ## Consequences
 
-- Developers can choose where an interactive command runs without leaving the Wharness workspace; Host uses the same logged-in workstation identity/toolchain instead of the backend container identity.
-- Sandbox remains the safe default and can still be recreated deterministically.
-- Host commands can mutate the real project and have no automatic rollback; the UI states this before and during use.
-- Host inherits machine networking, so the sandbox network checkbox is intentionally unavailable there.
-- The model and Agent automation receive no new capability to select or use the Host terminal.
-- The Host bridge socket is checkout-scoped and mode `0600`; lifecycle ownership starts/stops the helper with Desktop.
+- Every terminal tab behaves like the user's normal workstation terminal and uses the same HOME/SHELL/PATH/session environment and host hostname.
+- Terminal chrome no longer needs target/network/reset controls or a persistent Host-mode warning; the tab itself represents an intentionally opened human Host shell.
+- Host commands can mutate the real project and have no automatic terminal-level rollback. This capability remains human-only and does not broaden Agent authority.
+- The Host bridge socket remains checkout-scoped and mode `0600`; lifecycle ownership starts/stops the helper with Desktop.
 - Terminal copy/paste uses the system clipboard with `Ctrl+Shift+C/V` (`⌘C/⌘V` on macOS).

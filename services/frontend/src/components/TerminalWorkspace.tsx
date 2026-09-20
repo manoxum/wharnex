@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Session, TerminalRunRequest, TerminalTarget } from '../types'
+import type { Session, TerminalRunRequest } from '../types'
 import { workspaceDragEndedOutside } from '../lib/workspaceSurface'
-import { InteractiveTerminal } from './InteractiveTerminal'
+import { InteractiveTerminal, type ConnectionStatus } from './InteractiveTerminal'
 import { Icon } from './Icon'
 
-type TerminalTab = { id: number; label: string; session: Session; target: TerminalTarget }
+type TerminalTab = { id: number; label: string; session: Session; reconnectNonce: number; status: ConnectionStatus }
 
 export function TerminalWorkspace({ session, height, visible, runRequest, onHeight, onError, fill = false, onDetachTerminal, onSplitTerminal }: {
   session: Session
@@ -18,7 +18,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
   onSplitTerminal?: (direction: 'vertical' | 'horizontal') => void
 }) {
   const nextID = useRef(2)
-  const [tabs, setTabs] = useState<TerminalTab[]>([{ id: 1, label: 'Terminal 1', session, target: 'sandbox' }])
+  const [tabs, setTabs] = useState<TerminalTab[]>([{ id: 1, label: 'Terminal 1', session, reconnectNonce: 0, status: 'connecting' }])
   const [activeID, setActiveID] = useState(1)
   const [editingID, setEditingID] = useState<number>()
   const [editingLabel, setEditingLabel] = useState('')
@@ -27,7 +27,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
   useEffect(() => {
     if (projectPathRef.current === session.project_path) return
     projectPathRef.current = session.project_path
-    setTabs([{ id: 1, label: 'Terminal 1', session, target: 'sandbox' }])
+    setTabs([{ id: 1, label: 'Terminal 1', session, reconnectNonce: 0, status: 'connecting' }])
     setActiveID(1)
     setEditingID(undefined)
     setEditingLabel('')
@@ -42,13 +42,13 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     }
     const id = nextID.current++
     runTargetRef.current = { requestID: runRequest.id, tabID: id }
-    setTabs((items) => [...items, { id, label: runRequest.label || `Terminal ${id}`, session, target: runRequest.target || 'host' }])
+    setTabs((items) => [...items, { id, label: runRequest.label || `Terminal ${id}`, session, reconnectNonce: 0, status: 'connecting' }])
     setActiveID(id)
   }, [activeID, runRequest, session])
 
   function addTerminal() {
     const id = nextID.current++
-    setTabs((items) => [...items, { id, label: `Terminal ${id}`, session, target: 'sandbox' }])
+    setTabs((items) => [...items, { id, label: `Terminal ${id}`, session, reconnectNonce: 0, status: 'connecting' }])
     setActiveID(id)
   }
 
@@ -59,7 +59,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     if (editingID === id) setEditingID(undefined)
     if (!remaining.length) {
       const replacementID = nextID.current++
-      setTabs([{ id: replacementID, label: `Terminal ${replacementID}`, session, target: 'sandbox' }])
+      setTabs([{ id: replacementID, label: `Terminal ${replacementID}`, session, reconnectNonce: 0, status: 'connecting' }])
       setActiveID(replacementID)
       return
     }
@@ -79,6 +79,16 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     setEditingID(undefined)
     setEditingLabel('')
   }
+
+  function reconnectActive() {
+    setTabs((items) => items.map((item) => item.id === activeID ? { ...item, reconnectNonce: item.reconnectNonce + 1, status: 'connecting' } : item))
+  }
+
+  function updateStatus(id: number, status: ConnectionStatus) {
+    setTabs((items) => items.map((item) => item.id === id && item.status !== status ? { ...item, status } : item))
+  }
+
+  const activeTab = tabs.find((item) => item.id === activeID)
 
   return <section className={`terminal-workspace ${fill ? 'terminal-workspace-fill' : ''} ${visible ? '' : 'terminal-workspace-hidden'}`} style={{ height: fill ? '100%' : height }} aria-hidden={!visible}>
     <div className="terminal-tabbar">
@@ -106,6 +116,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
             onDoubleClick={() => beginRename(tab)}
             title={`${tab.label} · duplo clique para renomear`}
           >
+            <span className={`terminal-tab-status terminal-status-${tab.status}`} aria-hidden="true"/>
             <Icon name="terminal" size={11}/><span>{tab.label}</span>
           </button>}
           {editingID !== tab.id && <button type="button" className="terminal-tab-action terminal-tab-rename" title={`Renomear ${tab.label}`} aria-label={`Renomear ${tab.label}`} onClick={() => beginRename(tab)}><Icon name="rename" size={10}/></button>}
@@ -113,25 +124,32 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
         </div>)}
       </div>
       <div className="terminal-surface-actions">
+        {activeTab && <span className={`terminal-active-status terminal-status-${activeTab.status}`} title={`Estado: ${statusLabel(activeTab.status)}`}><i/>{statusLabel(activeTab.status)}</span>}
+        <button type="button" className="terminal-toolbar-action" onClick={reconnectActive} title="Reconectar terminal" aria-label="Reconectar terminal"><Icon name="refresh" size={13}/></button>
+        <button type="button" className="terminal-toolbar-action" title="Aumentar/reduzir terminal" aria-label="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}>↕</button>
         {onSplitTerminal && <div className="surface-layout-actions" role="group" aria-label="Dividir terminal"><button type="button" onClick={() => onSplitTerminal('vertical')} title="Dividir terminal verticalmente" aria-label="Dividir terminal verticalmente"><Icon name="arrow-right" size={13}/></button><button type="button" onClick={() => onSplitTerminal('horizontal')} title="Dividir terminal horizontalmente" aria-label="Dividir terminal horizontalmente"><Icon name="arrow-down" size={13}/></button></div>}
         {onDetachTerminal && <button type="button" className="surface-detach-action" onClick={onDetachTerminal} title="Abrir terminal numa janela independente" aria-label="Abrir terminal numa janela independente"><Icon name="external" size={13}/></button>}
-      <button type="button" className="terminal-add-tab" onClick={addTerminal} title="Nova instância de terminal" aria-label="Nova instância de terminal"><Icon name="plus" size={12}/></button>
+        <button type="button" className="terminal-add-tab" onClick={addTerminal} title="Nova instância de terminal" aria-label="Nova instância de terminal"><Icon name="plus" size={12}/></button>
       </div>
     </div>
     <div className="terminal-instances">
       {tabs.map((tab) => <div className={`terminal-instance ${tab.id === activeID ? 'active' : ''}`} key={tab.id}>
         <InteractiveTerminal
           session={tab.session}
-          initialTarget={tab.target}
           height={Math.max(155, height - 30)}
           visible={visible && tab.id === activeID}
+          reconnectNonce={tab.reconnectNonce}
+          onStatusChange={(status) => updateStatus(tab.id, status)}
           runRequest={runRequest && runTargetRef.current?.requestID === runRequest.id && runTargetRef.current.tabID === tab.id ? { ...runRequest, command: inDirectory(runRequest.cwd, runRequest.command) } : undefined}
-          onHeight={(value) => onHeight(value + 30)}
           onError={onError}
         />
       </div>)}
     </div>
   </section>
+}
+
+function statusLabel(status: ConnectionStatus) {
+  return ({ connecting: 'a ligar…', connected: 'ligado', closed: 'encerrado', error: 'erro' })[status]
 }
 
 function inDirectory(cwd: string, command: string) {

@@ -8,7 +8,9 @@ const fileRecordCalls: unknown[] = []
 vi.mock('./ChangeDiffEditor', () => ({
   ChangeDiffEditor: (props: { file: unknown }) => { fileRecordCalls.push(props.file); return <div data-testid="change-diff-editor"/> },
 }))
-vi.mock('./CodeEditor', () => ({ CodeEditor: () => <div data-testid="code-editor-stub"/> }))
+vi.mock('./CodeEditor', () => ({
+  CodeEditor: ({ path, value, onChange, onSave }: { path: string; value: string; onChange: (value: string) => void; onSave: () => void }) => <div data-testid="code-editor-stub"><textarea aria-label={`Editor de ${path}`} value={value} onChange={(event) => onChange(event.target.value)}/><button type="button" onClick={onSave}>Guardar agora</button></div>,
+}))
 vi.mock('../lib/monaco', () => ({ disposeEditorModel: () => undefined }))
 
 const session = {
@@ -46,6 +48,19 @@ describe('EditorWorkspace git diff stability', () => {
     act(() => { rerender(<EditorWorkspace session={session} onError={onError} onRunInTerminal={() => undefined} openPath="a.ts" openNonce={1}/>) })
 
     expect(fileRecordCalls[fileRecordCalls.length - 1]).toBe(firstFile)
+  })
+
+  it('autosaves edited text after a short debounce with optimistic concurrency', async () => {
+    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
+    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'a.ts', content: 'const a = 1', sha256: 'abc123', size: 11 })
+    const writeFile = vi.spyOn(api, 'writeFile').mockResolvedValue({ path: 'a.ts', content: 'const a = 2', sha256: 'def456', size: 11 })
+
+    render(<EditorWorkspace session={session} onError={() => undefined} onRunInTerminal={() => undefined} openPath="a.ts" openNonce={1}/>)
+    const editor = await screen.findByLabelText('Editor de a.ts')
+    fireEvent.change(editor, { target: { value: 'const a = 2' } })
+
+    await waitFor(() => expect(writeFile).toHaveBeenCalledWith('ses-editor', { path: 'a.ts', content: 'const a = 2', sha256: 'abc123' }), { timeout: 1800 })
+    await waitFor(() => expect(screen.getByText('Guardado')).toBeTruthy())
   })
 
   it('keeps detached editor surfaces minimal', async () => {
