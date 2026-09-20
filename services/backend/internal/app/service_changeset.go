@@ -782,6 +782,14 @@ func retireConflictingMutations(ctx context.Context, projectPath, replacementBas
 			result = append(result, change)
 			continue
 		}
+		// A candidate can carry BOTH representations: a legacy ChangeSet
+		// promoted onto a Git-native integration branch. Filtering only the
+		// ChangeSet and stopping there retired the path from the representation
+		// Apply does not use, while the branch it does merge kept the
+		// conflicting content — so the retirement reported success and changed
+		// nothing, and that candidate collided on the same path on every
+		// subsequent Apply no matter how many resolutions arrived. Both
+		// representations must therefore be narrowed, and the branch decides.
 		if change.ChangeSet != nil {
 			clone := *change.ChangeSet
 			clone.Mutations = make([]domain.FileMutation, 0, len(change.ChangeSet.Mutations))
@@ -791,12 +799,14 @@ func retireConflictingMutations(ctx context.Context, projectPath, replacementBas
 				}
 			}
 			change.ChangeSet = &clone
-			if len(clone.Mutations) > 0 {
-				result = append(result, change)
-			}
-			continue
 		}
 		if change.IntegrationBranch == "" || change.IntegrationCommit == "" {
+			if change.ChangeSet != nil {
+				if len(change.ChangeSet.Mutations) > 0 {
+					result = append(result, change)
+				}
+				continue
+			}
 			return nil, nil, fmt.Errorf("cannot partially supersede legacy candidate %s without a canonical ChangeSet or Git commit", change.Plan.PlanID)
 		}
 		if len(change.SubmoduleIntegrations) > 0 {

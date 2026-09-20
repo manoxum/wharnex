@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -67,6 +68,39 @@ func TestSupersededConflictResolutionIgnoresUnrelatedCandidatesSharingAPath(t *t
 
 	if superseded := supersededConflictResolution(item, pending); superseded != nil {
 		t.Fatalf("independent candidates must stay a real merge, got retirement of %v", superseded.Paths)
+	}
+}
+
+// A candidate promoted from a legacy ChangeSet onto a Git-native integration
+// branch carries both representations. Retirement used to filter the ChangeSet
+// and stop there, leaving untouched the branch Apply actually merges — so it
+// reported success while changing nothing that mattered, and that candidate
+// collided on the very same path on every later Apply no matter how many
+// resolutions arrived. This is what made one real chat unresolvable for hours.
+func TestRetireConflictingMutationsNarrowsTheBranchNotOnlyTheChangeSet(t *testing.T) {
+	change := candidateFor("req-original", "plan-original", "services/frontend/src/styles.css")
+	change.IntegrationBranch = "whx/req-original"
+	change.IntegrationCommit = "531d0e5"
+	change.ChangeSet = &domain.ChangeSet{ID: "chg-1", Mutations: []domain.FileMutation{
+		{Path: "services/frontend/src/styles.css"},
+	}}
+
+	remaining, retiredBranches, err := retireConflictingMutations(
+		context.Background(), t.TempDir(), "base-sha", []domain.PendingHostChange{change},
+		&domain.ConflictResolution{
+			Paths:           []string{"services/frontend/src/styles.css"},
+			OriginalPlanIDs: []string{"plan-original"},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("a candidate whose every path was superseded must not stay pending: %#v", remaining)
+	}
+	// The branch is the part that matters: leaving it behind is exactly how the
+	// same collision came back on every Apply.
+	if len(retiredBranches) != 1 || retiredBranches[0] != "whx/req-original" {
+		t.Fatalf("the integration branch was not retired: %v", retiredBranches)
 	}
 }
 
