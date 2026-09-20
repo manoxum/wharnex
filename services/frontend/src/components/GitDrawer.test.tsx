@@ -14,6 +14,7 @@ vi.mock('../lib/api', async () => {
     ...actual,
     api: {
       gitOverview: vi.fn(),
+      gitHead: vi.fn(),
       gitFileDiff: vi.fn().mockResolvedValue({ path: 'app.go', diff: 'diff --git a/app.go b/app.go\n+changed' }),
       gitUnpushed: vi.fn().mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [] }),
       gitUnpushedCommit: vi.fn(),
@@ -81,6 +82,7 @@ describe('GitDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
+    vi.mocked(api.gitHead).mockResolvedValue({ current_branch: 'main', detached: false, commit_sha: 'a1' })
     vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [] })
     vi.mocked(api.gitHistoryPage).mockResolvedValue({ commits: overview().commits, next_offset: overview().commits.length, has_more: false })
     vi.mocked(api.gitMergeCandidates).mockImplementation(async (_id, target) => overview().branches.filter((branch) => branch.name !== target).map((branch) => ({ ...branch, unmerged_commits: 1 })))
@@ -300,6 +302,25 @@ describe('GitDrawer', () => {
 
     fireEvent.click(featureSwitch)
     await waitFor(() => expect(api.gitSwitch).toHaveBeenCalledWith('ses_1', 'feature'))
+  })
+
+  it('copies branch names and remote URLs from version control', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+
+    openTab('Branches')
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar nome da branch main' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('main'))
+    const featureRow = screen.getByText('feature', { selector: '.git-branch-name' }).closest('li')
+    if (!featureRow) throw new Error('feature row missing')
+    fireEvent.click(within(featureRow).getByRole('button', { name: 'Copiar nome da branch feature' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('feature'))
+
+    openTab('Definições')
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar URL de origin' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://github.com/org/repo.git'))
   })
 
   it('toggles the commit mode from settings', async () => {
