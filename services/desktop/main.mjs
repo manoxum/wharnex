@@ -4826,6 +4826,40 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   return { ok: true, cacheKey: key, expectedFilename, conversationUrl, assistantBaseline, recoveryBootstrap: bundled.bootstrap, liveTunnels }
 }
 
+async function submitChatGPTContinuation(cacheKey, expectedURL = '', requestId = '', entryOverride = undefined) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const prior = expectedChatGPTBundles.get(key)
+  const expectedFilename = prior?.requestId === String(requestId) ? prior.filename : canonicalBundleFilename(key, requestId)
+  const target = await targetChatGPTComposer(key, expectedURL, false, entryOverride)
+  const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
+  const prompt = chatGPTDeliveryContinuationPrompt()
+  const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-keep-continue', chatGPTFillComposerScript(prompt))
+  if (!filled) throw new Error('ChatGPT continuation composer could not be populated')
+  await wait(100)
+  const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
+  if (!submission.accepted && !submission.dispatched) throw new Error('ChatGPT continuation was not dispatched')
+  const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
+  if (!conversationUrl) throw new Error('ChatGPT continuation did not produce a stable conversation id')
+  if (prior?.requestId === String(requestId)) {
+    prior.assistantBaseline = Math.max(Number(prior.assistantBaseline || 0), assistantBaseline)
+    prior.lastDOMClick = 0
+    prior.downloadInFlight = false
+    prior.settledAt = 0
+    prior.processingObservedAt = 0
+    prior.processingAbsentSince = 0
+    prior.progressAt = Date.now()
+    prior.recoveryEligibleAt = 0
+  }
+  touchChatGPTEntry(target.entry)
+  console.log(`[chatgpt-continuation] submitted key=${key} request=${requestId} prompt=${prompt}`)
+  return {
+    ok: true, cacheKey: key, expectedFilename, conversationUrl, assistantBaseline,
+    recoveryBootstrap: prior?.requestId === String(requestId) ? String(prior.recoveryBootstrap || '') : '',
+    liveTunnels: prior?.requestId === String(requestId) && Array.isArray(prior.liveTunnels) ? prior.liveTunnels.slice(0, 16) : [],
+    originalPrompt: prior?.requestId === String(requestId) ? String(prior.originalPrompt || '') : '',
+  }
+}
+
 
 function durableWorkspaceChatID(cacheKey, requestedChatID = '') {
   const key = sanitizeChatCacheKey(cacheKey)
@@ -4988,6 +5022,27 @@ async function captureChatGPTProcessingDuration(entry, expected) {
   return Number(expected.processingDurationMs || 0)
 }
 
+async function enqueueChatAgentContinuation(task, key, expected, payload, conversationURL, now, reason) {
+  const recoveryCount = Math.max(0, Number(payload.recovery_count || 0))
+  if (recoveryCount >= MAX_BUNDLE_CONTINUATIONS) {
+    return { status: 'attention', error: `ChatGPT interrompeu a resposta sem disponibilizar ${expected.filename} depois de ${recoveryCount} continuações curtas.` }
+  }
+  const continuationDelay = Math.min(30_000, BUNDLE_CONTINUATION_BASE_MS + recoveryCount * 3_000)
+  if (expected.lastContinuationAt && now - expected.lastContinuationAt < continuationDelay) {
+    return { status: 'waiting', delayMs: continuationDelay, observation: true }
+  }
+  if (!(await chatAgentChildExists(task, 'RECOVERY_WRITE'))) {
+    await enqueueChatAgentTask('RECOVERY_WRITE', {
+      key, requestId: expected.requestId, rootRequestId: task.root_request_id || expected.requestId,
+      conversationURL, parentTaskID: task.task_id, sessionID: expected.sessionId, maxAttempts: 6,
+      payload: { ...payload, operation: 'CONTINUE_REQUEST', continuation_reason: reason, recovery_count: recoveryCount + 1, expected_filename: expected.filename },
+    })
+    expected.lastContinuationAt = now
+    expected.invalidBundleCount = 0
+  }
+  return { status: 'done' }
+}
+
 async function probeChatAgentResponse(task, entry, key, payload, conversationURL) {
   const expected = hydrateExpectedChatAgentBundle(key, task, payload)
   // The Supervisor that submitted this request is already reading the page it
@@ -5040,6 +5095,18 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
     return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true }
   }
   if (expected.processingObservedAt && !expected.processingAbsentSince) expected.processingAbsentSince = now
+  const responseStarted = Number(completion?.assistantCount || 0) > Number(expected.assistantBaseline || 0)
+  const processingInterrupted = Boolean(
+    expected.processingObservedAt
+    && expected.processingAbsentSince
+    && !responseStarted
+    && completion?.composerReady === true
+    && completion?.failed !== true
+    && now - expected.processingAbsentSince >= PROCESSING_SIGNAL_GRACE_MS
+  )
+  if (processingInterrupted) {
+    return enqueueChatAgentContinuation(task, key, expected, payload, conversationURL, now, 'processing-interrupted')
+  }
   if (completion?.complete !== true) {
     expected.settledAt = 0
     // Neither generating nor complete. This is a passive read of an ambiguous
@@ -5101,26 +5168,7 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
   if (!idleSince || now - idleSince < settleWindow) {
     return { status: 'waiting', delayMs: BUNDLE_COMPLETION_CONFIRM_MS, observation: true }
   }
-  if (Number(payload.recovery_count || 0) >= MAX_BUNDLE_CONTINUATIONS) {
-    return { status: 'attention', error: `ChatGPT terminou sem disponibilizar ${expected.filename} depois da recuperação limitada.` }
-  }
-  // Continuations are real ChatGPT requests. Space them so a supervisor that
-  // keeps re-observing the same settled turn cannot turn into a request burst.
-  const continuationDelay = Math.min(30_000, BUNDLE_CONTINUATION_BASE_MS + Number(payload.recovery_count || 0) * 3_000)
-  if (expected.lastContinuationAt && now - expected.lastContinuationAt < continuationDelay) {
-    return { status: 'waiting', delayMs: continuationDelay, observation: true }
-  }
-  if (!(await chatAgentChildExists(task, 'RECOVERY_WRITE'))) {
-    const continuation = chatGPTDeliveryContinuationPrompt(expected.requestId, expected.filename, expected.originalPrompt)
-    await enqueueChatAgentTask('RECOVERY_WRITE', {
-      key, requestId: expected.requestId, rootRequestId: task.root_request_id || expected.requestId,
-      conversationURL, parentTaskID: task.task_id, sessionID: expected.sessionId, maxAttempts: 6,
-      payload: { ...payload, prompt: continuation, recovery_count: Number(payload.recovery_count || 0) + 1, expected_filename: expected.filename },
-    })
-    expected.lastContinuationAt = now
-    expected.invalidBundleCount = 0
-  }
-  return { status: 'done' }
+  return enqueueChatAgentContinuation(task, key, expected, payload, conversationURL, now, 'completed-without-bundle')
 }
 
 async function executeChatAgentWrite(task, entry, key, payload, conversationURL, { pacedWorker = true } = {}) {
@@ -5149,19 +5197,31 @@ async function executeChatAgentWrite(task, entry, key, payload, conversationURL,
     const prepared = await withChatGPTTransportPreparation(key, entry, requestId, () => preparePromptForChatGPT(safeRequest, entry, { pacedWorker }))
     return { status: 'done', payload: { operation: 'PREPARE_PROMPT', conversation_url: prepared.conversationUrl || targetURL, expected_filename: prepared.expectedFilename } }
   }
-  const prompt = String(payload.prompt || payload.original_prompt || '').trim()
+  const continuationOnly = payload.operation === 'CONTINUE_REQUEST'
+  const prompt = continuationOnly ? chatGPTDeliveryContinuationPrompt() : String(payload.prompt || payload.original_prompt || '').trim()
   if (!prompt) return { status: 'failed', error: 'chat-agent write payload is empty' }
   const result = await withChatGPTTransportPreparation(key, entry, task.request_id, () => {
     if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
       throw new Error('worker conversation changed before submit/upload')
     }
-    return submitPromptToChatGPT(key, prompt, conversationURL, task.request_id, payload.session_id || task.session_id || '', entry)
+    return continuationOnly
+      ? submitChatGPTContinuation(key, conversationURL, task.request_id, entry)
+      : submitPromptToChatGPT(key, prompt, conversationURL, task.request_id, payload.session_id || task.session_id || '', entry)
   })
+  if (continuationOnly) {
+    const expected = expectedChatGPTBundles.get(key)
+    if (expected?.requestId === String(task.request_id)) {
+      expected.continuationCount = Math.max(Number(expected.continuationCount || 0), Number(payload.recovery_count || 0))
+      expected.lastContinuationAt = Date.now()
+      expected.invalidBundleCount = 0
+      expected.recovery = createChatGPTRecoveryState(Date.now())
+    }
+  }
   const workspaceChatId = durableWorkspaceChatID(key, payload.workspace_chat_id)
   if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, result.conversationUrl, { remoteState: 'awaiting-response' })
   const nextPayload = expectedChatAgentPayload(key, task.request_id, result.conversationUrl, {
     expectedFilename: result.expectedFilename, assistantBaseline: result.assistantBaseline, recoveryBootstrap: result.recoveryBootstrap,
-    originalPrompt: payload.original_prompt || prompt, sessionId: payload.session_id || task.session_id || '', liveTunnels: result.liveTunnels || payload.live_tunnels || [],
+    originalPrompt: result.originalPrompt || payload.original_prompt || prompt, sessionId: payload.session_id || task.session_id || '', liveTunnels: result.liveTunnels || payload.live_tunnels || [],
     projectName: payload.project_name || '', projectPath: payload.project_path || '', fallbackTitle: payload.fallback_title || '', recoveryCount: payload.recovery_count || 0, requestEligibleAt: payload.request_eligible_at || '', workspaceChatId,
   })
   try {
@@ -6253,7 +6313,7 @@ async function pollChatGPTVisibleActivity() {
 
 async function performChatGPTRecoveryAction(key, expected, entry, action, completion = {}) {
   if (!action || !expected?.recovery) return false
-  const { wc } = requireOwnedChatGPTEntry(key, entry)
+  requireOwnedChatGPTEntry(key, entry)
   const now = Date.now()
   if (action.type === 'reload') {
     commitChatGPTRecoveryAction(expected.recovery, action, now)
@@ -6280,14 +6340,15 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
     return true
   }
   if (action.type !== 'prompt') return false
-  const prompt = chatGPTStalledRecoveryPrompt(expected.requestId, expected.filename, expected.originalPrompt)
+  if (Number(expected.continuationCount || 0) >= MAX_BUNDLE_CONTINUATIONS) {
+    commitChatGPTRecoveryAction(expected.recovery, { type: 'human', reason: 'recovery-exhausted', detail: `A continuação curta atingiu o limite para ${expected.filename}.` }, now)
+    setChatGPTHumanAction(key, 'stalled', `O ChatGPT não entregou ${expected.filename} depois da continuação automática limitada. Use “Retomar pedido” depois de verificar a conversa.`, 'recovery')
+    return true
+  }
   try {
     await withChatGPTTransportPreparation(key, entry, expected.requestId, async () => {
       if (expectedChatGPTBundles.get(key) !== expected) return
-      await fillBundledChatGPTComposer(key, entry, expected.sessionId, expected.requestId, prompt, expected.filename, [], expected.liveTunnels || [], expected.requestMetadata || {})
-      await wait(80)
-      if (expectedChatGPTBundles.get(key) !== expected) return
-      await submitChatGPTDraft(key, entry, entry.affinity.boundURL, { entry, wc, conversationUrl: entry.affinity.boundURL })
+      await submitChatGPTContinuation(key, entry.affinity.boundURL, expected.requestId, entry)
     })
   } catch (error) {
     if (error instanceof ChatGPTRateLimitDeferral) return true
@@ -6295,12 +6356,17 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
     return true
   }
   if (expectedChatGPTBundles.get(key) !== expected) return true
-  commitChatGPTRecoveryAction(expected.recovery, action, now)
+  const recovery = expected.recovery
+  commitChatGPTRecoveryAction(recovery, action, now)
+  expected.recovery = createChatGPTRecoveryState(now)
+  expected.continuationCount = Number(expected.continuationCount || 0) + 1
+  expected.lastContinuationAt = now
+  expected.invalidBundleCount = 0
   expected.assistantBaseline = Math.max(expected.assistantBaseline, Number(completion?.assistantCount) || 0)
   expected.settledAt = 0
   expected.lastDOMClick = 0
-  console.warn(`[chatgpt-recovery] prompt key=${key} request=${expected.requestId} accepted=true`)
-  sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, requestId: expected.requestId, state: 'thinking', text: 'O ChatGPT continuou parado após a recarga. O Wharnex enviou uma instrução automática para retomar o pedido original e concluir a entrega.', capturedAt: new Date().toISOString() })
+  console.warn(`[chatgpt-recovery] keep-continue key=${key} request=${expected.requestId} accepted=true reason=${action.reason}`)
+  sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, requestId: expected.requestId, state: 'thinking', text: 'A resposta parou sem o bundle esperado. O Wharnex enviou apenas “keep continue” na mesma conversa, sem reenviar o pedido nem o bundle de entrada.', capturedAt: new Date().toISOString() })
   return true
 }
 
@@ -6441,6 +6507,14 @@ async function pollExpectedChatGPTDownloadKey(key) {
         return
       }
       const responseStarted = Number(completion?.assistantCount || 0) > Number(expected.assistantBaseline || 0)
+      const processingInterrupted = Boolean(
+        expected.processingObservedAt
+        && expected.processingAbsentSince
+        && !responseStarted
+        && completion?.composerReady === true
+        && completion?.failed !== true
+        && now - expected.processingAbsentSince >= PROCESSING_SIGNAL_GRACE_MS
+      )
       if (!completion?.complete) expected.settledAt = 0
       else if (!expected.settledAt) expected.settledAt = now
       const completionSettled = completion?.complete === true
@@ -6451,6 +6525,7 @@ async function pollExpectedChatGPTDownloadKey(key) {
         thinking: processingSignalActive,
         failed: completion?.failed === true,
         responseStarted,
+        processingInterrupted,
         surfaceReady: completion?.composerReady === true,
         humanActionRequired: entry.humanAction?.active === true,
         awaitingConversationAffinity: isChatGPTAffinityAwaitingSettlement(entry.affinity)
@@ -6470,14 +6545,10 @@ async function pollExpectedChatGPTDownloadKey(key) {
       const continuationDelay = Math.min(30_000, BUNDLE_CONTINUATION_BASE_MS + Number(expected.continuationCount || 0) * 3_000)
       if (expected.lastContinuationAt && now - expected.lastContinuationAt < continuationDelay) return
 
-      const continuation = chatGPTDeliveryContinuationPrompt(expected.requestId, expected.filename, expected.originalPrompt)
       try {
         await withChatGPTTransportPreparation(key, entry, expected.requestId, async () => {
           if (expectedChatGPTBundles.get(key) !== expected) return
-          await fillBundledChatGPTComposer(key, entry, expected.sessionId, expected.requestId, continuation, expected.filename, [], expected.liveTunnels || [], expected.requestMetadata || {})
-          await wait(80)
-          if (expectedChatGPTBundles.get(key) !== expected) return
-          await submitChatGPTDraft(key, entry, entry.affinity.boundURL, { entry, wc, conversationUrl: entry.affinity.boundURL })
+          await submitChatGPTContinuation(key, entry.affinity.boundURL, expected.requestId, entry)
         })
       } catch (error) {
         if (error instanceof ChatGPTRateLimitDeferral) return
@@ -6495,8 +6566,8 @@ async function pollExpectedChatGPTDownloadKey(key) {
       expected.lastDOMClick = 0
       expected.invalidBundleCount = 0
       expected.recovery = createChatGPTRecoveryState(now)
-      console.log(`[chatgpt-bundle-dom] continuation-submitted key=${key} request=${expected.requestId} attempt=${expected.continuationCount}`)
-      sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, state: 'thinking', text: `Bundle não detetado após a resposta. Continuação automática ${expected.continuationCount} enviada para preservar o objetivo.`, capturedAt: new Date().toISOString() })
+      console.log(`[chatgpt-bundle-dom] keep-continue-submitted key=${key} request=${expected.requestId} attempt=${expected.continuationCount}`)
+      sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, state: 'thinking', text: `Bundle não detetado após a resposta. “keep continue” ${expected.continuationCount} foi enviado sem reenviar o request bundle.`, capturedAt: new Date().toISOString() })
     } catch (error) {
       expected.domProbeFailures = Number(expected.domProbeFailures || 0) + 1
       const detail = error instanceof Error ? error.message : String(error)

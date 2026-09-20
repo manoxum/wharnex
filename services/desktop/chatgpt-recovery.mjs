@@ -76,7 +76,7 @@ export function createChatGPTRecoveryState(now = Date.now()) {
     lastReloadAt: 0,
     reloadCount: 0,
     transportReloadCount: 0,
-    completionReloaded: false,
+    completionContinued: false,
     errorReloaded: false,
     stallReloaded: false,
     silentReloaded: false,
@@ -142,7 +142,7 @@ export function chooseChatGPTRecoveryAction(state, snapshot = {}, now = Date.now
   // Some callers probe only for already-recorded transport/renderer faults
   // before the DOM liveness snapshot is available. An empty/partial snapshot
   // must never be interpreted as evidence that generation is idle.
-  const hasLivenessSnapshot = ['complete', 'thinking', 'failed', 'responseStarted', 'surfaceReady', 'awaitingConversationAffinity', 'transportActive']
+  const hasLivenessSnapshot = ['complete', 'thinking', 'failed', 'responseStarted', 'processingInterrupted', 'surfaceReady', 'awaitingConversationAffinity', 'transportActive']
     .some((key) => Object.hasOwn(snapshot || {}, key))
   if (options.faultOnly === true || !hasLivenessSnapshot) return undefined
 
@@ -155,8 +155,12 @@ export function chooseChatGPTRecoveryAction(state, snapshot = {}, now = Date.now
     return undefined
   }
 
-  if (snapshot.complete === true && !state.completionReloaded) {
-    return { type: 'reload', reason: 'completed-without-bundle', detail: 'response completed without the expected validated bundle' }
+  if (snapshot.complete === true && !state.completionContinued) {
+    return { type: 'prompt', reason: 'completed-without-bundle', detail: 'response settled without the expected validated bundle' }
+  }
+
+  if (snapshot.processingInterrupted === true && !state.completionContinued) {
+    return { type: 'prompt', reason: 'processing-interrupted', detail: 'visible processing stopped without producing a new assistant turn or validated bundle' }
   }
 
   const thinking = snapshot.thinking === true
@@ -198,7 +202,6 @@ export function commitChatGPTRecoveryAction(state, action, now = Date.now()) {
     state.lastReloadAt = current
     state.reloadCount = Number(state.reloadCount || 0) + 1
     if (action.reason === 'transport') state.transportReloadCount = Number(state.transportReloadCount || 0) + 1
-    if (action.reason === 'completed-without-bundle') state.completionReloaded = true
     if (action.reason === 'response-error') state.errorReloaded = true
     if (action.reason === 'stalled') state.stallReloaded = true
     if (action.reason === 'silent') state.silentReloaded = true
@@ -206,6 +209,7 @@ export function commitChatGPTRecoveryAction(state, action, now = Date.now()) {
     clearChatGPTRecoveryFault(state)
     noteChatGPTRecoveryProgress(state, `reload:${action.reason}:${state.reloadCount}`, current)
   } else if (action.type === 'prompt') {
+    if (action.reason === 'completed-without-bundle' || action.reason === 'processing-interrupted') state.completionContinued = true
     state.stalledPromptCount = Number(state.stalledPromptCount || 0) + 1
     state.lastPromptAt = current
     noteChatGPTRecoveryProgress(state, `prompt:${action.reason}:${state.stalledPromptCount}`, current)
@@ -264,14 +268,11 @@ export function chatGPTStalledRecoveryPrompt(requestId, filename, originalPrompt
   return `WHARNEX PROCESSING RECOVERY — SAME REQUEST ${id}\n\nThe previous ChatGPT processing appears to have stalled and the page was reloaded once to re-hydrate the conversation. Continue the ORIGINAL request without restarting or changing scope.${repeated}\n\nFocus on finishing the requested work and deliver exactly ${expected} according to the existing Wharnex file-first contract. Finish with the file attachment only.`
 }
 
-export function chatGPTDeliveryContinuationPrompt(requestId, filename, originalPrompt = '') {
-  const id = String(requestId || '').trim()
-  const expected = String(filename || '').trim()
-  const original = String(originalPrompt || '').trim()
-  const repeated = original
-    ? `\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this continuation bundle:\n\n${original}`
-    : ''
-  return `WHARNEX WORK CONTINUATION — SAME REQUEST ${id}\n\nThe previous ChatGPT turn stopped without a detected validated downloadable bundle named ${expected}. Continue exactly where it stopped. If analysis, tool use, implementation, or verification is incomplete, finish that work from the existing conversation state; do not restart completed work and do not change scope.${repeated}\n\nOnly after the ORIGINAL request is fully satisfied, create and attach exactly ${expected} according to the existing Wharnex file-first contract. Finish with the file attachment only.`
+export function chatGPTDeliveryContinuationPrompt() {
+  // The linked conversation already contains the complete authoritative
+  // request bundle and all reasoning produced so far. A minimal user-style
+  // nudge resumes that same context without uploading or replaying the request.
+  return 'keep continue'
 }
 
 function finiteGeneration(value) {

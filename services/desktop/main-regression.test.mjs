@@ -616,10 +616,10 @@ test('expected bundle polling rehydrates recoverable ChatGPT transport and stall
   assert.match(recovery, /const completionSettled = completion\?\.complete === true/)
   assert.match(recovery, /now - expected\.settledAt >= BUNDLE_COMPLETION_GRACE_MS/)
   assert.match(recovery, /await reloadOwnedChatGPTConversation\(key, entry, 'recovery-reload'\)/)
-  assert.match(recovery, /chatGPTStalledRecoveryPrompt\(expected\.requestId, expected\.filename, expected\.originalPrompt\)/)
-  assert.match(recovery, /fillBundledChatGPTComposer\(key, entry, expected\.sessionId, expected\.requestId, prompt, expected\.filename/)
+  assert.match(recovery, /submitChatGPTContinuation\(key, entry\.affinity\.boundURL, expected\.requestId, entry\)/)
+  assert.doesNotMatch(recovery, /fillBundledChatGPTComposer/)
   assert.match(recovery, /escalateChatGPTContinuationFailure\(key, expected, error, 'automatic-recovery'\)/)
-  assert.match(recovery, /await submitChatGPTDraft\(key, entry, entry\.affinity\.boundURL, \{ entry, wc, conversationUrl: entry\.affinity\.boundURL \}\)/)
+  assert.match(recovery, /withChatGPTTransportPreparation\(key, entry, expected\.requestId/)
   assert.match(recovery, /awaitingConversationAffinity: isChatGPTAffinityAwaitingSettlement\(entry\.affinity\)/)
   assert.match(recovery, /CHATGPT_AFFINITY_RECOVERY_GRACE_MS/)
 })
@@ -629,7 +629,7 @@ test('a failed delivery continuation escalates once instead of looping behind a 
   const start = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
   const end = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', start)
   const poll = source.slice(start, end)
-  const continuation = poll.indexOf('const continuation = chatGPTDeliveryContinuationPrompt(')
+  const continuation = poll.indexOf('await submitChatGPTContinuation(')
   const escalation = poll.indexOf("escalateChatGPTContinuationFailure(key, expected, error, 'delivery-continuation')", continuation)
   const genericCatch = poll.indexOf('expected.domProbeFailures = Number(expected.domProbeFailures || 0) + 1', continuation)
   assert.notEqual(continuation, -1)
@@ -925,7 +925,7 @@ test('in-flight comments defer stale bundle capture and rearm after the comment 
   const polling = source.slice(pollStart, pollEnd)
   assert.match(polling, /hasPendingChatGPTComments\(key\)\) return/)
   assert.match(polling, /chatGPTResponseCompletionScript\(expected\.assistantBaseline\)/)
-  assert.match(polling, /chatGPTDeliveryContinuationPrompt/)
+  assert.match(polling, /submitChatGPTContinuation/)
   assert.match(polling, /MAX_BUNDLE_CONTINUATIONS/)
 })
 
@@ -2041,9 +2041,30 @@ test('AWAIT_RESPONSE confirms a completion before concluding the bundle is missi
   assert.match(probe, /processingAbsentSince/)
   // A still-generating page is a passive observation, never a spent attempt.
   assert.match(probe, /thinking === true[\s\S]*?observation: true/)
-  // Continuations are real ChatGPT requests and must be spaced.
-  assert.match(probe, /BUNDLE_CONTINUATION_BASE_MS/)
-  assert.match(probe, /lastContinuationAt/)
+  // Continuations are real ChatGPT requests and must be spaced by the shared helper.
+  assert.match(probe, /enqueueChatAgentContinuation/)
+  const continuationStart = source.indexOf('async function enqueueChatAgentContinuation(')
+  const continuationEnd = source.indexOf('\nasync function probeChatAgentResponse(', continuationStart)
+  const continuation = source.slice(continuationStart, continuationEnd)
+  assert.match(continuation, /BUNDLE_CONTINUATION_BASE_MS/)
+  assert.match(continuation, /lastContinuationAt/)
+  assert.match(continuation, /operation: 'CONTINUE_REQUEST'/)
+})
+
+test('Worker recovery writes send only keep continue and never rebuild the request bundle', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const helperStart = source.indexOf('async function submitChatGPTContinuation(')
+  const helperEnd = source.indexOf('\n\nfunction durableWorkspaceChatID(', helperStart)
+  const helper = source.slice(helperStart, helperEnd)
+  assert.match(helper, /const prompt = chatGPTDeliveryContinuationPrompt\(\)/)
+  assert.match(helper, /chatGPTFillComposerScript\(prompt\)/)
+  assert.doesNotMatch(helper, /fillBundledChatGPTComposer|submitPromptToChatGPT/)
+
+  const writeStart = source.indexOf('async function executeChatAgentWrite(')
+  const writeEnd = source.indexOf('\nasync function enqueueChatAgentFollowups', writeStart)
+  const write = source.slice(writeStart, writeEnd)
+  assert.match(write, /payload\.operation === 'CONTINUE_REQUEST'/)
+  assert.match(write, /submitChatGPTContinuation\(key, conversationURL, task\.request_id, entry\)/)
 })
 
 test('autonomous submissions are spaced process-wide and re-check the provider cooldown', async () => {
@@ -2279,7 +2300,8 @@ test('live response residency is pinned so excess chats cannot cause navigation 
   const scheduler = source.slice(schedulerStart, source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient(', schedulerStart))
   assert.match(scheduler, /pinResident: chatAgentSupervisingLiveResponse\(worker\)/)
   assert.match(source, /const MAX_BUNDLE_CONTINUATIONS = 3/)
-  assert.match(source, /chatGPTDeliveryContinuationPrompt\(expected\.requestId, expected\.filename, expected\.originalPrompt\)/)
+  assert.match(source, /const prompt = chatGPTDeliveryContinuationPrompt\(\)/)
+  assert.match(source, /submitChatGPTContinuation\(key, conversationURL, task\.request_id, entry\)/)
 })
 
 test('supervision scheduled after a write waits for the turn to start', async () => {
