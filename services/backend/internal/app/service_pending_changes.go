@@ -109,6 +109,7 @@ func hostApplicablePendingChanges(changes []domain.PendingHostChange) []domain.P
 // for a second host-apply approval, so without this it would wait forever.
 func (s *Service) reconcileStrandedHostApplies() {
 	for _, item := range s.store.List() {
+		s.repairAppliedEvidence(item)
 		if !strandedHostApply(item) {
 			continue
 		}
