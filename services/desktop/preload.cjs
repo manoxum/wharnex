@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     },
     open: () => invoke('wharness:windows:open'),
     openSurface: (request = {}) => invoke('wharness:windows:open-surface', request),
+    moveSurface: (request = {}) => invoke('wharness:windows:move-surface', request),
+    onSurfaceReceived: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('wharness:windows:receive-surface', handler)
+      return () => ipcRenderer.removeListener('wharness:windows:receive-surface', handler)
+    },
     minimize: () => invoke('wharness:windows:minimize'),
     toggleMaximize: () => invoke('wharness:windows:toggle-maximize'),
     close: () => invoke('wharness:windows:close'),

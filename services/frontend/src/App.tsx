@@ -96,7 +96,7 @@ import { executionStartedNotice } from './lib/executionNotice'
 import { createEventStreamCoalescer, type EventStreamCoalescer } from './lib/eventStream'
 import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
 import { loadWorkbenchState, saveWorkbenchState } from './lib/workbenchPreferences'
-import { workspaceSurfaceRequest, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget } from './lib/workspaceSurface'
+import { workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget, type WorkspaceSurfaceTransferPoint } from './lib/workspaceSurface'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 
@@ -113,6 +113,7 @@ export default function App() {
 
 function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const surfaceRequest = useRef(workspaceSurfaceRequest()).current
+  const initialSurfaceTarget = useRef(surfaceRequest && embeddedProject ? createWorkspaceSurfaceTarget(embeddedProject, surfaceRequest) : undefined).current
   const activeAtLoad = embeddedProject ? undefined : loadActiveWorkspace()
   const [config, setConfig] = useState<AppConfig>()
   const [session, setSession] = useState<Session>()
@@ -178,6 +179,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [editorOpenPath, setEditorOpenPath] = useState<string | undefined>(surfaceRequest?.kind === 'editor' ? surfaceRequest.path : undefined)
   const [editorOpenNonce, setEditorOpenNonce] = useState(surfaceRequest?.kind === 'editor' && surfaceRequest.path ? 1 : 0)
   const [splitSurface, setSplitSurface] = useState<{ direction: WorkspaceSplitDirection; target: WorkspaceSurfaceTarget; ratio: number }>()
+  const [surfaceTabs, setSurfaceTabs] = useState<WorkspaceSurfaceTarget[]>(() => initialSurfaceTarget ? [initialSurfaceTarget] : [])
+  const [activeSurfaceKey, setActiveSurfaceKey] = useState(() => initialSurfaceTarget ? workspaceSurfaceKey(initialSurfaceTarget) : '')
+  const [hiddenSurfaceKeys, setHiddenSurfaceKeys] = useState<string[]>([])
+  const [surfaceTabMenu, setSurfaceTabMenu] = useState<{ target: WorkspaceSurfaceTarget; x: number; y: number }>()
   const sourceRef = useRef<EventSource | null>(null)
   // Owns the event stream's deduplication, retained window and flush/persist
   // cadence, so a catch-up burst costs a handful of renders instead of one
@@ -273,6 +278,29 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const activeBusy = busy || Boolean(busyChats[activeChatId])
 
   useEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
+  useEffect(() => {
+    const bridge = desktopBridge()
+    if (!bridge) return
+    return bridge.windows.onSurfaceReceived(({ surface }) => {
+      if (!session || surface.projectPath !== session.project_path) { setError('Não é possível mover tabs entre janelas de projetos diferentes.'); return }
+      const target: WorkspaceSurfaceTarget = { projectPath: surface.projectPath, kind: surface.kind, ...(surface.chatId ? { chatId: surface.chatId } : {}), ...(surface.path ? { path: surface.path } : {}) }
+      const key = workspaceSurfaceKey(target)
+      setHiddenSurfaceKeys((current) => current.filter((item) => item !== key))
+      if (surfaceRequest?.host === 'window') {
+        setSurfaceTabs((current) => current.some((item) => workspaceSurfaceKey(item) === key) ? current : [...current, target])
+        setActiveSurfaceKey(key)
+      }
+      void activateWorkspaceSurface(target)
+    })
+  }, [session?.project_path, session?.id, surfaceRequest?.host, activeChatId, chats])
+  useEffect(() => {
+    if (!surfaceTabMenu) return
+    const close = () => setSurfaceTabMenu(undefined)
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', escape) }
+  }, [surfaceTabMenu])
   useEffect(() => { busyRef.current = busy }, [busy])
   // Mirror whatever session is on screen into the per-chat cache, so every path
   // that establishes a session (open, restore, new chat, archive, an update
@@ -973,9 +1001,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   async function saveChatForLater(chatId: string) {
-    if (!session || busy) return
+    if (!session || busy) return false
     const target = chats.find((chat) => chat.id === chatId)
-    if (!target) return
+    if (!target) return false
     setBusy(true); setError(undefined)
     try {
       const projectPath = session.project_path
@@ -987,7 +1015,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       try { await desktopBridge()?.chatgpt.release?.(chatId) } catch { /* saving never mutates the remote conversation */ }
       if (chatId !== activeChatId) {
         setChats(moved.active)
-        return
+        return true
       }
 
       sourceRef.current?.close(); sourceRef.current = null
@@ -996,7 +1024,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       setChats(nextChats)
       if (!nextChat) {
         activeChatIdRef.current = ''; setActiveChatId(''); setEvents([]); setItems([]); setManualPrompt('')
-        return
+        return true
       }
       let restored: Session
       try {
@@ -1015,7 +1043,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       setManualPrompt(restored.last_manual_prompt || '')
       setItems(chatItems.length ? chatItems : [welcomeItem(restored)])
       connectEvents(restored.id, restored.project_path, nextChat.id)
-    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+      return true
+    } catch (e) { setError(messageOf(e)); return false } finally { setBusy(false) }
   }
 
   async function restoreSavedChat(chatId: string) {
@@ -1196,17 +1225,19 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [])
 
   async function selectChat(chatId: string) {
-    if (!session || chatId === activeChatId) return
-    const selected = chats.find((chat) => chat.id === chatId)
-    if (!selected) return
+    if (!session || chatId === activeChatIdRef.current) return
     const projectPath = session.project_path
+    const availableChats = chats.some((chat) => chat.id === chatId) ? chats : loadWorkspaceChats(projectPath)
+    const selected = availableChats.find((chat) => chat.id === chatId)
+    if (!selected) return
+    if (availableChats !== chats) setChats(availableChats)
     setError(undefined)
 
     // A WebContentsView is native and sits above React. Hide the outgoing
     // owner before changing the local tab, so a still-running upload/write can
     // continue only in its hidden, correctly-owned surface while the selected
     // chat gets its own Supervisor slot.
-    hideChatGPTSurfaces(chats.find((chat) => chat.id === activeChatIdRef.current))
+    hideChatGPTSurfaces(availableChats.find((chat) => chat.id === activeChatIdRef.current))
 
     // Land the visual switch first, from local state only. Everything the user
     // perceives on a chat switch — the active tab, the transcript, the composer
@@ -1241,7 +1272,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         restored = await api.createSession(projectPath, executionMode, automationMode, undefined, effortLevel)
         // The backend canonicalizes the project path, so persist under the path
         // the replacement session actually reports.
-        const next = chats.map((chat) => chat.id === chatId ? { ...chat, sessionId: restored.id } : chat)
+        const next = availableChats.map((chat) => chat.id === chatId ? { ...chat, sessionId: restored.id } : chat)
         persistChats(restored.project_path, next)
         setChats(next)
       }
@@ -3324,6 +3355,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const openLeftDrawer = (next: Drawer) => { setSideDrawer(next) }
   const openRightDrawer = (next: Drawer) => { setRightDrawer(next) }
 
+  function activateWorkspaceSurface(target: WorkspaceSurfaceTarget) {
+    if (!session || target.projectPath !== session.project_path) { setError('Não é possível mover tabs entre janelas de projetos diferentes.'); return }
+    if (target.kind === 'chat') {
+      setMode('agent')
+      if (target.chatId && target.chatId !== activeChatIdRef.current) void selectChat(target.chatId)
+      return
+    }
+    if (target.kind === 'editor') {
+      setMode('editor')
+      if (target.path) { setEditorOpenPath(target.path); setEditorOpenNonce((nonce) => nonce + 1) }
+      return
+    }
+    setTerminalOpen(true)
+  }
+
   const detachSurface = (target: WorkspaceSurfaceTarget) => {
     const bridge = desktopBridge()
     if (bridge) {
@@ -3331,6 +3377,38 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       return
     }
     window.open(workspaceSurfaceURL(target, 'window'), '_blank', 'noopener,noreferrer')
+  }
+  const removeMovedSurfaceFromThisWindow = (target: WorkspaceSurfaceTarget) => {
+    const key = workspaceSurfaceKey(target)
+    if (surfaceRequest?.host === 'window') {
+      setSurfaceTabs((current) => {
+        const next = current.filter((item) => workspaceSurfaceKey(item) !== key)
+        if (activeSurfaceKey === key) {
+          const replacement = next[0]
+          queueMicrotask(() => {
+            if (!replacement) { void desktopBridge()?.windows.close(); return }
+            setActiveSurfaceKey(workspaceSurfaceKey(replacement))
+            activateWorkspaceSurface(replacement)
+          })
+        }
+        return next
+      })
+      return
+    }
+    setHiddenSurfaceKeys((current) => current.includes(key) ? current : [...current, key])
+    if (target.kind === 'chat' && target.chatId === activeChatId) {
+      const hidden = new Set([...hiddenSurfaceKeys, key])
+      const replacement = chats.find((chat) => !hidden.has(workspaceSurfaceKey({ projectPath: session.project_path, kind: 'chat', chatId: chat.id })))
+      if (replacement) void selectChat(replacement.id)
+    }
+  }
+  const moveSurfaceByDrag = (target: WorkspaceSurfaceTarget, point: WorkspaceSurfaceTransferPoint) => {
+    const bridge = desktopBridge()
+    if (!bridge) { detachSurface(target); return }
+    void bridge.windows.moveSurface({ ...target, ...point }).then((result) => {
+      if (!result.ok) { setError(result.message || 'Não foi possível mover a tab para essa janela.'); return }
+      removeMovedSurfaceFromThisWindow(target)
+    }).catch((cause) => setError(messageOf(cause)))
   }
   const splitWorkspaceSurface = (target: WorkspaceSurfaceTarget, direction: WorkspaceSplitDirection) => setSplitSurface({ target, direction, ratio: .5 })
   const resizeWorkspaceSplit = (event: ReactPointerEvent<HTMLDivElement>, direction: WorkspaceSplitDirection) => {
@@ -3347,7 +3425,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', finish, { once: true })
   }
-  const surfaceTarget = (kind: WorkspaceSurfaceTarget['kind'], detail: Pick<WorkspaceSurfaceTarget, 'chatId' | 'path'> = {}): WorkspaceSurfaceTarget => ({ projectPath: session.project_path, kind, ...detail })
+  const surfaceTarget = (kind: WorkspaceSurfaceTarget['kind'], detail: Pick<WorkspaceSurfaceTarget, 'chatId' | 'path'> = {}): WorkspaceSurfaceTarget => createWorkspaceSurfaceTarget(session.project_path, { kind, ...detail })
 
   const sharedChatProps: ComponentProps<typeof ChatPanel> = {
     session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, reasoningEffort: session.reasoning_effort || 'high', chatTransportMode,
@@ -3361,22 +3439,58 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     onSend: enqueueMainRequest, onAdjustExecutionPlan: adjustExecutionPlan, onPreviewBundle: previewComposerBundle, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
     onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
     onRepairWithGPT: repairFailureWithGPT, canRepairWithGPT: canRepairFailureWithGPT(session), onRetryDependencyNetwork: retryDependencyNetwork, canRetryDependencyNetwork: canRetryDependencyNetwork(session), onRetryTransportFailure: retryTransportFailure, onResendPendingRequest: retryPreparedPromptDelivery, onCancelPendingRequest: cancelPendingRequest,
-    onNewChat: newChat, onSelectChat: selectChat, onSaveChat: saveChatForLater, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
+    onNewChat: newChat, onSelectChat: selectChat, onSaveChat: async (chatId) => { await saveChatForLater(chatId) }, onArchiveChat: archiveChat, onRestoreChat: restoreArchivedChat, onDeleteArchivedChat: deleteArchivedChat, onRenameChat: renameWorkspaceChat, onGenerateChatTitle: generateWorkspaceChatTitle,
   }
 
-  if (surfaceRequest) {
-    const focusedChatProps = surfaceRequest.kind === 'chat' ? { ...sharedChatProps, chats: chats.filter((chat) => chat.id === activeChatId) } : sharedChatProps
-    return <main className={`workspace-root workspace-surface-root workspace-surface-${surfaceRequest.kind}`}>
-      {surfaceRequest.host === 'window' && isDesktop() && <header className="workspace-surface-windowbar" data-window-titlebar="true"><strong>{surfaceRequest.kind === 'chat' ? activeChat?.title || 'Chat' : surfaceRequest.kind === 'editor' ? surfaceRequest.path || 'Editor' : 'Terminal'}</strong><span>{session.project_path}</span><div className="workspace-surface-window-controls"><button type="button" onClick={() => void desktopBridge()?.windows.minimize()} aria-label="Minimizar">—</button><button type="button" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label="Maximizar ou restaurar">□</button><button type="button" onClick={() => void desktopBridge()?.windows.close()} aria-label="Fechar">×</button></div></header>}
+  const hiddenSurfaceKeySet = new Set(hiddenSurfaceKeys)
+  const mainVisibleChats = chats.filter((chat) => !hiddenSurfaceKeySet.has(workspaceSurfaceKey({ kind: 'chat', chatId: chat.id })))
+  const hiddenEditorPaths = hiddenSurfaceKeys.filter((key) => key.startsWith('editor:')).map((key) => key.slice('editor:'.length))
+  const activeSurface = surfaceRequest?.host === 'window'
+    ? surfaceTabs.find((target) => workspaceSurfaceKey(target) === activeSurfaceKey) || surfaceTabs[0] || initialSurfaceTarget
+    : initialSurfaceTarget
+  const surfaceLabel = (target: WorkspaceSurfaceTarget) => {
+    if (target.kind === 'chat') return chats.find((chat) => chat.id === target.chatId)?.title || 'Chat'
+    if (target.kind === 'editor') return target.path?.split('/').pop() || target.path || 'Editor'
+    return 'Terminal'
+  }
+
+  if (surfaceRequest && activeSurface) {
+    const focusedChatProps = activeSurface.kind === 'chat' ? { ...sharedChatProps, chats: chats.filter((chat) => chat.id === activeChatId) } : sharedChatProps
+    return <main className={`workspace-root workspace-surface-root workspace-surface-${activeSurface.kind}`}>
+      {surfaceRequest.host === 'window' && isDesktop() && <header className="workspace-surface-windowbar" data-window-titlebar="true">
+        <div className="workspace-surface-tabs" role="tablist" aria-label="Tabs da janela destacada">
+          {surfaceTabs.map((target) => {
+            const key = workspaceSurfaceKey(target)
+            return <button
+              type="button"
+              role="tab"
+              aria-selected={key === activeSurfaceKey}
+              className={`workspace-surface-tab ${key === activeSurfaceKey ? 'active' : ''}`}
+              key={key}
+              draggable
+              onClick={() => { setActiveSurfaceKey(key); activateWorkspaceSurface(target) }}
+              onContextMenu={(event) => { if (target.kind !== 'chat') return; event.preventDefault(); setSurfaceTabMenu({ target, x: event.clientX, y: event.clientY }) }}
+              onDragEnd={(event) => { if (workspaceDragEndedOutside(event)) moveSurfaceByDrag(target, { screenX: event.screenX, screenY: event.screenY }) }}
+              title={target.kind === 'editor' ? target.path : surfaceLabel(target)}
+            ><Icon name={target.kind === 'chat' ? 'send' : target.kind === 'editor' ? 'code' : 'terminal'} size={12}/><span>{surfaceLabel(target)}</span></button>
+          })}
+        </div>
+        <div className="workspace-surface-window-controls"><button type="button" onClick={() => void desktopBridge()?.windows.minimize()} aria-label="Minimizar">—</button><button type="button" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label="Maximizar ou restaurar">□</button><button type="button" onClick={() => void desktopBridge()?.windows.close()} aria-label="Fechar">×</button></div>
+      </header>}
+      {surfaceTabMenu && <div className="chat-tab-context-menu workspace-surface-tab-menu" role="menu" aria-label="Ações da tab de chat" style={{ left: surfaceTabMenu.x, top: surfaceTabMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
+        <button type="button" role="menuitem" disabled={activeBusy} onClick={() => { const target = surfaceTabMenu.target; const chatId = target.chatId; setSurfaceTabMenu(undefined); if (chatId) void saveChatForLater(chatId).then((saved) => { if (saved) removeMovedSurfaceFromThisWindow(target) }) }}><Icon name="save" size={12}/>Guardar em standby</button>
+        <button type="button" role="menuitem" onClick={() => { const target = surfaceTabMenu.target; setSurfaceTabMenu(undefined); splitWorkspaceSurface(target, 'vertical') }}><Icon name="arrow-right" size={12}/>Dividir à direita</button>
+        <button type="button" role="menuitem" onClick={() => { const target = surfaceTabMenu.target; setSurfaceTabMenu(undefined); splitWorkspaceSurface(target, 'horizontal') }}><Icon name="arrow-down" size={12}/>Dividir abaixo</button>
+      </div>}
       <ErrorToast open={Boolean(error)} message={error} onDismiss={() => setError(undefined)} />
       <div className={`workspace-surface-content ${splitSurface ? `is-split split-${splitSurface.direction}` : ''}`} style={splitSurface ? { ['--workspace-split-primary' as string]: `${Math.round(splitSurface.ratio * 1000) / 10}%` } as React.CSSProperties : undefined}>
         <div className="workspace-surface-primary">
-          {surfaceRequest.kind === 'chat' && <AgentWorkspace session={session} busy={activeBusy} attentionItems={attentionItems} onOpenAttention={openAttentionItem} onAttentionAction={runAttentionItemAction} chatgptAttentionNonce={chatgptAttentionNonce} inspectorAttention={inspectorAttention} surfaceMode onOpenAttentionDrawer={() => undefined} onExportChat={exportActiveChat} onReorderChat={reorderChat} chatProps={focusedChatProps} onDetachChat={(chatId) => detachSurface(surfaceTarget('chat', { chatId }))} onSplitChat={surfaceRequest.host === 'split' ? undefined : (chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)} inspectorProps={{ config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive, onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT }} />}
-          {surfaceRequest.kind === 'editor' && <EditorWorkspace session={session} surfaceMode onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} onDetachFile={(path) => detachSurface(surfaceTarget('editor', { path }))} onSplitFile={surfaceRequest.host === 'split' ? undefined : (path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />}
-          {surfaceRequest.kind === 'terminal' && <TerminalWorkspace session={session} height={terminalHeight} visible fill runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onDetachTerminal={() => detachSurface(surfaceTarget('terminal'))} onSplitTerminal={surfaceRequest.host === 'split' ? undefined : (direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />}
+          {activeSurface.kind === 'chat' && <AgentWorkspace session={session} busy={activeBusy} attentionItems={attentionItems} onOpenAttention={openAttentionItem} onAttentionAction={runAttentionItemAction} chatgptAttentionNonce={chatgptAttentionNonce} inspectorAttention={inspectorAttention} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onOpenAttentionDrawer={() => undefined} onExportChat={exportActiveChat} onReorderChat={reorderChat} chatProps={focusedChatProps} onSplitChat={surfaceRequest.host === 'split' ? undefined : (chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)} inspectorProps={{ config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive, onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT }} />}
+          {activeSurface.kind === 'editor' && <EditorWorkspace session={session} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onError={setError} onRunInTerminal={runInTerminal} openPath={activeSurface.path} openNonce={editorOpenNonce} onSplitFile={surfaceRequest.host === 'split' ? undefined : (path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />}
+          {activeSurface.kind === 'terminal' && <TerminalWorkspace session={session} height={terminalHeight} visible fill runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onSplitTerminal={surfaceRequest.host === 'split' ? undefined : (direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />}
         </div>
         {splitSurface && <div className={`workspace-surface-splitter split-${splitSurface.direction}`} role="separator" aria-orientation={splitSurface.direction === 'vertical' ? 'vertical' : 'horizontal'} aria-label="Redimensionar divisão do workspace" onPointerDown={(event) => resizeWorkspaceSplit(event, splitSurface.direction)} />}
-        {splitSurface && <section className="workspace-split-pane"><header><strong>{splitSurface.target.kind === 'chat' ? 'Chat' : splitSurface.target.kind === 'editor' ? splitSurface.target.path || 'Editor' : 'Terminal'}</strong><div><button type="button" onClick={() => detachSurface(splitSurface.target)} title="Destacar para janela" aria-label="Destacar painel para janela"><Icon name="external" size={12}/></button><button type="button" onClick={() => setSplitSurface(undefined)} title="Fechar divisão" aria-label="Fechar divisão">×</button></div></header><iframe title={`Painel ${splitSurface.target.kind}`} src={workspaceSurfaceURL(splitSurface.target, 'split')} /></section>}
+        {splitSurface && <section className="workspace-split-pane"><header><strong>{surfaceLabel(splitSurface.target)}</strong><div><button type="button" onClick={() => detachSurface(splitSurface.target)} title="Destacar para janela" aria-label="Destacar painel para janela"><Icon name="external" size={12}/></button><button type="button" onClick={() => setSplitSurface(undefined)} title="Fechar divisão" aria-label="Fechar divisão">×</button></div></header><iframe title={`Painel ${splitSurface.target.kind}`} src={workspaceSurfaceURL(splitSurface.target, 'split')} /></section>}
       </div>
     </main>
   }
@@ -3457,7 +3571,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           <div className="workspace-surface-primary">
         <div className="workspace-mode-stack">
         <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
-        <EditorWorkspace session={session} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} onDetachFile={(path) => detachSurface(surfaceTarget('editor', { path }))} onSplitFile={(path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />
+        <EditorWorkspace session={session} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} hiddenPaths={hiddenEditorPaths} onDetachFile={(path, point) => point ? moveSurfaceByDrag(surfaceTarget('editor', { path }), point) : detachSurface(surfaceTarget('editor', { path }))} onSplitFile={(path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />
       </div>
       <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
         <OrchestratorWorkspace
@@ -3471,7 +3585,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         />
       </div>
       <div className={`workspace-mode-surface ${mode === 'agent' ? 'active' : ''}`} aria-hidden={mode !== 'agent'}>
-        {chats.length === 0 ? <div className="agent-empty-workspace">
+        {mainVisibleChats.length === 0 ? <div className="agent-empty-workspace">
           <Icon name="agent" size={30}/>
           <strong>Nenhum chat aberto</strong>
           <span>Não há chats ativos. Reative um chat guardado em Gestão de chats ou crie um novo.</span>
@@ -3489,9 +3603,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           railVisible={mode === 'agent'}
           onExportChat={exportActiveChat}
           onReorderChat={reorderChat}
-          onDetachChat={(chatId) => detachSurface(surfaceTarget('chat', { chatId }))}
+          onDetachChat={(chatId, point) => point ? moveSurfaceByDrag(surfaceTarget('chat', { chatId }), point) : detachSurface(surfaceTarget('chat', { chatId }))}
           onSplitChat={(chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)}
-          chatProps={sharedChatProps}
+          chatProps={{ ...sharedChatProps, chats: mainVisibleChats }}
           inspectorProps={{
   		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSurface, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
 		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges,
