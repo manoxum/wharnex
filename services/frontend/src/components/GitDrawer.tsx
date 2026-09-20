@@ -430,52 +430,119 @@ function BranchSection({ current, detached, localBranches, remoteBranches, remot
   const defaultRemote = upstreamRemote || remotes[0]?.name || 'origin'
   const canSync = Boolean(current) && !detached && remotes.length > 0
   const remoteMergeOptions = remoteBranches.filter((branch) => branch.name !== remoteMergeTarget)
+  const toggleRemoteMergeSource = (ref: string) => onRemoteMergeSourcesChange(remoteMergeSources.includes(ref) ? remoteMergeSources.filter((value) => value !== ref) : [...remoteMergeSources, ref])
   return <section className="git-section git-branches-section">
-    <div className="git-branch-hero">
-      <span className="git-branch-icon"><Icon name="git" size={16}/></span>
-      <div><span>Branch atual</span><strong>{detached ? 'HEAD destacado' : current || '—'}</strong>{active?.has_upstream && <small>↑{active.ahead} ↓{active.behind} · {active.upstream}</small>}{active && !active.has_upstream && <small>sem upstream</small>}</div>
-      {canSync && active && <div className="git-branch-hero-actions"><button type="button" className="git-action" disabled={disabled} onClick={() => onFetch(defaultRemote)}><Icon name="refresh" size={13}/> Fetch</button><button type="button" className="git-action" disabled={disabled} onClick={() => onPull(defaultRemote, active.name)}><Icon name="arrow-down" size={13}/> Pull</button><button type="button" className="git-action" disabled={disabled} onClick={() => onPush(defaultRemote, active.name, !active.has_upstream)}><Icon name="arrow-up" size={13}/> Push</button></div>}
+    <div className="git-branch-overview">
+      <div className="git-branch-hero">
+        <span className="git-branch-icon"><Icon name="git" size={16}/></span>
+        <div className="git-branch-hero-copy">
+          <span>Branch atual</span>
+          <strong>{detached ? 'HEAD destacado' : current || '—'}</strong>
+          {active && <div className="git-branch-hero-meta">
+            {active.has_upstream ? <>
+              {active.ahead > 0 && <span className="outgoing"><Icon name="arrow-up" size={10}/>{active.ahead} por enviar</span>}
+              {active.behind > 0 && <span className="incoming"><Icon name="arrow-down" size={10}/>{active.behind} por receber</span>}
+              {active.ahead === 0 && active.behind === 0 && <span className="clean"><Icon name="check" size={10}/>Em dia</span>}
+              <span className="upstream"><Icon name="link" size={10}/>{active.upstream}</span>
+            </> : <span className="warning"><Icon name="alert" size={10}/>Sem upstream</span>}
+          </div>}
+        </div>
+        {canSync && active && <div className="git-branch-hero-actions">
+          <button type="button" className="git-action" disabled={disabled} onClick={() => onFetch(defaultRemote)}><Icon name="refresh" size={13}/><span>Fetch</span></button>
+          <button type="button" className="git-action" disabled={disabled} onClick={() => onPull(defaultRemote, active.name)}><Icon name="arrow-down" size={13}/><span>Pull</span></button>
+          <button type="button" className="git-action primary" disabled={disabled} onClick={() => onPush(defaultRemote, active.name, !active.has_upstream)}><Icon name="arrow-up" size={13}/><span>Push</span></button>
+        </div>}
+      </div>
+      <div className="git-branch-refresh-note"><Icon name="refresh" size={11}/><span>Referências remotas atualizadas automaticamente a cada 60 s</span></div>
     </div>
-    <p className="git-hint git-auto-fetch-hint"><Icon name="refresh" size={11}/> As referências remotas do projeto são atualizadas automaticamente a cada 60 s.</p>
-    <div className="git-merge-card">
-      <div><span>Integrar branch</span><strong>Merge no branch atual</strong></div>
-      <div className="git-row">
-        <label className="sr-only" htmlFor="git-merge-ref">Branch a fazer merge</label>
-        <select id="git-merge-ref" value={mergeRef} disabled={disabled} onChange={(event) => onMergeRefChange(event.target.value)}>
-          <option value="">Fazer merge de…</option>
-          {[...localBranches.filter((branch) => !branch.current), ...remoteBranches].map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
-        </select>
-        <button type="button" className="git-action" disabled={disabled || !mergeRef} onClick={onMerge}><Icon name="bridge" size={13}/> Merge</button>
+
+    <div className="git-branch-operations">
+      <div className="git-branch-operations-heading">
+        <div><span>Integração</span><strong>Operações de merge</strong></div>
+        <small>Escolha o fluxo sem perder o contexto da branch atual.</small>
+      </div>
+      <div className="git-merge-card">
+        <div className="git-merge-card-heading">
+          <span className="git-merge-card-icon"><Icon name="bridge" size={14}/></span>
+          <div><span>Merge local</span><strong>Integrar no branch atual</strong></div>
+        </div>
+        <p className="git-hint">Combina outra branch diretamente na branch que está ativa.</p>
+        <div className="git-row git-merge-inline-controls">
+          <label className="sr-only" htmlFor="git-merge-ref">Branch a fazer merge</label>
+          <select id="git-merge-ref" value={mergeRef} disabled={disabled} onChange={(event) => onMergeRefChange(event.target.value)}>
+            <option value="">Escolher branch a integrar…</option>
+            {[...localBranches.filter((branch) => !branch.current), ...remoteBranches].map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
+          </select>
+          <button type="button" className="git-action" disabled={disabled || !mergeRef} onClick={onMerge}><Icon name="bridge" size={13}/> Merge</button>
+        </div>
+      </div>
+      <div className="git-merge-card git-remote-merge-card">
+        <div className="git-merge-card-heading">
+          <span className="git-merge-card-icon"><Icon name="network" size={14}/></span>
+          <div><span>Merge remoto isolado</span><strong>Integrar entre branches remotas</strong></div>
+        </div>
+        <div className="git-remote-merge-controls">
+          <label className="git-remote-target-field"><span>Destino remoto</span><select aria-label="Branch remota de destino" value={remoteMergeTarget} disabled={disabled} onChange={(event) => { onRemoteMergeTargetChange(event.target.value); onRemoteMergeSourcesChange(remoteMergeSources.filter((ref) => ref !== event.target.value)) }}><option value="">Escolher destino…</option>{remoteBranches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}</select></label>
+          <fieldset className="git-remote-source-picker" disabled={disabled || !remoteMergeTarget}>
+            <legend>Branches a integrar</legend>
+            {!remoteMergeTarget && <p>Escolha primeiro a branch de destino.</p>}
+            {remoteMergeTarget && remoteMergeOptions.length === 0 && <p>Não existem outras branches remotas disponíveis.</p>}
+            {remoteMergeTarget && remoteMergeOptions.length > 0 && <div className="git-remote-source-list">{remoteMergeOptions.map((branch) => {
+              const selected = remoteMergeSources.includes(branch.name)
+              return <label key={branch.name} className={`git-remote-source-option ${selected ? 'selected' : ''}`}>
+                <input type="checkbox" checked={selected} onChange={() => toggleRemoteMergeSource(branch.name)} aria-label={`Integrar ${branch.name}`}/>
+                <span className="git-remote-source-check"><Icon name={selected ? 'check' : 'git'} size={11}/></span>
+                <span title={branch.name}>{branch.name}</span>
+              </label>
+            })}</div>}
+          </fieldset>
+          <div className="git-remote-merge-footer">
+            <p className="git-hint">Usa um worktree temporário; a branch local atual não é alternada.</p>
+            <button type="button" className="git-action primary" disabled={disabled || !remoteMergeTarget || remoteMergeSources.length === 0} onClick={onRemoteMerge}><Icon name="network" size={13}/> Merge remoto ({remoteMergeSources.length})</button>
+          </div>
+        </div>
       </div>
     </div>
-    <div className="git-merge-card git-remote-merge-card">
-      <div><span>Integração remota isolada</span><strong>Merge entre branches remotas</strong></div>
-      <div className="git-remote-merge-controls">
-        <label>Destino remoto<select aria-label="Branch remota de destino" value={remoteMergeTarget} disabled={disabled} onChange={(event) => { onRemoteMergeTargetChange(event.target.value); onRemoteMergeSourcesChange(remoteMergeSources.filter((ref) => ref !== event.target.value)) }}><option value="">Escolher destino…</option>{remoteBranches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}</select></label>
-        <label>Branches a integrar<select aria-label="Branches remotas a integrar" multiple value={remoteMergeSources} disabled={disabled || !remoteMergeTarget} onChange={(event) => onRemoteMergeSourcesChange(Array.from(event.currentTarget.selectedOptions, (option) => option.value))}>{remoteMergeOptions.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}</select></label>
-        <button type="button" className="git-action" disabled={disabled || !remoteMergeTarget || remoteMergeSources.length === 0} onClick={onRemoteMerge}><Icon name="network" size={13}/> Merge remoto ({remoteMergeSources.length})</button>
+
+    <div className="git-branch-directory">
+      <div className="git-branch-directory-heading">
+        <div><span>Repositório</span><strong>Branches disponíveis</strong></div>
+        <span>{localBranches.length + remoteBranches.length} no total</span>
       </div>
-      <p className="git-hint">Executa num worktree temporário e só publica o resultado no destino; a branch local atual não é alternada.</p>
+      <BranchList title="Locais" description="Branches disponíveis no workspace" branches={localBranches} disabled={disabled} onSwitch={onSwitch}/>
+      <BranchList title="Remotas" description="Referências conhecidas no servidor" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch}/>
     </div>
-    <BranchList title="Locais" branches={localBranches} disabled={disabled} onSwitch={onSwitch}/>
-    <BranchList title="Remotas" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch}/>
   </section>
 }
 
-function BranchList({ title, branches, disabled = false, onSwitch }: { title: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void }) {
-  return <div className="git-branch-group"><div className="git-section-heading compact"><div><span>{title}</span></div><span className="git-section-count">{branches.length}</span></div>
+function BranchList({ title, description, branches, disabled = false, onSwitch }: { title: string; description: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void }) {
+  return <div className="git-branch-group">
+    <div className="git-branch-group-heading">
+      <div className="git-branch-group-title"><span className="git-branch-group-icon"><Icon name="git" size={12}/></span><div><strong>{title}</strong><small>{description}</small></div></div>
+      <span className="git-section-count">{branches.length}</span>
+    </div>
     <ul className="git-branch-list">{branches.map((branch) => {
       const counterpartLabel = branch.remote ? (branch.has_counterpart ? `Existe localmente como ${branch.counterpart}` : 'Ainda não existe localmente') : (branch.has_counterpart ? `Existe remotamente como ${branch.counterpart}` : 'Ainda não existe remotamente')
+      const counterpartText = branch.remote ? (branch.has_counterpart ? 'Local' : 'Sem local') : (branch.has_counterpart ? 'Remota' : 'Sem remota')
+      const inSync = branch.ahead === 0 && branch.behind === 0
       return <li key={branch.name} className={`${branch.current ? 'current' : ''} ${branch.remote ? 'remote' : ''}`}>
-        <span className="git-branch-marker"><Icon name="git" size={12}/></span>
-        <span className="git-branch-name">{branch.name}</span>
-        <span className="git-branch-sync" aria-label={`Sincronização de ${branch.name}`}>
-          <span className={branch.ahead > 0 ? 'active outgoing' : ''} title={`${branch.ahead} commit(s) para enviar`}><Icon name="arrow-up" size={11}/><b>{branch.ahead}</b></span>
-          <span className={branch.behind > 0 ? 'active incoming' : ''} title={`${branch.behind} commit(s) para receber`}><Icon name="arrow-down" size={11}/><b>{branch.behind}</b></span>
-          <span className={`git-branch-counterpart ${branch.has_counterpart ? 'active' : ''}`} title={counterpartLabel} aria-label={counterpartLabel}><Icon name="link" size={11}/></span>
-        </span>
-        <span className="git-branch-subject">{branch.subject}</span>
-        {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}><Icon name="bridge" size={11}/><span>{branch.remote && !branch.has_counterpart ? 'Criar local' : 'Alternar'}</span></button>}
+        <div className="git-branch-primary">
+          <span className="git-branch-marker"><Icon name="git" size={12}/></span>
+          <span className="git-branch-copy">
+            <span className="git-branch-name" title={branch.name}>{branch.name}</span>
+            {branch.subject && <span className="git-branch-subject" title={branch.subject}>{branch.subject}</span>}
+          </span>
+        </div>
+        <div className="git-branch-row-meta">
+          {branch.current && <span className="git-branch-current-badge">Atual</span>}
+          <span className="git-branch-sync" aria-label={`Sincronização de ${branch.name}`}>
+            {inSync && <span className="git-branch-state clean" title="Sem commits pendentes de sincronização"><Icon name="check" size={10}/><b>Em dia</b></span>}
+            {branch.ahead > 0 && <span className="active outgoing" title={`${branch.ahead} commit(s) para enviar`}><Icon name="arrow-up" size={11}/><b>{branch.ahead}</b></span>}
+            {branch.behind > 0 && <span className="active incoming" title={`${branch.behind} commit(s) para receber`}><Icon name="arrow-down" size={11}/><b>{branch.behind}</b></span>}
+            <span className={`git-branch-counterpart ${branch.has_counterpart ? 'active' : ''}`} title={counterpartLabel} aria-label={counterpartLabel}><Icon name="link" size={10}/><b>{counterpartText}</b></span>
+          </span>
+          {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}><Icon name="bridge" size={11}/><span>{branch.remote && !branch.has_counterpart ? 'Criar local' : 'Alternar'}</span></button>}
+        </div>
       </li>
     })}</ul>
   </div>

@@ -344,11 +344,7 @@ describe('GitDrawer', () => {
     await screen.findByText('Alterações locais')
     openTab('Branches')
     fireEvent.change(screen.getByRole('combobox', { name: 'Branch remota de destino' }), { target: { value: 'origin/main' } })
-    const sources = screen.getByRole('listbox', { name: 'Branches remotas a integrar' }) as HTMLSelectElement
-    const source = Array.from(sources.options).find((option) => option.value === 'origin/feature')
-    if (!source) throw new Error('remote source missing')
-    source.selected = true
-    fireEvent.change(sources)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Integrar origin/feature' }))
     fireEvent.click(screen.getByRole('button', { name: /Merge remoto \(1\)/ }))
     await waitFor(() => expect(api.gitRemoteMerge).toHaveBeenCalledWith('ses_1', 'origin/main', ['origin/feature']))
   })
