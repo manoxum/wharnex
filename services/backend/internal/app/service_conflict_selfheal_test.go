@@ -2,9 +2,19 @@ package app
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"kernl.local/harness/backend/internal/audit"
+	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
+	manualplanner "kernl.local/harness/backend/internal/planner/manual"
+	"kernl.local/harness/backend/internal/policy"
+	"kernl.local/harness/backend/internal/session"
 )
 
 func candidateFor(requestID, planID string, paths ...string) domain.PendingHostChange {
@@ -102,6 +112,92 @@ func TestRetireConflictingMutationsNarrowsTheBranchNotOnlyTheChangeSet(t *testin
 	if len(retiredBranches) != 1 || retiredBranches[0] != "whx/req-original" {
 		t.Fatalf("the integration branch was not retired: %v", retiredBranches)
 	}
+}
+
+// TestRecordHostApplyFailureNamesInfrastructureCauses reproduces a real chat
+// that stopped dead: its self-evolution host build was OOM-killed
+// (`signal: killed`), Apply recorded the raw message and returned, and the
+// session stayed in `verified` holding a verified candidate with no failure
+// kind, no published remedy and nothing that would ever retry. It looked idle
+// while being permanently stuck. The execution path already classifies exactly
+// this cause; Apply must too, or the operator is never told what stopped it.
+func TestRecordHostApplyFailureNamesInfrastructureCauses(t *testing.T) {
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "verified"
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	failure := errors.New("self-evolution host build failed: signal: killed\n[deps] backend: cache hit")
+	updated, err := service.recordHostApplyFailure(verified.ID, "plan-1", failure, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.FailureKind != domain.FailureKindSandboxResourceExhausted {
+		t.Fatalf("an OOM-killed host build must be named as infrastructure, got %q", updated.FailureKind)
+	}
+	if updated.LastRepairError == "" {
+		t.Fatal("the cause must stay readable to the operator")
+	}
+	// The candidate really is verified and really can be applied again once the
+	// host condition clears, so naming the cause must not cost it its way back.
+	if updated.State != "verified" {
+		t.Fatalf("classifying must not move the session out of its retryable state: %q", updated.State)
+	}
+}
+
+// TestRetireAlreadyIntegratedCandidatesMakesApplyIdempotent reproduces the
+// stall that left a chat holding work the host already had: the merge landed,
+// the self-evolution rebuild that follows was OOM-killed, and the candidate
+// stayed pending — so every later Apply would merge an already-merged branch
+// and rerun that same expensive rebuild. Containment must be proven by Git
+// ancestry, never inferred from the failure.
+func TestRetireAlreadyIntegratedCandidatesMakesApplyIdempotent(t *testing.T) {
+	requireGitBinary(t)
+	root := t.TempDir()
+	runGitForTest(t, root, "init", "-q")
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForTest(t, root, "add", "f.txt")
+	runGitForTest(t, root, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "landed")
+	landed := strings.TrimSpace(runGitForTest(t, root, "rev-parse", "HEAD"))
+
+	integrated := candidateFor("req-landed", "plan-landed", "f.txt")
+	integrated.IntegrationCommit = landed
+	pendingStill := candidateFor("req-open", "plan-open", "g.txt")
+	pendingStill.IntegrationCommit = "0000000000000000000000000000000000000000"
+
+	kept, retired := retireAlreadyIntegratedCandidates(context.Background(), root, []domain.PendingHostChange{integrated, pendingStill})
+	if len(retired) != 1 || retired[0] != "plan-landed" {
+		t.Fatalf("the candidate the host already contains must be retired: %v", retired)
+	}
+	if len(kept) != 1 || kept[0].Plan.PlanID != "plan-open" {
+		t.Fatalf("a candidate the host does not contain must be kept: %#v", kept)
+	}
+}
+
+func requireGitBinary(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+}
+
+func runGitForTest(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	output, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
+	}
+	return string(output)
 }
 
 // A conflict record is cleared only by the exact request it was created for, so

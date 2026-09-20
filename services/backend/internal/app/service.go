@@ -3133,8 +3133,11 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		return item, err
 	}
 	if len(pending) == 0 {
-		s.bus.Publish(sessionID, "host.apply_duplicate_blocked", map[string]any{"state": item.State, "reason": "every pending candidate was superseded by a later resolution"})
-		return item, ErrExecutionRequired
+		// Nothing is left to integrate because the host already carries it, or
+		// because later rounds superseded it. Settling here is what keeps the
+		// chat from asking for an Apply it can never complete: returning an
+		// error instead left a session holding work the host demonstrably had.
+		return s.settleAlreadyIntegratedApply(sessionID, item)
 	}
 	if pendingHostResolutionBlocked(item) {
 		return item, errors.New("finish the active planner/repair turn before applying pending host changes")
@@ -3258,14 +3261,10 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		}
 		s.bus.Publish(sessionID, "baseline.apply_blocked", map[string]any{"plan_id": pending[index].Plan.PlanID, "expected_sha256": expected, "current_sha256": currentBaseline, "impact_files": pending[index].Plan.ImpactFiles})
 		failure := fmt.Errorf("%w: host apply blocked by stale baseline: plan %s was verified on %s but current baseline is %s", ErrStaleHostBaseline, pending[index].Plan.PlanID, expected, currentBaseline)
-		updated, persistErr := s.store.Update(sessionID, func(current *domain.Session) error {
-			current.LastRepairError = failure.Error()
-			return nil
-		})
+		updated, persistErr := s.recordHostApplyFailure(sessionID, pending[index].Plan.PlanID, failure, 0)
 		if persistErr != nil {
 			return item, fmt.Errorf("%w; retain host apply failure for correction: %v", failure, persistErr)
 		}
-		s.bus.Publish(sessionID, "host.apply_failed", map[string]any{"plan_id": pending[index].Plan.PlanID, "error": failure.Error(), "rolled_back_patch_count": 0})
 		return updated, failure
 	}
 	if reverify {
@@ -3397,11 +3396,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		default:
 			failure = s.rollbackHostPatches(ctx, item.ProjectPath, appliedPatches, cause)
 		}
-		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
-			current.LastRepairError = failure.Error()
-			return nil
-		})
-		s.bus.Publish(sessionID, "host.apply_failed", map[string]any{"plan_id": latestPlanID, "error": failure.Error(), "rolled_back_patch_count": len(appliedPatches)})
+		_, _ = s.recordHostApplyFailure(sessionID, latestPlanID, failure, len(appliedPatches))
 		return failure
 	}
 	if useIntegrationBranches {
