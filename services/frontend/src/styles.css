@@ -1441,39 +1441,43 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
    rules beside the stable composer surface rather than the highly-contended
    Git-control suffix so focused conflict repairs do not collide repeatedly. */
 .composer.composer-typing-attention {
-  --composer-project-attention-tone: #5b8619;
-  animation: current-composer-project-pulse .9s ease-in-out infinite;
-  border-color: color-mix(in srgb, var(--composer-project-attention-tone) 88%, var(--theme-border));
-  box-shadow: 0 10px 28px var(--theme-shadow), 0 0 0 2px color-mix(in srgb, var(--composer-project-attention-tone) 25%, transparent);
+  --composer-project-name-warm: #c56a16;
+  --composer-project-name-hot: #d9483b;
 }
-:root[data-theme='dark'] .composer.composer-typing-attention { --composer-project-attention-tone: #b9ff56; }
+:root[data-theme='dark'] .composer.composer-typing-attention {
+  --composer-project-name-warm: #ffd166;
+  --composer-project-name-hot: #ff7a45;
+}
 .composer-project-attention {
   position: absolute; z-index: 6; top: -13px; right: 13px; min-height: 25px; max-width: min(72%, 360px); padding: 0 9px;
   display: inline-flex; align-items: center; gap: 6px; pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--composer-project-attention-tone) 78%, var(--theme-border)); border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-elevated) 72%, var(--composer-project-attention-tone) 28%); color: var(--theme-text);
-  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 46%, transparent), 0 0 0 2px color-mix(in srgb, var(--composer-project-attention-tone) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border)); border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-elevated) 90%, var(--theme-accent) 10%); color: var(--theme-text-soft);
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 46%, transparent), 0 0 0 2px color-mix(in srgb, var(--theme-accent) 9%, transparent);
   font-size: calc(7.6px * var(--ui-font-scale)); line-height: 1; white-space: nowrap;
 }
-.composer-project-attention > span { color: var(--theme-text-soft); }
-.composer-project-attention > strong { min-width: 0; overflow: hidden; color: color-mix(in srgb, var(--composer-project-attention-tone) 76%, var(--theme-text)); text-overflow: ellipsis; white-space: nowrap; }
-.composer-project-attention svg { flex: 0 0 auto; color: var(--composer-project-attention-tone); }
-@keyframes current-composer-project-pulse {
-  0%, 100% {
-    box-shadow: 0 10px 28px var(--theme-shadow), 0 1px 0 color-mix(in srgb, var(--theme-border) 70%, var(--theme-text-muted)), 0 0 0 2px color-mix(in srgb, var(--composer-project-attention-tone) 24%, transparent);
-  }
-  50% {
-    border-color: color-mix(in srgb, var(--composer-project-attention-tone) 96%, var(--theme-border));
-    box-shadow: 0 12px 34px var(--theme-shadow), 0 0 0 4px color-mix(in srgb, var(--composer-project-attention-tone) 34%, transparent), 0 0 20px color-mix(in srgb, var(--composer-project-attention-tone) 18%, transparent);
-  }
+.composer-project-attention > span { color: var(--theme-text-muted); }
+.composer-project-attention > strong {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 800;
+  background: linear-gradient(90deg, var(--composer-project-name-warm) 0%, var(--composer-project-name-hot) 50%, var(--composer-project-name-warm) 100%);
+  background-size: 220% 100%;
+  background-position: 0% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: composer-project-name-sweep 1.25s ease-in-out infinite alternate;
+}
+.composer-project-attention svg { flex: 0 0 auto; color: var(--theme-accent); }
+@keyframes composer-project-name-sweep {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .composer.composer-typing-attention {
+  .composer-project-attention > strong {
     animation: none;
-    border-color: color-mix(in srgb, var(--composer-project-attention-tone) 90%, var(--theme-border));
-    box-shadow: 0 10px 28px var(--theme-shadow), 0 0 0 3px color-mix(in srgb, var(--composer-project-attention-tone) 28%, transparent);
-    outline: 2px solid color-mix(in srgb, var(--composer-project-attention-tone) 70%, transparent);
-    outline-offset: 2px;
+    background-position: 50% 50%;
   }
 }
 
@@ -6322,39 +6326,43 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
    beside the text being entered so the operator sees the project identity
    without looking away from the composer. */
 .composer.composer-typing-attention {
-  --composer-project-attention-tone: #5b8619;
-  animation: current-composer-project-pulse .9s ease-in-out infinite;
-  border-color: color-mix(in srgb, var(--composer-project-attention-tone) 88%, var(--theme-border));
-  box-shadow: 0 10px 28px var(--theme-shadow), 0 0 0 2px color-mix(in srgb, var(--composer-project-attention-tone) 25%, transparent);
+  --composer-project-name-warm: #c56a16;
+  --composer-project-name-hot: #d9483b;
 }
-:root[data-theme='dark'] .composer.composer-typing-attention { --composer-project-attention-tone: #b9ff56; }
+:root[data-theme='dark'] .composer.composer-typing-attention {
+  --composer-project-name-warm: #ffd166;
+  --composer-project-name-hot: #ff7a45;
+}
 .composer-project-attention {
   position: absolute; z-index: 6; top: -13px; right: 13px; min-height: 25px; max-width: min(72%, 360px); padding: 0 9px;
   display: inline-flex; align-items: center; gap: 6px; pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--composer-project-attention-tone) 78%, var(--theme-border)); border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-elevated) 72%, var(--composer-project-attention-tone) 28%); color: var(--theme-text);
-  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 46%, transparent), 0 0 0 2px color-mix(in srgb, var(--composer-project-attention-tone) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 42%, var(--theme-border)); border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-elevated) 90%, var(--theme-accent) 10%); color: var(--theme-text-soft);
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 46%, transparent), 0 0 0 2px color-mix(in srgb, var(--theme-accent) 9%, transparent);
   font-size: calc(7.6px * var(--ui-font-scale)); line-height: 1; white-space: nowrap;
 }
-.composer-project-attention > span { color: var(--theme-text-soft); }
-.composer-project-attention > strong { min-width: 0; overflow: hidden; color: color-mix(in srgb, var(--composer-project-attention-tone) 76%, var(--theme-text)); text-overflow: ellipsis; white-space: nowrap; }
-.composer-project-attention svg { flex: 0 0 auto; color: var(--composer-project-attention-tone); }
-@keyframes current-composer-project-pulse {
-  0%, 100% {
-    box-shadow: 0 10px 28px var(--theme-shadow), 0 1px 0 color-mix(in srgb, var(--theme-border) 70%, var(--theme-text-muted)), 0 0 0 2px color-mix(in srgb, var(--composer-project-attention-tone) 24%, transparent);
-  }
-  50% {
-    border-color: color-mix(in srgb, var(--composer-project-attention-tone) 96%, var(--theme-border));
-    box-shadow: 0 12px 34px var(--theme-shadow), 0 0 0 4px color-mix(in srgb, var(--composer-project-attention-tone) 34%, transparent), 0 0 20px color-mix(in srgb, var(--composer-project-attention-tone) 18%, transparent);
-  }
+.composer-project-attention > span { color: var(--theme-text-muted); }
+.composer-project-attention > strong {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 800;
+  background: linear-gradient(90deg, var(--composer-project-name-warm) 0%, var(--composer-project-name-hot) 50%, var(--composer-project-name-warm) 100%);
+  background-size: 220% 100%;
+  background-position: 0% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: composer-project-name-sweep 1.25s ease-in-out infinite alternate;
+}
+.composer-project-attention svg { flex: 0 0 auto; color: var(--theme-accent); }
+@keyframes composer-project-name-sweep {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .composer.composer-typing-attention {
+  .composer-project-attention > strong {
     animation: none;
-    border-color: color-mix(in srgb, var(--composer-project-attention-tone) 90%, var(--theme-border));
-    box-shadow: 0 10px 28px var(--theme-shadow), 0 0 0 3px color-mix(in srgb, var(--composer-project-attention-tone) 28%, transparent);
-    outline: 2px solid color-mix(in srgb, var(--composer-project-attention-tone) 70%, transparent);
-    outline-offset: 2px;
+    background-position: 50% 50%;
   }
 }
 
