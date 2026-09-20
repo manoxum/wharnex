@@ -1631,6 +1631,49 @@ test('a re-click of the expected bundle download is guarded against an in-flight
   assert.match(source.slice(ackStart, ackEnd), /markChatGPTBundleRequestDelivered\(id\)/)
 })
 
+test('every ChatGPT recovery/bundle/human-escalation choke point durably records a task event', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const performStart = source.indexOf('async function performChatGPTRecoveryAction(key, expected, entry, action, completion = {})')
+  const performEnd = source.indexOf('\nfunction escalateChatGPTContinuationFailure', performStart)
+  assert.notEqual(performStart, -1)
+  const perform = source.slice(performStart, performEnd)
+  assert.match(perform, /recordChatGPTTaskEvent\(expected, 'chatgpt\.recovery_reload'/)
+  assert.match(perform, /recordChatGPTTaskEvent\(expected, 'chatgpt\.recovery_keep_continue'/)
+
+  const humanActionStart = source.indexOf('function setChatGPTHumanAction(cacheKey, kind, detail = \'\', source = \'dom\')')
+  const humanActionEnd = source.indexOf('\nfunction clearChatGPTHumanAction', humanActionStart)
+  assert.notEqual(humanActionStart, -1)
+  assert.match(source.slice(humanActionStart, humanActionEnd), /recordChatGPTTaskEvent\(expected, 'chatgpt\.human_action_required'/)
+
+  const downloadStart = source.indexOf("function registerChatGPTPlanDownloads(chatSession)")
+  const downloadEnd = source.indexOf('\nfunction publishBundleDownloadError', downloadStart)
+  assert.notEqual(downloadStart, -1)
+  const download = source.slice(downloadStart, downloadEnd)
+  assert.match(download, /recordChatGPTTaskEvent\(live, 'chatgpt\.bundle_validated'/)
+  assert.match(download, /recordChatGPTTaskEvent\(live, 'chatgpt\.bundle_rejected'/)
+
+  assert.match(source, /function recordChatGPTContinuationSent\(expected, trigger, reason\)/)
+  assert.match(source, /recordChatGPTContinuationSent\(expected, 'manual',/)
+  assert.match(source, /recordChatGPTContinuationSent\(expected, 'automatic',/)
+})
+
+test('the Main Request task id is captured from the guaranteed AWAIT_RESPONSE enqueue in both submission paths', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
+  const prepareEnd = source.indexOf('\nasync function retryPersistedChatGPTPrompt', prepareStart)
+  const prepare = source.slice(prepareStart, prepareEnd)
+  assert.match(prepare, /armed\.mainRequestTaskId = String\(mainRequestTask\?\.task_id \|\| ''\)/)
+
+  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(')
+  const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)
+  const prepared = source.slice(preparedStart, preparedEnd)
+  assert.match(prepared, /armed\.mainRequestTaskId = String\(mainRequestTask\?\.task_id \|\| ''\)/)
+
+  assert.match(source, /return enqueueChatAgentTask\('AWAIT_RESPONSE', \{ \.\.\.common, dedupeKey: `await:\$\{requestId\}`, maxAttempts: 30, retry: true \}\)/)
+})
+
 test('an in-flight download click suppresses the completed-without-bundle keep-continue race in Supervisor polling', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')

@@ -1376,6 +1376,10 @@ function setChatGPTHumanAction(cacheKey, kind, detail = '', source = 'dom') {
     }
   }
   console.warn(`[chatgpt-human-action] key=${cacheKey} request=${requestId || '-'} kind=${kind} source=${source}`)
+  // Single choke point for every human-escalation call site (16+ across this
+  // file): recording it here durably covers all of them without threading a
+  // task-event call through each one.
+  if (expected) recordChatGPTTaskEvent(expected, 'chatgpt.human_action_required', { kind, source, detail: String(detail || '').slice(0, 500) })
   return true
 }
 
@@ -1992,11 +1996,15 @@ function registerChatGPTPlanDownloads(chatSession) {
           quiesceChatGPTRecoveryAfterValidatedBundle(validated.requestId, expectedBundle?.key || deliveryCacheKey)
           publishBundleDownload({ cacheKey: deliveryCacheKey, filename, requestId: validated.requestId, contentBase64: bytes.toString('base64'), bytes: bytes.byteLength, sourceFilename, normalizedFilename: bundleCandidate.normalized, unrouted: Boolean(bundleCandidate.unrouted) }, sourceCacheKey)
           console.log(`[chatgpt-bundle-download] awaiting-ack file=${filename} bytes=${bytes.byteLength}`)
+          if (live && live.requestId === validated.requestId) recordChatGPTTaskEvent(live, 'chatgpt.bundle_validated', { filename, bytes: bytes.byteLength })
         } catch (error) {
           if (live && live.requestId === bundleRequestId) {
             live.invalidBundleCount = Number(live.invalidBundleCount || 0) + 1
             live.lastDOMClick = 0
             console.warn(`[chatgpt-bundle-download] protocol-invalid key=${expectedBundle?.key || '-'} request=${bundleRequestId} count=${live.invalidBundleCount}`)
+            recordChatGPTTaskEvent(live, 'chatgpt.bundle_rejected', {
+              filename, error: String(error instanceof Error ? error.message : error).slice(0, 500), invalidBundleCount: live.invalidBundleCount,
+            })
           }
           publishBundleDownloadError(error instanceof Error ? error.message : String(error), filename, deliveryCacheKey)
         } finally {
@@ -5368,6 +5376,7 @@ async function executeChatAgentWrite(task, entry, key, payload, conversationURL,
       expected.lastContinuationAt = Date.now()
       expected.invalidBundleCount = 0
       if (expected.recovery) expected.recovery.completionContinued = true
+      recordChatGPTContinuationSent(expected, 'automatic', String(payload.continuation_reason || 'worker_recovery'))
     }
   }
   const workspaceChatId = durableWorkspaceChatID(key, payload.workspace_chat_id)
@@ -6484,6 +6493,7 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
     expected.settledAt = 0
     expected.lastDOMClick = 0
     console.warn(`[chatgpt-recovery] reload key=${key} request=${expected.requestId} reason=${action.reason} attempt=${expected.recovery.reloadCount}`)
+    recordChatGPTTaskEvent(expected, 'chatgpt.recovery_reload', { reason: action.reason, attempt: expected.recovery.reloadCount })
     await reloadOwnedChatGPTConversation(key, entry, 'recovery-reload')
     const text = action.reason === 'transport'
       ? 'Falha de ligação detetada no ChatGPT. A conversa foi recarregada automaticamente para re-hidratar o processamento.'
@@ -6532,6 +6542,7 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
   expected.settledAt = 0
   expected.lastDOMClick = 0
   console.warn(`[chatgpt-recovery] keep-continue key=${key} request=${expected.requestId} accepted=true reason=${action.reason}`)
+  recordChatGPTTaskEvent(expected, 'chatgpt.recovery_keep_continue', { reason: action.reason })
   sendToChatGPTKey(key, 'wharness:chatgpt:activity', { cacheKey: key, requestId: expected.requestId, state: 'thinking', text: 'A resposta parou sem o bundle esperado. O Wharnex enviou apenas “keep continue” na mesma conversa, sem reenviar o pedido nem o bundle de entrada.', capturedAt: new Date().toISOString() })
   return true
 }
@@ -6543,6 +6554,14 @@ function escalateChatGPTContinuationFailure(key, expected, error, source) {
   }
   setChatGPTHumanAction(key, 'transport', `Não foi possível preparar a continuação do pedido: ${detail}`, source)
   console.warn(`[chatgpt-recovery] continuation-failed key=${key} request=${expected?.requestId || '-'} source=${source} error=${detail}`)
+}
+
+// The manual "Retomar pedido" affordance and the automatic keep-continue
+// wake-up both end here (submitChatGPTContinuation). Recording it at this one
+// choke point covers both triggers without threading a type through every
+// caller.
+function recordChatGPTContinuationSent(expected, trigger, reason) {
+  recordChatGPTTaskEvent(expected, 'chatgpt.continuation_sent', { trigger, reason })
 }
 
 async function pollExpectedChatGPTDownloadKey(key) {
@@ -7514,6 +7533,7 @@ function registerIPC() {
       expected.recovery = createChatGPTRecoveryState(Date.now())
       entry.staleConversationRequestIds.clear()
       clearChatGPTHumanAction(key, 'continuação manual enviada')
+      recordChatGPTContinuationSent(expected, 'manual', staleTransport ? 'transport_stale' : 'operator_requested')
       return { ok: true, cacheKey: key, requestId, confirmationRequired: false, reason: 'submitted' }
     } finally {
       expected.manualContinuationInFlight = false
