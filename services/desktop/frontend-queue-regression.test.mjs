@@ -29,7 +29,7 @@ test('clipboard images are uniquified before attachment de-duplication and send 
   const panel = await source('components/ChatPanel.tsx')
   const css = await source('styles.css')
   assert.match(attachments, /clipboard-image/)
-  assert.match(panel, /uniquifyPastedChatFiles\(attachments, files\)/)
+  assert.match(panel, /uniquifyPastedChatFiles\(attachments, files(?:,\s*nextPromptIndex)?\)/)
   assert.match(css, /composer-submit-row.*grid-template-columns: minmax\(0, 1fr\) auto/s)
   assert.match(css, /send-button.*justify-self: end/s)
 })
