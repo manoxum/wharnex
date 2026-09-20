@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/sandbox"
@@ -20,16 +21,77 @@ import (
 //
 // Containment is proven by Git ancestry rather than inferred from the failure,
 // so this can only ever retire work the host demonstrably carries.
-func retireAlreadyIntegratedCandidates(ctx context.Context, projectPath string, pending []domain.PendingHostChange) (kept []domain.PendingHostChange, retired []string) {
+func retireAlreadyIntegratedCandidates(ctx context.Context, projectPath string, pending []domain.PendingHostChange) (kept, retired []domain.PendingHostChange) {
 	kept = make([]domain.PendingHostChange, 0, len(pending))
 	for _, change := range pending {
 		if change.IntegrationCommit != "" && sandbox.CommitIsAncestorOfHead(ctx, projectPath, change.IntegrationCommit) {
-			retired = append(retired, change.Plan.PlanID)
+			retired = append(retired, change)
 			continue
 		}
 		kept = append(kept, change)
 	}
 	return kept, retired
+}
+
+// planIDsOf names candidates for an audit event.
+func planIDsOf(changes []domain.PendingHostChange) []string {
+	ids := make([]string, 0, len(changes))
+	for _, change := range changes {
+		ids = append(ids, change.Plan.PlanID)
+	}
+	return ids
+}
+
+// appliedEvidenceMissing reports an applied session that cannot show what it
+// applied.
+//
+// The applied summary is inserted into the chat only when the session carries
+// both the moment it was applied and the changes it applied. A session that
+// reached `applied` without them therefore renders as though it were still
+// stuck on whatever failure preceded it: the work is on the host, and the chat
+// shows an error and no way forward.
+//
+// The reconstruction below is only offered when the session still holds the
+// successful execution and the very plan that execution ran, so the evidence is
+// recovered from its own record rather than invented.
+func appliedEvidenceMissing(item domain.Session) bool {
+	return item.State == "applied" &&
+		len(item.LastAppliedChanges) == 0 &&
+		item.Plan != nil && item.LastExecution != nil &&
+		item.LastExecution.Success && item.LastExecution.PlanID == item.Plan.PlanID
+}
+
+// repairAppliedEvidence restores an applied session's record of what it
+// applied, so the chat stops showing the failure that preceded it.
+func (s *Service) repairAppliedEvidence(item domain.Session) {
+	if !appliedEvidenceMissing(item) {
+		return
+	}
+	appliedAt := item.LastExecution.CompletedAt
+	if appliedAt.IsZero() {
+		appliedAt = time.Now().UTC()
+	}
+	restored := domain.PendingHostChange{
+		Plan: *item.Plan, Execution: *item.LastExecution, VerifiedAt: appliedAt,
+	}
+	updated, err := s.store.Update(item.ID, func(current *domain.Session) error {
+		if !appliedEvidenceMissing(*current) {
+			return nil
+		}
+		current.LastAppliedChanges = []domain.PendingHostChange{restored}
+		if current.LastHostAppliedAt.IsZero() {
+			current.LastHostAppliedAt = appliedAt
+		}
+		return nil
+	})
+	if err != nil {
+		s.bus.Publish(item.ID, "integration.applied_evidence_repair_failed", map[string]any{"error": err.Error()})
+		return
+	}
+	s.bus.Publish(item.ID, "integration.applied_evidence_repaired", map[string]any{
+		"plan_id": item.Plan.PlanID, "applied_at": updated.LastHostAppliedAt,
+		"reason": "an applied session must be able to show what it applied",
+	})
 }
 
 // settleAlreadyIntegratedApply closes an Apply that has nothing left to do.
@@ -46,6 +108,12 @@ func (s *Service) settleAlreadyIntegratedApply(sessionID string, item domain.Ses
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.PendingHostChanges = nil
 		current.State = "applied"
+		// A settle the operator cannot see is not a settle. The applied summary
+		// is rendered only when both of these carry something, so a state flip
+		// without them leaves the chat displaying the failure that stopped it.
+		if current.LastHostAppliedAt.IsZero() {
+			current.LastHostAppliedAt = time.Now().UTC()
+		}
 		clearSessionFailure(current)
 		return nil
 	})
@@ -53,7 +121,7 @@ func (s *Service) settleAlreadyIntegratedApply(sessionID string, item domain.Ses
 		return item, err
 	}
 	s.bus.Publish(sessionID, "host.apply_settled", map[string]any{
-		"state":  updated.State,
+		"state": updated.State, "applied_changes": len(updated.LastAppliedChanges),
 		"reason": "no candidate remained to integrate: the host already contains this work",
 	})
 	return updated, nil
@@ -221,13 +289,22 @@ func (s *Service) healPendingIntegrationState(ctx context.Context, sessionID str
 	if kept, alreadyIntegrated := retireAlreadyIntegratedCandidates(ctx, item.ProjectPath, pending); len(alreadyIntegrated) > 0 {
 		updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
 			current.PendingHostChanges = kept
+			// Record what the host proved it carries, not just that it carries
+			// something. The applied summary the operator reads is built from
+			// these two fields, so settling the state without them leaves the
+			// chat showing the failure that stopped it and nothing else — which
+			// is indistinguishable, on screen, from still being stuck.
+			current.LastAppliedChanges = append(current.LastAppliedChanges, alreadyIntegrated...)
+			if current.LastHostAppliedAt.IsZero() {
+				current.LastHostAppliedAt = time.Now().UTC()
+			}
 			return nil
 		})
 		if err != nil {
 			return pending, item, err
 		}
 		s.bus.Publish(sessionID, "integration.already_integrated", map[string]any{
-			"plans": alreadyIntegrated, "remaining_candidates": len(kept),
+			"plans": planIDsOf(alreadyIntegrated), "remaining_candidates": len(kept),
 			"reason": "the host already contains these candidates, proven by Git ancestry",
 		})
 		pending, item = kept, updated

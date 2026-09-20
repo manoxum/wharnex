@@ -1638,14 +1638,26 @@ func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID 
 	// resuming after the budget is spent must always be an explicit human
 	// decision, never inferred from an empty retry.
 	exhaustedConflict := current.State == "conflict_resolution_exhausted"
-	if !exhaustedConflict && (current.State != "failed" || strings.TrimSpace(current.LastRepairError) == "") {
+	// A host Apply failure leaves the session `verified` with a successful
+	// LastExecution — the sandbox run really did succeed; Apply is what failed —
+	// so it matched none of the shapes below and the operator was told there was
+	// nothing to repair while the failure sat on screen. That left a chat with no
+	// correction reachable at all: none started on its own, and none could be
+	// started by hand.
+	applyFailure := !exhaustedConflict && current.State != "failed" &&
+		strings.TrimSpace(current.LastRepairError) != "" &&
+		len(hostApplicablePendingChanges(pendingHostChanges(current))) > 0
+	if !exhaustedConflict && !applyFailure && (current.State != "failed" || strings.TrimSpace(current.LastRepairError) == "") {
 		return domain.Session{}, errors.New("no terminal failed request is available to retry")
 	}
-	if exhaustedConflict {
+	if exhaustedConflict || applyFailure {
 		if strings.TrimSpace(current.LastRepairError) == "" {
 			return domain.Session{}, errors.New("no terminal failed request is available to retry")
 		}
 		if strings.TrimSpace(guidance) == "" {
+			if applyFailure {
+				return current, errors.New("host apply failed with the verified candidate retained; retrying requires explicit operator guidance stating what changed on the host")
+			}
 			return current, errors.New("automatic conflict resolution already spent its attempt budget; resuming requires explicit operator guidance stating what changed")
 		}
 	}
@@ -2747,6 +2759,12 @@ func (s *Service) RequestFailureRepair(ctx context.Context, sessionID, guidance 
 		// the same guided-retry path, which requires guidance unconditionally
 		// for this state and resets the spent attempt budget on success.
 		if current.State == "conflict_resolution_exhausted" {
+			return s.retryFailedRequestWithGuidance(ctx, sessionID, false, cleanGuidance)
+		}
+		// A host Apply failure keeps its verified candidate and a successful
+		// LastExecution, so it reached this refusal too — the operator was told
+		// nothing was repairable while looking straight at the failure.
+		if strings.TrimSpace(current.LastRepairError) != "" && len(hostApplicablePendingChanges(pendingHostChanges(current))) > 0 {
 			return s.retryFailedRequestWithGuidance(ctx, sessionID, false, cleanGuidance)
 		}
 		return current, errors.New("no repairable failure is available")

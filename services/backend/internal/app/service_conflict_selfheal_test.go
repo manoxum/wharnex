@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/contextbundle"
@@ -176,11 +177,138 @@ func TestRetireAlreadyIntegratedCandidatesMakesApplyIdempotent(t *testing.T) {
 	pendingStill.IntegrationCommit = "0000000000000000000000000000000000000000"
 
 	kept, retired := retireAlreadyIntegratedCandidates(context.Background(), root, []domain.PendingHostChange{integrated, pendingStill})
-	if len(retired) != 1 || retired[0] != "plan-landed" {
-		t.Fatalf("the candidate the host already contains must be retired: %v", retired)
+	if len(retired) != 1 || retired[0].Plan.PlanID != "plan-landed" {
+		t.Fatalf("the candidate the host already contains must be retired: %v", planIDsOf(retired))
 	}
 	if len(kept) != 1 || kept[0].Plan.PlanID != "plan-open" {
 		t.Fatalf("a candidate the host does not contain must be kept: %#v", kept)
+	}
+}
+
+// A settle the operator cannot see is not a settle: the applied summary is
+// rendered only when both LastHostAppliedAt and LastAppliedChanges carry
+// something, so flipping the state alone left the chat still displaying the
+// failure that had stopped it — visually identical to being stuck.
+func TestSettleAlreadyIntegratedApplyLeavesVisibleEvidence(t *testing.T) {
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeded, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "verified"
+		item.LastRepairError = "self-evolution host build failed: signal: killed"
+		item.LastAppliedChanges = []domain.PendingHostChange{candidateFor("req-landed", "plan-landed", "f.txt")}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	settled, err := service.settleAlreadyIntegratedApply(seeded.ID, seeded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.State != "applied" {
+		t.Fatalf("expected the session to settle, got %q", settled.State)
+	}
+	if settled.LastHostAppliedAt.IsZero() || len(settled.LastAppliedChanges) == 0 {
+		t.Fatalf("the settle must leave evidence the applied summary can render: at=%v changes=%d",
+			settled.LastHostAppliedAt, len(settled.LastAppliedChanges))
+	}
+	if settled.LastRepairError != "" {
+		t.Fatalf("a settled session must not keep advertising the failure that stopped it: %q", settled.LastRepairError)
+	}
+}
+
+// TestRequestFailureRepairReachesAHostApplyFailure covers the second half of
+// the same stall: an Apply failure leaves the session `verified` with a
+// successful LastExecution, so every repair branch missed it and the operator
+// was told "no repairable failure is available" while the failure was on
+// screen. No correction could start — automatically or by hand.
+func TestRequestFailureRepairReachesAHostApplyFailure(t *testing.T) {
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stalled, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "verified"
+		item.LastRequestID = "req-applied"
+		item.LastRepairError = "host apply failed: merge integration branch refused"
+		item.LastExecution = &domain.ExecutionResult{PlanID: "plan-1", Success: true}
+		item.PendingHostChanges = []domain.PendingHostChange{candidateFor("req-applied", "plan-1", "f.txt")}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Without guidance the retry is refused, but by naming the real condition
+	// rather than claiming there is nothing to repair.
+	_, err = service.RequestFailureRepair(context.Background(), stalled.ID, "")
+	if err == nil || strings.Contains(err.Error(), "no repairable failure is available") {
+		t.Fatalf("an Apply failure must be reachable and named, got %v", err)
+	}
+
+	repaired, err := service.RequestFailureRepair(context.Background(), stalled.ID, "I freed disk space on the host.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired.State != "awaiting_plan" || repaired.LastRequestID == stalled.LastRequestID {
+		t.Fatalf("a guided Apply-failure repair did not start a fresh round: %#v", repaired.State)
+	}
+}
+
+// An applied session with no record of what it applied renders as though it
+// were still stuck on whatever failure preceded it. The evidence is recovered
+// from the session's own successful execution, never invented — and a session
+// that cannot prove what it applied is left untouched.
+func TestRepairAppliedEvidenceRestoresWhatTheSessionApplied(t *testing.T) {
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	completedAt := time.Date(2026, 9, 20, 20, 24, 26, 0, time.UTC)
+	damaged, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.State = "applied"
+		item.Plan = &domain.ExecutionPlan{PlanID: "plan-1", RequestID: "req-1", Summary: "landed work"}
+		item.LastExecution = &domain.ExecutionResult{PlanID: "plan-1", Success: true, CompletedAt: completedAt}
+		item.LastAppliedChanges = nil
+		item.LastHostAppliedAt = time.Time{}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service.repairAppliedEvidence(damaged)
+
+	repaired, err := service.store.Get(started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repaired.LastAppliedChanges) != 1 || repaired.LastAppliedChanges[0].Plan.PlanID != "plan-1" {
+		t.Fatalf("the applied change was not restored: %#v", repaired.LastAppliedChanges)
+	}
+	if !repaired.LastHostAppliedAt.Equal(completedAt) {
+		t.Fatalf("the applied time must come from the session's own execution, got %v", repaired.LastHostAppliedAt)
+	}
+
+	// A session whose execution did not succeed proves nothing and is left alone.
+	unproven, err := service.store.Update(started.ID, func(item *domain.Session) error {
+		item.LastAppliedChanges = nil
+		item.LastHostAppliedAt = time.Time{}
+		item.LastExecution = &domain.ExecutionResult{PlanID: "plan-1", Success: false}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.repairAppliedEvidence(unproven)
+	if after, _ := service.store.Get(started.ID); len(after.LastAppliedChanges) != 0 {
+		t.Fatalf("evidence must never be invented for an unproven session: %#v", after.LastAppliedChanges)
 	}
 }
 
