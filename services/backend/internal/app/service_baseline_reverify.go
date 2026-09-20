@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"kernl.local/harness/backend/internal/changeset"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/protocol"
 	"kernl.local/harness/backend/internal/sandbox"
@@ -116,7 +117,7 @@ func (s *Service) reverifyPendingCandidate(ctx context.Context, sessionID string
 	return updated, nil
 }
 
-// promoteLegacyPatchBranches upgrades pre-Git-native pending patches while
+// promoteLegacyPatchBranches upgrades pre-Git-native pending candidates while
 // their immutable request-base refs are still retained. Reapplying such a
 // patch to today's host is neither a rebase nor a safety check: it loses the
 // three-way ancestor that Git needs to reconcile ordinary drift. The upgrade
@@ -126,7 +127,13 @@ func (s *Service) promoteLegacyPatchBranches(ctx context.Context, sessionID stri
 	upgraded := append([]domain.PendingHostChange(nil), pending...)
 	changed := false
 	for index := range upgraded {
-		if upgraded[index].ChangeSet != nil || strings.TrimSpace(upgraded[index].IntegrationBranch) != "" || len(actualPatchFiles(&upgraded[index].Plan)) == 0 {
+		if strings.TrimSpace(upgraded[index].IntegrationBranch) != "" || len(actualPatchFiles(&upgraded[index].Plan)) == 0 {
+			continue
+		}
+		// Historical sessions without the retained request base preserve their
+		// established ChangeSet compatibility path. Promotion is an upgrade,
+		// not a reason to reject candidates that predate request-base refs.
+		if requestBaseCommit(item, upgraded[index].Plan.RequestID) == "" {
 			continue
 		}
 		workspace, err := s.runner.Prepare(ctx, item.ProjectPath)
@@ -136,10 +143,12 @@ func (s *Service) promoteLegacyPatchBranches(ctx context.Context, sessionID stri
 		branch, _, rooted := s.prepareBaseRootedWorkspace(ctx, sessionID, item, &upgraded[index].Plan, workspace.Path)
 		if !rooted {
 			_ = s.runner.Cleanup(workspace)
-			return pending, false, fmt.Errorf("legacy pending plan %s has no recoverable immutable request base", upgraded[index].Plan.PlanID)
+			return pending, false, fmt.Errorf("prepare immutable request base for legacy pending plan %s", upgraded[index].Plan.PlanID)
 		}
 		result := domain.ExecutionResult{PlanID: upgraded[index].Plan.PlanID}
-		replayErr := s.replayPlanPatches(ctx, s.runner, workspace, upgraded[index], &result)
+		replayErr := materializeLegacyCandidate(workspace.Path, upgraded[index], func() error {
+			return s.replayPlanPatches(ctx, s.runner, workspace, upgraded[index], &result)
+		})
 		if replayErr != nil {
 			_ = s.runner.Cleanup(workspace)
 			return pending, false, replayErr
@@ -153,7 +162,27 @@ func (s *Service) promoteLegacyPatchBranches(ctx context.Context, sessionID stri
 		upgraded[index].IntegrationCommit = commit
 		upgraded[index].SubmoduleIntegrations = submodules
 		changed = true
-		s.bus.Publish(sessionID, "integration.legacy_patch_promoted", map[string]any{"plan_id": upgraded[index].Plan.PlanID, "branch": branch, "commit": commit})
+		s.bus.Publish(sessionID, "integration.legacy_candidate_promoted", map[string]any{"plan_id": upgraded[index].Plan.PlanID, "branch": branch, "commit": commit})
 	}
 	return upgraded, changed, nil
+}
+
+// materializeLegacyCandidate accepts both historical durable encodings. A
+// ChangeSet is not already integrated: it must be materialized at the
+// immutable request base before its tree can be committed to Git.
+func materializeLegacyCandidate(workspacePath string, change domain.PendingHostChange, replayPatch func() error) error {
+	if change.ChangeSet == nil {
+		return replayPatch()
+	}
+	prepared, err := changeset.Prepare(workspacePath, []domain.ChangeSet{*change.ChangeSet})
+	if err != nil {
+		return fmt.Errorf("prepare legacy ChangeSet %s: %w", change.ChangeSet.ID, err)
+	}
+	if prepared.Outcome == domain.IntegrationConflict {
+		return &pendingChangeSetReplayConflict{changeSetID: change.ChangeSet.ID, conflicts: append([]domain.IntegrationConflictDetail(nil), prepared.Conflicts...)}
+	}
+	if err := changeset.ApplyToWorkspace(workspacePath, prepared); err != nil {
+		return fmt.Errorf("apply legacy ChangeSet %s: %w", change.ChangeSet.ID, err)
+	}
+	return nil
 }

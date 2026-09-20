@@ -3061,7 +3061,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 	}
 	pending, legacyPatchesPromoted, err := s.promoteLegacyPatchBranches(ctx, sessionID, item, pending)
 	if err != nil {
-		return item, fmt.Errorf("promote legacy patch candidate: %w", err)
+		return item, fmt.Errorf("promote legacy candidate: %w", err)
 	}
 	if legacyPatchesPromoted {
 		updated, persistErr := s.store.Update(sessionID, func(current *domain.Session) error {
@@ -3073,7 +3073,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 			return nil
 		})
 		if persistErr != nil {
-			return item, fmt.Errorf("persist promoted legacy patch candidate: %w", persistErr)
+			return item, fmt.Errorf("persist promoted legacy candidate: %w", persistErr)
 		}
 		item = updated
 	}
