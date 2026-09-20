@@ -162,6 +162,17 @@ func TestBaselineReverifyFailureIsEligibleForCandidateRepair(t *testing.T) {
 	}
 }
 
+func TestTruncateBuildFailureTextPreservesTerminalDiagnostic(t *testing.T) {
+	output := "build provenance\n" + strings.Repeat("passing test output\n", 2000) + "TERMINAL TYPESCRIPT FAILURE\n"
+	trimmed := truncateBuildFailureText(output, 1200)
+	if !strings.Contains(trimmed, "build provenance") || !strings.Contains(trimmed, "TERMINAL TYPESCRIPT FAILURE") {
+		t.Fatalf("build failure truncation lost required evidence: %q", trimmed)
+	}
+	if !strings.Contains(trimmed, "terminal output retained") {
+		t.Fatalf("build failure truncation did not disclose its middle omission: %q", trimmed)
+	}
+}
+
 func TestPlannerLocalCoordinationReasonsDoNotRequestFreshGPTTurn(t *testing.T) {
 	cases := map[string]string{
 		"host_build_toolchain_mismatch":                domain.FailureKindHostBuildToolchain,

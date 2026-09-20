@@ -117,6 +117,14 @@ func (s *Service) reconcileStrandedHostApplies() {
 		go func() {
 			if _, err := s.applyToHostWithLocalRetry(context.Background(), sessionID); err != nil {
 				s.bus.Publish(sessionID, "integration.startup_reconcile_failed", map[string]any{"error": err.Error()})
+				// A reconciled Apply follows the same recovery contract as a
+				// foreground Apply. Without this, a source defect discovered by a
+				// post-restart host build is rolled back but left as a forever
+				// "verified" candidate; infrastructure errors are classified by
+				// TriggerApplyFailureRepair and retain their dedicated remedy.
+				if _, repairErr := s.TriggerApplyFailureRepair(context.Background(), sessionID, err); repairErr != nil {
+					s.bus.Publish(sessionID, "repair.prepare_failed", map[string]any{"error": repairErr.Error(), "source": "startup_apply_reconcile"})
+				}
 			}
 		}()
 	}

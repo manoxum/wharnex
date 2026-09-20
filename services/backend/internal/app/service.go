@@ -2936,6 +2936,20 @@ func truncateRepairText(value string, limit int) string {
 	return value[:limit] + "\n...[truncated by Wharnex]"
 }
 
+// truncateBuildFailureText keeps the beginning and end of verbose host-build
+// output. The beginning identifies the phase that ran; the end contains the
+// exit diagnostic that decides whether a candidate needs source repair or a
+// local infrastructure action.
+func truncateBuildFailureText(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= limit {
+		return value
+	}
+	head := limit / 3
+	tail := limit - head
+	return value[:head] + "\n...[middle build output truncated by Wharnex; terminal output retained]...\n" + value[len(value)-tail:]
+}
+
 func patchPaths(patch string) []string {
 	seen := map[string]bool{}
 	paths := []string{}
@@ -3397,7 +3411,10 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 			s.bus.Publish(sessionID, "self_evolution.host_build_output", map[string]any{"stream": stream, "text": text, "transaction_id": transaction.ID})
 		})
 		if buildErr != nil {
-			detail := truncateRepairText(output, 12000)
+			// A successful test suite can be much noisier than the compiler
+			// error emitted at the end. Preserve both build provenance and its
+			// terminal diagnostic in the durable recovery evidence.
+			detail := truncateBuildFailureText(output, 12000)
 			if detail != "" {
 				buildErr = fmt.Errorf("%w\n%s", buildErr, detail)
 			}
