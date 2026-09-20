@@ -1,6 +1,7 @@
 export type WorkspaceSurfaceKind = 'chat' | 'editor' | 'terminal'
 export type WorkspaceSurfaceHost = 'window' | 'split'
 export type WorkspaceSplitDirection = 'vertical' | 'horizontal'
+export type WorkspaceSurfaceTransferPoint = { screenX: number; screenY: number }
 
 export type WorkspaceSurfaceRequest = {
   kind: WorkspaceSurfaceKind
@@ -14,6 +15,17 @@ export type WorkspaceSurfaceTarget = {
   kind: WorkspaceSurfaceKind
   chatId?: string
   path?: string
+}
+
+
+export function workspaceSurfaceTarget(projectPath: string, request: Pick<WorkspaceSurfaceRequest, 'kind' | 'chatId' | 'path'>): WorkspaceSurfaceTarget {
+  return { projectPath: cleanValue(projectPath), kind: request.kind, ...(request.chatId ? { chatId: cleanValue(request.chatId) } : {}), ...(request.path ? { path: cleanValue(request.path) } : {}) }
+}
+
+export function workspaceSurfaceKey(target: Pick<WorkspaceSurfaceTarget, 'kind' | 'chatId' | 'path'>) {
+  if (target.kind === 'chat') return `chat:${cleanValue(target.chatId || '')}`
+  if (target.kind === 'editor') return `editor:${cleanValue(target.path || '')}`
+  return 'terminal:primary'
 }
 
 export function workspaceSurfaceRequest(search = window.location.search): WorkspaceSurfaceRequest | undefined {

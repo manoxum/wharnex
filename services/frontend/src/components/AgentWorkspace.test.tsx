@@ -42,7 +42,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
   ]
   const archivedChats = [{ id: 'arch-1', title: 'Diagnóstico antigo', sessionId: 'ses-old', createdAt: '2026-09-03T10:00:00.000Z', updatedAt: '2026-09-03T11:00:00.000Z' }]
 
-  function Harness({ session: active = current, attentionSessions = {}, chatgptHumanActions = {}, nonce = human.nonce, recoveryTab, chatProps: chatOverride, inspectorProps: inspectorOverride, executionFIFO = [], railVisible = false, singlePane = false }: {
+  function Harness({ session: active = current, attentionSessions = {}, chatgptHumanActions = {}, nonce = human.nonce, recoveryTab, chatProps: chatOverride, inspectorProps: inspectorOverride, workspaceProps = {}, executionFIFO = [], railVisible = false, singlePane = false }: {
     session?: Session
     attentionSessions?: Record<string, Session | undefined>
     chatgptHumanActions?: Record<string, DesktopChatGPTHumanAction>
@@ -50,6 +50,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
     recoveryTab?: AttentionTarget
     chatProps?: Record<string, unknown>
     inspectorProps?: Record<string, unknown>
+    workspaceProps?: Partial<Pick<ComponentProps<typeof AgentWorkspace>, 'onDetachChat' | 'onSplitChat' | 'minimalSurface'>>
     executionFIFO?: ExecutionFIFOItem[]
     railVisible?: boolean
     singlePane?: boolean
@@ -105,6 +106,7 @@ function props(current = session(), human: { notice?: DesktopChatGPTHumanAction;
             railVisible={railVisible}
             onExportChat={onExportChat}
             onReorderChat={onReorderChat}
+            {...workspaceProps}
             chatProps={{
               session: active, items: [], chats, archivedChats, activeChatId: 'chat-1', busy,
               onSend: async () => undefined, onNewChat: async () => undefined, onSelectChat, onArchiveChat: async () => undefined, onRestoreChat: onRestore, onDeleteArchivedChat: onDelete,
@@ -206,6 +208,26 @@ describe('AgentWorkspace', () => {
     expect(within(rightRail).queryByRole('navigation', { name: 'Áreas do Agent' })).toBeNull()
     expect(within(rightRail).getByRole('navigation', { name: 'ChatGPT direto' })).toBeTruthy()
     expect(within(screen.getByRole('navigation', { name: 'Conversas do Harness' })).getByRole('navigation', { name: 'Áreas do Agent' })).toBeTruthy()
+  })
+
+  it('puts save and split actions on the chat tab context menu', () => {
+    const view = props()
+    const onSaveChat = vi.fn(async () => undefined)
+    const onSplitChat = vi.fn()
+    render(<view.Harness chatProps={{ onSaveChat }} workspaceProps={{ onSplitChat }} />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^Principal/ }))
+    expect(screen.getByRole('menu', { name: 'Ações da tab de chat' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /Guardar em standby/ }))
+    expect(onSaveChat.mock.calls).toEqual([['chat-1']])
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^Principal/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Dividir à direita/ }))
+    expect(onSplitChat.mock.calls).toEqual([['chat-1', 'vertical']])
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^Principal/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Dividir abaixo/ }))
+    expect(onSplitChat.mock.calls).toEqual([['chat-1', 'vertical'], ['chat-1', 'horizontal']])
   })
 
   it('keeps the chat fixed on the left and uses the right-side tabs for the inspector', () => {
