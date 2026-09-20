@@ -22,6 +22,9 @@ export function ChangeDiffEditor({ sessionId, file }: { sessionId: string; file:
   useEffect(() => {
     let cancelled = false
     setDocument(undefined)
+    setActiveChange(0)
+    setChangeCount(0)
+    changes.current = []
     api.readFile(sessionId, file.path)
       .then((current) => { if (!cancelled) setDocument(buildDiffDocument(file.diff, current.content)) })
       .catch(() => { if (!cancelled) setDocument(buildDiffDocument(file.diff)) })
@@ -90,11 +93,13 @@ export function ChangeDiffEditor({ sessionId, file }: { sessionId: string; file:
     setActiveChange(nextIndex + 1)
   }
 
-  if (!document) return <div className="change-diff-loading"><span className="lamp blinking"/>A preparar comparação…</div>
-
   return <div className="change-diff-shell">
     <div className="change-diff-toolbar">
-      <div className="change-diff-legend"><span className="diff-before">Antes</span><span className="diff-after">Depois</span>{!document.complete && <span className="diff-fragment-badge">excerto do patch</span>}</div>
+      <div className="change-diff-legend" role="group" aria-label="Comparação antes e depois">
+        <span className="diff-before"><small>Antes</small><strong>Versão anterior</strong></span>
+        <span className="diff-after"><small>Depois</small><strong>Versão aplicada</strong></span>
+        {document && !document.complete && <span className="diff-fragment-badge">excerto do patch</span>}
+      </div>
       <div className="change-diff-controls">
         <button type="button" className="icon-button light" onClick={() => navigate(-1)} disabled={!changeCount} title="Alteração anterior" aria-label="Alteração anterior"><Icon name="arrow-up" size={12}/></button>
         <span className="change-diff-position">{changeCount ? `${activeChange}/${changeCount}` : '0/0'}</span>
@@ -105,6 +110,8 @@ export function ChangeDiffEditor({ sessionId, file }: { sessionId: string; file:
         </div>
       </div>
     </div>
-    <div className="change-diff-editor" ref={host} aria-label={`Comparação de ${file.path}`} />
+    {document
+      ? <div className="change-diff-editor" ref={host} aria-label={`Comparação de ${file.path}`} />
+      : <div className="change-diff-loading"><span className="lamp blinking"/>A preparar comparação…</div>}
   </div>
 }
