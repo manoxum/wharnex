@@ -13,6 +13,7 @@ const (
 	requestKindPlanAdjustment  = "execution_plan_adjustment"
 	requestKindRepair          = "repair"
 	requestKindRevertRestore   = "revert_restore"
+	requestKindPlanReversal    = "plan_reversal"
 	requestKindImprovement     = "improvement"
 	requestKindEvidence        = "evidence"
 	requestKindConflict        = "conflict"

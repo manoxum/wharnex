@@ -1737,6 +1737,12 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			return result
 		}
 		planID := current.Plan.PlanID
+		if planExecutionHeld(current, planID) {
+			result.Session = current
+			result.AutoError = "automatic execution is paused before host apply"
+			s.bus.Publish(sessionID, "automation.paused", map[string]any{"plan_id": planID, "transport": transport, "state": planControlState(current, planID)})
+			return result
+		}
 		autoApprove := domain.AutomationModeApproves(current.AutomationMode)
 		initialConsentRequired := planNeedsInitialConsent(current)
 		coveredByPriorConsent := planCoveredByChatApproval(current) || priorExecutionConsentCovers(current)
@@ -1796,6 +1802,12 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			}
 			result.AutoError = execErr.Error()
 			s.bus.Publish(sessionID, "automation.execution_failed", map[string]any{"error": execErr.Error(), "repair_pending": result.Session.State == "repair_pending"})
+			return result
+		}
+		if executed.Plan != nil && planExecutionHeld(executed, executed.Plan.PlanID) {
+			result.Session = executed
+			result.AutoError = "automatic host apply is paused by the operator"
+			s.bus.Publish(sessionID, "automation.paused", map[string]any{"plan_id": executed.Plan.PlanID, "transport": transport, "state": planControlState(executed, executed.Plan.PlanID)})
 			return result
 		}
 		if len(executed.LastAppliedChanges) > 0 && (executed.State == "applied" || executed.State == "restart_pending") {
@@ -1923,6 +1935,9 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	if !item.Policy.Allowed {
 		return result, item, errors.New("policy denied plan")
 	}
+	if planExecutionHeld(item, item.Plan.PlanID) {
+		return result, item, errors.New("execution plan is paused or suspended")
+	}
 	unprotected := item.ExecutionMode == domain.ExecutionModeUnprotected
 	if unprotected && s.isSelfEvolution(item) {
 		return result, item, errors.New("Wharnex self-evolution cannot execute in Unprotected mode")
@@ -1973,6 +1988,10 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		return result, item, err
 	}
 	if err == nil && approved && cleared.ExecutionMode == domain.ExecutionModeProtected && len(hostApplicablePendingChanges(pendingHostChanges(cleared))) > 0 {
+		if planExecutionHeld(cleared, planID) {
+			s.bus.Publish(sessionID, "host.apply_paused", map[string]any{"plan_id": planID, "state": planControlState(cleared, planID)})
+			return result, cleared, nil
+		}
 		applied, applyErr := s.applyToHostWithLocalRetry(ctx, sessionID)
 		if applyErr != nil {
 			return result, applied, applyErr
@@ -3087,6 +3106,10 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 	}
 	if item.ExecutionMode == domain.ExecutionModeUnprotected {
 		return item, errors.New("apply is unavailable in unprotected mode because execution already targets the host")
+	}
+	if item.Plan != nil && planExecutionHeld(item, item.Plan.PlanID) {
+		s.bus.Publish(sessionID, "host.apply_paused", map[string]any{"plan_id": item.Plan.PlanID, "state": planControlState(item, item.Plan.PlanID)})
+		return item, errors.New("host apply is paused or suspended for the active plan")
 	}
 	initialized, err := projectgit.Ensure(ctx, item.ProjectPath)
 	if err != nil {

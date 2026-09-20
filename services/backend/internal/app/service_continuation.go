@@ -15,6 +15,7 @@ const (
 	conflictCapsuleArtifactPath   = "conflict/capsule.json"
 	mainRequestArtifactPath       = "requests/main.md"
 	adjustmentRequestArtifactPath = "requests/adjustment.md"
+	planReversalArtifactPath      = "reversal/capsule.json"
 	maxRequestSupportArtifacts    = 24
 )
 
@@ -379,7 +380,7 @@ func continuationArtifacts(item domain.Session, requestID string) []continuation
 		}
 	}
 	for _, artifact := range item.RequestSupportArtifacts[requestID] {
-		if (artifact.Path == conflictCapsuleArtifactPath || (rootID == requestID && artifact.Path == mainRequestArtifactPath)) && len(artifact.Content) > 0 {
+		if (artifact.Path == conflictCapsuleArtifactPath || artifact.Path == planReversalArtifactPath || (rootID == requestID && artifact.Path == mainRequestArtifactPath)) && len(artifact.Content) > 0 {
 			out = append(out, continuationArtifact{Name: artifact.Path, Raw: append([]byte(nil), artifact.Content...)})
 		}
 	}
@@ -413,7 +414,7 @@ func recordRequestSupportArtifact(item *domain.Session, requestID, path string, 
 	if item == nil || strings.TrimSpace(requestID) == "" || len(raw) == 0 {
 		return
 	}
-	if path != conflictCapsuleArtifactPath && path != mainRequestArtifactPath && path != adjustmentRequestArtifactPath {
+	if path != conflictCapsuleArtifactPath && path != mainRequestArtifactPath && path != adjustmentRequestArtifactPath && path != planReversalArtifactPath {
 		return
 	}
 	if item.RequestSupportArtifacts == nil {

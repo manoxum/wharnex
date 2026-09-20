@@ -351,6 +351,7 @@ export type Session = {
     attachments?: Array<{ root: string; name: string; kind: string; prefix: string; files: number; bytes: number; included_paths?: string[] }>
   }
   plan?: ExecutionPlan
+  plan_control?: { plan_id: string; state: 'active' | 'paused' | 'suspended'; updated_at: string }
   policy?: PolicyDecision
   last_execution?: ExecutionResult
   pending_host_changes?: PendingHostChange[]
@@ -386,7 +387,7 @@ export type Session = {
   artifacts?: ArtifactRecord[]
   interrupted_execution?: { plan_id: string; requested_at: string; approved: boolean; status?: 'awaiting_decision' | 'running' | 'resuming' | 'failed_retryable'; last_error?: string }
   remote_recovery_attempt?: number
-	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'plan_approval' | 'plan_correction' | 'execution_plan_adjustment' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict' | 'knowledge_review' | 'knowledge_consolidation'; created_at: string }>
+	request_lineages?: Record<string, { request_id: string; root_request_id: string; parent_request_id?: string; kind: 'standard' | 'plan_approval' | 'plan_correction' | 'execution_plan_adjustment' | 'repair' | 'revert_restore' | 'plan_reversal' | 'improvement' | 'evidence' | 'conflict' | 'knowledge_review' | 'knowledge_consolidation'; created_at: string }>
   /** Set the instant a chat's session is archived; null once restored. Set
    *  together, restore is a pure state flip (api.restoreChat) while it is
    *  still within the grace window (see compacted_at). */

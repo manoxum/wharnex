@@ -143,6 +143,9 @@ func strandedHostApply(item domain.Session) bool {
 	if item.State != "verified" || item.InterruptedExecution != nil {
 		return false
 	}
+	if item.Plan != nil && planExecutionHeld(item, item.Plan.PlanID) {
+		return false
+	}
 	if pendingHostResolutionBlocked(item) {
 		return false
 	}

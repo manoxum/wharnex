@@ -445,3 +445,55 @@ describe('Inspector Manual chat transport mode', () => {
     await waitFor(() => expect(screen.getByText(/Nome de ficheiro não reconhecido/)).toBeTruthy())
   })
 })
+
+it('keeps auto-approve pause and suspend controls usable while execution is busy', () => {
+  const session = legacySession()
+  session.automation_mode = 'auto_approve'
+  const onControlExecutionPlan = vi.fn(async () => undefined)
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={true}
+    activeTab="plan"
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onControlExecutionPlan={onControlExecutionPlan}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  const pause = screen.getByRole('button', { name: /^Pausar$/i }) as HTMLButtonElement
+  const suspend = screen.getByRole('button', { name: /^Suspender$/i }) as HTMLButtonElement
+  expect(pause.disabled).toBe(false)
+  expect(suspend.disabled).toBe(false)
+  fireEvent.click(pause)
+  expect(onControlExecutionPlan).toHaveBeenCalledWith('pause')
+})
+
+it('offers GPT-calculated reversal after the active plan reached the host', () => {
+  const session = legacySession()
+  session.state = 'applied'
+  session.last_execution = { plan_id: session.plan!.plan_id, success: true, started_at: new Date().toISOString(), completed_at: new Date().toISOString(), commands: [] }
+  session.last_applied_changes = [{ plan: session.plan!, execution: session.last_execution, verified_at: session.last_execution.completed_at }]
+  const onPrepareExecutionPlanReversal = vi.fn(async () => undefined)
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={false}
+    activeTab="plan"
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onPrepareExecutionPlanReversal={onPrepareExecutionPlanReversal}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  fireEvent.click(screen.getByRole('button', { name: /Reverter com GPT/i }))
+  expect(onPrepareExecutionPlanReversal).toHaveBeenCalledOnce()
+})

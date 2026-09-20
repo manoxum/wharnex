@@ -119,6 +119,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/reject", a.rejectExecutionPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/adjust", a.adjustExecutionPlan)
+	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/control", a.controlExecutionPlan)
+	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/reversal", a.prepareExecutionPlanReversal)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/events", a.remoteInputEvent)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input/failures", a.remoteInputFailure)
@@ -1132,6 +1134,30 @@ func (a *API) rejectExecutionPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) controlExecutionPlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Action string `json:"action"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.ControlExecutionPlan(r.PathValue("id"), body.Action)
+	if err != nil {
+		writeError(w, http.StatusConflict, "execution_plan_control_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) prepareExecutionPlanReversal(w http.ResponseWriter, r *http.Request) {
+	result, item, err := a.service.PrepareExecutionPlanReversal(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "execution_plan_reversal_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": item, "turn": result.Turn, "plan": result.Plan, "manual_prompt": result.ManualPrompt})
 }
 
 func (a *API) message(w http.ResponseWriter, r *http.Request) {
