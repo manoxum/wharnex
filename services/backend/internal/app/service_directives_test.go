@@ -76,6 +76,15 @@ func TestDirectiveLegendExplainsChatAndLibraryFiles(t *testing.T) {
 	}
 }
 
+func TestDirectiveLegendExplainsTodoAnalysisTransport(t *testing.T) {
+	legend := directiveLegend("implement @{[todo]todo_1}", manifestWith("a.ts"))
+	for _, want := range []string{"@{[todo]", "Worker classification, context and pre-plan", "Markdown pre-analysis", "stored artifacts"} {
+		if !strings.Contains(legend, want) {
+			t.Fatalf("legend must explain @todo transport %q: %q", want, legend)
+		}
+	}
+}
+
 func TestDirectiveLegendResolvesQualifiedSeeToExactBundlePath(t *testing.T) {
 	context := domain.ContextBundle{
 		Manifest:        manifestWith("src/App.tsx"),

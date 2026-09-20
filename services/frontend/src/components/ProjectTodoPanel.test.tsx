@@ -88,8 +88,8 @@ describe('ProjectTodoPanel', () => {
       expect.stringContaining('Ideia ainda por classificar'),
     ])
   })
-  it('forwards the worker pre-plan to the Orchestrator as a disposable attachment', async () => {
-    const persist = vi.fn().mockResolvedValue({ ok: true, attachments: [{ name: 'wharnex-todo-pre-plan.md', size: 128, mime: 'text/markdown', storageRef: 'orch_todo_test/msg/file', previewKind: 'icon' }] })
+  it('forwards the complete worker pre-analysis to the Orchestrator as a disposable attachment', async () => {
+    const persist = vi.fn().mockResolvedValue({ ok: true, attachments: [{ name: 'wharnex-todo-todo-1-pre-analysis.md', size: 128, mime: 'text/markdown', storageRef: 'orch_todo_test/msg/file', previewKind: 'icon' }] })
     const removeChat = vi.fn().mockResolvedValue({ ok: true })
     mocks.desktopBridge = { attachments: { persist, read: vi.fn(), removeChat } }
     mocks.proposeOrchestratorPlan.mockResolvedValue({ request_id: 'orp_12345678', worker_task_id: 'task-1', delivery_status: 'PENDING' })
@@ -101,9 +101,9 @@ describe('ProjectTodoPanel', () => {
     await waitFor(() => expect(persist).toHaveBeenCalled())
     const persistInput = persist.mock.calls[0][0]
     expect(persistInput.attachments).toHaveLength(1)
-    expect(persistInput.attachments[0].name).toBe('wharnex-todo-pre-plan.md')
+    expect(persistInput.attachments[0].name).toBe('wharnex-todo-todo-1-pre-analysis.md')
     await waitFor(() => expect(mocks.proposeOrchestratorPlan).toHaveBeenCalledWith('session-1', 'Melhorar a pesquisa', expect.objectContaining({
-      attachments: [expect.objectContaining({ name: 'wharnex-todo-pre-plan.md', storage_ref: 'orch_todo_test/msg/file' })],
+      attachments: [expect.objectContaining({ name: 'wharnex-todo-todo-1-pre-analysis.md', storage_ref: 'orch_todo_test/msg/file' })],
     })))
     expect(removeChat).not.toHaveBeenCalled()
   })

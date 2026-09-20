@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -234,5 +235,34 @@ func TestProjectTodoExecutionFollowsRequestLineage(t *testing.T) {
 	}
 	if updated.ExecutionStatus != domain.ProjectTodoExecutionDone {
 		t.Fatalf("lineage execution status = %q", updated.ExecutionStatus)
+	}
+}
+
+func TestMessageWithProjectTodosCarriesWorkerAnalysisAndArtifacts(t *testing.T) {
+	message := messageWithProjectTodos("Implementar @{[todo]todo-1}", []domain.ProjectTodo{{
+		ID:                   "todo-1",
+		Body:                 "Melhorar a pesquisa",
+		Status:               "open",
+		Kind:                 "improvement",
+		Urgency:              "urgent",
+		ClassificationStatus: "classified",
+		Description:          "Preservar o fluxo atual enquanto a pesquisa é otimizada.",
+		PrePlan:              []string{"Medir o fluxo atual.", " ", "Cobrir o comportamento com testes."},
+		ProjectFiles:         []string{"services/frontend/src/search.ts"},
+		Attachments:          []domain.ProjectTodoAttachment{{Name: "evidence.txt", MIME: "text/plain", StorageRef: "todo/evidence.txt"}},
+	}})
+	for _, want := range []string{
+		"Melhorar a pesquisa",
+		"Classification: status=classified, kind=improvement, urgency=urgent",
+		"Worker context: Preservar o fluxo atual",
+		"1. Medir o fluxo atual.",
+		"2. Cobrir o comportamento com testes.",
+		"services/frontend/src/search.ts",
+		"evidence.txt",
+		"Markdown pre-analysis attachment",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("message must carry %q:\n%s", want, message)
+		}
 	}
 }
