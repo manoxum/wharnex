@@ -208,19 +208,26 @@ describe('composer layout CSS', () => {
     expect(handle).toContain('touch-action: none')
   })
 
-  it('uses a high-contrast project cue instead of the generic accent while typing', () => {
+  it('keeps the composer palette calm and sweeps only the project name while typing', () => {
     const typingAttention = firstRule('.composer.composer-typing-attention')
     const darkTypingAttention = lastRule(":root[data-theme='dark'] .composer.composer-typing-attention")
     const projectBadge = lastRule('.composer-project-attention')
-    const projectName = lastRule('.composer-project-attention > strong')
+    const projectName = firstRule('.composer-project-attention > strong')
     const projectIcon = lastRule('.composer-project-attention svg')
 
-    expect(typingAttention).toContain('--composer-project-attention-tone: #5b8619')
-    expect(typingAttention).toContain('var(--composer-project-attention-tone) 88%')
-    expect(darkTypingAttention).toContain('--composer-project-attention-tone: #b9ff56')
-    expect(projectBadge).toContain('var(--composer-project-attention-tone) 28%')
-    expect(projectName).toContain('var(--composer-project-attention-tone) 76%')
-    expect(projectIcon).toContain('color: var(--composer-project-attention-tone)')
+    expect(typingAttention).toContain('--composer-project-name-warm: #c56a16')
+    expect(typingAttention).not.toContain('border-color')
+    expect(typingAttention).not.toContain('box-shadow')
+    expect(typingAttention).not.toContain('animation:')
+    expect(darkTypingAttention).toContain('--composer-project-name-warm: #ffd166')
+    expect(projectBadge).toContain('var(--theme-accent) 42%')
+    expect(projectBadge).toContain('var(--theme-elevated) 90%')
+    expect(projectName).toContain('font-weight: 800')
+    expect(projectName).toContain('linear-gradient(90deg')
+    expect(projectName).toContain('animation: composer-project-name-sweep 1.25s ease-in-out infinite alternate')
+    expect(projectIcon).toContain('color: var(--theme-accent)')
+    expect(css).toContain('@keyframes composer-project-name-sweep')
+    expect(css).not.toContain('@keyframes current-composer-project-pulse')
   })
 
   it('anchors send to the far-right composer edge independently of toolbar intrinsic width', () => {
