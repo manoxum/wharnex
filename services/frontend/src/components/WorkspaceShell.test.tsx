@@ -43,6 +43,18 @@ describe('WorkspaceShell project actions', () => {
     expect(switcher?.firstElementChild?.classList.contains('active')).toBe(true)
   })
 
+  it('keeps project unlink on the project tab instead of the global action cluster', () => {
+    const onUnbind = vi.fn()
+    const { container } = render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+
+    const activeTab = container.querySelector('.project-tab-shell.active')
+    const unlink = within(activeTab as HTMLElement).getByRole('button', { name: 'Desvincular alpha desta janela' })
+    fireEvent.click(unlink)
+
+    expect(onUnbind).toHaveBeenCalledWith('/tmp/alpha')
+    expect(container.querySelector('.multi-project-actions [aria-label="Desvincular projeto"]')).toBeNull()
+  })
+
   it('marks the shell chrome as the desktop window title bar', () => {
     const { container } = render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
     expect(container.querySelector('.multi-project-bar')?.getAttribute('data-window-titlebar')).toBe('true')
@@ -155,8 +167,8 @@ describe('WorkspaceShell project actions', () => {
     const onActivate = vi.fn()
 
     render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
-    const alpha = screen.getByRole('button', { name: /alpha/ })
-    const gamma = screen.getByRole('button', { name: /gamma/ })
+    const alpha = screen.getByRole('button', { name: 'alpha' })
+    const gamma = screen.getByRole('button', { name: 'gamma' })
     expect(alpha.style.getPropertyValue('--project-hue')).not.toBe('')
     expect(gamma.style.getPropertyValue('--project-hue')).not.toBe('')
     expect(alpha.style.getPropertyValue('--project-hue')).not.toBe(gamma.style.getPropertyValue('--project-hue'))
@@ -176,8 +188,7 @@ describe('WorkspaceShell project actions', () => {
     } as unknown as WharnessDesktopBridge
 
     render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: /alpha/ }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Desvincular gamma desta janela' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Desvincular gamma desta janela' }))
 
     expect(onUnbind).toHaveBeenCalledWith('/tmp/gamma')
     expect(onActivate).not.toHaveBeenCalledWith('/tmp/gamma')

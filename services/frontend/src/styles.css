@@ -1729,6 +1729,11 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .project-quick-switch::-webkit-scrollbar { display: none; }
 .project-quick-switch button, .multi-project-actions button { height: 30px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #677061; cursor: pointer; font-size: calc(9px * var(--ui-font-scale)); font-weight: 650; }
 .project-quick-switch button { --project-hue: 92; position: relative; transition: border-color .16s ease, box-shadow .16s ease, background .16s ease, color .16s ease; }
+.project-tab-shell { --project-hue: 92; position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; }
+.project-quick-switch .project-tab-shell > .project-tab-main { --project-hue: inherit; padding-right: 30px; }
+.project-tab-unbind { width: 22px !important; height: 22px !important; padding: 0 !important; position: absolute !important; right: 4px; top: 50%; z-index: 2; justify-content: center !important; border: 0 !important; border-radius: 5px !important; background: transparent !important; color: var(--theme-text-muted) !important; opacity: 0; transform: translateY(-50%); transition: opacity .12s ease, background .12s ease, color .12s ease !important; }
+.project-tab-shell:hover .project-tab-unbind, .project-tab-shell.active .project-tab-unbind, .project-tab-unbind:focus-visible { opacity: 1; }
+.project-tab-unbind:hover:not(:disabled) { background: color-mix(in srgb, var(--danger, #a54038) 15%, transparent) !important; color: var(--danger, #a54038) !important; }
 .project-quick-switch button:hover, .multi-project-actions button:hover { background: #e9ece4; color: #31382d; }
 .project-quick-switch button.active { border-color: color-mix(in srgb, hsl(var(--project-hue) 70% 48%) 24%, var(--theme-border)); background: color-mix(in srgb, hsl(var(--project-hue) 74% 50%) 5%, var(--theme-surface)); color: var(--theme-text, #20251e); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent); }
 .project-quick-switch button.active::after { content: ''; width: 18px; height: 2px; position: absolute; left: 50%; bottom: -1px; border-radius: 999px; background: hsl(var(--project-hue) 78% 50%); transform: translateX(-50%); }
@@ -5727,9 +5732,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .chat-tab-group.active {
   border-color: transparent;
   border-radius: 0;
-  background: transparent;
-  box-shadow: inset 0 -2px var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent-soft) 48%, var(--theme-surface));
+  box-shadow: inset 0 -2px var(--theme-accent), inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, var(--theme-border));
 }
+.chat-tab-group.active .chat-tab { color: var(--theme-text); font-weight: 700; }
 .editor-tabbar {
   border-bottom: 1px solid var(--theme-border);
   background: var(--theme-surface);
@@ -5746,9 +5752,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .editor-tab:hover { background: color-mix(in srgb, var(--theme-hover) 64%, transparent); color: var(--theme-text-soft); }
 .editor-tab.active {
   border-top-color: transparent;
-  background: transparent;
+  background: color-mix(in srgb, var(--theme-accent-soft) 48%, var(--theme-surface));
   color: var(--theme-text);
-  box-shadow: inset 0 -2px var(--theme-accent);
+  box-shadow: inset 0 -2px var(--theme-accent), inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, var(--theme-border));
+  font-weight: 700;
 }
 .terminal-tabs {
   min-width: 0;

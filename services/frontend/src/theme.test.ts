@@ -70,6 +70,14 @@ describe('complete colour themes', () => {
     expect(theme).toContain("[data-theme='dark'] .execution-recovery-item span")
   })
 
+  it('keeps active chat and editor tabs visibly selected in both palettes', () => {
+    expect(theme).toContain("[data-theme='dark'] .chat-tab-group.active")
+    expect(theme).toContain('background: color-mix(in srgb, var(--theme-accent-soft) 62%, var(--theme-elevated))')
+    expect(theme).toContain("[data-theme='dark'] .editor-tab.active")
+    expect(theme).toContain("[data-theme='light'] .editor-tab.active")
+    expect(theme).toContain('box-shadow: inset 0 -2px var(--theme-accent)')
+  })
+
   it('keeps every dark settings control and active state monochrome', () => {
     expect(theme).toMatch(/\[data-theme='dark'\] \.context-settings-dialog \.primary-button \{[^}]*background: #ececec;/)
     expect(theme).toContain("[data-theme='dark'] .context-settings-dialog input[type='checkbox']")

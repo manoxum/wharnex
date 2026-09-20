@@ -322,6 +322,13 @@ describe('multi-project shell CSS', () => {
     expect(activeMark).toContain('box-shadow: none')
   })
 
+  it('keeps unlink affordance embedded in project tabs', () => {
+    expect(lastRule('.project-tab-shell')).toContain('position: relative')
+    expect(lastRule('.project-quick-switch .project-tab-shell > .project-tab-main')).toContain('padding-right: 30px')
+    expect(lastRule('.project-tab-unbind')).toContain('position: absolute !important')
+    expect(css).toContain('.project-tab-shell:hover .project-tab-unbind, .project-tab-shell.active .project-tab-unbind, .project-tab-unbind:focus-visible { opacity: 1; }')
+  })
+
   it('pulses the active project while a composer is being edited', () => {
     const typingProject = firstRule('.project-quick-switch button.active.composer-typing-attention')
     expect(typingProject).toContain('animation: current-project-composer-pulse .9s ease-in-out infinite')
@@ -477,7 +484,10 @@ describe('canonical workbench tab CSS', () => {
     expect(canonical).toContain(".project-todo-tabs button[aria-pressed='true']::after")
     expect(canonical).toContain(".agent-chat-management-tabs button[aria-selected='true']::after")
     expect(canonical).toContain('.chat-tab-group.active {')
+    expect(canonical).toContain('.chat-tab-group.active .chat-tab { color: var(--theme-text); font-weight: 700; }')
     expect(canonical).toContain('.editor-tab.active {')
+    expect(lastRule('.chat-tab-group.active')).toContain('var(--theme-accent-soft)')
+    expect(lastRule('.editor-tab.active')).toContain('var(--theme-accent-soft)')
     expect(canonical).toContain('.terminal-tab-shell.active {')
     expect(canonical).toContain('.agent-chat-surface-tabs button.active {')
     expect(canonical).toContain('background: var(--theme-accent)')
