@@ -1547,6 +1547,26 @@ test('pollChatGPTVisibleActivity skips DOM probing while the view is still navig
   assert.ok(loadingGuard < firstProbe, 'the loading guard must run before any DOM probe')
 })
 
+test('activity polling is single-flight and reads visible reasoning only for an armed response', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function pollChatGPTVisibleActivity()')
+  const end = source.indexOf('\nasync function performChatGPTRecoveryAction', start)
+  assert.notEqual(start, -1)
+  assert.notEqual(end, -1)
+  const body = source.slice(start, end)
+
+  assert.match(body, /if \(pollingChatGPTVisibleActivity\) return/)
+  assert.match(body, /pollingChatGPTVisibleActivity = true/)
+  assert.match(body, /finally \{\s*pollingChatGPTVisibleActivity = false\s*}/)
+
+  const expected = body.indexOf('const expectedActive = expectedChatGPTBundles.has(key)')
+  const activityProbe = body.indexOf('executeJavaScript(chatGPTVisibleActivityScript()')
+  assert.notEqual(expected, -1)
+  assert.notEqual(activityProbe, -1)
+  assert.ok(expected < activityProbe, 'the expected-response check must precede the expensive reasoning probe')
+  assert.match(body, /if \(!expectedActive\) continue/)
+})
+
 test('Manual chat transport mode disarms bundle polling, skips activity probing, and lets downloads pass through uncontrolled', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
 
