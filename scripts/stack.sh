@@ -444,6 +444,21 @@ activate_application() {
   return 1
 }
 
+activate_selected_services() {
+  require_docker
+  ensure_credentials
+  ensure_durable_services
+  [ "$#" -gt 0 ] || return 0
+  for service in "$@"; do
+    case "$service" in backend|frontend|tunnel) ;; *) echo "Invalid Wharnex activation service: $service" >&2; return 2;; esac
+  done
+  if ! compose up -d --force-recreate --no-deps "$@"; then
+    compose logs --tail=80 "$@" >&2 || true
+    return 1
+  fi
+  for service in "$@"; do wait_service "$service" 180; done
+}
+
 ensure_stack() {
   activate_application
 }
@@ -455,7 +470,7 @@ stack_status() {
 }
 
 case ${1:-} in
-  prepare|build|ensure|up|activate-app|stop|down)
+  prepare|build|ensure|up|activate-app|activate-services|stop|down)
     acquire_stack_operation_lock
     ;;
 esac
@@ -476,6 +491,10 @@ case ${1:-} in
     ;;
   activate-app)
     activate_application
+    ;;
+  activate-services)
+    shift
+    activate_selected_services "$@"
     ;;
   stop)
     require_docker
@@ -499,7 +518,7 @@ case ${1:-} in
     fi
     ;;
   *)
-    echo 'usage: stack.sh prepare|build|ensure|up|activate-app|stop|down|status|logs' >&2
+    echo 'usage: stack.sh prepare|build|ensure|up|activate-app|activate-services [backend|frontend|tunnel]...|stop|down|status|logs' >&2
     exit 2
     ;;
 esac

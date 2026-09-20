@@ -141,6 +141,7 @@ type Transaction struct {
 	Extended           bool
 	ExtensionAddedPlan bool
 	PreviousPending    PendingPlan
+	ActivationImpacts  []string
 	lockPath           string
 	stageLockPath      string
 }
@@ -337,7 +338,7 @@ func (m *Manager) prepareNewBatch(base, lockPath, stageLockPath, sessionID, plan
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		return Transaction{}, fmt.Errorf("create transaction: %w", err)
 	}
-	tx := Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), lockPath: lockPath, stageLockPath: stageLockPath}
+	tx := Transaction{ID: id, Root: m.root, Dir: dir, Worker: filepath.Join(dir, "worker.sh"), RollbackScript: filepath.Join(dir, "rollback.sh"), ActivationImpacts: activationImpacts(patches), lockPath: lockPath, stageLockPath: stageLockPath}
 	// Best-effort: a host with no Git repository (development-only local
 	// sandbox mode) leaves PreTransactionSHA empty, which simply disables
 	// the overlap safety check in Rollback below rather than blocking
@@ -398,6 +399,7 @@ func (m *Manager) extendPendingBatch(base, lockPath, stageLockPath, sessionID, p
 			return Transaction{}, repairErr
 		}
 		tx.PreTransactionSHA = metadata.PreTransactionSHA
+		tx.ActivationImpacts = recoveredActivationImpacts(metadata.ActivationImpacts)
 		err = nil
 	}
 	if err != nil {
@@ -406,6 +408,7 @@ func (m *Manager) extendPendingBatch(base, lockPath, stageLockPath, sessionID, p
 	tx.lockPath = lockPath
 	tx.stageLockPath = stageLockPath
 	tx.Extended = true
+	tx.ActivationImpacts = mergeActivationImpacts(tx.ActivationImpacts, activationImpacts(patches))
 	tx.PreviousPending = PendingPlan{SessionID: latest.SessionID, PlanID: latest.PlanID}
 	if plans, plansErr := tx.PendingPlans(); plansErr == nil {
 		tx.ExtensionAddedPlan = true
@@ -569,10 +572,18 @@ func (m *Manager) transactionFromStatus(status Status) (Transaction, error) {
 	metadata, metaErr := tx.readMetadata()
 	if metaErr == nil {
 		tx.PreTransactionSHA = metadata.PreTransactionSHA
+		tx.ActivationImpacts = recoveredActivationImpacts(metadata.ActivationImpacts)
 	} else if errors.Is(metaErr, ErrTransactionMetadataMismatch) {
 		return tx, metaErr
 	}
 	return tx, nil
+}
+
+func recoveredActivationImpacts(persisted []string) []string {
+	if persisted == nil {
+		return []string{"backend", "desktop", "frontend", "tunnel"}
+	}
+	return append([]string{}, persisted...)
 }
 
 func (m *Manager) repairTransactionMetadata(status Status, tx Transaction) (transactionMetadata, error) {
@@ -832,6 +843,19 @@ func (m *Manager) BuildHost(ctx context.Context, tx Transaction, onOutput BuildO
 	return text, nil
 }
 
+func (m *Manager) RecordBuiltSourceFingerprint(ctx context.Context) error {
+	if !m.Enabled() {
+		return errors.New("Wharnex runtime root is not available")
+	}
+	cmd := exec.CommandContext(ctx, filepath.Join(m.root, "scripts", "source-fingerprint.sh"), "write")
+	cmd.Dir = m.root
+	cmd.Env = append(os.Environ(), "WHARNESS_ROOT="+m.root)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("record completed self-evolution build fingerprint: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 func buildGuardSnapshot(root string) (map[string]string, error) {
 	state := make(map[string]string, len(buildGuardPaths))
 	for _, relative := range buildGuardPaths {
@@ -876,7 +900,7 @@ func (m *Manager) ScheduleRestart(tx Transaction, sessionID, planID string) erro
 		return err
 	}
 	defer logFile.Close()
-	cmd := exec.Command(tx.Worker, m.root, tx.Dir, sanitizeLabel(sessionID), sanitizeLabel(planID))
+	cmd := exec.Command(tx.Worker, m.root, tx.Dir, sanitizeLabel(sessionID), sanitizeLabel(planID), strings.Join(tx.ActivationImpacts, ","))
 	cmd.Dir = m.root
 	cmd.Env = append(os.Environ(), "WHARNESS_ROOT="+m.root)
 	cmd.Stdout = logFile
@@ -911,7 +935,7 @@ func (m *Manager) scheduleStackRestart(tx Transaction, sessionID, planID string)
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
 		"--entrypoint", tx.Worker,
 		image,
-		m.root, tx.Dir, sanitizeLabel(sessionID), sanitizeLabel(planID),
+		m.root, tx.Dir, sanitizeLabel(sessionID), sanitizeLabel(planID), strings.Join(tx.ActivationImpacts, ","),
 	}
 	output, err := exec.Command("docker", args...).CombinedOutput()
 	if err != nil {

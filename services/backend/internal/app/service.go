@@ -3486,6 +3486,11 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 			mergedIntegrationBranches = append(mergedIntegrationBranches, versionCandidate(sessionID, pending, versionBeforeHead, versionCommitSHA, versionChange))
 		}
 	}
+	if selfEvolution {
+		if fingerprintErr := s.selfEvolution.RecordBuiltSourceFingerprint(ctx); fingerprintErr != nil {
+			return item, failApply(fingerprintErr)
+		}
+	}
 
 	// The change is verified and on disk. In manual mode the only thing left
 	// to decide is whether it becomes history now or when the operator says
@@ -3502,6 +3507,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		if selfEvolution {
 			current.State = "restart_pending"
 			current.SelfEvolutionActivation = "restart_pending"
+			current.SelfEvolutionImpacts = append([]string(nil), transaction.ActivationImpacts...)
 		} else {
 			current.State = "applied"
 		}
@@ -3749,7 +3755,31 @@ func (s *Service) RestartSelfEvolution(sessionID string) (domain.Session, error)
 		return item, err
 	}
 	s.bus.Publish(sessionID, "self_evolution.restart_scheduled", map[string]any{"plan_id": pending.PlanID, "transaction_id": transaction.ID})
+	go s.awaitSelfEvolutionActivation(transaction.ID)
 	return updated, nil
+}
+
+func (s *Service) awaitSelfEvolutionActivation(transactionID string) {
+	deadline := time.NewTimer(10 * time.Minute)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline.C:
+			return
+		case <-ticker.C:
+			status, err := s.selfEvolution.LastStatus()
+			if err != nil || status.Transaction != "txn-"+transactionID {
+				continue
+			}
+			switch status.Phase {
+			case "restarted", "rolled_back_runtime", "rollback_failed", "restart_failed":
+				s.reconcileSelfEvolutionStatus()
+				return
+			}
+		}
+	}
 }
 
 func (s *Service) isSelfEvolution(item domain.Session) bool {
@@ -3796,6 +3826,7 @@ func (s *Service) updateSelfEvolutionBatchSessions(transaction selfevolution.Tra
 			}
 			current.SelfEvolution = true
 			current.SelfEvolutionActivation = activationState
+			current.SelfEvolutionImpacts = append([]string(nil), transaction.ActivationImpacts...)
 			matchedPlan = current.Plan != nil && current.Plan.PlanID == pending.PlanID
 			batchOwnsVisibleState := matchedPlan || current.State == "restart_pending" || current.State == "restart_scheduled"
 			if batchOwnsVisibleState {
@@ -3806,6 +3837,9 @@ func (s *Service) updateSelfEvolutionBatchSessions(transaction selfevolution.Tra
 				} else if state == "applied" || state == "restart_scheduled" || state == "reverted" {
 					clearSessionFailure(current)
 				}
+			}
+			if activationState == "" {
+				current.SelfEvolutionImpacts = nil
 			}
 			return nil
 		})
@@ -3864,6 +3898,7 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 				current.SelfEvolutionActivation = state
 			} else {
 				current.SelfEvolutionActivation = ""
+				current.SelfEvolutionImpacts = nil
 			}
 			current.State = state
 			if status.Phase == "restarted" {
@@ -3902,6 +3937,7 @@ func (s *Service) reconcileEarlierRestartPending(status selfevolution.Status) {
 				return nil
 			}
 			current.SelfEvolutionActivation = ""
+			current.SelfEvolutionImpacts = nil
 			if current.State == "restart_pending" || current.State == "restart_scheduled" {
 				current.State = "applied"
 				clearSessionFailure(current)

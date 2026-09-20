@@ -81,8 +81,12 @@ if ! grep -Fq 'scheduleStackRestart' "$SELF_EVOLUTION" || ! grep -Fq '"docker", 
   echo 'lifecycle regression: stack self-evolution must hand restart supervision to a detached Docker container' >&2
   exit 1
 fi
-if ! grep -Fq 'activate-app' "$SELF_RESTART" || ! grep -Fq 'WHARNESS_SERVICES_MODE:-}" = stack' "$SELF_RESTART"; then
-  echo 'lifecycle regression: self-restart worker must roll backend/frontend without restarting tunnel/database' >&2
+if ! grep -Fq 'activate-services' "$SELF_RESTART" || ! grep -Fq 'WHARNESS_SERVICES_MODE:-}" = stack' "$SELF_RESTART"; then
+  echo 'lifecycle regression: self-restart worker must activate only the transaction impact manifest' >&2
+  exit 1
+fi
+if ! grep -Fq 'RecordBuiltSourceFingerprint' "$SELF_EVOLUTION" || ! grep -Fq 'source-fingerprint.sh' "$SELF_EVOLUTION"; then
+  echo 'lifecycle regression: completed self-evolution builds must record their source fingerprint' >&2
   exit 1
 fi
 if ! grep -Fq 'docker-cli-compose' "$BACKEND_DOCKERFILE" || ! grep -Fq 'nodejs npm' "$BACKEND_DOCKERFILE" || ! grep -Fq 'make' "$BACKEND_DOCKERFILE"; then

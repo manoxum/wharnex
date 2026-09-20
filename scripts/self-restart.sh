@@ -5,6 +5,7 @@ ROOT=${1:?Wharnex root is required}
 TXN=${2:?transaction directory is required}
 SESSION_ID=${3:-unknown}
 PLAN_ID=${4:-unknown}
+IMPACTS=${5:-backend,frontend,desktop}
 BASE="$ROOT/.harness/self-evolution"
 STATUS="$BASE/status"
 LOG="$ROOT/.harness/logs/self-evolution.log"
@@ -113,9 +114,17 @@ if [ "${WHARNESS_SERVICES_MODE:-}" = stack ]; then
   # backend/frontend cannot terminate it. Database and tunnel are explicitly
   # outside the rollout and keep their containers/public URLs unchanged.
   sleep 2
-  status restarting "host build passed; activating backend/frontend without restarting tunnel/database"
-  if WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" activate-app >>"$LOG" 2>&1 && stack_runtime_healthy; then
-    status restarted "new backend/frontend containers are healthy; Desktop and tunnel/database stayed alive"
+  stack_services=''
+  old_ifs=$IFS
+  IFS=,
+  for impact in $IMPACTS; do
+    case "$impact" in backend|frontend|tunnel) stack_services="$stack_services $impact";; desktop|'') ;; *) status restart_failed "invalid activation impact $impact"; release_stage_lock; exit 1;; esac
+  done
+  IFS=$old_ifs
+  status restarting "host build passed; activating only affected components: ${IMPACTS:-none}"
+  # shellcheck disable=SC2086 -- values are validated by the closed case above.
+  if WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" activate-services $stack_services >>"$LOG" 2>&1 && stack_runtime_healthy; then
+    status restarted "affected components are healthy: ${IMPACTS:-none}"
     cleanup_lock
     find "$BASE" -mindepth 1 -maxdepth 1 -type d -name 'txn-*' -mtime +7 -exec rm -rf {} + 2>/dev/null || true
     exit 0

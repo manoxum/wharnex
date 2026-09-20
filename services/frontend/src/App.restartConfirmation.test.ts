@@ -32,5 +32,7 @@ describe('App restart confirmation recovery', () => {
     expect(source).toMatch(/dismissedRestartKeysRef\.current\.add\(restartPresentationKey\)/)
     expect(source).toMatch(/onLater=\{dismissRestartConfirmation\}/)
     expect(source).toMatch(/onRestartPending=\{\(\) => setRestartModalOpen\(true\)\}/)
+    expect(source).toContain('impacts={session.self_evolution_impacts || []}')
+    expect(source).toContain('onActivate={(impacts) => void confirmSelfRestart(impacts)}')
   })
 })

@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     minimize: () => invoke('wharness:windows:minimize'),
     toggleMaximize: () => invoke('wharness:windows:toggle-maximize'),
     close: () => invoke('wharness:windows:close'),
-    prepareRestart: (scope) => invoke('wharness:windows:prepare-restart', { scope }),
+    activateSelfEvolution: (impacts) => invoke('wharness:windows:activate-self-evolution', { impacts }),
   }),
   chatgpt: Object.freeze({
     show: (bounds, cacheKey, url) => invoke('wharness:chatgpt:show', { bounds, cacheKey, url: String(url || '') }),

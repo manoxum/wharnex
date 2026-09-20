@@ -78,7 +78,7 @@ interface WharnessDesktopBridge {
     minimize(): Promise<{ ok: boolean }>
     toggleMaximize(): Promise<{ ok: boolean; maximized: boolean }>
     close(): Promise<{ ok: boolean }>
-    prepareRestart(scope: 'all' | 'current'): Promise<{ ok: boolean; scope: 'all' | 'current'; windowCount: number }>
+    activateSelfEvolution(impacts: Array<'backend' | 'frontend' | 'desktop' | 'tunnel'>): Promise<{ ok: boolean; action: 'services' | 'reload' | 'relaunch' }>
   }
   chatgpt: {
     show(bounds: DesktopBounds, cacheKey: string, url?: string): Promise<{ ok: boolean }>

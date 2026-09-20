@@ -67,9 +67,14 @@ test('renderer window controls are closed preload IPC operations', async () => {
   assert.match(source, /ipcMain\.handle\('wharness:windows:minimize'/)
   assert.match(source, /ipcMain\.handle\('wharness:windows:toggle-maximize'/)
   assert.match(source, /ipcMain\.handle\('wharness:windows:close'/)
+  assert.match(source, /ipcMain\.handle\('wharness:windows:activate-self-evolution'/)
   assert.match(preload, /minimize: \(\) => invoke\('wharness:windows:minimize'\)/)
   assert.match(preload, /toggleMaximize: \(\) => invoke\('wharness:windows:toggle-maximize'\)/)
   assert.match(preload, /close: \(\) => invoke\('wharness:windows:close'\)/)
+  assert.match(preload, /activateSelfEvolution: \(impacts\) => invoke\('wharness:windows:activate-self-evolution'/)
+  const activation = source.slice(source.indexOf("ipcMain.handle('wharness:windows:activate-self-evolution'"), source.indexOf("ipcMain.handle('wharness:chatgpt:show'"))
+  assert.match(activation, /impacts\.includes\('desktop'\)[\s\S]*app\.relaunch\(\); app\.exit\(0\)/)
+  assert.match(activation, /impacts\.includes\('frontend'\)[\s\S]*webContents\.reload\(\)/)
 })
 
 test('local frontend navigation uses a per-runtime cache token', async () => {

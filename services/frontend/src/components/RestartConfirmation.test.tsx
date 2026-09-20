@@ -17,7 +17,7 @@ const change: ChatChangeSummary = {
 
 describe('RestartConfirmation', () => {
   it('shows the applied diff before restart actions and lets the user switch files', () => {
-    render(<RestartConfirmation sessionId="ses-self" change={change} busy={false} onLater={vi.fn()} onRestart={vi.fn()}/>)
+    render(<RestartConfirmation sessionId="ses-self" change={change} impacts={['backend']} busy={false} onLater={vi.fn()} onActivate={vi.fn()}/>)
 
     expect(screen.getByText('Alterações desta versão')).toBeTruthy()
     expect(screen.getByText('2 ficheiro(s) ·', { exact: false })).toBeTruthy()
@@ -25,21 +25,20 @@ describe('RestartConfirmation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'src/second.ts' }))
     expect(screen.getByTestId('restart-diff').textContent).toBe('src/second.ts')
     expect(screen.getByRole('button', { name: 'Mais tarde' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Apenas esta/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Todas agora/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Aplicar agora/ })).toBeTruthy()
   })
 
   it('explains what the restart activates using the planner summary', () => {
     // The operator is deciding whether to restart the runtime; a diff alone
     // makes them reconstruct the intent from the patch.
-    render(<RestartConfirmation sessionId="ses-self" change={{ ...change, summary: 'Corrige o dwell dos workers e espaça as submissões' }} busy={false} onLater={vi.fn()} onRestart={vi.fn()}/>)
+    render(<RestartConfirmation sessionId="ses-self" change={{ ...change, summary: 'Corrige o dwell dos workers e espaça as submissões' }} impacts={['backend']} busy={false} onLater={vi.fn()} onActivate={vi.fn()}/>)
     const summary = screen.getByLabelText('Resumo da alteração')
     expect(summary.textContent).toContain('O que foi feito')
     expect(summary.textContent).toContain('Corrige o dwell dos workers e espaça as submissões')
   })
 
   it('omits the summary block when a legacy change carries none', () => {
-    render(<RestartConfirmation sessionId="ses-self" change={change} busy={false} onLater={vi.fn()} onRestart={vi.fn()}/>)
+    render(<RestartConfirmation sessionId="ses-self" change={change} impacts={['backend']} busy={false} onLater={vi.fn()} onActivate={vi.fn()}/>)
     expect(screen.queryByLabelText('Resumo da alteração')).toBeNull()
   })
 })

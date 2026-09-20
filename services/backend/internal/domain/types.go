@@ -1264,6 +1264,7 @@ type Session struct {
 	SelfEvolution           bool                 `json:"self_evolution,omitempty"`
 	WharnexInstanceID       string               `json:"wharnex_instance_id,omitempty"`
 	SelfEvolutionActivation string               `json:"self_evolution_activation,omitempty"`
+	SelfEvolutionImpacts    []string             `json:"self_evolution_impacts,omitempty"`
 	ResolvedEvidenceIDs     map[string]time.Time `json:"resolved_evidence_ids,omitempty"`
 	EvidenceReviewIDs       []string             `json:"evidence_review_ids,omitempty"`
 	State                   string               `json:"state"`

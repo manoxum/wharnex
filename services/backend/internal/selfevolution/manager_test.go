@@ -34,6 +34,7 @@ func TestTransactionRollbackRestoresTouchedSourceAndRuntime(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "dist", "bin", "wharness-backend"), "old-backend\n", 0o755)
 	mustWrite(t, filepath.Join(root, "services", "frontend", "dist", "index.html"), "old-frontend\n", 0o644)
 	mustWrite(t, filepath.Join(root, ".harness", "build-success"), "", 0o600)
+	mustWrite(t, filepath.Join(root, ".harness", "source-success.sha256"), "old-source\n", 0o600)
 
 	patch := strings.Join([]string{
 		"diff --git a/hello.txt b/hello.txt",
@@ -61,6 +62,7 @@ func TestTransactionRollbackRestoresTouchedSourceAndRuntime(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "dist", "bin", "wharness-backend"), "new-backend\n", 0o755)
 	mustWrite(t, filepath.Join(root, "services", "frontend", "dist", "index.html"), "new-frontend\n", 0o644)
 	_ = os.Remove(filepath.Join(root, ".harness", "build-success"))
+	mustWrite(t, filepath.Join(root, ".harness", "source-success.sha256"), "new-source\n", 0o600)
 
 	if err := tx.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
@@ -73,6 +75,47 @@ func TestTransactionRollbackRestoresTouchedSourceAndRuntime(t *testing.T) {
 	assertFile(t, filepath.Join(root, "services", "frontend", "dist", "index.html"), "old-frontend\n")
 	if _, err := os.Stat(filepath.Join(root, ".harness", "build-success")); err != nil {
 		t.Fatalf("build stamp should be restored: %v", err)
+	}
+	assertFile(t, filepath.Join(root, ".harness", "source-success.sha256"), "old-source\n")
+}
+
+func TestTransactionPersistsSelectiveActivationImpactsAcrossExtensions(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "services", "frontend", "src", "App.tsx"), "old\n", 0o644)
+	mustWrite(t, filepath.Join(root, "services", "backend", "main.go"), "package main\n", 0o644)
+	manager := New(root)
+	first, err := manager.Prepare("ses-front", "plan-front", []string{"--- a/services/frontend/src/App.tsx\n+++ b/services/frontend/src/App.tsx\n@@ -1 +1 @@\n-old\n+new\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	if strings.Join(first.ActivationImpacts, ",") != "frontend" {
+		t.Fatalf("frontend patch impacts = %#v", first.ActivationImpacts)
+	}
+	if err := manager.RecordStatus(first, "ses-front", "plan-front", "restart_pending", "built"); err != nil {
+		t.Fatal(err)
+	}
+	first.ReleaseStage()
+	second, err := manager.Prepare("ses-back", "plan-back", []string{"--- a/services/backend/main.go\n+++ b/services/backend/main.go\n@@ -1 +1 @@\n-package main\n+package backend\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(second.ActivationImpacts, ",") != "backend,frontend" {
+		t.Fatalf("extended batch impacts = %#v", second.ActivationImpacts)
+	}
+	if err := second.appendPendingPlan("ses-back", "plan-back"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.RecordStatus(second, "ses-back", "plan-back", "restart_pending", "built"); err != nil {
+		t.Fatal(err)
+	}
+	second.ReleaseStage()
+	recovered, _, err := manager.PendingPlanForSession("ses-front")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(recovered.ActivationImpacts, ",") != "backend,frontend" {
+		t.Fatalf("recovered impacts = %#v", recovered.ActivationImpacts)
 	}
 }
 
@@ -913,6 +956,29 @@ func TestScheduleRestartStackUsesDetachedSupervisorContainer(t *testing.T) {
 			t.Fatalf("missing stack supervisor args %q in:\n%s", expected, args)
 		}
 	}
+}
+
+func TestStackRestartWorkerActivatesOnlyAffectedServicesWithoutRebuilding(t *testing.T) {
+	root := fakeRoot(t)
+	txn := filepath.Join(root, ".harness", "self-evolution", "txn-selective")
+	if err := os.MkdirAll(txn, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	argsFile := filepath.Join(t.TempDir(), "stack-args.txt")
+	mustWrite(t, filepath.Join(root, "scripts", "stack.sh"), "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$STACK_ARGS_FILE\"\n", 0o700)
+	binDir := t.TempDir()
+	mustWrite(t, filepath.Join(binDir, "curl"), "#!/bin/sh\nexit 0\n", 0o700)
+	working, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := filepath.Clean(filepath.Join(working, "..", "..", "..", "..", "scripts", "self-restart.sh"))
+	cmd := exec.Command(worker, root, txn, "ses-selective", "plan-selective", "frontend")
+	cmd.Env = append(os.Environ(), "WHARNESS_SERVICES_MODE=stack", "STACK_ARGS_FILE="+argsFile, "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("worker failed: %v\n%s", err, output)
+	}
+	assertFile(t, argsFile, "activate-services\nfrontend\n")
 }
 
 // A fail-closed phase deliberately holds the global batch lock so a human can

@@ -340,6 +340,7 @@ export type Session = {
   self_evolution?: boolean
 	wharnex_instance_id?: string
   self_evolution_activation?: 'restart_pending' | 'restart_scheduled'
+  self_evolution_impacts?: ActivationImpact[]
   state: string
   created_at: string
   context: {
@@ -397,6 +398,8 @@ export type Session = {
   compacted_at?: string
   archive_package?: { sha256: string; size: number; entry_count: number; created_at: string }
 }
+
+export type ActivationImpact = 'backend' | 'frontend' | 'desktop' | 'tunnel'
 
 
 export type ArtifactRecord = {

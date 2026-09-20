@@ -24,9 +24,10 @@ type sourceBackup struct {
 var ErrTransactionMetadataMismatch = errors.New("self-evolution transaction metadata does not match transaction")
 
 type transactionMetadata struct {
-	TransactionID string        `json:"transaction_id"`
-	Root          string        `json:"root"`
-	Plans         []PendingPlan `json:"plans"`
+	TransactionID     string        `json:"transaction_id"`
+	Root              string        `json:"root"`
+	Plans             []PendingPlan `json:"plans"`
+	ActivationImpacts []string      `json:"activation_impacts"`
 	// PreTransactionSHA is the host's real Git HEAD at the moment this
 	// transaction captured its source-file backups, when the host is a Git
 	// repository. Rollback compares this against HEAD at rollback time to
@@ -144,6 +145,12 @@ func (tx Transaction) captureRuntime() error {
 			return err
 		}
 	}
+	fingerprint := filepath.Join(tx.Root, ".harness", "source-success.sha256")
+	if info, err := os.Stat(fingerprint); err == nil && info.Mode().IsRegular() {
+		if err := copyFile(fingerprint, filepath.Join(runtimeDir, "source-success.sha256"), info.Mode()); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -176,6 +183,7 @@ func (tx Transaction) writeMetadata(sessionID, planID string) error {
 		TransactionID:     tx.ID,
 		Root:              tx.Root,
 		Plans:             []PendingPlan{{SessionID: sessionID, PlanID: planID}},
+		ActivationImpacts: append([]string{}, tx.ActivationImpacts...),
 		PreTransactionSHA: tx.PreTransactionSHA,
 	}
 	return tx.saveMetadata(metadata)
@@ -192,7 +200,41 @@ func (tx Transaction) appendPendingPlan(sessionID, planID string) error {
 		}
 	}
 	metadata.Plans = append(metadata.Plans, PendingPlan{SessionID: sessionID, PlanID: planID})
+	metadata.ActivationImpacts = mergeActivationImpacts(metadata.ActivationImpacts, tx.ActivationImpacts)
 	return tx.saveMetadata(metadata)
+}
+
+func activationImpacts(patches []string) []string {
+	impacts := map[string]struct{}{}
+	for _, patch := range patches {
+		for _, path := range patchPaths(patch) {
+			switch {
+			case strings.HasPrefix(path, "services/backend/"), strings.HasPrefix(path, "schemas/"):
+				impacts["backend"] = struct{}{}
+			case strings.HasPrefix(path, "services/frontend/"):
+				impacts["frontend"] = struct{}{}
+			case strings.HasPrefix(path, "services/desktop/"):
+				impacts["desktop"] = struct{}{}
+			case strings.HasPrefix(path, "services/tunnel/"):
+				impacts["tunnel"] = struct{}{}
+			case path == "compose.yml", strings.HasPrefix(path, "docker/"):
+				impacts["backend"] = struct{}{}
+				impacts["frontend"] = struct{}{}
+				impacts["tunnel"] = struct{}{}
+			}
+		}
+	}
+	return uniqueSorted(impacts)
+}
+
+func mergeActivationImpacts(groups ...[]string) []string {
+	merged := map[string]struct{}{}
+	for _, group := range groups {
+		for _, impact := range group {
+			merged[impact] = struct{}{}
+		}
+	}
+	return uniqueSorted(merged)
 }
 
 // RemoveExtensionPlan rolls back only the membership appended while preparing
@@ -306,6 +348,7 @@ func (tx Transaction) writeRollback(backups []sourceBackup) error {
 	script.WriteString("[ ! -d \"$TXN/runtime/root-dist\" ] || cp -a \"$TXN/runtime/root-dist\" \"$ROOT/dist\"\n")
 	script.WriteString("[ ! -d \"$TXN/runtime/frontend-dist\" ] || cp -a \"$TXN/runtime/frontend-dist\" \"$ROOT/services/frontend/dist\"\n")
 	script.WriteString("if [ -f \"$TXN/runtime/build-success\" ]; then mkdir -p \"$ROOT/.harness\"; cp -p \"$TXN/runtime/build-success\" \"$ROOT/.harness/build-success\"; touch \"$ROOT/.harness/build-success\"; else rm -f \"$ROOT/.harness/build-success\"; fi\n")
+	script.WriteString("if [ -f \"$TXN/runtime/source-success.sha256\" ]; then cp -p \"$TXN/runtime/source-success.sha256\" \"$ROOT/.harness/source-success.sha256\"; else rm -f \"$ROOT/.harness/source-success.sha256\"; fi\n")
 	if err := os.WriteFile(tx.RollbackScript, []byte(script.String()), 0o700); err != nil {
 		return err
 	}

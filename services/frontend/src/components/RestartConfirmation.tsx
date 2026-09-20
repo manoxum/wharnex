@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react'
-import type { ChatChangeSummary } from '../types'
+import type { ActivationImpact, ChatChangeSummary } from '../types'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
 import { Icon } from './Icon'
 
 type RestartConfirmationProps = {
   sessionId: string
   change?: ChatChangeSummary
+  impacts: ActivationImpact[]
   busy: boolean
   onLater: () => void
-  onRestart: (scope: 'all' | 'current') => void
+  onActivate: (impacts: ActivationImpact[]) => void
 }
 
-export function RestartConfirmation({ sessionId, change, busy, onLater, onRestart }: RestartConfirmationProps) {
+const impactLabels: Record<ActivationImpact, string> = { backend: 'Backend', frontend: 'Frontend', desktop: 'Desktop', tunnel: 'Túnel' }
+
+export function RestartConfirmation({ sessionId, change, impacts, busy, onLater, onActivate }: RestartConfirmationProps) {
   const files = change?.files ?? []
   const [selectedPath, setSelectedPath] = useState(files[0]?.path || '')
   const selected = files.find((file) => file.path === selectedPath) || files[0]
@@ -26,7 +29,10 @@ export function RestartConfirmation({ sessionId, change, busy, onLater, onRestar
       <div className="restart-confirmation-copy">
         <span className="panel-kicker">Auto-evolução concluída</span>
         <h2 id="restart-confirmation-title">Como ativar a nova versão?</h2>
-        <p>O host já foi atualizado, a revisão final do ChatGPT foi recebida e o conhecimento foi processado. Confirme quando deseja ativar a runtime reconstruída.</p>
+        <p>O build já foi concluído. Confirme quando deseja aplicar apenas os componentes afetados.</p>
+      </div>
+      <div className="restart-confirmation-summary" aria-label="Componentes afetados">
+        <div><span className="restart-confirmation-summary-label">Componentes afetados</span><p>{impacts.length ? impacts.map((impact) => impactLabels[impact]).join(' · ') : 'Nenhum serviço em execução'}</p></div>
       </div>
       {/* The planner's own short description of the delivered work. The protocol
           requires it on every plan-bearing response, so the operator is never
@@ -57,8 +63,7 @@ export function RestartConfirmation({ sessionId, change, busy, onLater, onRestar
       </section>
       <div className="restart-confirmation-actions restart-scope-actions">
         <button className="secondary-button" disabled={busy} onClick={onLater}>Mais tarde</button>
-        <button className="secondary-button" disabled={busy} onClick={() => onRestart('current')}><Icon name="refresh" size={14}/> Apenas esta</button>
-        <button className="apply-button" disabled={busy} onClick={() => onRestart('all')}><Icon name="refresh" size={14}/> Todas agora</button>
+        <button className="apply-button" disabled={busy} onClick={() => onActivate(impacts)}><Icon name="refresh" size={14}/> {impacts.includes('desktop') ? 'Reiniciar Desktop agora' : impacts.length === 1 && impacts[0] === 'frontend' ? 'Recarregar frontend agora' : 'Aplicar agora'}</button>
       </div>
     </section>
   </div>

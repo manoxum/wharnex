@@ -818,6 +818,22 @@ function consumeRestartIntent() {
   } catch { return undefined }
 }
 
+async function waitForSelfEvolutionActivation() {
+  const root = String(process.env.WHARNESS_ROOT || '').trim()
+  if (!root) return false
+  const statusPath = path.join(root, '.harness', 'self-evolution', 'status')
+  for (let attempt = 0; attempt < 600 && !quitting; attempt += 1) {
+    try {
+      const status = await readFile(statusPath, 'utf8')
+      const phase = status.split('\n').find((line) => line.startsWith('phase='))?.slice('phase='.length)
+      if (phase === 'restarted') return true
+      if (phase === 'rolled_back_runtime' || phase === 'rollback_failed' || phase === 'restart_failed') return false
+    } catch { /* the detached supervisor has not published status yet */ }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  return false
+}
+
 function canonicalBundleFilename(chatId, requestId) {
   const id = String(requestId || '').trim()
   const filename = buildBundleName('res', safeChatId(chatId), id)
@@ -6893,15 +6909,29 @@ function registerIPC() {
     }, 0)
     return { ok: true }
   })
-  ipcMain.handle('wharness:windows:prepare-restart', (event, request) => {
+  ipcMain.handle('wharness:windows:activate-self-evolution', (event, request) => {
     const windowState = trustedSender(event)
-    const scope = request?.scope === 'current' ? 'current' : 'all'
-    persistWindowLayout()
-    persistRestartIntent(scope, windowState.id)
-    for (const state of desktopWindows.values()) {
-      sendToWindowState(state, 'wharness:windows:restart-intent', { scope, currentWindowId: windowState.id, affected: scope === 'all' || state.id === windowState.id })
+    const allowed = new Set(['backend', 'frontend', 'desktop', 'tunnel'])
+    const impacts = [...new Set(Array.isArray(request?.impacts) ? request.impacts : [])]
+    if (impacts.some((impact) => !allowed.has(impact))) throw new Error('Invalid self-evolution activation impact')
+    if (impacts.includes('desktop')) {
+      persistWindowLayout()
+      persistRestartIntent('all', windowState.id)
+      for (const state of desktopWindows.values()) sendToWindowState(state, 'wharness:windows:restart-intent', { scope: 'all', currentWindowId: windowState.id, affected: true })
+      setTimeout(async () => {
+        if (await waitForSelfEvolutionActivation()) { app.relaunch(); app.exit(0) }
+      }, 0)
+      return { ok: true, action: 'relaunch' }
     }
-    return { ok: true, scope, windowCount: desktopWindows.size }
+    if (impacts.includes('frontend')) {
+      setTimeout(async () => {
+        if (await waitForSelfEvolutionActivation()) {
+          for (const state of desktopWindows.values()) if (!state.window.isDestroyed()) state.window.webContents.reload()
+        }
+      }, 0)
+      return { ok: true, action: 'reload' }
+    }
+    return { ok: true, action: 'services' }
   })
   ipcMain.handle('wharness:chatgpt:show', async (event, request) => {
     const windowState = trustedSender(event)

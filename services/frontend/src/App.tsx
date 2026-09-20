@@ -2941,18 +2941,18 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setRestartModalOpen(false)
   }
 
-  async function confirmSelfRestart(scope: 'all' | 'current') {
+  async function confirmSelfRestart(impacts: import('./types').ActivationImpact[]) {
     if (!session || !isRestartPending(session) || busy) return
     const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      await desktopBridge()?.windows.prepareRestart(scope)
       const updated = await api.restartSelfEvolution(targetSession.id)
       acceptSessionForChat(targetChat, updated); setRestartModalOpen(false)
-      const detail = scope === 'current' ? 'As outras janelas serão restauradas com os respetivos projetos e estado de trabalho.' : 'Todas as janelas serão restauradas na nova runtime.'
-      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Reinício confirmado. ${detail} O supervisor transacional valida a nova runtime e restaura automaticamente a versão anterior se a ativação falhar.`, meta: 'AUTO-EVOLUÇÃO · reinício confirmado' })
+      await desktopBridge()?.windows.activateSelfEvolution(impacts)
+      const detail = impacts.length ? impacts.join(', ') : 'nenhum serviço em execução'
+      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Ativação confirmada para: ${detail}. O supervisor transacional valida os componentes afetados e restaura automaticamente a versão anterior se a ativação falhar.`, meta: 'AUTO-EVOLUÇÃO · ativação confirmada' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -3495,7 +3495,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       onClose={() => setAttentionPreviewOpen(false)}
     />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} onTunnelConfigSaved={(document) => setConfig((current) => reconcileTunnelConfig(current, document))} />}
-    {restartModalOpen && restartPresentationKey && <RestartConfirmation sessionId={session.id} change={buildAppliedChangeSummary(session)} busy={busy} onLater={dismissRestartConfirmation} onRestart={(scope) => void confirmSelfRestart(scope)} />}
+    {restartModalOpen && restartPresentationKey && <RestartConfirmation sessionId={session.id} change={buildAppliedChangeSummary(session)} impacts={session.self_evolution_impacts || []} busy={busy} onLater={dismissRestartConfirmation} onActivate={(impacts) => void confirmSelfRestart(impacts)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery
       items={interruptedExecutions.map((target) => ({ ...target, queue: executionFIFO.find((item) => item.chatId === target.chat.id && item.planId === target.session.interrupted_execution?.plan_id), humanAction: recoveryHumanAction(target.chat, chatgptHumanActions) }))}
       busyChats={busyChats}

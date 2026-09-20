@@ -2977,6 +2977,7 @@ func TestAutoSelfEvolutionRunsProjectVerificationAndReachesRestartPending(t *tes
 		"scripts/start.sh":              "#!/usr/bin/env sh\nexit 0\n",
 		"scripts/stop.sh":               "#!/usr/bin/env sh\nexit 0\n",
 		"scripts/self-restart.sh":       "#!/usr/bin/env sh\nexit 0\n",
+		"scripts/source-fingerprint.sh": "#!/usr/bin/env sh\nset -eu\nmkdir -p \"$WHARNESS_ROOT/.harness\"\nprintf 'built\\n' > \"$WHARNESS_ROOT/.harness/source-success.sha256\"\n",
 		"scripts/stack.sh":              "#!/usr/bin/env sh\nexit 0\n",
 		"services/backend/go.mod":       "module example.invalid/self-auto\n",
 		"services/desktop/package.json": "{}\n",

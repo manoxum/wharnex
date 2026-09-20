@@ -99,6 +99,8 @@ Self-evolution is locked to `Protected`; switching that session to `Unprotected`
 
 Model plans MUST NOT own start/stop/restart of Wharness in self-evolution mode. They verify source changes in the Protected sandbox; Wharness owns host build, batching, lifecycle handoff and recovery. Runtime recovery files under `.harness` are not project-mutation targets.
 
+Self-evolution host build and activation are distinct phases. The build stage MUST keep the running services alive, persist the union of affected runtime components, and record the completed source fingerprint after post-build version bookkeeping. Activation MUST recreate only affected backend/frontend/tunnel services; it reloads the frontend page only for a frontend impact and relaunches the Desktop process only for a Desktop impact. A launcher MUST NOT repeat a build whose completed fingerprint was already recorded.
+
 ## Parallel ChangeSet integration (v1.3)
 
 The managed-context SHA-256 is provenance and cache identity, not a global project lock. Every planner request retains a bounded immutable context archive keyed by `request_id`. A request remains valid while other chats, humans, or external coding agents edit the host; baseline notices are informational and MUST NOT supersede an in-flight request.
