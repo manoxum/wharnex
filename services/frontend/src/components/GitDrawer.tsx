@@ -228,23 +228,27 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
           />}
           {activeChangesTab === 'pending' && <GitUnpushedSection
             sessionId={session.id} activeBranch={current} remotes={overview.remotes} disabled={disabled}
-            onFullPush={(remote, branch, setUpstream) => runGitOperation(
-              'A publicar alterações',
-              `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
-              async () => {
-                const result = await api.gitPush(session.id, remote, branch, setUpstream)
-                return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
-              },
-              true,
-            )}
-            onSelectedPush={(commitSHAs) => runGitOperation(
-              'A publicar commits selecionados',
-              `A enviar ${commitSHAs.length} commit(s) para o upstream da branch atual.`,
-              async () => {
-                const result = await api.gitPushSelected(session.id, commitSHAs)
-                return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
-              },
-            )}
+            onFullPush={async (remote, branch, setUpstream) => {
+              await runGitOperation(
+                'A publicar alterações',
+                `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
+                async () => {
+                  const result = await api.gitPush(session.id, remote, branch, setUpstream)
+                  return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
+                },
+                true,
+              )
+            }}
+            onSelectedPush={async (commitSHAs) => {
+              await runGitOperation(
+                'A publicar commits selecionados',
+                `A enviar ${commitSHAs.length} commit(s) para o upstream da branch atual.`,
+                async () => {
+                  const result = await api.gitPushSelected(session.id, commitSHAs)
+                  return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
+                },
+              )
+            }}
           />}
         </>}
         {activeTab === 'history' && <HistorySection sessionId={session.id} branches={overview.branches}/>}
