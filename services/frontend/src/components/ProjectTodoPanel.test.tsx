@@ -69,6 +69,25 @@ describe('ProjectTodoPanel', () => {
     await waitFor(() => expect(mocks.createProjectTodo).toHaveBeenCalledWith('session-1', expect.objectContaining({ body: 'Nova ideia' })))
     await waitFor(() => expect(screen.queryByTestId('todo-composer')).toBeNull())
   })
+
+  it('orders TODOs by urgency while keeping unclassified items last', async () => {
+    const veryUrgent = { ...classified, id: 'todo-very-urgent', body: 'Bloqueio crítico', urgency: 'very_urgent' as const }
+    const urgent = { ...classified, id: 'todo-urgent', body: 'Corrigir regressão', urgency: 'urgent' as const }
+    const noUrgency = { ...classified, id: 'todo-no-urgency', body: 'Melhoria futura', urgency: 'no_urgency' as const }
+    const unclassified = { ...classified, id: 'todo-queued', body: 'Ideia ainda por classificar', urgency: undefined, kind: undefined, classification_status: 'queued' as const }
+    mocks.projectTodos.mockResolvedValue({ todos: [unclassified, noUrgency, classified, urgent, veryUrgent] })
+
+    render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
+    await screen.findByText('Bloqueio crítico')
+
+    expect(screen.getAllByRole('article').map((card) => card.textContent)).toEqual([
+      expect.stringContaining('Bloqueio crítico'),
+      expect.stringContaining('Corrigir regressão'),
+      expect.stringContaining('Melhorar a pesquisa'),
+      expect.stringContaining('Melhoria futura'),
+      expect.stringContaining('Ideia ainda por classificar'),
+    ])
+  })
   it('forwards the worker pre-plan to the Orchestrator as a disposable attachment', async () => {
     const persist = vi.fn().mockResolvedValue({ ok: true, attachments: [{ name: 'wharnex-todo-pre-plan.md', size: 128, mime: 'text/markdown', storageRef: 'orch_todo_test/msg/file', previewKind: 'icon' }] })
     const removeChat = vi.fn().mockResolvedValue({ ok: true })
