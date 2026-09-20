@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { GitAuthorSettings, GitBranch, GitCommitDetail, GitCommitMode, GitConflictStrategy, GitFileDiff, GitOverview, GitPendingCommit, Session } from '../types'
 import { api, APIError } from '../lib/api'
 import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
+import { announceGitChanged, subscribeGitLiveSync } from '../lib/gitLiveSync'
 import { Icon } from './Icon'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
@@ -61,6 +62,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { void refresh() }, [session.last_host_applied_at, session.state, refresh])
+  useEffect(() => subscribeGitLiveSync(session.id, () => { void refresh() }), [session.id, refresh])
   useEffect(() => {
     if (!overview) return
     const committable = new Set(overview.working.files.filter((file) => file.kind === 'change' || file.kind === 'gitlink').map((file) => file.path))
@@ -79,6 +81,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     try {
       await action()
       await refresh()
+      announceGitChanged(session.id)
       if (syncSession && onSession) onSession(await api.getSession(session.id))
     } catch (error) {
       report(error)
@@ -99,6 +102,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
       phase = 'refreshing'
       setOperation({ title, detail, phase })
       await loadOverview()
+      announceGitChanged(session.id)
       if (syncSession && onSession) onSession(await api.getSession(session.id))
       setNotice(actionMessage)
       setOperation({ title, detail, phase: 'success', message: actionMessage })
@@ -113,6 +117,16 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   }
 
   const disabled = busy || working || loading
+
+  async function copyGitText(value: string, success: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setNoticeError(false)
+      setNotice(success)
+    } catch (error) {
+      report(error)
+    }
+  }
 
   async function conflictMessage(conflictID: string | undefined, context: string) {
     if (!conflictID) return context
@@ -283,6 +297,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             await api.gitSwitch(session.id, branch)
             setNotice(`Branch alterada para ${branch}.`)
           }, true)}
+          onCopyBranch={(branch) => void copyGitText(branch, `Nome da branch ${branch} copiado.`)}
           onPush={(remote, branch, setUpstream) => runGitOperation(
             'A publicar alterações',
             `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
@@ -295,6 +310,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
         />}
         {activeTab === 'settings' && <>
           <RepositorySettings overview={overview} disabled={disabled}
+            onCopyRemote={(name, url) => void copyGitText(url, `URL de ${name} copiada.`)}
             onChange={(mode) => run(async () => { await api.setGitCommitMode(session.id, mode) })}
             onConflictStrategy={(strategy) => run(async () => { await api.setGitConflictStrategy(session.id, strategy) })}
             onAuthorSettings={(settings) => run(async () => { await api.setGitAuthorSettings(session.id, settings) })}
@@ -411,10 +427,11 @@ function pushMessage(outcome: string, integrated?: boolean, conflictID?: string)
   }
 }
 
-function RepositorySettings({ overview, disabled, onChange, onConflictStrategy, onAuthorSettings }: {
+function RepositorySettings({ overview, disabled, onChange, onConflictStrategy, onAuthorSettings, onCopyRemote }: {
   overview: GitOverview; disabled: boolean; onChange: (mode: GitCommitMode) => void
   onConflictStrategy: (strategy: GitConflictStrategy) => void
   onAuthorSettings: (settings: GitAuthorSettings) => void
+  onCopyRemote: (name: string, url: string) => void
 }) {
   const authorSettings = overview.author_settings || { commit_author_strategy: 'wharnex_git_user' as const }
   const [authorStrategy, setAuthorStrategy] = useState(authorSettings.commit_author_strategy)
@@ -443,7 +460,7 @@ function RepositorySettings({ overview, disabled, onChange, onConflictStrategy, 
     <section className="git-section git-remotes-section">
       <div className="git-section-heading"><div><span>Remotos</span><strong>Destinos configurados</strong></div><span className="git-section-count">{overview.remotes.length}</span></div>
       {overview.remotes.length === 0 ? <p className="git-empty inline">Nenhum remoto configurado.</p> : <ul className="git-remote-list">
-        {overview.remotes.map((remote) => <li key={remote.name}><Icon name="network" size={13}/><strong>{remote.name}</strong><span>{remote.url}</span></li>)}
+        {overview.remotes.map((remote) => <li key={remote.name}><Icon name="network" size={13}/><strong>{remote.name}</strong><span title={remote.url}>{remote.url}</span><button type="button" className="git-inline-copy" aria-label={`Copiar URL de ${remote.name}`} title="Copiar URL do remoto" onClick={() => onCopyRemote(remote.name, remote.url)}><Icon name="copy" size={11}/></button></li>)}
       </ul>}
     </section>
   </div>
@@ -462,12 +479,12 @@ function CommitModeSection({ overview, disabled, onChange }: { overview: GitOver
   </section>
 }
 
-function BranchSection({ sessionId, current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onPush }: {
+function BranchSection({ sessionId, current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onCopyBranch, onPush }: {
   sessionId: string; current?: string; detached: boolean; localBranches: GitOverview['branches']; remoteBranches: GitOverview['branches']; remotes: GitOverview['remotes']
   disabled: boolean; mergeRef: string; onMergeRefChange: (value: string) => void; onMerge: () => void
   remoteMergeTarget: string; remoteMergeSources: string[]; onRemoteMergeTargetChange: (value: string) => void; onRemoteMergeSourcesChange: (values: string[]) => void; onRemoteMerge: () => void
   onFetch: (remote: string) => void; onPull: (remote: string, branch: string) => void; onSwitch: (branch: string) => void
-  onPush: (remote: string, branch: string, setUpstream: boolean) => void
+  onCopyBranch: (branch: string) => void; onPush: (remote: string, branch: string, setUpstream: boolean) => void
 }) {
   const active = localBranches.find((branch) => branch.current)
   const upstreamRemote = active?.upstream?.split('/')[0]
@@ -499,7 +516,7 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
         <span className="git-branch-icon"><Icon name="git" size={16}/></span>
         <div className="git-branch-hero-copy">
           <span>Branch atual</span>
-          <strong>{detached ? 'HEAD destacado' : current || '—'}</strong>
+          <div className="git-branch-hero-name"><strong>{detached ? 'HEAD destacado' : current || '—'}</strong>{current && !detached && <button type="button" className="git-inline-copy" aria-label={`Copiar nome da branch ${current}`} title="Copiar nome da branch" onClick={() => onCopyBranch(current)}><Icon name="copy" size={11}/></button>}</div>
           {active && <div className="git-branch-hero-meta">
             {active.has_upstream ? <>
               {active.ahead > 0 && <span className="outgoing"><Icon name="arrow-up" size={10}/>{active.ahead} por enviar</span>}
@@ -509,13 +526,13 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
             </> : <span className="warning"><Icon name="alert" size={10}/>Sem upstream</span>}
           </div>}
         </div>
-        {canSync && active && <div className="git-branch-hero-actions">
-          <button type="button" className="git-action" disabled={disabled} onClick={() => onFetch(defaultRemote)}><Icon name="refresh" size={13}/><span>Fetch</span></button>
-          <button type="button" className="git-action" disabled={disabled} onClick={() => onPull(defaultRemote, active.name)}><Icon name="arrow-down" size={13}/><span>Pull</span></button>
-          <button type="button" className="git-action primary" disabled={disabled} onClick={() => onPush(defaultRemote, active.name, !active.has_upstream)}><Icon name="arrow-up" size={13}/><span>Push</span></button>
+        {canSync && active && <div className="git-branch-hero-actions" role="group" aria-label="Sincronização da branch atual">
+          <button type="button" className="git-branch-icon-action" disabled={disabled} onClick={() => onFetch(defaultRemote)} aria-label={`Fetch de ${defaultRemote}`} title="Fetch"><Icon name="refresh" size={13}/></button>
+          <button type="button" className="git-branch-icon-action" disabled={disabled} onClick={() => onPull(defaultRemote, active.name)} aria-label={`Pull de ${active.name}`} title="Pull"><Icon name="arrow-down" size={13}/></button>
+          <button type="button" className="git-branch-icon-action primary" disabled={disabled} onClick={() => onPush(defaultRemote, active.name, !active.has_upstream)} aria-label={`Push de ${active.name}`} title="Push"><Icon name="arrow-up" size={13}/></button>
         </div>}
       </div>
-      <div className="git-branch-refresh-note"><Icon name="refresh" size={11}/><span>Referências remotas atualizadas automaticamente a cada 60 s</span></div>
+      <div className="git-branch-refresh-note"><Icon name="refresh" size={11}/><span>Branch sincronizada em tempo real · referências remotas atualizadas a cada 60 s</span></div>
     </div>
 
     <div className="git-branch-operations">
@@ -571,13 +588,13 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
         <div><span>Repositório</span><strong>Branches disponíveis</strong></div>
         <span>{localBranches.length + remoteBranches.length} no total</span>
       </div>
-      <BranchList title="Locais" description="Branches disponíveis no workspace" branches={localBranches} disabled={disabled} onSwitch={onSwitch}/>
-      <BranchList title="Remotas" description="Referências conhecidas no servidor" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch}/>
+      <BranchList title="Locais" description="Branches disponíveis no workspace" branches={localBranches} disabled={disabled} onSwitch={onSwitch} onCopy={onCopyBranch}/>
+      <BranchList title="Remotas" description="Referências conhecidas no servidor" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch} onCopy={onCopyBranch}/>
     </div>
   </section>
 }
 
-function BranchList({ title, description, branches, disabled = false, onSwitch }: { title: string; description: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void }) {
+function BranchList({ title, description, branches, disabled = false, onSwitch, onCopy }: { title: string; description: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void; onCopy: (branch: string) => void }) {
   return <div className="git-branch-group">
     <div className="git-branch-group-heading">
       <div className="git-branch-group-title"><span className="git-branch-group-icon"><Icon name="git" size={12}/></span><div><strong>{title}</strong><small>{description}</small></div></div>
@@ -603,6 +620,7 @@ function BranchList({ title, description, branches, disabled = false, onSwitch }
             {branch.behind > 0 && <span className="active incoming" title={`${branch.behind} commit(s) para receber`}><Icon name="arrow-down" size={11}/><b>{branch.behind}</b></span>}
             <span className={`git-branch-counterpart ${branch.has_counterpart ? 'active' : ''}`} title={counterpartLabel} aria-label={counterpartLabel}><Icon name="link" size={10}/><b>{counterpartText}</b></span>
           </span>
+          <button type="button" className="git-inline-copy git-branch-copy-action" aria-label={`Copiar nome da branch ${branch.name}`} title="Copiar nome da branch" onClick={() => onCopy(branch.name)}><Icon name="copy" size={11}/></button>
           {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}><Icon name="bridge" size={11}/><span>{branch.remote && !branch.has_counterpart ? 'Criar local' : 'Alternar'}</span></button>}
         </div>
       </li>

@@ -891,6 +891,12 @@ export type GitCommitDetail = {
 
 export type GitHistoryPage = { commits: GitCommit[]; next_offset: number; has_more: boolean }
 
+export type GitHeadState = {
+  current_branch?: string
+  detached: boolean
+  commit_sha?: string
+}
+
 export type GitOverview = {
   project_path: string
   project_version?: string
