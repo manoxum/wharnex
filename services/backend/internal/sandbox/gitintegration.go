@@ -121,7 +121,21 @@ func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message str
 		commitArgs = append(commitArgs, "--allow-empty")
 	}
 	commitArgs = append(commitArgs, "-m", message)
-	if output, err := runGit(ctx, workspacePath, commitArgs...); err != nil {
+	output, commitErr := runGit(ctx, workspacePath, commitArgs...)
+	if commitErr != nil && !allowEmpty && isNothingToCommitOutput(output) {
+		// The plan's patch was already applied and every verification gate
+		// already ran against this exact working tree before this call, so an
+		// empty result here cannot mean the change failed to apply — it means
+		// these paths already hold this exact content on the branch this
+		// commit is extending (a focused conflict-resolution replay whose
+		// resolution the target already carries, a peer that landed the same
+		// bytes first, patched content restoring what was already there). That
+		// is the same condition CommitVerifiedPatchAllowEmpty exists to record
+		// for a legacy candidate, and discarding a verified candidate over it
+		// is strictly worse than a traceable empty commit.
+		output, commitErr = runGit(ctx, workspacePath, append(commitArgs, "--allow-empty")...)
+	}
+	if commitErr != nil {
 		return "", fmt.Errorf("commit verified changes: %s", output)
 	}
 	sha, err := CurrentHeadSHA(ctx, workspacePath)
@@ -129,6 +143,15 @@ func commitVerifiedPatch(ctx context.Context, workspacePath, branch, message str
 		return "", fmt.Errorf("resolve integration commit: %w", err)
 	}
 	return sha, nil
+}
+
+// isNothingToCommitOutput reports whether a failed `git commit`'s output
+// names the benign "nothing staged differs from HEAD" condition rather than a
+// real Git failure. Both phrasings occur depending on whether anything at all
+// is staged ("nothing to commit, working tree clean") or the staged paths
+// matched HEAD exactly ("no changes added to commit").
+func isNothingToCommitOutput(output string) bool {
+	return strings.Contains(output, "nothing to commit") || strings.Contains(output, "no changes added to commit")
 }
 
 // PushBranchToHost transfers commits from a sandbox clone's branch into the

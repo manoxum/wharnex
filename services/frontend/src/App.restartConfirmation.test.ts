@@ -35,4 +35,10 @@ describe('App restart confirmation recovery', () => {
     expect(source).toContain('impacts={session.self_evolution_impacts || []}')
     expect(source).toContain('onActivate={(impacts) => void confirmSelfRestart(impacts)}')
   })
+
+  it('commits Desktop activation only after the backend accepts the detached handoff', () => {
+    const restart = source.slice(source.indexOf('async function confirmSelfRestart('), source.indexOf('\n  async function commentOnActiveTask', source.indexOf('async function confirmSelfRestart(')))
+    expect(restart.indexOf('await api.restartSelfEvolution(targetSession.id)')).toBeGreaterThan(-1)
+    expect(restart.indexOf('await desktopBridge()?.windows.activateSelfEvolution(impacts)')).toBeGreaterThan(restart.indexOf('await api.restartSelfEvolution(targetSession.id)'))
+  })
 })

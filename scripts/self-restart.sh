@@ -97,8 +97,9 @@ recover_stack_runtime() {
     return 1
   fi
   status rollback_restored "previous source/artifacts restored; rebuilding previous application images"
+  # shellcheck disable=SC2086 -- values come from the validated impact enum.
   if (cd "$ROOT" && make build-stage) >>"$LOG" 2>&1 && \
-     WHARNESS_ROOT="$ROOT" "$KNOWN_STACK" activate-app >>"$LOG" 2>&1 && \
+     WHARNESS_ROOT="$ROOT" "$KNOWN_STACK" activate-services $stack_services >>"$LOG" 2>&1 && \
      stack_runtime_healthy; then
     status rolled_back_runtime "previous application containers restored; persistent tunnel/database were never restarted"
     cleanup_lock

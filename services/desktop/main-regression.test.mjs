@@ -75,6 +75,7 @@ test('renderer window controls are closed preload IPC operations', async () => {
   const activation = source.slice(source.indexOf("ipcMain.handle('wharness:windows:activate-self-evolution'"), source.indexOf("ipcMain.handle('wharness:chatgpt:show'"))
   assert.match(activation, /impacts\.includes\('desktop'\)[\s\S]*app\.relaunch\(\); app\.exit\(0\)/)
   assert.match(activation, /impacts\.includes\('frontend'\)[\s\S]*webContents\.reload\(\)/)
+  assert.match(activation, /await waitForSelfEvolutionActivation\(\)/)
 })
 
 test('local frontend navigation uses a per-runtime cache token', async () => {

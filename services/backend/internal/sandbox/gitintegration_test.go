@@ -97,6 +97,44 @@ func TestCommitVerifiedPatchAllowEmptyKeepsLegacyCandidateTraceable(t *testing.T
 	}
 }
 
+// TestCommitVerifiedPatchToleratesNoopAfterVerification reproduces a real
+// production incident: a focused conflict-resolution round replays a
+// resolution patch that, once applied on top of the tree the new integration
+// branch is being extended from, reproduces content the branch already
+// carries for those exact paths — verification (patch application + every
+// gate) already ran successfully against this workspace before commit is
+// ever reached, so this can only mean the target already holds the resolved
+// content, never that the patch failed to apply. The strict CommitVerifiedPatch
+// used to hard-fail here with Git's own "nothing to commit, working tree
+// clean", which discarded an already-verified candidate and reproduced
+// identically on every retry because no further source mutation could ever
+// change the outcome. It must now record a traceable empty commit instead,
+// exactly like CommitVerifiedPatchAllowEmpty already does for a legacy
+// candidate.
+func TestCommitVerifiedPatchToleratesNoopAfterVerification(t *testing.T) {
+	requireGit(t)
+	host := newTestHostRepo(t, "TODO.md", "- resolved entry\n")
+	workspace := cloneSandbox(t, host)
+	before := mustGit(t, workspace, "rev-parse", "HEAD")
+	// The workspace's TODO.md already matches the branch's own history byte
+	// for byte, mirroring a resolution patch that reproduces what "ours"
+	// already carries after BeginMergeResolution's checkout --ours.
+	sha, err := CommitVerifiedPatch(context.Background(), workspace, "whx/req-conflict-noop", "fix: reconcile TODO.md", []string{"TODO.md"})
+	if err != nil {
+		t.Fatalf("expected a verified no-op to be tolerated, got error: %v", err)
+	}
+	if sha == "" || sha == before {
+		t.Fatalf("expected a distinct traceable commit, before=%s after=%s", before, sha)
+	}
+	if changed := mustGit(t, workspace, "diff", "--name-only", before, sha); changed != "" {
+		t.Fatalf("the tolerated no-op commit must stay content-empty, got %q", changed)
+	}
+	branch := mustGit(t, workspace, "rev-parse", "--abbrev-ref", "HEAD")
+	if branch != "whx/req-conflict-noop" {
+		t.Fatalf("expected to be on the new branch, got %q", branch)
+	}
+}
+
 // TestCommitVerifiedPatchIgnoresUnrelatedDirtyFiles reproduces a real
 // production incident: copyProject overlays the host's current on-disk
 // content onto the sandbox's working tree (so it matches the content-hash
