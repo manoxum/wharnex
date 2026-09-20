@@ -107,7 +107,13 @@ describe('GitDrawer', () => {
 
     openTab('Histórico')
     expect(await screen.findByText('feat: applied by whx')).toBeTruthy()
-    expect(document.querySelector('.git-commit-graph')).toBeTruthy()
+    const graph = document.querySelector('.git-commit-graph')
+    const tail = document.querySelector('.git-history-tail')
+    expect(graph).toBeTruthy()
+    expect(graph?.querySelector('.git-commit-graph-lines')).toBeTruthy()
+    expect(graph?.querySelector('.git-graph-node')).toBeTruthy()
+    expect(tail?.querySelector('.git-commit-meta')?.textContent).toContain('a1')
+    expect(tail?.querySelector('.git-line-stats')).toBeTruthy()
     expect(screen.getByText('WHX')).toBeTruthy()
 
     openTab('Branches')
