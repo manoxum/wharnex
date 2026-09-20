@@ -206,6 +206,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS harness_chat_agent_tasks_dedupe_active_v2_idx
     ON harness_chat_agent_tasks (dedupe_key)
     WHERE dedupe_key <> ''
       AND status IN ('PENDING','LEASED','RUNNING','WAITING');
+CREATE TABLE IF NOT EXISTS harness_chat_agent_task_events (
+    id text PRIMARY KEY,
+    task_id text NOT NULL,
+    request_id text NOT NULL DEFAULT '',
+    root_request_id text NOT NULL DEFAULT '',
+    session_id text NOT NULL DEFAULT '',
+    chat_id text NOT NULL DEFAULT '',
+    project_id text NOT NULL DEFAULT '',
+    type text NOT NULL,
+    occurred_at timestamptz NOT NULL DEFAULT now(),
+    data jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS harness_chat_agent_task_events_task_idx
+    ON harness_chat_agent_task_events (task_id, occurred_at, id);
+CREATE INDEX IF NOT EXISTS harness_chat_agent_task_events_request_idx
+    ON harness_chat_agent_task_events (root_request_id, request_id, occurred_at, id);
 INSERT INTO harness_project_knowledge_entries (project_path, knowledge_id, content, version, updated_at, updated_by_request_id)
 SELECT legacy.project_path, 'legacy-project-knowledge', legacy.content, GREATEST(legacy.version, 1), legacy.updated_at, legacy.updated_by_request_id
 FROM harness_project_knowledge AS legacy
