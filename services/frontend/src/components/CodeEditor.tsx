@@ -17,9 +17,12 @@ type Props = {
   runActions?: RunAction[]
   onRunAction?: (id: string) => void
   readOnly?: boolean
+  revealLine?: number
+  revealColumn?: number
+  revealNonce?: number
 }
 
-export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRunSelection, runActions = [], onRunAction, readOnly = false }: Props) {
+export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRunSelection, runActions = [], onRunAction, readOnly = false, revealLine, revealColumn, revealNonce = 0 }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const activePath = useRef(path)
@@ -218,6 +221,18 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRu
     if (state) instance.restoreViewState(state)
     instance.focus()
   }, [path])
+
+  useEffect(() => {
+    const instance = editor.current
+    const model = instance?.getModel()
+    if (!instance || !model || !revealLine || !revealNonce || activePath.current !== path) return
+    const lineNumber = Math.min(Math.max(1, revealLine), model.getLineCount())
+    const column = Math.min(Math.max(1, revealColumn || 1), model.getLineMaxColumn(lineNumber))
+    const position = { lineNumber, column }
+    instance.setPosition(position)
+    instance.revealPositionInCenter(position)
+    instance.focus()
+  }, [path, revealColumn, revealLine, revealNonce])
 
   useEffect(() => {
     const instance = editor.current

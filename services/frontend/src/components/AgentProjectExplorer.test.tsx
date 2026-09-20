@@ -22,6 +22,8 @@ describe('AgentProjectExplorer', () => {
     expect(screen.getByRole('button', { name: 'Novo ficheiro' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Nova pasta' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Atualizar ficheiros' })).toBeTruthy()
+    expect(screen.queryByPlaceholderText('Pesquisar no projeto')).toBeNull()
+    expect(container.querySelector('.directory-glyph-source')).toBeTruthy()
 
     fireEvent.click(screen.getByTitle('src'))
     expect(container.querySelector('.agent-explorer-selection')).toBeNull()

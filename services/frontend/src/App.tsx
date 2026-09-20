@@ -181,6 +181,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [executionFIFO, setExecutionFIFO] = useState<FrontendExecutionQueueItem[]>([])
   const [editorOpenPath, setEditorOpenPath] = useState<string | undefined>(surfaceRequest?.kind === 'editor' ? surfaceRequest.path : undefined)
   const [editorOpenNonce, setEditorOpenNonce] = useState(surfaceRequest?.kind === 'editor' && surfaceRequest.path ? 1 : 0)
+  const [explorerReveal, setExplorerReveal] = useState<{ path?: string; nonce: number }>({ nonce: 0 })
   const [splitSurface, setSplitSurface] = useState<{ direction: WorkspaceSplitDirection; target: WorkspaceSurfaceTarget; ratio: number }>()
   const [surfaceTabs, setSurfaceTabs] = useState<WorkspaceSurfaceTarget[]>(() => initialSurfaceTarget ? [initialSurfaceTarget] : [])
   const [activeSurfaceKey, setActiveSurfaceKey] = useState(() => initialSurfaceTarget ? workspaceSurfaceKey(initialSurfaceTarget) : '')
@@ -3418,6 +3419,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const openLeftDrawer = (next: Drawer) => { setSideDrawer(next) }
   const openRightDrawer = (next: Drawer) => { setRightDrawer(next) }
 
+  function locateFileInExplorer(path: string) {
+    const projectOnLeft = railLayout.left.includes('project') || railLayout.pinned.left.includes('project')
+    if (projectOnLeft) setSideDrawer('project')
+    else setRightDrawer('project')
+    setExplorerReveal((current) => ({ path, nonce: current.nonce + 1 }))
+  }
+
   function activateWorkspaceSurface(target: WorkspaceSurfaceTarget) {
     if (!session || target.projectPath !== session.project_path) { setError('Não é possível mover tabs entre janelas de projetos diferentes.'); return }
     if (target.kind === 'chat') {
@@ -3623,6 +3631,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onRenameChat={renameWorkspaceChat}
         onGenerateChatTitle={generateWorkspaceChatTitle}
         onOpenFile={openFileFromChat}
+        explorerRevealPath={explorerReveal.path}
+        explorerRevealNonce={explorerReveal.nonce}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
         onError={setError}
         onSession={setSession}
@@ -3635,7 +3645,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           <div className="workspace-surface-primary">
         <div className="workspace-mode-stack">
         <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
-        <EditorWorkspace session={session} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} hiddenPaths={hiddenEditorPaths} onDetachFile={(path, point) => point ? moveSurfaceByDrag(surfaceTarget('editor', { path }), point) : detachSurface(surfaceTarget('editor', { path }))} onSplitFile={(path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />
+        <EditorWorkspace session={session} active={mode === 'editor'} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} hiddenPaths={hiddenEditorPaths} onLocateFile={locateFileInExplorer} onDetachFile={(path, point) => point ? moveSurfaceByDrag(surfaceTarget('editor', { path }), point) : detachSurface(surfaceTarget('editor', { path }))} onSplitFile={(path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />
       </div>
       <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
         <OrchestratorWorkspace
@@ -3721,6 +3731,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onRenameChat={renameWorkspaceChat}
         onGenerateChatTitle={generateWorkspaceChatTitle}
         onOpenFile={openFileFromChat}
+        explorerRevealPath={explorerReveal.path}
+        explorerRevealNonce={explorerReveal.nonce}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
         onError={setError}
         onSession={setSession}
