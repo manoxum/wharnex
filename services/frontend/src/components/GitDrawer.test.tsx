@@ -224,6 +224,26 @@ describe('GitDrawer', () => {
     await waitFor(() => expect(api.gitHistoryPage).toHaveBeenCalledWith('ses_1', [], true, 0, 50))
   })
 
+  it('presents branch history commit details with a dedicated visual hierarchy', async () => {
+    const commit = { ...overview().commits[0], body: 'Improve the branch history diff review.', request_id: 'req_history_1', plan_id: 'plan_history_1', additions: 12, deletions: 3, files_changed: 2 }
+    vi.mocked(api.gitHistoryPage).mockResolvedValue({ commits: [commit], next_offset: 1, has_more: false })
+    vi.mocked(api.gitHistoryCommit).mockResolvedValue({ commit, diff: 'diff --git a/app.go b/app.go\n--- a/app.go\n+++ b/app.go\n@@ -1 +1 @@\n-old\n+new' })
+
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Histórico')
+    fireEvent.click(await screen.findByRole('button', { name: /feat: applied by whx/ }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Commit a1' })
+    expect(dialog.classList.contains('git-history-commit-modal')).toBe(true)
+    expect(dialog.querySelector('.git-history-commit-header')?.textContent).toContain('Dev')
+    expect(dialog.querySelector('.git-history-commit-actions')?.textContent).toContain('+12')
+    expect(dialog.querySelector('.git-history-commit-actions')?.textContent).toContain('−3')
+    expect(dialog.querySelector('.git-history-commit-disclosure')?.textContent).toContain('req_history_1')
+    expect(dialog.querySelector('.git-history-commit-disclosure')?.textContent).toContain('plan_history_1')
+    expect(screen.getByTestId('change-diff-editor').textContent).toContain('app.go')
+  })
+
   it('shows visible processing and a terminal modal for commit and fetch actions', async () => {
     let finishCommit: ((value: { outcomes: Array<{ pending_id: string; subject: string; commit_sha: string }> }) => void) | undefined
     vi.mocked(api.commitGitPending).mockImplementationOnce(() => new Promise((resolve) => { finishCommit = resolve }))
