@@ -693,8 +693,10 @@ function HistorySection({ sessionId, branches }: { sessionId: string; branches: 
         <div className="git-history-subject-line"><span className="git-commit-subject">{row.commit.subject}</span>{(refsBySHA.get(row.commit.sha) || []).slice(0, 3).map((branch) => <span key={branch.name} className={`git-ref-badge ${branch.current ? 'current' : ''}`}>{branch.current && <Icon name="git" size={10}/>} {branch.name}</span>)}</div>
         <div className="git-history-details"><span>{row.commit.author_name}</span><time dateTime={row.commit.committed_at}>{formatCommitDate(row.commit.committed_at)}</time></div>
       </button>
-      <button type="button" className="git-file-diff-action git-line-stats" aria-label={`Abrir diff do commit ${row.commit.short_sha}`} onClick={() => void openCommit(row.commit.sha)}><b>+{row.commit.additions || 0}</b><i>−{row.commit.deletions || 0}</i></button>
-      <span className="git-commit-meta"><code>{row.commit.short_sha}</code>{row.commit.wharnex && <span className="git-commit-tag" title="Originado por uma alteração do Wharnex">WHX</span>}{row.commit.merge && <span className="git-commit-tag">merge</span>}{!row.commit.pushed && <span className="git-commit-tag local">local</span>}</span>
+      <div className="git-history-tail">
+        <span className="git-commit-meta"><code>{row.commit.short_sha}</code>{row.commit.wharnex && <span className="git-commit-tag" title="Originado por uma alteração do Wharnex">WHX</span>}{row.commit.merge && <span className="git-commit-tag">merge</span>}{!row.commit.pushed && <span className="git-commit-tag local">local</span>}</span>
+        <button type="button" className="git-file-diff-action git-line-stats" aria-label={`Abrir diff do commit ${row.commit.short_sha}`} onClick={() => void openCommit(row.commit.sha)}><b>+{row.commit.additions || 0}</b><i>−{row.commit.deletions || 0}</i></button>
+      </div>
     </li>)}</ul>
     <div ref={sentinel} className="git-history-sentinel" aria-hidden="true">{loading ? 'A carregar mais…' : hasMore ? '' : history.length ? 'Fim do histórico' : ''}</div>
     {detail && <HistoryCommitDetailModal sessionId={sessionId} detail={detail} onClose={() => setDetail(null)}/>}
@@ -712,17 +714,19 @@ function CommitGraph({ row }: { row: GitGraphRow }) {
   const width = Math.max(row.before.length, row.after.length, 1) * laneWidth + padding * 2
   const x = (lane: number) => padding + lane * laneWidth + laneWidth / 2
   const color = (tone: number) => `var(--git-lane-${tone})`
-  return <svg className="git-commit-graph" viewBox={`0 0 ${width} 34`} style={{ width }} aria-hidden="true">
-    {row.before.map((lane, index) => {
-      if (index === row.lane) return null
-      const target = row.after.findIndex((next) => next.sha === lane.sha)
-      if (target < 0) return null
-      return <path key={`carry-${lane.sha}-${index}`} d={`M ${x(index)} 0 C ${x(index)} 10, ${x(target)} 24, ${x(target)} 34`} stroke={color(lane.tone)}/>
-    })}
-    <path d={`M ${x(row.lane)} 0 L ${x(row.lane)} 17`} stroke={color(row.tone)}/>
-    {row.parentLanes.map((parentLane, index) => <path key={`parent-${index}`} d={`M ${x(row.lane)} 17 C ${x(row.lane)} 22, ${x(parentLane)} 25, ${x(parentLane)} 34`} stroke={color(index === 0 ? row.tone : row.after[parentLane]?.tone ?? row.tone)}/>)}
-    <circle cx={x(row.lane)} cy="17" r="4.1" fill="var(--theme-bg)" stroke={color(row.tone)} className="git-graph-node"/>
-  </svg>
+  return <div className="git-commit-graph" style={{ width }} aria-hidden="true">
+    <svg className="git-commit-graph-lines" viewBox={`0 0 ${width} 34`} preserveAspectRatio="none" focusable="false">
+      {row.before.map((lane, index) => {
+        if (index === row.lane) return null
+        const target = row.after.findIndex((next) => next.sha === lane.sha)
+        if (target < 0) return null
+        return <path key={`carry-${lane.sha}-${index}`} d={`M ${x(index)} 0 C ${x(index)} 10, ${x(target)} 24, ${x(target)} 34`} stroke={color(lane.tone)}/>
+      })}
+      <path d={`M ${x(row.lane)} 0 L ${x(row.lane)} 17`} stroke={color(row.tone)}/>
+      {row.parentLanes.map((parentLane, index) => <path key={`parent-${index}`} d={`M ${x(row.lane)} 17 C ${x(row.lane)} 22, ${x(parentLane)} 25, ${x(parentLane)} 34`} stroke={color(index === 0 ? row.tone : row.after[parentLane]?.tone ?? row.tone)}/>)}
+    </svg>
+    <span className="git-graph-node" style={{ left: x(row.lane), borderColor: color(row.tone) }}/>
+  </div>
 }
 
 function formatCommitDate(value: string) {
