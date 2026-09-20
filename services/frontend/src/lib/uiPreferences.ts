@@ -21,6 +21,7 @@ export type UIPreferences = {
   density: UIDensity
   toolRailPlacement: ToolRailPlacement
   errorPopups: boolean
+  largePasteThresholdChars: number
 }
 
 export type UIPreferencesInput = Partial<Omit<UIPreferences, 'theme'>> & { theme?: ThemePreference | 'system' | 'dark' | 'light' }
@@ -56,6 +57,7 @@ export const DEFAULT_UI_PREFERENCES: UIPreferences = {
   density: 'default',
   toolRailPlacement: 'sides',
   errorPopups: true,
+  largePasteThresholdChars: 6000,
 }
 
 const UI_FONTS: Record<UIFontChoice, string> = {
@@ -149,7 +151,9 @@ export function normalizeUIPreferences(value: UIPreferencesInput): UIPreferences
   const numeric = Number(value.scale)
   const scale = Number.isFinite(numeric) ? Math.min(1.6, Math.max(0.4, Math.round(numeric * 20) / 20)) : DEFAULT_UI_PREFERENCES.scale
   const errorPopups = value.errorPopups !== false
-  return { uiFont, monoFont, scale, theme, accent, contentScheme, density, toolRailPlacement, errorPopups }
+  const threshold = Number(value.largePasteThresholdChars)
+  const largePasteThresholdChars = Number.isFinite(threshold) ? Math.min(200000, Math.max(1000, Math.round(threshold))) : DEFAULT_UI_PREFERENCES.largePasteThresholdChars
+  return { uiFont, monoFont, scale, theme, accent, contentScheme, density, toolRailPlacement, errorPopups, largePasteThresholdChars }
 }
 
 function normalizeTheme(theme: UIPreferencesInput['theme']): ThemePreference {

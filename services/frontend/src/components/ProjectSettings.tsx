@@ -12,7 +12,7 @@ import { RemoteStorageSettings } from './RemoteStorageSettings'
 import { TunnelProviderSettings } from './TunnelProviderSettings'
 import { LanguageSettingsPanel } from './LanguageSettingsPanel'
 
-type SettingsSection = 'appearance' | 'language' | 'context' | 'tunnel-provider' | 'remote-storage' | 'data'
+type SettingsSection = 'appearance' | 'composer' | 'language' | 'context' | 'tunnel-provider' | 'remote-storage' | 'data'
 
 export function ProjectSettings({ session, onClose, onSession, onError, onTunnelConfigSaved }: {
   session: Session
@@ -207,6 +207,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
           <div className="settings-project-summary"><span>Projeto atual</span><strong>{session.project_path.split('/').filter(Boolean).pop() || session.project_path}</strong><small title={session.project_path}>{session.project_path}</small></div>
           <SettingsNavGroup label="Interface">
             <SettingsNavButton active={activeSection === 'appearance'} icon="monitor" label="Aparência" detail="Tema, cores e tipografia" onClick={() => setActiveSection('appearance')}/>
+            <SettingsNavButton active={activeSection === 'composer'} icon="edit" label="Composer" detail="Pastes e anexos" onClick={() => setActiveSection('composer')}/>
             <SettingsNavButton active={activeSection === 'language'} icon="edit" label="Idioma" detail="Interface e tradução" onClick={() => setActiveSection('language')}/>
           </SettingsNavGroup>
           <SettingsNavGroup label="Projeto">
@@ -222,6 +223,13 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
         </nav>
         <main className="settings-content">
         {activeSection === 'language' ? <LanguageSettingsPanel onError={onError}/> : null}
+        {activeSection === 'composer' ? <section className="appearance-settings-section">
+          <div className="settings-page-hero"><div><span className="eyebrow">Chat composer</span><strong>Pastes e anexos</strong><p>Controle quando textos colados viram anexos legíveis por @see e mantenha o composer leve.</p></div><code>{uiPreferences.largePasteThresholdChars.toLocaleString('pt-PT')} chars</code></div>
+          <section className="settings-premium-card">
+            <div className="settings-card-heading"><span><strong>Texto colado muito grande</strong><small>Acima do limite, o texto é anexado como Pasted Text em vez de ocupar o editor.</small></span><Icon name="file" size={16}/></div>
+            <label className="settings-size"><span>Limite mínimo</span><div><input aria-label="Tamanho mínimo para transformar paste em anexo" type="number" min={1000} max={200000} step={500} value={uiPreferences.largePasteThresholdChars} onChange={(event) => { const next = saveUIPreferences({ ...uiPreferences, largePasteThresholdChars: Number(event.target.value) }); setUIPreferences(next) }}/><span>caracteres</span></div><small>Pastes menores continuam no editor. O padrão é 6 000 caracteres.</small></label>
+          </section>
+        </section> : null}
         {activeSection === 'appearance' ? <section className="appearance-settings-section">
           <div className="settings-page-hero"><div><span className="eyebrow">Interface</span><strong>Aparência do workbench</strong><p>Tema, contraste, densidade e tipografia com as mesmas cores da interface ativa.</p></div><code>{Math.round(uiPreferences.scale * 100)}%</code></div>
           <section className="settings-premium-card settings-theme-card">
@@ -324,6 +332,7 @@ function footerHint(section: SettingsSection) {
   if (section === 'remote-storage') return 'A configuração de storage é global e aplica-se a todos os projetos após reiniciar.'
   if (section === 'data') return 'Os ficheiros dos projetos reais não são removidos pelas operações desta secção.'
   if (section === 'appearance') return 'Preferências visuais ficam apenas neste dispositivo.'
+  if (section === 'composer') return 'Preferências do composer ficam apenas neste dispositivo.'
   if (section === 'language') return 'Idioma é global; traduções Markdown são temporárias e nunca reescrevem o ficheiro original.'
   return 'Snapshot final = lista exata enviada ao ChatGPT/Planner.'
 }

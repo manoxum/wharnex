@@ -58,12 +58,13 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
   /** A click on a chip's own remove button. */
   onRemoveDirective: (directive: ComposerDirective) => void
   onPasteFiles?: (files: File[]) => void
+  onPasteText?: (text: string) => boolean
   onKeyDownCapture?: (event: React.KeyboardEvent) => void
   placeholder?: string
   disabled?: boolean
   lang?: string
 }>(function ComposerRichEditor(
-  { value, caret, onChange, onClickDirective, onConfigureDirective, onRemoveDirective, onPasteFiles, onKeyDownCapture, placeholder, disabled, lang },
+  { value, caret, onChange, onClickDirective, onConfigureDirective, onRemoveDirective, onPasteFiles, onPasteText, onKeyDownCapture, placeholder, disabled, lang },
   forwardedRef,
 ) {
   const quillRef = useRef<ReactQuill | null>(null)
@@ -147,9 +148,13 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
       .flatMap((item) => (item.kind === 'file' ? [item.getAsFile()] : []))
       .filter((file): file is File => file !== null)
     const files = directFiles.length ? directFiles : itemFiles
-    if (!files.length || !onPasteFiles) return
-    event.preventDefault()
-    onPasteFiles(files)
+    if (files.length && onPasteFiles) {
+      event.preventDefault()
+      onPasteFiles(files)
+      return
+    }
+    const text = clipboard?.getData('text/plain') || ''
+    if (text && onPasteText?.(text)) event.preventDefault()
   }
 
   // Delegated once at the container: a click on a chip's own remove button

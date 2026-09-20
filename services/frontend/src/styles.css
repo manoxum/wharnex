@@ -6231,10 +6231,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .composer-reference-thumbnail.chat { --reference-tone: #7c3aed; --reference-soft: #f4efff; }
 .composer-reference-thumbnail.lib { --reference-tone: #b24f78; --reference-soft: #fff0f5; }
 .composer-reference-thumbnail.todo { --reference-tone: #b45309; --reference-soft: #fff4e6; }
-.composer-reference-thumbnail.transport.context { --reference-tone: #475569; --reference-soft: #f1f5f9; }
-.composer-reference-thumbnail.transport.prompt { --reference-tone: #2563eb; --reference-soft: #eff6ff; }
-.composer-reference-thumbnail.transport.result { --reference-tone: #15803d; --reference-soft: #effaf2; }
-.composer-reference-thumbnail.transport.error { --reference-tone: #b42318; --reference-soft: #fff0ef; }
 .composer-reference-open { min-width: 0; padding: 0; display: grid; grid-template-columns: 48px minmax(0,1fr); align-items: center; gap: 8px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .composer-reference-open:hover .composer-reference-visual { border-color: color-mix(in srgb, var(--reference-tone) 52%, var(--theme-border)); transform: translateY(-1px); }
 .composer-reference-visual { width: 48px; height: 34px; display: grid; grid-template-columns: 17px minmax(0,1fr); align-items: center; gap: 4px; padding: 0 5px; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--reference-tone) 25%, var(--theme-border)); border-radius: 8px; background: color-mix(in srgb, var(--reference-tone) 9%, var(--theme-elevated)); color: var(--reference-tone); transition: border-color .15s ease, transform .15s ease; }
