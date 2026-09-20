@@ -722,7 +722,7 @@ test('the two pools partition the durable queue: Supervisors take chat-bound wor
   for (const type of ['AWAIT_RESPONSE', 'BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN']) {
     assert.match(execute, new RegExp(`case '${type}'`), `the Supervisor pool must run ${type}`)
   }
-  for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'TRANSLATE_MARKDOWN', 'TODO_CLASSIFY', 'TITLE_DISCOVER']) {
+  for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'TRANSLATE_MARKDOWN', 'RELEASE_NOTES', 'TODO_CLASSIFY', 'TITLE_DISCOVER']) {
     assert.doesNotMatch(execute, new RegExp(`case '${type}'`), `${type} is small Worker work and must never reach a Supervisor`)
   }
   // The Worker cadence must not serialize Supervisors. Provider-wide suspension

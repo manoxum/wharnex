@@ -48,7 +48,7 @@ test('assignRoles preserves three exclusive supervisors by default', () => {
 test('supervisors own the chat-bound request lifecycle and nothing smaller', () => {
   assert.deepEqual([...SUPERVISOR_TASK_TYPES], ['AWAIT_RESPONSE', 'BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN'])
   for (const type of SUPERVISOR_TASK_TYPES) assert.equal(isSupervisorTaskType(type), true)
-  for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_TEMP_CHAT', 'DELETE_BUNDLE', 'TITLE_DISCOVER', 'TITLE_GENERATE_TEMP', 'TITLE_AWAIT', 'TRANSLATE_MARKDOWN', 'TODO_CLASSIFY']) {
+  for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_TEMP_CHAT', 'DELETE_BUNDLE', 'TITLE_DISCOVER', 'TITLE_GENERATE_TEMP', 'TITLE_AWAIT', 'TRANSLATE_MARKDOWN', 'RELEASE_NOTES', 'TODO_CLASSIFY']) {
     assert.equal(isSupervisorTaskType(type), false)
   }
   assert.equal(isSupervisorTaskType(''), false)

@@ -54,6 +54,7 @@ const MAX_MARKDOWN_TRANSLATION_BYTES = 4 * 1024 * 1024
 const MAX_MARKDOWN_TRANSLATION_RESULT_BYTES = 8 * 1024 * 1024
 const MAX_TODO_CLASSIFICATION_BYTES = 256 * 1024
 const TODO_CLASSIFICATION_TIMEOUT_MS = 4 * 60 * 1000
+const RELEASE_NOTES_TIMEOUT_MS = 4 * 60 * 1000
 const MARKDOWN_TRANSLATION_TIMEOUT_MS = 5 * 60 * 1000
 const MARKDOWN_TRANSLATION_POLL_MS = 1_000
 const MAX_ORCHESTRATOR_PLAN_BYTES = 2 * 1024 * 1024
@@ -5430,6 +5431,64 @@ async function executeChatAgentTitleAwait(task, entry, key, payload) {
   return { status: 'done' }
 }
 
+async function executeChatAgentReleaseNotes(task, entry, key, payload) {
+  if (payload?.protocol !== 'wharness.release-notes-input/v1' || payload?.task !== 'generate_release_notes') {
+    return { status: 'failed', error: 'invalid release-notes worker protocol payload' }
+  }
+  const prompt = String(payload.prompt || '').trim()
+  if (!prompt || prompt.length > 40_000) return { status: 'failed', error: 'release-notes worker prompt is invalid' }
+
+  await paceChatGPTWorkerSubmission()
+  const rateLimitDelay = chatAgentRateLimitDelayMs()
+  if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
+
+  let conversationUrl = ''
+  try {
+    const target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
+    target.reasoningEffort = String(payload.reasoning_effort || 'instant')
+    const filled = await executeChatGPTDOMScript(key, target.entry, 'release-notes-fill', chatGPTFillComposerScript(prompt))
+    if (!filled) throw new Error('ChatGPT release-notes composer could not be populated')
+    const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
+    await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort: false, rateLimitExempt: false })
+    conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
+    if (!conversationUrl) throw new Error('ChatGPT release-notes submission has no stable conversation id')
+
+    const deadline = Date.now() + RELEASE_NOTES_TIMEOUT_MS
+    while (Date.now() < deadline) {
+      await wait(MARKDOWN_TRANSLATION_POLL_MS)
+      const health = await executeChatGPTDOMScript(key, target.entry, 'release-notes-health', chatGPTHumanActionScript())
+      if (noteChatGPTRateLimitGate(key, health)) return { status: 'waiting', delayMs: chatAgentRateLimitDelayMs(), observation: true, error: 'ChatGPT rate-limit gate is active' }
+      if (health?.required === true) {
+        const kind = String(health.kind || 'verification')
+        setChatGPTHumanAction(key, kind, '', 'release-notes-worker')
+        return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(kind) }
+      }
+      const completion = await executeChatGPTDOMScript(key, target.entry, 'release-notes-completion', chatGPTResponseCompletionScript(assistantBaseline))
+      if (!completion?.complete) continue
+      const body = await executeChatGPTDOMScript(key, target.entry, 'release-notes-read', `(() => {
+        const turns = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
+        const latest = turns[turns.length - 1];
+        if (!latest) return '';
+        const content = latest.querySelector('.markdown, [class*="markdown" i]') || latest;
+        return String(content.innerText || content.textContent || '').trim();
+      })()`)
+      if (!String(body || '').trim()) throw new Error('ChatGPT returned empty release notes')
+      return { status: 'done', payload: { protocol: 'harness.release-notes/v1', task_id: task.task_id, body: String(body).trim() } }
+    }
+    throw new Error('ChatGPT did not provide release notes before the timeout')
+  } finally {
+    if (conversationUrl) {
+      enqueueChatAgentTask('DELETE_TEMP_CHAT', {
+        key, requestId: task.task_id, rootRequestId: task.task_id, conversationURL: conversationUrl,
+        parentTaskID: task.task_id, dedupeKey: `delete-release-notes:${chatAgentConversationID(conversationUrl)}`,
+        payload: {}, maxAttempts: 4,
+      }).catch((error) => console.warn(`[release-notes] temporary ChatGPT cleanup scheduling failed: ${error instanceof Error ? error.message : String(error)}`))
+    }
+  }
+}
+
+
+
 async function chatAgentLifecycleBlocked(task) {
   const listed = await chatAgentScheduler.list({ chat_id: task.chat_id })
   return (listed?.tasks || []).some((item) => item.task_id !== task.task_id && ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status) && ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(item.type))
@@ -5787,6 +5846,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
 // the wrong shape — prose, the source echoed back, a differently named file —
 // was indistinguishable from no answer, so the job sat in the queue until it
 // timed out. A bundle can be wrong in ways that have names.
+
 async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
   if (payload?.protocol !== 'wharness.translation-input/v1' || payload?.task !== 'translate_document') {
     return { status: 'failed', error: 'invalid translation worker protocol payload' }
@@ -5912,6 +5972,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     }
   }
 }
+
 
 async function executeChatAgentTodoClassification(task, entry, key, payload) {
   if (payload?.protocol !== 'wharness.todo-classification-input/v1' || payload?.task !== 'classify_todo') {
@@ -6279,6 +6340,7 @@ async function executeChatAgentTask(task, { worker, owner }) {
   switch (task.type) {
     case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan(task, entry, key, payload, owner)
     case 'TODO_CLASSIFY': return executeChatAgentTodoClassification(task, entry, key, payload)
+    case 'RELEASE_NOTES': return executeChatAgentReleaseNotes(task, entry, key, payload)
     case 'AWAIT_RESPONSE': return probeChatAgentResponse(task, entry, key, payload, conversationURL)
     case 'BOT_WRITE':
     case 'RECOVERY_WRITE': return executeChatAgentWrite(task, entry, key, payload, conversationURL)

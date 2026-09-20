@@ -8,6 +8,8 @@ vi.mock('./ChangeDiffEditor', () => ({
   ChangeDiffEditor: ({ file }: { file: { path: string } }) => <div data-testid="change-diff-editor">Comparação estruturada: {file.path}</div>,
 }))
 
+vi.mock('../lib/appDialog', () => ({ confirmDialog: vi.fn(async () => true) }))
+
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
   return {
@@ -28,6 +30,10 @@ vi.mock('../lib/api', async () => {
       gitFetch: vi.fn().mockResolvedValue({ outcome: 'fetched', remote: 'origin' }),
       gitPull: vi.fn().mockResolvedValue({ outcome: 'merged', remote: 'origin', branch: 'main', ref: 'origin/main' }),
       gitSwitch: vi.fn().mockResolvedValue({ outcome: 'switched', branch: 'feature' }),
+      gitCreateBranch: vi.fn().mockResolvedValue({ outcome: 'created', branch: 'feature/new' }),
+      gitDeleteBranch: vi.fn().mockResolvedValue({ outcome: 'deleted', branch: 'feature' }),
+      gitGenerateReleaseNotes: vi.fn().mockResolvedValue({ body: '## Novidades\n- melhoria', commit_count: 2 }),
+      gitCreateRelease: vi.fn().mockResolvedValue({ outcome: 'published', remote: 'origin', branch: 'main', tag: 'v1.3.0', commit_sha: 'a1', release_url: 'https://github.com/org/repo/releases/tag/v1.3.0' }),
       gitHistory: vi.fn().mockResolvedValue([]),
       gitHistoryPage: vi.fn().mockResolvedValue({ commits: [], next_offset: 0, has_more: false }),
       gitHistoryCommit: vi.fn(),
@@ -143,6 +149,50 @@ describe('GitDrawer', () => {
     expect(screen.getByText('feat: one')).toBeTruthy()
   })
 
+
+  it('creates and safely removes local branches from the branch directory', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Branches')
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Nome da nova branch' }), { target: { value: 'feature/new' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Criar branch' }))
+    await waitFor(() => expect(api.gitCreateBranch).toHaveBeenCalledWith('ses_1', 'feature/new', 'main'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remover' }))
+    await waitFor(() => expect(api.gitDeleteBranch).toHaveBeenCalledWith('ses_1', 'feature'))
+  })
+
+  it('requires an explicit release branch and publishes manual rich-text notes', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Branches')
+
+    const publish = screen.getByRole('button', { name: 'Criar tag e release' }) as HTMLButtonElement
+    expect(publish.disabled).toBe(true)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Branch da release' }), { target: { value: 'main' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Tag da release' }), { target: { value: 'v1.3.0' } })
+    const editor = screen.getByRole('textbox', { name: 'Texto manual da release' })
+    editor.innerHTML = '<strong>Release estável</strong>'
+    fireEvent.input(editor)
+    expect(publish.disabled).toBe(false)
+    fireEvent.click(publish)
+
+    await waitFor(() => expect(api.gitCreateRelease).toHaveBeenCalledWith('ses_1', {
+      remote: 'origin', branch: 'main', tag: 'v1.3.0', title: '', body: '<strong>Release estável</strong>',
+    }))
+  })
+
+  it('can delegate release-note writing to GPT for the selected branch', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Branches')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Branch da release' }), { target: { value: 'main' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Gerar com GPT' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Gerar notas da branch' }))
+    await waitFor(() => expect(api.gitGenerateReleaseNotes).toHaveBeenCalledWith('ses_1', 'main'))
+    expect((await screen.findByRole('textbox', { name: 'Notas de release geradas pelo GPT' }) as HTMLTextAreaElement).value).toContain('Novidades')
+  })
 
   it('lists changed worktree files and opens their current diff in auto-commit or manual mode', async () => {
     vi.mocked(api.gitOverview).mockResolvedValue(overview({ commit_mode: 'auto', pending: [] }))
