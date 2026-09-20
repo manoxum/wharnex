@@ -1,7 +1,7 @@
 import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, ExecutionPlan, Interview, InterviewQuestion, ManagedArtifact, ChatFileRecord, ProjectTodo, QueuedChatRequest, Session } from '../types'
 import type { ReasoningEffort } from '../types'
-import { clearComposerDraft, flushComposerDraftSave, loadComposerDraft, loadComposerFileDraft, loadComposerStoredFileDraft, saveComposerFileDraft, saveComposerStoredFileDraft, scheduleComposerDraftSave, type ComposerStoredAttachmentDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
+import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, clearComposerDraft, flushComposerDraftSave, loadComposerDraft, loadComposerFileDraft, loadComposerStoredFileDraft, saveComposerFileDraft, saveComposerStoredFileDraft, scheduleComposerDraftSave, type ComposerStoredAttachmentDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { ChatItemBoundary } from './ChatItemBoundary'
 import { StatusPill } from './StatusPill'
@@ -44,8 +44,6 @@ import { ARTIFACT_INDEX_EVENT, artifactIndexMarker, type ArtifactIndexRequest } 
 import { projectTodoPrePlanAttachment, storedAttachmentFile } from '../lib/projectTodoForwarding'
 import { loadUIPreferences } from '../lib/uiPreferences'
 
-const COMPOSER_MIN_HEIGHT = 118
-const COMPOSER_MAX_HEIGHT = 420
 const COMPOSER_TYPING_ATTENTION_MS = 1600
 const LONG_CHAT_MARKDOWN_CHARS = 1400
 const LONG_CHAT_MARKDOWN_LINES = 18
@@ -776,6 +774,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     setComposerHeight((current) => clampComposerHeight(current + (event.key === 'ArrowUp' ? 24 : -24)))
   }
 
+  function focusComposerFromSurface(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button > 0 || preparedAttachmentCount) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (target.closest('button, a, input, select, textarea, [contenteditable="true"], [data-directive-chip]')) return
+    event.preventDefault()
+    richEditorRef.current?.getEditor()?.focus()
+  }
+
   // Requests the rich editor place its caret at an exact position — the
   // pattern every programmatic insertion below shares, so the operator's next
   // keystroke always lands where the menu just wrote. `token` always bumps, so
@@ -1023,7 +1030,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       {bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
       {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={(value) => { composerMessageRef.current = value; setMessage(value) }} initialPath={attachmentsPanelPath} initialKind={attachmentsPanelKind} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>}
-      <div ref={editorShellRef} className="composer-editor-shell">
+      <div ref={editorShellRef} className="composer-editor-shell" onPointerDown={focusComposerFromSurface}>
         <ComposerRichEditor
           ref={richEditorRef} value={message} caret={pendingCaret} onChange={updateMessage}
           onClickDirective={openDirectivePopover} onConfigureDirective={configureDirective} onRemoveDirective={removeDirectiveChip}

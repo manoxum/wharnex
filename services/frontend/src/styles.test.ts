@@ -192,6 +192,23 @@ describe('composer layout CSS', () => {
     expect(configure).toContain('width: 19px !important')
   })
 
+  it('keeps a readable composer floor and makes the remaining editor surface focusable', () => {
+    const editorShell = lastRule('.composer-editor-shell')
+    const richEditor = lastRule('.composer-rich-editor')
+    const quill = lastRule('.composer-rich-editor > .quill')
+    const quillContainer = lastRule('.composer-rich-editor .ql-container.ql-bubble')
+    const quillEditor = lastRule('.composer-rich-editor .ql-editor')
+
+    expect(css).toContain('.composer { min-height: 180px; max-height: min(420px, 54vh); height: 180px;')
+    expect(editorShell).toContain('flex: 1 1 auto')
+    expect(editorShell).toContain('min-height: 92px')
+    expect(editorShell).toContain('cursor: text')
+    expect(richEditor).toContain('min-height: 100%')
+    expect(quill).toContain('display: flex')
+    expect(quillContainer).toContain('min-height: 100%')
+    expect(quillEditor).toContain('min-height: 100%')
+  })
+
   it('uses the whole top composer edge as the vertical resize handle', () => {
     const composer = lastRule('.composer')
     const handle = lastRule('.composer-resize-handle')

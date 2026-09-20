@@ -792,6 +792,24 @@ describe('ChatPanel', () => {
     expect(writeText).toHaveBeenCalledWith('mensagem anterior')
   })
 
+  it('keeps a readable composer floor across chat restores and focuses from its empty surface', () => {
+    localStorage.setItem('kernl.workspace.composer-draft.v1:/tmp/demo:short-composer', JSON.stringify({ message: '', height: 118 }))
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="short-composer" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    const composer = view.container.querySelector('form.composer') as HTMLFormElement
+    const editorShell = view.container.querySelector('.composer-editor-shell') as HTMLDivElement
+    const editor = ref.current?.getComposerEditor()
+    if (!editor) throw new Error('composer editor not mounted')
+    const focus = vi.spyOn(editor, 'focus')
+    expect(composer.style.height).toBe('180px')
+    fireEvent.pointerDown(editorShell, { button: 0, pointerId: 1 })
+    expect(focus).toHaveBeenCalledTimes(1)
+    clearComposerDraft(session.project_path, 'short-composer')
+  })
+
   it('reinforces active-project attention directly on the composer while typing', () => {
     const onComposerTyping = vi.fn()
     const ref = panelRef()
@@ -1445,7 +1463,7 @@ describe('ChatPanel', () => {
     )
     const composer = view.container.querySelector('.composer') as HTMLFormElement
     const handle = screen.getByRole('separator', { name: 'Redimensionar altura do chat composer' })
-    vi.spyOn(composer, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, top: 0, right: 600, bottom: 156, left: 0, width: 600, height: 156, toJSON: () => ({}) })
+    vi.spyOn(composer, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, top: 0, right: 600, bottom: 180, left: 0, width: 600, height: 180, toJSON: () => ({}) })
 
     const pointerEvent = (type: string, clientY: number) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY })
@@ -1455,10 +1473,10 @@ describe('ChatPanel', () => {
 
     fireEvent(handle, pointerEvent('pointerdown', 500))
     fireEvent(handle, pointerEvent('pointermove', 420))
-    expect(composer.style.height).toBe('236px')
+    expect(composer.style.height).toBe('260px')
 
     fireEvent(handle, pointerEvent('pointermove', 900))
-    expect(composer.style.height).toBe('118px')
+    expect(composer.style.height).toBe('180px')
     fireEvent(handle, pointerEvent('pointerup', 900))
   })
 

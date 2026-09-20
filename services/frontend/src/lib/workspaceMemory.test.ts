@@ -210,8 +210,10 @@ describe('composer draft memory', () => {
     const memory = await import('./workspaceMemory')
     memory.saveComposerDraft('/p', 'chat-a', { message: 'Olá mundo', height: 999 })
     expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'Olá mundo', height: 420 })
+    localStorage.setItem('kernl.workspace.composer-draft.v1:/p:chat-a', JSON.stringify({ message: 'altura antiga', height: 118 }))
+    expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'altura antiga', height: 180 })
     memory.clearComposerDraft('/p', 'chat-a')
-    expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: '', height: 156 })
+    expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: '', height: 180 })
   })
 
   it('coalesces rapid composer draft writes while keeping the latest draft readable', async () => {
@@ -219,15 +221,15 @@ describe('composer draft memory', () => {
     vi.useFakeTimers()
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
     try {
-      memory.scheduleComposerDraftSave('/p', 'chat-a', { message: 'primeiro', height: 150 })
-      memory.scheduleComposerDraftSave('/p', 'chat-a', { message: 'segundo', height: 160 })
-      expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'segundo', height: 160 })
+      memory.scheduleComposerDraftSave('/p', 'chat-a', { message: 'primeiro', height: 220 })
+      memory.scheduleComposerDraftSave('/p', 'chat-a', { message: 'segundo', height: 230 })
+      expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'segundo', height: 230 })
       expect(setItem).not.toHaveBeenCalled()
       vi.advanceTimersByTime(179)
       expect(setItem).not.toHaveBeenCalled()
       vi.advanceTimersByTime(1)
       expect(setItem).toHaveBeenCalledTimes(1)
-      expect(JSON.parse(localStorage.getItem('kernl.workspace.composer-draft.v1:/p:chat-a') || '{}')).toEqual({ message: 'segundo', height: 160 })
+      expect(JSON.parse(localStorage.getItem('kernl.workspace.composer-draft.v1:/p:chat-a') || '{}')).toEqual({ message: 'segundo', height: 230 })
     } finally {
       memory.clearComposerDraft('/p', 'chat-a')
       setItem.mockRestore()
