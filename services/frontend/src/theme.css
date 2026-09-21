@@ -1701,3 +1701,88 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 :root[data-ui-theme] .quick-switcher-select-shell select { color: var(--theme-text); }
 :root[data-ui-theme] .context-settings-dialog select option,
 :root[data-ui-theme] .quick-switcher-select-shell select option { background: var(--theme-elevated); color: var(--theme-text); }
+
+
+/* v1.2.49 — original Wharnex palette: dark, precise and intentionally quiet.
+   Alternative IDE families keep their own recognizable palette; this override
+   only refines the native Wharnex appearance. */
+:root[data-theme='dark']:not([data-ui-theme]),
+:root[data-theme='dark'][data-ui-theme='original'] {
+  --app-bg: #111311;
+  --ink: rgba(255,255,255,.90);
+  --muted: rgba(255,255,255,.60);
+  --line: rgba(255,255,255,.055);
+  --paper: #151715;
+  --paper-2: #181a18;
+  --dark: #0d100e;
+  --acid: #9acd54;
+  --acid-dark: #9acd54;
+  --danger: #e27676;
+  --warning: #d8bb70;
+  --success: #9fcb73;
+  --theme-bg: #111311;
+  --theme-surface: #151715;
+  --theme-elevated: #181a18;
+  --theme-muted: #1c1f1c;
+  --theme-subtle: #202320;
+  --theme-hover: #222522;
+  --theme-text: rgba(255,255,255,.90);
+  --theme-text-soft: rgba(255,255,255,.64);
+  --theme-text-muted: rgba(255,255,255,.42);
+  --theme-border: rgba(255,255,255,.055);
+  --theme-border-soft: rgba(255,255,255,.04);
+  --theme-accent: #9acd54;
+  --theme-accent-soft: rgba(154,205,84,.07);
+  --theme-shadow: rgba(0,0,0,.34);
+}
+
+:root[data-theme] .workspace-main-row > .agent-activity-bar button.active {
+  background: transparent;
+  color: var(--theme-text);
+}
+:root[data-theme] .terminal-workspace {
+  background: color-mix(in srgb, var(--theme-bg) 72%, #070908);
+}
+:root[data-theme] .terminal-tabbar {
+  background: color-mix(in srgb, var(--theme-bg) 82%, var(--theme-surface));
+}
+:root[data-theme] .chat-panel .composer {
+  border-color: var(--theme-border);
+  background: var(--theme-surface);
+  box-shadow: none;
+}
+:root[data-theme] .chat-panel .composer:focus-within {
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border));
+  box-shadow: none;
+}
+:root[data-theme] .settings-premium-card:is(section, div) {
+  border-color: var(--theme-border-soft);
+  background: transparent;
+  box-shadow: none;
+}
+:root[data-theme] .attention-center-summary > span,
+:root[data-theme] .agent-runtime-summary > span,
+:root[data-theme] .agent-runtime-memory-summary > span {
+  border-color: var(--theme-border-soft);
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-ui-theme='original'] .message-user .message-body,
+:root:not([data-ui-theme]) .message-user .message-body {
+  border-left-color: color-mix(in srgb, var(--theme-text) 28%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-surface) 82%, var(--theme-bg));
+  color: var(--theme-text);
+}
+:root[data-ui-theme='original'] .message-chatgpt .message-body,
+:root:not([data-ui-theme]) .message-chatgpt .message-body {
+  border-left-color: #7da7d9;
+  background: color-mix(in srgb, #7da7d9 5%, var(--theme-bg));
+  color: var(--theme-text-soft);
+}
+:root[data-ui-theme='original'] .message-wharness .message-body,
+:root:not([data-ui-theme]) .message-wharness .message-body {
+  border-left-color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 4%, var(--theme-bg));
+  color: var(--theme-text-soft);
+}
