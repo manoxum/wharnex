@@ -97,7 +97,6 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
       <div className="terminal-tabs" role="tablist" aria-label="Instâncias do terminal">
         {tabs.map((tab) => <div className={`terminal-tab-shell ${tab.id === activeID ? 'active' : ''}`} data-renaming={editingID === tab.id ? 'true' : undefined} key={tab.id} draggable={Boolean(onDetachTerminal)} onDragEnd={(event) => { if (onDetachTerminal && workspaceDragEndedOutside(event)) onDetachTerminal() }}>
           {editingID === tab.id ? <div className="terminal-tab-edit">
-            <Icon name="terminal" size={16}/>
             <input
               autoFocus
               aria-label={`Renomear ${tab.label}`}
@@ -119,7 +118,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
             title={`${tab.label} · duplo clique para renomear`}
           >
             <span className={`terminal-tab-status terminal-status-${tab.status}`} aria-hidden="true"/>
-            <Icon name="terminal" size={16}/><span className="terminal-tab-title">{tab.label}</span>
+            <span className="terminal-tab-title">{tab.label}</span>
           </button>}
           {editingID !== tab.id && <button type="button" className="terminal-tab-action terminal-tab-rename" title={`Renomear ${tab.label}`} aria-label={`Renomear ${tab.label}`} onClick={() => beginRename(tab)}><Icon name="rename" size={14}/></button>}
           <button type="button" className="terminal-tab-action terminal-tab-close" title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={() => closeTerminal(tab.id)}><Icon name="close" size={14}/></button>

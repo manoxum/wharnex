@@ -64,7 +64,9 @@ describe('TerminalWorkspace', () => {
   it('keeps terminal identity, status and controls on one top line', () => {
     const { container } = render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
     const tabbar = container.querySelector('.terminal-tabbar')
-    expect(tabbar?.contains(screen.getByRole('tab', { name: /Terminal 1/ }))).toBe(true)
+    const terminalTab = screen.getByRole('tab', { name: /Terminal 1/ })
+    expect(tabbar?.contains(terminalTab)).toBe(true)
+    expect(terminalTab.querySelector('svg')).toBeNull()
     expect(tabbar?.contains(screen.getByLabelText('Fechar Terminal 1'))).toBe(true)
     expect(tabbar?.contains(screen.getByLabelText('Mais ações do terminal'))).toBe(true)
     expect(screen.queryByRole('menu', { name: 'Ações adicionais do terminal' })).toBeNull()

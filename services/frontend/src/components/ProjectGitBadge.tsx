@@ -179,14 +179,23 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
     </button>
     {open && <section className="project-git-menu" aria-label="Operações da branch atual">
       <header className="project-git-menu-header">
-        <span className="project-git-menu-icon"><Icon name="git" size={15}/></span>
-        <div><span>Branch de trabalho</span><strong>{currentBranch}</strong></div>
-        {overview?.current_branch && <button type="button" className="project-git-copy-button" aria-label={`Copiar nome da branch ${overview.current_branch}`} title="Copiar nome da branch" onClick={() => void copyBranch(overview.current_branch || '')}><Icon name="copy" size={12}/></button>}
-        <span className="project-git-menu-version">{overview?.project_version || '—'}</span>
+        <div className="project-git-menu-title">
+          <span className="project-git-menu-icon"><Icon name="git" size={14}/></span>
+          <div><span>Git do projeto</span><strong>{currentBranch}</strong></div>
+        </div>
+        <div className="project-git-menu-meta">
+          {overview?.current_branch && <button type="button" className="project-git-copy-button" aria-label={`Copiar nome da branch ${overview.current_branch}`} title="Copiar nome da branch" onClick={() => void copyBranch(overview.current_branch || '')}><Icon name="copy" size={12}/></button>}
+          <span className="project-git-menu-version">{overview?.project_version || '—'}</span>
+        </div>
       </header>
 
+      {current && <div className={`project-git-sync-card ${current.has_upstream && !current.gone ? 'linked' : 'local'}`}>
+        <span className="project-git-sync-state"><i aria-hidden="true"/><span><strong>{current.has_upstream && !current.gone ? 'Ligada ao remoto' : 'Branch apenas local'}</strong><small>{current.has_upstream && !current.gone ? current.upstream : remote ? `Remoto disponível: ${remote}` : 'Sem remoto configurado'}</small></span></span>
+        {current.has_upstream && !current.gone && <span className="project-git-sync-counts" aria-label={`${current.ahead} para enviar e ${current.behind} para receber`}><b><Icon name="arrow-up" size={10}/>{current.ahead}</b><b><Icon name="arrow-down" size={10}/>{current.behind}</b></span>}
+      </div>}
+
       <div ref={pickerRef} className="project-git-picker">
-        <span className="project-git-picker-label">Alternar branch</span>
+        <span className="project-git-picker-label">Trocar de branch</span>
         <button type="button" className="project-git-picker-trigger" disabled={disabled} aria-haspopup="menu" aria-expanded={branchPickerOpen} onClick={() => setBranchPickerOpen((value) => !value)}>
           <span className="project-git-picker-copy"><strong>{branch || 'Escolher branch…'}</strong><small>{selected ? branchSummary(selected) : 'Local ou remota'}</small></span>
           <Icon name="chevron" size={11}/>
@@ -215,9 +224,8 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
           `A enviar ${overview?.current_branch || ''} para ${remote}${!current?.has_upstream ? ' e a configurar o upstream' : ''}.`,
           async () => { const result = await api.gitPush(id, remote, overview?.current_branch || '', !current?.has_upstream); return result.conflict_id ? 'Push encontrou conflito. Escolha resolução manual ou GPT no chat.' : `Push: ${result.outcome}.` },
           true,
-        )}><Icon name="arrow-up" size={12}/> Push</button>
+        )} className="primary"><Icon name="arrow-up" size={12}/> Push</button>
       </div>
-      {current && <p className="project-git-sync">{current.has_upstream ? `${current.upstream} · ↑${current.ahead} ↓${current.behind}` : 'Sem upstream configurado'}</p>}
       {notice && <p className="project-git-notice" role="status">{notice}</p>}
     </section>}
     {operation && createPortal(
