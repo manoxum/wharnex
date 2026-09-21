@@ -5673,6 +5673,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .database-explorer-panel,
 .artifact-explorer-panel,
 .chat-agent-tasks-drawer,
+.project-tasks-drawer,
 .agent-archive-drawer {
   container-type: inline-size;
   container-name: semantic-panel;
@@ -5689,7 +5690,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .file-library-tabs,
 .project-todo-tabs,
 .agent-chat-management-tabs,
-.chat-agent-task-tabs {
+.chat-agent-task-tabs,
+.project-task-tabs {
   flex-wrap: nowrap;
   overflow: hidden;
 }
@@ -5721,7 +5723,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .database-object-kind-tabs button > svg,
 .file-library-tabs button > svg,
 .agent-chat-management-tabs button > svg,
-.chat-agent-task-tabs button > svg {
+.chat-agent-task-tabs button > svg,
+.project-task-tabs button > svg {
   flex: 0 0 auto;
 }
 
@@ -5746,7 +5749,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .agent-runtime-tabs .semantic-tab-label,
   .database-workspace-tabs .semantic-tab-label,
   .database-object-kind-tabs .semantic-tab-label,
-  .chat-agent-task-tabs .semantic-tab-label {
+  .chat-agent-task-tabs .semantic-tab-label,
+  .project-task-tabs .semantic-tab-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -5768,7 +5772,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .file-library-tabs button,
   .project-todo-tabs button,
   .agent-chat-management-tabs button,
-  .chat-agent-task-tabs button {
+  .chat-agent-task-tabs button,
+  .project-task-tabs button {
     padding-inline: 7px;
     gap: 4px;
   }
@@ -5794,7 +5799,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .agent-runtime-tabs button small,
   .project-todo-tabs b,
   .agent-chat-management-tabs b,
-  .chat-agent-task-tabs b {
+  .chat-agent-task-tabs b,
+  .project-task-tabs b {
     display: none;
   }
 }
@@ -7678,3 +7684,64 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .git-release-mode button { flex: 1; justify-content: center; }
   .git-release-gpt-action { align-items: flex-start; flex-direction: column; }
 }
+
+/* Project tasks -----------------------------------------------------------
+   One Main Request is the durable unit of work. Child GPT requests, plans,
+   executions and audit events are unfolded inside the same task instead of
+   living in separate rail drawers. */
+.project-tasks-drawer { height:100%; min-height:0; display:grid; grid-template-rows:46px auto auto minmax(0,1fr); background:var(--theme-bg); color:var(--theme-text); }
+.project-task-intro { margin:0; padding:8px 12px; border-bottom:1px solid var(--theme-border-soft); color:var(--theme-text-muted); font-size:calc(7.4px * var(--ui-font-scale)); line-height:1.45; }
+.project-task-tabs { padding:6px 8px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-surface); }
+.project-task-tabs button { min-width:0; min-height:30px; padding:0 8px; display:flex; align-items:center; justify-content:center; gap:5px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--theme-text-muted); cursor:pointer; font-size:calc(7.4px * var(--ui-font-scale)); font-weight:700; }
+.project-task-tabs button:hover { background:var(--theme-hover); color:var(--theme-text-soft); }
+.project-task-tabs button[aria-selected='true'] { border-color:var(--theme-border); background:var(--theme-accent-soft); color:var(--theme-text); }
+.project-task-tabs b { min-width:18px; padding:3px 5px; border-radius:999px; background:var(--theme-muted); font:700 calc(6.8px * var(--ui-font-scale))/1 var(--mono-font-family); text-align:center; }
+.project-task-list { min-height:0; overflow:auto; padding:8px 9px 12px; display:grid; align-content:start; gap:8px; }
+.project-task-card { min-width:0; display:grid; gap:7px; padding:10px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); box-shadow:0 1px 1px color-mix(in srgb,var(--theme-shadow) 55%,transparent); }
+.project-task-card:hover { border-color:var(--theme-border); }
+.project-task-card.failed { border-color:color-mix(in srgb,var(--danger) 32%,var(--theme-border)); }
+.project-task-card-heading { min-width:0; display:flex; align-items:flex-start; justify-content:space-between; gap:9px; }
+.project-task-card-heading > div { min-width:0; display:grid; gap:4px; }
+.project-task-card-heading strong { overflow:hidden; color:var(--theme-text); font-size:calc(9.6px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.project-task-card-heading time { flex:0 0 auto; color:var(--theme-text-muted); font:600 calc(6.7px * var(--ui-font-scale))/1.2 var(--mono-font-family); }
+.project-task-state { width:max-content; display:inline-flex; align-items:center; gap:5px; color:var(--theme-text-muted); font-size:calc(6.8px * var(--ui-font-scale)); font-weight:750; text-transform:uppercase; letter-spacing:.05em; }
+.project-task-state i { width:6px; height:6px; border-radius:50%; background:var(--theme-text-muted); }
+.project-task-card.queue .project-task-state i { background:var(--warning); }
+.project-task-card.completed .project-task-state i { background:var(--success); }
+.project-task-card.failed .project-task-state,.project-task-card.failed .project-task-card-meta .danger { color:var(--danger); }
+.project-task-card.failed .project-task-state i { background:var(--danger); }
+.project-task-prompt { margin:0; display:-webkit-box; overflow:hidden; color:var(--theme-text-soft); font-size:calc(8px * var(--ui-font-scale)); line-height:1.45; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
+.project-task-card-meta { min-width:0; display:flex; align-items:center; flex-wrap:wrap; gap:5px 9px; color:var(--theme-text-muted); font-size:calc(6.9px * var(--ui-font-scale)); }
+.project-task-card-meta code { max-width:100%; overflow:hidden; color:var(--theme-accent); font:600 calc(6.7px * var(--ui-font-scale))/1.3 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
+.project-task-actions { display:flex; gap:6px; }
+.project-task-actions button { min-height:26px; padding:0 8px; display:inline-flex; align-items:center; gap:5px; border:1px solid var(--theme-border-soft); border-radius:7px; background:var(--theme-bg); color:var(--theme-text-soft); cursor:pointer; font-size:calc(7px * var(--ui-font-scale)); font-weight:700; }
+.project-task-actions button:hover { border-color:var(--theme-border); background:var(--theme-hover); color:var(--theme-text); }
+.project-task-details { min-width:0; border-top:1px solid var(--theme-border-soft); }
+.project-task-details > summary { min-height:28px; padding-top:6px; display:flex; align-items:center; justify-content:space-between; color:var(--theme-text-muted); cursor:pointer; font-size:calc(7.2px * var(--ui-font-scale)); font-weight:700; list-style:none; }
+.project-task-details > summary::-webkit-details-marker { display:none; }
+.project-task-details > summary::after { content:'+'; width:17px; height:17px; display:grid; place-items:center; border:1px solid var(--theme-border-soft); border-radius:5px; background:var(--theme-bg); color:var(--theme-text-soft); }
+.project-task-details[open] > summary::after { content:'−'; }
+.project-task-detail-grid { padding-top:5px; display:grid; gap:8px; }
+.project-task-detail-grid > section { min-width:0; display:grid; gap:6px; padding:8px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-bg); }
+.project-task-detail-grid > section > header { min-width:0; display:flex; align-items:center; gap:6px; color:var(--theme-text-muted); }
+.project-task-detail-grid > section > header strong { color:var(--theme-text-soft); font-size:calc(7.3px * var(--ui-font-scale)); text-transform:uppercase; letter-spacing:.045em; }
+.project-task-detail-grid > section > header span { margin-left:auto; min-width:18px; padding:2px 5px; border-radius:999px; background:var(--theme-muted); font:700 calc(6.5px * var(--ui-font-scale))/1 var(--mono-font-family); text-align:center; }
+.project-task-request-list,.project-task-plan-list,.project-task-execution-list { min-width:0; display:grid; gap:5px; }
+.project-task-request-list > div { min-width:0; padding:7px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 7px; border:1px solid var(--theme-border-soft); border-radius:7px; background:var(--theme-surface); }
+.project-task-request-list > div > div { min-width:0; display:flex; align-items:center; gap:6px; }
+.project-task-request-list b { color:var(--theme-text-soft); font-size:calc(7.2px * var(--ui-font-scale)); }
+.project-task-request-list code { min-width:0; overflow:hidden; color:var(--theme-text-muted); font:600 calc(6.2px * var(--ui-font-scale))/1.2 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
+.project-task-request-list small { grid-column:1 / -1; color:var(--theme-text-muted); font-size:calc(6.5px * var(--ui-font-scale)); }
+.request-state { padding:2px 5px; border-radius:999px; background:var(--theme-muted); color:var(--theme-text-muted); font-size:calc(6.3px * var(--ui-font-scale)); font-weight:750; white-space:nowrap; }
+.request-state.running,.request-state.done { color:var(--success); }
+.request-state.failed,.request-state.attention { color:var(--danger); }
+.project-task-plan-list details,.project-task-execution-list details { min-width:0; border:1px solid var(--theme-border-soft); border-radius:7px; background:var(--theme-surface); overflow:hidden; }
+.project-task-plan-list summary,.project-task-execution-list summary { min-width:0; padding:7px; display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; list-style:none; }
+.project-task-plan-list summary::-webkit-details-marker,.project-task-execution-list summary::-webkit-details-marker { display:none; }
+.project-task-plan-list summary > span,.project-task-execution-list summary > span { min-width:0; display:grid; gap:2px; }
+.project-task-plan-list summary b,.project-task-execution-list summary b { overflow:hidden; color:var(--theme-text-soft); font-size:calc(7.4px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.project-task-plan-list summary small,.project-task-execution-list summary small { color:var(--theme-text-muted); font-size:calc(6.4px * var(--ui-font-scale)); }
+.project-task-plan-list summary code,.project-task-execution-list summary code { max-width:38%; overflow:hidden; color:var(--theme-accent); font:600 calc(6.2px * var(--ui-font-scale))/1.2 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
+.project-task-plan-view,.project-task-terminal { min-width:0; max-height:420px; overflow:auto; border-top:1px solid var(--theme-border-soft); }
+.project-task-empty-detail { margin:0; color:var(--theme-text-muted); font-size:calc(7px * var(--ui-font-scale)); line-height:1.45; }
+.project-task-empty-detail.danger { color:var(--danger); }

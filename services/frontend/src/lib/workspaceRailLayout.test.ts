@@ -54,6 +54,16 @@ describe('workspaceRailLayout', () => {
     expect(layout.right).toContain('project')
     expect(layout.right).toContain('database')
     expect(layout.pinned.left).toContain('terminal')
-    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(15)
+    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(13)
   })
+
+  it('drops legacy Planos and Execuções rail entries in favor of Tarefas', () => {
+    localStorage.setItem('whx.workspace.rail-layout.v4', JSON.stringify({ left: ['tasks', 'plans', 'executions'], right: ['project', 'database'], pinned: { left: ['terminal'], right: [] } }))
+    const layout = loadWorkspaceRailLayout()
+    const tools = [...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]
+    expect(tools).toContain('tasks')
+    expect(tools).not.toContain('plans')
+    expect(tools).not.toContain('executions')
+  })
+
 })
