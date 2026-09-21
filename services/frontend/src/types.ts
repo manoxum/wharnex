@@ -908,6 +908,7 @@ export type GitCommitDetail = {
 export type GitHistoryPage = { commits: GitCommit[]; next_offset: number; has_more: boolean }
 
 export type GitContributionWeek = { started_at: string; commits: number; additions: number; deletions: number }
+export type GitContributionDay = { started_at: string; commits: number; additions: number; deletions: number }
 export type GitContributor = {
   name: string
   email: string
@@ -921,6 +922,7 @@ export type GitContributor = {
 export type GitContributorsOverview = {
   contributors: GitContributor[]
   weeks: GitContributionWeek[]
+  days: GitContributionDay[]
   total_commits: number
   truncated: boolean
 }

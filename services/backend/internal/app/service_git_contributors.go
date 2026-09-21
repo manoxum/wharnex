@@ -21,6 +21,16 @@ type GitContributionWeek struct {
 	Deletions int       `json:"deletions"`
 }
 
+// GitContributionDay keeps the exact UTC day buckets used by the GitHub-style
+// contribution calendar in the contributors surface. Only active days are
+// transported; the frontend fills empty calendar cells locally.
+type GitContributionDay struct {
+	StartedAt time.Time `json:"started_at"`
+	Commits   int       `json:"commits"`
+	Additions int       `json:"additions"`
+	Deletions int       `json:"deletions"`
+}
+
 // GitContributor contains all-time totals for the sampled repository history
 // plus a compact weekly series aligned with GitContributorsOverview.Weeks.
 type GitContributor struct {
@@ -37,6 +47,7 @@ type GitContributor struct {
 type GitContributorsOverview struct {
 	Contributors []GitContributor      `json:"contributors"`
 	Weeks        []GitContributionWeek `json:"weeks"`
+	Days         []GitContributionDay  `json:"days"`
 	TotalCommits int                   `json:"total_commits"`
 	Truncated    bool                  `json:"truncated"`
 }
@@ -66,6 +77,7 @@ func (s *Service) GitContributors(ctx context.Context, sessionID string) (GitCon
 	}
 	contributors := map[string]*contributorAccumulator{}
 	weekTotals := map[time.Time]*GitContributionWeek{}
+	dayTotals := map[time.Time]*GitContributionDay{}
 	var firstWeek, lastWeek time.Time
 	totalCommits := 0
 	for _, commit := range commits {
@@ -80,6 +92,7 @@ func (s *Service) GitContributors(ctx context.Context, sessionID string) (GitCon
 			continue
 		}
 		week := gitContributionWeekStart(commit.CommittedAt)
+		day := gitContributionDayStart(commit.CommittedAt)
 		if firstWeek.IsZero() || week.Before(firstWeek) {
 			firstWeek = week
 		}
@@ -94,6 +107,14 @@ func (s *Service) GitContributors(ctx context.Context, sessionID string) (GitCon
 		total.Commits++
 		total.Additions += commit.Additions
 		total.Deletions += commit.Deletions
+		daily := dayTotals[day]
+		if daily == nil {
+			daily = &GitContributionDay{StartedAt: day}
+			dayTotals[day] = daily
+		}
+		daily.Commits++
+		daily.Additions += commit.Additions
+		daily.Deletions += commit.Deletions
 		totalCommits++
 
 		contributor := contributors[key]
@@ -128,6 +149,12 @@ func (s *Service) GitContributors(ctx context.Context, sessionID string) (GitCon
 		}
 	}
 
+	days := make([]GitContributionDay, 0, len(dayTotals))
+	for _, day := range dayTotals {
+		days = append(days, *day)
+	}
+	sort.Slice(days, func(i, j int) bool { return days[i].StartedAt.Before(days[j].StartedAt) })
+
 	ranked := make([]GitContributor, 0, len(contributors))
 	for _, contributor := range contributors {
 		contributor.WeeklyCommits = make([]int, len(weeks))
@@ -149,7 +176,12 @@ func (s *Service) GitContributors(ctx context.Context, sessionID string) (GitCon
 		}
 		return strings.ToLower(ranked[i].Name) < strings.ToLower(ranked[j].Name)
 	})
-	return GitContributorsOverview{Contributors: ranked, Weeks: weeks, TotalCommits: totalCommits, Truncated: truncated}, nil
+	return GitContributorsOverview{Contributors: ranked, Weeks: weeks, Days: days, TotalCommits: totalCommits, Truncated: truncated}, nil
+}
+
+func gitContributionDayStart(value time.Time) time.Time {
+	value = value.UTC()
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func gitContributionWeekStart(value time.Time) time.Time {
