@@ -287,6 +287,7 @@ export type DockerContainer = {
   protected?: boolean
 }
 
+export type DockerComposeService = { name: string; container_count: number; running_count: number; error_count: number }
 export type DockerComposeProject = {
   name: string
   container_count: number
@@ -296,6 +297,8 @@ export type DockerComposeProject = {
   protected?: boolean
   redeploy_available?: boolean
   redeploy_reason?: string
+  config_files?: string[]
+  services?: DockerComposeService[]
 }
 export type DockerImage = { id: string; repository: string; tag: string; size: string; created_since?: string; in_use?: boolean; container_count?: number }
 export type DockerVolume = { name: string; driver: string; mountpoint?: string; scope?: string; in_use?: boolean; container_count?: number }

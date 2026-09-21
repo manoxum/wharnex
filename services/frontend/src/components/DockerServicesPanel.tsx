@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
-import type { DockerComposeProject, DockerContainer, DockerContainerAction, DockerImage, DockerNetwork, DockerOverview, DockerResourceKind, DockerVolume, Session, TerminalRunInput } from '../types'
+import type { DockerComposeProject, DockerComposeService, DockerContainer, DockerContainerAction, DockerImage, DockerNetwork, DockerOverview, DockerResourceKind, DockerVolume, Session, TerminalRunInput } from '../types'
 import { api } from '../lib/api'
 import { confirmDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
@@ -260,7 +260,10 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
                   <button type="button" className="docker-compose-down" disabled={Boolean(composeBusy) || project.protected} onClick={() => void runComposeDown(project)} title={project.protected ? 'Este Compose contém o backend Wharnex' : 'Docker Compose Down'} aria-label={`Docker Compose Down ${project.name}`}><Icon name="pause" size={11}/><span>Down</span></button>
                 </div>
               </div>
-              {projectOpen ? <div className="docker-compose-containers">{containers.map((container) => <DockerContainerRow key={container.id} container={container} active={selection?.kind === 'container' && selection.key === container.id} onSelect={() => selectResource({ kind: 'container', key: container.id })}/>)}</div> : null}
+              {projectOpen ? <>
+                <DockerComposeDefinition project={project}/>
+                <div className="docker-compose-containers">{containers.map((container) => <DockerContainerRow key={container.id} container={container} active={selection?.kind === 'container' && selection.key === container.id} onSelect={() => selectResource({ kind: 'container', key: container.id })}/>)}</div>
+              </> : null}
             </div>
           })}
           {!filtered.composeProjects.length && <DockerEmpty text={normalizedFilter ? 'Nenhum Compose corresponde ao filtro' : 'Nenhum projeto Compose detetado'}/>}
@@ -307,6 +310,29 @@ type DockerSectionIcon = 'package' | 'container' | 'image' | 'database' | 'netwo
 
 function DockerSection({ label, icon, count, open, onToggle, children }: { label: string; icon: DockerSectionIcon; count: number; open: boolean; onToggle: () => void; children: ReactNode }) {
   return <section className="docker-resource-section"><button type="button" className="docker-section-heading" aria-expanded={open} onClick={onToggle}><Icon name="chevron-right" size={10}/><Icon name={icon} size={13}/><strong>{label}</strong><span>{count}</span></button>{open ? <div className="docker-section-items">{children}</div> : null}</section>
+}
+
+function DockerComposeDefinition({ project }: { project: DockerComposeProject }) {
+  const files = project.config_files ?? []
+  const services = project.services ?? []
+  if (!files.length && !services.length) return null
+  return <div className="docker-compose-definition">
+    {files.length ? <div className="docker-compose-files" aria-label={`Ficheiros Compose de ${project.name}`}>
+      {files.map((file) => <span className="docker-compose-file" key={file} title={file}><Icon name="file" size={11}/><strong>{dockerComposeFileName(file)}</strong></span>)}
+    </div> : null}
+    {services.length ? <div className="docker-compose-services" aria-label={`Serviços definidos no Compose ${project.name}`}>
+      {services.map((service) => <DockerComposeServiceStatus service={service} key={service.name}/>)}
+    </div> : null}
+  </div>
+}
+
+function DockerComposeServiceStatus({ service }: { service: DockerComposeService }) {
+  const status = dockerComposeServiceStatus(service)
+  return <div className={`docker-compose-service state-${status.tone}`} aria-label={`Serviço ${service.name}: ${status.label}`}>
+    <span className={`docker-state-dot state-${status.tone}`} aria-hidden="true"/>
+    <span className="docker-resource-copy"><strong>{service.name}</strong><small>{status.detail}</small></span>
+    <span className={`docker-row-state state-${status.tone}`}>{status.label}</span>
+  </div>
 }
 
 function DockerContainerRow({ container, active, onSelect }: { container: DockerContainer; active: boolean; onSelect: () => void }) {
@@ -508,7 +534,11 @@ function readDockerExpansionState(): DockerExpansionState {
 function normalizeDockerOverview(value: DockerOverview): DockerOverview {
   return {
     ...value,
-    compose_projects: Array.isArray(value.compose_projects) ? value.compose_projects : [],
+    compose_projects: Array.isArray(value.compose_projects) ? value.compose_projects.map((project) => ({
+      ...project,
+      config_files: Array.isArray(project.config_files) ? project.config_files : [],
+      services: Array.isArray(project.services) ? project.services : [],
+    })) : [],
     containers: Array.isArray(value.containers) ? value.containers : [],
     images: Array.isArray(value.images) ? value.images : [],
     volumes: Array.isArray(value.volumes) ? value.volumes : [],
@@ -536,7 +566,7 @@ function dockerMatches(query: string, ...values: Array<string | number | boolean
   return values.some((value) => String(value ?? '').toLocaleLowerCase().includes(query))
 }
 
-function dockerComposeMatches(project: DockerComposeProject, query: string) { return dockerMatches(query, project.name, project.container_count, project.running_count, project.error_count, project.stopped_count) }
+function dockerComposeMatches(project: DockerComposeProject, query: string) { return dockerMatches(query, project.name, project.container_count, project.running_count, project.error_count, project.stopped_count, ...(project.config_files ?? []), ...(project.services ?? []).flatMap((service) => [service.name, service.container_count, service.running_count, service.error_count, dockerComposeServiceStatus(service).label])) }
 function dockerContainerMatches(container: DockerContainer, query: string) { return dockerMatches(query, container.id, container.name, container.image, container.state, container.condition, container.status, container.ports, container.networks, container.compose_project, container.compose_service, container.exit_code, container.error) }
 function dockerImageMatches(image: DockerImage, query: string) { return dockerMatches(query, image.id, image.repository, image.tag, image.size, image.created_since, image.in_use ? 'em uso' : 'livre', image.container_count) }
 function dockerVolumeMatches(volume: DockerVolume, query: string) { return dockerMatches(query, volume.name, volume.driver, volume.mountpoint, volume.scope, volume.in_use ? 'em uso' : 'livre', volume.container_count) }
@@ -553,6 +583,13 @@ function dockerStateTone(state: string) { const value = (state || '').toLowerCas
 function dockerConditionLabel(state: string) { const value = (state || '').toLowerCase(); if (value === 'running') return 'A correr'; if (value === 'error' || value === 'dead') return 'Erro'; if (value === 'restarting') return 'A reiniciar'; if (value === 'paused') return 'Pausado'; if (value === 'created') return 'Criado'; return 'Parado' }
 function dockerComposeTone(project: DockerComposeProject) { if (project.error_count > 0) return 'error'; if (project.container_count > 0 && project.running_count === project.container_count) return 'running'; if (project.running_count > 0) return 'warning'; return 'stopped' }
 function composeSummary(project: DockerComposeProject) { return `${project.running_count}/${project.container_count} running${project.error_count ? ` · ${project.error_count} erro` : ''}` }
+function dockerComposeFileName(value: string) { const parts = value.replaceAll('\\', '/').split('/').filter(Boolean); return parts.at(-1) || value }
+function dockerComposeServiceStatus(service: DockerComposeService): { tone: 'running' | 'warning' | 'error' | 'stopped'; label: string; detail: string } {
+  if (service.error_count > 0) return { tone: 'error', label: 'Erro', detail: `${service.error_count} com erro · ${service.container_count} container${service.container_count === 1 ? '' : 's'}` }
+  if (service.running_count > 0) return { tone: service.running_count === service.container_count ? 'running' : 'warning', label: 'Ativo', detail: `${service.running_count}/${service.container_count} container${service.container_count === 1 ? '' : 's'} ativo${service.running_count === 1 ? '' : 's'}` }
+  if (service.container_count > 0) return { tone: 'stopped', label: 'Parado', detail: `${service.container_count} container${service.container_count === 1 ? '' : 's'} parado${service.container_count === 1 ? '' : 's'}` }
+  return { tone: 'stopped', label: 'Sem container', detail: 'Definido no YAML, sem container criado' }
+}
 function readDockerFontScale() { const value = Number(window.localStorage.getItem(DOCKER_FONT_SCALE_KEY)); return Number.isFinite(value) && value >= 0.95 && value <= 1.6 ? value : DEFAULT_DOCKER_FONT_SCALE }
 function shellQuote(value: string) { return `'${value.replace(/'/g, `'"'"'`)}'` }
 function formatRefreshTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) }

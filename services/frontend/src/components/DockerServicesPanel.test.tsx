@@ -7,7 +7,7 @@ import { DockerServicesPanel } from './DockerServicesPanel'
 const session = { id: 'ses_docker', project_path: '/workspace/project' } as Session
 
 const overview = {
-  compose_projects: [{ name: 'project', container_count: 1, running_count: 1, error_count: 0, stopped_count: 0, redeploy_available: true }],
+  compose_projects: [{ name: 'project', container_count: 1, running_count: 1, error_count: 0, stopped_count: 0, redeploy_available: true, config_files: ['/workspace/project/compose.yml'], services: [{ name: 'web', container_count: 1, running_count: 1, error_count: 0 }, { name: 'worker', container_count: 0, running_count: 0, error_count: 0 }] }],
   containers: [{ id: 'abc123', name: 'web', image: 'example/web:latest', state: 'running', condition: 'running', status: 'Up 2 minutes', ports: '0.0.0.0:8080->8080/tcp', networks: 'project_default', compose_project: 'project', compose_service: 'web' }],
   images: [{ id: 'sha256:123', repository: 'example/web', tag: 'latest', size: '150MB', created_since: '2 days ago', in_use: true, container_count: 1 }],
   volumes: [{ name: 'project_data', driver: 'local', scope: 'local', mountpoint: '/var/lib/docker/volumes/project_data/_data', in_use: false, container_count: 0 }],
@@ -49,6 +49,9 @@ describe('DockerServicesPanel', () => {
     openSection('Compose')
     fireEvent.click(screen.getByRole('button', { name: 'Expandir Compose project' }))
     expect((await screen.findAllByText('web')).length).toBeGreaterThan(0)
+    expect(screen.getByText('compose.yml')).toBeTruthy()
+    expect(screen.getByLabelText('Serviço web: Ativo')).toBeTruthy()
+    expect(screen.getByLabelText('Serviço worker: Sem container')).toBeTruthy()
 
     openSection('Volumes')
     expect(await screen.findByText('project_data')).toBeTruthy()
@@ -143,6 +146,9 @@ describe('DockerServicesPanel', () => {
     expect(await screen.findByText('/var/lib/docker/volumes/project_data/_data')).toBeTruthy()
     expect(screen.getByRole('toolbar', { name: 'Ações do volume project_data' })).toBeTruthy()
 
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar filtro' }))
+    fireEvent.change(screen.getByLabelText('Filtrar recursos Docker'), { target: { value: 'worker' } })
+    expect(await within(tree).findByLabelText('Serviço worker: Sem container')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Limpar filtro' }))
     openSection('Images')
     fireEvent.click(within(tree).getByRole('button', { name: 'Ver detalhes da imagem example/web:latest' }))

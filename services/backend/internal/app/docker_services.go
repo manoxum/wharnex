@@ -48,15 +48,24 @@ type DockerContainer struct {
 	Protected      bool   `json:"protected,omitempty"`
 }
 
+type DockerComposeService struct {
+	Name           string `json:"name"`
+	ContainerCount int    `json:"container_count"`
+	RunningCount   int    `json:"running_count"`
+	ErrorCount     int    `json:"error_count"`
+}
+
 type DockerComposeProject struct {
-	Name              string `json:"name"`
-	ContainerCount    int    `json:"container_count"`
-	RunningCount      int    `json:"running_count"`
-	ErrorCount        int    `json:"error_count"`
-	StoppedCount      int    `json:"stopped_count"`
-	Protected         bool   `json:"protected,omitempty"`
-	RedeployAvailable bool   `json:"redeploy_available"`
-	RedeployReason    string `json:"redeploy_reason,omitempty"`
+	Name              string                 `json:"name"`
+	ContainerCount    int                    `json:"container_count"`
+	RunningCount      int                    `json:"running_count"`
+	ErrorCount        int                    `json:"error_count"`
+	StoppedCount      int                    `json:"stopped_count"`
+	Protected         bool                   `json:"protected,omitempty"`
+	RedeployAvailable bool                   `json:"redeploy_available"`
+	RedeployReason    string                 `json:"redeploy_reason,omitempty"`
+	ConfigFiles       []string               `json:"config_files,omitempty"`
+	Services          []DockerComposeService `json:"services,omitempty"`
 	runtime           dockerComposeRuntime
 }
 
@@ -208,7 +217,15 @@ func (s *Service) DockerOverview(ctx context.Context, sessionID string) (DockerO
 		}
 	}
 
-	return buildDockerOverview(containerRows, inspections, imageRows, volumeRows, networkRows, time.Now().UTC()), nil
+	overview := buildDockerOverview(containerRows, inspections, imageRows, volumeRows, networkRows, time.Now().UTC())
+	for index := range overview.ComposeProjects {
+		project := &overview.ComposeProjects[index]
+		configuredServices, configErr := dockerComposeConfiguredServices(probeCtx, project.Name, project.runtime)
+		if configErr == nil {
+			project.Services = mergeDockerComposeServices(project.Services, configuredServices)
+		}
+	}
+	return overview, nil
 }
 
 func buildDockerOverview(containerRows []dockerContainerRow, inspections []dockerContainerInspect, imageRows []dockerImageRow, volumeRows []dockerVolumeRow, networkRows []dockerNetworkRow, refreshedAt time.Time) DockerOverview {
@@ -240,6 +257,7 @@ func buildDockerOverview(containerRows []dockerContainerRow, inspections []docke
 		RefreshedAt:     refreshedAt,
 	}
 	projectStats := make(map[string]*DockerComposeProject)
+	projectServices := make(map[string]map[string]*DockerComposeService)
 	for _, row := range containerRows {
 		inspected := inspectByID[row.ID]
 		labels := inspected.Config.Labels
@@ -272,6 +290,25 @@ func buildDockerOverview(containerRows []dockerContainerRow, inspections []docke
 			default:
 				project.StoppedCount++
 			}
+			if container.ComposeService != "" {
+				services := projectServices[container.ComposeProject]
+				if services == nil {
+					services = make(map[string]*DockerComposeService)
+					projectServices[container.ComposeProject] = services
+				}
+				service := services[container.ComposeService]
+				if service == nil {
+					service = &DockerComposeService{Name: container.ComposeService}
+					services[container.ComposeService] = service
+				}
+				service.ContainerCount++
+				switch condition {
+				case "running", "restarting":
+					service.RunningCount++
+				case "error":
+					service.ErrorCount++
+				}
+			}
 		}
 	}
 	projectNames := make([]string, 0, len(projectStats))
@@ -281,6 +318,15 @@ func buildDockerOverview(containerRows []dockerContainerRow, inspections []docke
 	sort.Strings(projectNames)
 	for _, name := range projectNames {
 		project := projectStats[name]
+		project.ConfigFiles = append([]string(nil), project.runtime.ConfigFiles...)
+		serviceNames := make([]string, 0, len(projectServices[name]))
+		for serviceName := range projectServices[name] {
+			serviceNames = append(serviceNames, serviceName)
+		}
+		sort.Strings(serviceNames)
+		for _, serviceName := range serviceNames {
+			project.Services = append(project.Services, *projectServices[name][serviceName])
+		}
 		project.RedeployAvailable, project.RedeployReason = dockerComposeRedeployAvailability(project.runtime)
 		if project.Protected {
 			project.RedeployAvailable = false
@@ -358,7 +404,7 @@ func dockerComposeRedeployAvailability(runtime dockerComposeRuntime) (bool, stri
 	return true, ""
 }
 
-func dockerComposeRedeployArgs(project string, runtime dockerComposeRuntime) []string {
+func dockerComposeBaseArgs(project string, runtime dockerComposeRuntime) []string {
 	args := []string{"compose", "-p", project, "--project-directory", runtime.WorkingDir}
 	for _, configFile := range runtime.ConfigFiles {
 		args = append(args, "-f", configFile)
@@ -366,7 +412,50 @@ func dockerComposeRedeployArgs(project string, runtime dockerComposeRuntime) []s
 	for _, envFile := range runtime.EnvironmentFiles {
 		args = append(args, "--env-file", envFile)
 	}
-	return append(args, "up", "-d", "--force-recreate")
+	return args
+}
+
+func dockerComposeRedeployArgs(project string, runtime dockerComposeRuntime) []string {
+	return append(dockerComposeBaseArgs(project, runtime), "up", "-d", "--force-recreate")
+}
+
+func dockerComposeConfigServicesArgs(project string, runtime dockerComposeRuntime) []string {
+	return append(dockerComposeBaseArgs(project, runtime), "config", "--services")
+}
+
+func dockerComposeConfiguredServices(ctx context.Context, project string, runtime dockerComposeRuntime) ([]string, error) {
+	if available, reason := dockerComposeRedeployAvailability(runtime); !available {
+		return nil, fmt.Errorf("%w: %s", ErrDockerRedeployUnavailable, reason)
+	}
+	return dockerTextLines(ctx, dockerComposeConfigServicesArgs(project, runtime)...)
+}
+
+func mergeDockerComposeServices(current []DockerComposeService, configured []string) []DockerComposeService {
+	byName := make(map[string]DockerComposeService, len(current)+len(configured))
+	for _, service := range current {
+		if service.Name != "" {
+			byName[service.Name] = service
+		}
+	}
+	for _, name := range configured {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, exists := byName[name]; !exists {
+			byName[name] = DockerComposeService{Name: name}
+		}
+	}
+	names := make([]string, 0, len(byName))
+	for name := range byName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	services := make([]DockerComposeService, 0, len(names))
+	for _, name := range names {
+		services = append(services, byName[name])
+	}
+	return services
 }
 
 func dockerComposeRuntimeFromInspections(project string, inspections []dockerContainerInspect) (dockerComposeRuntime, error) {
