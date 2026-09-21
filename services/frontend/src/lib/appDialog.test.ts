@@ -1,6 +1,19 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { confirmDialog, noticeDialog, promptDialog } from './appDialog'
 import { INTERNAL_WINDOW_DOCK_ID } from './internalWindow'
+
+function dispatchPointer(target: HTMLElement, type: 'pointerdown' | 'pointermove' | 'pointerup', init: { pointerId: number; clientX: number; clientY: number; button?: number }) {
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: init.button ?? 0,
+    clientX: init.clientX,
+    clientY: init.clientY,
+  })
+  Object.defineProperty(event, 'pointerId', { value: init.pointerId })
+  Object.defineProperty(event, 'isPrimary', { value: true })
+  target.dispatchEvent(event)
+}
 
 afterEach(() => {
   document.querySelectorAll('.app-dialog-backdrop').forEach((element) => element.remove())
@@ -80,6 +93,27 @@ describe('appDialog', () => {
     document.querySelector<HTMLButtonElement>('.app-dialog-button')?.click()
     await expect(result).resolves.toBeUndefined()
   })
+  it('adds an attached drag grip to imperative application dialogs', async () => {
+    const result = confirmDialog({ title: 'Mover confirmação', message: 'A janela continua interativa.' })
+    const shell = document.querySelector<HTMLElement>('.internal-window-shell')!
+    const grip = document.querySelector<HTMLElement>('.internal-window-drag-grip')!
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 700 })
+    shell.getBoundingClientRect = vi.fn(() => ({
+      x: 250, y: 150, left: 250, top: 150, right: 650, bottom: 450, width: 400, height: 300, toJSON: () => ({}),
+    } as DOMRect))
+
+    dispatchPointer(grip, 'pointerdown', { pointerId: 3, button: 0, clientX: 300, clientY: 170 })
+    dispatchPointer(grip, 'pointermove', { pointerId: 3, clientX: 340, clientY: 210 })
+    const transform = shell.style.transform
+    dispatchPointer(grip, 'pointerup', { pointerId: 3, clientX: 340, clientY: 210 })
+
+    const cancel = [...document.querySelectorAll<HTMLButtonElement>('.app-dialog-button')].find((button) => button.textContent === 'Cancelar')!
+    cancel.click()
+    await expect(result).resolves.toBe(false)
+    expect(transform).toBe('translate3d(40px, 40px, 0)')
+  })
+
   it('minimizes to the shared lower-right dock without resolving the dialog', async () => {
     const result = confirmDialog({ title: 'Revisão', message: 'Continuar depois.' })
     const minimize = document.querySelector<HTMLButtonElement>('[aria-label="Minimizar Revisão"]')!
