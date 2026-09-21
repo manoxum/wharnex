@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type * as Monaco from 'monaco-editor'
 import { activeMonacoTheme, configureMonaco, editorModelURI, monaco } from '../lib/monaco'
 import { editorLanguageForPath } from '../lib/editorLanguage'
-import { subscribeUIPreferences } from '../lib/uiPreferences'
+import { subscribeUIPreferences, workspaceEditorFontSize } from '../lib/uiPreferences'
 
 type Cursor = { line: number; column: number }
 type RunAction = { id: string; label: string; line?: number }
@@ -50,7 +50,7 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRu
       theme: activeMonacoTheme(),
       automaticLayout: true,
       fontFamily: "ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
-      fontSize: 12.5,
+      fontSize: workspaceEditorFontSize(),
       lineHeight: 20,
       lineNumbersMinChars: 4,
       glyphMargin: true,
@@ -185,7 +185,10 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRu
     }
   }, [])
 
-  useEffect(() => subscribeUIPreferences(() => monaco.editor.setTheme(activeMonacoTheme())), [])
+  useEffect(() => subscribeUIPreferences((preferences) => {
+    monaco.editor.setTheme(activeMonacoTheme())
+    editor.current?.updateOptions({ fontSize: workspaceEditorFontSize(preferences) })
+  }), [])
 
   useEffect(() => {
     const instance = editor.current

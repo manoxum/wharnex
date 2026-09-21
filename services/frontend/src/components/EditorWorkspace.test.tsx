@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../lib/api'
-import type { Session } from '../types'
+import type { GitOverview, GitWorkingFile, Session } from '../types'
 import { EditorWorkspace } from './EditorWorkspace'
 
 const fileRecordCalls: unknown[] = []
@@ -18,6 +18,14 @@ const session = {
   context: { id: 'ctx', manifest: { id: 'ctx', project_root: '/workspace/demo', sha256: 'abc', files: [], excluded: [], text_truncated: false } },
 } satisfies Session
 
+function overview(files: GitWorkingFile[] = []): GitOverview {
+  return {
+    project_path: '/workspace/demo', available: true, commit_mode: 'manual', detached: false, has_identity: true,
+    current_branch: 'main', branches: [], remotes: [], commits: [], pending: [],
+    working: { clean: files.length === 0, stageable_count: files.length, files },
+  }
+}
+
 // EditorWorkspace stays mounted (CSS-hidden) whenever another mode is
 // active. An inline `file={{ ... }}` object literal here got a new identity
 // on every one of its many re-renders while a Git diff was open, and
@@ -25,12 +33,14 @@ const session = {
 // (plus fresh web workers) whenever its `file` prop's identity changes -
 // live-observed ballooning a renderer to several GB and crashing it.
 describe('EditorWorkspace git diff stability', () => {
+  beforeEach(() => { vi.spyOn(api, 'gitOverview').mockResolvedValue(overview()) })
   afterEach(() => { fileRecordCalls.length = 0; vi.restoreAllMocks() })
 
   it('keeps the same file object across unrelated re-renders while a git diff is open', async () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
     vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'a.ts', content: 'const a = 1', sha256: 'abc123', size: 11 })
     vi.spyOn(api, 'gitFileDiff').mockResolvedValue({ path: 'a.ts', diff: '--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-const a = 0\n+const a = 1', truncated: false })
+    vi.mocked(api.gitOverview).mockResolvedValue(overview([{ path: 'a.ts', kind: 'change', status: 'modified', additions: 1, deletions: 1 }]))
 
     const onError = vi.fn()
     const onRunInTerminal = vi.fn()
@@ -102,5 +112,21 @@ describe('EditorWorkspace git diff stability', () => {
 
     expect(onSplitFile.mock.calls).toEqual([['src/App.tsx', 'vertical'], ['src/App.tsx', 'horizontal']])
     expect(onDetachFile.mock.calls).toEqual([['src/App.tsx']])
+  })
+
+
+  it('shows the saved Git state in the active tab and editor context', async () => {
+    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [{ path: 'src/App.tsx', name: 'App.tsx', kind: 'file', size: 9 }] })
+    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'src/App.tsx', content: 'export {}', sha256: 'abc123', size: 9 })
+    vi.mocked(api.gitOverview).mockResolvedValue(overview([{ path: 'src/App.tsx', kind: 'change', status: 'modified', additions: 5, deletions: 2 }]))
+
+    const { container } = render(<EditorWorkspace session={session} onError={() => undefined} onRunInTerminal={() => undefined} openPath="src/App.tsx" openNonce={1} />)
+
+    await waitFor(() => expect(container.querySelectorAll('.editor-git-file-state').length).toBeGreaterThanOrEqual(2))
+    const contextState = container.querySelector('.editor-git-context-state')
+    expect(contextState?.textContent).toContain('M')
+    expect(contextState?.textContent).toContain('+5')
+    expect(contextState?.textContent).toContain('−2')
+    expect((screen.getByTitle('Comparar o ficheiro guardado com o Git') as HTMLButtonElement).disabled).toBe(false)
   })
 })

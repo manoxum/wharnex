@@ -230,6 +230,7 @@ func firstLineOf(message string) string {
 type GitWorkingFile struct {
 	Path      string `json:"path"`
 	Kind      string `json:"kind"`
+	Status    string `json:"status"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
 }
@@ -265,7 +266,18 @@ func gitWorkingFiles(state hostrepo.WorkingState, stats ...map[string]hostrepo.D
 	}
 	files := make([]GitWorkingFile, 0, len(kinds))
 	for path, kind := range kinds {
-		file := GitWorkingFile{Path: path, Kind: kind}
+		status := state.Statuses[path]
+		if status == "" {
+			switch kind {
+			case "embedded_repository":
+				status = "added"
+			case "unmerged":
+				status = "unmerged"
+			default:
+				status = "modified"
+			}
+		}
+		file := GitWorkingFile{Path: path, Kind: kind, Status: status}
 		if len(stats) > 0 {
 			file.Additions, file.Deletions = stats[0][path].Additions, stats[0][path].Deletions
 		}

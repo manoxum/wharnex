@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import { api, APIError } from '../lib/api'
 import { desktopBridge } from '../lib/desktop'
 import type { Session, TerminalFrame, TerminalRunRequest } from '../types'
-import { subscribeUIPreferences } from '../lib/uiPreferences'
+import { subscribeUIPreferences, workspaceTerminalFontSize } from '../lib/uiPreferences'
 
 const terminalThemes = {
   dark: {
@@ -64,7 +64,7 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     const terminal = new XTerm({
       cursorBlink: true, scrollback: 10_000, allowProposedApi: false,
       fontFamily: "ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
-      fontSize: 11, lineHeight: 1.35, theme: activeTerminalTheme(),
+      fontSize: workspaceTerminalFontSize(), lineHeight: 1.35, theme: activeTerminalTheme(),
     })
     const fit = new FitAddon()
     terminal.loadAddon(fit); terminal.open(root); fitRef.current = fit; terminalRef.current = terminal
@@ -164,8 +164,11 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     }
   }, [session.id, reconnectNonce])
 
-  useEffect(() => subscribeUIPreferences(() => {
-    if (terminalRef.current) terminalRef.current.options.theme = activeTerminalTheme()
+  useEffect(() => subscribeUIPreferences((preferences) => {
+    if (!terminalRef.current) return
+    terminalRef.current.options.theme = activeTerminalTheme()
+    terminalRef.current.options.fontSize = workspaceTerminalFontSize(preferences)
+    try { fitRef.current?.fit() } catch { /* panel may still be resizing */ }
   }), [])
 
   useEffect(() => { if (!visible) return; try { fitRef.current?.fit() } catch { /* panel may still be resizing */ } }, [height, visible])
