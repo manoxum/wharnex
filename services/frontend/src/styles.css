@@ -5859,6 +5859,29 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .docker-services-footer { min-height:31px; padding:0 9px; display:flex; align-items:center; justify-content:space-between; gap:8px; border-top:1px solid var(--theme-border); background:var(--theme-surface); color:var(--theme-text-muted); font:calc(8px * var(--docker-font-scale))/1.4 var(--mono-font-family); }
 @container (max-width: 500px) { .docker-services-layout { grid-template-columns:1fr; grid-template-rows:minmax(210px,44%) minmax(0,1fr); } .docker-services-tree { border-right:0; border-bottom:1px solid var(--theme-border); } }
 
+/* Resource rows are explicit flex rows; this prevents labels, counts and
+   lifecycle actions from collapsing into one inline text run. */
+.docker-resource-section { border-bottom:1px solid var(--theme-border-soft); }
+.docker-section-items { padding:2px 0 5px; }
+.docker-resource-row { width:100%; min-height:36px; padding:5px 8px 5px 29px; display:flex; align-items:center; gap:7px; border:0; border-left:2px solid transparent; background:transparent; color:var(--theme-text-muted); text-align:left; }
+button.docker-resource-row { cursor:pointer; }
+button.docker-resource-row:hover { background:var(--theme-hover); color:var(--theme-text-soft); }
+.docker-resource-row.active { border-left-color:var(--theme-accent); background:color-mix(in srgb,var(--theme-accent) 8%,var(--theme-surface)); color:var(--theme-text); }
+.docker-resource-copy { min-width:0; flex:1; display:grid; gap:1px; }
+.docker-resource-copy strong,.docker-resource-copy small { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.docker-resource-copy strong { color:inherit; font-size:calc(9.2px * var(--docker-font-scale)); font-weight:650; }
+.docker-resource-copy small { color:var(--theme-text-muted); font:calc(8.5px * var(--docker-font-scale))/1.4 var(--mono-font-family); }
+.docker-resource-empty { padding:7px 12px 7px 31px; color:var(--theme-text-muted); font-size:calc(8.5px * var(--docker-font-scale)); }
+.docker-state-dot { width:7px; height:7px; flex:0 0 7px; border-radius:50%; background:var(--theme-text-muted); }
+.docker-state-dot.state-running { background:var(--theme-success); }
+.docker-state-dot.state-warning { background:var(--theme-warning); }
+.docker-state-dot.state-error { background:var(--theme-danger); }
+.docker-protected-mark { display:inline-flex; color:var(--theme-text-muted); }
+.docker-row-state,.docker-usage-badge { flex:0 0 auto; padding:2px 6px; border-radius:999px; background:var(--theme-surface-soft); color:var(--theme-text-muted); font:600 calc(8.5px * var(--docker-font-scale))/1.3 var(--mono-font-family); }
+.docker-row-state.state-running { color:var(--theme-success); }
+.docker-row-state.state-error { color:var(--theme-danger); }
+.docker-compose-containers .docker-resource-row { padding-left:42px; }
+
 
 /* Runtime Agent drawer -----------------------------------------------------
    This surface lives behind a user-controlled splitter, so viewport media
