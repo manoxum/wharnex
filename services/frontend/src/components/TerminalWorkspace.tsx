@@ -120,7 +120,6 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
             <span className={`terminal-tab-status terminal-status-${tab.status}`} aria-hidden="true"/>
             <span className="terminal-tab-title">{tab.label}</span>
           </button>}
-          {editingID !== tab.id && <button type="button" className="terminal-tab-action terminal-tab-rename" title={`Renomear ${tab.label}`} aria-label={`Renomear ${tab.label}`} onClick={() => beginRename(tab)}><Icon name="rename" size={14}/></button>}
           <button type="button" className="terminal-tab-action terminal-tab-close" title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={() => closeTerminal(tab.id)}><Icon name="close" size={14}/></button>
         </div>)}
       </div>

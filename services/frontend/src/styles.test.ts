@@ -885,6 +885,8 @@ describe('editor explorer terminal visual consolidation', () => {
   it('keeps terminal tab editing and actions aligned with desktop IDE chrome', () => {
     expect(lastRule('.terminal-tabbar')).toContain('min-height: 34px')
     expect(lastRule('.terminal-tab-action')).toContain('border-radius: 4px')
+    expect(lastRule('.terminal-tab-title')).toContain('flex: 1 1 auto')
+    expect(css).not.toContain('.terminal-tab-select > span')
     expect(lastRule('.terminal-tab-edit input')).toContain('height: 25px')
     expect(lastRule('.terminal-tab-edit input')).toContain('font: 500 calc(11px * var(--ui-font-scale))/1 var(--ui-font-family)')
   })

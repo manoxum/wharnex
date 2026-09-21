@@ -33,10 +33,13 @@ describe('TerminalWorkspace', () => {
     expect(screen.getAllByTestId('terminal-instance')).toHaveLength(1)
   })
 
-  it('renames a terminal tab without replacing its mounted PTY', () => {
+  it('renames a terminal tab by double click without a dedicated edit icon', () => {
     render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
     const terminal = screen.getByTestId('terminal-instance')
-    fireEvent.click(screen.getByLabelText('Renomear Terminal 1'))
+    const tab = screen.getByRole('tab', { name: /Terminal 1/ })
+    expect(screen.queryByRole('button', { name: 'Renomear Terminal 1' })).toBeNull()
+
+    fireEvent.doubleClick(tab)
     const input = screen.getByLabelText('Renomear Terminal 1')
     fireEvent.change(input, { target: { value: 'Servidor API' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -67,6 +70,8 @@ describe('TerminalWorkspace', () => {
     const terminalTab = screen.getByRole('tab', { name: /Terminal 1/ })
     expect(tabbar?.contains(terminalTab)).toBe(true)
     expect(terminalTab.querySelector('svg')).toBeNull()
+    expect(terminalTab.getAttribute('title')).toContain('Terminal 1')
+    expect(screen.queryByRole('button', { name: 'Renomear Terminal 1' })).toBeNull()
     expect(tabbar?.contains(screen.getByLabelText('Fechar Terminal 1'))).toBe(true)
     expect(tabbar?.contains(screen.getByLabelText('Mais ações do terminal'))).toBe(true)
     expect(screen.queryByRole('menu', { name: 'Ações adicionais do terminal' })).toBeNull()
