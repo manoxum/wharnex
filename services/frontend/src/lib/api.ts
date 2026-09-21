@@ -93,10 +93,11 @@ export function normalizeGitOverview(overview: GitOverview): GitOverview {
   }
 }
 
-function chatAgentQuery(activeOnly: boolean, projectPath: string) {
+function chatAgentQuery(activeOnly: boolean, projectPath: string, limit = 0) {
   const params = new URLSearchParams()
   if (activeOnly) params.set('active', '1')
   if (projectPath) params.set('project_id', projectPath)
+  if (limit > 0) params.set('limit', String(limit))
   const query = params.toString()
   return query ? `?${query}` : ''
 }
@@ -108,8 +109,8 @@ export const api = {
   // projectPath scopes the queue to one project. A project-scoped view MUST
   // always pass it: the queue is shared by every open project, and the panel
   // exists to answer whether *this* project is stuck (see adr/ADR-0044).
-  chatAgentTasks: (activeOnly = false, projectPath = '') =>
-    request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks${chatAgentQuery(activeOnly, projectPath)}`),
+  chatAgentTasks: (activeOnly = false, projectPath = '', limit = 0) =>
+    request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks${chatAgentQuery(activeOnly, projectPath, limit)}`),
   chatAgentTasksForRequest: (requestID: string) => request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks?request_id=${encodeURIComponent(requestID)}&limit=50`),
   chatAgentTaskSummary: (projectPath = '') =>
     request<ChatAgentQueueSummary>(`/api/chat-agent/tasks/summary${projectPath ? `?project_id=${encodeURIComponent(projectPath)}` : ''}`),

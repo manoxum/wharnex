@@ -3,7 +3,6 @@ import type { HarnessEvent, ProjectTodo, Session } from '../types'
 import { ChatPanel } from './ChatPanel'
 import { promptDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
-import { type ProjectActivityKind } from './ProjectActivityDrawer'
 import { MarkdownContent } from './MarkdownContent'
 import { loadChat } from '../lib/workspaceMemory'
 import { desktopWindowScope } from '../lib/projectBindings'
@@ -23,13 +22,12 @@ import { drawerResizeCeiling, WORKBENCH_SIDE_PANEL_MIN_PX } from '../lib/workben
 // parsed before - the very first paint. Loading each one's chunk on first
 // open instead keeps that cost off the startup path entirely.
 const AgentProjectExplorer = lazy(() => import('./AgentProjectExplorer').then((m) => ({ default: m.AgentProjectExplorer })))
-const ProjectActivityDrawer = lazy(() => import('./ProjectActivityDrawer').then((m) => ({ default: m.ProjectActivityDrawer })))
 const ExecutionErrorsDrawer = lazy(() => import('./ExecutionErrorsDrawer').then((m) => ({ default: m.ExecutionErrorsDrawer })))
 const EvolutionEvidenceDrawer = lazy(() => import('./EvolutionEvidenceDrawer').then((m) => ({ default: m.EvolutionEvidenceDrawer })))
 const ProjectKnowledgeDrawer = lazy(() => import('./ProjectKnowledgeDrawer').then((m) => ({ default: m.ProjectKnowledgeDrawer })))
 const GitDrawer = lazy(() => import('./GitDrawer').then((m) => ({ default: m.GitDrawer })))
 const AgentRuntimeDrawer = lazy(() => import('./AgentRuntimeDrawer').then((m) => ({ default: m.AgentRuntimeDrawer })))
-const ChatAgentTasksDrawer = lazy(() => import('./ChatAgentTasksDrawer').then((m) => ({ default: m.ChatAgentTasksDrawer })))
+const ProjectTasksDrawer = lazy(() => import('./ProjectTasksDrawer').then((m) => ({ default: m.ProjectTasksDrawer })))
 const ArtifactExplorerPanel = lazy(() => import('./ArtifactExplorerPanel').then((m) => ({ default: m.ArtifactExplorerPanel })))
 const DatabaseExplorerPanel = lazy(() => import('./DatabaseExplorerPanel').then((m) => ({ default: m.DatabaseExplorerPanel })))
 const ProjectTodoPanel = lazy(() => import('./ProjectTodoPanel').then((m) => ({ default: m.ProjectTodoPanel })))
@@ -38,7 +36,7 @@ function DrawerFallback() {
   return <PanelSkeleton/>
 }
 
-export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | 'errors' | ProjectActivityKind | ''
+export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | 'errors' | ''
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 44
@@ -137,9 +135,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     if (tool === 'knowledge') return { label: 'Conhecimento do projeto', title: 'Conhecimento adquirido', icon: 'knowledge', drawer: 'knowledge' }
     if (tool === 'git') return { label: 'Git do projeto', title: 'Git do projeto', icon: 'git', drawer: 'git', badge: pendingCommitCount }
     if (tool === 'agents') return { label: 'Gestão de agentes', title: 'Supervisor e Workers', icon: 'agent', drawer: 'agents' }
-    if (tool === 'tasks') return { label: 'Tarefas do runtime', title: 'Fila e tarefas em execução', icon: 'list', drawer: 'tasks' }
-    if (tool === 'plans') return { label: 'Planos do projeto', title: 'Planos do projeto', icon: 'plan', drawer: 'plans' }
-    if (tool === 'executions') return { label: 'Execuções do projeto', title: 'Execuções do projeto', icon: 'history', drawer: 'executions' }
+    if (tool === 'tasks') return { label: 'Tarefas do projeto', title: 'Main Requests, subtarefas GPT, planos e execuções', icon: 'list', drawer: 'tasks' }
     if (tool === 'errors') return { label: 'Erros de execução', title: 'Ocorrências, causas, logs e soluções', icon: 'alert', drawer: 'errors' }
     if (tool === 'fifo') return { label: 'Fila FIFO de execução', title: 'Fila FIFO de execução', icon: 'play', drawer: 'fifo', badge: activeExecutionCount }
     if (tool === 'evolution') return { label: 'Logs de auto-evolução', title: 'Logs e análise de auto-evolução', icon: 'refresh', drawer: 'evolution' }
@@ -207,8 +203,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
     {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession} onResolveConflictWithGPT={props.onResolveConflictWithGPT}/> : null}
     {drawer === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
-    {drawer === 'tasks' ? <ChatAgentTasksDrawer projectPath={session.project_path} onClose={close} onError={onError} chats={props.chats} onGoToChat={props.onGoToChat} onGoToOrchestrator={props.onGoToOrchestrator} onFollowInstance={props.onFollowInstance}/> : null}
-    {drawer === 'plans' || drawer === 'executions' ? <ProjectActivityDrawer kind={drawer} chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close}/> : null}
+    {drawer === 'tasks' ? <ProjectTasksDrawer projectPath={session.project_path} currentSession={session} chats={props.chats} savedChats={savedChats} archivedChats={archivedChats} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close} onError={onError} onGoToChat={props.onGoToChat}/> : null}
     {drawer === 'errors' ? <ExecutionErrorsDrawer chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} onClose={close}/> : null}
     {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
     {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
@@ -221,7 +216,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
 }
 
 function isWorkspaceTool(value: string): value is WorkspaceTool {
-  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'fifo', 'evolution', 'terminal', 'database'].includes(value)
+  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'terminal', 'database'].includes(value)
 }
 function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
   const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable'>('all')
