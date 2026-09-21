@@ -3639,6 +3639,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onResolveConflictWithGPT={resolveConflictWithGPT}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
+        onRunInTerminal={runInTerminal}
       />
       <div className="workspace-center-column">
         <div className={`workspace-surface-content ${splitSurface ? `is-split split-${splitSurface.direction}` : ''}`} style={splitSurface ? { ['--workspace-split-primary' as string]: `${Math.round(splitSurface.ratio * 1000) / 10}%` } as React.CSSProperties : undefined}>
@@ -3739,6 +3740,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onResolveConflictWithGPT={resolveConflictWithGPT}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
+        onRunInTerminal={runInTerminal}
       />
       </div>
       <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} bundleRefreshKey={`${session.id}:${session.artifacts?.length || 0}`} />

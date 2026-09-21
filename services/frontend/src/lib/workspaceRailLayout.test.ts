@@ -5,13 +5,13 @@ describe('workspaceRailLayout', () => {
   beforeEach(() => localStorage.clear())
 
   it('keeps the project explorer on the right and pins the terminal at the lower left by default', () => {
-    expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.right).toEqual(['project', 'database'])
+    expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.right).toEqual(['project', 'docker', 'database'])
     expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.left).toEqual(['terminal'])
     const moved = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'library', 'right', 'database')
     const reordered = moveWorkspaceTool(moved, 'git', 'left', 'todo')
     const pinned = moveWorkspaceTool(reordered, 'knowledge', 'right', undefined, true)
     saveWorkspaceRailLayout(pinned)
-    expect(loadWorkspaceRailLayout().right).toEqual(['project', 'library', 'database'])
+    expect(loadWorkspaceRailLayout().right).toEqual(['project', 'docker', 'library', 'database'])
     expect(loadWorkspaceRailLayout().left.slice(0, 3)).toEqual(['archive', 'git', 'todo'])
     expect(loadWorkspaceRailLayout().pinned.right).toEqual(['knowledge'])
   })
@@ -20,7 +20,7 @@ describe('workspaceRailLayout', () => {
     const projectA = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'knowledge', 'right', 'database')
     const projectB = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'git', 'right', undefined, true)
     saveWorkspaceRailLayout(projectA, '/projects/a')
-    expect(loadWorkspaceRailLayout('/projects/b').right).toEqual(['project', 'knowledge', 'database'])
+    expect(loadWorkspaceRailLayout('/projects/b').right).toEqual(['project', 'docker', 'knowledge', 'database'])
 
     saveWorkspaceRailLayout(projectB, '/projects/b')
     expect(loadWorkspaceRailLayout('/projects/a').pinned.right).toEqual(['git'])
@@ -31,7 +31,16 @@ describe('workspaceRailLayout', () => {
     const unsubscribe = subscribeWorkspaceRailLayout((layout) => updates.push(layout.right))
     saveWorkspaceRailLayout(moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'knowledge', 'right', 'database'), '/projects/a')
     unsubscribe()
-    expect(updates).toEqual([['project', 'knowledge', 'database']])
+    expect(updates).toEqual([['project', 'docker', 'knowledge', 'database']])
+  })
+
+
+  it('migrates the shared v5 layout without losing pinned tools and adds Docker', () => {
+    localStorage.setItem('whx.workspace.rail-layout.v5', JSON.stringify({ left: ['archive'], right: ['project', 'database'], pinned: { left: ['terminal'], right: ['git'] } }))
+    const migrated = loadWorkspaceRailLayout()
+    expect(migrated.right).toContain('docker')
+    expect(migrated.pinned.left).toEqual(['terminal'])
+    expect(migrated.pinned.right).toEqual(['git'])
   })
 
 
@@ -69,6 +78,6 @@ describe('workspaceRailLayout', () => {
     expect(layout.right).toContain('project')
     expect(layout.right).toContain('database')
     expect(layout.pinned.left).toContain('terminal')
-    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(15)
+    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(16)
   })
 })

@@ -269,6 +269,31 @@ export type TerminalFrame = { type: 'ready' | 'output' | 'exit' | 'error'; data?
 export type TerminalRunInput = { command: string; cwd: string; label?: string }
 export type TerminalRunRequest = TerminalRunInput & { id: number; target?: TerminalTarget; openNew?: boolean }
 
+
+export type DockerContainer = {
+  id: string
+  name: string
+  image: string
+  state: string
+  status: string
+  ports?: string
+  networks?: string
+  protected?: boolean
+}
+
+export type DockerImage = { id: string; repository: string; tag: string; size: string; created_since?: string }
+export type DockerVolume = { name: string; driver: string; mountpoint?: string; scope?: string }
+export type DockerNetwork = { id: string; name: string; driver: string; scope?: string; internal?: boolean }
+export type DockerOverview = {
+  containers: DockerContainer[]
+  images: DockerImage[]
+  volumes: DockerVolume[]
+  networks: DockerNetwork[]
+  refreshed_at: string
+}
+export type DockerLogs = { container_id: string; tail: number; content: string }
+export type DockerContainerAction = 'start' | 'stop' | 'restart'
+
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
 export type InterviewOption = { id: string; label: string }
