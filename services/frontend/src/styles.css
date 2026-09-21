@@ -9864,3 +9864,25 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .workspace-root *::-webkit-scrollbar { width: 4px; height: 4px; }
 .workspace-root *::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--theme-text-muted) 34%, transparent); }
 .workspace-root *::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--theme-text-muted) 62%, transparent); }
+
+/* Git branch overlays stay on the flat IDE surface grammar.
+   Transient elevation comes from the surface/shadow, not a rounded outline. */
+.project-git-menu {
+  border: 0;
+  border-radius: 0;
+  box-shadow: 0 18px 44px color-mix(in srgb, #000 26%, transparent);
+}
+.project-git-branch-menu {
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: 0 14px 30px color-mix(in srgb, #000 24%, transparent);
+}
+.project-git-branch-group { gap: 0; }
+.project-git-branch-group + .project-git-branch-group { padding-top: 0; }
+.project-git-branch-option { border-radius: 0; }
+.project-git-branch-option-meta b {
+  border: 0;
+  border-radius: 0;
+}
