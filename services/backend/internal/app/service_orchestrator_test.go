@@ -42,6 +42,22 @@ func (p *orchestratorCapturePlanner) Plan(_ context.Context, request planner.Req
 	return planner.Result{ManualPrompt: "produce the orchestrator DAG"}, nil
 }
 
+type orchestratorRevisionTestPlanner struct {
+	calls    int
+	proposal orchestrator.Proposal
+	request  planner.Request
+}
+
+func (p *orchestratorRevisionTestPlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
+	p.calls++
+	p.request = request
+	if p.calls == 1 {
+		proposal := p.proposal
+		return planner.Result{OrchestratorPlan: &proposal}, nil
+	}
+	return planner.Result{ManualPrompt: "revise the attached orchestrator DAG"}, nil
+}
+
 func TestManualOrchestratorProposalQueuesDurableUrgentWorker(t *testing.T) {
 	root := t.TempDir()
 	store := session.NewStore()
@@ -246,6 +262,80 @@ func TestOrchestratorApprovalReadinessAndReopen(t *testing.T) {
 	second = taskByTitle(t, overview.Tasks, "Frontend")
 	if second.Status != orchestrator.TaskPending {
 		t.Fatalf("reopen did not invalidate dependent task: %#v", second)
+	}
+}
+
+func TestOrchestratorRejectArchivesDraftAndTasks(t *testing.T) {
+	root := t.TempDir()
+	proposal := orchestrator.Proposal{Protocol: orchestrator.ProtocolV1, Title: "Release", Objective: "ship safely", Tasks: []orchestrator.ProposalTask{
+		{ID: "t1", Title: "Prepare", Priority: orchestrator.PriorityNormal},
+	}}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorTestPlanner{proposal: proposal}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.ProposeOrchestratorPlan(context.Background(), started.ID, "ship safely")
+	if err != nil {
+		t.Fatal(err)
+	}
+	overview, err := service.RejectOrchestratorPlan(context.Background(), started.ID, result.Plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Plans[0].Status != orchestrator.PlanArchived || overview.Tasks[0].Status != orchestrator.TaskArchived || overview.Tasks[0].Condition != orchestrator.ConditionNone {
+		t.Fatalf("rejected proposal was not archived: %#v %#v", overview.Plans[0], overview.Tasks[0])
+	}
+	if _, err := service.ApproveOrchestratorPlan(context.Background(), started.ID, result.Plan.ID); err == nil {
+		t.Fatal("archived orchestrator proposal remained approvable")
+	}
+}
+
+func TestOrchestratorRevisionAttachesPreviousProposalAndSupersedesDraft(t *testing.T) {
+	root := t.TempDir()
+	store := session.NewStore()
+	plannerStub := &orchestratorRevisionTestPlanner{proposal: orchestrator.Proposal{Protocol: orchestrator.ProtocolV1, Title: "Migration", Objective: "migrate safely", Tasks: []orchestrator.ProposalTask{
+		{ID: "t1", Title: "Backend", Description: "Move the API", Priority: orchestrator.PriorityHigh, AcceptanceCriteria: []string{"API passes"}},
+	}}}
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), plannerStub, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.ProposeOrchestratorPlan(context.Background(), started.ID, "migrate safely")
+	if err != nil {
+		t.Fatal(err)
+	}
+	revised, err := service.ReviseOrchestratorPlan(context.Background(), started.ID, first.Plan.ID, "split backend migration and add rollback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revised.WorkerTaskID == "" || revised.RequestID == first.RequestID {
+		t.Fatalf("revision did not create a fresh planning request: %#v", revised)
+	}
+	overview, err := service.OrchestratorOverview(context.Background(), started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Plans[0].Status != orchestrator.PlanArchived || overview.Tasks[0].Status != orchestrator.TaskArchived {
+		t.Fatalf("previous proposal was not superseded: %#v %#v", overview.Plans[0], overview.Tasks[0])
+	}
+	queued, err := store.GetChatAgentTask(revised.WorkerTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		GeneratedAttachments []OrchestratorGeneratedAttachment `json:"generated_attachments"`
+		Prompt               string                            `json:"prompt"`
+	}
+	if err := json.Unmarshal(queued.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.GeneratedAttachments) != 1 || !strings.Contains(payload.GeneratedAttachments[0].Name, first.Plan.ID) || !strings.Contains(payload.GeneratedAttachments[0].Content, `"protocol": "harness.orchestrator-plan/v1"`) {
+		t.Fatalf("revision did not attach the previous proposal: %#v", payload.GeneratedAttachments)
+	}
+	if !strings.Contains(plannerStub.request.Message, "split backend migration") || !strings.Contains(plannerStub.request.Message, payload.GeneratedAttachments[0].Name) {
+		t.Fatalf("revision guidance did not reach the planner: %q", plannerStub.request.Message)
 	}
 }
 

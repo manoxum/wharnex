@@ -2688,6 +2688,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-proposal-card h2 { margin:4px 0 3px; font-size:calc(15px * var(--ui-font-scale)); }
 .orchestrator-proposal-card p { margin:0; color:var(--theme-text-muted); font-size:calc(9px * var(--ui-font-scale)); line-height:1.5; }
 .orchestrator-proposal-card > header button { flex:0 0 auto; }
+.orchestrator-proposal-actions { min-width:auto !important; display:flex; align-items:center; justify-content:flex-end; gap:7px; flex:0 0 auto; flex-wrap:wrap; }
+.orchestrator-proposal-card > header .orchestrator-proposal-actions > button.secondary { border:1px solid var(--theme-border); background:var(--theme-surface); color:var(--theme-text-muted); }
+.orchestrator-proposal-card > header .orchestrator-proposal-actions > button.secondary:hover { background:var(--theme-hover); color:var(--theme-text); }
+.orchestrator-proposal-card > header .orchestrator-proposal-actions > button.secondary.danger { border-color:color-mix(in srgb, var(--theme-danger) 42%, var(--theme-border)); color:var(--theme-danger); }
 .orchestrator-proposal-flow { padding:8px; display:grid; gap:2px; }
 .orchestrator-proposal-flow > button { min-height:54px; padding:7px 10px; display:grid; grid-template-columns:34px minmax(0,1fr) 20px; align-items:center; gap:10px; border:0; border-radius:8px; background:transparent; color:var(--theme-text); text-align:left; cursor:pointer; }
 .orchestrator-proposal-flow > button:hover { background:var(--theme-hover); }

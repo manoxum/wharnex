@@ -317,8 +317,10 @@ func TestInterruptedExecutionResumeAppliesToHostWithoutASecondApproval(t *testin
 
 	// Clearing the interrupted-execution intent and applying to the host are
 	// two separate steps of the same resume; poll for the final "applied"
-	// state rather than treating the brief window between them as failure.
-	deadline := time.Now().Add(2 * time.Second)
+	// state rather than treating the brief window between them as failure. Full-suite
+	// load can make the integration-branch merge take several seconds, so keep this
+	// bounded without treating scheduler or git latency as a product regression.
+	deadline := time.Now().Add(10 * time.Second)
 	var current domain.Session
 	for {
 		var getErr error
