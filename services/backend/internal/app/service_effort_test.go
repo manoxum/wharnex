@@ -8,22 +8,21 @@ import (
 
 func TestEffortPoliciesExposeRequestedBudgets(t *testing.T) {
 	tests := []struct {
-		level      domain.EffortLevel
-		max        int
-		continuous bool
+		level domain.EffortLevel
+		max   int
 	}{
-		{domain.EffortLevelLow, 1, false},
-		{domain.EffortLevelMedium, 3, false},
-		{domain.EffortLevelHigh, 6, false},
-		{domain.EffortLevelExtraHigh, 10, true},
-		{domain.EffortLevelMax, 15, true},
-		{domain.EffortLevelUltra, 30, true},
-		{domain.EffortLevelLoop, 0, true},
+		{domain.EffortLevelLow, 1},
+		{domain.EffortLevelMedium, 3},
+		{domain.EffortLevelHigh, 6},
+		{domain.EffortLevelExtraHigh, 10},
+		{domain.EffortLevelMax, 15},
+		{domain.EffortLevelUltra, 30},
+		{domain.EffortLevelLoop, 0},
 	}
 	for _, test := range tests {
 		policy := policyForEffort(test.level)
-		if policy.MaxAttempts != test.max || policy.ContinuousImprovement != test.continuous {
-			t.Fatalf("effort %s: got %+v, want max=%d continuous=%t", test.level, policy, test.max, test.continuous)
+		if policy.MaxAttempts != test.max {
+			t.Fatalf("effort %s: got %+v, want max=%d", test.level, policy, test.max)
 		}
 	}
 }
@@ -33,18 +32,11 @@ func TestLowHasNoAutomaticCorrectionAfterInitialAttempt(t *testing.T) {
 	if effortAttemptAvailable(item) {
 		t.Fatal("low must stop after the initial autonomous attempt")
 	}
-	if shouldContinueImprovement(item) {
-		t.Fatal("low must not enter continuous improvement")
-	}
 }
 
-func TestLoopHasNoNumericCeilingButStillNeedsAutoModeForImprovement(t *testing.T) {
+func TestLoopHasNoNumericCorrectionCeiling(t *testing.T) {
 	item := domain.Session{EffortLevel: domain.EffortLevelLoop, AutomationMode: domain.AutomationModeAuto, AutomationAttempt: 1000000}
-	if !effortAttemptAvailable(item) || !shouldContinueImprovement(item) {
-		t.Fatal("loop should remain eligible while the planner reports worthwhile work")
-	}
-	item.AutomationMode = domain.AutomationModeManual
-	if shouldContinueImprovement(item) {
-		t.Fatal("manual mode must never launch autonomous improvement")
+	if !effortAttemptAvailable(item) {
+		t.Fatal("loop should remain eligible for pre-success automatic correction")
 	}
 }

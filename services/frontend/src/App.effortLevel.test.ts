@@ -20,9 +20,10 @@ describe('composer effort level', () => {
     expect(app).toContain('onEffortLevel: changeEffortLevel')
   })
 
-  it('teaches the planner to stop when further work has poor cost benefit', () => {
+  it('treats successful host apply as the terminal boundary', () => {
     expect(prompt).toContain('EFFORT LEVEL CONTRACT — QUALITY/COST BALANCE')
-    expect(prompt).toContain('Never consume attempts merely because they are available')
-    expect(prompt).toContain('no meaningful improvement remains')
+    expect(prompt).toContain('successful host integration is the terminal boundary of the Main Request')
+    expect(prompt).toContain('Never propose or expect a post-success continuous-improvement round')
+    expect(panel).toContain('após aplicar com sucesso no host, a Main Request termina')
   })
 })

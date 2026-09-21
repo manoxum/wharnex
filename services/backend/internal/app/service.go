@@ -1878,19 +1878,9 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 		// hosts on top of that is the one ordering that cannot be undone by
 		// looking at it afterwards.
 		result.CrossProject = s.maybeRunCrossProjectUnits(ctx, sessionID, transport)
-		if !result.RestartRequired && shouldContinueImprovement(applied) {
-			improved, improveErr := s.prepareImprovementRequest(ctx, sessionID, applied, planID)
-			if improveErr != nil {
-				result.AutoError = improveErr.Error()
-				return result
-			}
-			result.Session = improved
-			if improved.State == "planned" && improved.Plan != nil && improved.Plan.PlanID != planID {
-				current = improved
-				continue
-			}
-			result.RepairPrepared = improved.State == "repair_pending" && improved.LastManualPrompt != ""
-		}
+		// A successful host integration is the Main Request terminal boundary.
+		// Effort levels bound autonomous correction before success; they never
+		// create a fresh planner round after the requested change is on the host.
 		return result
 	}
 }

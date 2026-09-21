@@ -12,8 +12,7 @@ import (
 const maxAutoRepairAttempts = 3
 
 type effortPolicy struct {
-	MaxAttempts           int
-	ContinuousImprovement bool
+	MaxAttempts int
 }
 
 func normalizeEffortLevel(level domain.EffortLevel) domain.EffortLevel {
@@ -32,13 +31,13 @@ func policyForEffort(level domain.EffortLevel) effortPolicy {
 	case domain.EffortLevelHigh:
 		return effortPolicy{MaxAttempts: 6}
 	case domain.EffortLevelExtraHigh:
-		return effortPolicy{MaxAttempts: 10, ContinuousImprovement: true}
+		return effortPolicy{MaxAttempts: 10}
 	case domain.EffortLevelMax:
-		return effortPolicy{MaxAttempts: 15, ContinuousImprovement: true}
+		return effortPolicy{MaxAttempts: 15}
 	case domain.EffortLevelUltra:
-		return effortPolicy{MaxAttempts: 30, ContinuousImprovement: true}
+		return effortPolicy{MaxAttempts: 30}
 	case domain.EffortLevelLoop:
-		return effortPolicy{ContinuousImprovement: true}
+		return effortPolicy{}
 	default:
 		return effortPolicy{MaxAttempts: 3}
 	}
@@ -83,9 +82,4 @@ func effortAttemptLabel(item domain.Session, next int) string {
 		return "attempt " + strconv.Itoa(next) + " with no fixed limit"
 	}
 	return "attempt " + strconv.Itoa(next) + " of " + strconv.Itoa(policy.MaxAttempts)
-}
-
-func shouldContinueImprovement(item domain.Session) bool {
-	policy := policyForEffort(item.EffortLevel)
-	return domain.AutomationModeIsAutomatic(item.AutomationMode) && policy.ContinuousImprovement && effortAttemptAvailable(item)
 }

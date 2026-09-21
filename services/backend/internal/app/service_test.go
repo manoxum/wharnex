@@ -2653,7 +2653,7 @@ func TestAutoBundleExecutesSandboxAndAppliesHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
-	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto, domain.EffortLevelMax)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2668,6 +2668,9 @@ func TestAutoBundleExecutesSandboxAndAppliesHost(t *testing.T) {
 	}
 	if !result.AutoExecuted || !result.AutoApplied || result.Session.State != "applied" {
 		t.Fatalf("unexpected auto result: %#v", result)
+	}
+	if result.Session.LastRequestID != prompted.LastRequestID || result.Session.ImprovementAttempt != 0 || result.Session.LastManualPrompt != "" {
+		t.Fatalf("successful host apply must finalize the Main Request without a post-success planner round: %#v", result.Session)
 	}
 	if result.Session.PendingKnowledgeReviewRequestID != "" {
 		t.Fatalf("new successful auto apply must not schedule a separate knowledge-review request: %#v", result.Session)

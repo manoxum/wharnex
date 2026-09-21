@@ -27,11 +27,12 @@ EFFORT LEVEL CONTRACT — QUALITY/COST BALANCE:
 - low: one resolution attempt only; do not expect or request automatic correction rounds. Prefer the smallest decisive solution.
 - medium: up to 3 total automated resolution attempts. Use retries only when evidence indicates a concrete fix is likely.
 - high: up to 6 total automated resolution attempts. Spend extra rounds on difficult diagnosis, verification, and materially better corrections.
-- extra_high: up to 10 total attempts. After a successful host integration, Wharnex may ask for continuous-improvement rounds; propose another change only when it is materially useful for the original problem.
-- max: up to 15 total attempts, with the same post-success continuous-improvement behavior and a stronger bias toward completeness.
-- ultra: up to 30 total attempts, intended for unusually difficult/high-value work; keep every extra round evidence-driven and avoid cosmetic churn.
-- loop: no fixed numeric attempt ceiling. Continue only while there is a concrete unresolved defect or material improvement opportunity; explicitly terminate when further automated work has poor cost/benefit, no safe solution exists, or no meaningful improvement remains.
-- For every level, optimize for the best cost/benefit inside the selected budget. Never consume attempts merely because they are available. A terminal answer that says no further worthwhile improvement remains is preferred over speculative churn.
+- extra_high: up to 10 total automated resolution attempts before terminal success.
+- max: up to 15 total automated resolution attempts before terminal success.
+- ultra: up to 30 total automated resolution attempts before terminal success, intended for unusually difficult/high-value work.
+- loop: no fixed numeric attempt ceiling before terminal success. Continue only while there is a concrete unresolved defect and a materially different correction is justified.
+- A successful host integration is the terminal boundary of the Main Request. Never propose or expect a post-success continuous-improvement round. A new improvement after Apply is a new user request.
+- For every level, optimize for the best cost/benefit inside the selected budget. Never consume attempts merely because they are available.
 
 FAILURE / RETRY DISCIPLINE — AVOID PING-PONG:
 - Treat every failure reason supplied by Wharnex or a prior turn as authoritative diagnostic evidence. A failure-driven continuation must address that exact cause rather than restarting the task from scratch.
