@@ -343,15 +343,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       .catch(() => { if (alive) setKnownProjects([]) })
     return () => { alive = false }
   }, [session.id])
+  const projectExplorerNeeded = fileQuery?.kind === 'file' || fileQuery?.kind === 'see'
   useEffect(() => {
+    if (!projectExplorerNeeded) return
     let alive = true
-    // @file browses the whole safe project tree, not only the current context
-    // snapshot. listFiles already enforces the editor/project containment rules.
+    // Browsing the whole safe tree is comparatively expensive and can trigger
+    // unrelated async churn in the composer. Resolve it only while @file/@see
+    // is actively being completed; the context manifest remains the fallback
+    // everywhere else. listFiles already enforces project containment rules.
     void api.listFiles(session.id)
       .then((result) => { if (alive) setBrowsableProjectFiles((result.files || []).filter((entry) => entry.kind === 'file' && entry.path !== 'EXPORTS.md').map((entry) => entry.path)) })
       .catch(() => { if (alive) setBrowsableProjectFiles([]) })
     return () => { alive = false }
-  }, [session.id, session.context.manifest.sha256])
+  }, [projectExplorerNeeded, session.id, session.context.manifest.sha256])
   useEffect(() => {
     let alive = true
     void api.managedArtifacts('', false, 'library')
