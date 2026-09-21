@@ -148,3 +148,41 @@ func TestDeleteSessionEventsRemovesOnlyThatSessionsRows(t *testing.T) {
 		t.Fatalf("expected ses_b's events to survive untouched, got %#v", remainingB)
 	}
 }
+
+func TestNormalizeRestoredSessionDropsInterruptedMarkerAfterTerminalResult(t *testing.T) {
+	completedAt := time.Now().UTC()
+	item := domain.Session{
+		ExecutionMode: domain.ExecutionModeProtected,
+		InterruptedExecution: &domain.InterruptedExecution{
+			PlanID: "settled-plan",
+			Status: domain.InterruptedExecutionRunning,
+		},
+		LastExecution: &domain.ExecutionResult{
+			PlanID:      "settled-plan",
+			Success:     false,
+			CompletedAt: completedAt,
+		},
+	}
+
+	normalizeRestoredSession(&item)
+
+	if item.InterruptedExecution != nil {
+		t.Fatalf("terminal execution result was resurrected as interrupted: %#v", item.InterruptedExecution)
+	}
+}
+
+func TestNormalizeRestoredSessionKeepsGenuinelyInterruptedExecution(t *testing.T) {
+	item := domain.Session{
+		ExecutionMode: domain.ExecutionModeProtected,
+		InterruptedExecution: &domain.InterruptedExecution{
+			PlanID: "unfinished-plan",
+			Status: domain.InterruptedExecutionRunning,
+		},
+	}
+
+	normalizeRestoredSession(&item)
+
+	if item.InterruptedExecution == nil || item.InterruptedExecution.Status != domain.InterruptedExecutionAwaitingDecision {
+		t.Fatalf("unfinished execution was not preserved for recovery: %#v", item.InterruptedExecution)
+	}
+}

@@ -32,12 +32,12 @@ func (s *Service) ResumeInterruptedExecution(sessionID string) (ExecutionRecover
 	if planExecutionHeld(item, planID) {
 		return ExecutionRecoveryResponse{}, errors.New("interrupted execution is paused or suspended by the operator")
 	}
-	if planExecutionAlreadyCompleted(item, planID) {
+	if interruptedExecutionSettled(item, planID) {
 		cleared, clearErr := s.clearInterruptedExecution(sessionID, planID)
 		if clearErr != nil {
 			return ExecutionRecoveryResponse{}, clearErr
 		}
-		s.bus.Publish(sessionID, "execution.recovery_reconciled", map[string]any{"plan_id": planID})
+		s.bus.Publish(sessionID, "execution.recovery_reconciled", map[string]any{"plan_id": planID, "reason": "terminal_result_persisted"})
 		return ExecutionRecoveryResponse{Session: cleared, PlanID: planID, Status: "reconciled"}, nil
 	}
 
@@ -71,7 +71,18 @@ func (s *Service) ResumeInterruptedExecution(sessionID string) (ExecutionRecover
 
 func (s *Service) runInterruptedExecutionResume(sessionID, planID string, approved bool) {
 	ctx := context.Background()
-	result, _, err := s.executeRecordedForPlan(ctx, sessionID, approved, planID)
+	result, item, err := s.executeRecordedForPlan(ctx, sessionID, approved, planID)
+	if !result.Success && interruptedExecutionSettled(item, planID) {
+		// The resumed run reached a real terminal failure. Leave that failure to
+		// the normal repair/error state instead of reclassifying it as another
+		// interruption that the operator could accidentally rerun on restart.
+		if _, clearErr := s.clearInterruptedExecution(sessionID, planID); clearErr != nil {
+			s.bus.Publish(sessionID, "execution.recovery_failed", map[string]any{"plan_id": planID, "error": clearErr.Error()})
+			return
+		}
+		s.bus.Publish(sessionID, "execution.recovery_reconciled", map[string]any{"plan_id": planID, "reason": "terminal_failure_persisted"})
+		return
+	}
 	if err != nil {
 		s.markInterruptedExecutionFailed(sessionID, planID, err.Error())
 		return
@@ -129,6 +140,13 @@ func (s *Service) markInterruptedExecutionAwaitingDecision(sessionID, planID str
 		}
 		return nil
 	})
+}
+
+func interruptedExecutionSettled(item domain.Session, planID string) bool {
+	if planExecutionAlreadyCompleted(item, planID) {
+		return true
+	}
+	return item.LastExecution != nil && item.LastExecution.PlanID == planID && !item.LastExecution.CompletedAt.IsZero()
 }
 
 func executionRecoveryActive(status string) bool {

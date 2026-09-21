@@ -358,3 +358,42 @@ func TestInterruptedExecutionResumeAppliesToHostWithoutASecondApproval(t *testin
 	// removes the root out from under a still-running git subprocess.
 	time.Sleep(100 * time.Millisecond)
 }
+
+func TestResumeInterruptedExecutionReconcilesPersistedTerminalFailure(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "failed-plan", RequestID: "failed-request", Status: "ready", Summary: "fail", Risk: "low", Operations: []domain.Operation{}}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.SubmitMessage(context.Background(), started.ID, "prepare"); err != nil {
+		t.Fatal(err)
+	}
+	completedAt := time.Now().UTC()
+	if _, err = service.store.Update(started.ID, func(current *domain.Session) error {
+		current.LastExecution = &domain.ExecutionResult{PlanID: plan.PlanID, Success: false, CompletedAt: completedAt, Error: "known failure"}
+		current.InterruptedExecution = &domain.InterruptedExecution{PlanID: plan.PlanID, RequestedAt: completedAt.Add(-time.Minute), Status: domain.InterruptedExecutionAwaitingDecision}
+		current.State = "failed"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := service.ResumeInterruptedExecution(started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Status != "reconciled" {
+		t.Fatalf("resume status = %q, want reconciled", response.Status)
+	}
+	if response.Session.InterruptedExecution != nil {
+		t.Fatalf("terminal failure remained recoverable: %#v", response.Session.InterruptedExecution)
+	}
+	if response.Session.State != "failed" || response.Session.LastExecution == nil || response.Session.LastExecution.Success {
+		t.Fatalf("reconciliation changed the terminal failure lifecycle: state=%q execution=%#v", response.Session.State, response.Session.LastExecution)
+	}
+}
