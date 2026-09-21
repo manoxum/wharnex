@@ -10,7 +10,7 @@ const overview = {
   compose_projects: [{ name: 'project', container_count: 1, running_count: 1, error_count: 0, stopped_count: 0 }],
   containers: [{ id: 'abc123', name: 'web', image: 'example/web:latest', state: 'running', condition: 'running', status: 'Up 2 minutes', ports: '0.0.0.0:8080->8080/tcp', networks: 'project_default', compose_project: 'project', compose_service: 'web' }],
   images: [{ id: 'sha256:123', repository: 'example/web', tag: 'latest', size: '150MB', created_since: '2 days ago', in_use: true, container_count: 1 }],
-  volumes: [{ name: 'project_data', driver: 'local', scope: 'local', in_use: false, container_count: 0 }],
+  volumes: [{ name: 'project_data', driver: 'local', scope: 'local', mountpoint: '/var/lib/docker/volumes/project_data/_data', in_use: false, container_count: 0 }],
   networks: [{ id: 'net123', name: 'project_default', driver: 'bridge', scope: 'local', internal: false, in_use: true, container_count: 1 }],
   refreshed_at: '2026-09-20T23:00:00Z',
 }
@@ -67,5 +67,29 @@ describe('DockerServicesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Aumentar texto' }))
     expect(panel.getAttribute('style') || '').toContain('--docker-user-scale: 1.25')
     expect(window.localStorage.getItem('whx.docker.font-scale')).toBe('1.25')
+  })
+
+  it('filters all Docker resource groups and opens detailed resource views', async () => {
+    vi.spyOn(api, 'dockerOverview').mockResolvedValue(overview)
+    render(<DockerServicesPanel session={session} onClose={vi.fn()} onError={vi.fn()}/>)
+
+    const tree = await screen.findByLabelText('Recursos Docker')
+    fireEvent.change(screen.getByLabelText('Filtrar recursos Docker'), { target: { value: 'project_data' } })
+    expect(within(tree).getByRole('button', { name: 'Ver detalhes do volume project_data' })).toBeTruthy()
+    expect(within(tree).queryByRole('button', { name: 'Ver detalhes do container web' })).toBeNull()
+    expect(screen.getByText('1 resultado')).toBeTruthy()
+
+    fireEvent.click(within(tree).getByRole('button', { name: 'Ver detalhes do volume project_data' }))
+    expect(await screen.findByText('/var/lib/docker/volumes/project_data/_data')).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: 'Ações do volume project_data' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar filtro' }))
+    fireEvent.click(within(tree).getByRole('button', { name: 'Ver detalhes da imagem example/web:latest' }))
+    expect(await screen.findByText('Imagem Docker')).toBeTruthy()
+    expect(screen.getByText('sha256:123')).toBeTruthy()
+
+    fireEvent.click(within(tree).getByRole('button', { name: 'Ver detalhes da rede project_default' }))
+    expect(await screen.findByText('Rede Docker')).toBeTruthy()
+    expect(screen.getByText('Rede criada pelo utilizador/Compose')).toBeTruthy()
   })
 })
