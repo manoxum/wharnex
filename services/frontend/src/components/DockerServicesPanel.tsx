@@ -314,24 +314,11 @@ function DockerSection({ label, icon, count, open, onToggle, children }: { label
 
 function DockerComposeDefinition({ project }: { project: DockerComposeProject }) {
   const files = project.config_files ?? []
-  const services = project.services ?? []
-  if (!files.length && !services.length) return null
+  if (!files.length) return null
   return <div className="docker-compose-definition">
-    {files.length ? <div className="docker-compose-files" aria-label={`Ficheiros Compose de ${project.name}`}>
+    <div className="docker-compose-files" aria-label={`Ficheiros Compose de ${project.name}`}>
       {files.map((file) => <span className="docker-compose-file" key={file} title={file}><Icon name="file" size={11}/><strong>{dockerComposeFileName(file)}</strong></span>)}
-    </div> : null}
-    {services.length ? <div className="docker-compose-services" aria-label={`Serviços definidos no Compose ${project.name}`}>
-      {services.map((service) => <DockerComposeServiceStatus service={service} key={service.name}/>)}
-    </div> : null}
-  </div>
-}
-
-function DockerComposeServiceStatus({ service }: { service: DockerComposeService }) {
-  const status = dockerComposeServiceStatus(service)
-  return <div className={`docker-compose-service state-${status.tone}`} aria-label={`Serviço ${service.name}: ${status.label}`}>
-    <span className={`docker-state-dot state-${status.tone}`} aria-hidden="true"/>
-    <span className="docker-resource-copy"><strong>{service.name}</strong><small>{status.detail}</small></span>
-    <span className={`docker-row-state state-${status.tone}`}>{status.label}</span>
+    </div>
   </div>
 }
 

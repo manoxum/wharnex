@@ -50,8 +50,8 @@ describe('DockerServicesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expandir Compose project' }))
     expect((await screen.findAllByText('web')).length).toBeGreaterThan(0)
     expect(screen.getByText('compose.yml')).toBeTruthy()
-    expect(screen.getByLabelText('Serviço web: Ativo')).toBeTruthy()
-    expect(screen.getByLabelText('Serviço worker: Sem container')).toBeTruthy()
+    expect(screen.queryByLabelText('Serviço web: Ativo')).toBeNull()
+    expect(screen.queryByLabelText('Serviço worker: Sem container')).toBeNull()
 
     openSection('Volumes')
     expect(await screen.findByText('project_data')).toBeTruthy()
@@ -147,8 +147,9 @@ describe('DockerServicesPanel', () => {
     expect(screen.getByRole('toolbar', { name: 'Ações do volume project_data' })).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Limpar filtro' }))
-    fireEvent.change(screen.getByLabelText('Filtrar recursos Docker'), { target: { value: 'worker' } })
-    expect(await within(tree).findByLabelText('Serviço worker: Sem container')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Filtrar recursos Docker'), { target: { value: 'compose.yml' } })
+    expect(await within(tree).findByText('compose.yml')).toBeTruthy()
+    expect(within(tree).queryByLabelText(/Serviço .*:/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Limpar filtro' }))
     openSection('Images')
     fireEvent.click(within(tree).getByRole('button', { name: 'Ver detalhes da imagem example/web:latest' }))
