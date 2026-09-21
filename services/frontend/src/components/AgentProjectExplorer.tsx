@@ -175,11 +175,11 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
     <header className="agent-drawer-heading">
       <div><span className="panel-kicker">Workspace</span><strong>Explorer</strong></div>
       <div className="agent-runtime-heading-actions">
-        <button type="button" className="agent-drawer-icon" onClick={() => void create('file')} aria-label="Novo ficheiro" title="Novo ficheiro"><Icon name="new-file" size={14}/></button>
-        <button type="button" className="agent-drawer-icon" onClick={() => void create('directory')} aria-label="Nova pasta" title="Nova pasta"><Icon name="new-folder" size={14}/></button>
-        <button type="button" className="agent-drawer-icon" onClick={() => setExpanded(new Set())} disabled={!expanded.size} aria-label="Recolher todas as pastas" title="Recolher todas as pastas"><Icon name="collapse" size={14}/></button>
-        <button type="button" className="agent-drawer-icon" onClick={() => void refresh()} disabled={loading} aria-label="Atualizar ficheiros" title="Atualizar ficheiros"><Icon name="refresh" size={14}/></button>
-        <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar explorador" title="Fechar explorador"><Icon name="close" size={13}/></button>
+        <button type="button" className="agent-drawer-icon" onClick={() => void create('file')} aria-label="Novo ficheiro" title="Novo ficheiro"><Icon name="new-file" size={16}/></button>
+        <button type="button" className="agent-drawer-icon" onClick={() => void create('directory')} aria-label="Nova pasta" title="Nova pasta"><Icon name="new-folder" size={16}/></button>
+        <button type="button" className="agent-drawer-icon" onClick={() => setExpanded(new Set())} disabled={!expanded.size} aria-label="Recolher todas as pastas" title="Recolher todas as pastas"><Icon name="collapse" size={16}/></button>
+        <button type="button" className="agent-drawer-icon" onClick={() => void refresh()} disabled={loading} aria-label="Atualizar ficheiros" title="Atualizar ficheiros"><Icon name="refresh" size={16}/></button>
+        <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar explorador" title="Fechar explorador"><Icon name="close" size={16}/></button>
       </div>
     </header>
     {gitFiles.length ? <div className="agent-project-git-summary" aria-label="Resumo das alterações Git"><span><Icon name="git" size={12}/>{gitFiles.length} alterado{gitFiles.length === 1 ? '' : 's'}</span><span className="git-lines-added">+{gitTotals.additions}</span><span className="git-lines-deleted">−{gitTotals.deletions}</span></div> : null}
@@ -187,7 +187,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
       if (event.key === 'F2' && focused) { event.preventDefault(); void rename() }
       if (event.key === 'Delete' && focused) { event.preventDefault(); void remove() }
     }}>
-      {hiddenGitFiles.length ? <div className="agent-tree-hidden-git"><span>Fora da árvore</span>{hiddenGitFiles.map((file) => <button type="button" key={file.path} className={`agent-tree-row file git-changed git-${file.status} git-virtual`} onClick={() => void openGitDiff(file.path)} disabled={!canOpenGitDiff(file) || gitDiffLoadingPath === file.path} title={canOpenGitDiff(file) ? `Ver diff Git de ${file.path}` : `Diff inline indisponível para ${file.path}`}><FileGlyph path={file.path}/><span className="agent-tree-name">{file.path}</span><GitChangeBadge file={file}/></button>)}</div> : null}
+      {hiddenGitFiles.length ? <div className="agent-tree-hidden-git"><span>Fora da árvore</span>{hiddenGitFiles.map((file) => <button type="button" key={file.path} className={`agent-tree-row file git-changed git-${file.status} git-virtual`} onClick={() => void openGitDiff(file.path)} disabled={!canOpenGitDiff(file) || gitDiffLoadingPath === file.path} title={canOpenGitDiff(file) ? `Ver diff Git de ${file.path}` : `Diff inline indisponível para ${file.path}`}><FileGlyph path={file.path} size={15}/><span className="agent-tree-name">{file.path}</span><GitChangeBadge file={file}/></button>)}</div> : null}
       {loading && !entries.length ? <div className="agent-drawer-empty">A carregar ficheiros…</div> : tree.length ? tree.map((node) => <TreeItem key={node.path} node={node} depth={0} expanded={expanded} focusedPath={focusedPath} gitByPath={gitByPath} gitDirectoryCounts={gitDirectoryCounts} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu}/>) : <div className="agent-drawer-empty">Este projeto não contém ficheiros visíveis no Explorer.</div>}
     </div>
     <footer className="agent-project-footer"><span>{entries.filter((entry) => entry.kind === 'file').length} ficheiros</span><span>{gitFiles.length ? `${gitFiles.length} com alterações Git` : 'Git limpo'}</span></footer>
@@ -199,7 +199,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
       <div className="menu-separator"/>
       <button type="button" className="danger" onClick={() => { void remove(menu.node); setMenu(undefined) }}><Icon name="trash" size={13}/> Eliminar</button>
     </div>}
-    {gitDiff && <div className="diff-inspector-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}><section className="diff-inspector editor-git-diff"><header><div><strong>{gitDiff.path}</strong><span>{gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Alterações locais em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff">×</button></header>{gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile}/> : null}</section></div>}
+    {gitDiff && <div className="diff-inspector-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}><section className="diff-inspector editor-git-diff"><header><div><strong>{gitDiff.path}</strong><span>{gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Alterações locais em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff" title="Fechar diff"><Icon name="close" size={16}/></button></header>{gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile}/> : null}</section></div>}
   </section>
 }
 
@@ -220,11 +220,11 @@ function TreeItem({ node, depth, expanded, focusedPath, gitByPath, gitDirectoryC
   const nestedChanges = gitDirectoryCounts.get(node.path) || 0
   if (node.kind === 'directory') return <div className="agent-tree-group">
     <button type="button" className={`agent-tree-row folder${focusedPath === node.path ? ' selected-node' : ''}${nestedChanges ? ' git-has-changes' : ''}${fileGit ? ` git-changed git-${fileGit.status}` : ''}`} data-workspace-path={node.path} style={{ paddingLeft: 9 + depth * 13 }} onClick={() => onToggle(node.path)} onContextMenu={(event) => onContextMenu(event, node)} title={node.path}>
-      <span className={`agent-tree-chevron ${open ? 'open' : ''}`}><Icon name="chevron" size={11}/></span><DirectoryGlyph path={node.path}/><span className="agent-tree-name">{node.name}</span>{nestedChanges ? <span className="agent-tree-git-count" title={`${nestedChanges} alteração${nestedChanges === 1 ? '' : 'ões'} dentro desta pasta`}>{nestedChanges}</span> : null}{fileGit ? <GitChangeBadge file={fileGit}/> : null}
+      <span className={`agent-tree-chevron ${open ? 'open' : ''}`}><Icon name="chevron" size={14}/></span><DirectoryGlyph path={node.path} size={15}/><span className="agent-tree-name">{node.name}</span>{nestedChanges ? <span className="agent-tree-git-count" title={`${nestedChanges} alteração${nestedChanges === 1 ? '' : 'ões'} dentro desta pasta`}>{nestedChanges}</span> : null}{fileGit ? <GitChangeBadge file={fileGit}/> : null}
     </button>
     {open && node.children.map((child) => <TreeItem key={child.path} node={child} depth={depth + 1} expanded={expanded} focusedPath={focusedPath} gitByPath={gitByPath} gitDirectoryCounts={gitDirectoryCounts} onToggle={onToggle} onOpen={onOpen} onFocus={onFocus} onContextMenu={onContextMenu}/>)}
   </div>
-  return <button type="button" className={`agent-tree-row file${focusedPath === node.path ? ' selected-node' : ''}${fileGit ? ` git-changed git-${fileGit.status}` : ''}`} data-workspace-path={node.path} style={{ paddingLeft: 23 + depth * 13 }} onClick={() => { onFocus(node.path); onOpen(node.path) }} onContextMenu={(event) => onContextMenu(event, node)} title={`Abrir ${node.path}`} aria-label={`Abrir ${node.path}`}><FileGlyph path={node.path}/><span className="agent-tree-name">{node.name}</span>{fileGit ? <GitChangeBadge file={fileGit}/> : null}</button>
+  return <button type="button" className={`agent-tree-row file${focusedPath === node.path ? ' selected-node' : ''}${fileGit ? ` git-changed git-${fileGit.status}` : ''}`} data-workspace-path={node.path} style={{ paddingLeft: 23 + depth * 13 }} onClick={() => { onFocus(node.path); onOpen(node.path) }} onContextMenu={(event) => onContextMenu(event, node)} title={`Abrir ${node.path}`} aria-label={`Abrir ${node.path}`}><FileGlyph path={node.path} size={15}/><span className="agent-tree-name">{node.name}</span>{fileGit ? <GitChangeBadge file={fileGit}/> : null}</button>
 }
 
 

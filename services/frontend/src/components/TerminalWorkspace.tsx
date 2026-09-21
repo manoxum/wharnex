@@ -22,6 +22,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
   const [activeID, setActiveID] = useState(1)
   const [editingID, setEditingID] = useState<number>()
   const [editingLabel, setEditingLabel] = useState('')
+  const [overflowOpen, setOverflowOpen] = useState(false)
   const runTargetRef = useRef<{ requestID: number; tabID: number } | undefined>(undefined)
   const projectPathRef = useRef(session.project_path)
   useEffect(() => {
@@ -31,6 +32,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     setActiveID(1)
     setEditingID(undefined)
     setEditingLabel('')
+    setOverflowOpen(false)
     nextID.current = 2
   }, [session])
 
@@ -95,7 +97,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
       <div className="terminal-tabs" role="tablist" aria-label="Instâncias do terminal">
         {tabs.map((tab) => <div className={`terminal-tab-shell ${tab.id === activeID ? 'active' : ''}`} data-renaming={editingID === tab.id ? 'true' : undefined} key={tab.id} draggable={Boolean(onDetachTerminal)} onDragEnd={(event) => { if (onDetachTerminal && workspaceDragEndedOutside(event)) onDetachTerminal() }}>
           {editingID === tab.id ? <div className="terminal-tab-edit">
-            <Icon name="terminal" size={11}/>
+            <Icon name="terminal" size={16}/>
             <input
               autoFocus
               aria-label={`Renomear ${tab.label}`}
@@ -117,19 +119,24 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
             title={`${tab.label} · duplo clique para renomear`}
           >
             <span className={`terminal-tab-status terminal-status-${tab.status}`} aria-hidden="true"/>
-            <Icon name="terminal" size={12}/><span className="terminal-tab-title">{tab.label}</span>
+            <Icon name="terminal" size={16}/><span className="terminal-tab-title">{tab.label}</span>
           </button>}
-          {editingID !== tab.id && <button type="button" className="terminal-tab-action terminal-tab-rename" title={`Renomear ${tab.label}`} aria-label={`Renomear ${tab.label}`} onClick={() => beginRename(tab)}><Icon name="rename" size={11}/></button>}
-          <button type="button" className="terminal-tab-action terminal-tab-close" title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={() => closeTerminal(tab.id)}><Icon name="close" size={11}/></button>
+          {editingID !== tab.id && <button type="button" className="terminal-tab-action terminal-tab-rename" title={`Renomear ${tab.label}`} aria-label={`Renomear ${tab.label}`} onClick={() => beginRename(tab)}><Icon name="rename" size={14}/></button>}
+          <button type="button" className="terminal-tab-action terminal-tab-close" title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={() => closeTerminal(tab.id)}><Icon name="close" size={14}/></button>
         </div>)}
       </div>
       <div className="terminal-surface-actions">
         {activeTab && <span className={`terminal-active-status terminal-status-${activeTab.status}`} title={`Estado: ${statusLabel(activeTab.status)}`}><i/>{statusLabel(activeTab.status)}</span>}
-        <button type="button" className="terminal-toolbar-action" onClick={reconnectActive} title="Reconectar terminal" aria-label="Reconectar terminal"><Icon name="refresh" size={13}/></button>
-        <button type="button" className="terminal-toolbar-action" title="Aumentar/reduzir terminal" aria-label="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}><Icon name="collapse" size={13}/></button>
-        {onSplitTerminal && <div className="surface-layout-actions" role="group" aria-label="Dividir terminal"><button type="button" onClick={() => onSplitTerminal('vertical')} title="Dividir terminal verticalmente" aria-label="Dividir terminal verticalmente"><Icon name="arrow-right" size={13}/></button><button type="button" onClick={() => onSplitTerminal('horizontal')} title="Dividir terminal horizontalmente" aria-label="Dividir terminal horizontalmente"><Icon name="arrow-down" size={13}/></button></div>}
-        {onDetachTerminal && <button type="button" className="surface-detach-action" onClick={onDetachTerminal} title="Abrir terminal numa janela independente" aria-label="Abrir terminal numa janela independente"><Icon name="external" size={13}/></button>}
-        <button type="button" className="terminal-add-tab" onClick={addTerminal} title="Nova instância de terminal" aria-label="Nova instância de terminal"><Icon name="plus" size={12}/></button>
+        {onSplitTerminal && <div className="surface-layout-actions" role="group" aria-label="Dividir terminal"><button type="button" onClick={() => onSplitTerminal('vertical')} title="Dividir terminal verticalmente" aria-label="Dividir terminal verticalmente"><Icon name="arrow-right" size={16}/></button><button type="button" onClick={() => onSplitTerminal('horizontal')} title="Dividir terminal horizontalmente" aria-label="Dividir terminal horizontalmente"><Icon name="arrow-down" size={16}/></button></div>}
+        <button type="button" className="terminal-add-tab" onClick={addTerminal} title="Nova instância de terminal" aria-label="Nova instância de terminal"><Icon name="plus" size={16}/></button>
+        <div className={`terminal-overflow ${overflowOpen ? 'open' : ''}`}>
+          <button type="button" className="terminal-toolbar-action" aria-expanded={overflowOpen} onClick={() => setOverflowOpen((open) => !open)} title="Mais ações do terminal" aria-label="Mais ações do terminal"><Icon name="more-horizontal" size={16}/></button>
+          {overflowOpen && <div className="terminal-overflow-menu" role="menu" aria-label="Ações adicionais do terminal">
+            <button type="button" role="menuitem" onClick={() => { reconnectActive(); setOverflowOpen(false) }}><Icon name="refresh" size={14}/><span>Reconectar</span></button>
+            <button type="button" role="menuitem" onClick={() => { onHeight(height < 320 ? 390 : 245); setOverflowOpen(false) }}><Icon name="collapse" size={14}/><span>{height < 320 ? 'Expandir painel' : 'Reduzir painel'}</span></button>
+            {onDetachTerminal && <button type="button" role="menuitem" onClick={() => { onDetachTerminal(); setOverflowOpen(false) }}><Icon name="external" size={14}/><span>Abrir em janela</span></button>}
+          </div>}
+        </div>
       </div>
     </div>
     <div className="terminal-instances">

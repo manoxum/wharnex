@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert' | 'edit' | 'info' | 'package' | 'database' | 'archive' | 'history' | 'minus' | 'pause' | 'camera' | 'cursor' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema'
+type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert' | 'edit' | 'info' | 'package' | 'database' | 'archive' | 'history' | 'minus' | 'pause' | 'camera' | 'cursor' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema' | 'more-horizontal'
 
 export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
   const paths: Record<Name, ReactNode> = {
@@ -67,6 +67,7 @@ export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
     build: <><path d="m14.5 4.5 5 5-3 3-5-5 3-3Z"/><path d="m12.5 8.5-8 8a2.1 2.1 0 0 0 3 3l8-8"/><path d="M5 6h4M7 4v4"/></>,
     container: <><rect x="4" y="7" width="6" height="5" rx="1"/><rect x="14" y="7" width="6" height="5" rx="1"/><rect x="9" y="14" width="6" height="5" rx="1"/><path d="M7 12v1.5h10V12M12 13.5V14"/></>,
     schema: <><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M8 6h8M7 8l4 8M17 8l-4 8"/></>,
+    'more-horizontal': <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
   }
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }
