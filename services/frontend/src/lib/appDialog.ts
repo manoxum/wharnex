@@ -1,4 +1,4 @@
-import { ensureInternalWindowDockRoot } from './internalWindow'
+import { bindInternalWindowDrag, ensureInternalWindowDockRoot } from './internalWindow'
 
 export type DialogTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
 
@@ -136,9 +136,11 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
     actions.className = 'app-dialog-actions'
     const dockRoot = ensureInternalWindowDockRoot()
     let dockItem: HTMLDivElement | undefined
+    let detachDrag: () => void = () => {}
 
     const cleanup = (result: boolean | string | undefined) => {
       document.removeEventListener('keydown', keydown)
+      detachDrag()
       dockItem?.remove()
       backdrop.remove()
       previousFocus?.focus()
@@ -181,6 +183,11 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
     controls.className = 'internal-window-controls'
     controls.setAttribute('role', 'group')
     controls.setAttribute('aria-label', `Controlos da janela ${options.title}`)
+
+    const dragGrip = document.createElement('span')
+    dragGrip.className = 'internal-window-drag-grip'
+    dragGrip.dataset.internalWindowDragHandle = 'true'
+    dragGrip.setAttribute('aria-hidden', 'true')
 
     const minimizeButton = document.createElement('button')
     minimizeButton.type = 'button'
@@ -231,8 +238,9 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
 
     content.append(actions)
     card.append(icon, content)
-    controls.append(minimizeButton, closeButton)
+    controls.append(dragGrip, minimizeButton, closeButton)
     shell.append(card, controls)
+    detachDrag = bindInternalWindowDrag(shell, [dragGrip])
     backdrop.append(shell)
     document.body.append(backdrop)
 

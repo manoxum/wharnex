@@ -7950,19 +7950,39 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   pointer-events: auto;
   filter: drop-shadow(0 22px 48px color-mix(in srgb, var(--theme-shadow) 46%, transparent));
 }
+.internal-window-shell[data-internal-window-dragging='true'] { cursor: grabbing; }
+.internal-window-shell [data-internal-window-drag-handle='true'] { cursor: grab; touch-action: none; }
+.internal-window-shell[data-internal-window-dragging='true'] [data-internal-window-drag-handle='true'] { cursor: grabbing; }
 .internal-window-controls {
   position: absolute;
   z-index: 8;
-  top: -11px;
-  right: -11px;
+  top: 8px;
+  right: 8px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid color-mix(in srgb, var(--theme-border) 86%, transparent);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--theme-elevated) 96%, transparent);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--theme-shadow) 52%, transparent);
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-elevated) 92%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--theme-shadow) 34%, transparent);
+  backdrop-filter: blur(10px);
+}
+.internal-window-drag-grip {
+  width: 18px;
+  height: 26px;
+  flex: 0 0 18px;
+  position: relative;
+  border-radius: 7px;
+  color: var(--theme-text-muted);
+}
+.internal-window-drag-grip::before {
+  content: '';
+  position: absolute;
+  inset: 6px 4px;
+  border-radius: 4px;
+  background: radial-gradient(circle, currentColor 1px, transparent 1.35px) 0 0 / 5px 5px;
+  opacity: .7;
 }
 .internal-window-controls button,
 .internal-window-dock-close {
@@ -7983,6 +8003,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .internal-window-dock-close:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, var(--theme-surface)); color: var(--danger); }
 .internal-window-controls button:disabled,
 .internal-window-dock-close:disabled { opacity: .42; cursor: default; }
+.internal-window-shell > [role='dialog'] > header,
+.internal-window-shell > [role='alertdialog'] > header { padding-right: 94px; }
+.internal-window-shell > .app-dialog-card { padding-right: 94px; }
+.internal-window-shell > .git-operation-modal { padding-right: 94px; }
 .internal-window-shell > [role='dialog'] > header button[aria-label^='Fechar'],
 .internal-window-shell > [role='alertdialog'] > header button[aria-label^='Fechar'],
 .internal-window-shell > [role='dialog'] > header button[title='Fechar'],
@@ -8050,6 +8074,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .internal-window-layer { padding: 14px; }
   .internal-window-controls { top: 6px; right: 6px; }
   .internal-window-shell > [role='dialog'] > header,
-  .internal-window-shell > [role='alertdialog'] > header { padding-right: 76px; }
+  .internal-window-shell > [role='alertdialog'] > header { padding-right: 90px; }
+  .internal-window-shell > .app-dialog-card,
+  .internal-window-shell > .git-operation-modal { padding-right: 90px; }
   .internal-window-dock { right: 8px; bottom: 8px; max-width: calc(100vw - 16px); }
 }

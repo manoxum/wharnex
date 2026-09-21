@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ensureInternalWindowDockRoot } from '../lib/internalWindow'
+import { bindInternalWindowDrag, ensureInternalWindowDockRoot } from '../lib/internalWindow'
 import { Icon } from './Icon'
 
 type InternalWindowProps = {
@@ -15,10 +15,18 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
   const [minimized, setMinimized] = useState(false)
   const dockRoot = useMemo(() => ensureInternalWindowDockRoot(), [])
   const restoreRef = useRef<HTMLButtonElement>(null)
+  const shellRef = useRef<HTMLDivElement>(null)
+  const dragGripRef = useRef<HTMLSpanElement>(null)
 
   useEffect(() => {
     if (minimized) restoreRef.current?.focus()
   }, [minimized])
+
+  useEffect(() => {
+    const shell = shellRef.current
+    if (!shell) return
+    return bindInternalWindowDrag(shell, [dragGripRef.current])
+  }, [])
 
   return <>
     <div
@@ -26,13 +34,14 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
       data-internal-window-state={minimized ? 'minimized' : 'open'}
       aria-hidden={minimized || undefined}
     >
-      <div className="internal-window-shell" onKeyDown={(event) => {
+      <div ref={shellRef} className="internal-window-shell" onKeyDown={(event) => {
         if (event.key !== 'Escape' || closeDisabled) return
         event.stopPropagation()
         onClose()
       }}>
         {children}
         <div className="internal-window-controls" role="group" aria-label={`Controlos da janela ${title}`}>
+          <span ref={dragGripRef} className="internal-window-drag-grip" data-internal-window-drag-handle="true" aria-hidden="true"/>
           <button type="button" onClick={() => setMinimized(true)} aria-label={`Minimizar ${title}`} title="Minimizar"><Icon name="minus" size={12}/></button>
           <button type="button" disabled={closeDisabled} onClick={onClose} aria-label={`Fechar ${title}`} title="Fechar"><Icon name="close" size={12}/></button>
         </div>
