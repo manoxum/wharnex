@@ -146,7 +146,7 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
               className={directiveKey(directive) === (selected ? directiveKey(selected) : '') ? 'active' : ''}
               onClick={() => setSelectedKey(directiveKey(directive))}
             >
-              <Icon name={directive.kind === 'ref' ? 'workspace' : 'folder'} size={12}/><span>{directive.kind === 'ref' ? directive.project : directive.path.split('/').filter(Boolean).pop() || directive.path}</span>
+              <Icon name={directive.kind === 'ref' ? 'workspace' : 'folder'} size={12}/><span className="semantic-tab-label">{directive.kind === 'ref' ? directive.project : directive.path.split('/').filter(Boolean).pop() || directive.path}</span>
             </button>)}
           </div>
 

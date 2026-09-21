@@ -5664,6 +5664,141 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   color: var(--theme-text);
 }
 
+/* Semantic tabs adapt to the width of their owning panel, not the viewport. */
+.inspector-panel,
+.context-inspector,
+.git-drawer,
+.project-todo-panel,
+.composer-attachment-panel,
+.database-explorer-panel,
+.artifact-explorer-panel,
+.chat-agent-tasks-drawer,
+.agent-archive-drawer {
+  container-type: inline-size;
+  container-name: semantic-panel;
+}
+.agent-runtime-drawer { container-name: agent-runtime semantic-panel; }
+.tabs,
+.context-view-switch,
+.git-tabs,
+.git-changes-tabs,
+.agent-runtime-tabs,
+.composer-attachment-tabs,
+.database-workspace-tabs,
+.database-object-kind-tabs,
+.file-library-tabs,
+.project-todo-tabs,
+.agent-chat-management-tabs,
+.chat-agent-task-tabs {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.semantic-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-tabs,
+.project-todo-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.git-tabs button,
+.project-todo-tabs button {
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+}
+.git-tabs button > svg,
+.project-todo-tabs button > svg,
+.tabs button > svg,
+.context-view-switch button > svg,
+.git-changes-tabs button > svg,
+.agent-runtime-tabs button > svg,
+.composer-attachment-tabs button > svg,
+.database-workspace-tabs button > svg,
+.database-object-kind-tabs button > svg,
+.file-library-tabs button > svg,
+.agent-chat-management-tabs button > svg,
+.chat-agent-task-tabs button > svg {
+  flex: 0 0 auto;
+}
+
+@container semantic-panel (max-width: 520px) {
+  .git-tabs .semantic-tab-label,
+  .project-todo-tabs .semantic-tab-label,
+  .tabs .semantic-tab-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@container semantic-panel (max-width: 420px) {
+  .context-view-switch .semantic-tab-label,
+  .agent-runtime-tabs .semantic-tab-label,
+  .database-workspace-tabs .semantic-tab-label,
+  .database-object-kind-tabs .semantic-tab-label,
+  .chat-agent-task-tabs .semantic-tab-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .tabs button,
+  .context-view-switch button,
+  .git-tabs button,
+  .git-changes-tabs button,
+  .agent-runtime-tabs button,
+  .composer-attachment-tabs button,
+  .database-workspace-tabs button,
+  .database-object-kind-tabs button,
+  .file-library-tabs button,
+  .project-todo-tabs button,
+  .agent-chat-management-tabs button,
+  .chat-agent-task-tabs button {
+    padding-inline: 7px;
+    gap: 4px;
+  }
+}
+
+@container semantic-panel (max-width: 340px) {
+  .git-changes-tabs .semantic-tab-label,
+  .composer-attachment-tabs .semantic-tab-label,
+  .file-library-tabs .semantic-tab-label,
+  .agent-chat-management-tabs .semantic-tab-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .git-tab-count,
+  .tabs .tab-count,
+  .agent-runtime-tabs button small,
+  .project-todo-tabs b,
+  .agent-chat-management-tabs b,
+  .chat-agent-task-tabs b {
+    display: none;
+  }
+}
+
 
 /* Runtime Agent drawer -----------------------------------------------------
    This surface lives behind a user-controlled splitter, so viewport media
@@ -5804,10 +5939,10 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   overflow: visible;
 }
 .database-workspace-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.project-todo-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.project-todo-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .project-source-tabs { margin-top: 28px; align-self: flex-start; }
-.composer-attachment-tabs { flex-wrap: wrap; }
-.database-object-kind-tabs { overflow-x: auto; }
+.composer-attachment-tabs { flex-wrap: nowrap; }
+.database-object-kind-tabs { overflow: hidden; }
 .conflict-file-tabs { overflow-x: auto; }
 
 /* Resource tabs keep their behavior while using the same visual state model. */

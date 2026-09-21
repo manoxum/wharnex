@@ -380,8 +380,8 @@ function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (ta
     { id: 'settings', icon: 'settings' },
   ]
   return <nav className="git-tabs" role="tablist" aria-label="Secções do Git">
-    {tabs.map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={active === tab.id} className={active === tab.id ? 'active' : ''} onClick={() => onChange(tab.id)}>
-      <Icon name={tab.icon} size={13}/><span>{gitTabLabel(tab.id)}</span>{typeof tab.count === 'number' && <span className="git-tab-count">{tab.count}</span>}
+    {tabs.map((tab) => <button key={tab.id} type="button" role="tab" title={gitTabLabel(tab.id)} aria-selected={active === tab.id} className={active === tab.id ? 'active' : ''} onClick={() => onChange(tab.id)}>
+      <Icon name={tab.icon} size={13}/><span className="semantic-tab-label">{gitTabLabel(tab.id)}</span>{typeof tab.count === 'number' && <span className="git-tab-count">{tab.count}</span>}
     </button>)}
   </nav>
 }
@@ -391,10 +391,10 @@ function ChangesTabs({ active, workingCount, pendingCount, onChange }: {
 }) {
   return <nav className="git-changes-tabs" role="tablist" aria-label="Tipos de alterações locais">
     <button type="button" role="tab" aria-selected={active === 'working'} className={active === 'working' ? 'active' : ''} onClick={() => onChange('working')}>
-      <Icon name="edit" size={12}/><span>Alterações pendentes</span><span className="git-tab-count">{workingCount}</span>
+      <Icon name="edit" size={12}/><span className="semantic-tab-label">Alterações pendentes</span><span className="git-tab-count">{workingCount}</span>
     </button>
     <button type="button" role="tab" aria-selected={active === 'pending'} className={active === 'pending' ? 'active' : ''} onClick={() => onChange('pending')}>
-      <Icon name="clipboard" size={12}/><span>Commits pendentes</span><span className="git-tab-count">{pendingCount}</span>
+      <Icon name="clipboard" size={12}/><span className="semantic-tab-label">Commits pendentes</span><span className="git-tab-count">{pendingCount}</span>
     </button>
   </nav>
 }

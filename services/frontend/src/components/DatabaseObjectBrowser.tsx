@@ -53,10 +53,12 @@ export function DatabaseObjectBrowser({ catalog, metadata, ddl, busy, onDDL, onA
 
   function createObject() { setSelection(undefined); onDDL(defaultDDL(kind)) }
 
+  const kindIcons = { table: 'database', view: 'file', function: 'code', trigger: 'play' } as const
+
   return <div className="database-object-workspace">
     <div className="database-object-toolbar">
       <div className="database-object-kind-tabs" role="tablist" aria-label="Tipos de objeto">
-        {(['table', 'view', 'function', 'trigger'] as const).map((item) => <button key={item} type="button" className={kind === item ? 'active' : ''} onClick={() => resetKind(item)}>{label(item)}</button>)}
+        {(['table', 'view', 'function', 'trigger'] as const).map((item) => <button key={item} type="button" title={label(item)} className={kind === item ? 'active' : ''} onClick={() => resetKind(item)}><Icon name={kindIcons[item]} size={12}/><span className="semantic-tab-label">{label(item)}</span></button>)}
       </div>
       <button type="button" className="database-soft-button" onClick={createObject}><Icon name="plus" size={13}/> Novo</button>
     </div>

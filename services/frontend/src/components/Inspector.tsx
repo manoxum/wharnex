@@ -89,11 +89,11 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
       </header>}
 
       {!embedded && <nav className="tabs" aria-label="Inspector">
-        <button className={selectedTab === 'files' ? 'active' : ''} onClick={() => selectTab('files')}><Icon name="folder" size={16}/> Ficheiros</button>
-        <button className={selectedTab === 'plan' ? 'active' : ''} onClick={() => selectTab('plan')}><Icon name="plan" size={16}/> Plano</button>
-        <button className={selectedTab === 'terminal' ? 'active' : ''} onClick={() => selectTab('terminal')}><Icon name="terminal" size={16}/> Execução <span className="tab-count">{terminalEvents.length}</span></button>
-        <button className={selectedTab === 'chatgpt' ? 'active' : ''} onClick={() => selectTab('chatgpt')}><Icon name="agent" size={16}/> Engine {desktop && <span className="desktop-dot" title="Wharnex Desktop"/>}</button>
-        <button className={selectedTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => selectTab('direct-chatgpt')}><Icon name="chatgpt" size={16}/> ChatGPT</button>
+        <button className={selectedTab === 'files' ? 'active' : ''} onClick={() => selectTab('files')}><Icon name="folder" size={16}/><span className="semantic-tab-label">Ficheiros</span></button>
+        <button className={selectedTab === 'plan' ? 'active' : ''} onClick={() => selectTab('plan')}><Icon name="plan" size={16}/><span className="semantic-tab-label">Plano</span></button>
+        <button className={selectedTab === 'terminal' ? 'active' : ''} onClick={() => selectTab('terminal')}><Icon name="terminal" size={16}/><span className="semantic-tab-label">Execução</span><span className="tab-count">{terminalEvents.length}</span></button>
+        <button className={selectedTab === 'chatgpt' ? 'active' : ''} onClick={() => selectTab('chatgpt')}><Icon name="agent" size={16}/><span className="semantic-tab-label">Engine</span>{desktop && <span className="desktop-dot" title="Wharnex Desktop"/>}</button>
+        <button className={selectedTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => selectTab('direct-chatgpt')}><Icon name="chatgpt" size={16}/><span className="semantic-tab-label">ChatGPT</span></button>
       </nav>}
 
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''} ${selectedTab === 'files' ? 'files-content' : ''}`}>
