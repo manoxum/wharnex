@@ -7132,7 +7132,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .git-branch-sync b { font-size: calc(6.6px * var(--ui-font-scale)); font-weight: 720; }
 .git-branch-counterpart.active { color: var(--theme-accent) !important; }
 .git-branch-copy-action { width: 24px; height: 24px; }
-.git-branch-switch { min-width: 78px; height: 26px; justify-self: end; border-radius: 7px; }
+.git-branch-row-action { width: 26px; min-width: 26px; height: 26px; padding: 0; flex: 0 0 26px; }
+.git-branch-switch { justify-self: end; border-radius: 7px; }
 
 @media (max-width: 760px) {
   .git-branch-hero { grid-template-columns: 34px minmax(0, 1fr); }
@@ -7154,7 +7155,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   .git-branch-operations-heading, .git-branch-directory-heading { min-height: 30px; }
   .git-branch-directory-heading > span { display: none; }
   .git-branch-sync { flex-wrap: wrap; }
-  .git-branch-switch { min-width: 72px; }
 }
 
 /* Full-window diff review, matching the editor-oriented interaction used by
@@ -7527,7 +7527,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .git-release-grid select:focus,
 .git-release-gpt textarea:focus,
 .git-release-editable:focus { border-color: color-mix(in srgb, var(--theme-accent) 70%, var(--theme-border)); box-shadow: 0 0 0 2px var(--theme-accent-soft); }
-.git-branch-delete { min-width: 62px; justify-self: end; }
+.git-branch-delete { justify-self: end; }
 .git-release-panel { margin-top: 2px; }
 .git-release-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .git-release-mode { display: inline-flex; justify-self: start; gap: 4px; padding: 3px; border: 1px solid var(--theme-border-soft); border-radius: 8px; background: var(--theme-bg); }

@@ -166,7 +166,7 @@ describe('GitDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Criar branch' }))
     await waitFor(() => expect(api.gitCreateBranch).toHaveBeenCalledWith('ses_1', 'feature/new', 'main'))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remover' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remover branch feature' }))
     await waitFor(() => expect(api.gitDeleteBranch).toHaveBeenCalledWith('ses_1', 'feature'))
   })
 
@@ -382,8 +382,10 @@ describe('GitDrawer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Pull/ }))
     const featureRow = screen.getByText('feature', { selector: '.git-branch-name' }).closest('li')
-    const featureSwitch = featureRow ? within(featureRow).getByRole('button', { name: 'Alternar' }) : null
-    if (!featureSwitch) throw new Error('feature switch missing')
+    if (!featureRow) throw new Error('feature row missing')
+    const featureSwitch = within(featureRow).getByRole('button', { name: 'Alternar para feature' })
+    expect(featureSwitch.textContent).toBe('')
+    expect(within(featureRow).getByRole('button', { name: 'Remover branch feature' }).textContent).toBe('')
     await waitFor(() => expect((featureSwitch as HTMLButtonElement).disabled).toBe(false))
     expect(api.gitPull).toHaveBeenCalledWith('ses_1', 'origin', 'main')
 
