@@ -448,11 +448,24 @@ func normalizeRestoredSession(item *domain.Session) {
 		item.AutomationMode = domain.AutomationModeManual
 	}
 	if interrupted := item.InterruptedExecution; interrupted != nil {
+		// InterruptedExecution exists only while Wharnex cannot prove that a
+		// terminal execution result was persisted. A completed LastExecution for
+		// the same plan is that proof, even when the run failed: the normal
+		// failure/repair lifecycle owns what happens next and startup must not
+		// resurrect the finished run in Recovery Center.
+		if executionResultPersisted(item.LastExecution, interrupted.PlanID) {
+			item.InterruptedExecution = nil
+			return
+		}
 		switch interrupted.Status {
 		case "", domain.InterruptedExecutionRunning, domain.InterruptedExecutionResuming:
 			interrupted.Status = domain.InterruptedExecutionAwaitingDecision
 		}
 	}
+}
+
+func executionResultPersisted(result *domain.ExecutionResult, planID string) bool {
+	return result != nil && result.PlanID == planID && !result.CompletedAt.IsZero()
 }
 
 func wrapPostgresError(action string, err error) error {

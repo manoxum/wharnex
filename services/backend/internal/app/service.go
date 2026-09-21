@@ -1984,9 +1984,18 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	item = updated
 
 	result, item, err = s.executeRecorded(ctx, sessionID, approved)
-	// Cancellation is ambiguous: the frontend, Desktop, backend, or runner may
-	// have disappeared mid-flight. Keep the durable intent for startup recovery.
+	// Cancellation is ambiguous only while no terminal result is durable. If
+	// executeRecorded already persisted a completed result for this plan, the
+	// execution is settled (success or failure) and keeping an interruption
+	// marker would make the next restart offer to rerun finished work.
 	if ctx.Err() != nil {
+		if interruptedExecutionSettled(item, planID) {
+			if cleared, clearErr := s.clearInterruptedExecution(sessionID, planID); clearErr == nil {
+				item = cleared
+				s.bus.Publish(sessionID, "execution.recovery_reconciled", map[string]any{"plan_id": planID, "reason": "terminal_result_persisted"})
+			}
+			return result, item, err
+		}
 		if marked, markErr := s.markInterruptedExecutionAwaitingDecision(sessionID, planID); markErr == nil {
 			item = marked
 		}
