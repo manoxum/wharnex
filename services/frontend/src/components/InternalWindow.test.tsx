@@ -45,6 +45,19 @@ describe('InternalWindow', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the visible layer outside a hidden owner subtree', () => {
+    const view = render(<div hidden>
+      <InternalWindow title="Janela persistente" onClose={vi.fn()}>
+        <section role="dialog" aria-modal="false" aria-label="Janela persistente">Conteúdo</section>
+      </InternalWindow>
+    </div>)
+
+    const dialog = screen.getByRole('dialog', { name: 'Janela persistente' })
+    const layer = dialog.closest('.internal-window-layer')
+    expect(layer?.parentElement).toBe(document.body)
+    expect(view.container.contains(layer)).toBe(false)
+  })
+
   it('drags the window from its header while keeping it inside the viewport', () => {
     render(<InternalWindow title="Janela móvel" onClose={vi.fn()}>
       <section role="dialog" aria-modal="false" aria-label="Janela móvel"><header>Janela móvel</header><button type="button">Ação</button></section>

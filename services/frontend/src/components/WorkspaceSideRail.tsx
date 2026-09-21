@@ -1,11 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ComponentProps } from 'react'
 import type { HarnessEvent, ProjectTodo, Session, TerminalRunInput } from '../types'
 import { ChatPanel } from './ChatPanel'
-import { promptDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
-import { InternalWindow } from './InternalWindow'
-import { MarkdownContent } from './MarkdownContent'
-import { loadChat } from '../lib/workspaceMemory'
 import { desktopWindowScope } from '../lib/projectBindings'
 import { api } from '../lib/api'
 import { summarizeAttention, type AttentionItem } from '../lib/attentionCenter'
@@ -15,6 +11,8 @@ import { PanelSkeleton } from './Skeleton'
 import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../lib/workspaceRailLayout'
 import { defaultSidePanelWidth } from '../lib/workbenchPreferences'
 import { drawerResizeCeiling, WORKBENCH_SIDE_PANEL_MIN_PX } from '../lib/workbenchResize'
+import { InternalWindowPersistenceContext, usePersistentInternalWindowOwners } from '../lib/internalWindowPersistence'
+import { ChatManagementDrawer } from './ChatManagementDrawer'
 
 // Every drawer below is only ever rendered once the operator opens it, and
 // most (Git graph, Postgres browser, artifact/knowledge explorers, runtime
@@ -39,6 +37,8 @@ function DrawerFallback() {
 }
 
 export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | 'docker' | 'errors' | ''
+
+const DRAWERS: Exclude<Drawer, ''>[] = ['attention', 'archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'database', 'docker']
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 44
@@ -129,8 +129,10 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     return () => { cancelled = true }
   }, [session.id, session.last_host_applied_at, drawer, pinnedTools, tools])
 
+  const persistenceScope = `${session.project_path}\n${side}`
+  const { mountedOwners: mountedDrawers, ownerFor: drawerOwner, register: registerPersistentWindow } = usePersistentInternalWindowOwners(persistenceScope, DRAWERS, drawer)
   const toggle = (next: Exclude<Drawer, ''>) => onDrawer(drawer === next ? '' : next)
-  const close = () => onDrawer('')
+  const closeDrawer = (candidate: Exclude<Drawer, ''>) => { if (drawer === candidate) onDrawer('') }
 
   function toolMeta(tool: WorkspaceTool): ToolMeta {
     if (tool === 'todo') return { label: 'TODO do projeto', title: 'Ideias, necessidades, erros e melhorias', icon: 'check', drawer: 'todo' }
@@ -199,27 +201,38 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     </div>
   </aside>
 
-  const drawerPanel = drawer ? <aside className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } as React.CSSProperties : undefined}>
-    <Suspense fallback={<DrawerFallback/>}>
-    {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
-    {drawer === 'todo' && props.chatProps ? <ProjectTodoPanel session={session} chatProps={props.chatProps} onClose={close} onPromoteToChat={props.onPromoteTodoToChat} onPromoteToCurrentChat={props.onPromoteTodoToCurrentChat} onLocateChat={props.onLocateTodoChat} onGoToOrchestrator={props.onGoToOrchestrator} onError={onError}/> : null}
-    {drawer === 'archive' ? <ChatManagementDrawer projectPath={session.project_path} savedChats={savedChats} archivedChats={archivedChats} busy={busy} onRestoreSaved={props.onRestoreSavedChat} onArchiveSaved={props.onArchiveSavedChat} onRestoreArchived={props.onRestoreChat} onDeleteArchived={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
-    {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={props.onOpenFile} onError={onError} onClose={close} revealPath={props.explorerRevealPath} revealNonce={props.explorerRevealNonce}/> : null}
-    {drawer === 'library' ? <ArtifactExplorerPanel sessionId={session.id} onError={onError} onClose={close}/> : null}
-    {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
-    {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession} onResolveConflictWithGPT={props.onResolveConflictWithGPT}/> : null}
-    {drawer === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
-    {drawer === 'tasks' ? <ProjectTasksDrawer projectPath={session.project_path} currentSession={session} chats={props.chats} savedChats={savedChats} archivedChats={archivedChats} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close} onError={onError} onGoToChat={props.onGoToChat}/> : null}
-    {drawer === 'errors' ? <ExecutionErrorsDrawer chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} onClose={close}/> : null}
-    {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
-    {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
-    {drawer === 'database' ? <div className="workspace-database-drawer"><DatabaseExplorerPanel onError={onError}/><button type="button" className="workspace-right-close" onClick={close} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button></div> : null}
-    {drawer === 'docker' ? <DockerServicesPanel session={session} onError={onError} onClose={close} onRunInTerminal={props.onRunInTerminal}/> : null}
-    </Suspense>
-  </aside> : null
+  const drawerPanels = mountedDrawers.map((candidate) => {
+    const close = () => closeDrawer(candidate)
+    const active = candidate === drawer
+    const owner = drawerOwner(candidate)
+    const drawerStyle = {
+      ...(drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } : {}),
+      ...(!active ? { display: 'none' } : {}),
+    } as React.CSSProperties
+    return <aside key={candidate} hidden={!active} className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerStyle}>
+      <InternalWindowPersistenceContext.Provider value={{ owner, register: registerPersistentWindow }}>
+        <Suspense fallback={<DrawerFallback/>}>
+        {candidate === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
+        {candidate === 'todo' && props.chatProps ? <ProjectTodoPanel session={session} chatProps={props.chatProps} onClose={close} onPromoteToChat={props.onPromoteTodoToChat} onPromoteToCurrentChat={props.onPromoteTodoToCurrentChat} onLocateChat={props.onLocateTodoChat} onGoToOrchestrator={props.onGoToOrchestrator} onError={onError}/> : null}
+        {candidate === 'archive' ? <ChatManagementDrawer projectPath={session.project_path} savedChats={savedChats} archivedChats={archivedChats} busy={busy} onRestoreSaved={props.onRestoreSavedChat} onArchiveSaved={props.onArchiveSavedChat} onRestoreArchived={props.onRestoreChat} onDeleteArchived={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
+        {candidate === 'project' ? <AgentProjectExplorer session={session} onOpen={props.onOpenFile} onError={onError} onClose={close} revealPath={props.explorerRevealPath} revealNonce={props.explorerRevealNonce}/> : null}
+        {candidate === 'library' ? <ArtifactExplorerPanel sessionId={session.id} onError={onError} onClose={close}/> : null}
+        {candidate === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
+        {candidate === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession} onResolveConflictWithGPT={props.onResolveConflictWithGPT}/> : null}
+        {candidate === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
+        {candidate === 'tasks' ? <ProjectTasksDrawer projectPath={session.project_path} currentSession={session} chats={props.chats} savedChats={savedChats} archivedChats={archivedChats} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close} onError={onError} onGoToChat={props.onGoToChat}/> : null}
+        {candidate === 'errors' ? <ExecutionErrorsDrawer chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} onClose={close}/> : null}
+        {candidate === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
+        {candidate === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
+        {candidate === 'database' ? <div className="workspace-database-drawer"><DatabaseExplorerPanel onError={onError}/><button type="button" className="workspace-right-close" onClick={close} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button></div> : null}
+        {candidate === 'docker' ? <DockerServicesPanel session={session} onError={onError} onClose={close} onRunInTerminal={props.onRunInTerminal}/> : null}
+        </Suspense>
+      </InternalWindowPersistenceContext.Provider>
+    </aside>
+  })
   const splitter = drawer ? <button type="button" className={`agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`} aria-label={`Redimensionar painel lateral ${side === 'left' ? 'esquerdo' : 'direito'}`} title="Arraste para redimensionar" onPointerDown={beginDrawerResize}/> : null
 
-  return <>{side === 'left' ? <>{rail}{drawerPanel}{splitter}</> : <>{splitter}{drawerPanel}{rail}</>}</>
+  return <>{side === 'left' ? <>{rail}{drawerPanels}{splitter}</> : <>{splitter}{drawerPanels}{rail}</>}</>
 }
 
 function isWorkspaceTool(value: string): value is WorkspaceTool {
@@ -338,57 +351,4 @@ function executionQueueState(item: ExecutionFIFOItem): { label: string; detail: 
   if (item.status === 'queued') return { label: 'Na fila', detail: 'Em espera, com a ordem FIFO preservada', icon: 'terminal' }
   if (item.status === 'completed') return { label: 'Concluída', detail: 'Execução terminada com sucesso', icon: 'check' }
   return { label: 'Com erro', detail: 'Execução terminada com falha', icon: 'close' }
-}
-
-function ChatManagementDrawer({ projectPath, savedChats, archivedChats, busy, onRestoreSaved, onArchiveSaved, onRestoreArchived, onDeleteArchived, onRename, onGenerate, onClose }: {
-  projectPath: string
-  savedChats: ComponentProps<typeof ChatPanel>['archivedChats']
-  archivedChats: ComponentProps<typeof ChatPanel>['archivedChats']
-  busy: boolean
-  onRestoreSaved?: (chatId: string) => Promise<void>
-  onArchiveSaved?: (chatId: string) => Promise<void>
-  onRestoreArchived: ComponentProps<typeof ChatPanel>['onRestoreChat']
-  onDeleteArchived: ComponentProps<typeof ChatPanel>['onDeleteArchivedChat']
-  onRename: ComponentProps<typeof ChatPanel>['onRenameChat']
-  onGenerate: ComponentProps<typeof ChatPanel>['onGenerateChatTitle']
-  onClose: () => void
-}) {
-  const [tab, setTab] = useState<'saved' | 'archived'>(() => savedChats.length ? 'saved' : 'archived')
-  const [query, setQuery] = useState('')
-  const [preview, setPreview] = useState<string>()
-  const chats = tab === 'saved' ? savedChats : archivedChats
-  const normalizedQuery = query.trim().toLowerCase()
-  const visible = chats.filter((chat) => chat.title.toLowerCase().includes(normalizedQuery))
-  const previewChat = chats.find((chat) => chat.id === preview)
-  const previewItems = previewChat ? loadChat(projectPath, previewChat.id) : []
-  const visibleLabel = normalizedQuery ? `${visible.length} de ${chats.length}` : `${chats.length} ${chats.length === 1 ? 'chat' : 'chats'}`
-  const emptyTitle = chats.length ? 'Nenhum resultado' : tab === 'saved' ? 'Ainda não há chats guardados' : 'Ainda não há chats arquivados'
-  const emptyDetail = chats.length ? 'Tente pesquisar por outro título.' : tab === 'saved' ? 'Guardar suspende o chat e deixa as execuções em standby até reativar ou arquivar.' : 'Os chats fechados ficam organizados aqui sem perder o histórico.'
-  const setManagementTab = (next: 'saved' | 'archived') => { setTab(next); setQuery(''); setPreview(undefined) }
-
-  return <section className="agent-archive-drawer" aria-label="Gestão de chats">
-    <header className="agent-drawer-heading agent-archive-heading"><div><span className="panel-kicker">Workspace</span><div className="agent-archive-heading-row"><strong>Gestão de chats</strong><span className="agent-archive-count">{savedChats.length + archivedChats.length}</span></div></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar Gestão de chats"><Icon name="close" size={13}/></button></header>
-    <nav className="agent-chat-management-tabs" role="tablist" aria-label="Estado dos chats">
-      <button type="button" role="tab" aria-selected={tab === 'saved'} onClick={() => setManagementTab('saved')}><Icon name="save" size={13}/><span className="semantic-tab-label">Guardados</span><b>{savedChats.length}</b></button>
-      <button type="button" role="tab" aria-selected={tab === 'archived'} onClick={() => setManagementTab('archived')}><Icon name="archive" size={13}/><span className="semantic-tab-label">Arquivados</span><b>{archivedChats.length}</b></button>
-    </nav>
-    <div className="agent-archive-toolbar"><label className="panel-search-field archive-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'saved' ? 'Pesquisar chats guardados' : 'Pesquisar chats arquivados'}/></label><span className="agent-archive-filter-count" aria-live="polite">{visibleLabel}</span></div>
-    <div className="agent-archive-list">
-      {visible.length ? visible.map((chat) => {
-        const stateAt = tab === 'saved' ? (chat.savedAt || chat.updatedAt) : (chat.archivedAt || chat.updatedAt)
-        return <article className="agent-archive-item" key={chat.id} onClick={() => setPreview(chat.id)}>
-          <div className="agent-archive-copy">
-            <div className="agent-archive-card-title"><strong>{chat.title}</strong><span className={chat.chatgptUrl ? 'agent-archive-link linked' : 'agent-archive-link local'}>{chat.chatgptUrl ? 'ChatGPT' : 'Local'}</span></div>
-            <div className="agent-archive-meta"><span><small>Início</small><time dateTime={chat.createdAt}>{new Date(chat.createdAt).toLocaleString()}</time></span><span><small>{tab === 'saved' ? 'Guardado' : 'Encerramento'}</small><time dateTime={stateAt}>{new Date(stateAt).toLocaleString()}</time></span></div>
-          </div>
-          <div className="agent-archive-actions">
-            <button type="button" disabled={busy} onClick={(event) => { event.stopPropagation(); void promptDialog({ title: 'Renomear chat', inputLabel: 'Novo nome', initialValue: chat.title, confirmLabel: 'Renomear' }).then((title) => { if (title) return onRename?.(chat.id, title) }) }} aria-label={`Renomear ${chat.title}`} title="Renomear"><Icon name="rename" size={13}/></button>
-            {tab === 'archived' && <button type="button" disabled={busy || !chat.chatgptUrl} onClick={(event) => { event.stopPropagation(); void onGenerate?.(chat.id) }} aria-label={`Gerar nome para ${chat.title}`} title="Usar o título contextual gerado pelo ChatGPT"><Icon name="agent" size={13}/></button>}
-            {tab === 'saved' ? <><button type="button" disabled={busy || !onRestoreSaved} onClick={(event) => { event.stopPropagation(); void onRestoreSaved?.(chat.id) }} aria-label={`Reativar ${chat.title}`} title="Reativar"><Icon name="refresh" size={13}/></button><button type="button" disabled={busy || !onArchiveSaved} onClick={(event) => { event.stopPropagation(); void onArchiveSaved?.(chat.id) }} aria-label={`Arquivar ${chat.title}`} title="Arquivar"><Icon name="archive" size={13}/></button></> : <button type="button" className="danger" disabled={busy} onClick={(event) => { event.stopPropagation(); void onDeleteArchived(chat.id) }} aria-label={`Eliminar definitivamente ${chat.title}`} title="Eliminar definitivamente"><Icon name="trash" size={13}/></button>}
-          </div>
-        </article>
-      }) : <div className="agent-archive-empty"><span className="agent-archive-empty-icon"><Icon name="folder" size={18}/></span><strong>{emptyTitle}</strong><p>{emptyDetail}</p></div>}
-    </div>
-    {previewChat && <InternalWindow title={`Pré-visualização de ${previewChat.title}`} onClose={() => setPreview(undefined)} layerClassName="archived-preview-backdrop"><section className="archived-preview" role="dialog" aria-modal="false" aria-label={`Pré-visualização de ${previewChat.title}`}><header><div><span className="panel-kicker">{tab === 'saved' ? 'Em standby' : 'Somente leitura'}</span><h2>{previewChat.title}</h2><p>{new Date(previewChat.createdAt).toLocaleString()} — {new Date(tab === 'saved' ? (previewChat.savedAt || previewChat.updatedAt) : (previewChat.archivedAt || previewChat.updatedAt)).toLocaleString()}</p></div><button className="icon-button light" onClick={() => setPreview(undefined)} aria-label="Fechar pré-visualização"><Icon name="close" size={14}/></button></header><div className="archived-preview-stream">{previewItems.map((item) => <article key={item.id} className={`archived-preview-message ${item.source || item.role}`}><small>{item.source === 'chatgpt' ? 'ChatGPT' : item.source === 'wharness' ? 'WHX' : 'Você'} · {item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</small><MarkdownContent markdown={item.text}/></article>)}</div>{tab === 'saved' ? <footer><span>Execuções e automação estão em standby. A conversa remota permanece intacta.</span><div className="agent-chat-management-preview-actions"><button className="secondary-button" disabled={busy || !onArchiveSaved} onClick={() => void onArchiveSaved?.(previewChat.id)}><Icon name="archive" size={13}/> Arquivar</button><button className="apply-button" disabled={busy || !onRestoreSaved} onClick={() => void onRestoreSaved?.(previewChat.id)}><Icon name="refresh" size={13}/> Reativar chat</button></div></footer> : <footer><span>Envio e processamento permanecem bloqueados até restaurar.</span><button className="apply-button" disabled={busy} onClick={() => void onRestoreArchived(previewChat.id)}><Icon name="refresh" size={13}/> Restaurar chat</button></footer>}</section></InternalWindow>}
-  </section>
 }

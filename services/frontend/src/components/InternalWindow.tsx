@@ -1,6 +1,7 @@
-import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { bindInternalWindowDrag, ensureInternalWindowDockRoot } from '../lib/internalWindow'
+import { InternalWindowPersistenceContext } from '../lib/internalWindowPersistence'
 import { Icon } from './Icon'
 
 type InternalWindowProps = {
@@ -14,6 +15,10 @@ type InternalWindowProps = {
 export function InternalWindow({ title, onClose, children, layerClassName = '', closeDisabled = false }: InternalWindowProps) {
   const [minimized, setMinimized] = useState(false)
   const dockRoot = useMemo(() => ensureInternalWindowDockRoot(), [])
+  const portalRoot = typeof document === 'undefined' ? null : document.body
+  const persistence = useContext(InternalWindowPersistenceContext)
+  const persistenceOwner = persistence?.owner
+  const registerPersistence = persistence?.register
   const restoreRef = useRef<HTMLButtonElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const dragGripRef = useRef<HTMLSpanElement>(null)
@@ -21,6 +26,11 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
   useEffect(() => {
     if (minimized) restoreRef.current?.focus()
   }, [minimized])
+
+  useEffect(() => {
+    if (!persistenceOwner || !registerPersistence) return
+    return registerPersistence(persistenceOwner)
+  }, [persistenceOwner, registerPersistence])
 
   useLayoutEffect(() => {
     const surface = shellRef.current?.firstElementChild
@@ -45,20 +55,22 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
     ? cloneElement(children, undefined, <>{children.props.children}{controls}</>)
     : <div className="internal-window-surface">{children}{controls}</div>
 
-  return <>
-    <div
-      className={`internal-window-layer ${layerClassName} ${minimized ? 'is-minimized' : ''}`.trim()}
-      data-internal-window-state={minimized ? 'minimized' : 'open'}
-      aria-hidden={minimized || undefined}
-    >
-      <div ref={shellRef} className="internal-window-shell" onKeyDown={(event) => {
-        if (event.key !== 'Escape' || closeDisabled) return
-        event.stopPropagation()
-        onClose()
-      }}>
-        {surface}
-      </div>
+  const layer = <div
+    className={`internal-window-layer ${layerClassName} ${minimized ? 'is-minimized' : ''}`.trim()}
+    data-internal-window-state={minimized ? 'minimized' : 'open'}
+    aria-hidden={minimized || undefined}
+  >
+    <div ref={shellRef} className="internal-window-shell" onKeyDown={(event) => {
+      if (event.key !== 'Escape' || closeDisabled) return
+      event.stopPropagation()
+      onClose()
+    }}>
+      {surface}
     </div>
+  </div>
+
+  return <>
+    {portalRoot ? createPortal(layer, portalRoot) : layer}
     {minimized && dockRoot ? createPortal(<div className="internal-window-dock-item" data-internal-window-state="minimized">
       <button ref={restoreRef} type="button" className="internal-window-dock-restore" onClick={() => setMinimized(false)} title={`Restaurar ${title}`}><span aria-hidden="true">▣</span><strong>{title}</strong></button>
       <button type="button" className="internal-window-dock-close" disabled={closeDisabled} onClick={onClose} aria-label={`Fechar ${title}`} title="Fechar"><Icon name="close" size={11}/></button>
