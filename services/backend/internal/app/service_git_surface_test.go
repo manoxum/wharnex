@@ -512,6 +512,13 @@ func TestGitContributorsRanksAuthorsAndBuildsWeeklyTimeline(t *testing.T) {
 	if len(overview.Contributors[0].WeeklyCommits) != len(overview.Weeks) {
 		t.Fatalf("contributor series must align with overview weeks: contributor=%d weeks=%d", len(overview.Contributors[0].WeeklyCommits), len(overview.Weeks))
 	}
+	dailyTotal := 0
+	for _, day := range overview.Days {
+		dailyTotal += day.Commits
+	}
+	if dailyTotal != overview.TotalCommits {
+		t.Fatalf("daily calendar and ranking must use the same sample: days=%d total=%d", dailyTotal, overview.TotalCommits)
+	}
 }
 
 func commitGitAsAt(t *testing.T, root, name, email, when, subject, fileName string) {

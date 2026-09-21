@@ -98,6 +98,13 @@ describe('GitDrawer', () => {
         { started_at: '2026-08-31T00:00:00Z', commits: 2, additions: 18, deletions: 3 },
         { started_at: '2026-09-07T00:00:00Z', commits: 3, additions: 27, deletions: 5 },
       ],
+      days: [
+        { started_at: '2026-08-31T00:00:00Z', commits: 1, additions: 8, deletions: 1 },
+        { started_at: '2026-09-01T00:00:00Z', commits: 1, additions: 10, deletions: 2 },
+        { started_at: '2026-09-07T00:00:00Z', commits: 1, additions: 7, deletions: 1 },
+        { started_at: '2026-09-08T00:00:00Z', commits: 1, additions: 9, deletions: 2 },
+        { started_at: '2026-09-10T00:00:00Z', commits: 1, additions: 11, deletions: 2 },
+      ],
       contributors: [
         { name: 'Ana Costa', email: 'ana@example.test', commits: 3, additions: 32, deletions: 6, first_commit_at: '2026-08-31T10:00:00Z', last_commit_at: '2026-09-10T10:00:00Z', weekly_commits: [1, 2] },
         { name: 'Bruno Lima', email: 'bruno@example.test', commits: 2, additions: 13, deletions: 2, first_commit_at: '2026-09-01T10:00:00Z', last_commit_at: '2026-09-08T10:00:00Z', weekly_commits: [1, 1] },
@@ -298,10 +305,12 @@ describe('GitDrawer', () => {
     expect(screen.getByText('Ana Costa')).toBeTruthy()
     expect(screen.getByText('Bruno Lima')).toBeTruthy()
     expect(screen.getByRole('img', { name: 'Commits por semana em 2 semanas' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: /Calendário de contribuições de/ })).toBeTruthy()
     const ranking = document.querySelector('.git-contributor-ranking')
     expect(ranking?.textContent).toContain('Ana Costa')
     expect(ranking?.textContent).toContain('32')
-    expect(document.querySelectorAll('.git-contribution-week').length).toBe(2)
+    expect(document.querySelectorAll('.git-contribution-day').length).toBe(371)
+    expect(document.querySelectorAll('.git-contributor-area-chart').length).toBe(2)
   })
 
   it('presents branch history commit details with a dedicated visual hierarchy', async () => {
