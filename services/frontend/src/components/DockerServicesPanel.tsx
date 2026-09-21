@@ -232,11 +232,13 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
 
     {loadError ? <div className="docker-services-offline"><Icon name="alert" size={16}/><div><strong>Docker indisponível</strong><span>{loadError}</span></div><button type="button" onClick={() => void refresh(true)}>Tentar novamente</button></div> : null}
 
-    <div className="docker-resource-filter">
-      <Icon name="search" size={13}/>
-      <input value={filterText} onChange={(event) => setFilterText(event.target.value)} aria-label="Filtrar recursos Docker" placeholder="Filtrar Compose, containers, imagens, volumes e redes…" spellCheck={false}/>
-      {filterText ? <button type="button" onClick={() => setFilterText('')} title="Limpar filtro" aria-label="Limpar filtro"><Icon name="close" size={11}/></button> : null}
-      <span>{normalizedFilter ? `${visibleCount} resultado${visibleCount === 1 ? '' : 's'}` : 'Todos'}</span>
+    <div className="docker-resource-filter" role="search" aria-label="Pesquisa de recursos Docker">
+      <div className="docker-resource-searchbox">
+        <Icon name="search" size={12}/>
+        <input value={filterText} onChange={(event) => setFilterText(event.target.value)} aria-label="Filtrar recursos Docker" placeholder="Filtrar recursos Docker…" spellCheck={false}/>
+        {filterText ? <button type="button" className="docker-resource-filter-clear" onClick={() => setFilterText('')} title="Limpar filtro" aria-label="Limpar filtro"><Icon name="close" size={11}/></button> : null}
+      </div>
+      <span className="docker-resource-filter-status">{normalizedFilter ? `${visibleCount} resultado${visibleCount === 1 ? '' : 's'}` : 'Todos'}</span>
     </div>
 
     <div className="docker-services-layout">
