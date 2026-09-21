@@ -7392,3 +7392,57 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .docker-services-footer { min-height:28px; padding:0 9px; display:flex; align-items:center; justify-content:space-between; gap:8px; border-top:1px solid var(--theme-border); background:var(--theme-surface); color:var(--theme-text-muted); font:calc(6px * var(--ui-font-scale))/1.4 ui-monospace, 'SFMono-Regular', Consolas, monospace; }
 .docker-services-footer span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 @container (max-width: 430px) { .docker-services-layout { grid-template-columns:1fr; grid-template-rows:minmax(170px,42%) minmax(0,1fr); } .docker-services-tree { border-right:0; border-bottom:1px solid var(--theme-border); } }
+
+/* Docker services readability and Compose grouping */
+.docker-services-panel { container-type:inline-size; --docker-font-scale:calc(var(--ui-font-scale) * var(--docker-user-scale, 1.15)); }
+.docker-services-header { min-height:54px; padding:9px 9px 9px 12px; }
+.docker-services-header strong { font-size:calc(12px * var(--docker-font-scale)); }
+.docker-services-header small { font-size:calc(8.5px * var(--docker-font-scale)); }
+.docker-services-header-actions .docker-font-control { min-width:28px; padding:0 5px; font:650 calc(8.5px * var(--docker-font-scale))/1 ui-sans-serif,system-ui,sans-serif; }
+.docker-services-offline strong { font-size:calc(10px * var(--docker-font-scale)); }
+.docker-services-offline span, .docker-services-offline button { font-size:calc(8.5px * var(--docker-font-scale)); }
+.docker-services-layout { grid-template-columns:minmax(235px,43%) minmax(0,1fr); }
+.docker-section-heading { min-height:34px; grid-template-columns:11px 15px minmax(0,1fr) auto; gap:6px; }
+.docker-section-heading strong { font-size:calc(9.5px * var(--docker-font-scale)); }
+.docker-section-heading span { font:600 calc(8px * var(--docker-font-scale))/1.4 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-section-items { padding:2px 0 5px; }
+.docker-resource-row { min-height:36px; padding:5px 8px 5px 29px; gap:7px; }
+.docker-resource-copy strong { font-size:calc(9.2px * var(--docker-font-scale)); }
+.docker-resource-copy small { font:calc(7.7px * var(--docker-font-scale))/1.4 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-resource-empty { font-size:calc(8.5px * var(--docker-font-scale)); }
+.docker-compose-group { border-top:1px solid color-mix(in srgb,var(--theme-border-soft) 72%,transparent); }
+.docker-compose-group:first-child { border-top:0; }
+.docker-compose-heading { min-height:38px; padding:0 7px 0 16px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:5px; }
+.docker-compose-heading:hover { background:color-mix(in srgb,var(--theme-hover) 60%,transparent); }
+.docker-compose-toggle { min-width:0; height:100%; padding:0; display:grid; grid-template-columns:11px 8px minmax(0,1fr); align-items:center; gap:7px; border:0; background:transparent; color:var(--theme-text-soft); text-align:left; cursor:pointer; }
+.docker-compose-toggle[aria-expanded='true'] > svg:first-child { transform:rotate(90deg); }
+.docker-compose-down { height:25px; padding:0 7px; display:inline-flex; align-items:center; gap:4px; border:1px solid var(--theme-border); border-radius:4px; background:transparent; color:var(--theme-text-muted); font-size:calc(7.5px * var(--docker-font-scale)); cursor:pointer; }
+.docker-compose-down:hover:not(:disabled) { border-color:color-mix(in srgb,var(--theme-warning) 45%,var(--theme-border)); background:color-mix(in srgb,var(--theme-warning) 8%,var(--theme-surface)); color:var(--theme-warning); }
+.docker-compose-down:disabled { opacity:.38; cursor:default; }
+.docker-compose-containers .docker-resource-row { padding-left:42px; }
+.docker-state-dot.state-error { background:var(--theme-danger,#d66b62); }
+.docker-row-state { flex:0 0 auto; padding:2px 5px; border-radius:999px; color:var(--theme-text-muted); background:var(--theme-surface-soft); font:600 calc(7px * var(--docker-font-scale))/1.3 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-row-state.state-running { color:var(--theme-success); }
+.docker-row-state.state-warning { color:var(--theme-warning); }
+.docker-row-state.state-error { color:var(--theme-danger,#d66b62); }
+.docker-usage-badge { flex:0 0 auto; padding:2px 6px; border-radius:999px; border:1px solid var(--theme-border-soft); color:var(--theme-text-muted); background:var(--theme-surface-soft); font:600 calc(7px * var(--docker-font-scale))/1.3 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-usage-badge.in-use { border-color:color-mix(in srgb,var(--theme-success) 25%,var(--theme-border)); color:var(--theme-success); }
+.docker-usage-badge.free { color:var(--theme-text-muted); }
+.docker-inline-action { width:25px; height:25px; flex:0 0 25px; display:inline-flex; align-items:center; justify-content:center; border:0; border-radius:4px; background:transparent; color:var(--theme-text-muted); cursor:pointer; }
+.docker-inline-action:hover:not(:disabled) { background:var(--theme-hover); color:var(--theme-text); }
+.docker-inline-action.danger:hover:not(:disabled) { background:color-mix(in srgb,var(--theme-danger,#d66b62) 10%,transparent); color:var(--theme-danger,#d66b62); }
+.docker-inline-action:disabled { opacity:.28; cursor:default; }
+.docker-container-identity strong { font-size:calc(11px * var(--docker-font-scale)); }
+.docker-container-identity small { font:calc(8px * var(--docker-font-scale))/1.4 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-state-pill { font:600 calc(7.5px * var(--docker-font-scale))/1.4 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-state-pill.state-error { border-color:color-mix(in srgb,var(--theme-danger,#d66b62) 35%,var(--theme-border)); color:var(--theme-danger,#d66b62); }
+.docker-container-actions button, .docker-detail-tabs button { font-size:calc(8.5px * var(--docker-font-scale)); }
+.docker-protected-note { font-size:calc(8px * var(--docker-font-scale)); }
+.docker-fact span { font-size:calc(8px * var(--docker-font-scale)); }
+.docker-fact strong { font:500 calc(8.4px * var(--docker-font-scale))/1.5 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-logs-toolbar { font-size:calc(8px * var(--docker-font-scale)); }
+.docker-logs-view pre { font:calc(8.3px * var(--docker-font-scale))/1.55 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-detail-empty strong { font-size:calc(10px * var(--docker-font-scale)); }
+.docker-detail-empty span { font-size:calc(8.5px * var(--docker-font-scale)); }
+.docker-services-footer { min-height:31px; font:calc(7.6px * var(--docker-font-scale))/1.4 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+@container (max-width: 500px) { .docker-services-layout { grid-template-columns:1fr; grid-template-rows:minmax(210px,44%) minmax(0,1fr); } .docker-services-tree { border-right:0; border-bottom:1px solid var(--theme-border); } }
