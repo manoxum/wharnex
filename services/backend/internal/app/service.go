@@ -1619,6 +1619,16 @@ func (s *Service) RetryFailedRequest(ctx context.Context, sessionID string) (dom
 	return s.retryFailedRequest(ctx, sessionID, false)
 }
 
+// RetryFailedRequestWithGuidance is RetryFailedRequest's operator-guided form,
+// exposed over HTTP so a chat blocked on a failure the planner declared
+// non-retryable — see plannerDeclaredNonRetryable — can be unblocked once an
+// operator confirms the named condition changed, without that guidance
+// having to travel through any other endpoint. An empty guidance behaves
+// exactly like RetryFailedRequest.
+func (s *Service) RetryFailedRequestWithGuidance(ctx context.Context, sessionID, guidance string) (domain.Session, error) {
+	return s.retryFailedRequestWithGuidance(ctx, sessionID, false, guidance)
+}
+
 func (s *Service) retryFailedRequest(ctx context.Context, sessionID string, automatic bool) (domain.Session, error) {
 	return s.retryFailedRequestWithGuidance(ctx, sessionID, automatic, "")
 }

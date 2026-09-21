@@ -1351,7 +1351,11 @@ func (a *API) requestFailureRepair(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) retryFailedRequest(w http.ResponseWriter, r *http.Request) {
-	item, err := a.service.RetryFailedRequest(r.Context(), r.PathValue("id"))
+	var body struct {
+		Guidance string `json:"guidance"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	item, err := a.service.RetryFailedRequestWithGuidance(r.Context(), r.PathValue("id"), body.Guidance)
 	if err != nil {
 		writeError(w, http.StatusConflict, "failed_request_retry_unavailable", err.Error())
 		return
