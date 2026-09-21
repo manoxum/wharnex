@@ -4,8 +4,54 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
+
+// Tag is a local release marker shown by the Git surface. CreatedAt is Git's
+// creator date in RFC3339-like ISO form (tagger date for annotated tags and
+// commit date for lightweight tags).
+type Tag struct {
+	Name      string `json:"name"`
+	CommitSHA string `json:"commit_sha"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+// Tags lists the newest local tags without consulting a remote API. A release
+// created by Wharnex always creates its tag locally first, so this remains a
+// fast, durable inventory even when GitHub is temporarily unavailable.
+func Tags(ctx context.Context, root string, limit int) ([]Tag, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	const format = "%(refname:short)%09%(*objectname)%09%(objectname)%09%(creatordate:iso8601-strict)"
+	output, err := run(ctx, root, "for-each-ref", "--sort=-creatordate", "--count="+strconv.Itoa(limit), "--format="+format, "refs/tags")
+	if err != nil {
+		return nil, fmt.Errorf("list tags: %s", strings.TrimSpace(output))
+	}
+	tags := make([]Tag, 0)
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", 4)
+		if len(fields) < 3 {
+			continue
+		}
+		sha := strings.TrimSpace(fields[1])
+		if sha == "" {
+			sha = strings.TrimSpace(fields[2])
+		}
+		tag := Tag{Name: strings.TrimSpace(fields[0]), CommitSHA: sha}
+		if len(fields) == 4 {
+			tag.CreatedAt = strings.TrimSpace(fields[3])
+		}
+		if tag.Name != "" && tag.CommitSHA != "" {
+			tags = append(tags, tag)
+		}
+	}
+	return tags, nil
+}
 
 // CreateTagAtRef creates a lightweight tag at the selected branch/ref. A retry
 // is idempotent when the tag already points at the same commit, but refuses to

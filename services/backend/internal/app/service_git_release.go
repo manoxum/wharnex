@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"kernl.local/harness/backend/internal/hostrepo"
+	"kernl.local/harness/backend/internal/projectversion"
 	"kernl.local/harness/backend/internal/session"
 )
 
@@ -117,7 +118,7 @@ func (s *Service) GenerateGitReleaseNotes(ctx context.Context, sessionID, branch
 	}
 	branch = strings.TrimSpace(branch)
 	if branch == "" || strings.HasPrefix(branch, "-") {
-		return GitReleaseNotesResult{}, errors.New("select a local branch before generating release notes")
+		return GitReleaseNotesResult{}, errors.New("select a remote branch before generating release notes")
 	}
 	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
 	if err != nil {
@@ -125,13 +126,13 @@ func (s *Service) GenerateGitReleaseNotes(ctx context.Context, sessionID, branch
 	}
 	valid := false
 	for _, candidate := range branches {
-		if candidate.Remote == "" && candidate.Name == branch {
+		if candidate.Remote != "" && candidate.Name == branch {
 			valid = true
 			break
 		}
 	}
 	if !valid {
-		return GitReleaseNotesResult{}, fmt.Errorf("unknown local branch %q", branch)
+		return GitReleaseNotesResult{}, fmt.Errorf("unknown remote branch %q", branch)
 	}
 	commits, err := hostrepo.LogRefs(ctx, item.ProjectPath, []string{branch}, false, 30)
 	if err != nil {
@@ -141,7 +142,7 @@ func (s *Service) GenerateGitReleaseNotes(ctx context.Context, sessionID, branch
 	for _, commit := range commits {
 		lines = append(lines, "- "+commit.ShortSHA+" "+commit.Subject)
 	}
-	prompt := "Escreve notas de release concisas em Markdown para a branch '" + branch + "'. " +
+	prompt := "Escreve notas de release concisas em Markdown para a branch remota '" + branch + "'. " +
 		"Agrupa mudanças materiais por tema, evita inventar factos e responde apenas com o texto final das notas de release.\n\nCommits recentes:\n" + strings.Join(lines, "\n")
 	taskID := session.NewChatAgentTaskID()
 	payload, err := json.Marshal(gitReleaseNotesWorkerPayload{
@@ -197,26 +198,29 @@ func (s *Service) GenerateGitReleaseNotes(ctx context.Context, sessionID, branch
 	}
 }
 
-func (s *Service) CreateGitRelease(ctx context.Context, sessionID, remote, branch, tag, title, body string) (GitReleaseResult, error) {
+func composeReleaseTag(version, suffix string) (string, error) {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return "", errors.New("project VERSION is empty")
+	}
+	suffix = strings.TrimLeft(strings.TrimSpace(suffix), "-")
+	if suffix == "" {
+		return version, nil
+	}
+	return version + "-" + suffix, nil
+}
+
+func (s *Service) CreateGitRelease(ctx context.Context, sessionID, branch, tagSuffix, title, body string) (GitReleaseResult, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return GitReleaseResult{}, err
 	}
-	remote, branch, tag, title, body = strings.TrimSpace(remote), strings.TrimSpace(branch), strings.TrimSpace(tag), strings.TrimSpace(title), strings.TrimSpace(body)
+	branch, tagSuffix, title, body = strings.TrimSpace(branch), strings.TrimSpace(tagSuffix), strings.TrimSpace(title), strings.TrimSpace(body)
 	if branch == "" {
-		return GitReleaseResult{}, errors.New("select a branch before creating a tag and release")
-	}
-	if remote == "" {
-		return GitReleaseResult{}, errors.New("select a remote before creating a release")
-	}
-	if tag == "" {
-		return GitReleaseResult{}, errors.New("a release tag is required")
+		return GitReleaseResult{}, errors.New("select a remote branch before creating a tag and release")
 	}
 	if body == "" {
 		return GitReleaseResult{}, errors.New("release notes are required")
-	}
-	if title == "" {
-		title = tag
 	}
 	lock := s.projectApplyLock(item.ProjectPath)
 	lock.Lock()
@@ -225,27 +229,26 @@ func (s *Service) CreateGitRelease(ctx context.Context, sessionID, remote, branc
 	if err != nil {
 		return GitReleaseResult{}, err
 	}
-	branchFound, remoteFound := false, false
+	remote := ""
 	for _, candidate := range branches {
-		if candidate.Remote == "" && candidate.Name == branch {
-			branchFound = true
-		}
-	}
-	remotes, err := hostrepo.Remotes(ctx, item.ProjectPath)
-	if err != nil {
-		return GitReleaseResult{}, err
-	}
-	for _, candidate := range remotes {
-		if candidate.Name == remote {
-			remoteFound = true
+		if candidate.Remote != "" && candidate.Name == branch {
+			remote = candidate.Remote
 			break
 		}
 	}
-	if !branchFound {
-		return GitReleaseResult{}, fmt.Errorf("unknown local branch %q", branch)
+	if remote == "" {
+		return GitReleaseResult{}, fmt.Errorf("unknown remote branch %q", branch)
 	}
-	if !remoteFound {
-		return GitReleaseResult{}, fmt.Errorf("unknown remote %q", remote)
+	version, _, err := projectversion.Ensure(item.ProjectPath)
+	if err != nil {
+		return GitReleaseResult{}, fmt.Errorf("read project VERSION: %w", err)
+	}
+	tag, err := composeReleaseTag(version, tagSuffix)
+	if err != nil {
+		return GitReleaseResult{}, err
+	}
+	if title == "" {
+		title = tag
 	}
 	sha, err := hostrepo.CreateTagAtRef(ctx, item.ProjectPath, tag, branch)
 	if err != nil {

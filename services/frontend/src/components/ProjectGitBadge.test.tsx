@@ -31,7 +31,7 @@ function overview(): GitOverview {
       { name: 'origin/main', remote: 'origin', current: false, commit_sha: 'a0', subject: 'feat: remote', ahead: 0, behind: 1, has_upstream: false, gone: false, counterpart: 'main', has_counterpart: true },
     ],
     remotes: [{ name: 'origin', url: 'https://github.com/org/repo.git' }],
-    commits: [], pending: [], working: { clean: true, stageable_count: 0, files: [] },
+    tags: [], commits: [], pending: [], working: { clean: true, stageable_count: 0, files: [] },
   }
 }
 

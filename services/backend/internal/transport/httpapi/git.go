@@ -405,9 +405,8 @@ func (a *API) gitReleaseNotes(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) gitCreateRelease(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Remote       string `json:"remote"`
 		Branch       string `json:"branch"`
-		Tag          string `json:"tag"`
+		TagSuffix    string `json:"tag_suffix"`
 		Title        string `json:"title"`
 		Body         string `json:"body"`
 		Confirmation string `json:"confirmation"`
@@ -419,7 +418,7 @@ func (a *API) gitCreateRelease(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "git_release_unconfirmed", "publishing a tag and GitHub release requires an explicit confirmation")
 		return
 	}
-	result, err := a.service.CreateGitRelease(r.Context(), r.PathValue("id"), body.Remote, body.Branch, body.Tag, body.Title, body.Body)
+	result, err := a.service.CreateGitRelease(r.Context(), r.PathValue("id"), body.Branch, body.TagSuffix, body.Title, body.Body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_release_failed", err.Error())
 		return
