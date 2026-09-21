@@ -221,15 +221,6 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 
 /* Execution contract: an operational briefing, not a decorative plan list. */
 .plan-view { --plan-ink:#20261f; --plan-muted:#6d7469; --plan-line:#cdd3c7; --plan-accent:#587a3d; max-width: 1080px; margin: 0 auto; }
-.plan-control-surface { margin: -8px 0 20px; overflow: hidden; border: 1px solid var(--plan-line); border-radius: 14px; background: rgba(255,255,255,.5); box-shadow: 0 10px 26px rgba(28,34,25,.07); }
-.plan-control-primary { min-height: 78px; padding: 13px 14px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
-.plan-control-copy { min-width: 0; flex: 1; display: flex; align-items: flex-start; gap: 11px; }
-.plan-control-mark { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 1px solid color-mix(in srgb,var(--plan-accent) 35%,var(--plan-line)); border-radius: 10px; background: color-mix(in srgb,#fff 78%,var(--plan-accent) 8%); color: var(--plan-accent); }
-.plan-control-copy > div { min-width: 0; display: grid; gap: 3px; }
-.plan-control-copy .panel-kicker { color: var(--plan-accent); }
-.plan-control-copy strong { color: var(--plan-ink); font-size: calc(12px * var(--ui-font-scale)); line-height: 1.25; }
-.plan-control-copy > div > span:last-child { max-width: 700px; color: var(--plan-muted); font-size: calc(9px * var(--ui-font-scale)); line-height: 1.45; }
-.plan-decision-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
 .plan-heading { margin-bottom: 16px; padding: 0 2px 14px; border-bottom: 1px solid var(--plan-line); }
 .plan-heading h3 { margin: 6px 0 0; color: var(--plan-ink); font: 650 calc(19px * var(--ui-font-scale))/1.28 var(--ui-font-family); letter-spacing: -.025em; text-wrap: balance; }
 .plan-metrics { grid-template-columns: repeat(6,minmax(0,1fr)); border-radius: 10px; overflow: hidden; }
@@ -253,7 +244,7 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .plan-requirement small { color: #7b8276; font: 7.5px/1.35 var(--mono-font-family); }
 .plan-requirement p,.plan-none { margin: 2px 0 0; color: #687064; font-size: calc(8.5px * var(--ui-font-scale)); line-height: 1.45; }
 .plan-changes-title { margin: 24px 0 5px; }
-@media (max-width: 860px) { .plan-control-primary { align-items: stretch; flex-direction: column; } .plan-decision-actions { flex-wrap: wrap; } .plan-impact-grid { grid-template-columns: 1fr; } .plan-metrics { grid-template-columns: repeat(3,1fr); } }
+@media (max-width: 860px) { .plan-impact-grid { grid-template-columns: 1fr; } .plan-metrics { grid-template-columns: repeat(3,1fr); } }
 @media (max-width: 560px) { .plan-metrics { grid-template-columns: repeat(2,1fr); } }
 
 .terminal-view { background: #151714; border-radius: 10px; padding: 5px 0; min-height: 280px; color: #d8ddd1; overflow: hidden; }
@@ -4536,11 +4527,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .plan-view .metric { border-color:var(--theme-border-soft); }
 .plan-view .metric span { color:var(--theme-text-muted); }
 .plan-view .metric strong { color:var(--theme-text); }
-.plan-control-surface { border-color:var(--theme-border-soft); background:color-mix(in srgb,var(--theme-elevated) 97%,var(--theme-accent) 3%); box-shadow:0 10px 26px color-mix(in srgb,#000 7%,transparent); }
-.plan-control-mark { border-color:color-mix(in srgb,var(--theme-accent) 32%,var(--theme-border)); background:var(--theme-accent-soft); color:var(--theme-accent); }
-.plan-control-copy .panel-kicker { color:var(--theme-accent); }
-.plan-control-copy strong { color:var(--theme-text); }
-.plan-control-copy > div > span:last-child { color:var(--theme-text-muted); }
 .plan-section-title > span { border-color:color-mix(in srgb,var(--theme-accent) 35%,var(--theme-border)); background:var(--theme-accent-soft); color:var(--theme-accent); }
 .plan-document { border-color:var(--theme-border-soft); background:var(--theme-elevated); box-shadow:0 9px 24px color-mix(in srgb,#000 5%,transparent); }
 .plan-document .markdown-content { color:var(--theme-text-soft); }
@@ -4555,16 +4541,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .plan-view .operation { border-color:var(--theme-border-soft); }
 .plan-view .operation-index,.plan-view .operation-body > span { color:var(--theme-text-muted); }
 .plan-view .operation-body strong { color:var(--theme-text); }
-.plan-manual-tools { padding:10px 12px; display:flex; align-items:center; justify-content:space-between; gap:14px; border-top:1px solid var(--theme-border-soft); background:color-mix(in srgb,var(--theme-subtle) 52%,transparent); }
-.plan-manual-copy { min-width:0; flex:1; display:flex; align-items:center; gap:9px; }
-.plan-manual-copy > div { min-width:0; display:grid; gap:2px; }
-.plan-manual-mark { width:27px; height:27px; flex:0 0 27px; display:grid; place-items:center; border-radius:8px; background:var(--theme-subtle); color:var(--theme-text-muted); }
-.plan-manual-tools .panel-kicker { color:var(--theme-text-muted); }
-.plan-manual-tools strong { color:var(--theme-text); font-size:10px; }
-.plan-manual-tools small { max-width:650px; color:var(--theme-text-muted); font-size:8.5px; line-height:1.4; }
-.plan-manual-actions { flex:0 0 auto; display:flex; gap:6px; }
-.plan-manual-actions .secondary-button { min-height:31px; }
-.plan-manual-notice { margin:-10px 0 18px; padding:8px 10px; border-radius:8px; background:var(--theme-accent-soft); color:var(--theme-accent); font-size:9px; }
 .plan-diff-files { margin-top:7px; display:grid; gap:5px; }
 .plan-diff-file { width:100%; min-height:37px; padding:0 9px; display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-elevated); color:var(--theme-text); cursor:pointer; text-align:left; }
 .plan-diff-file:hover { border-color:color-mix(in srgb,var(--theme-accent) 35%,var(--theme-border)); background:var(--theme-hover); }
@@ -4588,7 +4564,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .chat-file-copy strong { font-size:10.5px; }
 .chat-file-actions { padding:7px 8px; background:color-mix(in srgb,var(--theme-surface) 65%,transparent); }
 .chat-file-actions button,.chat-file-actions a { min-height:30px; border-radius:8px; }
-@media (max-width:860px) { .plan-manual-tools { align-items:stretch; flex-direction:column; } .plan-manual-actions { flex-wrap:wrap; } }
 
 /* Git worktree paths and commits pending publication. */
 .git-worktree-files-section { gap: 7px; }
