@@ -7280,7 +7280,7 @@ function registerIPC() {
     }
     return { ok: true, action: 'services' }
   })
-  ipcMain.handle('wharness:spellcheck:show-suggestions', (event, request) => {
+  ipcMain.handle('wharness:spellcheck:show-suggestions', async (event, request) => {
     const windowState = trustedSender(event)
     const [width, height] = windowState.window.getContentSize()
     const rawX = Number(request?.x)
@@ -7288,17 +7288,22 @@ function registerIPC() {
     if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) throw new Error('Invalid spellcheck context-menu point')
     const x = Math.max(0, Math.min(Math.round(rawX), Math.max(0, width - 1)))
     const y = Math.max(0, Math.min(Math.round(rawY), Math.max(0, height - 1)))
-    // Chromium's spelling metadata is populated by the native right-click
-    // path. A synthetic `contextMenu` event can open a generic editable menu
-    // without resolving the misspelled word, which leaves Ctrl+Space with no
-    // correction candidates even though the word is visibly underlined. Keep
-    // the BrowserWindow focused (required by sendInputEvent) and replay the
-    // same mouse sequence as a real right click at the Quill word bounds.
+    // Chromium fills misspelling metadata only for a trusted browser-level
+    // context click. The previous sendInputEvent right-click was structurally
+    // correct but did not surface the menu in the live Desktop. This runtime
+    // already uses CDP for pointer interactions that sendInputEvent can drop,
+    // so deliver Ctrl+Space through the same trusted path at the Quill word.
     windowState.window.focus()
     const input = windowState.window.webContents
-    input.sendInputEvent({ type: 'mouseMove', x, y })
-    input.sendInputEvent({ type: 'mouseDown', x, y, button: 'right', clickCount: 1 })
-    input.sendInputEvent({ type: 'mouseUp', x, y, button: 'right', clickCount: 1 })
+    const debuggerAttachedHere = !input.debugger.isAttached()
+    if (debuggerAttachedHere) input.debugger.attach('1.3')
+    try {
+      await input.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
+      await input.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 })
+      await input.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1 })
+    } finally {
+      if (debuggerAttachedHere) try { input.debugger.detach() } catch { /* already detached */ }
+    }
     return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:show', async (event, request) => {
