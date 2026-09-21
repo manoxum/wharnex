@@ -139,3 +139,17 @@ describe('workbench theme registry', () => {
     expect(theme).toContain('background: var(--theme-elevated); color: var(--theme-text);')
   })
 })
+
+
+describe('native Wharnex premium palette', () => {
+  it('uses the restrained native Wharnex palette without overriding alternate IDE families', () => {
+    expect(theme).toContain("/* v1.2.49 — original Wharnex palette")
+    expect(theme).toContain("--theme-bg: #111311")
+    expect(theme).toContain("--theme-surface: #151715")
+    expect(theme).toContain("--theme-elevated: #181a18")
+    expect(theme).toContain("--theme-hover: #222522")
+    expect(theme).toContain("--theme-accent: #9acd54")
+    expect(theme).toContain("--theme-accent-soft: rgba(154,205,84,.07)")
+    expect(theme).toContain(":root[data-theme='dark'][data-ui-theme='original']")
+  })
+})
