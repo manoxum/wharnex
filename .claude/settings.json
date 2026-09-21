@@ -1,5 +1,10 @@
 {
   "permissions": {
+    "allow": [
+      "Skill(loop)",
+      "Skill(loop:*)",
+      "Bash(bash /tmp/claude-1000/-home-zootakuxy-workspace-wharnex/79031651-ef30-4a8c-891a-97a297a4410e/scratchpad/whx_watch.sh)"
+    ],
     "additionalDirectories": [
       "/home/zootakuxy/workspace/wharnex-statable/.harness",
       "/tmp/claude-1000/-home-zootakuxy-workspace-wharnex/scratch-live"
