@@ -185,13 +185,15 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   return <section className="git-drawer" aria-label="Git do projeto">
     <header className="agent-drawer-heading git-drawer-heading">
       <div className="git-heading-copy">
-        <span className="panel-kicker">Controlo de versão</span>
-        <strong>Git do projeto</strong>
-        {overview?.available && <span className="git-heading-branch"><Icon name="git" size={12}/>{overview.detached ? 'HEAD destacado' : current?.name || overview.current_branch || 'sem branch'}</span>}
+        <span className="git-heading-symbol" aria-hidden="true"><Icon name="git" size={14}/></span>
+        <div className="git-heading-text">
+          <strong>Git do projeto</strong>
+          {overview?.available && <span className="git-heading-branch">{overview.detached ? 'HEAD destacado' : current?.name || overview.current_branch || 'sem branch'}</span>}
+        </div>
       </div>
       <div className="git-heading-actions">
-        <button type="button" className="agent-drawer-icon" disabled={disabled} onClick={() => void refresh()} aria-label="Atualizar estado do Git"><Icon name="refresh" size={13}/></button>
-        <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar Git"><Icon name="close" size={13}/></button>
+        <button type="button" className="agent-drawer-icon" disabled={disabled} onClick={() => void refresh()} aria-label="Atualizar estado do Git" title="Atualizar estado do Git"><Icon name="refresh" size={13}/></button>
+        <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar Git" title="Fechar Git"><Icon name="close" size={13}/></button>
       </div>
     </header>
 
