@@ -367,8 +367,8 @@ function ChatManagementDrawer({ projectPath, savedChats, archivedChats, busy, on
   return <section className="agent-archive-drawer" aria-label="Gestão de chats">
     <header className="agent-drawer-heading agent-archive-heading"><div><span className="panel-kicker">Workspace</span><div className="agent-archive-heading-row"><strong>Gestão de chats</strong><span className="agent-archive-count">{savedChats.length + archivedChats.length}</span></div></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar Gestão de chats"><Icon name="close" size={13}/></button></header>
     <nav className="agent-chat-management-tabs" role="tablist" aria-label="Estado dos chats">
-      <button type="button" role="tab" aria-selected={tab === 'saved'} onClick={() => setManagementTab('saved')}><Icon name="save" size={13}/><span>Guardados</span><b>{savedChats.length}</b></button>
-      <button type="button" role="tab" aria-selected={tab === 'archived'} onClick={() => setManagementTab('archived')}><Icon name="archive" size={13}/><span>Arquivados</span><b>{archivedChats.length}</b></button>
+      <button type="button" role="tab" aria-selected={tab === 'saved'} onClick={() => setManagementTab('saved')}><Icon name="save" size={13}/><span className="semantic-tab-label">Guardados</span><b>{savedChats.length}</b></button>
+      <button type="button" role="tab" aria-selected={tab === 'archived'} onClick={() => setManagementTab('archived')}><Icon name="archive" size={13}/><span className="semantic-tab-label">Arquivados</span><b>{archivedChats.length}</b></button>
     </nav>
     <div className="agent-archive-toolbar"><label className="panel-search-field archive-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tab === 'saved' ? 'Pesquisar chats guardados' : 'Pesquisar chats arquivados'}/></label><span className="agent-archive-filter-count" aria-live="polite">{visibleLabel}</span></div>
     <div className="agent-archive-list">

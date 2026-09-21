@@ -98,10 +98,10 @@ export function DatabaseExplorerPanel({ onError }: { onError: (message: string) 
   return <section className="right-tool-panel database-explorer-panel">
     <header className="database-studio-header"><div className="database-studio-identity"><span className="database-studio-mark"><Icon name="database" size={18}/></span><div><span>Database Studio</span><strong>PostgreSQL</strong></div></div><span className={`database-health ${connected ? 'ready' : ''}`}><i/>{connected ? 'Ligado' : 'Desligado'}</span></header>
     <nav className="database-workspace-tabs" aria-label="Database Studio">
-      <button type="button" className={tab === 'connection' ? 'active' : ''} onClick={() => setTab('connection')}>Conexão</button>
-      <button type="button" className={tab === 'objects' ? 'active' : ''} onClick={() => setTab('objects')}>Objetos</button>
-      <button type="button" className={tab === 'data' ? 'active' : ''} onClick={() => setTab('data')}>Dados</button>
-      <button type="button" className={tab === 'sql' ? 'active' : ''} onClick={() => setTab('sql')}>SQL</button>
+      <button type="button" title="Conexão" className={tab === 'connection' ? 'active' : ''} onClick={() => setTab('connection')}><Icon name="link" size={13}/><span className="semantic-tab-label">Conexão</span></button>
+      <button type="button" title="Objetos" className={tab === 'objects' ? 'active' : ''} onClick={() => setTab('objects')}><Icon name="database" size={13}/><span className="semantic-tab-label">Objetos</span></button>
+      <button type="button" title="Dados" className={tab === 'data' ? 'active' : ''} onClick={() => setTab('data')}><Icon name="list" size={13}/><span className="semantic-tab-label">Dados</span></button>
+      <button type="button" title="SQL" className={tab === 'sql' ? 'active' : ''} onClick={() => setTab('sql')}><Icon name="code" size={13}/><span className="semantic-tab-label">SQL</span></button>
     </nav>
     {status && <div className="database-status"><span>{status}</span>{catalog && <button type="button" onClick={() => void inspect(false)} disabled={busy} aria-label="Atualizar catálogo"><Icon name="refresh" size={12}/></button>}</div>}
     {tab === 'connection' && <ConnectionPanel profiles={profiles} profileName={profileName} connection={connection} busy={busy} connected={connected} onProfileName={setProfileName} onUpdate={update} onSave={saveProfile} onLoad={loadProfile} onDelete={deleteProfile} onTest={() => void test()} onInspect={() => void inspect()}/>}

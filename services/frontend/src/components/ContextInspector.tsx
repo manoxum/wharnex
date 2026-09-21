@@ -50,9 +50,9 @@ export function ContextInspector({ inspection, refreshing, configuring = false, 
     </div>
     <div className="context-inspector-bar">
       <div className="context-view-switch" role="tablist" aria-label="Explorador do contexto">
-        <button className={view === 'files' ? 'active' : ''} onClick={() => changeView('files')}><Icon name="file" size={13}/> Por ficheiro</button>
-        <button className={view === 'folders' ? 'active' : ''} onClick={() => changeView('folders')}><Icon name="folder" size={13}/> Por pasta</button>
-        <button className={view === 'rules' ? 'active' : ''} onClick={() => changeView('rules')}><Icon name="shield" size={13}/> Regras</button>
+        <button className={view === 'files' ? 'active' : ''} onClick={() => changeView('files')}><Icon name="file" size={13}/><span className="semantic-tab-label">Por ficheiro</span></button>
+        <button className={view === 'folders' ? 'active' : ''} onClick={() => changeView('folders')}><Icon name="folder" size={13}/><span className="semantic-tab-label">Por pasta</span></button>
+        <button className={view === 'rules' ? 'active' : ''} onClick={() => changeView('rules')}><Icon name="shield" size={13}/><span className="semantic-tab-label">Regras</span></button>
       </div>
       <button className="secondary-button compact" disabled={refreshing || configuring} onClick={onRefresh} title="Reconstruir o ZIP e atualizar esta inspeção"><Icon name="refresh" size={13}/>{refreshing ? 'A reconstruir…' : 'Reconstruir'}</button>
     </div>

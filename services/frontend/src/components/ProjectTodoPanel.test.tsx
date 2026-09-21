@@ -47,6 +47,19 @@ describe('ProjectTodoPanel', () => {
     mocks.desktopBridge = undefined
   })
 
+  it('keeps every TODO state on one semantic icon tab and names processing as Fazendo', async () => {
+    render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
+    await screen.findByText('Melhorar a pesquisa')
+
+    const tabs = screen.getByRole('navigation', { name: 'Estado dos TODOs' })
+    const buttons = Array.from(tabs.querySelectorAll<HTMLButtonElement>('button'))
+    expect(buttons).toHaveLength(5)
+    expect(buttons.map((button) => button.title)).toEqual(['Abertos', 'Fazendo', 'Feito', 'Falha', 'Concluídos'])
+    expect(buttons.every((button) => Boolean(button.querySelector('svg')))).toBe(true)
+    expect(tabs.textContent).toContain('Fazendo')
+    expect(tabs.textContent).not.toContain('Pendente/Execução')
+  })
+
   it('keeps the composer hidden behind the add FAB and shows worker enrichment', async () => {
     render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
 

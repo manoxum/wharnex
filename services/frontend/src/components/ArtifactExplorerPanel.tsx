@@ -133,8 +133,8 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
     <input ref={uploadRef} className="sr-only" type="file" multiple aria-label="Carregar ficheiros para a biblioteca" onChange={(event) => void upload(event.target.files)}/>
 
     <nav className="file-library-tabs" role="tablist" aria-label="Níveis da biblioteca">
-      <button type="button" role="tab" aria-selected={mode === 'library'} className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Icon name="file" size={13}/><span>Biblioteca</span></button>
-      <button type="button" role="tab" aria-selected={mode === 'bundles'} className={mode === 'bundles' ? 'active' : ''} onClick={() => setMode('bundles')}><Icon name="package" size={13}/><span>Bundles</span></button>
+      <button type="button" role="tab" aria-selected={mode === 'library'} className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Icon name="file" size={13}/><span className="semantic-tab-label">Biblioteca</span></button>
+      <button type="button" role="tab" aria-selected={mode === 'bundles'} className={mode === 'bundles' ? 'active' : ''} onClick={() => setMode('bundles')}><Icon name="package" size={13}/><span className="semantic-tab-label">Bundles</span></button>
     </nav>
 
     <StorageSummary storage={storage}/>
