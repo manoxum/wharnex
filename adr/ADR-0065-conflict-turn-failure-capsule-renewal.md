@@ -47,9 +47,14 @@ and sources — never a copy of stale bytes, since the planner named the
 capsule itself as stale. BASE and RESULT are re-read at the commits the
 thread already owns per path (`ConflictPathSource`, or `GitConflictContext`
 for a Git-originated thread); CURRENT is always re-read at the live host
-`HEAD`, matching every other capsule builder in the conflict family. The
-rebuilt capsule is sent as a new `conflict`-kind request in the same
-lineage, spending the same bounded `ConflictAttempt` budget
+`HEAD`, matching every other capsule builder in the conflict family. Before
+any file is read, the recorded path set itself is checked against the live
+host via `extendConflictWithLiveDrift` (see the Amendment below) and
+extended when the host has moved further out of sync with the same candidate
+since the thread's path set was captured — a stale snapshot of *which paths
+conflict* is exactly as unanswerable as stale file content. The rebuilt
+capsule is sent as a new `conflict`-kind request in the same lineage,
+spending the same bounded `ConflictAttempt` budget
 (`conflictResolutionExhausted`) as an ordinary conflict round, and is
 reachable only through an explicit approved call — consistent with every
 other classified infrastructure fault's recovery (`RetryDependencyNetwork`,
@@ -63,37 +68,43 @@ allowlist, so classifying this failure is what stops the prohibited
 capsule-less repair from being generated again, independent of the new
 recovery being invoked.
 
-## Amendment — path drift discovered by the replay itself
+## Amendment — path drift is read from Git, never from prose or a patch tool's stdout
 
 Recovering the session above with `RenewConflictCapsule` uncovered a second,
-related gap in the same incident. The next automatic Apply replayed the
-conflict's own candidate commit (`ADR-0054`'s "canonical residual" of every
-non-conflicting path) against the host again, and this time `git apply
---3way` itself reported new conflicts on paths the capsule never
-authorized — `services/frontend/src/components/GitDrawer.tsx`,
-`GitDrawer.test.tsx` and `styles.css` had drifted out of sync with the host
-between rounds. That failure is a plain `error`, not one of the two typed
-conflict shapes (`pendingChangeSetReplayConflict`,
-`pendingIntegrationReplayConflict`) that already carry a parsed path list, so
-it fell to the same-request retry branch, which called
-`prepareConflictResolutionRetry` — the `ADR-0054` byte-identical resend that
-is correct only when the path set has not changed. Sent for a capsule that
-authorized one path while three others now failed, the planner reported the
-same `conflict_capsule_refresh_required` code again, for the same underlying
-reason `RenewConflictCapsule` exists to fix: the capsule was incomplete, not
-merely stale.
+related gap in the same incident, and a first attempt at fixing it was itself
+insufficient. The capsule `RenewConflictCapsule` rebuilt still only covered
+`services/frontend/src/lib/api.ts`, because it trusted the conflict thread's
+own recorded `Paths` as complete. But the host had, between rounds, moved
+three more files of the exact same candidate commit out of sync —
+`services/frontend/src/components/GitDrawer.tsx`, `GitDrawer.test.tsx` and
+`styles.css` — and the planner, correctly reading the live project, kept
+reporting `conflict_capsule_refresh_required` against the freshly-rebuilt but
+still one-path capsule. Renewing byte content is not the same fix as
+widening what the capsule is even allowed to name.
 
-`extendConflictWithReplayDrift` closes this gap where it occurs. It reads the
-new conflicting paths straight out of `git apply --3way`'s own "Applied patch
-to '<path>' with conflicts." lines (`parseGitApplyConflictPaths`), and when
-any of them are not already in the open conflict's `Paths`, extends the
-thread with them — every new path reuses an already-known path's
-`ConflictPathSource`, since a replay failure here is the *same* candidate
-commit the thread already owns, never a new collision — and calls
-`refreshConflictCapsule` to rebuild and resend the full, now-complete
-capsule. Only when the replay names no path outside the capsule's authority
-does the branch fall through to the original `prepareConflictResolutionRetry`
-byte-copy, preserving `ADR-0054`'s behavior for the case it was designed for.
+A first version of this amendment tried to learn the new paths by
+pattern-matching `git apply --3way`'s own "Applied patch to '<path>' with
+conflicts." lines out of a local replay failure's error text. That covers
+only the one failure shape that happens to produce that exact stdout, and
+does nothing for `RenewConflictCapsule` itself, called directly for a
+*planner*-reported failure that carries no such text at all — exactly the
+session in Evidence, which is why the first deploy of this amendment did not
+close it.
+
+The fix instead asks Git the question directly, the same way `PreflightMerge`
+already answers it for scheduling (`sandbox/mergepreflight.go`):
+`extendConflictWithLiveDrift` runs `git merge-tree --write-tree --name-only`
+between the live host `HEAD` and the conflict's own candidate commit — an
+offline, working-tree-free check — and folds any path that comes back
+conflicting beyond the thread's recorded `Paths` into it, reusing an
+already-known path's `ConflictPathSource` for each new one, since every path
+in this check belongs to the one candidate commit the thread already owns,
+never a new collision. This one ground-truth check now runs both inside
+`refreshConflictCapsule` (so `RenewConflictCapsule` always rebuilds the
+*complete* current path set, not just the recorded one) and at the local
+replay retry branch, where `conflictNeedsCapsuleExtension` decides between a
+full rebuild and `ADR-0054`'s cheaper byte-identical
+`prepareConflictResolutionRetry` for a genuinely unchanged path set.
 
 ## Consequences
 
@@ -115,7 +126,10 @@ byte-copy, preserving `ADR-0054`'s behavior for the case it was designed for.
 ## Verification
 
 `go build ./...` and `go test ./...` pass for `services/backend`, including
-new unit coverage for `parseGitApplyConflictPaths`. The stuck session named
-in Evidence was recovered by calling the new endpoint directly against the
-running backend, then again once the replay-drift amendment above was
-deployed.
+`TestExtendConflictWithLiveDriftAddsAPathTheCapsuleNeverAuthorized` (a real
+temporary Git repository reproducing the production drift: a candidate
+touching two files, replayed against a host that independently diverged on
+both, with the conflict thread opened for only one) and
+`TestExtendConflictWithLiveDriftLeavesAnUnchangedPathSetAlone` (no drift ⇒ no
+path added). The stuck session named in Evidence was recovered by calling the
+new endpoint against the running backend after this amendment's deploy.
