@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ExecutionPlan, ExecutionResult, HarnessEvent, Session } from '../types'
 import type { WorkspaceChat } from './workspaceMemory'
-import { collectExecutionActivities, collectPlanActivities, executionAuditEvents, executionEventsFromResult, filterAuditEvents, loadProjectSessions } from './projectActivity'
+import { collectExecutionActivities, collectPlanActivities, executionAuditEvents, executionEventsFromResult, filterAuditEvents, groupMainRequestActivity, loadProjectSessions } from './projectActivity'
 
 const plan = (id: string, summary = id): ExecutionPlan => ({
   protocol: 'harness.execution/v1', plan_id: id, request_id: `req-${id}`, status: 'ready', summary,
@@ -17,12 +17,11 @@ const session = (id: string): Session => ({
   id: `ses-${id}`, project_path: '/workspace/wharness', state: 'verified', execution_mode: 'protected', automation_mode: 'auto', created_at: '2026-09-05T09:00:00.000Z',
   context: { id: 'ctx', manifest: { id: 'ctx', project_root: '/workspace/wharness', sha256: 'abc', files: [], excluded: [], text_truncated: false } },
 })
+const recorded = (type: string, body: Record<string, unknown>, timestamp: string): HarnessEvent => ({
+  id: `evt-${type}-${timestamp}`, session_id: 'ses-a', type, timestamp, data: body,
+})
 
 describe('durable plan and execution ledger', () => {
-  const recorded = (type: string, body: Record<string, unknown>, timestamp: string): HarnessEvent => ({
-    id: `evt-${type}-${timestamp}`, session_id: 'ses-a', type, timestamp, data: body,
-  })
-
   // The session snapshot keeps one current plan and one last execution and
   // several lifecycle transitions clear both, which is why the views appeared
   // to reset. The ledger is the record that actually survives.
@@ -91,6 +90,27 @@ describe('project activity catalogue', () => {
     expect(events.map((event) => event.type)).toEqual(['execution.started', 'command.started', 'command.completed', 'execution.completed'])
     expect(events[2].data.stdout).toBe('ok\n')
     expect(events[2].data.exit_code).toBe(0)
+  })
+
+  it('groups durable audit trails by Main Request and keeps anonymous command events with their active lineage', () => {
+    const value = session('a')
+    value.request_lineages = {
+      'req-main': { request_id: 'req-main', root_request_id: 'req-main', kind: 'standard', created_at: '2026-09-05T10:00:00Z' },
+      'req-repair': { request_id: 'req-repair', root_request_id: 'req-main', parent_request_id: 'req-main', kind: 'repair', created_at: '2026-09-05T10:02:00Z' },
+      'req-new': { request_id: 'req-new', root_request_id: 'req-new', kind: 'standard', created_at: '2026-09-05T11:00:00Z' },
+    }
+    const events: HarnessEvent[] = [
+      recorded('execution.started', { plan_id: 'p1', request_id: 'req-main', root_request_id: 'req-main' }, '2026-09-05T10:00:00Z'),
+      recorded('command.output', { run_id: 'run-1', text: 'main output' }, '2026-09-05T10:01:00Z'),
+      recorded('repair.started', { request_id: 'req-repair', root_request_id: 'req-main' }, '2026-09-05T10:02:00Z'),
+      recorded('command.completed', { run_id: 'run-2', stdout: 'repair output', success: true }, '2026-09-05T10:03:00Z'),
+      recorded('execution.started', { plan_id: 'p2', request_id: 'req-new', root_request_id: 'req-new' }, '2026-09-05T11:00:00Z'),
+      recorded('command.output', { run_id: 'run-3', text: 'new output' }, '2026-09-05T11:01:00Z'),
+    ]
+    const groups = groupMainRequestActivity(value, events)
+    expect(groups.map((group) => group.rootRequestId)).toEqual(['req-new', 'req-main'])
+    expect(groups[1].requestIds.sort()).toEqual(['req-main', 'req-repair'])
+    expect(groups[1].events.map((event) => event.data.text || event.data.stdout).filter(Boolean)).toEqual(['main output', 'repair output'])
   })
 
   it('uses durable audit events for the selected execution and keeps unrelated requests out', () => {

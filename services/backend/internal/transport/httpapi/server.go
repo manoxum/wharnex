@@ -1579,10 +1579,12 @@ func (a *API) selfEvolutionResolveEvidence(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, evidence)
 }
 
-// maxHistoryEvents bounds every catch-up replay of a session's event ledger,
-// for the REST history endpoint and for the SSE stream alike. The durable
-// ledger is deliberately unbounded (see AGENTS.md §3), but a catch-up is a
-// live client's starting picture, not the record: an unbounded one made every
+// maxHistoryEvents bounds ordinary REST history reads and every SSE catch-up.
+// Audit/history surfaces may explicitly request the complete durable REST ledger
+// with ?full=1; the SSE stream remains bounded so reconnecting live clients do
+// not replay an entire long-lived session. The durable ledger is deliberately
+// unbounded (see AGENTS.md §3), but a catch-up is a live client's starting
+// picture, not the record: an unbounded one made every
 // SSE connect replay the whole ledger of a long-lived session as a single
 // burst - 3159 frames / 4.7 MB measured on one ordinary session here - which
 // the renderer has to absorb before it can paint anything at all.
@@ -1604,7 +1606,8 @@ func (a *API) executionErrors(w http.ResponseWriter, r *http.Request) {
 func (a *API) eventHistory(w http.ResponseWriter, r *http.Request) {
 	events := a.bus.History(r.PathValue("id"))
 	total := len(events)
-	truncated := total > maxHistoryEvents
+	full := r.URL.Query().Get("full") == "1"
+	truncated := !full && total > maxHistoryEvents
 	if truncated {
 		events = events[total-maxHistoryEvents:]
 	}

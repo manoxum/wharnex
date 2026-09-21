@@ -2,6 +2,68 @@ import type { ExecutionPlan, ExecutionResult, HarnessEvent, Session } from '../t
 import type { WorkspaceChat } from './workspaceMemory'
 
 export type ProjectSessionActivity = { chat: WorkspaceChat; session: Session }
+
+export type MainRequestActivityGroup = {
+  rootRequestId: string
+  requestIds: string[]
+  planIds: string[]
+  updatedAt: string
+  events: HarnessEvent[]
+}
+
+export function mainRequestRoot(session: Session, requestId: string) {
+  if (!requestId) return ''
+  return session.request_lineages?.[requestId]?.root_request_id || requestId
+}
+
+export function mergeAuditEvents(history: HarnessEvent[], live: HarnessEvent[]) {
+  const merged = new Map<string, HarnessEvent>()
+  for (const event of history) merged.set(event.id, event)
+  for (const event of live) merged.set(event.id, event)
+  return [...merged.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+}
+
+// A session is long-lived while a Main Request is the human audit boundary.
+// Durable events are therefore grouped by root request rather than by the
+// renderer's bounded live window. Events such as command.output often carry
+// only run/plan identity, so the last explicit lineage remains the correlation
+// context until the next rooted event starts.
+export function groupMainRequestActivity(session: Session, events: HarnessEvent[]): MainRequestActivityGroup[] {
+  const sorted = [...events].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+  const requestByPlan = new Map<string, string>()
+  if (session.plan?.plan_id) requestByPlan.set(session.plan.plan_id, session.plan.request_id)
+  for (const change of [...(session.pending_host_changes || []), ...(session.last_applied_changes || [])]) {
+    requestByPlan.set(change.plan.plan_id, change.plan.request_id)
+  }
+  for (const event of sorted) {
+    const planId = String(event.data?.plan_id || '')
+    const plan = event.data?.plan as ExecutionPlan | undefined
+    const requestId = String(event.data?.request_id || plan?.request_id || '')
+    if (planId && requestId) requestByPlan.set(planId, requestId)
+    if (plan?.plan_id && plan.request_id) requestByPlan.set(plan.plan_id, plan.request_id)
+  }
+
+  const groups = new Map<string, { events: HarnessEvent[]; requests: Set<string>; plans: Set<string>; updatedAt: string }>()
+  let activeRoot = ''
+  for (const event of sorted) {
+    const planId = String(event.data?.plan_id || '')
+    const requestId = String(event.data?.request_id || requestByPlan.get(planId) || '')
+    const explicitRoot = String(event.data?.root_request_id || '')
+    const root = explicitRoot || mainRequestRoot(session, requestId) || activeRoot
+    if (!root) continue
+    if (explicitRoot || requestId) activeRoot = root
+    const group = groups.get(root) || { events: [], requests: new Set<string>(), plans: new Set<string>(), updatedAt: event.timestamp }
+    group.events.push(event)
+    if (requestId) group.requests.add(requestId)
+    if (planId) group.plans.add(planId)
+    if (event.timestamp > group.updatedAt) group.updatedAt = event.timestamp
+    groups.set(root, group)
+  }
+
+  return [...groups].map(([rootRequestId, group]) => ({
+    rootRequestId, requestIds: [...group.requests], planIds: [...group.plans], updatedAt: group.updatedAt, events: group.events,
+  })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
 export type ProjectSessionLoadResult = { sessions: Record<string, Session>; failed: number }
 
 export async function loadProjectSessions(
