@@ -1,0 +1,176 @@
+/* Plan approval/control surface extracted from legacy styles.css. */
+.plan-view {
+  container-name: plan-view;
+  container-type: inline-size;
+}
+
+.plan-control-surface {
+  margin: -8px 0 22px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 82%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--theme-surface) 94%, var(--theme-elevated));
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--theme-shadow) 34%, transparent);
+}
+
+.plan-control-primary {
+  min-width: 0;
+  min-height: 82px;
+  padding: 14px 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 12px;
+  background: var(--theme-elevated);
+}
+
+.plan-control-copy {
+  min-width: 0;
+  flex: 1 1 520px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.plan-control-mark {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--theme-accent-soft) 84%, var(--theme-elevated));
+  color: var(--theme-accent);
+}
+
+.plan-control-copy > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.plan-control-copy .panel-kicker {
+  color: var(--theme-accent);
+  letter-spacing: .14em;
+}
+
+.plan-control-copy strong {
+  color: var(--theme-text);
+  font-size: calc(13px * var(--ui-font-scale));
+  line-height: 1.25;
+  letter-spacing: -.01em;
+}
+
+.plan-control-copy > div > span:last-child {
+  max-width: 700px;
+  color: var(--theme-text-muted);
+  font-size: calc(9.5px * var(--ui-font-scale));
+  line-height: 1.5;
+}
+
+.plan-decision-actions {
+  flex: 0 0 auto;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-subtle) 72%, transparent);
+}
+
+.plan-decision-actions .secondary-button,
+.plan-decision-actions .apply-button,
+.plan-decision-actions .danger-button {
+  min-height: 32px;
+  border-radius: 7px;
+}
+
+.plan-manual-tools {
+  min-width: 0;
+  padding: 11px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--theme-subtle) 42%, var(--theme-surface));
+}
+
+.plan-manual-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.plan-manual-copy > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.plan-manual-mark {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 78%, transparent);
+  border-radius: 9px;
+  background: var(--theme-elevated);
+  color: var(--theme-text-muted);
+}
+
+.plan-manual-tools .panel-kicker { color: var(--theme-text-muted); }
+.plan-manual-tools strong { color: var(--theme-text); font-size: calc(10px * var(--ui-font-scale)); }
+.plan-manual-tools small { max-width: 650px; color: var(--theme-text-muted); font-size: calc(8.5px * var(--ui-font-scale)); line-height: 1.45; }
+
+.plan-manual-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.plan-manual-actions .secondary-button { min-height: 31px; }
+
+.plan-manual-notice {
+  margin: -11px 0 18px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border-soft));
+  border-radius: 9px;
+  background: var(--theme-accent-soft);
+  color: var(--theme-accent);
+  font-size: calc(9px * var(--ui-font-scale));
+}
+
+.plan-control-surface button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--theme-accent) 72%, transparent);
+  outline-offset: 2px;
+}
+
+@container plan-view (max-width: 760px) {
+  .plan-control-primary { align-items: stretch; flex-direction: column; gap: 12px; }
+  .plan-decision-actions { align-self: flex-start; flex-wrap: wrap; }
+  .plan-manual-tools { align-items: stretch; flex-direction: column; }
+  .plan-manual-actions { justify-content: flex-start; }
+}
+
+@container plan-view (max-width: 480px) {
+  .plan-control-surface { padding: 8px; }
+  .plan-control-primary { padding: 12px; }
+  .plan-control-copy { gap: 10px; }
+  .plan-decision-actions { width: 100%; }
+  .plan-decision-actions > button { flex: 1 1 132px; }
+  .plan-manual-actions > button { flex: 1 1 160px; }
+}
