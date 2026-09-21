@@ -940,6 +940,20 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
+  it('defers whole-project browsing until @file or @see completion is active', async () => {
+    const listFiles = vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="file-lazy-explorer" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    await Promise.resolve()
+    expect(listFiles).not.toHaveBeenCalled()
+    typeInComposer(ref, 'Revê @file:', 'Revê @file:'.length)
+    await waitFor(() => expect(listFiles).toHaveBeenCalledWith(session.id))
+    view.unmount()
+  })
+
   it('offers @file targets from the whole safe project explorer, including directories outside the current context snapshot', async () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [
       { path: 'src', name: 'src', kind: 'directory', size: 0 },
@@ -952,9 +966,9 @@ describe('ChatPanel', () => {
       <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="file-whole-project" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
 
-    await waitFor(() => expect(api.listFiles).toHaveBeenCalledWith(session.id))
     typeInComposer(ref, 'Revê @file:generated', 'Revê @file:generated'.length)
-    expect(await screen.findByRole('option', { name: /generated\// })).toBeTruthy()
+    await waitFor(() => expect(api.listFiles).toHaveBeenCalledWith(session.id))
+    expect(await screen.findByText('generated/')).toBeTruthy()
     expect(screen.getByRole('option', { name: /generated\/report\.md/ })).toBeTruthy()
     view.unmount()
   })
