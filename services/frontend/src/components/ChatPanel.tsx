@@ -1140,7 +1140,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             <button type="button" className={`composer-round-action mode-auto ${currentAutomationMode === 'auto' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'auto'} aria-label="Auto" title="Auto · mudanças válidas seguem Protected e são aplicadas após verificação" onClick={() => onAutomationMode?.('auto')}><Icon name="agent" size={12}/></button>
             <button type="button" className={`composer-round-action mode-auto-approve ${currentAutomationMode === 'auto_approve' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'auto_approve'} aria-label="Auto + Aprovar" title="Auto + Aprovar · mudanças permitidas seguem Protected e aprovações de execução elegíveis são concedidas automaticamente; reinício de auto-evolução continua explícito" onClick={() => onAutomationMode?.('auto_approve')}><Icon name="check" size={12}/></button>
           </span>
-          <label className="composer-effort-picker" title="Nível de esforço · limita tentativas automáticas e, a partir de Extra High, ativa melhoria contínua pós-sucesso">
+          <label className="composer-effort-picker" title="Nível de esforço · limita tentativas automáticas de resolução; após aplicar com sucesso no host, a Main Request termina">
             <span>Esforço</span>
             <select aria-label="Nível de esforço" value={currentEffortLevel} disabled={busy || !onEffortLevel} onChange={(event) => onEffortLevel?.(event.target.value as EffortLevel)}>
               <option value="low">Low · 1</option>

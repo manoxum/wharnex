@@ -335,8 +335,9 @@ func TestBuildManualPromptCarriesEffortLevelAndCostBenefitContract(t *testing.T)
 		"EFFORT LEVEL: extra_high",
 		"low: one resolution attempt only",
 		"medium: up to 3 total automated resolution attempts",
-		"extra_high: up to 10 total attempts",
-		"continuous-improvement rounds",
+		"extra_high: up to 10 total automated resolution attempts before terminal success",
+		"successful host integration is the terminal boundary of the Main Request",
+		"Never propose or expect a post-success continuous-improvement round",
 		"Never consume attempts merely because they are available",
 	} {
 		if !strings.Contains(prompt, want) {
