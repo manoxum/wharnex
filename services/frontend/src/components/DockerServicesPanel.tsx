@@ -7,10 +7,17 @@ import { Icon } from './Icon'
 const EMPTY_OVERVIEW: DockerOverview = { compose_projects: [], containers: [], images: [], volumes: [], networks: [], refreshed_at: '' }
 const REFRESH_INTERVAL_MS = 15_000
 const DOCKER_FONT_SCALE_KEY = 'whx.docker.font-scale'
+const DOCKER_EXPANSION_STATE_KEY = 'whx.docker.expansion-state'
 const DEFAULT_DOCKER_FONT_SCALE = 1.15
+const DOCKER_ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g')
+const DEFAULT_DOCKER_SECTIONS: Record<DockerSectionKey, boolean> = { compose: false, containers: false, images: false, volumes: false, networks: false }
 
 type DockerSelectionKind = 'container' | 'image' | 'volume' | 'network'
 type DockerSelection = { kind: DockerSelectionKind; key: string }
+type DockerExpansionState = { sections: Record<DockerSectionKey, boolean>; projects: Record<string, boolean> }
+type DockerLogLevel = 'error' | 'warning' | 'success' | 'debug' | 'info'
+type DockerLogFilter = 'all' | 'error' | 'warning'
+type DockerLogLine = { level: DockerLogLevel; timestamp: string; message: string }
 
 export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal }: {
   session: Session
@@ -30,15 +37,15 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
   const [composeBusy, setComposeBusy] = useState('')
   const [resourceBusy, setResourceBusy] = useState('')
   const [fontScale, setFontScale] = useState(readDockerFontScale)
-  const [expanded, setExpanded] = useState<Record<DockerSectionKey, boolean>>({ compose: true, containers: true, images: true, volumes: true, networks: true })
-  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
+  const [expansion, setExpansion] = useState<DockerExpansionState>(readDockerExpansionState)
+  const expanded = expansion.sections
+  const expandedProjects = expansion.projects
 
   const acceptOverview = useCallback((response: DockerOverview) => {
     const next = normalizeDockerOverview(response)
     setOverview(next)
     setLoadError('')
     setSelection((current) => current && dockerSelectionExists(next, current) ? current : firstDockerSelection(next))
-    setExpandedProjects((current) => Object.fromEntries(next.compose_projects.map((project) => [project.name, current[project.name] ?? true])))
   }, [])
 
   const refresh = useCallback(async (showBusy = false) => {
@@ -51,6 +58,10 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
       if (showBusy) setLoading(false)
     }
   }, [acceptOverview, session.id])
+
+  useEffect(() => {
+    window.localStorage.setItem(DOCKER_EXPANSION_STATE_KEY, JSON.stringify(expansion))
+  }, [expansion])
 
   useEffect(() => {
     let active = true
@@ -120,6 +131,26 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
     }
   }
 
+  async function runComposeRedeploy(project: DockerComposeProject) {
+    if (project.protected || !project.redeploy_available) return
+    const confirmed = await confirmDialog({
+      title: `Redeploy · ${project.name}`,
+      message: 'Os containers deste Compose serão recriados com a configuração atual. Pode existir uma breve indisponibilidade; a ação reutiliza a configuração Compose e não adiciona uma etapa explícita de pull ou build.',
+      tone: 'neutral',
+      confirmLabel: 'Fazer redeploy',
+    })
+    if (!confirmed) return
+    setComposeBusy(project.name)
+    try {
+      await api.dockerComposeRedeploy(session.id, project.name)
+      await refresh(false)
+    } catch (error) {
+      onError(error instanceof Error ? error.message : `Não foi possível fazer redeploy de ${project.name}`)
+    } finally {
+      setComposeBusy('')
+    }
+  }
+
   async function runComposeDown(project: DockerComposeProject) {
     if (project.protected) return
     const confirmed = await confirmDialog({
@@ -172,6 +203,14 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
     onRunInTerminal({ command: `docker exec -it ${shellQuote(container.id)} sh`, cwd: '.', label: `Docker · ${container.name}` })
   }
 
+  function toggleSection(key: DockerSectionKey) {
+    setExpansion((current) => ({ ...current, sections: { ...current.sections, [key]: !current.sections[key] } }))
+  }
+
+  function toggleProject(name: string) {
+    setExpansion((current) => ({ ...current, projects: { ...current.projects, [name]: !(current.projects[name] ?? false) } }))
+  }
+
   function changeFontScale(delta: number) {
     setFontScale((current) => {
       const next = Math.min(1.6, Math.max(0.95, Math.round((current + delta) * 100) / 100))
@@ -202,19 +241,22 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
 
     <div className="docker-services-layout">
       <div className="docker-services-tree" aria-label="Recursos Docker">
-        <DockerSection label="Compose" icon="package" count={filtered.composeProjects.length} open={Boolean(normalizedFilter) || expanded.compose} onToggle={() => setExpanded((current) => ({ ...current, compose: !current.compose }))}>
+        <DockerSection label="Compose" icon="package" count={filtered.composeProjects.length} open={Boolean(normalizedFilter) || expanded.compose} onToggle={() => toggleSection('compose')}>
           {filtered.composeProjects.map((project) => {
-            const projectOpen = Boolean(normalizedFilter) || (expandedProjects[project.name] ?? true)
+            const projectOpen = Boolean(normalizedFilter) || (expandedProjects[project.name] ?? false)
             const showAllProjectContainers = Boolean(filtered.projectMatches.get(project.name))
             const containers = overview.containers.filter((container) => container.compose_project === project.name && (showAllProjectContainers || dockerContainerMatches(container, normalizedFilter)))
             return <div className="docker-compose-group" key={project.name}>
               <div className="docker-compose-heading">
-                <button type="button" className="docker-compose-toggle" aria-expanded={projectOpen} onClick={() => setExpandedProjects((current) => ({ ...current, [project.name]: !projectOpen }))}>
+                <button type="button" className="docker-compose-toggle" aria-expanded={projectOpen} aria-label={`${projectOpen ? 'Recolher' : 'Expandir'} Compose ${project.name}`} onClick={() => toggleProject(project.name)}>
                   <Icon name="chevron-right" size={10}/>
                   <span className={`docker-state-dot state-${dockerComposeTone(project)}`} aria-hidden="true"/>
                   <span className="docker-resource-copy"><strong>{project.name}</strong><small>{composeSummary(project)}</small></span>
                 </button>
-                <button type="button" className="docker-compose-down" disabled={Boolean(composeBusy) || project.protected} onClick={() => void runComposeDown(project)} title={project.protected ? 'Este Compose contém o backend Wharnex' : 'Docker Compose Down'} aria-label={`Docker Compose Down ${project.name}`}><Icon name="pause" size={11}/> Down</button>
+                <div className="docker-compose-actions">
+                  <button type="button" className="docker-compose-redeploy" disabled={Boolean(composeBusy) || project.protected || !project.redeploy_available} onClick={() => void runComposeRedeploy(project)} title={project.protected ? 'Este Compose contém o backend Wharnex' : project.redeploy_available ? 'Recriar os containers com a configuração Compose atual' : project.redeploy_reason || 'Redeploy indisponível'} aria-label={`Redeploy Compose ${project.name}`}><Icon name="refresh" size={11}/><span>Redeploy</span></button>
+                  <button type="button" className="docker-compose-down" disabled={Boolean(composeBusy) || project.protected} onClick={() => void runComposeDown(project)} title={project.protected ? 'Este Compose contém o backend Wharnex' : 'Docker Compose Down'} aria-label={`Docker Compose Down ${project.name}`}><Icon name="pause" size={11}/><span>Down</span></button>
+                </div>
               </div>
               {projectOpen ? <div className="docker-compose-containers">{containers.map((container) => <DockerContainerRow key={container.id} container={container} active={selection?.kind === 'container' && selection.key === container.id} onSelect={() => selectResource({ kind: 'container', key: container.id })}/>)}</div> : null}
             </div>
@@ -222,22 +264,22 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
           {!filtered.composeProjects.length && <DockerEmpty text={normalizedFilter ? 'Nenhum Compose corresponde ao filtro' : 'Nenhum projeto Compose detetado'}/>}
         </DockerSection>
 
-        <DockerSection label="Containers soltos" icon="container" count={filtered.standaloneContainers.length} open={Boolean(normalizedFilter) || expanded.containers} onToggle={() => setExpanded((current) => ({ ...current, containers: !current.containers }))}>
+        <DockerSection label="Containers soltos" icon="container" count={filtered.standaloneContainers.length} open={Boolean(normalizedFilter) || expanded.containers} onToggle={() => toggleSection('containers')}>
           {filtered.standaloneContainers.map((container) => <DockerContainerRow key={container.id} container={container} active={selection?.kind === 'container' && selection.key === container.id} onSelect={() => selectResource({ kind: 'container', key: container.id })}/>) }
           {!filtered.standaloneContainers.length && <DockerEmpty text={normalizedFilter ? 'Nenhum container independente corresponde ao filtro' : 'Todos os containers pertencem a um Compose'}/>}
         </DockerSection>
 
-        <DockerSection label="Images" icon="image" count={filtered.images.length} open={Boolean(normalizedFilter) || expanded.images} onToggle={() => setExpanded((current) => ({ ...current, images: !current.images }))}>
+        <DockerSection label="Images" icon="image" count={filtered.images.length} open={Boolean(normalizedFilter) || expanded.images} onToggle={() => toggleSection('images')}>
           {filtered.images.map((image) => <DockerResourceRow key={dockerImageKey(image)} icon="image" title={`${image.repository}:${image.tag}`} subtitle={`${image.size}${image.created_since ? ` · ${image.created_since}` : ''}`} active={selection?.kind === 'image' && selection.key === dockerImageKey(image)} selectLabel={`Ver detalhes da imagem ${image.repository}:${image.tag}`} onSelect={() => selectResource({ kind: 'image', key: dockerImageKey(image) })} usage={<DockerUsageBadge inUse={Boolean(image.in_use)} count={image.container_count}/>}/>) }
           {!filtered.images.length && <DockerEmpty text={normalizedFilter ? 'Nenhuma imagem corresponde ao filtro' : 'Nenhuma imagem'}/>}
         </DockerSection>
 
-        <DockerSection label="Volumes" icon="database" count={filtered.volumes.length} open={Boolean(normalizedFilter) || expanded.volumes} onToggle={() => setExpanded((current) => ({ ...current, volumes: !current.volumes }))}>
+        <DockerSection label="Volumes" icon="database" count={filtered.volumes.length} open={Boolean(normalizedFilter) || expanded.volumes} onToggle={() => toggleSection('volumes')}>
           {filtered.volumes.map((volume) => <DockerResourceRow key={volume.name} icon="database" title={volume.name} subtitle={`${volume.driver}${volume.scope ? ` · ${volume.scope}` : ''}`} active={selection?.kind === 'volume' && selection.key === volume.name} selectLabel={`Ver detalhes do volume ${volume.name}`} onSelect={() => selectResource({ kind: 'volume', key: volume.name })} usage={<DockerUsageBadge inUse={Boolean(volume.in_use)} count={volume.container_count}/>} action={<button type="button" className="docker-inline-action danger" disabled={Boolean(volume.in_use) || Boolean(resourceBusy)} onClick={() => void removeResource('volume', volume.name, Boolean(volume.in_use))} title={volume.in_use ? 'Volume em uso' : 'Eliminar volume'} aria-label={`Eliminar volume ${volume.name}`}><Icon name="trash" size={12}/></button>}/>) }
           {!filtered.volumes.length && <DockerEmpty text={normalizedFilter ? 'Nenhum volume corresponde ao filtro' : 'Nenhum volume'}/>}
         </DockerSection>
 
-        <DockerSection label="Networks" icon="network" count={filtered.networks.length} open={Boolean(normalizedFilter) || expanded.networks} onToggle={() => setExpanded((current) => ({ ...current, networks: !current.networks }))}>
+        <DockerSection label="Networks" icon="network" count={filtered.networks.length} open={Boolean(normalizedFilter) || expanded.networks} onToggle={() => toggleSection('networks')}>
           {filtered.networks.map((network) => {
             const builtIn = dockerNetworkBuiltIn(network)
             return <DockerResourceRow key={dockerNetworkKey(network)} icon="network" title={network.name} subtitle={`${network.driver}${network.internal ? ' · internal' : ''}${builtIn ? ' · sistema' : ''}`} active={selection?.kind === 'network' && selection.key === dockerNetworkKey(network)} selectLabel={`Ver detalhes da rede ${network.name}`} onSelect={() => selectResource({ kind: 'network', key: dockerNetworkKey(network) })} usage={<DockerUsageBadge inUse={Boolean(network.in_use)} count={network.container_count}/>} action={<button type="button" className="docker-inline-action danger" disabled={Boolean(network.in_use) || builtIn || Boolean(resourceBusy)} onClick={() => void removeResource('network', network.name, Boolean(network.in_use))} title={builtIn ? 'Rede Docker do sistema' : network.in_use ? 'Rede em uso' : 'Eliminar rede'} aria-label={`Eliminar rede ${network.name}`}><Icon name="trash" size={12}/></button>}/>
@@ -320,8 +362,41 @@ function DockerContainerDetail({ container, running, detailTab, logs, logsLoadin
       <DockerFact label="Redes" value={container.networks || 'Sem rede reportada'}/>
       {container.error ? <DockerFact label="Erro" value={container.error}/> : null}
       {container.exit_code ? <DockerFact label="Exit code" value={String(container.exit_code)}/> : null}
-    </div> : <div className="docker-logs-view"><div className="docker-logs-toolbar"><span>Últimas 300 linhas</span><button type="button" onClick={() => void onLoadLogs(container)} disabled={logsLoading}><Icon name="refresh" size={11}/> Atualizar</button></div><pre>{logsLoading && !logs ? 'A carregar logs…' : logs || 'Sem logs disponíveis.'}</pre></div>}
+    </div> : <DockerLogsView key={container.id} logs={logs} logsLoading={logsLoading} onRefresh={() => void onLoadLogs(container)}/>}
   </>
+}
+
+function DockerLogsView({ logs, logsLoading, onRefresh }: { logs: string; logsLoading: boolean; onRefresh: () => void }) {
+  const [filter, setFilter] = useState<DockerLogFilter>('all')
+  const lines = useMemo(() => parseDockerLogLines(logs), [logs])
+  const counts = useMemo(() => lines.reduce<Record<DockerLogLevel, number>>((current, line) => {
+    current[line.level] += 1
+    return current
+  }, { error: 0, warning: 0, success: 0, debug: 0, info: 0 }), [lines])
+  const visibleLines = useMemo(() => filter === 'all' ? lines : lines.filter((line) => line.level === filter), [filter, lines])
+
+  return <div className="docker-logs-view">
+    <div className="docker-logs-toolbar">
+      <div><strong>Últimas 300 linhas</strong><span>{lines.length ? `${lines.length} linhas analisadas` : 'Sem conteúdo'}</span></div>
+      <button type="button" onClick={onRefresh} disabled={logsLoading}><Icon name="refresh" size={11}/> Atualizar</button>
+    </div>
+    <div className="docker-log-filters" aria-label="Filtros dos logs">
+      <button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>Todos <span>{lines.length}</span></button>
+      <button type="button" className={`level-error ${filter === 'error' ? 'active' : ''}`} aria-pressed={filter === 'error'} onClick={() => setFilter('error')}>Erros <span>{counts.error}</span></button>
+      <button type="button" className={`level-warning ${filter === 'warning' ? 'active' : ''}`} aria-pressed={filter === 'warning'} onClick={() => setFilter('warning')}>Avisos <span>{counts.warning}</span></button>
+      <span className="docker-log-health"><span className="level-success">OK {counts.success}</span><span>Info {counts.info}</span>{counts.debug ? <span>Debug {counts.debug}</span> : null}</span>
+    </div>
+    <div className="docker-log-lines" aria-label="Linhas dos logs">
+      {logsLoading && !logs ? <div className="docker-log-placeholder">A carregar logs…</div> : null}
+      {!logsLoading && !lines.length ? <div className="docker-log-placeholder">Sem logs disponíveis.</div> : null}
+      {lines.length > 0 && !visibleLines.length ? <div className="docker-log-placeholder">Nenhuma linha corresponde a este filtro.</div> : null}
+      {visibleLines.map((line, index) => <div className={`docker-log-line level-${line.level}`} key={`${line.timestamp}-${index}`}>
+        <span className="docker-log-time">{line.timestamp || '—'}</span>
+        <span className="docker-log-level">{dockerLogLevelLabel(line.level)}</span>
+        <span className="docker-log-message">{line.message || ' '}</span>
+      </div>)}
+    </div>
+  </div>
 }
 
 function DockerImageDetail({ image }: { image: DockerImage }) {
@@ -380,6 +455,52 @@ function DockerDetailHeading({ icon, title, subtitle, badge }: { icon: DockerSec
 
 function DockerUsageBadge({ inUse, count = 0 }: { inUse: boolean; count?: number }) {
   return <span className={`docker-usage-badge ${inUse ? 'in-use' : 'free'}`}>{inUse ? `Em uso${count > 0 ? ` · ${count}` : ''}` : 'Livre'}</span>
+}
+
+function parseDockerLogLines(content: string): DockerLogLine[] {
+  return content.split(/\r?\n/).map((rawLine) => rawLine.replace(DOCKER_ANSI_ESCAPE_PATTERN, '').trimEnd()).filter(Boolean).map((rawLine) => {
+    const match = rawLine.match(/^(\d{4}-\d{2}-\d{2}T\S+)\s+(.*)$/)
+    const message = match?.[2] ?? rawLine
+    return { level: dockerLogLevel(message), timestamp: match ? dockerLogTimestamp(match[1]) : '', message }
+  })
+}
+
+function dockerLogLevel(message: string): DockerLogLevel {
+  const value = message.toLocaleLowerCase()
+  if (/\b(err|error|erro|fatal|panic|exception|failed|failure|falha|falhou|critical|critico|crítico|segfault|oom|out of memory)\b/.test(value)) return 'error'
+  if (/\b(warn|warning|aviso|atencao|atenção|deprecated|deprecation|retry|timeout|timed out|slow|unhealthy)\b/.test(value)) return 'warning'
+  if (/\b(ready|pronto|started|iniciado|listening|healthy|connected|ligado|success|successful|completed|concluido|concluído)\b/.test(value)) return 'success'
+  if (/\b(debug|trace)\b/.test(value)) return 'debug'
+  return 'info'
+}
+
+function dockerLogTimestamp(value: string) {
+  const match = value.match(/T(\d{2}:\d{2}:\d{2})/)
+  return match?.[1] ?? value
+}
+
+function dockerLogLevelLabel(level: DockerLogLevel) {
+  if (level === 'error') return 'Erro'
+  if (level === 'warning') return 'Aviso'
+  if (level === 'success') return 'OK'
+  if (level === 'debug') return 'Debug'
+  return 'Info'
+}
+
+function readDockerExpansionState(): DockerExpansionState {
+  try {
+    const raw = window.localStorage.getItem(DOCKER_EXPANSION_STATE_KEY)
+    if (!raw) return { sections: { ...DEFAULT_DOCKER_SECTIONS }, projects: {} }
+    const parsed = JSON.parse(raw) as Partial<DockerExpansionState>
+    const sections = { ...DEFAULT_DOCKER_SECTIONS }
+    for (const key of Object.keys(sections) as DockerSectionKey[]) {
+      if (typeof parsed.sections?.[key] === 'boolean') sections[key] = Boolean(parsed.sections[key])
+    }
+    const projects = Object.fromEntries(Object.entries(parsed.projects ?? {}).filter(([, value]) => typeof value === 'boolean').map(([key, value]) => [key, Boolean(value)]))
+    return { sections, projects }
+  } catch {
+    return { sections: { ...DEFAULT_DOCKER_SECTIONS }, projects: {} }
+  }
 }
 
 function normalizeDockerOverview(value: DockerOverview): DockerOverview {

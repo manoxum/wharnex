@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -16,15 +17,17 @@ import (
 )
 
 var (
-	ErrDockerUnavailable        = errors.New("docker daemon is unavailable")
-	ErrDockerProtectedContainer = errors.New("the Wharnex backend container cannot control itself")
-	ErrDockerProtectedProject   = errors.New("the Wharnex compose project contains the backend container")
-	ErrDockerResourceInUse      = errors.New("docker resource is in use")
+	ErrDockerUnavailable         = errors.New("docker daemon is unavailable")
+	ErrDockerProtectedContainer  = errors.New("the Wharnex backend container cannot control itself")
+	ErrDockerProtectedProject    = errors.New("the Wharnex compose project contains the backend container")
+	ErrDockerRedeployUnavailable = errors.New("docker compose redeploy is unavailable")
+	ErrDockerResourceInUse       = errors.New("docker resource is in use")
 )
 
 const (
 	dockerServicesTimeout = 12 * time.Second
 	dockerMutationTimeout = 45 * time.Second
+	dockerRedeployTimeout = 2 * time.Minute
 )
 
 var dockerIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
@@ -46,12 +49,15 @@ type DockerContainer struct {
 }
 
 type DockerComposeProject struct {
-	Name           string `json:"name"`
-	ContainerCount int    `json:"container_count"`
-	RunningCount   int    `json:"running_count"`
-	ErrorCount     int    `json:"error_count"`
-	StoppedCount   int    `json:"stopped_count"`
-	Protected      bool   `json:"protected,omitempty"`
+	Name              string `json:"name"`
+	ContainerCount    int    `json:"container_count"`
+	RunningCount      int    `json:"running_count"`
+	ErrorCount        int    `json:"error_count"`
+	StoppedCount      int    `json:"stopped_count"`
+	Protected         bool   `json:"protected,omitempty"`
+	RedeployAvailable bool   `json:"redeploy_available"`
+	RedeployReason    string `json:"redeploy_reason,omitempty"`
+	runtime           dockerComposeRuntime
 }
 
 type DockerImage struct {
@@ -96,6 +102,12 @@ type DockerLogs struct {
 	ContainerID string `json:"container_id"`
 	Tail        int    `json:"tail"`
 	Content     string `json:"content"`
+}
+
+type dockerComposeRuntime struct {
+	WorkingDir       string
+	ConfigFiles      []string
+	EnvironmentFiles []string
 }
 
 type dockerContainerRow struct {
@@ -243,9 +255,12 @@ func buildDockerOverview(containerRows []dockerContainerRow, inspections []docke
 		overview.Containers = append(overview.Containers, container)
 		if container.ComposeProject != "" {
 			project := projectStats[container.ComposeProject]
+			runtime := dockerComposeRuntimeFromLabels(labels)
 			if project == nil {
-				project = &DockerComposeProject{Name: container.ComposeProject}
+				project = &DockerComposeProject{Name: container.ComposeProject, runtime: runtime}
 				projectStats[container.ComposeProject] = project
+			} else if len(project.runtime.ConfigFiles) == 0 && len(runtime.ConfigFiles) > 0 {
+				project.runtime = runtime
 			}
 			project.ContainerCount++
 			project.Protected = project.Protected || container.Protected
@@ -265,7 +280,13 @@ func buildDockerOverview(containerRows []dockerContainerRow, inspections []docke
 	}
 	sort.Strings(projectNames)
 	for _, name := range projectNames {
-		overview.ComposeProjects = append(overview.ComposeProjects, *projectStats[name])
+		project := projectStats[name]
+		project.RedeployAvailable, project.RedeployReason = dockerComposeRedeployAvailability(project.runtime)
+		if project.Protected {
+			project.RedeployAvailable = false
+			project.RedeployReason = "Este Compose contém o backend Wharnex e não pode ser recriado por esta interface."
+		}
+		overview.ComposeProjects = append(overview.ComposeProjects, *project)
 	}
 	for _, row := range imageRows {
 		count := imageUsage[row.ID]
@@ -280,6 +301,91 @@ func buildDockerOverview(containerRows []dockerContainerRow, inspections []docke
 		overview.Networks = append(overview.Networks, DockerNetwork{ID: row.ID, Name: row.Name, Driver: row.Driver, Scope: row.Scope, Internal: parseDockerBool(row.Internal), InUse: count > 0, ContainerCount: count})
 	}
 	return overview
+}
+
+func dockerComposeRuntimeFromLabels(labels map[string]string) dockerComposeRuntime {
+	if labels == nil {
+		return dockerComposeRuntime{}
+	}
+	workingDir := strings.TrimSpace(labels["com.docker.compose.project.working_dir"])
+	return dockerComposeRuntime{
+		WorkingDir:       filepath.Clean(workingDir),
+		ConfigFiles:      dockerComposeLabelPaths(labels["com.docker.compose.project.config_files"], workingDir),
+		EnvironmentFiles: dockerComposeLabelPaths(labels["com.docker.compose.project.environment_file"], workingDir),
+	}
+}
+
+func dockerComposeLabelPaths(raw, workingDir string) []string {
+	parts := strings.Split(raw, ",")
+	paths := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if !filepath.IsAbs(value) && strings.TrimSpace(workingDir) != "" {
+			value = filepath.Join(workingDir, value)
+		}
+		paths = append(paths, filepath.Clean(value))
+	}
+	return paths
+}
+
+func dockerComposeRedeployAvailability(runtime dockerComposeRuntime) (bool, string) {
+	workingDir := strings.TrimSpace(runtime.WorkingDir)
+	if workingDir == "" || workingDir == "." {
+		return false, "O Docker não informou a pasta de trabalho deste projeto Compose."
+	}
+	info, err := os.Stat(workingDir)
+	if err != nil || !info.IsDir() {
+		return false, "A pasta de trabalho do Compose não está acessível ao Wharnex."
+	}
+	if len(runtime.ConfigFiles) == 0 {
+		return false, "O Docker não informou os ficheiros Compose usados neste projeto."
+	}
+	for _, configFile := range runtime.ConfigFiles {
+		info, err := os.Stat(configFile)
+		if err != nil || info.IsDir() {
+			return false, "Um ficheiro Compose necessário ao redeploy não está acessível ao Wharnex."
+		}
+	}
+	for _, envFile := range runtime.EnvironmentFiles {
+		info, err := os.Stat(envFile)
+		if err != nil || info.IsDir() {
+			return false, "O ficheiro de ambiente usado pelo Compose não está acessível ao Wharnex."
+		}
+	}
+	return true, ""
+}
+
+func dockerComposeRedeployArgs(project string, runtime dockerComposeRuntime) []string {
+	args := []string{"compose", "-p", project, "--project-directory", runtime.WorkingDir}
+	for _, configFile := range runtime.ConfigFiles {
+		args = append(args, "-f", configFile)
+	}
+	for _, envFile := range runtime.EnvironmentFiles {
+		args = append(args, "--env-file", envFile)
+	}
+	return append(args, "up", "-d", "--force-recreate")
+}
+
+func dockerComposeRuntimeFromInspections(project string, inspections []dockerContainerInspect) (dockerComposeRuntime, error) {
+	fallbackReason := "O Docker não forneceu metadados suficientes para recriar este projeto Compose."
+	for _, inspected := range inspections {
+		labels := inspected.Config.Labels
+		if strings.TrimSpace(labels["com.docker.compose.project"]) != project {
+			continue
+		}
+		runtime := dockerComposeRuntimeFromLabels(labels)
+		available, reason := dockerComposeRedeployAvailability(runtime)
+		if available {
+			return runtime, nil
+		}
+		if strings.TrimSpace(reason) != "" {
+			fallbackReason = reason
+		}
+	}
+	return dockerComposeRuntime{}, fmt.Errorf("%w: %s", ErrDockerRedeployUnavailable, fallbackReason)
 }
 
 func dockerContainerCondition(inspected dockerContainerInspect, fallback string) string {
@@ -394,6 +500,46 @@ func (s *Service) DockerComposeDown(ctx context.Context, sessionID, project stri
 		if output, runErr := exec.CommandContext(actionCtx, "docker", removeArgs...).CombinedOutput(); runErr != nil {
 			return dockerCommandError(actionCtx, runErr, output)
 		}
+	}
+	return nil
+}
+
+func (s *Service) DockerComposeRedeploy(ctx context.Context, sessionID, project string) error {
+	if err := s.requireDockerSession(sessionID); err != nil {
+		return err
+	}
+	project = strings.TrimSpace(project)
+	if !dockerIdentifierPattern.MatchString(project) {
+		return errors.New("invalid docker compose project identifier")
+	}
+	actionCtx, cancel := context.WithTimeout(ctx, dockerRedeployTimeout)
+	defer cancel()
+	containerIDs, err := dockerTextLines(actionCtx, "container", "ls", "-a", "--no-trunc", "--filter", "label=com.docker.compose.project="+project, "--format", "{{.ID}}")
+	if err != nil {
+		return err
+	}
+	if len(containerIDs) == 0 {
+		return fmt.Errorf("%w: projeto Compose não encontrado", ErrDockerRedeployUnavailable)
+	}
+	for _, containerID := range containerIDs {
+		if protectedDockerTarget(containerID) {
+			return ErrDockerProtectedProject
+		}
+	}
+	args := append([]string{"container", "inspect"}, containerIDs...)
+	inspections, err := dockerJSON[dockerContainerInspect](actionCtx, args...)
+	if err != nil {
+		return err
+	}
+	runtime, err := dockerComposeRuntimeFromInspections(project, inspections)
+	if err != nil {
+		return err
+	}
+	command := exec.CommandContext(actionCtx, "docker", dockerComposeRedeployArgs(project, runtime)...)
+	command.Dir = runtime.WorkingDir
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return dockerCommandError(actionCtx, err, output)
 	}
 	return nil
 }

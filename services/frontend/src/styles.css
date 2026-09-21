@@ -7463,3 +7463,41 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .docker-detail-icon { width:26px; height:26px; flex:0 0 26px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--theme-border-soft); border-radius:5px; background:var(--theme-surface-soft); color:var(--theme-text-muted); }
 .docker-container-actions button.danger:hover:not(:disabled) { border-color:color-mix(in srgb,var(--theme-danger,#d66b62) 42%,var(--theme-border)); background:color-mix(in srgb,var(--theme-danger,#d66b62) 8%,var(--theme-surface)); color:var(--theme-danger,#d66b62); }
 @container (max-width: 540px) { .docker-resource-filter { grid-template-columns:auto minmax(0,1fr) auto; } .docker-resource-filter > span { display:none; } }
+
+/* Docker persisted tree state, Compose redeploy and semantic logs */
+.docker-compose-actions { display:flex; align-items:center; gap:3px; }
+.docker-compose-actions button { height:25px; padding:0 7px; display:inline-flex; align-items:center; gap:4px; border:1px solid var(--theme-border); border-radius:4px; background:transparent; color:var(--theme-text-muted); font-size:calc(7.5px * var(--docker-font-scale)); cursor:pointer; }
+.docker-compose-actions button:disabled { opacity:.38; cursor:default; }
+.docker-compose-redeploy:hover:not(:disabled) { border-color:color-mix(in srgb,var(--theme-accent) 45%,var(--theme-border)); background:color-mix(in srgb,var(--theme-accent) 8%,var(--theme-surface)); color:var(--theme-accent); }
+.docker-compose-down:hover:not(:disabled) { border-color:color-mix(in srgb,var(--theme-warning) 45%,var(--theme-border)); background:color-mix(in srgb,var(--theme-warning) 8%,var(--theme-surface)); color:var(--theme-warning); }
+.docker-logs-toolbar > div { min-width:0; display:flex; align-items:baseline; gap:7px; }
+.docker-logs-toolbar strong { color:var(--theme-text-soft); font-weight:650; }
+.docker-logs-toolbar span { color:var(--theme-text-muted); }
+.docker-log-filters { min-height:34px; padding:4px 8px; display:flex; align-items:center; gap:4px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-surface); overflow-x:auto; scrollbar-width:none; }
+.docker-log-filters::-webkit-scrollbar { display:none; }
+.docker-log-filters button { height:24px; padding:0 7px; display:inline-flex; align-items:center; gap:5px; border:1px solid var(--theme-border-soft); border-radius:999px; background:transparent; color:var(--theme-text-muted); font:600 calc(7.5px * var(--docker-font-scale))/1 ui-sans-serif,system-ui,sans-serif; cursor:pointer; white-space:nowrap; }
+.docker-log-filters button span { min-width:13px; padding:1px 4px; border-radius:999px; background:var(--theme-surface-soft); color:inherit; text-align:center; font:650 calc(6.8px * var(--docker-font-scale))/1.2 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-log-filters button:hover, .docker-log-filters button.active { border-color:var(--theme-border-strong); background:var(--theme-hover); color:var(--theme-text); }
+.docker-log-filters button.level-error { color:var(--theme-danger,#d66b62); }
+.docker-log-filters button.level-error.active { border-color:color-mix(in srgb,var(--theme-danger,#d66b62) 42%,var(--theme-border)); background:color-mix(in srgb,var(--theme-danger,#d66b62) 9%,var(--theme-surface)); }
+.docker-log-filters button.level-warning { color:var(--theme-warning); }
+.docker-log-filters button.level-warning.active { border-color:color-mix(in srgb,var(--theme-warning) 42%,var(--theme-border)); background:color-mix(in srgb,var(--theme-warning) 9%,var(--theme-surface)); }
+.docker-log-health { margin-left:auto; display:flex; align-items:center; gap:8px; color:var(--theme-text-muted); white-space:nowrap; font:600 calc(7px * var(--docker-font-scale))/1.2 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-log-health .level-success { color:var(--theme-success); }
+.docker-log-lines { min-height:0; flex:1; overflow:auto; padding:5px 0 8px; background:var(--theme-bg); scrollbar-width:thin; font:calc(8.2px * var(--docker-font-scale))/1.5 ui-monospace,'SFMono-Regular',Consolas,monospace; }
+.docker-log-line { min-width:0; display:grid; grid-template-columns:58px 42px minmax(0,1fr); align-items:start; gap:7px; padding:3px 9px 3px 7px; border-left:2px solid transparent; color:var(--theme-text-soft); }
+.docker-log-line:hover { background:var(--theme-hover); }
+.docker-log-line.level-error { border-left-color:var(--theme-danger,#d66b62); background:color-mix(in srgb,var(--theme-danger,#d66b62) 7%,var(--theme-bg)); }
+.docker-log-line.level-warning { border-left-color:var(--theme-warning); background:color-mix(in srgb,var(--theme-warning) 6%,var(--theme-bg)); }
+.docker-log-line.level-success { border-left-color:color-mix(in srgb,var(--theme-success) 70%,transparent); }
+.docker-log-line.level-debug { color:var(--theme-text-muted); }
+.docker-log-time { color:var(--theme-text-muted); font-variant-numeric:tabular-nums; }
+.docker-log-level { font-size:calc(6.9px * var(--docker-font-scale)); font-weight:700; text-transform:uppercase; letter-spacing:.025em; }
+.docker-log-line.level-error .docker-log-level { color:var(--theme-danger,#d66b62); }
+.docker-log-line.level-warning .docker-log-level { color:var(--theme-warning); }
+.docker-log-line.level-success .docker-log-level { color:var(--theme-success); }
+.docker-log-line.level-debug .docker-log-level { color:var(--theme-text-muted); }
+.docker-log-message { min-width:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.docker-log-placeholder { min-height:120px; padding:18px; display:grid; place-items:center; color:var(--theme-text-muted); text-align:center; }
+@container (max-width: 620px) { .docker-compose-actions button span { display:none; } .docker-compose-actions button { width:25px; padding:0; justify-content:center; } }
+@container (max-width: 500px) { .docker-log-health { display:none; } .docker-log-line { grid-template-columns:52px 38px minmax(0,1fr); gap:5px; padding-right:6px; } }
