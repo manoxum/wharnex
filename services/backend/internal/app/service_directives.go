@@ -23,7 +23,7 @@ import (
 // legend is there to explain.
 
 // directiveLegend describes the markers a prompt actually used, and reports the
-// `@file` references that are not in the context snapshot.
+// `@file` references that are still absent after request-local context expansion.
 //
 // An unresolvable reference is stated rather than dropped for the same reason an
 // unresolved `@ref` is: an operator who pointed at a file and got silence would
@@ -73,7 +73,7 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	// model to start writing one.
 	builder.WriteString("The request above contains markers of the form " + strings.Join(shapes, " and ") + ". Each marker stands exactly where the user placed it and refers to that thing at that point in the sentence; read it as the noun it replaces, not as an instruction.\n")
 	if len(files) > 0 {
-		builder.WriteString("- @{[file]…} is a path in this project's own context snapshot, relative to the primary project root.\n")
+		builder.WriteString("- @{[file]…} is a file or directory in the primary project. Wharnex promotes that exact project-relative path into this request's context even when the normal snapshot would prune it; mandatory security, secret and size exclusions still apply.\n")
 	}
 	if len(refs) > 0 {
 		builder.WriteString("- @{[ref]…} is another project this workspace knows, whose request-bundle context is under ref-context/<project>/; with a path, it is one file inside that project.\n")
@@ -82,7 +82,7 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 		builder.WriteString("- @{[attach]…} is a file or directory outside every project, placed under att-context/attach-<slot>/. It is read-only reference material and never a patch target; a trailing |+pattern / |-pattern selection in the marker is what the operator chose to include or exclude from it.\n")
 	}
 	if len(seen) > 0 {
-		builder.WriteString("- @{[see]…} spotlights one exact file or directory already carried by the primary project, a referenced project, an external path, or a direct upload. Its source-qualified target is resolved below; the marker changes reading priority, never write authority. A legacy bare value means a direct upload.\n")
+		builder.WriteString("- @{[see]…} spotlights content reached through @file, @chat, @lib, @ref, @attach or a direct upload. It changes reading priority only and does not create a second attachment or additional write authority. A legacy project| target and a legacy bare upload remain accepted.\n")
 	}
 	if len(chatFiles) > 0 {
 		builder.WriteString("- @{[chat]…} identifies a file already stored in this chat. The UI resolves it into the request attachment transport before submission; treat the matching attachment as the file named at this point in the sentence.\n")
@@ -94,7 +94,7 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 		builder.WriteString("- @{[todo]…} identifies a project TODO. Wharnex resolves the stable ID into its original text plus Worker classification, context and pre-plan; the composer also carries a synthetic Markdown pre-analysis and the TODO's stored artifacts in the request attachment transport.\n")
 	}
 	if missing := missingContextFiles(files, context.Manifest); len(missing) > 0 {
-		builder.WriteString("Referenced with @{[file]…} but absent from the context snapshot, so their contents are not available in this request: " + strings.Join(missing, ", ") + ".\n")
+		builder.WriteString("Requested with @{[file]…} but still unavailable after request-local context inclusion (for example because a mandatory security/secret/size boundary excluded it): " + strings.Join(missing, ", ") + ".\n")
 	}
 	if len(seen) > 0 {
 		builder.WriteString("Highlighted paths requested with @{[see]…}:\n")
@@ -115,12 +115,16 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 
 func resolveSeeTarget(marker directives.Directive, context domain.ContextBundle) (string, string, bool) {
 	switch marker.Source {
-	case "project":
+	case "file", "project":
 		paths := make([]string, 0, len(context.Manifest.Files))
 		for _, file := range context.Manifest.Files {
 			paths = append(paths, file.Path)
 		}
 		return resolveSeePath("", marker.Path, paths)
+	case "chat":
+		return "@{[chat]" + strings.TrimPrefix(marker.Value, "chat|") + "} via request attachment transport", "chat artifact", true
+	case "lib":
+		return "@{[lib]" + strings.TrimPrefix(marker.Value, "lib|") + "} via request attachment transport", "library artifact", true
 	case "ref":
 		for _, project := range context.RelatedProjects {
 			if !strings.EqualFold(project.Name, marker.Project) {
@@ -157,22 +161,20 @@ func resolveSeePath(prefix, target string, visibleFiles []string) (string, strin
 	return "", "", false
 }
 
-// missingContextFiles reports referenced paths the snapshot does not carry.
-//
-// It compares against the manifest rather than the filesystem because the
-// manifest is what the model will actually be able to read: a file that exists
-// on disk but was pruned from the context is, for this request, not there.
+// missingContextFiles reports referenced paths the final request manifest does
+// not carry. Directories count as present when at least one visible descendant
+// exists; the manifest is the model's readable truth, not the host filesystem.
 func missingContextFiles(paths []string, manifest domain.ContextManifest) []string {
 	if len(paths) == 0 {
 		return nil
 	}
-	present := make(map[string]bool, len(manifest.Files))
+	visible := make([]string, 0, len(manifest.Files))
 	for _, file := range manifest.Files {
-		present[file.Path] = true
+		visible = append(visible, file.Path)
 	}
 	var missing []string
 	for _, candidate := range paths {
-		if !present[candidate] {
+		if _, _, available := resolveSeePath("", candidate, visible); !available {
 			missing = append(missing, candidate)
 		}
 	}

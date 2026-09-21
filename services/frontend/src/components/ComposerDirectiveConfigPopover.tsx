@@ -76,7 +76,7 @@ export function ComposerDirectiveConfigPopover({ directive, anchor, referenceAtt
         </>
         : <span>{directive.path || directive.value}</span>}
       {directive.kind === 'attach' && <span>{rules?.autoExclude === false ? 'Reconhecimento automático desligado' : 'Reconhecimento automático ligado'}{ruleCount ? ` · ${ruleCount} regra(s)` : ''}</span>}
-      {directive.kind === 'see' && <span>{seeFound === false ? 'Não encontrado no contexto atual — foi removido?' : 'Encontrado no contexto atual'}</span>}
+      {directive.kind === 'see' && <span>{seeFound === false ? 'Referência não encontrada — foi removida?' : 'Referência disponível para destaque'}</span>}
     </div>
     <div className="composer-directive-popover-actions">
       <button type="button" onClick={() => { onEdit(directive); onClose() }}>

@@ -1,15 +1,13 @@
 // Package directives owns the composer directive language: the small syntax an
 // operator writes inside a prompt to point at something Wharnex should resolve.
 //
-// There are four kinds and one grammar. `@file` points at a file in the
-// project the request belongs to. `@ref` points at another project, optionally
-// at one file inside it, and is also what grants that project's writability for
-// the request (see internal/crossproject). `@attach` points at a file or
-// directory outside every project. `@see` spotlights a visible file or directory
-// already carried by the request. Direct uploads remain name-only because they
-// have no filesystem location here; project/ref/attach targets carry a qualified
-// context path that the app resolves against the exact request snapshot. All four
-// are parsed here so they can never drift into separate dialects of the same idea.
+// There is one grammar for project paths, cross-project references, external
+// attachments, stored chat/library artifacts, TODOs and spotlight references.
+// `@file` can name a file or directory anywhere inside the request's project;
+// the app may expand the request-local context to include it. `@see` adds no
+// bytes or write authority: it only spotlights a target already reachable via
+// @file/@ref/@attach/@chat/@lib or a direct upload. All kinds are parsed here so
+// the frontend and backend cannot drift into separate directive dialects.
 //
 // # Position is meaning
 //
@@ -53,11 +51,11 @@ const (
 	// point of it: the operator is pointing at something the project does not
 	// contain. It grants reading, never writing.
 	KindAttach Kind = "attach"
-	// KindSee spotlights a file or directory that is already visible in the
-	// request. Qualified project/ref/attach values are resolved against the
-	// context snapshot by the app; direct uploads remain name-only because their
-	// bytes travel through a separate transport. Parsing and canonicalizing it
-	// here keeps the marker stable and in place.
+	// KindSee spotlights content already reachable through another request
+	// source. It can point through @file/@ref/@attach, a direct upload, @chat or
+	// @lib; resolving the bytes stays with those source transports. Parsing and
+	// canonicalizing it here keeps the marker stable and in place without
+	// turning the spotlight into a second attachment UI state.
 	KindSee Kind = "see"
 	// KindChat points at a persisted file that belongs to the current chat.
 	KindChat Kind = "chat"
@@ -163,8 +161,8 @@ type Directive struct {
 	// Path is the path half of Value and Project is empty.
 	Project string
 	Path    string
-	// Source qualifies KindSee as project, ref, attach, or upload. Empty is the
-	// legacy bare-upload spelling and is interpreted as upload.
+	// Source qualifies KindSee as file/project, ref, attach, upload, chat or
+	// lib. Empty is the legacy bare-upload spelling and is interpreted as upload.
 	Source string
 	// Rules is the include/exclude selection for a KindAttach directive that
 	// points at a directory. It is deliberately the same shape the project's own
@@ -357,12 +355,24 @@ func parseSeeValue(raw string) (Directive, bool) {
 	}
 	source := parts[0]
 	switch source {
-	case "project":
+	case "file", "project":
 		if len(parts) != 2 {
 			return Directive{}, false
 		}
 		file, ok := safeRelativePath(parts[1])
-		return Directive{Kind: KindSee, Value: "project|" + file, Source: source, Project: source, Path: file}, ok
+		return Directive{Kind: KindSee, Value: source + "|" + file, Source: source, Project: source, Path: file}, ok
+	case "chat":
+		target, ok := parseChatValue(strings.TrimPrefix(raw, "chat|"))
+		if !ok {
+			return Directive{}, false
+		}
+		return Directive{Kind: KindSee, Value: "chat|" + target.Value, Source: source, Project: target.Project, Path: target.Path}, true
+	case "lib":
+		target, ok := parseLibraryValue(strings.TrimPrefix(raw, "lib|"))
+		if !ok {
+			return Directive{}, false
+		}
+		return Directive{Kind: KindSee, Value: "lib|" + target.Value, Source: source, Project: target.Project, Path: target.Path}, true
 	case "upload":
 		if len(parts) != 2 {
 			return Directive{}, false

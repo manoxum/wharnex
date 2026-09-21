@@ -40,10 +40,18 @@ func (b *Builder) BuildWorkspaceWithAttachments(projectRoot string, relatedRoots
 	return b.BuildWorkspaceWithSelections(projectRoot, relatedRoots, nil, attachments)
 }
 
-// BuildWorkspaceWithSelections applies request-local context rules to named
-// related projects without mutating their persisted project configuration.
+// BuildWorkspaceWithSelections applies request-local context rules to the
+// primary project and named related projects without mutating persisted project
+// configuration. This is how an explicit @file can temporarily restore a path
+// pruned by normal context heuristics while mandatory boundaries remain active.
 func (b *Builder) BuildWorkspaceWithSelections(projectRoot string, relatedRoots []string, selections map[string]projectconfig.ContextConfig, attachments []Attachment) (domain.ContextBundle, error) {
-	primary, err := b.Build(projectRoot)
+	var primary domain.ContextBundle
+	var err error
+	if selection, ok := selections[projectRoot]; ok {
+		primary, err = b.BuildWithContextConfig(projectRoot, selection)
+	} else {
+		primary, err = b.Build(projectRoot)
+	}
 	if err != nil || (len(relatedRoots) == 0 && len(attachments) == 0) {
 		return primary, err
 	}

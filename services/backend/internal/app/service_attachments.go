@@ -125,7 +125,26 @@ func (s *Service) InspectReference(sessionID, marker string) (AttachmentInspecti
 
 func (s *Service) referenceSelections(item domain.Session, message string) map[string]projectconfig.ContextConfig {
 	result := map[string]projectconfig.ContextConfig{}
-	for _, directive := range directives.Of(directives.Parse(message), directives.KindRef) {
+	parsed := directives.Parse(message)
+	primaryPaths := directives.Values(parsed, directives.KindFile)
+	for _, directive := range directives.Of(parsed, directives.KindSee) {
+		if directive.Source == "file" || directive.Source == "project" {
+			primaryPaths = append(primaryPaths, directive.Path)
+		}
+	}
+	if len(primaryPaths) > 0 {
+		if cfg, err := projectconfig.Load(item.ProjectPath); err == nil {
+			for _, path := range primaryPaths {
+				// Include both the exact target and its descendant form. For a file the
+				// latter is inert; for a directory it restores the whole subtree while
+				// the context builder still enforces mandatory/secret/size exclusions.
+				cfg.Context.IncludeOverride = appendUnique(cfg.Context.IncludeOverride, path)
+				cfg.Context.IncludeOverride = appendUnique(cfg.Context.IncludeOverride, strings.TrimSuffix(path, "/")+"/**")
+			}
+			result[item.ProjectPath] = cfg.Context
+		}
+	}
+	for _, directive := range directives.Of(parsed, directives.KindRef) {
 		if !directive.RulesExplicit {
 			continue
 		}
