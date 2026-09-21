@@ -8904,3 +8904,223 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
   .workspace-status { min-width: 0; }
   .workspace-identity span { display: none; }
 }
+
+
+/* v1.2.50 — one visual grammar for Editor, Explorer and Terminal.
+   These are structural IDE surfaces: neutral layers and separators carry the
+   hierarchy while green is reserved for focus/selection state. */
+.editor-area,
+.agent-project-explorer,
+.terminal-workspace:not(.terminal-workspace-hidden) {
+  background: var(--theme-bg);
+}
+
+/* Editor: make the code canvas the quietest surface in the workbench. */
+.editor-tabbar {
+  height: 36px;
+  flex-basis: 36px;
+  padding: 0;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+}
+.editor-tabs-scroll { height: 100%; align-items: stretch; }
+.editor-tab:not([data-dragging='true']) {
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  gap: 6px;
+  border-right: 1px solid var(--theme-border-soft);
+  background: transparent;
+  color: var(--theme-text-muted);
+  font-weight: 500;
+}
+.editor-tab:hover:not([data-dragging='true']) {
+  background: color-mix(in srgb, var(--theme-hover) 54%, transparent);
+  color: var(--theme-text-soft);
+}
+.editor-tab.active:not([data-dragging='true']) {
+  background: transparent;
+  color: var(--theme-text);
+  font-weight: 500;
+  box-shadow: inset 0 -2px var(--theme-accent);
+}
+.editor-tab-close { opacity: .18; transition: opacity var(--motion-fast) ease, color var(--motion-fast) ease; }
+.editor-tab:hover .editor-tab-close,
+.editor-tab.active .editor-tab-close { opacity: .7; }
+.editor-contextbar {
+  height: 30px;
+  flex-basis: 30px;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid var(--theme-border-soft);
+  background: var(--theme-surface);
+  color: var(--theme-text-muted);
+}
+.editor-breadcrumbs { gap: 5px; }
+.editor-breadcrumbs i { color: color-mix(in srgb, var(--theme-text-muted) 54%, transparent); }
+.monaco-editor-host {
+  border: 0;
+  background: #151715;
+  box-shadow: none;
+}
+.editor-statusbar {
+  height: 23px;
+  flex-basis: 23px;
+  padding-inline: 10px;
+  border-top: 1px solid var(--theme-border-soft);
+  background: var(--theme-surface);
+  color: var(--theme-text-muted);
+}
+.editor-autosave-status.saved { max-width: 76px; color: var(--theme-text-muted); opacity: .36; }
+
+/* Explorer: tree rows replace cards; selection is a slim Wharnex edge. */
+.agent-project-explorer .agent-drawer-heading {
+  height: 40px;
+  padding: 0 7px 0 10px;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+}
+.agent-project-explorer .agent-drawer-heading .panel-kicker { opacity: .72; }
+.agent-project-explorer .agent-runtime-heading-actions { gap: 1px; }
+.agent-project-explorer .agent-drawer-icon {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
+  border-radius: var(--radius-control);
+}
+.agent-project-explorer .agent-drawer-icon:hover:not(:disabled) { background: var(--theme-hover); }
+.agent-project-git-summary {
+  min-height: 28px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+  color: var(--theme-text-muted);
+  box-shadow: none;
+  font-size: calc(8px * var(--ui-font-scale));
+}
+.agent-project-tree {
+  padding: 4px 0 8px;
+  scrollbar-width: thin;
+  background: transparent;
+}
+.agent-tree-row {
+  height: 30px;
+  gap: 6px;
+  padding-right: 9px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--theme-text-soft);
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, border-color var(--motion-fast) ease;
+}
+.agent-tree-row:hover {
+  background: color-mix(in srgb, var(--theme-hover) 58%, transparent);
+  color: var(--theme-text);
+}
+.agent-tree-row.selected-node {
+  border-left-color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-hover) 42%, transparent);
+  color: var(--theme-text);
+  box-shadow: none;
+}
+.agent-tree-row.folder { font-weight: 500; }
+.agent-tree-chevron { color: var(--theme-text-muted); opacity: .7; }
+.agent-tree-row:hover .agent-tree-chevron,
+.agent-tree-row.selected-node .agent-tree-chevron { opacity: 1; }
+.agent-project-footer {
+  min-height: 26px;
+  padding: 0 10px;
+  border-top: 1px solid var(--theme-border-soft);
+  background: var(--theme-surface);
+  color: var(--theme-text-muted);
+}
+
+/* Terminal: one compact chrome line and an uninterrupted native PTY canvas. */
+.terminal-workspace:not(.terminal-workspace-hidden) {
+  grid-template-rows: 30px minmax(0, 1fr);
+  border-top: 1px solid var(--theme-border);
+}
+.terminal-tabbar {
+  min-height: 30px;
+  border-bottom: 1px solid var(--theme-border-soft);
+  background: var(--theme-surface);
+}
+.terminal-tabs {
+  min-width: 0;
+  height: 30px;
+  padding: 0 3px;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  border-bottom: 0;
+  background: transparent;
+  scrollbar-width: none;
+}
+.terminal-tab-shell {
+  min-width: 104px;
+  max-width: 190px;
+  height: 30px;
+  border: 0;
+  border-right: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+  color: var(--theme-text-muted);
+}
+.terminal-tab-shell:hover { background: color-mix(in srgb, var(--theme-hover) 54%, transparent); }
+.terminal-tab-shell.active {
+  border-color: var(--theme-border-soft);
+  background: transparent;
+  color: var(--theme-text);
+  box-shadow: inset 0 -2px var(--theme-accent);
+}
+.terminal-tab-select { padding-inline: 8px 4px; }
+.terminal-tab-action { border-radius: var(--radius-control); }
+.terminal-surface-actions {
+  height: 30px;
+  padding: 0 5px 0 4px;
+  gap: 2px;
+  border-left: 1px solid var(--theme-border-soft);
+  background: var(--theme-surface);
+}
+.terminal-surface-actions button,
+.terminal-add-tab {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  border-color: transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--theme-text-muted);
+}
+.terminal-surface-actions button:hover:not(:disabled),
+.terminal-add-tab:hover:not(:disabled) { background: var(--theme-hover); color: var(--theme-text); }
+.terminal-active-status {
+  min-width: 0;
+  padding: 0 5px;
+  color: var(--theme-text-muted);
+  font-size: calc(7.5px * var(--ui-font-scale));
+  font-weight: 500;
+}
+.terminal-active-status i { width: 6px; height: 6px; }
+.ide-terminal {
+  border: 0;
+  background: #151715;
+}
+.terminal-xterm {
+  padding: 8px 10px 5px;
+  background: #151715;
+}
+.terminal-xterm .xterm-viewport { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--theme-text-muted) 38%, transparent) transparent; }
+.terminal-xterm .xterm-viewport::-webkit-scrollbar { width: 6px; }
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--theme-text-muted) 36%, transparent);
+  background-clip: padding-box;
+}

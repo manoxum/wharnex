@@ -9,7 +9,7 @@ import { subscribeUIPreferences, workspaceTerminalFontSize } from '../lib/uiPref
 
 const terminalThemes = {
   dark: {
-    background: '#111311', foreground: '#D8DDD7', cursor: '#9FCB73', selectionBackground: '#50603F88',
+    background: '#151715', foreground: '#D8DDD7', cursor: '#9FCB73', selectionBackground: '#3C473588',
     black: '#111311', red: '#E27676', green: '#9FCB73', yellow: '#D8BB70', blue: '#7DA7D9',
     magenta: '#B58AC9', cyan: '#71B7B0', white: '#D8DDD7', brightBlack: '#747B74',
     brightRed: '#EE9188', brightGreen: '#B5DD8B', brightYellow: '#E4CB91', brightBlue: '#9ABEE5',
