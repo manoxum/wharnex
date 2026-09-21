@@ -294,6 +294,8 @@ export type DockerComposeProject = {
   error_count: number
   stopped_count: number
   protected?: boolean
+  redeploy_available?: boolean
+  redeploy_reason?: string
 }
 export type DockerImage = { id: string; repository: string; tag: string; size: string; created_since?: string; in_use?: boolean; container_count?: number }
 export type DockerVolume = { name: string; driver: string; mountpoint?: string; scope?: string; in_use?: boolean; container_count?: number }

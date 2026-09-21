@@ -58,6 +58,15 @@ func (a *API) dockerComposeDown(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "project": project})
 }
 
+func (a *API) dockerComposeRedeploy(w http.ResponseWriter, r *http.Request) {
+	project := strings.TrimSpace(r.PathValue("project"))
+	if err := a.service.DockerComposeRedeploy(r.Context(), r.PathValue("id"), project); err != nil {
+		writeDockerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "project": project})
+}
+
 func (a *API) dockerResourceRemove(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(strings.TrimSpace(r.PathValue("kind")))
 	if kind != "volume" && kind != "network" {
@@ -82,7 +91,15 @@ func writeDockerError(w http.ResponseWriter, err error) {
 		return
 	}
 	if errors.Is(err, app.ErrDockerProtectedProject) {
-		writeError(w, http.StatusConflict, "docker_protected_project", "Wharnex cannot bring down the compose project that contains the backend serving this request")
+		writeError(w, http.StatusConflict, "docker_protected_project", "Wharnex cannot modify the compose project that contains the backend serving this request")
+		return
+	}
+	if errors.Is(err, app.ErrDockerRedeployUnavailable) {
+		message := strings.TrimSpace(strings.TrimPrefix(err.Error(), app.ErrDockerRedeployUnavailable.Error()+":"))
+		if message == "" {
+			message = "Docker Compose redeploy is unavailable"
+		}
+		writeError(w, http.StatusConflict, "docker_redeploy_unavailable", message)
 		return
 	}
 	if errors.Is(err, app.ErrDockerResourceInUse) {

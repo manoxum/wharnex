@@ -215,6 +215,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/sessions/{id}/docker/containers/{container_id}/logs", a.dockerContainerLogs)
 	mux.HandleFunc("POST /api/sessions/{id}/docker/containers/{container_id}/{action}", a.dockerContainerAction)
 	mux.HandleFunc("POST /api/sessions/{id}/docker/compose/{project}/down", a.dockerComposeDown)
+	mux.HandleFunc("POST /api/sessions/{id}/docker/compose/{project}/redeploy", a.dockerComposeRedeploy)
 	mux.HandleFunc("POST /api/sessions/{id}/docker/resources/{kind}/{name}/remove", a.dockerResourceRemove)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal/reset", a.resetTerminal)
 	a.registerGitRoutes(mux)

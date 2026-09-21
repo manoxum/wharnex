@@ -287,6 +287,7 @@ export const api = {
   dockerContainerLogs: (id: string, containerId: string, tail = 200) => request<DockerLogs>(`/api/sessions/${id}/docker/containers/${encodeURIComponent(containerId)}/logs?tail=${encodeURIComponent(String(tail))}`),
   dockerContainerAction: (id: string, containerId: string, action: DockerContainerAction) => request<{ status: string; action: DockerContainerAction; container_id: string }>(`/api/sessions/${id}/docker/containers/${encodeURIComponent(containerId)}/${action}`, { method: 'POST', body: '{}' }),
   dockerComposeDown: (id: string, project: string) => request<{ status: string; project: string }>(`/api/sessions/${id}/docker/compose/${encodeURIComponent(project)}/down`, { method: 'POST', body: '{}' }),
+  dockerComposeRedeploy: (id: string, project: string) => request<{ status: string; project: string }>(`/api/sessions/${id}/docker/compose/${encodeURIComponent(project)}/redeploy`, { method: 'POST', body: '{}' }),
   dockerResourceRemove: (id: string, kind: DockerResourceKind, name: string) => request<{ status: string; kind: DockerResourceKind; name: string }>(`/api/sessions/${id}/docker/resources/${kind}/${encodeURIComponent(name)}/remove`, { method: 'POST', body: '{}' }),
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
   gitOverview: (id: string) => request<GitOverview>(`/api/sessions/${id}/git/overview`).then(normalizeGitOverview),

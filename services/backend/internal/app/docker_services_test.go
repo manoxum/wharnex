@@ -2,6 +2,9 @@ package app
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -93,5 +96,54 @@ func TestDockerContainerConditionClassifiesFailureStates(t *testing.T) {
 	paused.State.Paused = true
 	if got := dockerContainerCondition(paused, "running"); got != "paused" {
 		t.Fatalf("expected paused condition, got %q", got)
+	}
+}
+
+func TestDockerComposeRedeployMetadataUsesAccessibleComposeFiles(t *testing.T) {
+	workingDir := t.TempDir()
+	configFile := filepath.Join(workingDir, "compose.yml")
+	envFile := filepath.Join(workingDir, ".env")
+	if err := os.WriteFile(configFile, []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(envFile, []byte("DEMO=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	labels := map[string]string{
+		"com.docker.compose.project":                  "demo",
+		"com.docker.compose.project.working_dir":      workingDir,
+		"com.docker.compose.project.config_files":     "compose.yml",
+		"com.docker.compose.project.environment_file": ".env",
+	}
+	runtime := dockerComposeRuntimeFromLabels(labels)
+	available, reason := dockerComposeRedeployAvailability(runtime)
+	if !available || reason != "" {
+		t.Fatalf("expected redeploy to be available, got available=%v reason=%q", available, reason)
+	}
+	wantArgs := []string{"compose", "-p", "demo", "--project-directory", workingDir, "-f", configFile, "--env-file", envFile, "up", "-d", "--force-recreate"}
+	if got := dockerComposeRedeployArgs("demo", runtime); !reflect.DeepEqual(got, wantArgs) {
+		t.Fatalf("unexpected redeploy args:\n got %#v\nwant %#v", got, wantArgs)
+	}
+}
+
+func TestBuildDockerOverviewReportsComposeRedeployAvailability(t *testing.T) {
+	workingDir := t.TempDir()
+	configFile := filepath.Join(workingDir, "compose.yml")
+	if err := os.WriteFile(configFile, []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	container := dockerContainerRow{ID: "container1", Names: "demo-web-1", Image: "example/web:latest", State: "running", Status: "Up"}
+	inspected := dockerContainerInspect{ID: "container1"}
+	inspected.Config.Labels = map[string]string{
+		"com.docker.compose.project":              "demo",
+		"com.docker.compose.service":              "web",
+		"com.docker.compose.project.working_dir":  workingDir,
+		"com.docker.compose.project.config_files": configFile,
+	}
+	inspected.State.Status = "running"
+	inspected.State.Running = true
+	overview := buildDockerOverview([]dockerContainerRow{container}, []dockerContainerInspect{inspected}, nil, nil, nil, time.Unix(1, 0).UTC())
+	if len(overview.ComposeProjects) != 1 || !overview.ComposeProjects[0].RedeployAvailable || overview.ComposeProjects[0].RedeployReason != "" {
+		t.Fatalf("expected Compose redeploy metadata to be available: %#v", overview.ComposeProjects)
 	}
 }
