@@ -3194,3 +3194,19 @@ test('detached workbench surfaces stay transient and keep project ownership with
   assert.match(handler, /reason: 'different-project'/)
   assert.doesNotMatch(handler, /projectWindowRegistry\.set/)
 })
+
+
+test('Ctrl+Space can reopen native spelling suggestions at the composer caret', async () => {
+  const [source, preload] = await Promise.all([
+    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./preload.cjs', import.meta.url), 'utf8'),
+  ])
+  const handlerStart = source.indexOf("ipcMain.handle('wharness:spellcheck:show-suggestions'")
+  const handlerEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:show'", handlerStart)
+  const handler = source.slice(handlerStart, handlerEnd)
+  assert.notEqual(handlerStart, -1)
+  assert.match(handler, /trustedSender\(event\)/)
+  assert.match(handler, /sendInputEvent\(\{ type: 'contextMenu', x, y, button: 'right' \}\)/)
+  assert.match(source, /Menu\.buildFromTemplate\(template\)\.popup\(\{ window: win, x: params\.x, y: params\.y \}\)/)
+  assert.match(preload, /spellcheck: Object\.freeze\(\{[\s\S]*showSuggestions: \(point = \{\}\) => invoke\('wharness:spellcheck:show-suggestions'/)
+})

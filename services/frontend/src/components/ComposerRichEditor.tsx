@@ -151,6 +151,44 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
     if (source === 'user') report()
   }
 
+  function spellcheckSuggestionPoint() {
+    const editor = quillRef.current?.getEditor()
+    const selection = editor?.getSelection()
+    if (!editor || !selection || selection.length) return undefined
+
+    const text = editor.getText(0, editor.getLength())
+    let start = Math.max(0, Math.min(selection.index, text.length))
+    let end = start
+    const isWordCharacter = (character: string) => /[\p{L}\p{M}'’\-]/u.test(character)
+    while (start > 0 && isWordCharacter(text[start - 1] || '')) start -= 1
+    while (end < text.length && isWordCharacter(text[end] || '')) end += 1
+    if (start === end) return undefined
+
+    const bounds = editor.getBounds(start, end - start)
+    if (!bounds) return undefined
+    const container = (editor as unknown as { container: HTMLElement }).container
+    const containerBounds = container.getBoundingClientRect()
+    return {
+      x: Math.round(containerBounds.left + bounds.left + Math.max(1, bounds.width / 2)),
+      y: Math.round(containerBounds.top + bounds.top + Math.max(1, bounds.height / 2)),
+    }
+  }
+
+  function handleKeyDownCapture(event: React.KeyboardEvent) {
+    const shortcut = event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !event.repeat && (event.code === 'Space' || event.key === ' ')
+    const spellcheck = window.wharnessDesktop?.spellcheck
+    if (shortcut && spellcheck) {
+      const point = spellcheckSuggestionPoint()
+      if (point) {
+        event.preventDefault()
+        event.stopPropagation()
+        void spellcheck.showSuggestions(point)
+        return
+      }
+    }
+    onKeyDownCapture?.(event)
+  }
+
   function handlePaste(event: React.ClipboardEvent) {
     const clipboard = event.clipboardData
     const directFiles = Array.from(clipboard?.files || [])
@@ -199,7 +237,7 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
 
   return <div
     ref={shellRef} className="composer-rich-editor" lang={lang}
-    onClickCapture={handleClickCapture} onKeyDownCapture={onKeyDownCapture} onPasteCapture={handlePaste}
+    onClickCapture={handleClickCapture} onKeyDownCapture={handleKeyDownCapture} onPasteCapture={handlePaste}
   >
     <ReactQuill
       ref={quillRef} theme="bubble" modules={quillModules} formats={['directive-chip']}

@@ -1297,6 +1297,26 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
+  it('opens native spelling suggestions with Ctrl+Space on the current word', async () => {
+    const showSuggestions = vi.fn().mockResolvedValue({ ok: true })
+    Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: { spellcheck: { showSuggestions } } })
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="spellcheck-shortcut" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const editor = ref.current?.getComposerEditor()
+    if (!editor) throw new Error('composer editor not mounted')
+    typeInComposer(ref, 'palavar', 7)
+    vi.spyOn(editor, 'getBounds').mockReturnValue({ left: 12, top: 8, right: 60, bottom: 28, width: 48, height: 20 } as never)
+    const editorContainer = (editor as unknown as { container: HTMLElement }).container
+    vi.spyOn(editorContainer, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 200, right: 500, bottom: 260, width: 400, height: 60, x: 100, y: 200, toJSON: () => ({}) } as DOMRect)
+
+    fireEvent.keyDown(view.container.querySelector('.composer-rich-editor')!, { key: ' ', code: 'Space', ctrlKey: true })
+
+    await waitFor(() => expect(showSuggestions).toHaveBeenCalledWith({ x: 136, y: 218 }))
+    view.unmount()
+  })
+
   it('adds files pasted from the operating-system clipboard', () => {
     const ref = panelRef()
     const view = render(
