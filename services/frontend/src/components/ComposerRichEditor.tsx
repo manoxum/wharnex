@@ -115,6 +115,18 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
     if (editor) editor.enable(!disabled)
   }, [disabled])
 
+  // Quill owns the contenteditable node, so spellcheck must be enabled on the
+  // actual editing root rather than only on this React wrapper. Use explicit
+  // DOM attributes: Chromium consumes them directly and jsdom does not
+  // reliably reflect assignment to the HTMLElement.spellcheck property.
+  useEffect(() => {
+    const editor = quillRef.current?.getEditor()
+    if (!editor) return
+    editor.root.setAttribute('spellcheck', 'true')
+    const spellcheckLanguage = lang || document.documentElement.lang
+    if (spellcheckLanguage) editor.root.setAttribute('lang', spellcheckLanguage)
+  }, [lang])
+
   // `source` is 'user' for a real keystroke/click/API call the operator made,
   // and 'silent' for the resync effect above writing its own reload back into
   // the same document (deliberately silent so it does not re-trigger itself).
