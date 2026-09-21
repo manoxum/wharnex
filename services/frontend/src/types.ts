@@ -270,21 +270,36 @@ export type TerminalRunInput = { command: string; cwd: string; label?: string }
 export type TerminalRunRequest = TerminalRunInput & { id: number; target?: TerminalTarget; openNew?: boolean }
 
 
+export type DockerContainerCondition = 'running' | 'restarting' | 'paused' | 'created' | 'error' | 'stopped'
 export type DockerContainer = {
   id: string
   name: string
   image: string
   state: string
+  condition?: DockerContainerCondition | string
   status: string
   ports?: string
   networks?: string
+  compose_project?: string
+  compose_service?: string
+  exit_code?: number
+  error?: string
   protected?: boolean
 }
 
-export type DockerImage = { id: string; repository: string; tag: string; size: string; created_since?: string }
-export type DockerVolume = { name: string; driver: string; mountpoint?: string; scope?: string }
-export type DockerNetwork = { id: string; name: string; driver: string; scope?: string; internal?: boolean }
+export type DockerComposeProject = {
+  name: string
+  container_count: number
+  running_count: number
+  error_count: number
+  stopped_count: number
+  protected?: boolean
+}
+export type DockerImage = { id: string; repository: string; tag: string; size: string; created_since?: string; in_use?: boolean; container_count?: number }
+export type DockerVolume = { name: string; driver: string; mountpoint?: string; scope?: string; in_use?: boolean; container_count?: number }
+export type DockerNetwork = { id: string; name: string; driver: string; scope?: string; internal?: boolean; in_use?: boolean; container_count?: number }
 export type DockerOverview = {
+  compose_projects: DockerComposeProject[]
   containers: DockerContainer[]
   images: DockerImage[]
   volumes: DockerVolume[]
@@ -293,6 +308,7 @@ export type DockerOverview = {
 }
 export type DockerLogs = { container_id: string; tail: number; content: string }
 export type DockerContainerAction = 'start' | 'stop' | 'restart'
+export type DockerResourceKind = 'volume' | 'network'
 
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
