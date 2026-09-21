@@ -12,6 +12,7 @@ import {
   type ComposerDirective,
 } from '../lib/composerDirectives'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 
 /**
  * Configures what an attached folder actually contributes.
@@ -49,12 +50,6 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
   const initialKey = initialPath ? `${initialKind || 'attach'}:${initialPath}` : ''
   const [selectedKey, setSelectedKey] = useState(initialKey || (attachments[0] ? directiveKey(attachments[0]) : ''))
   const selected = attachments.find((item) => directiveKey(item) === selectedKey) || attachments[0]
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
 
   // Edit on a different chip while the modal is already open must jump to that
   // chip's own tab, not silently keep showing whichever one was open before.
@@ -128,8 +123,8 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
     if (attachments.length <= 1) onClose()
   }
 
-  return <div className="composer-attachment-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="composer-attachment-panel" role="dialog" aria-modal="true" aria-label="Conteúdo dos caminhos anexados">
+  return <InternalWindow title="Conteúdo dos caminhos anexados" layerClassName="composer-attachment-backdrop" onClose={onClose}>
+    <section className="composer-attachment-panel" role="dialog" aria-modal="false" aria-label="Conteúdo dos caminhos anexados">
       <header className="composer-attachment-heading">
         <div><span className="panel-kicker">Fontes de contexto</span><strong>Conteúdo enviado neste pedido</strong></div>
         <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar painel de anexos"><Icon name="close" size={13}/></button>
@@ -199,7 +194,7 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
           </div>}
         </>}
     </section>
-  </div>
+  </InternalWindow>
 }
 
 function directiveKey(directive: ComposerDirective) {

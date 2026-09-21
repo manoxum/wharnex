@@ -6,6 +6,7 @@ import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
 import { announceGitChanged, subscribeGitLiveSync } from '../lib/gitLiveSync'
 import { confirmDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
 import { GitOperationModal, type GitOperation } from './GitOperationModal'
@@ -757,8 +758,8 @@ function GitReleaseSection({ branches, projectVersion, disabled, branch, tagSuff
 }) {
   const finalTag = releaseTagName(projectVersion, tagSuffix)
   const canPublish = Boolean(branch && finalTag && body.trim())
-  return createPortal(<div className="git-diff-backdrop git-release-backdrop" onMouseDown={onClose}>
-    <div className="git-release-modal" role="dialog" aria-modal="true" aria-label="Criar nova release" onMouseDown={(event) => event.stopPropagation()}>
+  return createPortal(<InternalWindow title="Criar nova release" onClose={onClose} layerClassName="git-diff-backdrop git-release-backdrop">
+    <div className="git-release-modal" role="dialog" aria-modal="false" aria-label="Criar nova release">
       <header className="git-release-modal-header">
         <div>
           <span className="panel-kicker">Publicação</span>
@@ -834,7 +835,7 @@ function GitReleaseSection({ branches, projectVersion, disabled, branch, tagSuff
         </div>
       </div>
     </div>
-  </div>, document.body)
+  </InternalWindow>, document.body)
 }
 
 function GitReleaseRichText({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (value: string) => void }) {
@@ -953,8 +954,8 @@ function HistorySection({ sessionId, branches }: { sessionId: string; branches: 
 
 function HistoryCommitDetailModal({ sessionId, detail, onClose }: { sessionId: string; detail: GitCommitDetail; onClose: () => void }) {
   const commit = detail.commit
-  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}>
-    <div className="git-diff-modal git-commit-detail-modal git-history-commit-modal" role="dialog" aria-modal="true" aria-label={`Commit ${commit.short_sha}`} onMouseDown={(event) => event.stopPropagation()}>
+  return createPortal(<InternalWindow title={`Commit ${commit.short_sha}`} onClose={onClose} layerClassName="git-diff-backdrop">
+    <div className="git-diff-modal git-commit-detail-modal git-history-commit-modal" role="dialog" aria-modal="false" aria-label={`Commit ${commit.short_sha}`}>
       <header className="git-history-commit-header">
         <div className="git-history-commit-heading">
           <span className="git-history-commit-icon"><Icon name="git" size={15}/></span>
@@ -988,7 +989,7 @@ function HistoryCommitDetailModal({ sessionId, detail, onClose }: { sessionId: s
       <GitDiffReview sessionId={sessionId} diff={detail.diff} emptyText="Este commit não contém alterações de ficheiros."/>
       {detail.diff_truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
     </div>
-  </div>, document.body)
+  </InternalWindow>, document.body)
 }
 
 function CommitGraph({ row }: { row: GitGraphRow }) {
@@ -1020,22 +1021,22 @@ function formatCommitDate(value: string) {
 
 
 function WorktreeDiffModal({ sessionId, file, onClose }: { sessionId: string; file: GitFileDiff; onClose: () => void }) {
-  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}>
-    <div className="git-diff-modal" role="dialog" aria-modal="true" aria-label={`Diff de ${file.path}`} onMouseDown={(event) => event.stopPropagation()}>
+  return createPortal(<InternalWindow title={`Diff de ${file.path}`} onClose={onClose} layerClassName="git-diff-backdrop">
+    <div className="git-diff-modal" role="dialog" aria-modal="false" aria-label={`Diff de ${file.path}`}>
       <header><div><span className="panel-kicker">Alteração no worktree</span><strong>{file.path}</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
       <GitDiffReview sessionId={sessionId} diff={file.diff} emptyText="Sem diferenças de conteúdo para apresentar."/>
       {file.truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
     </div>
-  </div>, document.body)
+  </InternalWindow>, document.body)
 }
 
 function DiffModal({ sessionId, record, onClose }: { sessionId: string; record: GitPendingCommit; onClose: () => void }) {
-  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}>
-    <div className="git-diff-modal" role="dialog" aria-modal="true" aria-label={`Diff de ${record.subject}`} onMouseDown={(event) => event.stopPropagation()}>
+  return createPortal(<InternalWindow title={`Diff de ${record.subject}`} onClose={onClose} layerClassName="git-diff-backdrop">
+    <div className="git-diff-modal" role="dialog" aria-modal="false" aria-label={`Diff de ${record.subject}`}>
       <header><div><span className="panel-kicker">Registo Wharnex</span><strong>{record.subject}</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
       <GitDiffReview sessionId={sessionId} diff={record.diff} emptyText="Sem diff registado."/>
       {record.diff_truncated && <p className="git-hint">O diff foi truncado para apresentação; o commit usa sempre o conteúdo atual dos ficheiros.</p>}
       <details className="git-message-preview"><summary>Mensagem de commit</summary><pre>{record.message}</pre></details>
     </div>
-  </div>, document.body)
+  </InternalWindow>, document.body)
 }

@@ -328,14 +328,20 @@ describe('composer layout CSS', () => {
   })
 
 
-  it('keeps application dialogs polished, modal and visually semantic', () => {
-    const backdrop = firstRule('.app-dialog-backdrop')
+  it('keeps application dialogs polished inside the non-blocking window system', () => {
+    const windowLayer = firstRule('.internal-window-layer')
+    const controls = firstRule('.internal-window-controls')
+    const dock = firstRule('.internal-window-dock')
     const card = firstRule('.app-dialog-card')
     const danger = lastRule('.app-dialog-button.primary.tone-danger')
     const warning = lastRule('.app-dialog-button.primary.tone-warning')
 
-    expect(backdrop).toContain('position: fixed')
-    expect(backdrop).toContain('backdrop-filter: blur(7px)')
+    expect(windowLayer).toContain('pointer-events: none')
+    expect(windowLayer).toContain('background: transparent')
+    expect(controls).toContain('top: -11px')
+    expect(controls).toContain('right: -11px')
+    expect(dock).toContain('right: 12px')
+    expect(dock).toContain('bottom: 12px')
     expect(card).toContain('border-radius: 22px')
     expect(card).toContain('box-shadow: 0 30px 95px')
     expect(danger).toContain('background: #8e4037')

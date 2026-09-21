@@ -1,3 +1,5 @@
+import { ensureInternalWindowDockRoot } from './internalWindow'
+
 export type DialogTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
 
 type DialogBaseOptions = {
@@ -64,13 +66,16 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
     const tone = options.tone || 'neutral'
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
     const backdrop = document.createElement('div')
-    backdrop.className = 'app-dialog-backdrop'
-    backdrop.dataset.chatgptOverlayBlocker = 'true'
+    backdrop.className = 'app-dialog-backdrop internal-window-layer'
+    backdrop.dataset.internalWindowState = 'open'
+
+    const shell = document.createElement('div')
+    shell.className = 'internal-window-shell'
 
     const card = document.createElement('section')
     card.className = `app-dialog-card tone-${tone}`
     card.setAttribute('role', tone === 'danger' || tone === 'warning' ? 'alertdialog' : 'dialog')
-    card.setAttribute('aria-modal', 'true')
+    card.setAttribute('aria-modal', 'false')
 
     dialogSequence += 1
     const titleId = `app-dialog-title-${dialogSequence}`
@@ -129,11 +134,13 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
 
     const actions = document.createElement('div')
     actions.className = 'app-dialog-actions'
+    const dockRoot = ensureInternalWindowDockRoot()
+    let dockItem: HTMLDivElement | undefined
 
     const cleanup = (result: boolean | string | undefined) => {
       document.removeEventListener('keydown', keydown)
+      dockItem?.remove()
       backdrop.remove()
-      document.documentElement.classList.remove('app-dialog-open')
       previousFocus?.focus()
       resolve(result)
     }
@@ -170,14 +177,67 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
     confirmButton.addEventListener('click', confirm)
     actions.append(confirmButton)
 
+    const controls = document.createElement('div')
+    controls.className = 'internal-window-controls'
+    controls.setAttribute('role', 'group')
+    controls.setAttribute('aria-label', `Controlos da janela ${options.title}`)
+
+    const minimizeButton = document.createElement('button')
+    minimizeButton.type = 'button'
+    minimizeButton.textContent = '−'
+    minimizeButton.title = 'Minimizar'
+    minimizeButton.setAttribute('aria-label', `Minimizar ${options.title}`)
+
+    const closeButton = document.createElement('button')
+    closeButton.type = 'button'
+    closeButton.textContent = '×'
+    closeButton.title = 'Fechar'
+    closeButton.setAttribute('aria-label', `Fechar ${options.title}`)
+    closeButton.addEventListener('click', cancel)
+
+    minimizeButton.addEventListener('click', () => {
+      backdrop.classList.add('is-minimized')
+      backdrop.dataset.internalWindowState = 'minimized'
+      backdrop.setAttribute('aria-hidden', 'true')
+      if (!dockRoot || dockItem) return
+      dockItem = document.createElement('div')
+      dockItem.className = 'internal-window-dock-item'
+      dockItem.dataset.internalWindowState = 'minimized'
+      const restoreButton = document.createElement('button')
+      restoreButton.type = 'button'
+      restoreButton.className = 'internal-window-dock-restore'
+      restoreButton.title = `Restaurar ${options.title}`
+      restoreButton.innerHTML = '<span aria-hidden="true">▣</span>'
+      const dockTitle = document.createElement('strong')
+      dockTitle.textContent = options.title
+      restoreButton.append(dockTitle)
+      restoreButton.addEventListener('click', () => {
+        dockItem?.remove()
+        dockItem = undefined
+        backdrop.classList.remove('is-minimized')
+        backdrop.dataset.internalWindowState = 'open'
+        backdrop.removeAttribute('aria-hidden')
+      })
+      const dockClose = document.createElement('button')
+      dockClose.type = 'button'
+      dockClose.className = 'internal-window-dock-close'
+      dockClose.textContent = '×'
+      dockClose.title = 'Fechar'
+      dockClose.setAttribute('aria-label', `Fechar ${options.title}`)
+      dockClose.addEventListener('click', cancel)
+      dockItem.append(restoreButton, dockClose)
+      dockRoot.append(dockItem)
+    })
+
     content.append(actions)
     card.append(icon, content)
-    backdrop.append(card)
+    controls.append(minimizeButton, closeButton)
+    shell.append(card, controls)
+    backdrop.append(shell)
     document.body.append(backdrop)
-    document.documentElement.classList.add('app-dialog-open')
 
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !backdrop.classList.contains('is-minimized')) {
         event.preventDefault()
         cancel()
         return
@@ -186,22 +246,9 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
         if (input instanceof HTMLTextAreaElement && !event.ctrlKey && !event.metaKey) return
         event.preventDefault()
         confirm()
-        return
       }
-      if (event.key !== 'Tab') return
-      const focusable = [...card.querySelectorAll<HTMLElement>('button,input,textarea,[tabindex]:not([tabindex="-1"])')]
-        .filter((element) => !element.hasAttribute('disabled'))
-      if (!focusable.length) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', keydown)
-
-    backdrop.addEventListener('mousedown', (event) => {
-      if (event.target === backdrop && options.kind !== 'notice') cancel()
-    })
 
     const focusInitial = () => {
       if (input) { input.focus(); input.select() }

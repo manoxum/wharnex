@@ -8,6 +8,7 @@ import { ArtifactPreview } from './ArtifactPreview'
 import { ArtifactViewerModal, type ArtifactViewerItem } from './ArtifactViewerModal'
 import { ChatAttachmentViewer } from './ChatAttachmentViewer'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 
 type Props = {
   session: Session
@@ -65,12 +66,6 @@ function ReferenceDetailModal({ session, directive, todo, onClose }: { session: 
     : []
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); onClose() } }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
-
-  useEffect(() => {
     let alive = true
     if (!inspectionRequest) { setInspection(undefined); setInspectionError(''); setLoading(false); return () => { alive = false } }
     setLoading(true); setInspection(undefined); setInspectionError('')
@@ -84,8 +79,8 @@ function ReferenceDetailModal({ session, directive, todo, onClose }: { session: 
   }, [inspectionRequest, session.id])
 
   const title = directiveChipLabel(directive)
-  const body = <div className="artifact-viewer-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className={`artifact-viewer composer-reference-viewer ${directive.kind}`} role="dialog" aria-modal="true" aria-label={`Visualizar referência @${directive.kind} ${title}`}>
+  const body = <InternalWindow title={`Referência ${title}`} onClose={onClose} layerClassName="artifact-viewer-backdrop">
+    <section className={`artifact-viewer composer-reference-viewer ${directive.kind}`} role="dialog" aria-modal="false" aria-label={`Visualizar referência @${directive.kind} ${title}`}>
       <header>
         <div className="artifact-viewer-heading">
           <span className="artifact-viewer-kind"><Icon name={directiveIcon(directive.kind)} size={16}/></span>
@@ -105,7 +100,7 @@ function ReferenceDetailModal({ session, directive, todo, onClose }: { session: 
         {!loading && !inspection && !inspectionError && !projectFile && !projectDirectoryEntries.length && directive.kind !== 'todo' ? <ReferenceUnavailable text={referenceFallback(directive)}/> : null}
       </div>
     </section>
-  </div>
+  </InternalWindow>
   return createPortal(body, document.body)
 }
 

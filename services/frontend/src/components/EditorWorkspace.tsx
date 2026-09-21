@@ -8,6 +8,7 @@ import { workspaceDragEndedOutside, type WorkspaceSurfaceTransferPoint } from '.
 import type { FileEntry, GitFileDiff, Session, TerminalRunInput, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 import { FileGlyph } from './FileGlyph'
 import { ArtifactPreview } from './ArtifactPreview'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
@@ -228,12 +229,12 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
         </> : <div className="editor-empty"><div className="empty-mark">&lt;/&gt;</div><h3>Abra um ficheiro no Explorador do projeto</h3><p>O Editor agora usa o explorador único do workbench. Abra a tool window Projeto numa das barras e escolha um ficheiro; as tabs preservam rascunhos, undo, pesquisa, folding e navegação por linha.</p></div>}
       </div>
     </div>
-    {gitDiff && <div className="diff-inspector-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}>
-      <section className="diff-inspector editor-git-diff">
+    {gitDiff && <InternalWindow title={`Diff de ${gitDiff.path}`} onClose={() => setGitDiff(undefined)} layerClassName="diff-inspector-backdrop">
+      <section className="diff-inspector editor-git-diff" role="dialog" aria-modal="false" aria-label={`Diff de ${gitDiff.path}`}>
         <header><div><strong>{gitDiff.path}</strong><span>{selected?.draft !== selected?.content ? 'O diff reflete o ficheiro guardado; guarde o rascunho para o incluir.' : gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Diferença do worktree em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff">×</button></header>
         {gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile} /> : <div className="editor-git-diff-empty"><Icon name="check" size={18}/><strong>Sem alterações Git neste ficheiro</strong><span>O conteúdo guardado coincide com HEAD ou o ficheiro ainda não faz parte de um diff rastreado.</span></div>}
       </section>
-    </div>}
+    </InternalWindow>}
   </section>
 }
 

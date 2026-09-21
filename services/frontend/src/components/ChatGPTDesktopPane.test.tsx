@@ -115,13 +115,17 @@ describe('ChatGPTDesktopPane', () => {
     expect(desktop.chatgpt.navigate).not.toHaveBeenCalled()
   })
 
-  it('automatically hides the native WebContentsView behind any modal dialog', async () => {
+  it('keeps ordinary dialogs non-blocking and hides only for explicit overlay blockers', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     render(<ChatGPTDesktopPane {...props} />)
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
     const dialog = document.createElement('section')
-    dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true')
+    dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'false')
     document.body.appendChild(dialog)
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    expect(desktop.chatgpt.hide).not.toHaveBeenCalled()
+
+    dialog.setAttribute('data-chatgpt-overlay-blocker', 'true')
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
     expect(await screen.findByText('ChatGPT preservado')).toBeTruthy()
     const before = vi.mocked(desktop.chatgpt.show).mock.calls.length

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppConfig, ChatChangeFile, ChatGPTActivity, HarnessEvent, Operation, Session } from '../types'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 import { StatusPill } from './StatusPill'
 import { riskLabel } from '../lib/risk'
 import { api } from '../lib/api'
@@ -467,7 +468,7 @@ function PlanPatchDiff({ sessionId, patch }: { sessionId: string; patch: string 
   const [selected, setSelected] = useState<ChatChangeFile>()
   const files = useMemo(() => planPatchFiles(patch), [patch])
   if (!files.length) return <span className="plan-diff-empty">Sem diff legível.</span>
-  return <><div className="plan-diff-files">{files.map((file) => <button type="button" key={file.path} className="plan-diff-file" onClick={() => setSelected(file)} title={`Comparar ${file.path}`}><span><Icon name="file" size={12}/><b>{file.path}</b></span><span className="plan-diff-stats"><em>+{file.additions}</em><i>−{file.deletions}</i><Icon name="chevron" size={10}/></span></button>)}</div>{selected && <div className="diff-inspector-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(undefined) }}><section className="diff-inspector" role="dialog" aria-modal="true" aria-label={`Diff de ${selected.path}`}><header><div><strong>{selected.path}</strong><span>+{selected.additions} −{selected.deletions}</span></div><button type="button" className="icon-button light" onClick={() => setSelected(undefined)} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header><ChangeDiffEditor sessionId={sessionId} file={selected}/></section></div>}</>
+  return <><div className="plan-diff-files">{files.map((file) => <button type="button" key={file.path} className="plan-diff-file" onClick={() => setSelected(file)} title={`Comparar ${file.path}`}><span><Icon name="file" size={12}/><b>{file.path}</b></span><span className="plan-diff-stats"><em>+{file.additions}</em><i>−{file.deletions}</i><Icon name="chevron" size={10}/></span></button>)}</div>{selected && <InternalWindow title={`Diff de ${selected.path}`} onClose={() => setSelected(undefined)} layerClassName="diff-inspector-backdrop"><section className="diff-inspector" role="dialog" aria-modal="false" aria-label={`Diff de ${selected.path}`}><header><div><strong>{selected.path}</strong><span>+{selected.additions} −{selected.deletions}</span></div><button type="button" className="icon-button light" onClick={() => setSelected(undefined)} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header><ChangeDiffEditor sessionId={sessionId} file={selected}/></section></InternalWindow>}</>
 }
 
 function IntegrationQueue({ session, conflictGuidance, onConflictGuidance, onResolveManually, onResolveWithGPT }: { session: Session; conflictGuidance: string; onConflictGuidance?: (value: string) => void; onResolveManually?: () => void; onResolveWithGPT?: () => void }) {

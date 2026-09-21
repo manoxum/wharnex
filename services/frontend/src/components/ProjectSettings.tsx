@@ -4,6 +4,7 @@ import { bytesToMiB, formatPatternLines, miBToBytes, parsePatternLines } from '.
 import type { BackendStorageUsage, ContextInspection, ProjectConfig, Session, TunnelProviderDocument } from '../types'
 import { ContextInspector, type ContextSelection } from './ContextInspector'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 import { desktopBridge, formatBytes } from '../lib/desktop'
 import { UI_ACCENT_REGISTRY, loadUIPreferences, saveUIPreferences, subscribeUIPreferences, type UIPreferences } from '../lib/uiPreferences'
 import { confirmDialog, noticeDialog } from '../lib/appDialog'
@@ -196,8 +197,8 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
     } catch (error) { onError(messageOf(error, 'Falha ao limpar todos os dados do Wharnex')); setStorageBusy(false) }
   }
 
-  return <div className="project-settings-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
-    <section className="project-settings-dialog context-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="project-settings-title">
+  return <InternalWindow title="Configurações" layerClassName="project-settings-backdrop" onClose={onClose}>
+    <section className="project-settings-dialog context-settings-dialog" role="dialog" aria-modal="false" aria-labelledby="project-settings-title">
       <header>
         <div className="settings-dialog-heading"><span className="settings-dialog-symbol"><Icon name="settings" size={18}/></span><div><span className="eyebrow">Preferências</span><h2 id="project-settings-title">Configurações</h2><p>Personalize o workbench e administre contexto, integrações e dados num espaço mais organizado.</p></div></div>
         <button className="icon-button" onClick={onClose} title="Fechar"><Icon name="close" size={16}/></button>
@@ -315,7 +316,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
       </div>
       <footer><span>{footerHint(activeSection)}</span><button className="secondary-button" onClick={onClose}>Fechar</button></footer>
     </section>
-  </div>
+  </InternalWindow>
 }
 
 function StorageMetric({ label, bytes }: { label: string; bytes: number }) { return <div className="storage-metric"><span>{label}</span><strong>{formatBytes(bytes)}</strong></div> }

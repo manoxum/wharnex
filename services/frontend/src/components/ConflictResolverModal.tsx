@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
+import { InternalWindow } from './InternalWindow'
 
 type Draft = { content: string; exists: boolean; resolved: boolean }
 
@@ -69,8 +70,8 @@ export function ConflictResolverModal({ session, busy, onClose, onSession, onDel
     finally { setSubmitting(false) }
   }
 
-  return <div className="diff-inspector-backdrop conflict-resolver-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !locked) onClose() }}>
-    <section className="conflict-resolver" role="dialog" aria-modal="true" aria-label="Resolução manual de conflito">
+  return <InternalWindow title="Resolução manual de conflito" layerClassName="diff-inspector-backdrop conflict-resolver-backdrop" onClose={onClose} closeDisabled={locked}>
+    <section className="conflict-resolver" role="dialog" aria-modal="false" aria-label="Resolução manual de conflito">
       <header className="conflict-resolver-header">
         <div><span className="panel-kicker">Merge manual</span><strong>Resolver conflito</strong><span>Local · Consolidação editável · Remota</span></div>
         <div><StatusPill tone={allResolved ? 'success' : 'warning'}>{resolvedCount}/{workbench?.files.length || 0} resolvido(s)</StatusPill><button className="icon-button light" disabled={locked} onClick={onClose} aria-label="Fechar resolução"><Icon name="close" size={14}/></button></div>
@@ -99,7 +100,7 @@ export function ConflictResolverModal({ session, busy, onClose, onSession, onDel
         <div><button className="text-button" disabled={locked} onClick={onClose}>Cancelar</button><button className="secondary-button" disabled={locked || !workbench || allResolved || resolvedCount === 0} onClick={() => void delegateRemaining()}><Icon name="chatgpt" size={14}/> Delegar restantes ao GPT</button><button className="apply-button" disabled={locked || !allResolved} onClick={() => void applyManual()}><Icon name="apply" size={14}/> Aplicar resolução manual</button></div>
       </footer>
     </section>
-  </div>
+  </InternalWindow>
 }
 
 function ConflictPane({ title, subtitle, actionLabel, onAccept, center = false, children }: { title: string; subtitle: string; actionLabel?: string; onAccept?: () => void; center?: boolean; children: ReactNode }) {

@@ -7926,3 +7926,130 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .project-task-plan-view,.project-task-terminal { min-width:0; max-height:420px; overflow:auto; border-top:1px solid var(--theme-border-soft); }
 .project-task-empty-detail { margin:0; color:var(--theme-text-muted); font-size:calc(7px * var(--ui-font-scale)); line-height:1.45; }
 .project-task-empty-detail.danger { color:var(--danger); }
+
+/* Internal non-blocking window system. Dialog surfaces stay mounted while minimized. */
+.internal-window-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10040;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  pointer-events: none;
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+.internal-window-layer.is-minimized { display: none; }
+
+.internal-window-shell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  pointer-events: auto;
+  filter: drop-shadow(0 22px 48px color-mix(in srgb, var(--theme-shadow) 46%, transparent));
+}
+.internal-window-controls {
+  position: absolute;
+  z-index: 8;
+  top: -11px;
+  right: -11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 86%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--theme-elevated) 96%, transparent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--theme-shadow) 52%, transparent);
+}
+.internal-window-controls button,
+.internal-window-dock-close {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--theme-text-soft);
+  cursor: pointer;
+}
+.internal-window-controls button:hover:not(:disabled),
+.internal-window-dock-close:hover:not(:disabled) { background: var(--theme-hover); color: var(--theme-text); }
+.internal-window-controls button:last-child:hover:not(:disabled),
+.internal-window-dock-close:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, var(--theme-surface)); color: var(--danger); }
+.internal-window-controls button:disabled,
+.internal-window-dock-close:disabled { opacity: .42; cursor: default; }
+.internal-window-shell > [role='dialog'] > header button[aria-label^='Fechar'],
+.internal-window-shell > [role='alertdialog'] > header button[aria-label^='Fechar'],
+.internal-window-shell > [role='dialog'] > header button[title='Fechar'],
+.internal-window-shell > [role='alertdialog'] > header button[title='Fechar'] { display: none; }
+.internal-window-dock {
+  position: fixed;
+  z-index: 10120;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 7px;
+  max-width: min(360px, calc(100vw - 24px));
+  pointer-events: none;
+}
+.internal-window-dock:empty { display: none; }
+.internal-window-dock-item {
+  min-width: 210px;
+  max-width: 340px;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-elevated) 97%, transparent);
+  color: var(--theme-text);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--theme-shadow) 55%, transparent);
+  pointer-events: auto;
+}
+.internal-window-dock-restore {
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.internal-window-dock-restore:hover { background: var(--theme-hover); }
+.internal-window-dock-restore > span { color: var(--theme-accent); font-size: calc(10px * var(--ui-font-scale)); }
+.internal-window-dock-restore > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(8.5px * var(--ui-font-scale)); }
+.internal-window-layer.app-dialog-backdrop,
+.internal-window-layer.project-link-backdrop,
+.internal-window-layer.composer-attachment-backdrop,
+.internal-window-layer.project-settings-backdrop,
+.internal-window-layer.diff-inspector-backdrop,
+.internal-window-layer.artifact-inspector-backdrop,
+.internal-window-layer.git-operation-backdrop,
+.internal-window-layer.bundle-explorer-backdrop,
+.internal-window-layer.restart-confirmation-backdrop,
+.internal-window-layer.archived-preview-backdrop,
+.internal-window-layer.git-diff-backdrop,
+.internal-window-layer.modal-backdrop,
+.internal-window-layer.artifact-viewer-backdrop { background: transparent !important; backdrop-filter: none !important; }
+@media (max-width: 720px) {
+  .internal-window-layer { padding: 14px; }
+  .internal-window-controls { top: 6px; right: 6px; }
+  .internal-window-shell > [role='dialog'] > header,
+  .internal-window-shell > [role='alertdialog'] > header { padding-right: 76px; }
+  .internal-window-dock { right: 8px; bottom: 8px; max-width: calc(100vw - 16px); }
+}
