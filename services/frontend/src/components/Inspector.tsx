@@ -20,8 +20,12 @@ import { sessionCanExecutePlan, sessionNeedsExecutionConsent } from '../lib/exec
 import { SignalCore } from './SignalCore'
 import { ChatArtifactLibrary } from './BundleExplorer'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
+import { collectPlanActivities, groupMainRequestActivity, mainRequestRoot, mergeAuditEvents, sessionForPlan } from '../lib/projectActivity'
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
+
+
+const EXECUTION_AUDIT_EVENT_TYPES = new Set(['execution.queued', 'execution.dequeued', 'execution.started', 'execution.completed', 'execution.failed', 'execution.duplicate_blocked', 'execution.recovery_discarded', 'execution.recovery_reconciled', 'automation.execution_failed', 'automation.execution_joined', 'automation.infrastructure_blocked', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'host.restore_started', 'host.restore_failed', 'host.restore_recovery_started', 'host.restored', 'self_evolution.host_build_started', 'self_evolution.host_build_output', 'self_evolution.host_build_completed', 'self_evolution.host_build_failed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'automation.approval_auto_granted', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready', 'baseline.peer_updated', 'baseline.continuation_ready', 'baseline.bundle_fast_forwarded', 'baseline.bundle_superseded', 'baseline.execution_fast_forwarded', 'baseline.candidate_reverified', 'baseline.apply_blocked', 'baseline.reverify_failed', 'changeset.base_restored', 'changeset.verified', 'changeset.replayed', 'changeset.integrated', 'bundle.incomplete_impact_files', 'integration.host_state_preserved', 'integration.host_state_uncaptured', 'integration.verification_started', 'integration.verification_completed', 'integration.verification_unsupported', 'integration.verification_baseline_unchanged', 'integration.verification_baseline_compare_failed', 'integration.race', 'self_evolution.transaction_aborted', 'conflict.prompt_ready', 'host_dependency_repair.started', 'host_dependency_repair.command_started', 'host_dependency_repair.command_completed', 'host_dependency_repair.completed', 'host_dependency_repair.failed', 'host_dependency_repair.reverify_failed'])
 
 export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onControlExecutionPlan, onPrepareExecutionPlanReversal, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
@@ -61,8 +65,35 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const [manualJSON, setManualJSON] = useState('')
   const [conflictResolverOpen, setConflictResolverOpen] = useState(false)
   const [conflictGuidance, setConflictGuidance] = useState('')
+  const [durableHistory, setDurableHistory] = useState<HarnessEvent[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const historySessionRef = useRef('')
+  const mainRequestHistoryKey = useMemo(() => {
+    const roots = new Set(Object.values(session.request_lineages || {}).map((lineage) => lineage.root_request_id).filter(Boolean))
+    return `${session.id}:${[...roots].sort().join('|')}`
+  }, [session.id, session.request_lineages])
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  const terminalEvents = useMemo(() => events.filter((e) => ['execution.queued', 'execution.dequeued', 'execution.started', 'execution.completed', 'execution.failed', 'execution.duplicate_blocked', 'execution.recovery_discarded', 'execution.recovery_reconciled', 'automation.execution_failed', 'automation.execution_joined', 'automation.infrastructure_blocked', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'host.restore_started', 'host.restore_failed', 'host.restore_recovery_started', 'host.restored', 'self_evolution.host_build_started', 'self_evolution.host_build_output', 'self_evolution.host_build_completed', 'self_evolution.host_build_failed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'automation.approval_auto_granted', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready', 'baseline.peer_updated', 'baseline.continuation_ready', 'baseline.bundle_fast_forwarded', 'baseline.bundle_superseded', 'baseline.execution_fast_forwarded', 'baseline.candidate_reverified', 'baseline.apply_blocked', 'baseline.reverify_failed', 'changeset.base_restored', 'changeset.verified', 'changeset.replayed', 'changeset.integrated', 'bundle.incomplete_impact_files', 'integration.host_state_preserved', 'integration.host_state_uncaptured', 'integration.verification_started', 'integration.verification_completed', 'integration.verification_unsupported', 'integration.verification_baseline_unchanged', 'integration.verification_baseline_compare_failed', 'integration.race', 'self_evolution.transaction_aborted', 'conflict.prompt_ready', 'host_dependency_repair.started', 'host_dependency_repair.command_started', 'host_dependency_repair.command_completed', 'host_dependency_repair.completed', 'host_dependency_repair.failed', 'host_dependency_repair.reverify_failed'].includes(e.type)), [events])
+  useEffect(() => {
+    if (selectedTab !== 'plan' && selectedTab !== 'terminal') return
+    if (historySessionRef.current === mainRequestHistoryKey) return
+    let cancelled = false
+    setHistoryLoading(true); setHistoryError('')
+    void api.eventHistory(session.id, true).then((result) => {
+      if (cancelled) return
+      setDurableHistory(result.events || [])
+      historySessionRef.current = mainRequestHistoryKey
+    }).catch((error) => {
+      if (!cancelled) setHistoryError(error instanceof Error ? error.message : 'Não foi possível carregar o histórico durável.')
+    }).finally(() => { if (!cancelled) setHistoryLoading(false) })
+    return () => { cancelled = true }
+  }, [mainRequestHistoryKey, selectedTab, session.id])
+  useEffect(() => {
+    if (historySessionRef.current.startsWith(`${session.id}:`)) return
+    setDurableHistory([]); setHistoryError('')
+  }, [session.id])
+  const auditEvents = useMemo(() => mergeAuditEvents(durableHistory, events), [durableHistory, events])
+  const terminalEvents = useMemo(() => auditEvents.filter((event) => EXECUTION_AUDIT_EVENT_TYPES.has(event.type)), [auditEvents])
   const canExecute = sessionCanExecutePlan(session)
   const needsApproval = sessionNeedsExecutionConsent(session)
   const direct = session.execution_mode === 'unprotected'
@@ -99,8 +130,8 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
 
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''} ${selectedTab === 'files' ? 'files-content' : ''}`}>
         {selectedTab === 'files' && <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
-        {selectedTab === 'plan' && <PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} onControlExecutionPlan={onControlExecutionPlan} onPrepareExecutionPlanReversal={onPrepareExecutionPlanReversal} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}
-        {selectedTab === 'terminal' && <TerminalView events={terminalEvents} />}
+        {selectedTab === 'plan' && <PlanHistorySurface session={session} chat={chat} events={auditEvents} loading={historyLoading} error={historyError} currentPlan={<PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} onControlExecutionPlan={onControlExecutionPlan} onPrepareExecutionPlanReversal={onPrepareExecutionPlanReversal} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}/>}
+        {selectedTab === 'terminal' && <ExecutionHistorySurface session={session} events={auditEvents} loading={historyLoading} error={historyError}/>}
         {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode !== 'manual' && !desktop && <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
         {desktop && <ChatGPTEnginePool
@@ -123,6 +154,72 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
     </section>
   )
 }
+
+
+function PlanHistorySurface({ session, chat, events, loading, error, currentPlan }: { session: Session; chat?: WorkspaceChat; events: HarnessEvent[]; loading: boolean; error: string; currentPlan: import('react').ReactNode }) {
+  const historyChat = useMemo<WorkspaceChat>(() => chat || ({ id: session.id, title: 'Chat atual', sessionId: session.id, createdAt: session.created_at, updatedAt: session.created_at }), [chat, session.created_at, session.id])
+  const items = useMemo(() => collectPlanActivities([{ chat: historyChat, session }], { [historyChat.id]: events }), [events, historyChat, session])
+  const groups = useMemo(() => {
+    const grouped = new Map<string, typeof items>()
+    for (const item of items) {
+      const root = mainRequestRoot(session, item.plan.request_id) || item.plan.request_id
+      const bucket = grouped.get(root) || []
+      bucket.push(item); grouped.set(root, bucket)
+    }
+    return [...grouped].map(([rootRequestId, plans]) => ({ rootRequestId, plans: plans.sort((a, b) => b.timestamp.localeCompare(a.timestamp)), updatedAt: plans[0]?.timestamp || '' })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }, [items, session])
+  if (!groups.length) return <>{loading && <AuditHistoryNotice text="A carregar histórico durável de planos…"/>}{error && <AuditHistoryNotice text={error} danger/>}{currentPlan}</>
+  return <div className="main-request-history">
+    <AuditHistoryNotice text={loading ? 'A atualizar o histórico durável de planos…' : `${groups.length} Main Request(s) com plano registado.`} danger={Boolean(error)}/>
+    {error && <AuditHistoryNotice text={error} danger/>}
+    {groups.map((group, index) => <PlanHistoryBlock key={group.rootRequestId} group={group} session={session} currentPlan={currentPlan} defaultOpen={index === 0}/>)}
+  </div>
+}
+
+function PlanHistoryBlock({ group, session, currentPlan, defaultOpen }: { group: { rootRequestId: string; plans: ReturnType<typeof collectPlanActivities>; updatedAt: string }; session: Session; currentPlan: import('react').ReactNode; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return <details className="main-request-block" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary><span><strong>Main Request</strong><small>{formatExecutionDate(group.updatedAt)} · {group.plans.length} {group.plans.length === 1 ? 'plano' : 'planos'}</small></span><code>{shortRequestId(group.rootRequestId)}</code></summary>
+    {open && <div className="main-request-plan-list">{group.plans.map((item, planIndex) => {
+      const current = item.plan.plan_id === session.plan?.plan_id
+      return <PlanHistoryLine key={item.id} label={`Plano ${String(group.plans.length - planIndex).padStart(2, '0')}`} itemLabel={item.label} timestamp={item.timestamp} planId={item.plan.plan_id} defaultOpen={current}>{current ? currentPlan : <PlanView session={sessionForPlan(item)} readOnly/>}</PlanHistoryLine>
+    })}</div>}
+  </details>
+}
+
+function PlanHistoryLine({ label, itemLabel, timestamp, planId, defaultOpen, children }: { label: string; itemLabel: string; timestamp: string; planId: string; defaultOpen: boolean; children: import('react').ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return <details className="main-request-plan-row" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary><span><strong>{label}</strong><small>{itemLabel} · {formatExecutionDate(timestamp)}</small></span><code>{planId}</code></summary>
+    {open && <div className="main-request-plan-detail">{children}</div>}
+  </details>
+}
+
+function ExecutionHistorySurface({ session, events, loading, error }: { session: Session; events: HarnessEvent[]; loading: boolean; error: string }) {
+  const groups = useMemo(() => groupMainRequestActivity(session, events).map((group) => ({ ...group, events: group.events.filter((event) => EXECUTION_AUDIT_EVENT_TYPES.has(event.type)) })).filter((group) => group.events.length), [events, session])
+  if (!groups.length) return <>{loading && <AuditHistoryNotice text="A carregar histórico durável de execução…"/>}{error && <AuditHistoryNotice text={error} danger/>}<TerminalView events={[]} /></>
+  return <div className="main-request-history execution-history">
+    <AuditHistoryNotice text={loading ? 'A atualizar o histórico durável de execução…' : `${groups.length} Main Request(s) com atividade de execução auditável.`} danger={Boolean(error)}/>
+    {error && <AuditHistoryNotice text={error} danger/>}
+    {groups.map((group, index) => <ExecutionHistoryBlock key={group.rootRequestId} group={group} defaultOpen={index === 0}/>) }
+  </div>
+}
+
+function ExecutionHistoryBlock({ group, defaultOpen }: { group: ReturnType<typeof groupMainRequestActivity>[number]; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const overview = useMemo(() => executionTimelineOverview(buildExecutionTimeline(group.events)), [group.events])
+  const status = overview === 'active' ? 'Em curso' : overview === 'failed' ? 'Falhou' : overview === 'recovered' ? 'Recuperada' : overview === 'success' ? 'Concluída' : 'Registada'
+  return <details className="main-request-block" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary><span><strong>Main Request · {status}</strong><small>{formatExecutionDate(group.updatedAt)} · {group.requestIds.length || 1} subrequest(s) · {group.events.length} eventos</small></span><code>{shortRequestId(group.rootRequestId)}</code></summary>
+    {open && <div className="main-request-execution-detail"><TerminalView events={group.events} compact/></div>}
+  </details>
+}
+
+function AuditHistoryNotice({ text, danger = false }: { text: string; danger?: boolean }) {
+  return <div className={`audit-history-notice${danger ? ' danger' : ''}`}><Icon name="history" size={13}/><span>{text}</span></div>
+}
+
+function shortRequestId(value: string) { return value ? value.replace(/^req_/, '').slice(0, 28) : 'sessão' }
 
 function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManualJSON, busy, copy, onManualPlan }: {
   config?: AppConfig
@@ -287,8 +384,9 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, bu
   </div>
 }
 
-export function PlanView({ session, busy = false, canExecute = false, needsApproval = false, canRejectPending = false, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onControlExecutionPlan, onPrepareExecutionPlanReversal, conflictGuidance = '', onConflictGuidance, onResolveManually, onResolveWithGPT }: {
+export function PlanView({ session, readOnly = false, busy = false, canExecute = false, needsApproval = false, canRejectPending = false, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onControlExecutionPlan, onPrepareExecutionPlanReversal, conflictGuidance = '', onConflictGuidance, onResolveManually, onResolveWithGPT }: {
   session: Session
+  readOnly?: boolean
   busy?: boolean
   canExecute?: boolean
   needsApproval?: boolean
@@ -308,7 +406,7 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
   const [manualNotice, setManualNotice] = useState('')
   const [manualBusy, setManualBusy] = useState(false)
   useEffect(() => { setManualNotice('') }, [session.plan?.plan_id])
-	const integration = <IntegrationQueue session={session} conflictGuidance={conflictGuidance} onConflictGuidance={onConflictGuidance} onResolveManually={onResolveManually} onResolveWithGPT={onResolveWithGPT} />
+	const integration = readOnly ? null : <IntegrationQueue session={session} conflictGuidance={conflictGuidance} onConflictGuidance={onConflictGuidance} onResolveManually={onResolveManually} onResolveWithGPT={onResolveWithGPT} />
 	if (!session.plan) return <>{integration}<Empty title="Nenhum plano ou passo local pendente" text="Perguntas podem ser respondidas sem plano. Quando uma mudança ou investigação local exigir execução, o passo validado aparecerá aqui." /></>
   const plan = session.plan
   const workflow = session.last_turn?.kind === 'workflow'
@@ -323,8 +421,8 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
   const pendingCount = session.pending_host_changes?.length || 0
   const planControl = session.plan_control?.plan_id === plan.plan_id ? session.plan_control.state : 'active'
   const hostApplied = Boolean(session.last_applied_changes?.some((change) => change.plan.plan_id === plan.plan_id))
-  const canControlAutoApprovedPlan = session.automation_mode === 'auto_approve' && session.execution_mode === 'protected' && !workflow && plan.status === 'ready' && !hostApplied
-  const canReverseAppliedPlan = session.execution_mode === 'protected' && hostApplied
+  const canControlAutoApprovedPlan = !readOnly && session.automation_mode === 'auto_approve' && session.execution_mode === 'protected' && !workflow && plan.status === 'ready' && !hostApplied
+  const canReverseAppliedPlan = !readOnly && session.execution_mode === 'protected' && hostApplied
 
   async function savePatchesToProject() {
     if (!manualPatches.length) return
@@ -350,7 +448,7 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
   const policyTone = session.policy ? (session.policy.allowed ? 'success' : 'danger') : 'neutral'
 	return <div className="plan-view">
 	{integration}
-    <div className="plan-control-surface">
+    {!readOnly && <div className="plan-control-surface">
       <div className="plan-control-primary">
         <div className="plan-control-copy"><span className="plan-control-mark"><Icon name="plan" size={15}/></span><div><span className="panel-kicker">Contrato de execução</span><strong>{canExecute ? 'Aguardando a sua decisão' : pendingCount ? 'Integração pendente de recuperação' : 'Plano registado'}</strong><span>{needsApproval ? 'Uma aprovação cobre a execução Protected e a integração automática no host; correções só voltam a pedir decisão quando introduzem novo impacto.' : pendingCount ? 'A aplicação ao host já foi autorizada pelo plano. Não existe uma segunda aprovação de Apply; apenas a recuperação do bloqueio pendente.' : 'Depois de uma execução Protected autorizada e verificada, a integração no host acontece sem uma segunda aprovação.'}</span></div></div>
         <div className="plan-decision-actions">
@@ -366,8 +464,8 @@ export function PlanView({ session, busy = false, canExecute = false, needsAppro
       </div>
       {canControlAutoApprovedPlan && <div className="plan-manual-tools"><div className="plan-manual-copy"><span className="plan-manual-mark"><Icon name="shield" size={13}/></span><div><span className="panel-kicker">Auto + Aprovar</span><strong>{planControl === 'active' ? 'Plano ativo antes do Apply' : planControl === 'paused' ? 'Plano pausado antes do Apply' : 'Plano suspenso antes do Apply'}</strong><small>O plano permanece legível e a integração no host respeita este controlo mesmo se a sandbox já estiver a executar.</small></div></div></div>}
       {manualPatches.length > 0 && <div className="plan-manual-tools"><div className="plan-manual-copy"><span className="plan-manual-mark"><Icon name="download" size={13}/></span><div><span className="panel-kicker">Fallback manual</span><strong>Aplicação alternativa dos patches</strong><small>Guarde uma cópia em /patches ou copie um lote com quoting seguro para executar manualmente na raiz do projeto.</small></div></div><div className="plan-manual-actions"><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void savePatchesToProject()}><Icon name="download" size={13}/> Descarregar patches</button><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void copyManualCommands()}><Icon name="copy" size={13}/> Copiar lote de comandos</button></div></div>}
-    </div>
-    {manualNotice && <p className="plan-manual-notice" role="status">{manualNotice}</p>}
+    </div>}
+    {!readOnly && manualNotice && <p className="plan-manual-notice" role="status">{manualNotice}</p>}
     <div className="section-heading plan-heading"><div><span className="panel-kicker">{plan.debug ? `Debug ${plan.debug.target} · ${session.workflow_round || 0}/6` : workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><h3>{plan.summary}</h3></div><StatusPill tone={policyTone}>{policyStatus}</StatusPill></div>
     {plan.debug && <div className="policy-box"><Icon name="terminal" size={17}/><div><strong>{plan.debug.protocol === 'harness.interactive/v2' ? `Interactive v2 · ${plan.debug.target} · ${plan.debug.access || 'observe'}` : plan.debug.target === 'host' && plan.debug.access === 'modify' ? 'Ação de debug no host' : `Probe de debug · ${plan.debug.target}`}</strong><span>{plan.debug.rationale}</span>{plan.debug.protocol === 'harness.interactive/v2' ? <><span>Capacidades: {(plan.debug.capabilities || []).join(', ') || 'nenhuma'}.</span><span>Escopo: {interactiveScopeSummary(plan.debug.scope)}</span><span>{plan.debug.access === 'modify' ? 'A autorização é one-shot e vinculada ao plano/digest; qualquer novo impacto exige nova decisão.' : 'A autorização fica limitada ao Main Request, target, capacidades e escopo apresentados.'}</span></> : <span>{plan.debug.target === 'host' && plan.debug.access === 'modify' ? 'Pode alterar o host somente após aprovação deste plano; patches continuam proibidos e rede/ferramentas seguem a Policy.' : 'Somente observação validada; sem patches, rede ou alterações no host.'}</span>}</div></div>}
     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
@@ -481,7 +579,7 @@ function IntegrationQueue({ session, conflictGuidance, onConflictGuidance, onRes
 	</section>
 }
 
-export function TerminalView({ events }: { events: HarnessEvent[] }) {
+export function TerminalView({ events, compact = false }: { events: HarnessEvent[]; compact?: boolean }) {
   const entries = useMemo(() => buildExecutionTimeline(events), [events])
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const endRef = useRef<HTMLDivElement>(null)
@@ -489,11 +587,11 @@ export function TerminalView({ events }: { events: HarnessEvent[] }) {
   useEffect(() => {
     const expandable = entries.filter((entry) => (entry.kind === 'command' || entry.kind === 'patch') && (entry.output || entry.rationale)).slice(-5)
     setExpanded(new Set(expandable.map((entry) => entry.id)))
-    endRef.current?.scrollIntoView?.({ block: 'end' })
+    if (!compact) endRef.current?.scrollIntoView?.({ block: 'end' })
     // This component mounts only while the Execução tab is active; the first
     // render intentionally expands only the five most recent output-bearing commands.
   }, [])
-  useEffect(() => { endRef.current?.scrollIntoView?.({ block: 'end' }) }, [events.length])
+  useEffect(() => { if (!compact) endRef.current?.scrollIntoView?.({ block: 'end' }) }, [compact, events.length])
 
   if (!events.length) return <Empty title="Execução limpa" text="Operações, verificações, aplicação no host, stdout e stderr aparecerão aqui em tempo real. O terminal interativo continua no modo Editor." />
   const overview = executionTimelineOverview(entries)
@@ -502,17 +600,17 @@ export function TerminalView({ events }: { events: HarnessEvent[] }) {
   const recovered = overview === 'recovered'
   const succeeded = overview === 'success'
   return <div className="execution-view">
-    <div className="execution-overview">
+    {!compact && <div className="execution-overview">
       <div><span className="panel-kicker">Execução observável</span><h3>{active ? 'Operação em curso' : failed ? 'Execução com falha' : recovered ? 'Execução recuperada' : succeeded ? 'Execução concluída' : 'Atividade de execução'}</h3><p>Cada comando é um único item: ao expandir, mostra o motivo e o propósito declarados pela IA, além de stdout, stderr, erros, data/hora e duração. A vista acompanha o fim enquanto esta aba estiver ativa.</p></div>
       <StatusPill tone={failed ? 'danger' : active ? 'warning' : 'success'}>{active ? 'LIVE' : failed ? 'Falhou' : recovered ? 'Recuperada' : succeeded ? 'Concluída' : 'Atualizada'}</StatusPill>
-    </div>
+    </div>}
     <div className="execution-timeline">
       {entries.map((entry, index) => {
         const canExpand = Boolean(entry.output || entry.rationale)
         const isExpanded = expanded.has(entry.id)
 		const previous = index > 0 ? entries[index - 1] : undefined
-		const showGroup = !previous || previous.rootRequestId !== entry.rootRequestId || previous.iterationKind !== entry.iterationKind
-        return <Fragment key={entry.id}>{showGroup && <div className={`execution-group-header kind-${entry.iterationKind}`}><strong>{executionKindLabel(entry.iterationKind)}</strong><a href={`#request-${entry.rootRequestId}`} title={entry.rootRequestId}>{entry.rootRequestId ? entry.rootRequestId.replace(/^req_/, '').slice(0, 22) : 'atividade da sessão'}</a></div>}<div className={`execution-command-card ${entry.running ? 'running' : ''}`}>
+		const showGroup = !previous || previous.requestId !== entry.requestId || previous.iterationKind !== entry.iterationKind
+        return <Fragment key={entry.id}>{showGroup && <div className={`execution-group-header kind-${entry.iterationKind}`}><strong>{executionKindLabel(entry.iterationKind)}</strong><a href={`#request-${entry.requestId || entry.rootRequestId}`} title={entry.requestId || entry.rootRequestId}>{entry.requestId ? entry.requestId.replace(/^req_/, '').slice(0, 22) : entry.rootRequestId ? entry.rootRequestId.replace(/^req_/, '').slice(0, 22) : 'atividade da sessão'}</a></div>}<div className={`execution-command-card ${entry.running ? 'running' : ''}`}>
           <div className="execution-event">
             <span className={`lamp ${entry.tone === 'fail' ? 'fail' : entry.tone === 'warning' ? 'warning' : ''} ${entry.running ? 'blinking' : ''}`} />
             <div className="execution-event-copy"><strong>{entry.title}</strong><span>{formatExecutionDate(entry.timestamp)}{entry.detail ? ` · ${entry.detail}` : ''}{entry.durationMs !== undefined ? ` · ${formatDuration(entry.durationMs)}` : ''}</span></div>

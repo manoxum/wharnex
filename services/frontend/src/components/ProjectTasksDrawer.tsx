@@ -7,6 +7,7 @@ import {
   collectPlanActivities,
   executionAuditEvents,
   executionEventsFromResult,
+  groupMainRequestActivity,
   loadProjectSessions,
   sessionForPlan,
   type ExecutionActivityItem,
@@ -140,7 +141,7 @@ function ProjectTaskDetail({ item, currentSession, activeChatId, activeEvents }:
     let cancelled = false
     if (!item.sessionId) { setLoading(false); return }
     setLoading(true); setHistoryError('')
-    void api.eventHistory(item.sessionId).then((result) => {
+    void api.eventHistory(item.sessionId, true).then((result) => {
       if (cancelled) return
       const merged = item.chatId === activeChatId && item.sessionId === currentSession.id ? mergeEvents(result.events || [], activeEvents) : (result.events || [])
       setHistory(merged)
@@ -154,12 +155,8 @@ function ProjectTaskDetail({ item, currentSession, activeChatId, activeEvents }:
   const executions = useMemo(() => !session ? [] : collectExecutionActivities([{ chat, session }], { [chat.id]: history }).filter((candidate) => rootForRequest(session, candidate.requestId) === item.rootRequestId || eventMatchesRoot(history, candidate.execution.plan_id, item.rootRequestId, session)), [chat, history, item.rootRequestId, session])
   const rootEvents = useMemo(() => {
     if (!session) return []
-    const planIds = new Set([
-      ...plans.map((candidate) => candidate.plan.plan_id),
-      ...executions.map((candidate) => candidate.execution.plan_id),
-    ])
-    return history.filter((event) => eventBelongsToRoot(event, item.rootRequestId, session) || planIds.has(String(event.data?.plan_id || '')))
-  }, [executions, history, item.rootRequestId, plans, session])
+    return groupMainRequestActivity(session, history).find((group) => group.rootRequestId === item.rootRequestId)?.events || []
+  }, [history, item.rootRequestId, session])
   const anchorTask = item.tasks.find((task) => task.type === 'AWAIT_RESPONSE' && (task.root_request_id || task.request_id) === item.rootRequestId) || item.tasks.find((task) => task.type === 'AWAIT_RESPONSE')
 
   return <div className="project-task-detail-grid">
@@ -172,7 +169,7 @@ function ProjectTaskDetail({ item, currentSession, activeChatId, activeEvents }:
 }
 
 function PlanHistory({ item }: { item: PlanActivityItem }) {
-  return <details><summary><span><b>{item.plan.summary || item.plan.plan_id}</b><small>{item.label} · {formatDate(item.timestamp)}</small></span><code>{item.plan.plan_id}</code></summary><div className="project-task-plan-view"><PlanView session={sessionForPlan(item)}/></div></details>
+  return <details><summary><span><b>{item.plan.summary || item.plan.plan_id}</b><small>{item.label} · {formatDate(item.timestamp)}</small></span><code>{item.plan.plan_id}</code></summary><div className="project-task-plan-view"><PlanView session={sessionForPlan(item)} readOnly/></div></details>
 }
 
 function ExecutionHistory({ item, events }: { item: ExecutionActivityItem; events: HarnessEvent[] }) {
