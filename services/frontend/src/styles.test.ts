@@ -765,7 +765,9 @@ describe('editor search palette CSS', () => {
     expect(palette).toContain('border-radius: 13px')
     expect(input).toContain('grid-template-columns: auto minmax(0, 1fr) auto')
     expect(options).toContain('white-space: nowrap')
-    expect(result).toContain('grid-template-columns: 18px minmax(0, 1fr)')
+    expect(result).toContain('grid-template-columns: 20px minmax(0, 1fr)')
+    expect(lastRule('.editor-search-input input')).toContain('font-size: calc(13px * var(--ui-font-scale))')
+    expect(lastRule(".editor-search-results > button[role='option'] strong")).toContain('font-size: calc(12.5px * var(--ui-font-scale))')
     expect(css).toContain(".editor-search-options button[aria-pressed='true']")
   })
 })
@@ -874,16 +876,46 @@ describe('editor explorer terminal visual consolidation', () => {
     expect(lastRule('.agent-tree-row')).toContain('border-left: 2px solid transparent')
     expect(lastRule('.agent-tree-row.selected-node')).toContain('border-left-color: var(--theme-accent)')
     expect(lastRule('.agent-tree-row.selected-node')).toContain('box-shadow: none')
-    expect(lastRule('.terminal-tabbar')).toContain('min-height: 30px')
+    expect(lastRule('.terminal-tabbar')).toContain('min-height: 34px')
     expect(lastRule('.terminal-tabs')).toContain('overflow-x: auto')
     expect(lastRule('.terminal-tabs')).toContain('scrollbar-width: none')
     expect(lastRule('.terminal-tab-shell.active')).toContain('box-shadow: inset 0 -2px var(--theme-accent)')
+  })
+
+  it('keeps terminal tab editing and actions aligned with desktop IDE chrome', () => {
+    expect(lastRule('.terminal-tabbar')).toContain('min-height: 34px')
+    expect(lastRule('.terminal-tab-action')).toContain('border-radius: 4px')
+    expect(lastRule('.terminal-tab-edit input')).toContain('height: 25px')
+    expect(lastRule('.terminal-tab-edit input')).toContain('font: 500 calc(11px * var(--ui-font-scale))/1 var(--ui-font-family)')
   })
 
   it('keeps native code and terminal canvases on the same restrained dark surface', () => {
     expect(terminalSource).toContain("background: '#151715'")
     expect(css).toContain('.monaco-editor-host {\n  border: 0;\n  background: #151715;')
     expect(css).toContain('.ide-terminal {\n  border: 0;\n  background: #151715;')
+  })
+})
+
+describe('operational surface visual hierarchy', () => {
+  it('flattens library, execution errors and evidence into quiet IDE lists', () => {
+    expect(lastRule('.file-library-card')).toContain('border-radius: 4px')
+    expect(lastRule('.file-library-card')).toContain('box-shadow: none')
+    expect(lastRule('.execution-errors-summary > span')).toContain('border-radius: 0')
+    expect(lastRule('.execution-errors-list > button')).toContain('border-radius: 0')
+    expect(lastRule('.evidence-metric')).toContain('border-radius: 0')
+    expect(lastRule('.evolution-event-list article')).toContain('border-radius: 0')
+  })
+})
+
+describe('execution queue visual hierarchy', () => {
+  it('keeps FIFO entries flat with a semantic state rail', () => {
+    const list = lastRule('.execution-queue-list')
+    const card = lastRule('.execution-queue-card')
+
+    expect(list).toContain('gap: 0')
+    expect(card).toContain('background: transparent')
+    expect(card).toContain('border-radius: 0')
+    expect(card).toContain('box-shadow: inset 2px 0 var(--queue-tone)')
   })
 })
 

@@ -93,7 +93,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
   return <section className={`terminal-workspace ${fill ? 'terminal-workspace-fill' : ''} ${visible ? '' : 'terminal-workspace-hidden'}`} style={{ height: fill ? '100%' : height }} aria-hidden={!visible}>
     <div className="terminal-tabbar">
       <div className="terminal-tabs" role="tablist" aria-label="Instâncias do terminal">
-        {tabs.map((tab) => <div className={`terminal-tab-shell ${tab.id === activeID ? 'active' : ''}`} key={tab.id} draggable={Boolean(onDetachTerminal)} onDragEnd={(event) => { if (onDetachTerminal && workspaceDragEndedOutside(event)) onDetachTerminal() }}>
+        {tabs.map((tab) => <div className={`terminal-tab-shell ${tab.id === activeID ? 'active' : ''}`} data-renaming={editingID === tab.id ? 'true' : undefined} key={tab.id} draggable={Boolean(onDetachTerminal)} onDragEnd={(event) => { if (onDetachTerminal && workspaceDragEndedOutside(event)) onDetachTerminal() }}>
           {editingID === tab.id ? <div className="terminal-tab-edit">
             <Icon name="terminal" size={11}/>
             <input
@@ -117,16 +117,16 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
             title={`${tab.label} · duplo clique para renomear`}
           >
             <span className={`terminal-tab-status terminal-status-${tab.status}`} aria-hidden="true"/>
-            <Icon name="terminal" size={11}/><span>{tab.label}</span>
+            <Icon name="terminal" size={12}/><span className="terminal-tab-title">{tab.label}</span>
           </button>}
-          {editingID !== tab.id && <button type="button" className="terminal-tab-action terminal-tab-rename" title={`Renomear ${tab.label}`} aria-label={`Renomear ${tab.label}`} onClick={() => beginRename(tab)}><Icon name="rename" size={10}/></button>}
-          <button type="button" className="terminal-tab-action terminal-tab-close" title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={() => closeTerminal(tab.id)}>×</button>
+          {editingID !== tab.id && <button type="button" className="terminal-tab-action terminal-tab-rename" title={`Renomear ${tab.label}`} aria-label={`Renomear ${tab.label}`} onClick={() => beginRename(tab)}><Icon name="rename" size={11}/></button>}
+          <button type="button" className="terminal-tab-action terminal-tab-close" title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={() => closeTerminal(tab.id)}><Icon name="close" size={11}/></button>
         </div>)}
       </div>
       <div className="terminal-surface-actions">
         {activeTab && <span className={`terminal-active-status terminal-status-${activeTab.status}`} title={`Estado: ${statusLabel(activeTab.status)}`}><i/>{statusLabel(activeTab.status)}</span>}
         <button type="button" className="terminal-toolbar-action" onClick={reconnectActive} title="Reconectar terminal" aria-label="Reconectar terminal"><Icon name="refresh" size={13}/></button>
-        <button type="button" className="terminal-toolbar-action" title="Aumentar/reduzir terminal" aria-label="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}>↕</button>
+        <button type="button" className="terminal-toolbar-action" title="Aumentar/reduzir terminal" aria-label="Aumentar/reduzir terminal" onClick={() => onHeight(height < 320 ? 390 : 245)}><Icon name="collapse" size={13}/></button>
         {onSplitTerminal && <div className="surface-layout-actions" role="group" aria-label="Dividir terminal"><button type="button" onClick={() => onSplitTerminal('vertical')} title="Dividir terminal verticalmente" aria-label="Dividir terminal verticalmente"><Icon name="arrow-right" size={13}/></button><button type="button" onClick={() => onSplitTerminal('horizontal')} title="Dividir terminal horizontalmente" aria-label="Dividir terminal horizontalmente"><Icon name="arrow-down" size={13}/></button></div>}
         {onDetachTerminal && <button type="button" className="surface-detach-action" onClick={onDetachTerminal} title="Abrir terminal numa janela independente" aria-label="Abrir terminal numa janela independente"><Icon name="external" size={13}/></button>}
         <button type="button" className="terminal-add-tab" onClick={addTerminal} title="Nova instância de terminal" aria-label="Nova instância de terminal"><Icon name="plus" size={12}/></button>
