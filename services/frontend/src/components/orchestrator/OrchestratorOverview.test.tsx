@@ -133,4 +133,42 @@ describe('OrchestratorOverview planning queue', () => {
     }))
     expect(onProposal).toHaveBeenCalledWith(proposal)
   })
+
+  it('offers reject and revise decisions for a proposed plan', async () => {
+    const overview = {
+      plans: [{ id: 'opl-draft', project_path: session.project_path, title: 'Draft plan', objective: 'Ship safely', status: 'DRAFT', planner_request_id: 'orp-old', created_at: '2026-09-12T15:00:00.000Z', updated_at: '2026-09-12T15:00:00.000Z' }],
+      tasks: [{ id: 'otk-1', project_path: session.project_path, plan_id: 'opl-draft', title: 'Backend', status: 'PENDING', condition: 'plan_approval', priority: 'normal', parallelizable: false, created_at: '2026-09-12T15:00:00.000Z', updated_at: '2026-09-12T15:00:00.000Z' }],
+      planning_requests: [], mutation_slots: 1, mutation_slots_used: 0,
+    } satisfies OverviewData
+    const reject = vi.spyOn(api, 'rejectOrchestratorPlan').mockResolvedValue({ ...overview, plans: [{ ...overview.plans[0], status: 'ARCHIVED' }], tasks: [{ ...overview.tasks[0], status: 'ARCHIVED', condition: 'none' }] })
+    const revised = { request_id: 'orp-revised', worker_task_id: 'cat-revised', delivery_status: 'PENDING' }
+    const revise = vi.spyOn(api, 'reviseOrchestratorPlan').mockResolvedValue(revised)
+    const onProposal = vi.fn()
+
+    const view = render(<OrchestratorOverview
+      session={session}
+      overview={overview}
+      chatProps={chatProps()}
+      busy={false}
+      onProposal={onProposal}
+      onRun={runAction}
+      onOpenTasks={vi.fn()}
+      onSelectTask={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recusar' }))
+    await waitFor(() => expect(reject).toHaveBeenCalledWith(session.id, 'opl-draft'))
+    expect(onProposal).toHaveBeenCalledWith(undefined)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pedir alteração' }))
+    const input = await screen.findByLabelText('Alteração pretendida')
+    fireEvent.change(input, { target: { value: 'Adicionar rollback antes do cutover' } })
+    const revisionButtons = screen.getAllByRole('button', { name: 'Pedir alteração' })
+    fireEvent.click(revisionButtons[revisionButtons.length - 1])
+    await waitFor(() => expect(revise).toHaveBeenCalledWith(session.id, 'opl-draft', 'Adicionar rollback antes do cutover'))
+    expect(onProposal).toHaveBeenCalledWith(revised)
+
+    view.unmount()
+  })
+
 })

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { splitPatchByFile } from '../lib/changeSummary'
+import type { ChatChangeFile } from '../types'
 import { Icon } from './Icon'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
 
-export function GitDiffReview({ sessionId, diff, emptyText }: { sessionId: string; diff?: string; emptyText: string }) {
-  const files = useMemo(() => splitPatchByFile(diff || ''), [diff])
+export function GitDiffReview({ sessionId, diff, files: providedFiles, emptyText }: { sessionId: string; diff?: string; files?: ChatChangeFile[]; emptyText: string }) {
+  const parsedFiles = useMemo(() => splitPatchByFile(diff || ''), [diff])
+  const files = providedFiles ?? parsedFiles
   const [selectedPath, setSelectedPath] = useState('')
 
   useEffect(() => {
@@ -18,7 +20,7 @@ export function GitDiffReview({ sessionId, diff, emptyText }: { sessionId: strin
 
   return <div className={`git-diff-review ${singleFile ? 'single-file' : ''}`}>
     {!singleFile && <aside className="git-diff-review-files" aria-label="Ficheiros alterados">
-      {files.map((file) => <button key={file.path} type="button" className={file.path === selected.path ? 'active' : ''} onClick={() => setSelectedPath(file.path)}>
+      {files.map((file) => <button key={file.path} type="button" className={file.path === selected.path ? 'active' : ''} aria-label={file.path} title={file.path} onClick={() => setSelectedPath(file.path)}>
         <Icon name="file" size={12}/>
         <span title={file.path}>{file.path}</span>
         <small><b>+{file.additions}</b><i>−{file.deletions}</i></small>

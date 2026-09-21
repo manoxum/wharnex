@@ -311,6 +311,66 @@ func (a *API) recordChatAgentValidBundle(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, state)
 }
 
+// recordChatAgentTaskEvent durably appends one decision to a task's ledger
+// (recovery reload, keep-continue wake-up, bundle validated/rejected, manual/
+// automatic re-request, human escalation, ...). Desktop calls this
+// best-effort: a failure here never blocks the automation itself, only the
+// observability trail for it.
+func (a *API) recordChatAgentTaskEvent(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Type          string         `json:"type"`
+		RequestID     string         `json:"request_id"`
+		RootRequestID string         `json:"root_request_id"`
+		SessionID     string         `json:"session_id"`
+		ChatID        string         `json:"chat_id"`
+		ProjectID     string         `json:"project_id"`
+		Data          map[string]any `json:"data"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	saved, err := a.store.AppendChatAgentTaskEvent(session.ChatAgentTaskEvent{
+		TaskID: r.PathValue("id"), Type: body.Type, RequestID: body.RequestID, RootRequestID: body.RootRequestID,
+		SessionID: body.SessionID, ChatID: body.ChatID, ProjectID: body.ProjectID, Data: body.Data,
+	})
+	if err != nil {
+		writeChatAgentTaskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
+}
+
+func (a *API) listChatAgentTaskEventsByTask(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	items, err := a.store.ListChatAgentTaskEvents(session.ChatAgentTaskEventFilter{TaskID: r.PathValue("id"), Limit: limit})
+	if err != nil {
+		writeChatAgentTaskError(w, err)
+		return
+	}
+	if items == nil {
+		items = []session.ChatAgentTaskEvent{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": items})
+}
+
+// listChatAgentTaskEventsByRequest correlates every task a single Main
+// Request touched (e.g. the initial AWAIT_RESPONSE plus a later
+// RECOVERY_WRITE) by root_request_id/request_id instead of one task id.
+func (a *API) listChatAgentTaskEventsByRequest(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	items, err := a.store.ListChatAgentTaskEvents(session.ChatAgentTaskEventFilter{
+		RequestID: r.URL.Query().Get("request_id"), RootRequestID: r.URL.Query().Get("root_request_id"), Limit: limit,
+	})
+	if err != nil {
+		writeChatAgentTaskError(w, err)
+		return
+	}
+	if items == nil {
+		items = []session.ChatAgentTaskEvent{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": items})
+}
+
 func writeChatAgentTaskError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, session.ErrChatAgentTaskNotFound):

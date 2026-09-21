@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { ActivationImpact, ChatChangeSummary } from '../types'
-import { ChangeDiffEditor } from './ChangeDiffEditor'
+import { GitDiffReview } from './GitDiffReview'
 import { Icon } from './Icon'
 
 type RestartConfirmationProps = {
@@ -14,16 +14,8 @@ type RestartConfirmationProps = {
 
 const impactLabels: Record<ActivationImpact, string> = { backend: 'Backend', frontend: 'Frontend', desktop: 'Desktop', tunnel: 'Túnel' }
 
-function pathParts(path: string) {
-  const parts = path.split('/')
-  const name = parts.pop() || path
-  return { name, directory: parts.join('/') }
-}
-
 export function RestartConfirmation({ sessionId, change, impacts, busy, onLater, onActivate }: RestartConfirmationProps) {
   const files = change?.files ?? []
-  const [selectedPath, setSelectedPath] = useState(files[0]?.path || '')
-  const selected = files.find((file) => file.path === selectedPath) || files[0]
   const totals = useMemo(() => files.reduce((current, file) => ({
     additions: current.additions + file.additions,
     deletions: current.deletions + file.deletions,
@@ -72,24 +64,7 @@ export function RestartConfirmation({ sessionId, change, impacts, busy, onLater,
           </div>
           <span className="restart-confirmation-total"><b>{files.length}</b> ficheiro(s)<i>+{totals.additions}</i><em>−{totals.deletions}</em></span>
         </header>
-        {selected ? <div className="restart-confirmation-diff-layout">
-          <nav className="restart-confirmation-files" aria-label="Ficheiros alterados">
-            {files.map((file) => {
-              const label = pathParts(file.path)
-              return <button key={file.path} type="button" className={file.path === selected.path ? 'active' : ''} aria-label={file.path} title={file.path} onClick={() => setSelectedPath(file.path)}>
-                <span className="restart-confirmation-file-copy"><strong>{label.name}</strong>{label.directory && <small>{label.directory}</small>}</span>
-                <span className="restart-confirmation-file-stats"><b>+{file.additions}</b><i>−{file.deletions}</i></span>
-              </button>
-            })}
-          </nav>
-          <div className="restart-confirmation-diff-view">
-            <div className="restart-confirmation-diff-heading">
-              <code>{selected.path}</code>
-              <span><b>+{selected.additions}</b><i>−{selected.deletions}</i></span>
-            </div>
-            <ChangeDiffEditor sessionId={sessionId} file={selected}/>
-          </div>
-        </div> : <div className="restart-confirmation-empty-diff">Nenhum diff de ficheiro foi registado para esta ativação.</div>}
+        <GitDiffReview sessionId={sessionId} files={files} emptyText="Nenhum diff de ficheiro foi registado para esta ativação."/>
       </section>
 
       <footer className="restart-confirmation-actions restart-scope-actions">

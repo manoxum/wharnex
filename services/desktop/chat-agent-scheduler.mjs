@@ -103,6 +103,40 @@ export class ChatAgentSchedulerClient {
     return queued
   }
 
+  // A Main Request's only durable trace is the task this enqueues (see
+  // AGENTS.md §8: Supervisor-owned types share the same table as Worker
+  // types). Swallowing a transient failure here left requests with zero
+  // record at all, so this retries a bounded number of times and then
+  // surfaces the failure to the caller instead of continuing untracked.
+  async enqueueWithRetry(task, { attempts = 3, baseMs = 500 } = {}) {
+    let lastError
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        return await this.enqueue(task)
+      } catch (error) {
+        lastError = error
+        if (attempt < attempts) await wait(chatAgentBackoff(attempt, { baseMs, maxMs: 5_000 }))
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError))
+  }
+
+  // Durably records one decision against a task's own lifecycle (recovery
+  // reload, keep-continue wake-up, bundle validated/rejected, human
+  // escalation, ...). Best-effort by design: a failure here must never fail
+  // the caller's own automation, only the observability trail describing it.
+  async recordTaskEvent(taskId, type, data = {}, { requestId = '', rootRequestId = '' } = {}) {
+    if (!taskId || !type) return undefined
+    try {
+      return await requestJSON(this.fetchImpl, this.baseURL, `/api/chat-agent/tasks/${encodeURIComponent(taskId)}/events`, {
+        method: 'POST', body: JSON.stringify({ type, data, request_id: requestId, root_request_id: rootRequestId }),
+      })
+    } catch (error) {
+      console.warn(`[chat-agent] recordTaskEvent failed task=${taskId} type=${type} error=${error instanceof Error ? error.message : error}`)
+      return undefined
+    }
+  }
+
   async list(query = {}) {
     const target = new URL('/api/chat-agent/tasks', this.baseURL)
     for (const [key, value] of Object.entries(query)) if (value !== '' && value != null) target.searchParams.set(key, String(value))

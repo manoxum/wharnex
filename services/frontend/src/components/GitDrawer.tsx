@@ -3,12 +3,15 @@ import { createPortal } from 'react-dom'
 import type { GitAuthorSettings, GitBranch, GitCommitDetail, GitCommitMode, GitConflictStrategy, GitFileDiff, GitOverview, GitPendingCommit, Session } from '../types'
 import { api, APIError } from '../lib/api'
 import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
+import { announceGitChanged, subscribeGitLiveSync } from '../lib/gitLiveSync'
+import { confirmDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
 import { GitOperationModal, type GitOperation } from './GitOperationModal'
+import { GitContributorsSection } from './GitContributorsSection'
 
-type GitTab = 'changes' | 'history' | 'branches' | 'settings'
+type GitTab = 'changes' | 'history' | 'contributors' | 'branches' | 'settings'
 type GitChangesTab = 'working' | 'pending'
 
 export function GitDrawer({ session, busy, onClose, onError, onSession, onResolveConflictWithGPT }: {
@@ -61,6 +64,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { void refresh() }, [session.last_host_applied_at, session.state, refresh])
+  useEffect(() => subscribeGitLiveSync(session.id, () => { void refresh() }), [session.id, refresh])
   useEffect(() => {
     if (!overview) return
     const committable = new Set(overview.working.files.filter((file) => file.kind === 'change' || file.kind === 'gitlink').map((file) => file.path))
@@ -79,6 +83,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     try {
       await action()
       await refresh()
+      announceGitChanged(session.id)
       if (syncSession && onSession) onSession(await api.getSession(session.id))
     } catch (error) {
       report(error)
@@ -99,20 +104,33 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
       phase = 'refreshing'
       setOperation({ title, detail, phase })
       await loadOverview()
+      announceGitChanged(session.id)
       if (syncSession && onSession) onSession(await api.getSession(session.id))
       setNotice(actionMessage)
       setOperation({ title, detail, phase: 'success', message: actionMessage })
+      return true
     } catch (error) {
       const cause = error instanceof APIError ? error.message : error instanceof Error ? error.message : String(error)
       const message = phase === 'refreshing' && actionMessage ? `${actionMessage} Não foi possível atualizar o painel: ${cause}` : cause
       report(error)
       setOperation({ title, detail, phase: 'error', message, failedPhase: phase })
+      return false
     } finally {
       setWorking(false)
     }
   }
 
   const disabled = busy || working || loading
+
+  async function copyGitText(value: string, success: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setNoticeError(false)
+      setNotice(success)
+    } catch (error) {
+      report(error)
+    }
+  }
 
   async function conflictMessage(conflictID: string | undefined, context: string) {
     if (!conflictID) return context
@@ -214,30 +232,36 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
           />}
           {activeChangesTab === 'pending' && <GitUnpushedSection
             sessionId={session.id} activeBranch={current} remotes={overview.remotes} disabled={disabled}
-            onFullPush={(remote, branch, setUpstream) => runGitOperation(
-              'A publicar alterações',
-              `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
-              async () => {
-                const result = await api.gitPush(session.id, remote, branch, setUpstream)
-                return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
-              },
-              true,
-            )}
-            onSelectedPush={(commitSHAs) => runGitOperation(
-              'A publicar commits selecionados',
-              `A enviar ${commitSHAs.length} commit(s) para o upstream da branch atual.`,
-              async () => {
-                const result = await api.gitPushSelected(session.id, commitSHAs)
-                return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
-              },
-            )}
+            onFullPush={async (remote, branch, setUpstream) => {
+              await runGitOperation(
+                'A publicar alterações',
+                `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
+                async () => {
+                  const result = await api.gitPush(session.id, remote, branch, setUpstream)
+                  return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
+                },
+                true,
+              )
+            }}
+            onSelectedPush={async (commitSHAs) => {
+              await runGitOperation(
+                'A publicar commits selecionados',
+                `A enviar ${commitSHAs.length} commit(s) para o upstream da branch atual.`,
+                async () => {
+                  const result = await api.gitPushSelected(session.id, commitSHAs)
+                  return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
+                },
+              )
+            }}
           />}
         </>}
         {activeTab === 'history' && <HistorySection sessionId={session.id} branches={overview.branches}/>}
+        {activeTab === 'contributors' && <GitContributorsSection sessionId={session.id}/>}
         {activeTab === 'branches' && <BranchSection
           sessionId={session.id}
           current={current?.name || overview.current_branch} detached={overview.detached}
           localBranches={localBranches} remoteBranches={remoteBranches} remotes={overview.remotes}
+          projectVersion={overview.project_version || ''} tags={overview.tags || []}
           disabled={disabled} mergeRef={mergeRef} onMergeRefChange={setMergeRef}
           remoteMergeTarget={remoteMergeTarget} remoteMergeSources={remoteMergeSources}
           onRemoteMergeTargetChange={setRemoteMergeTarget} onRemoteMergeSourcesChange={setRemoteMergeSources}
@@ -283,6 +307,26 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             await api.gitSwitch(session.id, branch)
             setNotice(`Branch alterada para ${branch}.`)
           }, true)}
+          onCreateBranch={(branch, startPoint) => run(async () => {
+            await api.gitCreateBranch(session.id, branch, startPoint)
+            setNotice(`Branch ${branch} criada a partir de ${startPoint || 'HEAD'}.`)
+          })}
+          onDeleteBranch={(branch) => void (async () => {
+            const confirmed = await confirmDialog({ title: `Remover branch ${branch}?`, message: 'Branches locais usam remoção segura sem força; branches remotas são removidas do remoto selecionado sem force push.', tone: 'danger', confirmLabel: 'Remover branch' })
+            if (!confirmed) return
+            await run(async () => { await api.gitDeleteBranch(session.id, branch); setNotice(`Branch ${branch} removida.`) })
+          })()}
+          onCopyBranch={(branch) => void copyGitText(branch, `Nome da branch ${branch} copiado.`)}
+          onCopyTag={(tag) => void copyGitText(tag, `Tag ${tag} copiada.`)}
+          onGenerateReleaseNotes={async (branch) => (await api.gitGenerateReleaseNotes(session.id, branch)).body}
+          onCreateRelease={(input) => runGitOperation(
+            'A publicar release',
+            `A criar ${releaseTagName(overview.project_version || '', input.tag_suffix)} a partir de ${input.branch} e a publicar a release no remoto dessa branch.`,
+            async () => {
+              const result = await api.gitCreateRelease(session.id, input)
+              return `Release ${result.tag} publicada${result.release_url ? ` · ${result.release_url}` : ''}.`
+            },
+          )}
           onPush={(remote, branch, setUpstream) => runGitOperation(
             'A publicar alterações',
             `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
@@ -295,6 +339,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
         />}
         {activeTab === 'settings' && <>
           <RepositorySettings overview={overview} disabled={disabled}
+            onCopyRemote={(name, url) => void copyGitText(url, `URL de ${name} copiada.`)}
             onChange={(mode) => run(async () => { await api.setGitCommitMode(session.id, mode) })}
             onConflictStrategy={(strategy) => run(async () => { await api.setGitConflictStrategy(session.id, strategy) })}
             onAuthorSettings={(settings) => run(async () => { await api.setGitAuthorSettings(session.id, settings) })}
@@ -319,7 +364,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
 }
 
 function gitTabLabel(tab: GitTab) {
-  return ({ changes: 'Alterações', history: 'Histórico', branches: 'Branches', settings: 'Definições' } as const)[tab]
+  return ({ changes: 'Alterações', history: 'Histórico', contributors: 'Contribuidores', branches: 'Branches', settings: 'Definições' } as const)[tab]
 }
 
 function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (tab: GitTab) => void; overview: GitOverview }) {
@@ -329,15 +374,16 @@ function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (ta
     ? current.ahead
     : overview.commits.filter((commit) => !commit.pushed).length
   const changes = localChanges + unpublished
-  const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'bridge' | 'settings'; count?: number }> = [
+  const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'agent' | 'bridge' | 'settings'; count?: number }> = [
     { id: 'changes', icon: 'edit', count: changes },
     { id: 'history', icon: 'git', count: overview.commits.length },
+    { id: 'contributors', icon: 'agent' },
     { id: 'branches', icon: 'bridge', count: overview.branches.length },
     { id: 'settings', icon: 'settings' },
   ]
   return <nav className="git-tabs" role="tablist" aria-label="Secções do Git">
-    {tabs.map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={active === tab.id} className={active === tab.id ? 'active' : ''} onClick={() => onChange(tab.id)}>
-      <Icon name={tab.icon} size={13}/><span>{gitTabLabel(tab.id)}</span>{typeof tab.count === 'number' && <span className="git-tab-count">{tab.count}</span>}
+    {tabs.map((tab) => <button key={tab.id} type="button" role="tab" title={gitTabLabel(tab.id)} aria-selected={active === tab.id} className={active === tab.id ? 'active' : ''} onClick={() => onChange(tab.id)}>
+      <Icon name={tab.icon} size={13}/><span className="semantic-tab-label">{gitTabLabel(tab.id)}</span>{typeof tab.count === 'number' && <span className="git-tab-count">{tab.count}</span>}
     </button>)}
   </nav>
 }
@@ -347,10 +393,10 @@ function ChangesTabs({ active, workingCount, pendingCount, onChange }: {
 }) {
   return <nav className="git-changes-tabs" role="tablist" aria-label="Tipos de alterações locais">
     <button type="button" role="tab" aria-selected={active === 'working'} className={active === 'working' ? 'active' : ''} onClick={() => onChange('working')}>
-      <Icon name="edit" size={12}/><span>Alterações pendentes</span><span className="git-tab-count">{workingCount}</span>
+      <Icon name="edit" size={12}/><span className="semantic-tab-label">Alterações pendentes</span><span className="git-tab-count">{workingCount}</span>
     </button>
     <button type="button" role="tab" aria-selected={active === 'pending'} className={active === 'pending' ? 'active' : ''} onClick={() => onChange('pending')}>
-      <Icon name="clipboard" size={12}/><span>Commits pendentes</span><span className="git-tab-count">{pendingCount}</span>
+      <Icon name="clipboard" size={12}/><span className="semantic-tab-label">Commits pendentes</span><span className="git-tab-count">{pendingCount}</span>
     </button>
   </nav>
 }
@@ -411,10 +457,11 @@ function pushMessage(outcome: string, integrated?: boolean, conflictID?: string)
   }
 }
 
-function RepositorySettings({ overview, disabled, onChange, onConflictStrategy, onAuthorSettings }: {
+function RepositorySettings({ overview, disabled, onChange, onConflictStrategy, onAuthorSettings, onCopyRemote }: {
   overview: GitOverview; disabled: boolean; onChange: (mode: GitCommitMode) => void
   onConflictStrategy: (strategy: GitConflictStrategy) => void
   onAuthorSettings: (settings: GitAuthorSettings) => void
+  onCopyRemote: (name: string, url: string) => void
 }) {
   const authorSettings = overview.author_settings || { commit_author_strategy: 'wharnex_git_user' as const }
   const [authorStrategy, setAuthorStrategy] = useState(authorSettings.commit_author_strategy)
@@ -443,7 +490,7 @@ function RepositorySettings({ overview, disabled, onChange, onConflictStrategy, 
     <section className="git-section git-remotes-section">
       <div className="git-section-heading"><div><span>Remotos</span><strong>Destinos configurados</strong></div><span className="git-section-count">{overview.remotes.length}</span></div>
       {overview.remotes.length === 0 ? <p className="git-empty inline">Nenhum remoto configurado.</p> : <ul className="git-remote-list">
-        {overview.remotes.map((remote) => <li key={remote.name}><Icon name="network" size={13}/><strong>{remote.name}</strong><span>{remote.url}</span></li>)}
+        {overview.remotes.map((remote) => <li key={remote.name}><Icon name="network" size={13}/><strong>{remote.name}</strong><span title={remote.url}>{remote.url}</span><button type="button" className="git-inline-copy" aria-label={`Copiar URL de ${remote.name}`} title="Copiar URL do remoto" onClick={() => onCopyRemote(remote.name, remote.url)}><Icon name="copy" size={11}/></button></li>)}
       </ul>}
     </section>
   </div>
@@ -462,11 +509,16 @@ function CommitModeSection({ overview, disabled, onChange }: { overview: GitOver
   </section>
 }
 
-function BranchSection({ sessionId, current, detached, localBranches, remoteBranches, remotes, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onPush }: {
+type GitReleaseDraftInput = { branch: string; tag_suffix: string; title: string; body: string }
+
+function BranchSection({ sessionId, current, detached, localBranches, remoteBranches, remotes, projectVersion, tags, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onCreateBranch, onDeleteBranch, onCopyBranch, onCopyTag, onGenerateReleaseNotes, onCreateRelease, onPush }: {
   sessionId: string; current?: string; detached: boolean; localBranches: GitOverview['branches']; remoteBranches: GitOverview['branches']; remotes: GitOverview['remotes']
+  projectVersion: string; tags: GitOverview['tags']
   disabled: boolean; mergeRef: string; onMergeRefChange: (value: string) => void; onMerge: () => void
   remoteMergeTarget: string; remoteMergeSources: string[]; onRemoteMergeTargetChange: (value: string) => void; onRemoteMergeSourcesChange: (values: string[]) => void; onRemoteMerge: () => void
   onFetch: (remote: string) => void; onPull: (remote: string, branch: string) => void; onSwitch: (branch: string) => void
+  onCreateBranch: (branch: string, startPoint: string) => void; onDeleteBranch: (branch: string) => void; onCopyBranch: (branch: string) => void; onCopyTag: (tag: string) => void
+  onGenerateReleaseNotes: (branch: string) => Promise<string>; onCreateRelease: (input: GitReleaseDraftInput) => Promise<boolean>
   onPush: (remote: string, branch: string, setUpstream: boolean) => void
 }) {
   const active = localBranches.find((branch) => branch.current)
@@ -475,6 +527,17 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
   const canSync = Boolean(current) && !detached && remotes.length > 0
   const [localMergeOptions, setLocalMergeOptions] = useState<GitBranch[]>([])
   const [remoteMergeOptions, setRemoteMergeOptions] = useState<GitBranch[]>([])
+  const [newBranch, setNewBranch] = useState('')
+  const [newBranchBase, setNewBranchBase] = useState(current || 'HEAD')
+  const [releaseOpen, setReleaseOpen] = useState(false)
+  const [releaseBranch, setReleaseBranch] = useState('')
+  const [releaseTagSuffix, setReleaseTagSuffix] = useState('')
+  const [releaseTitle, setReleaseTitle] = useState('')
+  const [releaseBody, setReleaseBody] = useState('')
+  const [releaseMode, setReleaseMode] = useState<'manual' | 'gpt'>('manual')
+  const [releaseGenerating, setReleaseGenerating] = useState(false)
+  const [releaseError, setReleaseError] = useState('')
+  useEffect(() => { if (current) setNewBranchBase((value) => value === 'HEAD' || !value ? current : value) }, [current])
   useEffect(() => {
     let alive = true
     if (!current || detached) { setLocalMergeOptions([]); return () => { alive = false } }
@@ -499,7 +562,7 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
         <span className="git-branch-icon"><Icon name="git" size={16}/></span>
         <div className="git-branch-hero-copy">
           <span>Branch atual</span>
-          <strong>{detached ? 'HEAD destacado' : current || '—'}</strong>
+          <div className="git-branch-hero-name"><strong>{detached ? 'HEAD destacado' : current || '—'}</strong>{current && !detached && <button type="button" className="git-inline-copy" aria-label={`Copiar nome da branch ${current}`} title="Copiar nome da branch" onClick={() => onCopyBranch(current)}><Icon name="copy" size={11}/></button>}</div>
           {active && <div className="git-branch-hero-meta">
             {active.has_upstream ? <>
               {active.ahead > 0 && <span className="outgoing"><Icon name="arrow-up" size={10}/>{active.ahead} por enviar</span>}
@@ -509,13 +572,26 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
             </> : <span className="warning"><Icon name="alert" size={10}/>Sem upstream</span>}
           </div>}
         </div>
-        {canSync && active && <div className="git-branch-hero-actions">
-          <button type="button" className="git-action" disabled={disabled} onClick={() => onFetch(defaultRemote)}><Icon name="refresh" size={13}/><span>Fetch</span></button>
-          <button type="button" className="git-action" disabled={disabled} onClick={() => onPull(defaultRemote, active.name)}><Icon name="arrow-down" size={13}/><span>Pull</span></button>
-          <button type="button" className="git-action primary" disabled={disabled} onClick={() => onPush(defaultRemote, active.name, !active.has_upstream)}><Icon name="arrow-up" size={13}/><span>Push</span></button>
+        {canSync && active && <div className="git-branch-hero-actions" role="group" aria-label="Sincronização da branch atual">
+          <button type="button" className="git-branch-icon-action" disabled={disabled} onClick={() => onFetch(defaultRemote)} aria-label={`Fetch de ${defaultRemote}`} title="Fetch"><Icon name="refresh" size={13}/></button>
+          <button type="button" className="git-branch-icon-action" disabled={disabled} onClick={() => onPull(defaultRemote, active.name)} aria-label={`Pull de ${active.name}`} title="Pull"><Icon name="arrow-down" size={13}/></button>
+          <button type="button" className="git-branch-icon-action primary" disabled={disabled} onClick={() => onPush(defaultRemote, active.name, !active.has_upstream)} aria-label={`Push de ${active.name}`} title="Push"><Icon name="arrow-up" size={13}/></button>
         </div>}
       </div>
-      <div className="git-branch-refresh-note"><Icon name="refresh" size={11}/><span>Referências remotas atualizadas automaticamente a cada 60 s</span></div>
+      <div className="git-branch-refresh-note"><Icon name="refresh" size={11}/><span>Branch sincronizada em tempo real · referências remotas atualizadas a cada 60 s</span></div>
+    </div>
+
+    <div className="git-branch-management">
+      <div className="git-branch-operations-heading">
+        <div><span>Gestão</span><strong>Criar branch local</strong></div>
+        <small>A nova branch é criada sem trocar o checkout atual.</small>
+      </div>
+      <div className="git-branch-create-row">
+        <label><span>Nome</span><input aria-label="Nome da nova branch" value={newBranch} disabled={disabled} onChange={(event) => setNewBranch(event.target.value)} placeholder="feature/minha-branch"/></label>
+        <label><span>A partir de</span><select aria-label="Branch base da nova branch" value={newBranchBase} disabled={disabled} onChange={(event) => setNewBranchBase(event.target.value)}><option value="HEAD">HEAD atual</option>{localBranches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}</select></label>
+        <button type="button" className="git-action primary git-branch-create-action" disabled={disabled || !newBranch.trim()} onClick={() => { const branch = newBranch.trim(); onCreateBranch(branch, newBranchBase); setNewBranch('') }}>Criar branch</button>
+      </div>
+      <p className="git-hint">Branches locais usam <code>git branch -d</code>; referências remotas são removidas no respetivo remoto. Nenhuma remoção usa força.</p>
     </div>
 
     <div className="git-branch-operations">
@@ -571,13 +647,39 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
         <div><span>Repositório</span><strong>Branches disponíveis</strong></div>
         <span>{localBranches.length + remoteBranches.length} no total</span>
       </div>
-      <BranchList title="Locais" description="Branches disponíveis no workspace" branches={localBranches} disabled={disabled} onSwitch={onSwitch}/>
-      <BranchList title="Remotas" description="Referências conhecidas no servidor" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch}/>
+      <BranchList title="Locais" description="Branches disponíveis no workspace" branches={localBranches} disabled={disabled} onSwitch={onSwitch} onDelete={onDeleteBranch} onCopy={onCopyBranch}/>
+      <BranchList title="Remotas" description="Referências conhecidas no servidor" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch} onDelete={onDeleteBranch} onCopy={onCopyBranch}/>
     </div>
+
+    <GitReleaseLibrary tags={tags} projectVersion={projectVersion} disabled={disabled} onCreate={() => setReleaseOpen(true)} onCopy={onCopyTag}/>
+    {releaseOpen && <GitReleaseSection
+      branches={remoteBranches} projectVersion={projectVersion} disabled={disabled}
+      branch={releaseBranch} tagSuffix={releaseTagSuffix} title={releaseTitle} body={releaseBody} mode={releaseMode}
+      generating={releaseGenerating} error={releaseError}
+      onClose={() => setReleaseOpen(false)}
+      onBranch={setReleaseBranch} onTagSuffix={setReleaseTagSuffix} onTitle={setReleaseTitle} onBody={setReleaseBody}
+      onMode={(mode) => { setReleaseMode(mode); setReleaseError(''); setReleaseBody('') }}
+      onGenerate={async () => {
+        if (!releaseBranch) return
+        setReleaseGenerating(true); setReleaseError('')
+        try { setReleaseBody(await onGenerateReleaseNotes(releaseBranch)) }
+        catch (error) { setReleaseError(error instanceof Error ? error.message : String(error)) }
+        finally { setReleaseGenerating(false) }
+      }}
+      onPublish={async () => {
+        setReleaseError('')
+        const finalTag = releaseTagName(projectVersion, releaseTagSuffix)
+        const confirmed = await confirmDialog({ title: `Publicar ${finalTag}?`, message: `Será criada a tag ${finalTag} no commit de ${releaseBranch} e publicada no remoto dessa branch, sem force.`, tone: 'warning', confirmLabel: 'Criar tag e release' })
+        if (!confirmed) return
+        const ok = await onCreateRelease({ branch: releaseBranch, tag_suffix: releaseTagSuffix.trim(), title: releaseTitle.trim(), body: releaseBody.trim() })
+        if (ok) { setReleaseTagSuffix(''); setReleaseTitle(''); setReleaseBody(''); setReleaseOpen(false) }
+      }}
+    />}
+
   </section>
 }
 
-function BranchList({ title, description, branches, disabled = false, onSwitch }: { title: string; description: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void }) {
+function BranchList({ title, description, branches, disabled = false, onSwitch, onDelete, onCopy }: { title: string; description: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void; onDelete?: (branch: string) => void; onCopy: (branch: string) => void }) {
   return <div className="git-branch-group">
     <div className="git-branch-group-heading">
       <div className="git-branch-group-title"><span className="git-branch-group-icon"><Icon name="git" size={12}/></span><div><strong>{title}</strong><small>{description}</small></div></div>
@@ -587,6 +689,8 @@ function BranchList({ title, description, branches, disabled = false, onSwitch }
       const counterpartLabel = branch.remote ? (branch.has_counterpart ? `Existe localmente como ${branch.counterpart}` : 'Ainda não existe localmente') : (branch.has_counterpart ? `Existe remotamente como ${branch.counterpart}` : 'Ainda não existe remotamente')
       const counterpartText = branch.remote ? (branch.has_counterpart ? 'Local' : 'Sem local') : (branch.has_counterpart ? 'Remota' : 'Sem remota')
       const inSync = branch.ahead === 0 && branch.behind === 0
+      const createsLocal = Boolean(branch.remote) && !branch.has_counterpart
+      const switchLabel = createsLocal ? `Criar branch local a partir de ${branch.name}` : `Alternar para ${branch.name}`
       return <li key={branch.name} className={`${branch.current ? 'current' : ''} ${branch.remote ? 'remote' : ''}`}>
         <div className="git-branch-primary">
           <span className="git-branch-marker"><Icon name="git" size={12}/></span>
@@ -603,10 +707,154 @@ function BranchList({ title, description, branches, disabled = false, onSwitch }
             {branch.behind > 0 && <span className="active incoming" title={`${branch.behind} commit(s) para receber`}><Icon name="arrow-down" size={11}/><b>{branch.behind}</b></span>}
             <span className={`git-branch-counterpart ${branch.has_counterpart ? 'active' : ''}`} title={counterpartLabel} aria-label={counterpartLabel}><Icon name="link" size={10}/><b>{counterpartText}</b></span>
           </span>
-          {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}><Icon name="bridge" size={11}/><span>{branch.remote && !branch.has_counterpart ? 'Criar local' : 'Alternar'}</span></button>}
+          <button type="button" className="git-inline-copy git-branch-copy-action" aria-label={`Copiar nome da branch ${branch.name}`} title="Copiar nome da branch" onClick={() => onCopy(branch.name)}><Icon name="copy" size={11}/></button>
+          {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-row-action git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)} aria-label={switchLabel} title={switchLabel}><Icon name={createsLocal ? 'plus' : 'arrow-right'} size={12}/></button>}
+          {onDelete && !branch.current && <button type="button" className="git-action small danger git-branch-row-action git-branch-delete" disabled={disabled} onClick={() => onDelete(branch.name)} aria-label={`Remover branch ${branch.name}`} title={`Remover branch ${branch.name}`}><Icon name="trash" size={12}/></button>}
         </div>
       </li>
     })}</ul>
+  </div>
+}
+
+function releaseTagName(version: string, suffix: string) {
+  const base = version.trim()
+  const trimmedSuffix = suffix.trim().replace(/^-+/, '')
+  if (!base) return ''
+  return trimmedSuffix ? `${base}-${trimmedSuffix}` : base
+}
+
+function GitReleaseLibrary({ tags, projectVersion, disabled, onCreate, onCopy }: {
+  tags: GitOverview['tags']; projectVersion: string; disabled: boolean; onCreate: () => void; onCopy: (tag: string) => void
+}) {
+  return <div className="git-release-library">
+    <div className="git-release-library-heading">
+      <div className="git-release-library-title">
+        <span className="git-release-library-icon"><Icon name="package" size={15}/></span>
+        <div><span>Publicações</span><strong>Tags e releases</strong><small>Histórico local das tags criadas para este projeto.</small></div>
+      </div>
+      <div className="git-release-library-actions">
+        {projectVersion && <span className="git-release-version-chip" title="Versão atual do projeto"><Icon name="package" size={11}/>{projectVersion}</span>}
+        <button type="button" className="git-action primary git-release-new" disabled={disabled} onClick={onCreate}><Icon name="plus" size={12}/>Nova release</button>
+      </div>
+    </div>
+    {tags.length === 0 ? <div className="git-release-empty">
+      <span><Icon name="package" size={16}/></span>
+      <div><strong>Ainda não existem tags</strong><small>Cria uma release para publicar a versão atual e ela aparecerá aqui.</small></div>
+    </div> : <ul className="git-release-list">{tags.map((tag) => <li key={tag.name}>
+      <span className="git-release-list-icon"><Icon name="package" size={13}/></span>
+      <span className="git-release-list-copy"><strong>{tag.name}</strong><small>{tag.created_at ? new Date(tag.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Tag local'} · {tag.commit_sha.slice(0, 8)}</small></span>
+      <span className="git-release-list-state"><Icon name="check" size={10}/>Tag</span>
+      <button type="button" className="git-inline-copy git-release-copy" aria-label={`Copiar tag ${tag.name}`} title="Copiar tag" onClick={() => onCopy(tag.name)}><Icon name="copy" size={11}/></button>
+    </li>)}</ul>}
+  </div>
+}
+
+function GitReleaseSection({ branches, projectVersion, disabled, branch, tagSuffix, title, body, mode, generating, error, onClose, onBranch, onTagSuffix, onTitle, onBody, onMode, onGenerate, onPublish }: {
+  branches: GitBranch[]; projectVersion: string; disabled: boolean
+  branch: string; tagSuffix: string; title: string; body: string; mode: 'manual' | 'gpt'; generating: boolean; error: string
+  onClose: () => void; onBranch: (value: string) => void; onTagSuffix: (value: string) => void; onTitle: (value: string) => void; onBody: (value: string) => void
+  onMode: (value: 'manual' | 'gpt') => void; onGenerate: () => Promise<void>; onPublish: () => Promise<void>
+}) {
+  const finalTag = releaseTagName(projectVersion, tagSuffix)
+  const canPublish = Boolean(branch && finalTag && body.trim())
+  return createPortal(<div className="git-diff-backdrop git-release-backdrop" onMouseDown={onClose}>
+    <div className="git-release-modal" role="dialog" aria-modal="true" aria-label="Criar nova release" onMouseDown={(event) => event.stopPropagation()}>
+      <header className="git-release-modal-header">
+        <div>
+          <span className="panel-kicker">Publicação</span>
+          <strong>Preparar uma nova release</strong>
+          <small>A tag nasce da versão do projeto e do commit da branch remota selecionada.</small>
+        </div>
+        <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar criação de release"><Icon name="close" size={13}/></button>
+      </header>
+      <div className="git-release-modal-body">
+        <div className="git-release-panel">
+          <div className="git-release-hero">
+            <span className="git-release-hero-icon"><Icon name="package" size={17}/></span>
+            <div className="git-release-hero-copy">
+              <span>Release</span>
+              <strong>{finalTag || 'Versão do projeto indisponível'}</strong>
+              <small>Seleciona uma branch remota, revê a identificação e prepara as notas.</small>
+            </div>
+            <div className={`git-release-readiness ${canPublish ? 'ready' : 'pending'}`}>
+              <Icon name={canPublish ? 'check' : 'info'} size={12}/>
+              <span>{canPublish ? 'Pronta para publicar' : 'Preenche os campos obrigatórios'}</span>
+            </div>
+          </div>
+
+          <div className="git-release-fields">
+            <div className="git-release-card">
+              <div className="git-release-card-heading">
+                <span className="git-release-card-icon"><Icon name="git" size={14}/></span>
+                <div><span>Destino</span><strong>Branch remota</strong></div>
+              </div>
+              <div className="git-release-grid">
+                <label><span>Branch remota *</span><select aria-label="Branch remota da release" value={branch} disabled={disabled} onChange={(event) => { onBranch(event.target.value); onBody('') }}><option value="">Selecionar branch remota…</option>{branches.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
+                <p className="git-hint">O remoto é deduzido da própria branch; não é necessário escolhê-lo separadamente.</p>
+              </div>
+            </div>
+            <div className="git-release-card">
+              <div className="git-release-card-heading">
+                <span className="git-release-card-icon"><Icon name="package" size={14}/></span>
+                <div><span>Identidade</span><strong>Versão e título</strong></div>
+              </div>
+              <div className="git-release-grid">
+                <label><span>Versão base</span><span className={`git-release-version-base ${projectVersion ? '' : 'missing'}`}>{projectVersion || 'VERSION indisponível'}</span></label>
+                <label><span>Tag (opcional)</span><input aria-label="Tag opcional da release" value={tagSuffix} disabled={disabled} onChange={(event) => onTagSuffix(event.target.value)} placeholder="ex.: rc1 ou beta"/></label>
+                <div className="git-release-tag-preview"><span>Tag final</span><code>{finalTag || '—'}</code></div>
+                <label><span>Título</span><input aria-label="Título da release" value={title} disabled={disabled} onChange={(event) => onTitle(event.target.value)} placeholder="Opcional · usa a tag final se vazio"/></label>
+              </div>
+            </div>
+          </div>
+
+          <div className="git-release-notes-card">
+            <div className="git-release-notes-heading">
+              <div>
+                <span>Conteúdo</span>
+                <strong>Notas da release</strong>
+                <small>Escreve manualmente ou deixa o GPT preparar um primeiro rascunho.</small>
+              </div>
+              <div className="git-release-mode" role="group" aria-label="Modo das notas de release">
+                <button type="button" className={mode === 'manual' ? 'active' : ''} disabled={disabled} onClick={() => onMode('manual')}><Icon name="edit" size={12}/>Escrever</button>
+                <button type="button" className={mode === 'gpt' ? 'active' : ''} disabled={disabled} onClick={() => onMode('gpt')}><Icon name="agent" size={12}/>Gerar com GPT</button>
+              </div>
+            </div>
+            {mode === 'manual' ? <GitReleaseRichText value={body} disabled={disabled} onChange={onBody}/> : <div className="git-release-gpt">
+              <div className="git-release-gpt-action"><button type="button" className="git-action" disabled={disabled || generating || !branch} onClick={() => void onGenerate()}><Icon name="agent" size={12}/>{generating ? 'A gerar…' : 'Gerar notas da branch'}</button><span>Usa apenas os commits da branch remota selecionada.</span></div>
+              <textarea aria-label="Notas de release geradas pelo GPT" value={body} disabled={disabled || generating} onChange={(event) => onBody(event.target.value)} placeholder={branch ? 'O GPT irá resumir os commits recentes desta branch.' : 'Seleciona primeiro uma branch remota.'}/>
+              <p className="git-hint">O GPT gera apenas as notas; podes revê-las antes de publicar.</p>
+            </div>}
+          </div>
+
+          {error && <p className="git-notice error-card" role="alert">{error}</p>}
+          <div className="git-release-footer">
+            <div className="git-release-safety-note"><span><Icon name="shield" size={13}/></span><div><strong>Publicação segura</strong><small>A tag é criada no commit remoto escolhido e enviada sem force.</small></div></div>
+            <button type="button" className="git-action primary git-release-publish" disabled={disabled || generating || !canPublish} onClick={() => void onPublish()}><Icon name="arrow-up" size={13}/>Criar tag e release</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>, document.body)
+}
+
+function GitReleaseRichText({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (value: string) => void }) {
+  const editor = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (editor.current && editor.current.innerHTML !== value) editor.current.innerHTML = value
+  }, [value])
+  const format = (command: string) => {
+    if (disabled) return
+    editor.current?.focus()
+    document.execCommand?.(command, false)
+    onChange(editor.current?.innerHTML || '')
+  }
+  return <div className="git-release-editor">
+    <div className="git-release-toolbar" role="toolbar" aria-label="Formatação das notas de release">
+      <button type="button" disabled={disabled} onClick={() => format('bold')} aria-label="Negrito"><strong>B</strong></button>
+      <button type="button" disabled={disabled} onClick={() => format('italic')} aria-label="Itálico"><em>I</em></button>
+      <button type="button" disabled={disabled} onClick={() => format('insertUnorderedList')} aria-label="Lista">• Lista</button>
+    </div>
+    <div ref={editor} className="git-release-editable" contentEditable={!disabled} role="textbox" aria-multiline="true" aria-label="Texto manual da release" data-placeholder="Descreve as mudanças desta release…" onInput={(event) => onChange(event.currentTarget.innerHTML)} suppressContentEditableWarning/>
   </div>
 }
 
@@ -711,16 +959,18 @@ function HistoryCommitDetailModal({ sessionId, detail, onClose }: { sessionId: s
         <div className="git-history-commit-heading">
           <span className="git-history-commit-icon"><Icon name="git" size={15}/></span>
           <div className="git-history-commit-copy">
-            <span className="panel-kicker">Histórico Git · commit {commit.short_sha}</span>
+            <span className="git-history-commit-eyebrow"><span className="panel-kicker">Histórico Git</span><code>{commit.short_sha}</code></span>
             <strong>{commit.subject}</strong>
             <span className="git-history-commit-byline"><span>{commit.author_name}</span><time dateTime={commit.committed_at}>{formatCommitDate(commit.committed_at)}</time></span>
           </div>
         </div>
         <div className="git-history-commit-actions">
-          <span className="git-history-commit-stat additions">+{commit.additions || 0}</span>
-          <span className="git-history-commit-stat deletions">−{commit.deletions || 0}</span>
-          <span className="git-history-commit-stat files">{commit.files_changed || 0} ficheiro(s)</span>
-          <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button>
+          <div className="git-history-commit-stats" role="group" aria-label="Resumo do commit">
+            <span className="git-history-commit-stat additions"><b>+{commit.additions || 0}</b><small>adições</small></span>
+            <span className="git-history-commit-stat deletions"><b>−{commit.deletions || 0}</b><small>remoções</small></span>
+            <span className="git-history-commit-stat files"><b>{commit.files_changed || 0}</b><small>ficheiro(s)</small></span>
+          </div>
+          <button type="button" className="agent-drawer-icon git-history-commit-close" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button>
         </div>
       </header>
       <details className="git-commit-detail-disclosure git-history-commit-disclosure">

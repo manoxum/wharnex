@@ -479,6 +479,87 @@ func TestGitOverviewReportsBranchesPendingAndWorkingState(t *testing.T) {
 	}
 }
 
+func TestGitContributorsRanksAuthorsAndBuildsWeeklyTimeline(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	root := gitRepo(t, "app.go", "package main\n")
+	sessionID := startGitSession(t, service, root)
+
+	commitGitAsAt(t, root, "Alice", "alice@example.test", "2026-08-31T10:00:00Z", "feat: alice one", "alice-1.txt")
+	commitGitAsAt(t, root, "Bob", "bob@example.test", "2026-09-07T10:00:00Z", "feat: bob one", "bob-1.txt")
+	commitGitAsAt(t, root, "Alice", "alice@example.test", "2026-09-08T10:00:00Z", "feat: alice two", "alice-2.txt")
+
+	overview, err := service.GitContributors(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Contributors) < 3 {
+		t.Fatalf("expected fixture authors plus initial author, got %+v", overview.Contributors)
+	}
+	if overview.Contributors[0].Name != "Alice" || overview.Contributors[0].Commits != 2 {
+		t.Fatalf("expected Alice ranked first with two commits, got %+v", overview.Contributors[0])
+	}
+	if len(overview.Weeks) < 2 {
+		t.Fatalf("expected a weekly timeline, got %+v", overview.Weeks)
+	}
+	weeklyTotal := 0
+	for _, week := range overview.Weeks {
+		weeklyTotal += week.Commits
+	}
+	if weeklyTotal != overview.TotalCommits {
+		t.Fatalf("weekly timeline and ranking must use the same sample: weeks=%d total=%d", weeklyTotal, overview.TotalCommits)
+	}
+	if len(overview.Contributors[0].WeeklyCommits) != len(overview.Weeks) {
+		t.Fatalf("contributor series must align with overview weeks: contributor=%d weeks=%d", len(overview.Contributors[0].WeeklyCommits), len(overview.Weeks))
+	}
+	dailyTotal := 0
+	for _, day := range overview.Days {
+		dailyTotal += day.Commits
+	}
+	if dailyTotal != overview.TotalCommits {
+		t.Fatalf("daily calendar and ranking must use the same sample: days=%d total=%d", dailyTotal, overview.TotalCommits)
+	}
+}
+
+func commitGitAsAt(t *testing.T, root, name, email, when, subject, fileName string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, fileName), []byte(subject+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForApp(t, root, "add", "-A")
+	cmd := exec.Command("git", "-C", root, "-c", "user.name="+name, "-c", "user.email="+email, "commit", "-qm", subject)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+when, "GIT_COMMITTER_DATE="+when)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("commit as %s: %s", name, output)
+	}
+}
+
+func TestGitHeadTracksCheckoutChanges(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	root := gitRepo(t, "app.go", "package main\n")
+	sessionID := startGitSession(t, service, root)
+	runGitForApp(t, root, "add", "-A")
+	runGitForApp(t, root, "commit", "-qm", "chore: project config")
+
+	head, err := service.GitHead(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head.CurrentBranch == "" || head.Detached || head.CommitSHA == "" {
+		t.Fatalf("expected attached HEAD state, got %+v", head)
+	}
+
+	runGitForApp(t, root, "checkout", "-q", "-b", "feature")
+	head, err = service.GitHead(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head.CurrentBranch != "feature" || head.Detached || head.CommitSHA == "" {
+		t.Fatalf("expected externally changed branch to be visible, got %+v", head)
+	}
+}
+
 func startGitSession(t *testing.T, service *Service, root string) string {
 	t.Helper()
 	item, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)

@@ -534,6 +534,22 @@ export type ChatAgentTask = {
   updated_at: string
 }
 
+// One durable decision recorded against a chat-agent task's own lifecycle
+// (recovery reload, keep-continue wake-up, bundle validated/rejected, human
+// escalation, manual/automatic continuation). See adr/ADR-0064.
+export type ChatAgentTaskEvent = {
+  id: string
+  task_id: string
+  request_id: string
+  root_request_id: string
+  session_id: string
+  chat_id: string
+  project_id: string
+  type: string
+  occurred_at: string
+  data: Record<string, unknown>
+}
+
 export type ChatAgentQueueSummary = {
   queued: number
   counts: Record<string, number>
@@ -873,6 +889,7 @@ export type GitBranch = {
 }
 
 export type GitRemote = { name: string; url: string }
+export type GitTag = { name: string; commit_sha: string; created_at?: string }
 
 export type GitCommit = {
   sha: string
@@ -961,6 +978,32 @@ export type GitCommitDetail = {
 
 export type GitHistoryPage = { commits: GitCommit[]; next_offset: number; has_more: boolean }
 
+export type GitContributionWeek = { started_at: string; commits: number; additions: number; deletions: number }
+export type GitContributionDay = { started_at: string; commits: number; additions: number; deletions: number }
+export type GitContributor = {
+  name: string
+  email: string
+  commits: number
+  additions: number
+  deletions: number
+  first_commit_at: string
+  last_commit_at: string
+  weekly_commits: number[]
+}
+export type GitContributorsOverview = {
+  contributors: GitContributor[]
+  weeks: GitContributionWeek[]
+  days: GitContributionDay[]
+  total_commits: number
+  truncated: boolean
+}
+
+export type GitHeadState = {
+  current_branch?: string
+  detached: boolean
+  commit_sha?: string
+}
+
 export type GitOverview = {
   project_path: string
   project_version?: string
@@ -977,6 +1020,7 @@ export type GitOverview = {
   has_identity: boolean
   branches: GitBranch[]
   remotes: GitRemote[]
+  tags: GitTag[]
   commits: GitCommit[]
   pending: GitPendingCommit[]
   working: GitWorkingSummary
@@ -997,6 +1041,9 @@ export type GitPushResult = {
 export type GitMergeResult = { outcome: string; ref: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
 export type GitRemoteMergeResult = { outcome: string; target_ref: string; source_refs: string[]; commit_sha?: string; push_outcome?: string; conflict_ref?: string; conflict_id?: string; paths?: string[]; detail?: string }
 export type GitBranchActionResult = { outcome: string; remote?: string; branch?: string; ref?: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
+export type GitBranchMutationResult = { outcome: 'created' | 'deleted'; branch: string }
+export type GitReleaseNotesResult = { body: string; commit_count: number }
+export type GitReleaseResult = { outcome: 'published'; remote: string; branch: string; tag: string; commit_sha: string; release_url: string }
 
 // One conversation a chat with a lost binding may belong to, with the evidence
 // that ties it to that chat so the operator can judge it instead of guessing.

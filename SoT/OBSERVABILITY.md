@@ -60,6 +60,36 @@ Ledger bodies are published through the ordinary audit path precisely so redacti
 
 Canonical WHX self-evolution exposes unresolved, redacted evidence across every opened project. Filters cover date/time, project, exact/partial event type and stable category, and only the explicit selection enters an AI analysis request. **Analyze with AI** always creates or reuses a dedicated self-evolution Harness chat and never takes over the user's currently active conversation. Resolution is stored by immutable event ID across all canonical self-evolution sessions and occurs only after a verified/applied implementation reports IDs belonging to that review selection; restart time and the currently selected analysis chat are not resolution boundaries.
 
+## Durable Main Request decision ledger (v1.3.10, see `adr/ADR-0064`)
+
+Every decision the ChatGPT transport/recovery layer makes around a Main
+Request — a recovery reload, an automatic or manual continuation
+("keep continue" / "Retomar pedido"), a bundle validated or rejected, a
+human escalation — MUST be durably recorded, not only logged. This is
+narrower than, and complements, the durable plan/execution ledger above: it
+covers the transport/automation layer that submits and supervises a request,
+not the planner's own plan/execution bodies.
+
+Records are anchored to the chat-agent task the Main Request already creates
+(`AWAIT_RESPONSE` — every Main Request creates one, whether claimed by the
+Supervisor or Worker pool; see "Browser-agent queue observability" above) and
+carry `request_id`/`root_request_id` so every task touched by one Main
+Request (an initial `AWAIT_RESPONSE` plus a later `RECOVERY_WRITE`) can be
+correlated. Event bodies MUST be redacted through the same rules as every
+other durable event (`audit.SanitizeEventData`); this is not a second,
+looser redaction path.
+
+Recording an event MUST be best-effort from the caller's perspective: a
+failure to record observability MUST NOT fail the automation it describes.
+Creating the anchoring `AWAIT_RESPONSE` task itself is the one exception —
+it is the Main Request's only durable record, so its enqueue MUST retry a
+bounded number of times and, if every attempt fails, MUST fail the
+submission rather than let a Main Request proceed with zero durable trace.
+
+Event rows are operational bookkeeping, not evidence to retain indefinitely:
+they MUST be swept on the same retention window as their owning task row
+(see "Browser-agent queue observability" above), not kept forever.
+
 ## Interactive v2 evidence
 
 Interactive v2 publishes `interactive.operation_started` and `interactive.operation_completed` around every typed operation. Completion evidence includes only bounded/redacted metadata and result content; secrets and unbounded stdout/stderr are not audit state. Workflow observations sent back to the planner include the structured interactive result list so a diagnosis can correlate a SQL/log/shell probe with its capability and target without scraping localized prose. The persisted grant identifies the approved protocol, root request, target, access, capabilities, scope and digest so a later audit can explain why an operation was allowed.

@@ -1,14 +1,14 @@
 export type WorkspaceRailSide = 'left' | 'right'
-export type WorkspaceTool = 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'plans' | 'executions' | 'errors' | 'fifo' | 'evolution' | 'terminal' | 'database' | 'docker'
+export type WorkspaceTool = 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'errors' | 'fifo' | 'evolution' | 'terminal' | 'database' | 'docker'
 export type WorkspaceRailLayout = Record<WorkspaceRailSide, WorkspaceTool[]> & { pinned: Record<WorkspaceRailSide, WorkspaceTool[]> }
 
 const STORAGE_KEY = 'whx.workspace.rail-layout.v6'
 const LAYOUT_CHANGED_EVENT = 'wharnex:workspace-rail-layout-changed'
 const LEGACY_STORAGE_KEYS = ['whx.workspace.rail-layout.v5', 'whx.workspace.rail-layout.v4', 'whx.workspace.rail-layout.v3', 'whx.workspace.rail-layout.v2', 'whx.workspace.rail-layout.v1']
-const ALL_TOOLS: WorkspaceTool[] = ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'errors', 'fifo', 'evolution', 'terminal', 'database', 'docker']
+const ALL_TOOLS: WorkspaceTool[] = ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'terminal', 'database', 'docker']
 
 export const DEFAULT_WORKSPACE_RAIL_LAYOUT: WorkspaceRailLayout = {
-  left: ['archive', 'todo', 'library', 'knowledge', 'git', 'agents', 'tasks', 'plans', 'executions', 'errors', 'fifo', 'evolution'],
+  left: ['archive', 'todo', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution'],
   right: ['project', 'docker', 'database'],
   pinned: { left: ['terminal'], right: [] },
 }

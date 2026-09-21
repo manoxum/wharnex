@@ -287,6 +287,26 @@ func gitWorkingFiles(state hostrepo.WorkingState, stats ...map[string]hostrepo.D
 	return files
 }
 
+// GitHeadState is the lightweight checkout identity used by the frontend to
+// notice branch changes made by Wharnex or by an external process without
+// polling the considerably heavier GitOverview endpoint every second.
+type GitHeadState struct {
+	CurrentBranch string `json:"current_branch,omitempty"`
+	Detached      bool   `json:"detached"`
+	CommitSHA     string `json:"commit_sha,omitempty"`
+}
+
+// GitHead returns only the checkout identity required for live Git UI sync.
+func (s *Service) GitHead(ctx context.Context, sessionID string) (GitHeadState, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return GitHeadState{}, err
+	}
+	branch := hostrepo.CurrentBranch(ctx, item.ProjectPath)
+	sha, _ := hostrepo.HeadSHA(ctx, item.ProjectPath)
+	return GitHeadState{CurrentBranch: branch, Detached: branch == "" && sha != "", CommitSHA: sha}, nil
+}
+
 // GitOverview is everything the Git surface renders in one round trip.
 type GitOverview struct {
 	ProjectPath      string                     `json:"project_path"`
@@ -303,6 +323,7 @@ type GitOverview struct {
 	HasIdentity      bool                       `json:"has_identity"`
 	Branches         []hostrepo.Branch          `json:"branches"`
 	Remotes          []hostrepo.Remote          `json:"remotes"`
+	Tags             []hostrepo.Tag             `json:"tags"`
 	Commits          []hostrepo.Commit          `json:"commits"`
 	Pending          []pendingcommit.Record     `json:"pending"`
 	Working          GitWorkingSummary          `json:"working"`
@@ -390,6 +411,9 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 	}
 	if remotes, remoteErr := hostrepo.Remotes(ctx, item.ProjectPath); remoteErr == nil {
 		overview.Remotes = remotes
+	}
+	if tags, tagErr := hostrepo.Tags(ctx, item.ProjectPath, 50); tagErr == nil {
+		overview.Tags = tags
 	}
 	if commits, logErr := hostrepo.Log(ctx, item.ProjectPath, 50); logErr == nil {
 		overview.Commits = commits

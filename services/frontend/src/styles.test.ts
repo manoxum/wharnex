@@ -218,6 +218,23 @@ describe('composer layout CSS', () => {
     expect(configure).toContain('width: 19px !important')
   })
 
+  it('keeps a readable composer floor and makes the remaining editor surface focusable', () => {
+    const editorShell = lastRule('.composer-editor-shell')
+    const richEditor = lastRule('.composer-rich-editor')
+    const quill = lastRule('.composer-rich-editor > .quill')
+    const quillContainer = lastRule('.composer-rich-editor .ql-container.ql-bubble')
+    const quillEditor = lastRule('.composer-rich-editor .ql-editor')
+
+    expect(css).toContain('.composer { min-height: 180px; max-height: min(420px, 54vh); height: 180px;')
+    expect(editorShell).toContain('flex: 1 1 auto')
+    expect(editorShell).toContain('min-height: 92px')
+    expect(editorShell).toContain('cursor: text')
+    expect(richEditor).toContain('min-height: 100%')
+    expect(quill).toContain('display: flex')
+    expect(quillContainer).toContain('min-height: 100%')
+    expect(quillEditor).toContain('min-height: 100%')
+  })
+
   it('uses the whole top composer edge as the vertical resize handle', () => {
     const composer = lastRule('.composer')
     const handle = lastRule('.composer-resize-handle')
@@ -543,7 +560,7 @@ describe('canonical workbench tab CSS', () => {
     expect(canonical).toContain('.terminal-tab-shell.active {')
     expect(canonical).toContain('.agent-chat-surface-tabs button.active {')
     expect(canonical).toContain('background: var(--theme-accent)')
-    expect(gitTabs).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
+    expect(gitTabs).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))')
     expect(gitTabs).toContain('overflow: visible')
     expect(gitTabs).toContain('background: var(--theme-surface)')
     expect(gitChangeTabs).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
@@ -572,7 +589,7 @@ describe('Git workbench CSS', () => {
     const tabs = lastRule('.git-tabs')
     const changeTabs = lastRule('.git-changes-tabs')
     const pendingCommit = lastRule('.git-unpushed-list li')
-    expect(tabs).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
+    expect(tabs).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))')
     expect(tabs).toContain('overflow: visible')
     expect(changeTabs).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
     expect(changeTabs).toContain('overflow: visible')
@@ -597,12 +614,18 @@ describe('Git workbench CSS', () => {
   it('gives branch-history commit diffs a dedicated review hierarchy', () => {
     const modal = firstRule('.git-history-commit-modal')
     const header = firstRule('.git-history-commit-modal > .git-history-commit-header')
+    const heading = firstRule('.git-history-commit-modal > .git-history-commit-header > .git-history-commit-heading')
+    const actions = firstRule('.git-history-commit-modal > .git-history-commit-header > .git-history-commit-actions')
+    const stats = firstRule('.git-history-commit-stats')
     const activeFile = lastRule('.git-history-commit-modal .git-diff-review-files button.active')
 
     expect(modal).toContain('width: min(1320px, calc(100vw - 56px))')
     expect(modal).toContain('border-radius: 16px')
-    expect(header).toContain('min-height: 70px')
+    expect(header).toContain('min-height: 78px')
     expect(header).toContain('linear-gradient')
+    expect(heading).toContain('display: flex')
+    expect(actions).toContain('display: flex')
+    expect(stats).toContain('grid-template-columns: repeat(3, minmax(54px, auto))')
     expect(activeFile).toContain('box-shadow: inset 2px 0 0 var(--theme-accent)')
   })
 
@@ -674,5 +697,23 @@ describe('workspace readability and Git focus CSS', () => {
     expect(lastRule('.agent-tree-git-status')).toContain('display: inline-flex')
     expect(lastRule('.editor-git-file-state')).toContain('display: inline-flex')
     expect(lastRule('.agent-tree-row.git-changed::before')).toContain('width: 2px')
+  })
+})
+
+describe('semantic panel tabs CSS', () => {
+  it('keeps TODO and Git tabs on one row and collapses labels by strip width', () => {
+    const todoTabs = lastRule('.project-todo-tabs')
+    const gitTabs = lastRule('.git-tabs')
+    const label = lastRule('.semantic-tab-label')
+
+    expect(todoTabs).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))')
+    expect(gitTabs).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))')
+    expect(gitTabs).not.toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
+    expect(label).toContain('white-space: nowrap')
+    expect(css).toContain('container-name: semantic-panel')
+    expect(css).toContain('@container semantic-panel (max-width: 520px)')
+    expect(css).toContain('@container semantic-panel (max-width: 420px)')
+    expect(css).toContain('clip-path: inset(50%)')
+    expect(css).toContain('@container semantic-panel (max-width: 340px)')
   })
 })

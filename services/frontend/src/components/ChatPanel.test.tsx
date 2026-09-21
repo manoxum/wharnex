@@ -792,6 +792,24 @@ describe('ChatPanel', () => {
     expect(writeText).toHaveBeenCalledWith('mensagem anterior')
   })
 
+  it('keeps a readable composer floor across chat restores and focuses from its empty surface', () => {
+    localStorage.setItem('kernl.workspace.composer-draft.v1:/tmp/demo:short-composer', JSON.stringify({ message: '', height: 118 }))
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="short-composer" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    const composer = view.container.querySelector('form.composer') as HTMLFormElement
+    const editorShell = view.container.querySelector('.composer-editor-shell') as HTMLDivElement
+    const editor = ref.current?.getComposerEditor()
+    if (!editor) throw new Error('composer editor not mounted')
+    const focus = vi.spyOn(editor, 'focus')
+    expect(composer.style.height).toBe('180px')
+    fireEvent.pointerDown(editorShell, { button: 0, pointerId: 1 })
+    expect(focus).toHaveBeenCalledTimes(1)
+    clearComposerDraft(session.project_path, 'short-composer')
+  })
+
   it('reinforces active-project attention directly on the composer while typing', () => {
     const onComposerTyping = vi.fn()
     const ref = panelRef()
@@ -919,6 +937,25 @@ describe('ChatPanel', () => {
     // The chip is a real embedded node, not the marker's own tinted text — its
     // title still carries the exact canonical marker it stands for.
     expect(view.container.querySelector('.composer-directive-chip.file')?.getAttribute('title')).toBe('@{[file]src/App.tsx}')
+    view.unmount()
+  })
+
+  it('offers @file targets from the whole safe project explorer, including directories outside the current context snapshot', async () => {
+    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [
+      { path: 'src', name: 'src', kind: 'directory', size: 0 },
+      { path: 'src/App.tsx', name: 'App.tsx', kind: 'file', size: 10 },
+      { path: 'generated', name: 'generated', kind: 'directory', size: 0 },
+      { path: 'generated/report.md', name: 'report.md', kind: 'file', size: 20 },
+    ] })
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="file-whole-project" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    await waitFor(() => expect(api.listFiles).toHaveBeenCalledWith(session.id))
+    typeInComposer(ref, 'Revê @file:generated', 'Revê @file:generated'.length)
+    expect(await screen.findByRole('option', { name: /generated\// })).toBeTruthy()
+    expect(screen.getByRole('option', { name: /generated\/report\.md/ })).toBeTruthy()
     view.unmount()
   })
 
@@ -1098,7 +1135,8 @@ describe('ChatPanel', () => {
     )
     const references = 'usa @{[file]src/App.tsx} @{[ref]flowcore} @{[attach]/srv/contracts} @{[see]upload|mock.png} @{[chat]artifact|artifact-1} @{[lib]session|ses-a|artifact-b} @{[todo]todo_1}'
     typeInComposer(ref, references, references.length)
-    for (const kind of ['file', 'ref', 'attach', 'see', 'chat', 'lib', 'todo']) expect(view.container.querySelector(`.composer-reference-thumbnail.${kind}`)).toBeTruthy()
+    for (const kind of ['file', 'ref', 'attach', 'chat', 'lib', 'todo']) expect(view.container.querySelector(`.composer-reference-thumbnail.${kind}`)).toBeTruthy()
+    expect(view.container.querySelector('.composer-reference-thumbnail.see')).toBeNull()
     expect(view.container.querySelector('.composer-directive-chip.file')).toBeTruthy()
 
     const repeated = 'usa @{[file]src/App.tsx} e depois @{[file]src/App.tsx}'
@@ -1175,8 +1213,8 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
-  // @see/@look points at a file already attached directly to this message —
-  // it renders and configures exactly like the other three kinds.
+  // @see/@look is a spotlight marker, not a second attachment thumbnail. It stays
+  // inline and remains editable/configurable like every other directive.
   it('renders an @see chip and configures it like the other directive kinds', () => {
     const ref = panelRef()
     const view = render(
@@ -1186,8 +1224,8 @@ describe('ChatPanel', () => {
     expect(view.container.querySelector('.composer-directive-chip.see')?.getAttribute('title')).toBe('@{[see]diagram.png}')
     fireEvent.click(screen.getByLabelText('Configurar referência'))
     const popover = view.container.querySelector('.composer-directive-popover')
-    expect(popover?.textContent).toContain('Ficheiro ou diretório visível')
-    expect(popover?.textContent).toContain('Não encontrado no contexto atual')
+    expect(popover?.textContent).toContain('Destacar referência')
+    expect(popover?.textContent).toContain('Referência não encontrada')
     view.unmount()
   })
 
@@ -1208,7 +1246,7 @@ describe('ChatPanel', () => {
     expect(directoryOption).toBeTruthy()
     expect(screen.getByRole('option', { name: /src\/App\.tsx/ })).toBeTruthy()
     fireEvent.click(directoryOption!)
-    expect(composerText(ref)).toBe('destaca @{[see]project|src}')
+    expect(composerText(ref)).toBe('destaca @{[see]file|src}')
     view.unmount()
   })
 
@@ -1226,12 +1264,11 @@ describe('ChatPanel', () => {
     typeInComposer(ref, 'destaca @see:', 14)
     const editor = ref.current?.getComposerEditor()
     fireEvent.keyDown(editor!.root, { key: 'ArrowDown' })
-    expect(screen.getByRole('option', { name: /Projeto atual/ }).getAttribute('aria-selected')).toBe('true')
-    fireEvent.keyDown(editor!.root, { key: 'ArrowUp' })
     expect(screen.getByRole('option', { name: /@ref flowcore/ }).getAttribute('aria-selected')).toBe('true')
-    fireEvent.keyDown(editor!.root, { key: 'ArrowDown' })
+    fireEvent.keyDown(editor!.root, { key: 'ArrowUp' })
+    expect(screen.getByRole('option', { name: /Projeto atual/ }).getAttribute('aria-selected')).toBe('true')
     fireEvent.keyDown(editor!.root, { key: 'Enter' })
-    expect(composerText(ref)).toBe('destaca @see:project|')
+    expect(composerText(ref)).toBe('destaca @see:file|')
     view.unmount()
   })
 
@@ -1263,6 +1300,39 @@ describe('ChatPanel', () => {
       typeInComposer(ref, 'Compara com @ref:flow', 21)
       expect(screen.getByRole('option', { name: /flowcore/ })).toBeTruthy()
     })
+    view.unmount()
+  })
+
+  it('enables Portuguese spell checking on the actual Quill editing root', async () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="spellcheck" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    await waitFor(() => {
+      const editor = ref.current?.getComposerEditor()
+      expect(editor?.root.getAttribute('spellcheck')).toBe('true')
+      expect(editor?.root.getAttribute('lang')).toBe('pt-PT')
+    })
+    view.unmount()
+  })
+
+  it('opens native spelling suggestions with Ctrl+Space on the current word', async () => {
+    const showSuggestions = vi.fn().mockResolvedValue({ ok: true })
+    Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: { spellcheck: { showSuggestions } } })
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="spellcheck-shortcut" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const editor = ref.current?.getComposerEditor()
+    if (!editor) throw new Error('composer editor not mounted')
+    typeInComposer(ref, 'palavar', 7)
+    vi.spyOn(editor, 'getBounds').mockReturnValue({ left: 12, top: 8, right: 60, bottom: 28, width: 48, height: 20 } as never)
+    const editorContainer = (editor as unknown as { container: HTMLElement }).container
+    vi.spyOn(editorContainer, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 200, right: 500, bottom: 260, width: 400, height: 60, x: 100, y: 200, toJSON: () => ({}) } as DOMRect)
+
+    fireEvent.keyDown(view.container.querySelector('.composer-rich-editor')!, { key: ' ', code: 'Space', ctrlKey: true })
+
+    await waitFor(() => expect(showSuggestions).toHaveBeenCalledWith({ x: 136, y: 218 }))
     view.unmount()
   })
 
@@ -1397,6 +1467,12 @@ describe('ChatPanel', () => {
     expect(onChatTransport).toHaveBeenCalledWith({ disabledTunnelIds: ['secondary', 'primary'] })
     fireEvent.click(screen.getByRole('button', { name: /Usar padrão global/ }))
     expect(onChatTransport).toHaveBeenLastCalledWith(undefined)
+
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByText('Canais remotos')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Túneis do ChatGPT' }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByText('Canais remotos')).toBeNull()
   })
 
   it('can enable one tunnel from the migrated all-disabled selection', () => {
@@ -1445,7 +1521,7 @@ describe('ChatPanel', () => {
     )
     const composer = view.container.querySelector('.composer') as HTMLFormElement
     const handle = screen.getByRole('separator', { name: 'Redimensionar altura do chat composer' })
-    vi.spyOn(composer, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, top: 0, right: 600, bottom: 156, left: 0, width: 600, height: 156, toJSON: () => ({}) })
+    vi.spyOn(composer, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, top: 0, right: 600, bottom: 180, left: 0, width: 600, height: 180, toJSON: () => ({}) })
 
     const pointerEvent = (type: string, clientY: number) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY })
@@ -1455,10 +1531,10 @@ describe('ChatPanel', () => {
 
     fireEvent(handle, pointerEvent('pointerdown', 500))
     fireEvent(handle, pointerEvent('pointermove', 420))
-    expect(composer.style.height).toBe('236px')
+    expect(composer.style.height).toBe('260px')
 
     fireEvent(handle, pointerEvent('pointermove', 900))
-    expect(composer.style.height).toBe('118px')
+    expect(composer.style.height).toBe('180px')
     fireEvent(handle, pointerEvent('pointerup', 900))
   })
 

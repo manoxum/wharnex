@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/projectconfig"
 )
 
 func TestBuildWorkspaceNamespacesRelatedProjectsAndKeepsPrimaryBaseline(t *testing.T) {
@@ -71,4 +74,41 @@ func TestBuildWorkspaceNamespacesRelatedProjectsAndKeepsPrimaryBaseline(t *testi
 	if !strings.Contains(string(text), "RELATED PROJECT 1") || !strings.Contains(string(text), "related.txt") {
 		t.Fatalf("planner text omitted related context: %s", text)
 	}
+}
+
+func TestBuildWorkspaceWithSelectionsAppliesPrimaryRequestOverride(t *testing.T) {
+	primary := t.TempDir()
+	mustWrite(t, filepath.Join(primary, "src", "app.go"), "package src\n")
+	mustWrite(t, filepath.Join(primary, "out", "generated.txt"), "generated\n")
+
+	builder := NewBuilder(2<<20, 4<<20)
+	baseline, err := builder.Build(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifestContainsPath(baseline.Manifest.Files, "out/generated.txt") {
+		removeBundleArtifacts(baseline)
+		t.Fatal("auto-excluded generated output unexpectedly present in baseline")
+	}
+	removeBundleArtifacts(baseline)
+
+	selection := projectconfig.Default(primary).Context
+	selection.IncludeOverride = []string{"out", "out/**"}
+	bundle, err := builder.BuildWorkspaceWithSelections(primary, nil, map[string]projectconfig.ContextConfig{primary: selection}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer removeBundleArtifacts(bundle)
+	if !manifestContainsPath(bundle.Manifest.Files, "out/generated.txt") {
+		t.Fatalf("request-local primary selection did not restore out/generated.txt: %#v", bundle.Manifest.Files)
+	}
+}
+
+func manifestContainsPath(files []domain.ContextFile, want string) bool {
+	for _, file := range files {
+		if file.Path == want {
+			return true
+		}
+	}
+	return false
 }

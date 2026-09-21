@@ -341,3 +341,54 @@ func SwitchRemoteBranch(ctx context.Context, root, remoteRef string) (string, er
 	}
 	return branch, nil
 }
+
+// CreateBranch adds a local branch at a validated start point without changing
+// the checked-out branch. Keeping creation separate from switching means a
+// human can prepare a branch even while the worktree contains local edits.
+func CreateBranch(ctx context.Context, root, branch, startPoint string) error {
+	branch = strings.TrimSpace(branch)
+	startPoint = strings.TrimSpace(startPoint)
+	if startPoint == "" {
+		startPoint = "HEAD"
+	}
+	if err := validateLocalBranchName(ctx, root, branch); err != nil {
+		return err
+	}
+	if strings.HasPrefix(startPoint, "-") {
+		return errors.New("branch start point must not look like an option")
+	}
+	if output, err := run(ctx, root, "rev-parse", "--verify", "--quiet", startPoint+"^{commit}"); err != nil {
+		return fmt.Errorf("unknown branch start point %s: %s", startPoint, RedactRemoteURL(output))
+	}
+	if output, err := run(ctx, root, "branch", branch, startPoint); err != nil {
+		return fmt.Errorf("create branch %s: %s", branch, RedactRemoteURL(output))
+	}
+	return nil
+}
+
+// DeleteBranch removes one local branch using Git's safe deletion semantics.
+// Unmerged branches are refused rather than force-deleted, and the checked-out
+// branch can never be removed from this UI path.
+func DeleteBranch(ctx context.Context, root, branch string) error {
+	branch = strings.TrimSpace(branch)
+	if err := validateLocalBranchName(ctx, root, branch); err != nil {
+		return err
+	}
+	if CurrentBranch(ctx, root) == branch {
+		return errors.New("the checked-out branch cannot be removed")
+	}
+	if output, err := run(ctx, root, "branch", "-d", "--", branch); err != nil {
+		return fmt.Errorf("delete branch %s: %s", branch, RedactRemoteURL(output))
+	}
+	return nil
+}
+
+func validateLocalBranchName(ctx context.Context, root, branch string) error {
+	if branch == "" || strings.HasPrefix(branch, "-") {
+		return errors.New("a valid local branch name is required")
+	}
+	if output, err := run(ctx, root, "check-ref-format", "--branch", branch); err != nil {
+		return fmt.Errorf("invalid branch name %s: %s", branch, strings.TrimSpace(output))
+	}
+	return nil
+}

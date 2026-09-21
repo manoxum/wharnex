@@ -71,6 +71,27 @@ func Push(ctx context.Context, root, remote, branch string, setUpstream bool) (P
 // callers use it only after proving the current branch already tracks the
 // destination and the selected commits form the oldest contiguous prefix of
 // the branch's unpushed history.
+// DeleteRemoteBranch removes one remote branch without force or ref rewrites.
+func DeleteRemoteBranch(ctx context.Context, root, remote, branch string) (PushResult, error) {
+	remote, branch = strings.TrimSpace(remote), strings.TrimSpace(branch)
+	if remote == "" || branch == "" || strings.HasPrefix(remote, "-") || strings.HasPrefix(branch, "-") {
+		return PushResult{}, errors.New("a valid remote and branch are required")
+	}
+	args := []string{"push", "--", remote, ":refs/heads/" + branch}
+	return pushWithArgs(ctx, root, remote, branch, args)
+}
+
+// PushTag publishes one immutable release tag. It never force-updates an
+// existing remote tag; a conflicting tag is returned as a normal push failure.
+func PushTag(ctx context.Context, root, remote, tag string) (PushResult, error) {
+	remote, tag = strings.TrimSpace(remote), strings.TrimSpace(tag)
+	if remote == "" || tag == "" || strings.HasPrefix(remote, "-") || strings.HasPrefix(tag, "-") {
+		return PushResult{}, errors.New("a valid remote and tag are required")
+	}
+	args := []string{"push", "--", remote, "refs/tags/" + tag + ":refs/tags/" + tag}
+	return pushWithArgs(ctx, root, remote, tag, args)
+}
+
 func PushCommit(ctx context.Context, root, remote, branch, sha string) (PushResult, error) {
 	remote, branch, sha = strings.TrimSpace(remote), strings.TrimSpace(branch), strings.TrimSpace(sha)
 	if remote == "" || branch == "" || len(sha) != 40 {

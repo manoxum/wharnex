@@ -1,7 +1,7 @@
 import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, ExecutionPlan, Interview, InterviewQuestion, ManagedArtifact, ChatFileRecord, ProjectTodo, QueuedChatRequest, Session } from '../types'
 import type { ReasoningEffort } from '../types'
-import { clearComposerDraft, flushComposerDraftSave, loadComposerDraft, loadComposerFileDraft, loadComposerStoredFileDraft, saveComposerFileDraft, saveComposerStoredFileDraft, scheduleComposerDraftSave, type ComposerStoredAttachmentDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
+import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, clearComposerDraft, flushComposerDraftSave, loadComposerDraft, loadComposerFileDraft, loadComposerStoredFileDraft, saveComposerFileDraft, saveComposerStoredFileDraft, scheduleComposerDraftSave, type ComposerStoredAttachmentDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { ChatItemBoundary } from './ChatItemBoundary'
 import { StatusPill } from './StatusPill'
@@ -44,8 +44,6 @@ import { ARTIFACT_INDEX_EVENT, artifactIndexMarker, type ArtifactIndexRequest } 
 import { projectTodoPrePlanAttachment, storedAttachmentFile } from '../lib/projectTodoForwarding'
 import { loadUIPreferences } from '../lib/uiPreferences'
 
-const COMPOSER_MIN_HEIGHT = 118
-const COMPOSER_MAX_HEIGHT = 420
 const COMPOSER_TYPING_ATTENTION_MS = 1600
 const LONG_CHAT_MARKDOWN_CHARS = 1400
 const LONG_CHAT_MARKDOWN_LINES = 18
@@ -238,6 +236,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // in sync live: a menu that is a request behind reality is a normal, minor
   // staleness, unlike suggesting a name the engine will actually refuse.
   const [knownProjects, setKnownProjects] = useState<{ name: string; projectPath: string }[]>([])
+  const [browsableProjectFiles, setBrowsableProjectFiles] = useState<string[]>([])
   const [libraryArtifacts, setLibraryArtifacts] = useState<ManagedArtifact[]>([])
   const [chatFiles, setChatFiles] = useState<ChatFileRecord[]>([])
   const [projectTodos, setProjectTodos] = useState<ProjectTodo[]>([])
@@ -263,11 +262,26 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const composerProjectName = session.project_path.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) || session.project_path
   const effectiveTransport = chatTransport || globalTransport
   const composerRef = useRef<HTMLFormElement>(null)
+  const contextChannelRef = useRef<HTMLSpanElement>(null)
   const composerResizeRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null)
   const copiedResetTimerRef = useRef<number | null>(null)
   const composerTypingTimerRef = useRef<number | null>(null)
   const richEditorRef = useRef<ComposerRichEditorHandle>(null)
   const composerMessageRef = useRef(initialDraft.message)
+
+  useEffect(() => {
+    if (!contextChannelOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !contextChannelRef.current?.contains(event.target)) setContextChannelOpen(false)
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') setContextChannelOpen(false) }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [contextChannelOpen])
   const composerCaretRef = useRef(initialDraft.message.length)
   const editorShellRef = useRef<HTMLDivElement>(null)
   const draftPersistRevisionRef = useRef(0)
@@ -304,6 +318,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const { afterHeight, beforeHeight, endRef, hasOlder, hasNewer, hiddenItemCount, hiddenNewerItemCount, loadOlder, loadNewer, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
   const whxNoticeRuns = useMemo(() => indexWhxNoticeRuns(visibleItems), [visibleItems])
   const eligibleProjectFiles = useMemo(() => session.context.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'), [session.context.manifest.files])
+  const projectFileCandidates = browsableProjectFiles.length ? browsableProjectFiles : eligibleProjectFiles
   // `@ref` names any project Wharnex has worked on before — attached projects
   // first, so a shared basename resolves to the one already in front of the
   // operator, then every other known project by name only (its files are not
@@ -327,6 +342,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       .catch(() => { if (alive) setKnownProjects([]) })
     return () => { alive = false }
   }, [session.id])
+  useEffect(() => {
+    let alive = true
+    // @file browses the whole safe project tree, not only the current context
+    // snapshot. listFiles already enforces the editor/project containment rules.
+    void api.listFiles(session.id)
+      .then((result) => { if (alive) setBrowsableProjectFiles((result.files || []).filter((entry) => entry.kind === 'file' && entry.path !== 'EXPORTS.md').map((entry) => entry.path)) })
+      .catch(() => { if (alive) setBrowsableProjectFiles([]) })
+    return () => { alive = false }
+  }, [session.id, session.context.manifest.sha256])
   useEffect(() => {
     let alive = true
     void api.managedArtifacts('', false, 'library')
@@ -370,7 +394,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }), [chatFiles, promptIndexByRequest])
   const libraryFileCandidates = useMemo(() => libraryArtifacts.map((item) => ({ value: `session|${item.session_id}|${item.artifact.id}`, label: item.artifact.name, detail: `${item.project_path} · ${item.artifact.kind}` })), [libraryArtifacts])
   const todoCandidates = useMemo(() => projectTodos.filter((todo) => todo.status === 'open').map((todo) => ({ value: todo.id, label: todo.body.slice(0, 90), detail: todo.execution_status === 'processing' ? 'Em execução' : todo.id })), [projectTodos])
-  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, eligibleProjectFiles, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates) : [], [eligibleProjectFiles, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates])
+  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates) : [], [projectFileCandidates, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates])
   const kindSuggestions = useMemo(() => kindQuery ? directiveKindSuggestions(kindQuery.query) : [], [kindQuery])
   const activeSuggestionCount = kindQuery
     ? kindSuggestions.length
@@ -384,7 +408,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // autocomplete fragments stay plain text until a concrete reference is chosen.
   const canonicalReferenceDirectives = useMemo(() => {
     const seen = new Set<string>()
-    return parsedDirectives.filter((directive) => isCanonicalDirective(message, directive)).filter((directive) => {
+    return parsedDirectives.filter((directive) => directive.kind !== 'see' && isCanonicalDirective(message, directive)).filter((directive) => {
       const key = canonicalDirective(directive)
       if (seen.has(key)) return false
       seen.add(key)
@@ -444,7 +468,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     return () => window.removeEventListener('wharnex:todo-insert', onTodoInsert)
   }, [activeChatId])
   const isProjectAttached = (name: string) => attachedProjects.some((project) => project.name.toLowerCase() === name.toLowerCase())
-  const isSeeTargetAvailable = (directive: ComposerDirective) => seeDirectiveAvailable(directive, eligibleProjectFiles, referenceableProjects, attachmentNames, attachedPathFiles)
+  const isSeeTargetAvailable = (directive: ComposerDirective) => seeDirectiveAvailable(directive, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates)
   // The directive the caret currently sits inside, if any — the one that gets
   // the chip toolbar. Recomputed from the same parse the overlay itself draws
   // from, so "which chip is active" can never disagree with "which chips
@@ -644,7 +668,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       const key = `${file.name}:${file.size}`
       if (!seen.has(key)) { files.push(file); seen.add(key) }
     }
-    const indexedDirectives = parseDirectives(text).filter((item) => item.kind === 'chat' || item.kind === 'lib' || item.kind === 'todo')
+    const indexedDirectives = [...new Map(parseDirectives(text).flatMap((item) => {
+      if (item.kind === 'chat' || item.kind === 'lib' || item.kind === 'todo') return [item]
+      if (item.kind !== 'see') return []
+      if (item.value.startsWith('chat|')) {
+        const [target] = parseDirectives(canonicalDirective({ kind: 'chat', value: item.value.slice('chat|'.length) }))
+        return target ? [target] : []
+      }
+      if (item.value.startsWith('lib|')) {
+        const [target] = parseDirectives(canonicalDirective({ kind: 'lib', value: item.value.slice('lib|'.length) }))
+        return target ? [target] : []
+      }
+      return []
+    }).map((item) => [`${item.kind}:${item.value}`, item] as const)).values()]
     let currentTodos = projectTodos
     if (indexedDirectives.some((item) => item.kind === 'todo')) {
       const refreshed = await api.projectTodos(session.id)
@@ -774,6 +810,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
     event.preventDefault()
     setComposerHeight((current) => clampComposerHeight(current + (event.key === 'ArrowUp' ? 24 : -24)))
+  }
+
+  function focusComposerFromSurface(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button > 0 || preparedAttachmentCount) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (target.closest('button, a, input, select, textarea, [contenteditable="true"], [data-directive-chip]')) return
+    event.preventDefault()
+    richEditorRef.current?.getEditor()?.focus()
   }
 
   // Requests the rich editor place its caret at an exact position — the
@@ -1023,7 +1068,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       {bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
       {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={(value) => { composerMessageRef.current = value; setMessage(value) }} initialPath={attachmentsPanelPath} initialKind={attachmentsPanelKind} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>}
-      <div ref={editorShellRef} className="composer-editor-shell">
+      <div ref={editorShellRef} className="composer-editor-shell" onPointerDown={focusComposerFromSurface}>
         <ComposerRichEditor
           ref={richEditorRef} value={message} caret={pendingCaret} onChange={updateMessage}
           onClickDirective={openDirectivePopover} onConfigureDirective={configureDirective} onRemoveDirective={removeDirectiveChip}
@@ -1082,7 +1127,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           {attachedPaths.length > 0 && <button type="button" className={attachmentsPanelOpen ? 'composer-round-action selected' : 'composer-round-action'} aria-pressed={attachmentsPanelOpen} onClick={() => { setAttachmentsPanelPath(undefined); setAttachmentsPanelKind('attach'); setAttachmentsPanelOpen((open) => !open) }} title="Escolher o que é enviado de cada caminho anexado" aria-label="Conteúdo dos caminhos anexados"><Icon name="folder" size={12}/><b>{attachedPaths.length}</b></button>}
           {!compactComposer && <>
           <span className="composer-action-divider" />
-          <span className="context-channel-picker"><button type="button" className={`composer-round-action ${contextChannelOpen || effectiveTransport.disabledTunnelIds.length ? 'selected' : ''}`} aria-expanded={contextChannelOpen} aria-haspopup="menu" aria-label="Túneis do ChatGPT" title="Ligar ou desligar túneis; o bundle ZIP é sempre enviado" onClick={() => setContextChannelOpen((open) => !open)}><Icon name="network" size={12}/></button>{contextChannelOpen && <span className="context-channel-menu" role="menu" data-chatgpt-overlay-blocker="true"><strong>Canais remotos</strong><span className="transport-protocol-note"><Icon name="file" size={13}/><span>Bundle ZIP<small>Sempre incluído em qualquer requisição</small></span><Icon name="check" size={13}/></span><TransportChoices value={effectiveTransport} tunnels={tunnelInstances} onChoose={(next) => onChatTransport?.(next)}/>{chatTransport && <button type="button" className="transport-use-default" onClick={() => onChatTransport?.(undefined)}><Icon name="refresh" size={13}/><span>Usar padrão global<small>Repõe a seleção global dos túneis</small></span></button>}</span>}</span>
+          <span ref={contextChannelRef} className="context-channel-picker"><button type="button" className={`composer-round-action ${contextChannelOpen || effectiveTransport.disabledTunnelIds.length ? 'selected' : ''}`} aria-expanded={contextChannelOpen} aria-haspopup="menu" aria-label="Túneis do ChatGPT" title="Ligar ou desligar túneis; o bundle ZIP é sempre enviado" onClick={() => setContextChannelOpen((open) => !open)}><Icon name="network" size={12}/></button>{contextChannelOpen && <span className="context-channel-menu" role="menu" data-chatgpt-overlay-blocker="true"><strong>Canais remotos</strong><span className="transport-protocol-note"><Icon name="file" size={13}/><span>Bundle ZIP<small>Sempre incluído em qualquer requisição</small></span><Icon name="check" size={13}/></span><TransportChoices value={effectiveTransport} tunnels={tunnelInstances} onChoose={(next) => onChatTransport?.(next)}/>{chatTransport && <button type="button" className="transport-use-default" onClick={() => onChatTransport?.(undefined)}><Icon name="refresh" size={13}/><span>Usar padrão global<small>Repõe a seleção global dos túneis</small></span></button>}</span>}</span>
           <button type="button" className={`composer-round-action ${knowledgeSharingEnabled ? 'selected' : ''}`} disabled={busy || !onKnowledgeSharing} aria-pressed={knowledgeSharingEnabled} aria-label="Conhecimento do projeto" title={knowledgeSharingEnabled ? 'Conhecimento ligado · enviar e atualizar conhecimento incremental nesta requisição' : 'Conhecimento desligado · não enviar catálogo existente; novas aprendizagens continuam a ser recolhidas'} onClick={() => onKnowledgeSharing?.(!knowledgeSharingEnabled)}><Icon name="knowledge" size={12}/>{knowledgeSharingEnabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <button type="button" className={`composer-round-action debug-mode ${session.debug_enabled ? 'selected' : ''}`} disabled={busy || !onDebugMode} aria-pressed={Boolean(session.debug_enabled)} aria-label="Modo interativo" title={session.debug_enabled ? 'Interativo ligado · observações seguras podem continuar automaticamente' : 'Interativo desligado · a primeira observação de cada pedido pedirá autorização'} onClick={() => onDebugMode?.(!session.debug_enabled)}><Icon name="code" size={12}/>{session.debug_enabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <span className="composer-mode-group" role="group" aria-label="Proteção de execução">

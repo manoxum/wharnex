@@ -1,15 +1,17 @@
 // The composer directive language, mirroring backend/internal/directives.
 //
-// Three kinds, one grammar. `@file` points at a file in this project; `@ref`
-// points at a project Wharnex has worked on before and, optionally, one file
-// inside it; `@attach` points at a file or directory outside every project.
-// All three are written inline and stay where they were written: a prompt
+// One inline grammar. `@file` points at a file or directory anywhere in the
+// current project's safe explorer; `@ref` points at another project; `@attach`
+// points outside every project; `@chat`/`@lib` address stored artifacts; and
+// `@see` only spotlights one of those already-addressable targets. The markers
+// stay where they were written: a prompt
 // reading "make the handler in @file:a.ts match @ref:core/b.ts" says which
 // file plays which role, and the trailing list this replaced did not.
 //
-// What the operator types is `@file:path` / `@ref:project/path` /
-// `@attach:/abs/path`, bracketed as `<<…>>` when the value contains spaces.
-// `@ref` and `@attach` also accept the alternate keywords in KEYWORDS, because
+// What the operator types includes `@file:path`, `@ref:project/path`,
+// `@attach:/abs/path` and the other kinds below, bracketed as `<<…>>` when the
+// value contains spaces. `@ref` and `@attach` also accept alternate keywords
+// in KEYWORDS, because
 // an operator reaching for "the other project" should not have to remember one
 // exact word for it. What is sent is always the canonical `@{[file]path}` /
 // `@{[ref]project/path}` / `@{[attach]path}` — unambiguous to scan and
@@ -29,10 +31,10 @@ export type DirectiveKind = 'file' | 'ref' | 'attach' | 'see' | 'chat' | 'lib' |
  * autocompleting, or the reverse.
  */
 export const KEYWORDS: { kind: DirectiveKind; keyword: string; label: string; aliases: string[] }[] = [
-  { kind: 'file', keyword: 'file', label: 'Ficheiro do projeto', aliases: [] },
+  { kind: 'file', keyword: 'file', label: 'Ficheiro ou diretório do projeto', aliases: [] },
   { kind: 'ref', keyword: 'ref', label: 'Outro projeto', aliases: ['reference', 'references', 'project'] },
   { kind: 'attach', keyword: 'attach', label: 'Caminho externo', aliases: ['att', 'attch', 'attche', 'attaches', 'attahes', 'dir'] },
-  { kind: 'see', keyword: 'see', label: 'Ficheiro ou diretório visível', aliases: ['look'] },
+  { kind: 'see', keyword: 'see', label: 'Destacar referência', aliases: ['look'] },
   { kind: 'chat', keyword: 'chat', label: 'Ficheiro deste chat', aliases: [] },
   { kind: 'lib', keyword: 'lib', label: 'Ficheiro da biblioteca', aliases: ['library'] },
   { kind: 'todo', keyword: 'todo', label: 'TODO do projeto', aliases: ['TODO'] },
@@ -228,7 +230,7 @@ function buildLibraryValue(raw: string): Omit<ComposerDirective, 'start' | 'end'
   return { kind: 'lib', value: `session|${parts[1]}|${parts[2]}`, project: parts[1], path: parts[2] }
 }
 
-export type SeeSource = 'project' | 'ref' | 'attach' | 'upload'
+export type SeeSource = 'file' | 'project' | 'ref' | 'attach' | 'upload' | 'chat' | 'lib'
 
 function buildSeeValue(raw: string): Omit<ComposerDirective, 'start' | 'end'> | undefined {
   if (!raw || raw.length > MAX_VALUE_LENGTH || /[{}\0]/.test(raw)) return undefined
@@ -238,9 +240,17 @@ function buildSeeValue(raw: string): Omit<ComposerDirective, 'start' | 'end'> | 
     return /[/\\]/.test(raw) ? undefined : { kind: 'see', value: raw, project: 'upload', path: raw }
   }
   const source = segments[0] as SeeSource
-  if (source === 'project' && segments.length === 2) {
+  if ((source === 'file' || source === 'project') && segments.length === 2) {
     const path = safeRelativePath(segments[1])
-    return path ? { kind: 'see', value: `project|${path}`, project: 'project', path } : undefined
+    return path ? { kind: 'see', value: `${source}|${path}`, project: source, path } : undefined
+  }
+  if (source === 'chat') {
+    const target = buildChatValue(raw.slice('chat|'.length))
+    return target ? { ...target, kind: 'see', value: `chat|${target.value}` } : undefined
+  }
+  if (source === 'lib') {
+    const target = buildLibraryValue(raw.slice('lib|'.length))
+    return target ? { ...target, kind: 'see', value: `lib|${target.value}` } : undefined
   }
   if (source === 'upload' && segments.length === 2 && !/[|/\\]/.test(segments[1])) {
     return { kind: 'see', value: `upload|${segments[1]}`, project: 'upload', path: segments[1] }
@@ -443,10 +453,15 @@ export function directiveSuggestions(
   if (query.kind === 'lib') return rankArtifactCandidates(libraryFiles, query.query)
   if (query.kind === 'todo') return rankArtifactCandidates(todoItems, query.query)
   if (query.kind === 'file') {
-    return matchingProjectFiles(projectFiles, query.query).map((path) => ({ value: path, label: path }))
+    return matchingVisiblePaths(projectFiles, query.query).map((target) => ({
+      value: target.path,
+      label: target.kind === 'directory' ? `${target.path}/` : target.path,
+      detail: target.kind === 'directory' ? 'Diretório do projeto' : 'Ficheiro do projeto',
+      sourceIcon: target.kind === 'directory' ? 'folder' : 'file',
+    }))
   }
   if (query.kind === 'see') {
-    return seeSuggestions(query.query, projectFiles, projects, attachmentNames, attachedPathFiles)
+    return seeSuggestions(query.query, projectFiles, projects, attachmentNames, attachedPathFiles, chatFiles, libraryFiles)
   }
   const { project, path } = splitRefQuery(query.query)
   if (path === undefined) {
@@ -522,11 +537,15 @@ function seeSuggestions(
   projects: ReferenceableProject[],
   attachmentNames: string[],
   attachedPathFiles: Array<{ root: string; files: string[] }>,
+  chatFiles: ArtifactDirectiveCandidate[],
+  libraryFiles: ArtifactDirectiveCandidate[],
 ): DirectiveSuggestion[] {
   const parts = value.split('|')
   if (parts.length === 1) {
     const sources: DirectiveSuggestion[] = [
-      ...(projectFiles.length ? [{ value: 'project|', label: 'Projeto atual', detail: visiblePathCountDetail(projectFiles), continues: true, sourceIcon: 'workspace' as const }] : []),
+      ...(projectFiles.length ? [{ value: 'file|', label: '@file Projeto atual', detail: visiblePathCountDetail(projectFiles), continues: true, sourceIcon: 'workspace' as const }] : []),
+      ...(chatFiles.length ? [{ value: 'chat|', label: '@chat Ficheiros do chat', detail: `${chatFiles.length} artefacto(s) indexado(s)`, continues: true, sourceIcon: 'file' as const }] : []),
+      ...(libraryFiles.length ? [{ value: 'lib|', label: '@lib Biblioteca', detail: `${libraryFiles.length} artefacto(s) disponível(is)`, continues: true, sourceIcon: 'file' as const }] : []),
       ...(attachmentNames.length ? [{ value: 'upload|', label: 'Anexos diretos', detail: `${attachmentNames.length} ficheiro(s) anexado(s)`, continues: true, sourceIcon: 'file' as const }] : []),
       ...projects.filter((project) => project.attached).map((project) => ({ value: `ref|${project.name}|`, label: `@ref ${project.name}`, detail: visiblePathCountDetail(project.files), continues: true, sourceIcon: 'link' as const })),
       ...attachedPathFiles.map((attachment) => ({ value: `attach|${attachment.root}|`, label: `@attach ${attachment.root.split('/').filter(Boolean).pop() || attachment.root}`, detail: visiblePathCountDetail(attachment.files), continues: true, sourceIcon: 'folder' as const })),
@@ -535,8 +554,22 @@ function seeSuggestions(
   }
 
   const source = parts[0]
-  if (source === 'project' && parts.length === 2) {
-    return seeTargetSuggestions(projectFiles, parts[1], 'project|', 'Projeto atual')
+  if ((source === 'file' || source === 'project') && parts.length === 2) {
+    return seeTargetSuggestions(projectFiles, parts[1], `${source}|`, source === 'file' ? '@file Projeto atual' : 'Projeto atual')
+  }
+  if (source === 'chat') {
+    return rankArtifactCandidates(chatFiles, value.slice('chat|'.length)).map((candidate) => ({
+      ...candidate,
+      value: `chat|${candidate.value}`,
+      detail: [candidate.detail, '@chat'].filter(Boolean).join(' · '),
+    }))
+  }
+  if (source === 'lib') {
+    return rankArtifactCandidates(libraryFiles, value.slice('lib|'.length)).map((candidate) => ({
+      ...candidate,
+      value: `lib|${candidate.value}`,
+      detail: [candidate.detail, '@lib'].filter(Boolean).join(' · '),
+    }))
   }
   if (source === 'upload' && parts.length === 2) {
     return rank(attachmentNames, parts[1]).map((name) => ({ value: `upload|${name}`, label: name, detail: 'Anexo direto' }))
@@ -558,13 +591,17 @@ export function seeDirectiveAvailable(
   projects: ReferenceableProject[],
   attachmentNames: string[],
   attachedPathFiles: Array<{ root: string; files: string[] }>,
+  chatFiles: ArtifactDirectiveCandidate[] = [],
+  libraryFiles: ArtifactDirectiveCandidate[] = [],
 ) {
   if (directive.kind !== 'see') return false
   const parts = directive.value.split('|')
   if (parts.length === 1 || parts[0] === 'upload') {
     return attachmentNames.some((name) => name.toLowerCase() === directive.path.toLowerCase())
   }
-  if (parts[0] === 'project') return visiblePathExists(projectFiles, directive.path)
+  if (parts[0] === 'file' || parts[0] === 'project') return visiblePathExists(projectFiles, directive.path)
+  if (parts[0] === 'chat') return chatFiles.some((candidate) => candidate.value === directive.value.slice('chat|'.length))
+  if (parts[0] === 'lib') return libraryFiles.some((candidate) => candidate.value === directive.value.slice('lib|'.length))
   if (parts[0] === 'ref') {
     const project = projects.find((candidate) => candidate.attached && candidate.name.toLowerCase() === directive.project.toLowerCase())
     return Boolean(project && visiblePathExists(project.files, directive.path))
@@ -677,6 +714,11 @@ export function directiveChipLabel(directive: Pick<ComposerDirective, 'kind' | '
  * change and still carries its own list, and it produces nothing for the empty
  * list every new request now sends.
  */
+export function requiresProjectContextTransport(text: string) {
+  return parseDirectives(text).some((directive) => directive.kind === 'file'
+    || (directive.kind === 'see' && (directive.value.startsWith('file|') || directive.value.startsWith('project|'))))
+}
+
 export function projectFileReferenceSuffix(paths: string[]) {
   const unique = [...new Set(paths.map((path) => path.trim()).filter(Boolean))].slice(0, 32)
   if (!unique.length) return ''

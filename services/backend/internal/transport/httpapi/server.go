@@ -95,6 +95,9 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/complete", a.completeChatAgentTask)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/fail", a.failChatAgentTask)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/attention", a.attentionChatAgentTask)
+	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/events", a.recordChatAgentTaskEvent)
+	mux.HandleFunc("GET /api/chat-agent/tasks/{id}/events", a.listChatAgentTaskEventsByTask)
+	mux.HandleFunc("GET /api/chat-agent/tasks/events", a.listChatAgentTaskEventsByRequest)
 	mux.HandleFunc("GET /api/storage", a.storage)
 	mux.HandleFunc("POST /api/storage/prune", a.pruneStorage)
 	mux.HandleFunc("DELETE /api/storage", a.clearStorage)
@@ -136,6 +139,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/interactive/cancel", a.cancelInteractive)
 	mux.HandleFunc("POST /api/sessions/{id}/dependency-network-retry", a.retryDependencyNetwork)
 	mux.HandleFunc("POST /api/sessions/{id}/host-dependency-repair", a.retryHostDependencyRepair)
+	mux.HandleFunc("POST /api/sessions/{id}/conflict-capsule-renew", a.renewConflictCapsule)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/resume", a.resumeInterruptedExecution)
 	mux.HandleFunc("POST /api/sessions/{id}/interrupted-execution/discard", a.discardInterruptedExecution)
 	mux.HandleFunc("POST /api/sessions/{id}/apply", a.apply)
@@ -207,6 +211,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/import-bundle", a.orchestratorImportPlanBundle)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/planning/{request_id}/retry", a.orchestratorRetryPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/{plan_id}/approve", a.orchestratorApprovePlan)
+	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/{plan_id}/reject", a.orchestratorRejectPlan)
+	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/{plan_id}/revise", a.orchestratorRevisePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks", a.orchestratorCreateTask)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/transition", a.orchestratorTransitionTask)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/start", a.orchestratorStartTask)
@@ -1355,7 +1361,11 @@ func (a *API) requestFailureRepair(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) retryFailedRequest(w http.ResponseWriter, r *http.Request) {
-	item, err := a.service.RetryFailedRequest(r.Context(), r.PathValue("id"))
+	var body struct {
+		Guidance string `json:"guidance"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	item, err := a.service.RetryFailedRequestWithGuidance(r.Context(), r.PathValue("id"), body.Guidance)
 	if err != nil {
 		writeError(w, http.StatusConflict, "failed_request_retry_unavailable", err.Error())
 		return
@@ -1392,6 +1402,23 @@ func (a *API) retryDependencyNetwork(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusForbidden
 		}
 		writeJSON(w, status, map[string]any{"error": map[string]any{"code": "dependency_network_retry_failed", "message": err.Error()}, "session": item})
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) renewConflictCapsule(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Approved bool `json:"approved"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	item, err := a.service.RenewConflictCapsule(r.Context(), r.PathValue("id"), body.Approved)
+	if err != nil {
+		status := http.StatusConflict
+		if errors.Is(err, app.ErrApprovalRequired) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": map[string]any{"code": "conflict_capsule_renew_failed", "message": err.Error()}, "session": item})
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

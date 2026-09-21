@@ -1,4 +1,4 @@
-# Wharness project configuration. Managed by Wharness; safe to edit.
+# Wharnex project configuration. Managed by Wharnex; safe to edit.
 version: 1
 project:
   name: "wharness"
@@ -6,4 +6,5 @@ context:
   auto_exclude: true
   max_file_bytes: 2097152
   include: []
+  include_overrides: []
   exclude: []

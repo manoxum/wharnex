@@ -25,7 +25,7 @@ const session = {
 function overview(files: GitWorkingFile[] = []): GitOverview {
   return {
     project_path: '/workspace/demo', available: true, commit_mode: 'manual', detached: false, has_identity: true,
-    current_branch: 'main', branches: [], remotes: [], commits: [], pending: [],
+    current_branch: 'main', branches: [], remotes: [], tags: [], commits: [], pending: [],
     working: { clean: files.length === 0, stageable_count: files.length, files },
   }
 }
@@ -38,7 +38,7 @@ function overview(files: GitWorkingFile[] = []): GitOverview {
 // live-observed ballooning a renderer to several GB and crashing it.
 describe('EditorWorkspace git diff stability', () => {
   beforeEach(() => { vi.spyOn(api, 'gitOverview').mockResolvedValue(overview()) })
-  afterEach(() => { fileRecordCalls.length = 0; codeEditorPropsCalls.length = 0; vi.restoreAllMocks() })
+  afterEach(() => { fileRecordCalls.length = 0; codeEditorPropsCalls.length = 0; localStorage.clear(); vi.restoreAllMocks() })
 
   it('keeps the same file object across unrelated re-renders while a git diff is open', async () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
@@ -133,6 +133,26 @@ describe('EditorWorkspace git diff stability', () => {
     fireEvent.click(locate)
 
     expect(onLocateFile).toHaveBeenCalledWith('src/App.tsx')
+  })
+
+  it('closes the recent-run popup on outside press and Escape', async () => {
+    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
+    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'package.json', content: '{\n  "scripts": { "test": "vitest" }\n}', sha256: 'abc123', size: 43 })
+    localStorage.setItem('kernl.editor.recent-runs.v1:/workspace/demo', JSON.stringify([{ command: "npm run 'test'", cwd: '.' }]))
+
+    const view = render(<EditorWorkspace session={session} onError={() => undefined} onRunInTerminal={() => undefined} openPath="package.json" openNonce={1}/>)
+    await waitFor(() => expect(screen.getByText('Recentes')).toBeTruthy())
+    const details = view.container.querySelector<HTMLDetailsElement>('.editor-run-menu')
+    if (!details) throw new Error('recent run menu missing')
+
+    fireEvent.click(screen.getByText('Recentes'))
+    expect(details.open).toBe(true)
+    fireEvent.pointerDown(document.body)
+    expect(details.open).toBe(false)
+
+    fireEvent.click(screen.getByText('Recentes'))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(details.open).toBe(false)
   })
 
   it('offers split and detach actions for the active file', async () => {

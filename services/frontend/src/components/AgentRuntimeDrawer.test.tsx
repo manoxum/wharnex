@@ -116,6 +116,21 @@ describe('AgentRuntimeDrawer', () => {
     }
   })
 
+  it('groups policy controls into readable operational sections', async () => {
+    window.wharnessDesktop = { agents: agentsBridge() } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
+
+    const provider = screen.getByRole('region', { name: 'Proteção do provedor' })
+    const capacity = screen.getByRole('region', { name: 'Capacidade dos agentes' })
+    const automation = screen.getByRole('region', { name: 'Automação dos Workers' })
+
+    expect(provider.querySelectorAll('.agent-runtime-policy-wide')).toHaveLength(2)
+    expect(capacity.querySelectorAll('.agent-runtime-scale-card')).toHaveLength(4)
+    expect(automation.querySelectorAll('.agent-runtime-scale-card')).toHaveLength(2)
+  })
+
   it('toggles Auto scale and global Keep flowing policies', async () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
@@ -285,12 +300,16 @@ describe('AgentRuntimeDrawer', () => {
   })
 
 
-  it('suspends only Workers from the Agents tab until the configured release window', async () => {
+  it('moves durable Worker suspension from Agents into the Policies tab', async () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    expect(await screen.findByText('Suspende novos claims de todos os Workers ou apenas dos tipos selecionados; tarefas em curso terminam.')).toBeTruthy()
+    await screen.findByText('Worker 1')
+    expect(screen.queryByLabelText('Âmbito da suspensão dos Workers')).toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: /Políticas/ }))
+    expect(await screen.findByText('Cooldown durável dos Workers')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Minutos até retoma dos Workers'), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
 
@@ -306,7 +325,8 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     const { unmount } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    fireEvent.change(await screen.findByLabelText('Modo de retoma dos Workers'), { target: { value: 'manual' } })
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
+    fireEvent.change(screen.getByLabelText('Modo de retoma dos Workers'), { target: { value: 'manual' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
     await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined, []))
     unmount()
@@ -319,9 +339,10 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents: pausedAgents } as unknown as WharnessDesktopBridge
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
 
-    expect(await screen.findByText('Todos os tipos suspensos · aguardam liberação manual')).toBeTruthy()
-    expect(screen.getByText('Worker · Suspenso')).toBeTruthy()
+    expect(await screen.findByText('Worker · Suspenso')).toBeTruthy()
     expect(screen.getByText('Supervisor · Chat sem jobs')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: /Políticas/ }))
+    expect(await screen.findByText('Todos os tipos suspensos · aguardam liberação manual')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retomar Workers' }))
     await waitFor(() => expect(pausedAgents.resumeWorkers).toHaveBeenCalledTimes(1))
     expect(pausedAgents.resumeProvider).not.toHaveBeenCalled()
@@ -332,57 +353,48 @@ describe('AgentRuntimeDrawer', () => {
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    fireEvent.change(await screen.findByLabelText('Âmbito da suspensão dos Workers'), { target: { value: 'types' } })
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
+    fireEvent.change(screen.getByLabelText('Âmbito da suspensão dos Workers'), { target: { value: 'types' } })
+    expect(screen.getByText('Task')).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Auxiliar' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Funcional' })).toBeTruthy()
     fireEvent.click(screen.getByRole('checkbox', { name: /Renomear chat/ }))
-    fireEvent.click(screen.getByRole('checkbox', { name: /Eliminar bundle/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Classificar TODO/ }))
     fireEvent.change(screen.getByLabelText('Modo de retoma dos Workers'), { target: { value: 'manual' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
 
-    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined, ['RENAME_CHAT', 'DELETE_BUNDLE']))
+    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined, ['RENAME_CHAT', 'TODO_CLASSIFY']))
   })
 
-  it('suspends all new agentic work with an automatic resume deadline', async () => {
+  it('selects an entire auxiliary branch from the Worker task tree', async () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
-    await screen.findByText('Cooldown durável dos Workers')
-    fireEvent.change(screen.getByLabelText('Minutos até retoma automática'), { target: { value: '30' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
+    fireEvent.change(screen.getByLabelText('Âmbito da suspensão dos Workers'), { target: { value: 'types' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Suspender grupo Auxiliar' }))
+    fireEvent.change(screen.getByLabelText('Modo de retoma dos Workers'), { target: { value: 'manual' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
 
-    await waitFor(() => expect(agents.pauseProvider).toHaveBeenCalledTimes(1))
-    const pausedUntil = String(agents.pauseProvider.mock.calls[0][0] || '')
-    expect(Date.parse(pausedUntil)).toBeGreaterThan(Date.now() + 29 * 60_000)
-    expect(Date.parse(pausedUntil)).toBeLessThan(Date.now() + 31 * 60_000)
+    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined, [
+      'ORGANIZE_CHAT', 'RENAME_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_TEMP_CHAT',
+      'DELETE_BUNDLE', 'TITLE_DISCOVER', 'TITLE_GENERATE_TEMP', 'TITLE_AWAIT',
+    ]))
   })
 
-  it('supports indefinite suspension and explicit resume from the policies tab', async () => {
-    const agents = agentsBridge()
+  it('keeps automatic provider rate-limit state separate from manual Worker cooldown', async () => {
+    const state = runtime()
+    state.provider = { ...state.provider, paused: true, paused_until: '2026-09-11T10:30:00Z', reason: 'HTTP 429' }
+    const agents = agentsBridge(state)
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
-    const { unmount } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
-    await screen.findByText('Cooldown durável dos Workers')
-    fireEvent.change(screen.getByLabelText('Modo de retoma'), { target: { value: 'manual' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Suspender trabalhos' }))
-    await waitFor(() => expect(agents.pauseProvider).toHaveBeenCalledWith(undefined))
-    unmount()
-
-    const paused = runtime()
-    paused.provider = { ...paused.provider, paused: true, paused_until: '', reason: 'Suspenso pelo utilizador até retoma manual' }
-    const pausedAgents = agentsBridge(paused)
-    pausedAgents.resumeProvider = vi.fn(async () => runtime())
-    window.wharnessDesktop = { agents: pausedAgents } as unknown as WharnessDesktopBridge
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
 
-    fireEvent.click(await screen.findByRole('tab', { name: /Runtime/ }))
-    const pausedLabel = await screen.findByText('Workers suspensos')
-    expect(pausedLabel.closest('.agent-runtime-diagnostic-row')?.className).toContain('tone-warning')
-    fireEvent.click(screen.getByRole('tab', { name: /Políticas/ }))
-    expect(screen.getByText('Workers suspensos · retoma manual')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Retomar agora' }))
-    await waitFor(() => expect(pausedAgents.resumeProvider).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(/Rate limit ativo/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Suspender Workers' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Retomar Workers' })).toBeNull()
   })
 
   // The pool is shared across every open project. Without naming the owning

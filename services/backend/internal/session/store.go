@@ -146,6 +146,11 @@ type Store struct {
 	chatAgentTasks             map[string]ChatAgentTask
 	chatAgentProvider          ChatAgentProviderState
 	chatAgentProcessingSamples []ChatAgentProcessingSample
+	// chatAgentTaskEvents is the non-Postgres fallback for the durable
+	// per-task decision ledger (recovery/keep-continue/bundle validation/
+	// human-escalation events). Production persists the same records in
+	// harness_chat_agent_task_events, keyed by task_id.
+	chatAgentTaskEvents map[string][]ChatAgentTaskEvent
 	// executionErrors is the non-Postgres fallback for the structured execution
 	// error ledger. Production persists the same records in
 	// harness_execution_errors.

@@ -473,6 +473,9 @@ const COMPOSER_DRAFT_PREFIX = 'kernl.workspace.composer-draft.v1:'
 const COMPOSER_STORED_FILE_DRAFT_PREFIX = 'kernl.workspace.composer-file-draft.v1:'
 const composerFileDrafts = new Map<string, ComposerFileDraft>()
 const COMPOSER_DRAFT_SAVE_DELAY_MS = 180
+export const COMPOSER_MIN_HEIGHT = 180
+export const COMPOSER_DEFAULT_HEIGHT = 180
+export const COMPOSER_MAX_HEIGHT = 420
 export type ComposerDraft = { message: string; height: number }
 type PendingComposerDraft = { draft: ComposerDraft; timer: ReturnType<typeof setTimeout> }
 const pendingComposerDrafts = new Map<string, PendingComposerDraft>()
@@ -496,7 +499,7 @@ export function loadComposerDraft(projectPath: string, chatId: string): Composer
     const raw = localStorage.getItem(`${COMPOSER_DRAFT_PREFIX}${key}`)
     const value = raw ? JSON.parse(raw) as Partial<ComposerDraft> : {}
     return normalizeComposerDraft(value)
-  } catch { return { message: '', height: 156 } }
+  } catch { return { message: '', height: COMPOSER_DEFAULT_HEIGHT } }
 }
 
 function writeComposerDraft(projectPath: string, chatId: string, draft: ComposerDraft) {
@@ -594,5 +597,5 @@ function normalizeComposerDraft(value: Partial<ComposerDraft>): ComposerDraft {
 
 function normalizeComposerHeight(value: unknown) {
   const number = Number(value)
-  return Number.isFinite(number) ? Math.min(420, Math.max(118, Math.round(number))) : 156
+  return Number.isFinite(number) ? Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, Math.round(number))) : COMPOSER_DEFAULT_HEIGHT
 }

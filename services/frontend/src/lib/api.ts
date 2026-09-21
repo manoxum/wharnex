@@ -1,4 +1,4 @@
-import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, ChatFileRecord, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, ExecutionErrorRecord, DockerOverview, DockerLogs, DockerContainerAction, DockerResourceKind, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, ProjectTodo, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, WorkspaceSearchOptions, WorkspaceSearchResult, GitOverview, GitFileDiff, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitRemoteMergeResult, GitBranchActionResult, GitCommit, GitUnpushedOverview, GitCommitDetail, GitHistoryPage, GitBranch, GitConflictStrategy, GitAuthorSettings, GitWorktreeCommitResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
+import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, ChatFileRecord, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, ChatAgentTaskEvent, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, ExecutionErrorRecord, DockerOverview, DockerLogs, DockerContainerAction, DockerResourceKind, FileEntry, ProjectConfig, ProjectKnowledge, ProjectProvision, ProjectTodo, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, WorkspaceSearchOptions, WorkspaceSearchResult, GitHeadState, GitOverview, GitFileDiff, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitRemoteMergeResult, GitBranchActionResult, GitBranchMutationResult, GitReleaseNotesResult, GitReleaseResult, GitCommit, GitUnpushedOverview, GitCommitDetail, GitHistoryPage, GitContributorsOverview, GitBranch, GitConflictStrategy, GitAuthorSettings, GitWorktreeCommitResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
 import type { DurableWorkspaceChatRecord } from './workspaceMemory'
 import type { ReasoningEffort } from '../types'
 
@@ -84,6 +84,7 @@ export function normalizeGitOverview(overview: GitOverview): GitOverview {
     ...overview,
     branches: Array.isArray(overview?.branches) ? overview.branches : [],
     remotes: Array.isArray(overview?.remotes) ? overview.remotes : [],
+    tags: Array.isArray(overview?.tags) ? overview.tags : [],
     commits: Array.isArray(overview?.commits) ? overview.commits : [],
     pending: Array.isArray(overview?.pending) ? overview.pending : [],
     working: {
@@ -96,10 +97,11 @@ export function normalizeGitOverview(overview: GitOverview): GitOverview {
   }
 }
 
-function chatAgentQuery(activeOnly: boolean, projectPath: string) {
+function chatAgentQuery(activeOnly: boolean, projectPath: string, limit = 0) {
   const params = new URLSearchParams()
   if (activeOnly) params.set('active', '1')
   if (projectPath) params.set('project_id', projectPath)
+  if (limit > 0) params.set('limit', String(limit))
   const query = params.toString()
   return query ? `?${query}` : ''
 }
@@ -111,13 +113,18 @@ export const api = {
   // projectPath scopes the queue to one project. A project-scoped view MUST
   // always pass it: the queue is shared by every open project, and the panel
   // exists to answer whether *this* project is stuck (see adr/ADR-0044).
-  chatAgentTasks: (activeOnly = false, projectPath = '') =>
-    request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks${chatAgentQuery(activeOnly, projectPath)}`),
+  chatAgentTasks: (activeOnly = false, projectPath = '', limit = 0) =>
+    request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks${chatAgentQuery(activeOnly, projectPath, limit)}`),
   chatAgentTasksForRequest: (requestID: string) => request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks?request_id=${encodeURIComponent(requestID)}&limit=50`),
   chatAgentTaskSummary: (projectPath = '') =>
     request<ChatAgentQueueSummary>(`/api/chat-agent/tasks/summary${projectPath ? `?project_id=${encodeURIComponent(projectPath)}` : ''}`),
   assignChatAgentTask: (taskID: string, workerID: string, keepFlowing = false) =>
     request<ChatAgentTask>(`/api/chat-agent/tasks/${encodeURIComponent(taskID)}/assign`, { method: 'POST', body: JSON.stringify({ worker_id: workerID, keep_flowing: keepFlowing }) }),
+  // Durable per-task decision ledger (adr/ADR-0064): every recovery reload,
+  // keep-continue wake-up, bundle validated/rejected and human escalation
+  // recorded against this one task, oldest first.
+  chatAgentTaskEvents: (taskID: string) =>
+    request<{ events: ChatAgentTaskEvent[] }>(`/api/chat-agent/tasks/${encodeURIComponent(taskID)}/events`),
   updateExecutionConcurrency: (concurrency: number) => request<ExecutionConcurrency>('/api/execution-concurrency', { method: 'PUT', body: JSON.stringify({ concurrency }) }),
   tunnelConfig: () => request<TunnelProviderConfigResponse>('/api/tunnel-config'),
   updateTunnelConfig: (config: TunnelProviderDocument) => request<TunnelProviderConfigResponse>('/api/tunnel-config', { method: 'PUT', body: JSON.stringify(config) }),
@@ -243,7 +250,7 @@ export const api = {
     request<BundleSubmission>(`/api/sessions/${id}/execution-bundle`, { method: 'POST', body: JSON.stringify({ filename, content_base64: contentBase64 }) }),
   retryPolicyRepair: (id: string) => request<Session>(`/api/sessions/${id}/policy-repair`, { method: 'POST', body: '{}' }),
   requestFailureRepair: (id: string, detail = '') => request<Session>(`/api/sessions/${id}/failure-repair`, { method: 'POST', body: JSON.stringify({ detail }) }),
-  retryFailedRequest: (id: string) => request<Session>(`/api/sessions/${id}/failed-request/retry`, { method: 'POST', body: '{}' }),
+  retryFailedRequest: (id: string, guidance?: string) => request<Session>(`/api/sessions/${id}/failed-request/retry`, { method: 'POST', body: JSON.stringify({ guidance: guidance || '' }) }),
 	cancelPendingRequest: (id: string, requestId: string) => request<Session>(`/api/sessions/${id}/request/cancel`, { method: 'POST', body: JSON.stringify({ request_id: requestId }) }),
 	cancelInteractive: (id: string) => request<{ cancelled: boolean }>(`/api/sessions/${id}/interactive/cancel`, { method: 'POST' }),
 	remoteInputFailure: (id: string, requestId: string, reason: string, kind: 'transport' | 'bundle_validation' | 'submodule_write' = 'transport') => request<Session>(`/api/sessions/${id}/remote-input/failures`, { method: 'POST', body: JSON.stringify({ request_id: requestId, reason, kind }) }),
@@ -254,6 +261,7 @@ export const api = {
   approveDebug: (id: string) => request<BundleSubmission>(`/api/sessions/${id}/debug/approve`, { method: 'POST', body: '{}' }),
   retryDependencyNetwork: (id: string) => request<Session>(`/api/sessions/${id}/dependency-network-retry`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
   retryHostDependencyRepair: (id: string) => request<Session>(`/api/sessions/${id}/host-dependency-repair`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
+  renewConflictCapsule: (id: string) => request<Session>(`/api/sessions/${id}/conflict-capsule-renew`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
   resumeInterruptedExecution: (id: string) => request<{ session: Session; plan_id: string; status: string }>(`/api/sessions/${id}/interrupted-execution/resume`, { method: 'POST', body: '{}' }),
   discardInterruptedExecution: (id: string) => request<Session>(`/api/sessions/${id}/interrupted-execution/discard`, { method: 'POST', body: '{}' }),
   apply: (id: string) => request<Session>(`/api/sessions/${id}/apply`, { method: 'POST', body: '{}' }),
@@ -294,6 +302,7 @@ export const api = {
   dockerResourceRemove: (id: string, kind: DockerResourceKind, name: string) => request<{ status: string; kind: DockerResourceKind; name: string }>(`/api/sessions/${id}/docker/resources/${kind}/${encodeURIComponent(name)}/remove`, { method: 'POST', body: '{}' }),
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
   gitOverview: (id: string) => request<GitOverview>(`/api/sessions/${id}/git/overview`).then(normalizeGitOverview),
+  gitHead: (id: string) => request<GitHeadState>(`/api/sessions/${id}/git/head`),
   gitFileDiff: (id: string, path: string) => request<GitFileDiff>(`/api/sessions/${id}/git/diff?path=${encodeURIComponent(path)}`),
   gitUnpushed: (id: string) => request<GitUnpushedOverview>(`/api/sessions/${id}/git/unpushed`),
   gitUnpushedCommit: (id: string, sha: string) => request<GitCommitDetail>(`/api/sessions/${id}/git/unpushed/${encodeURIComponent(sha)}`),
@@ -311,7 +320,12 @@ export const api = {
     return request<GitHistoryPage>(`/api/sessions/${id}/git/history/page?${params.toString()}`)
   },
   gitHistoryCommit: (id: string, sha: string) => request<GitCommitDetail>(`/api/sessions/${id}/git/history/${encodeURIComponent(sha)}`),
+  gitContributors: (id: string) => request<GitContributorsOverview>(`/api/sessions/${id}/git/contributors`),
   gitMergeCandidates: (id: string, target: string) => request<GitBranch[]>(`/api/sessions/${id}/git/merge-candidates?target=${encodeURIComponent(target)}`),
+  gitCreateBranch: (id: string, branch: string, startPoint: string) => request<GitBranchMutationResult>(`/api/sessions/${id}/git/branches`, { method: 'POST', body: JSON.stringify({ branch, start_point: startPoint }) }),
+  gitDeleteBranch: (id: string, branch: string) => request<GitBranchMutationResult>(`/api/sessions/${id}/git/branches/delete`, { method: 'POST', body: JSON.stringify({ branch, confirmation: 'delete_branch' }) }),
+  gitGenerateReleaseNotes: (id: string, branch: string) => request<GitReleaseNotesResult>(`/api/sessions/${id}/git/release-notes`, { method: 'POST', body: JSON.stringify({ branch }) }),
+  gitCreateRelease: (id: string, input: { branch: string; tag_suffix: string; title: string; body: string }) => request<GitReleaseResult>(`/api/sessions/${id}/git/releases`, { method: 'POST', body: JSON.stringify({ ...input, confirmation: 'publish_release' }) }),
   setGitCommitMode: (id: string, mode: GitCommitMode) => request<{ commit_mode: GitCommitMode }>(`/api/sessions/${id}/git/commit-mode`, { method: 'PUT', body: JSON.stringify({ commit_mode: mode }) }),
   setGitConflictStrategy: (id: string, strategy: GitConflictStrategy) => request<{ conflict_strategy: GitConflictStrategy }>(`/api/sessions/${id}/git/conflict-strategy`, { method: 'PUT', body: JSON.stringify({ conflict_strategy: strategy }) }),
   setGitAuthorSettings: (id: string, settings: GitAuthorSettings) => request<GitAuthorSettings>(`/api/sessions/${id}/git/author-settings`, { method: 'PUT', body: JSON.stringify(settings) }),
@@ -334,6 +348,8 @@ export const api = {
   retryOrchestratorPlanning: (id: string, requestId: string) => request<OrchestratorPlanningRequest>(`/api/sessions/${id}/orchestrator/planning/${encodeURIComponent(requestId)}/retry`, { method: 'POST', body: '{}' }),
   importOrchestratorPlan: (id: string, requestId: string, proposal: OrchestratorProposal) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/import`, { method: 'POST', body: JSON.stringify({ request_id: requestId, proposal }) }),
   approveOrchestratorPlan: (id: string, planId: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/plans/${encodeURIComponent(planId)}/approve`, { method: 'POST', body: '{}' }).then(normalizeOrchestratorOverview),
+  rejectOrchestratorPlan: (id: string, planId: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/plans/${encodeURIComponent(planId)}/reject`, { method: 'POST', body: '{}' }).then(normalizeOrchestratorOverview),
+  reviseOrchestratorPlan: (id: string, planId: string, guidance: string) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/${encodeURIComponent(planId)}/revise`, { method: 'POST', body: JSON.stringify({ guidance }) }),
   createOrchestratorTask: (id: string, input: { plan_id?: string; title: string; description?: string; acceptance_criteria?: string[]; priority?: OrchestratorPriority; depends_on?: string[]; capability?: string }) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks`, { method: 'POST', body: JSON.stringify(input) }),
   transitionOrchestratorTask: (id: string, taskId: string, status: OrchestratorTaskStatus) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/transition`, { method: 'POST', body: JSON.stringify({ status }) }),
   startOrchestratorTask: (id: string, taskId: string) => request<OrchestratorRunResult>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/start`, { method: 'POST', body: '{}' }),

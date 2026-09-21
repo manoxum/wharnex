@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitOverview } from '../types'
 import { api } from '../lib/api'
@@ -12,6 +12,7 @@ vi.mock('../lib/api', async () => {
     api: {
       ...actual.api,
       gitOverview: vi.fn(),
+      gitHead: vi.fn(),
       gitFetch: vi.fn(),
       gitPull: vi.fn(),
       gitPush: vi.fn(),
@@ -25,9 +26,13 @@ function overview(): GitOverview {
   return {
     project_path: '/w/alpha', project_version: 'v1.2.64.0', available: true, commit_mode: 'auto', detached: false, has_identity: true,
     current_branch: 'main',
-    branches: [{ name: 'main', current: true, commit_sha: 'a1', subject: 'feat: current', upstream: 'origin/main', ahead: 0, behind: 0, has_upstream: true, gone: false }],
+    branches: [
+      { name: 'main', current: true, commit_sha: 'a1', subject: 'feat: current', upstream: 'origin/main', ahead: 1, behind: 0, has_upstream: true, gone: false, counterpart: 'origin/main', has_counterpart: true },
+      { name: 'feature', current: false, commit_sha: 'b2', subject: 'feat: branch', ahead: 0, behind: 2, has_upstream: false, gone: false },
+      { name: 'origin/main', remote: 'origin', current: false, commit_sha: 'a0', subject: 'feat: remote', ahead: 0, behind: 1, has_upstream: false, gone: false, counterpart: 'main', has_counterpart: true },
+    ],
     remotes: [{ name: 'origin', url: 'https://github.com/org/repo.git' }],
-    commits: [], pending: [], working: { clean: true, stageable_count: 0, files: [] },
+    tags: [], commits: [], pending: [], working: { clean: true, stageable_count: 0, files: [] },
   }
 }
 
@@ -46,6 +51,7 @@ describe('ProjectGitBadge', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
+    vi.mocked(api.gitHead).mockResolvedValue({ current_branch: 'main', detached: false, commit_sha: 'a1' })
   })
 
   it('refreshes remote refs every minute without opening the popup', async () => {
@@ -68,15 +74,49 @@ describe('ProjectGitBadge', () => {
     }
   })
 
-  it('dismisses the branch popup when the user clicks outside or presses Escape', async () => {
-    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
-    await openBadge()
+  it('dismisses the branch popup on outside interaction even when bubbling is stopped', async () => {
+    render(<div>
+      <button type="button" data-testid="outside" onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>Outside</button>
+      <ProjectGitBadge sessionID="ses_1" busy={false}/>
+    </div>)
+    const outside = screen.getByTestId('outside')
 
-    fireEvent.pointerDown(document.body)
+    await openBadge()
+    fireEvent.pointerDown(outside)
     expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
 
     await openBadge()
-    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.keyDown(outside, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
+  })
+
+  it('dismisses the branch popup when focus leaves the control or the window blurs', async () => {
+    render(<div>
+      <button type="button" data-testid="focus-target">Outside</button>
+      <ProjectGitBadge sessionID="ses_1" busy={false}/>
+    </div>)
+    const outside = screen.getByTestId('focus-target')
+
+    await openBadge()
+    fireEvent.focusIn(outside)
+    expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
+
+    await openBadge()
+    fireEvent(window, new Event('blur'))
+    expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
+  })
+
+  it('Escape closes the whole branch popup even when the branch picker is open', async () => {
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    await openBadge()
+
+    const picker = document.querySelector<HTMLButtonElement>('.project-git-picker-trigger')
+    if (!picker) throw new Error('branch picker missing')
+    fireEvent.click(picker)
+    expect(await screen.findByRole('menu', { name: 'Branches disponíveis' })).toBeTruthy()
+
+    fireEvent.keyDown(picker, { key: 'Escape' })
+    expect(screen.queryByRole('menu', { name: 'Branches disponíveis' })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
   })
 
@@ -104,6 +144,28 @@ describe('ProjectGitBadge', () => {
     expect(badge.className).toContain('has-working')
     expect(badge.className).toContain('has-pending-commit')
     expect(badge.className).toContain('has-outgoing')
+  })
+
+  it('uses a rich branch picker with local/remote sync details and copy actions', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    await openBadge()
+
+    const picker = document.querySelector<HTMLButtonElement>('.project-git-picker-trigger')
+    if (!picker) throw new Error('branch picker missing')
+    fireEvent.click(picker)
+    const menu = await screen.findByRole('menu', { name: 'Branches disponíveis' })
+    expect(within(menu).getByText('Locais')).toBeTruthy()
+    expect(within(menu).getByText('Remotas')).toBeTruthy()
+    expect(within(menu).getByTitle('1 commit(s) para enviar')).toBeTruthy()
+    expect(within(menu).getByTitle('2 commit(s) para receber')).toBeTruthy()
+
+    fireEvent.click(within(menu).getByRole('button', { name: 'Copiar nome da branch feature' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('feature'))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /feature/ }))
+    expect(screen.queryByRole('menu', { name: 'Branches disponíveis' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Alternar' }).hasAttribute('disabled')).toBe(false)
   })
 
   it('shows the Git operation modal for fetch, pull and push from the branch popup', async () => {

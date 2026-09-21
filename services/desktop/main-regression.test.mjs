@@ -722,7 +722,7 @@ test('the two pools partition the durable queue: Supervisors take chat-bound wor
   for (const type of ['AWAIT_RESPONSE', 'BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN']) {
     assert.match(execute, new RegExp(`case '${type}'`), `the Supervisor pool must run ${type}`)
   }
-  for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'TRANSLATE_MARKDOWN', 'TODO_CLASSIFY', 'TITLE_DISCOVER']) {
+  for (const type of ['RENAME_CHAT', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'TRANSLATE_MARKDOWN', 'RELEASE_NOTES', 'TODO_CLASSIFY', 'TITLE_DISCOVER']) {
     assert.doesNotMatch(execute, new RegExp(`case '${type}'`), `${type} is small Worker work and must never reach a Supervisor`)
   }
   // The Worker cadence must not serialize Supervisors. Provider-wide suspension
@@ -986,6 +986,16 @@ test('Portuguese spell checking is configured from Chromium dictionaries', async
   assert.match(source, /availableSpellCheckerLanguages/)
   assert.match(source, /'pt-PT', 'pt-BR', 'en-US'/)
   assert.match(source, /setSpellCheckerLanguages/)
+})
+
+
+test('local editable fields wire native spelling corrections into the Electron menu', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /webContents\.on\('context-menu'/)
+  assert.match(source, /spellcheckContextMenuTemplate/)
+  assert.match(source, /replaceMisspelling/)
+  assert.match(source, /addWordToSpellCheckerDictionary/)
+  assert.match(source, /Menu\.buildFromTemplate/)
 })
 
 
@@ -1519,7 +1529,11 @@ test('expected bundle supervision is armed only around submissions that can leav
   const submitCount = (prepare.match(/await submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ rateLimitExempt: !pacedWorker \}\)/g) || []).length
   const disarmCount = (prepare.match(/disarmExpectedChatGPTBundle\(key, requestId\)/g) || []).length
   assert.equal(submitCount, 1, 'the mandatory ZIP autoSubmit path calls submitChatGPTDraft once')
-  assert.equal(disarmCount, 1, 'a failed autoSubmit disarms the bundle armed before dispatch')
+  // One disarm for a failed submitChatGPTDraft, one for a failed durable
+  // AWAIT_RESPONSE task enqueue: the task is this Main Request's only durable
+  // record, so exhausting enqueueChatAgentFollowups' retries must not leave a
+  // live in-memory expectation behind either (see adr/ADR-0056).
+  assert.equal(disarmCount, 2, 'both a failed autoSubmit and a failed durable follow-up enqueue disarm the bundle armed before dispatch')
 
   const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(')
   const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)
@@ -1527,7 +1541,7 @@ test('expected bundle supervision is armed only around submissions that can leav
   const preparedSubmit = prepared.indexOf('await submitChatGPTDraft(key, entry, prepared.conversationUrl || entry.affinity.boundURL)')
   const preparedArm = prepared.indexOf('armExpectedChatGPTBundle(key, prepared.requestId')
   assert.ok(preparedSubmit >= 0 && preparedArm > preparedSubmit, 'manual prepared submit arms supervision only after submit confirmation')
-  assert.doesNotMatch(prepared, /disarmExpectedChatGPTBundle\(key, prepared\.requestId\)/)
+  assert.match(prepared, /disarmExpectedChatGPTBundle\(key, prepared\.requestId\)/)
 
   const repairStart = source.indexOf('async function submitPromptToChatGPT')
   const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
@@ -1625,6 +1639,83 @@ test('a re-click of the expected bundle download is guarded against an in-flight
   const ackStart = source.indexOf('async function acknowledgeChatGPTBundle(')
   const ackEnd = source.indexOf('\nfunction chatGPTPartitionPath', ackStart)
   assert.match(source.slice(ackStart, ackEnd), /markChatGPTBundleRequestDelivered\(id\)/)
+})
+
+test('every ChatGPT recovery/bundle/human-escalation choke point durably records a task event', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const performStart = source.indexOf('async function performChatGPTRecoveryAction(key, expected, entry, action, completion = {})')
+  const performEnd = source.indexOf('\nfunction escalateChatGPTContinuationFailure', performStart)
+  assert.notEqual(performStart, -1)
+  const perform = source.slice(performStart, performEnd)
+  assert.match(perform, /recordChatGPTTaskEvent\(expected, 'chatgpt\.recovery_reload'/)
+  assert.match(perform, /recordChatGPTTaskEvent\(expected, 'chatgpt\.recovery_keep_continue'/)
+
+  const humanActionStart = source.indexOf('function setChatGPTHumanAction(cacheKey, kind, detail = \'\', source = \'dom\')')
+  const humanActionEnd = source.indexOf('\nfunction clearChatGPTHumanAction', humanActionStart)
+  assert.notEqual(humanActionStart, -1)
+  assert.match(source.slice(humanActionStart, humanActionEnd), /recordChatGPTTaskEvent\(expected, 'chatgpt\.human_action_required'/)
+
+  const downloadStart = source.indexOf("function registerChatGPTPlanDownloads(chatSession)")
+  const downloadEnd = source.indexOf('\nfunction publishBundleDownloadError', downloadStart)
+  assert.notEqual(downloadStart, -1)
+  const download = source.slice(downloadStart, downloadEnd)
+  assert.match(download, /recordChatGPTTaskEvent\(live, 'chatgpt\.bundle_validated'/)
+  assert.match(download, /recordChatGPTTaskEvent\(live, 'chatgpt\.bundle_rejected'/)
+
+  assert.match(source, /function recordChatGPTContinuationSent\(expected, trigger, reason\)/)
+  assert.match(source, /recordChatGPTContinuationSent\(expected, 'manual',/)
+  assert.match(source, /recordChatGPTContinuationSent\(expected, 'automatic',/)
+})
+
+test('the Main Request task id is captured from the guaranteed AWAIT_RESPONSE enqueue in both submission paths', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+
+  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
+  const prepareEnd = source.indexOf('\nasync function retryPersistedChatGPTPrompt', prepareStart)
+  const prepare = source.slice(prepareStart, prepareEnd)
+  assert.match(prepare, /armed\.mainRequestTaskId = String\(mainRequestTask\?\.task_id \|\| ''\)/)
+
+  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(')
+  const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)
+  const prepared = source.slice(preparedStart, preparedEnd)
+  assert.match(prepared, /armed\.mainRequestTaskId = String\(mainRequestTask\?\.task_id \|\| ''\)/)
+
+  assert.match(source, /return enqueueChatAgentTask\('AWAIT_RESPONSE', \{ \.\.\.common, dedupeKey: `await:\$\{requestId\}`, maxAttempts: 30, retry: true \}\)/)
+})
+
+test('an in-flight download click suppresses the completed-without-bundle keep-continue race in Supervisor polling', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
+  const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', pollStart)
+  assert.notEqual(pollStart, -1)
+  const poll = source.slice(pollStart, pollEnd)
+  const clickBlockEnd = poll.indexOf('expected.rehydrating) return')
+  const downloadInFlightGuard = poll.indexOf('if (expected.downloadInFlight) {')
+  const recoveryDecision = poll.indexOf('chooseChatGPTRecoveryAction(expected.recovery, {\n        complete: completionSettled')
+  assert.notEqual(downloadInFlightGuard, -1, 'a bounded downloadInFlight wait must exist before the completion/recovery probe')
+  assert.notEqual(recoveryDecision, -1)
+  assert.ok(downloadInFlightGuard < clickBlockEnd, 'the downloadInFlight wait must run before the rehydration/completion probe')
+  assert.ok(downloadInFlightGuard < recoveryDecision, 'the downloadInFlight wait must run before completed-without-bundle can be decided')
+  assert.match(poll, /const pendingMs = now - Number\(expected\.lastDOMClick \|\| now\)\s*\n\s*if \(pendingMs < DOWNLOAD_INFLIGHT_TIMEOUT_MS\) return/)
+})
+
+test('an in-flight download click suppresses the completed-without-bundle continuation race in Worker probing', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const probeStart = source.indexOf('async function probeChatAgentResponse(task, entry, key, payload, conversationURL)')
+  const probeEnd = source.indexOf('\nasync function executeChatAgentWrite', probeStart)
+  assert.notEqual(probeStart, -1)
+  const probe = source.slice(probeStart, probeEnd)
+  const clickBlock = probe.indexOf('const clickMode = await entry.view.webContents.executeJavaScript(chatGPTExpectedDownloadScript')
+  const downloadInFlightGuard = probe.indexOf('if (expected.downloadInFlight) {', clickBlock)
+  const keepFlowingCheck = probe.indexOf('if (keepFlowing) {', clickBlock)
+  const terminalContinuation = probe.indexOf("enqueueChatAgentContinuation(task, key, expected, payload, conversationURL, now, 'completed-without-bundle')")
+  assert.notEqual(clickBlock, -1)
+  assert.notEqual(downloadInFlightGuard, -1, 'a bounded downloadInFlight wait must exist before keepFlowing/terminal recovery')
+  assert.notEqual(keepFlowingCheck, -1)
+  assert.notEqual(terminalContinuation, -1)
+  assert.ok(downloadInFlightGuard > clickBlock && downloadInFlightGuard < keepFlowingCheck, 'the downloadInFlight wait must run between the download click and the keepFlowing recovery check')
+  assert.ok(downloadInFlightGuard < terminalContinuation, 'the downloadInFlight wait must run before the completed-without-bundle continuation can be enqueued')
 })
 
 test('bundle supervision cannot reload or probe a ChatGPT surface during transport preparation', async () => {
@@ -2695,6 +2786,10 @@ test('orchestrator planning carries shared-composer context and attachments into
 
   assert.match(worker, /const includeContext = payload\.include_context === true/)
   assert.match(worker, /storedAttachmentPath\(chatAttachmentRoot\(\), String\(attachment\?\.storage_ref \|\| ''\)\)/)
+  assert.match(worker, /const generatedAttachments = Array\.isArray\(payload\.generated_attachments\)/)
+  assert.match(worker, /const attachmentDir = path\.join\(dir, `generated-\$\{index \+ 1\}`\)/)
+  assert.match(worker, /const filePath = path\.join\(attachmentDir, name\)/)
+  assert.match(worker, /generatedAttachmentBytes > 2 \* 1024 \* 1024/)
   assert.match(worker, /const context = await fetchContextZip\(sessionId\)/)
   assert.match(worker, /await pasteChatGPTFile\(target\.entry, uploadPaths\[index\], index \+ 1, uploadPaths\.length, \{ pacedWorker \}\)/)
   assert.match(worker, /removeStoredChatAttachments\(chatAttachmentRoot\(\), attachmentCacheKey\)/)
@@ -3098,4 +3193,27 @@ test('detached workbench surfaces stay transient and keep project ownership with
   assert.match(handler, /wharness:windows:receive-surface/)
   assert.match(handler, /reason: 'different-project'/)
   assert.doesNotMatch(handler, /projectWindowRegistry\.set/)
+})
+
+
+test('Ctrl+Space can reopen native spelling suggestions at the composer caret', async () => {
+  const [source, preload] = await Promise.all([
+    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./preload.cjs', import.meta.url), 'utf8'),
+  ])
+  const handlerStart = source.indexOf("ipcMain.handle('wharness:spellcheck:show-suggestions'")
+  const handlerEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:show'", handlerStart)
+  const handler = source.slice(handlerStart, handlerEnd)
+  assert.notEqual(handlerStart, -1)
+  assert.match(handler, /trustedSender\(event\)/)
+  assert.match(handler, /windowState\.window\.focus\(\)/)
+  assert.match(handler, /const debuggerAttachedHere = !input\.debugger\.isAttached\(\)/)
+  assert.match(handler, /input\.debugger\.attach\('1\.3'\)/)
+  assert.match(handler, /sendCommand\('Input\.dispatchMouseEvent', \{ type: 'mouseMoved', x, y \}\)/)
+  assert.match(handler, /sendCommand\('Input\.dispatchMouseEvent', \{ type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 \}\)/)
+  assert.match(handler, /sendCommand\('Input\.dispatchMouseEvent', \{ type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1 \}\)/)
+  assert.match(handler, /input\.debugger\.detach\(\)/)
+  assert.doesNotMatch(handler, /\.sendInputEvent\(/)
+  assert.match(source, /Menu\.buildFromTemplate\(template\)\.popup\(\{ window: win, x: params\.x, y: params\.y \}\)/)
+  assert.match(preload, /spellcheck: Object\.freeze\(\{[\s\S]*showSuggestions: \(point = \{\}\) => invoke\('wharness:spellcheck:show-suggestions'/)
 })

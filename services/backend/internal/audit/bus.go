@@ -35,6 +35,12 @@ func NewPersistentBus(store EventStore) *Bus {
 	return bus
 }
 
+// SanitizeEventData applies the bus's own redaction/bounding rules to an
+// arbitrary event body. Exported so other durable event stores (e.g. the
+// chat-agent task event ledger in package session) apply exactly the rules
+// Publish applies, instead of a second, driftable implementation.
+func SanitizeEventData(data map[string]any) map[string]any { return sanitizeData(data) }
+
 func (b *Bus) Publish(sessionID, eventType string, data map[string]any) domain.Event {
 	event := domain.Event{ID: ids.New("evt"), SessionID: sessionID, Type: eventType, Timestamp: time.Now().UTC(), Data: sanitizeData(data)}
 	if b.store != nil {

@@ -91,8 +91,8 @@ func TestDirectiveLegendResolvesQualifiedSeeToExactBundlePath(t *testing.T) {
 		RelatedProjects: []domain.RelatedProjectContext{{Name: "core", Prefix: "RELATED_PROJECTS/01-core/", Manifest: manifestWith("api/auth.go")}},
 		Attachments:     []domain.AttachedPathContext{{Root: "/srv/contracts", Prefix: "ATTACHMENTS/01-contracts/", IncludedPaths: []string{"openapi/api.yml"}}},
 	}
-	legend := directiveLegendWithContext("focus @{[see]project|src/App.tsx} @{[see]ref|core|api/auth.go} @{[see]attach|/srv/contracts|openapi/api.yml}", context)
-	for _, path := range []string{"src/App.tsx", "ref-context/01-core/api/auth.go", "att-context/attach-01/openapi/api.yml"} {
+	legend := directiveLegendWithContext("focus @{[see]file|src/App.tsx} @{[see]ref|core|api/auth.go} @{[see]attach|/srv/contracts|openapi/api.yml} @{[see]chat|artifact|artifact_1} @{[see]lib|session|ses_1|artifact_2}", context)
+	for _, path := range []string{"src/App.tsx", "ref-context/01-core/api/auth.go", "att-context/attach-01/openapi/api.yml", "@{[chat]artifact|artifact_1}", "@{[lib]session|ses_1|artifact_2}"} {
 		if !strings.Contains(legend, path) {
 			t.Fatalf("legend must resolve %q: %s", path, legend)
 		}
@@ -105,7 +105,7 @@ func TestDirectiveLegendResolvesSeeDirectoriesFromVisibleDescendants(t *testing.
 		RelatedProjects: []domain.RelatedProjectContext{{Name: "core", Prefix: "RELATED_PROJECTS/01-core/", Manifest: manifestWith("api/auth/handler.go")}},
 		Attachments:     []domain.AttachedPathContext{{Root: "/srv/contracts", Prefix: "ATTACHMENTS/01-contracts/", IncludedPaths: []string{"openapi/v1/api.yml"}}},
 	}
-	legend := directiveLegendWithContext("focus @{[see]project|src} @{[see]ref|core|api/auth} @{[see]attach|/srv/contracts|openapi}", context)
+	legend := directiveLegendWithContext("focus @{[see]file|src} @{[see]ref|core|api/auth} @{[see]attach|/srv/contracts|openapi}", context)
 	for _, path := range []string{"src/", "ref-context/01-core/api/auth/", "att-context/attach-01/openapi/"} {
 		if !strings.Contains(legend, path) {
 			t.Fatalf("legend must resolve directory %q: %s", path, legend)
@@ -113,6 +113,13 @@ func TestDirectiveLegendResolvesSeeDirectoriesFromVisibleDescendants(t *testing.
 	}
 	if strings.Count(legend, "prioritize this directory") != 3 {
 		t.Fatalf("legend must classify each resolved directory: %s", legend)
+	}
+}
+
+func TestMissingContextFilesTreatsVisibleDirectoriesAsPresent(t *testing.T) {
+	missing := missingContextFiles([]string{"src", "src/ui/App.tsx", "generated"}, manifestWith("src/ui/App.tsx"))
+	if len(missing) != 1 || missing[0] != "generated" {
+		t.Fatalf("missing=%#v", missing)
 	}
 }
 

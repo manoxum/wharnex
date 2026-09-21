@@ -56,3 +56,40 @@ func gitRemoteFetch(ctx context.Context, root, remote string) error {
 	}
 	return nil
 }
+
+func gitRemoteDeleteBranch(ctx context.Context, root, remote, branch string) (hostrepo.PushResult, error) {
+	socket := strings.TrimSpace(os.Getenv("HARNESS_HOST_GIT_SOCKET"))
+	if socket == "" {
+		return hostrepo.DeleteRemoteBranch(ctx, root, remote, branch)
+	}
+	result, err := sandbox.RunHostGit(ctx, socket, sandbox.HostGitRequest{Operation: "delete_branch", Root: root, Remote: remote, Branch: branch})
+	if err != nil {
+		return hostrepo.PushResult{}, err
+	}
+	return hostrepo.InterpretPushResult(remote, branch, result.Output, result.ExitCode == 0), nil
+}
+
+func gitRemotePushTag(ctx context.Context, root, remote, tag string) (hostrepo.PushResult, error) {
+	socket := strings.TrimSpace(os.Getenv("HARNESS_HOST_GIT_SOCKET"))
+	if socket == "" {
+		return hostrepo.PushTag(ctx, root, remote, tag)
+	}
+	result, err := sandbox.RunHostGit(ctx, socket, sandbox.HostGitRequest{Operation: "push_tag", Root: root, Remote: remote, Tag: tag})
+	if err != nil {
+		return hostrepo.PushResult{}, err
+	}
+	return hostrepo.InterpretPushResult(remote, tag, result.Output, result.ExitCode == 0), nil
+}
+
+func gitRemoteCreateGitHubRelease(ctx context.Context, root, remote, tag, title, body string) (string, error) {
+	request := sandbox.HostGitRequest{Operation: "github_release", Root: root, Remote: remote, Tag: tag, Title: title, Body: body}
+	socket := strings.TrimSpace(os.Getenv("HARNESS_HOST_GIT_SOCKET"))
+	if socket == "" {
+		return sandbox.CreateGitHubRelease(ctx, request)
+	}
+	result, err := sandbox.RunHostGit(ctx, socket, request)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(result.Output), nil
+}

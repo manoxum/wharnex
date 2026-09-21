@@ -17,9 +17,11 @@ import (
 // than becoming plan operations.
 func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git/overview", a.gitOverview)
+	mux.HandleFunc("GET /api/sessions/{id}/git/head", a.gitHead)
 	mux.HandleFunc("GET /api/sessions/{id}/git/context", a.gitRequestContext)
 	mux.HandleFunc("GET /api/sessions/{id}/git/diff", a.gitFileDiff)
 	mux.HandleFunc("GET /api/sessions/{id}/git/history", a.gitHistory)
+	mux.HandleFunc("GET /api/sessions/{id}/git/contributors", a.gitContributors)
 	mux.HandleFunc("GET /api/sessions/{id}/git/history/page", a.gitHistoryPage)
 	mux.HandleFunc("GET /api/sessions/{id}/git/history/{sha}", a.gitHistoryCommit)
 	mux.HandleFunc("GET /api/sessions/{id}/git/merge-candidates", a.gitMergeCandidates)
@@ -37,6 +39,10 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/git/fetch", a.gitFetch)
 	mux.HandleFunc("POST /api/sessions/{id}/git/pull", a.gitPull)
 	mux.HandleFunc("POST /api/sessions/{id}/git/switch", a.gitSwitch)
+	mux.HandleFunc("POST /api/sessions/{id}/git/branches", a.gitCreateBranch)
+	mux.HandleFunc("POST /api/sessions/{id}/git/branches/delete", a.gitDeleteBranch)
+	mux.HandleFunc("POST /api/sessions/{id}/git/release-notes", a.gitReleaseNotes)
+	mux.HandleFunc("POST /api/sessions/{id}/git/releases", a.gitCreateRelease)
 	mux.HandleFunc("POST /api/sessions/{id}/git/merge", a.gitMerge)
 	mux.HandleFunc("POST /api/sessions/{id}/git/remote-merge", a.gitRemoteMerge)
 }
@@ -48,6 +54,15 @@ func (a *API) gitOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, overview)
+}
+
+func (a *API) gitHead(w http.ResponseWriter, r *http.Request) {
+	head, err := a.service.GitHead(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, head)
 }
 
 func (a *API) gitRequestContext(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +82,15 @@ func (a *API) gitHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, commits)
+}
+
+func (a *API) gitContributors(w http.ResponseWriter, r *http.Request) {
+	overview, err := a.service.GitContributors(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_contributors_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, overview)
 }
 
 func (a *API) gitHistoryPage(w http.ResponseWriter, r *http.Request) {
@@ -323,6 +347,80 @@ func (a *API) gitSwitch(w http.ResponseWriter, r *http.Request) {
 	result, err := a.service.SwitchBranch(r.Context(), r.PathValue("id"), body.Branch)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_switch_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) gitCreateBranch(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Branch     string `json:"branch"`
+		StartPoint string `json:"start_point"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := a.service.CreateBranch(r.Context(), r.PathValue("id"), body.Branch, body.StartPoint)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_branch_create_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) gitDeleteBranch(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Branch       string `json:"branch"`
+		Confirmation string `json:"confirmation"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Confirmation) != "delete_branch" {
+		writeError(w, http.StatusBadRequest, "git_branch_delete_unconfirmed", "branch deletion requires an explicit confirmation")
+		return
+	}
+	result, err := a.service.DeleteBranch(r.Context(), r.PathValue("id"), body.Branch)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_branch_delete_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) gitReleaseNotes(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Branch string `json:"branch"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := a.service.GenerateGitReleaseNotes(r.Context(), r.PathValue("id"), body.Branch)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_release_notes_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *API) gitCreateRelease(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Branch       string `json:"branch"`
+		TagSuffix    string `json:"tag_suffix"`
+		Title        string `json:"title"`
+		Body         string `json:"body"`
+		Confirmation string `json:"confirmation"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Confirmation) != "publish_release" {
+		writeError(w, http.StatusBadRequest, "git_release_unconfirmed", "publishing a tag and GitHub release requires an explicit confirmation")
+		return
+	}
+	result, err := a.service.CreateGitRelease(r.Context(), r.PathValue("id"), body.Branch, body.TagSuffix, body.Title, body.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "git_release_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

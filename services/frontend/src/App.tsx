@@ -84,7 +84,7 @@ import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
 // References are written inline now, so they travel inside the sentence the
 // operator wrote rather than as a list appended after it. Canonicalizing here
 // means the transcript shows exactly the markers the engine will re-parse.
-import { canonicalizeDirectives, projectFileReferenceSuffix } from './lib/composerDirectives'
+import { canonicalizeDirectives, projectFileReferenceSuffix, requiresProjectContextTransport } from './lib/composerDirectives'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
 import { activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest, sessionOwnsRequest } from './lib/pendingRequest'
 import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
@@ -1790,7 +1790,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             expectedFilename: expectedResponseBundleName(prompt, requestId),
             projectFiles,
             contextSha256: sessionContextSHA(response.session), lastContextSha256: targetChat.lastContextSha256,
-            lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: artifacts.context || projectFiles.length > 0, preferCurrentConversation: false,
+            lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: artifacts.context || projectFiles.length > 0 || requiresProjectContextTransport(message), preferCurrentConversation: false,
             firstRequest, chatTitle: generatedChatTitle, requestedAt: userItem.createdAt, projectName: chatGPTProjectName(projectPath),
             // The owning project of every task this request enqueues. The
             // backend can also resolve it from the chat, but a first request

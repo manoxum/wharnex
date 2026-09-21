@@ -115,6 +115,18 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
     if (editor) editor.enable(!disabled)
   }, [disabled])
 
+  // Quill owns the contenteditable node, so spellcheck must be enabled on the
+  // actual editing root rather than only on this React wrapper. Use explicit
+  // DOM attributes: Chromium consumes them directly and jsdom does not
+  // reliably reflect assignment to the HTMLElement.spellcheck property.
+  useEffect(() => {
+    const editor = quillRef.current?.getEditor()
+    if (!editor) return
+    editor.root.setAttribute('spellcheck', 'true')
+    const spellcheckLanguage = lang || document.documentElement.lang
+    if (spellcheckLanguage) editor.root.setAttribute('lang', spellcheckLanguage)
+  }, [lang])
+
   // `source` is 'user' for a real keystroke/click/API call the operator made,
   // and 'silent' for the resync effect above writing its own reload back into
   // the same document (deliberately silent so it does not re-trigger itself).
@@ -137,6 +149,44 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
   }
   function handleSelectionChange(_selection: unknown, source: string) {
     if (source === 'user') report()
+  }
+
+  function spellcheckSuggestionPoint() {
+    const editor = quillRef.current?.getEditor()
+    const selection = editor?.getSelection()
+    if (!editor || !selection || selection.length) return undefined
+
+    const text = editor.getText(0, editor.getLength())
+    let start = Math.max(0, Math.min(selection.index, text.length))
+    let end = start
+    const isWordCharacter = (character: string) => /[\p{L}\p{M}'’\-]/u.test(character)
+    while (start > 0 && isWordCharacter(text[start - 1] || '')) start -= 1
+    while (end < text.length && isWordCharacter(text[end] || '')) end += 1
+    if (start === end) return undefined
+
+    const bounds = editor.getBounds(start, end - start)
+    if (!bounds) return undefined
+    const container = (editor as unknown as { container: HTMLElement }).container
+    const containerBounds = container.getBoundingClientRect()
+    return {
+      x: Math.round(containerBounds.left + bounds.left + Math.max(1, bounds.width / 2)),
+      y: Math.round(containerBounds.top + bounds.top + Math.max(1, bounds.height / 2)),
+    }
+  }
+
+  function handleKeyDownCapture(event: React.KeyboardEvent) {
+    const shortcut = event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && !event.repeat && (event.code === 'Space' || event.key === ' ')
+    const spellcheck = window.wharnessDesktop?.spellcheck
+    if (shortcut && spellcheck) {
+      const point = spellcheckSuggestionPoint()
+      if (point) {
+        event.preventDefault()
+        event.stopPropagation()
+        void spellcheck.showSuggestions(point)
+        return
+      }
+    }
+    onKeyDownCapture?.(event)
   }
 
   function handlePaste(event: React.ClipboardEvent) {
@@ -187,7 +237,7 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
 
   return <div
     ref={shellRef} className="composer-rich-editor" lang={lang}
-    onClickCapture={handleClickCapture} onKeyDownCapture={onKeyDownCapture} onPasteCapture={handlePaste}
+    onClickCapture={handleClickCapture} onKeyDownCapture={handleKeyDownCapture} onPasteCapture={handlePaste}
   >
     <ReactQuill
       ref={quillRef} theme="bubble" modules={quillModules} formats={['directive-chip']}

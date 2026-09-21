@@ -1533,7 +1533,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .composer-file-reference-chip b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 calc(8.5px * var(--ui-font-scale))/1.2 var(--mono-font-family); }
 .composer-file-reference-chip button { width: 18px; height: 18px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #71806b; cursor: pointer; }
 .composer-file-reference-chip button:hover { background: #d8e4cc; color: #263322; }
-.composer-editor-shell { position: relative; width: 100%; min-width: 0; }
+.composer-editor-shell { position: relative; width: 100%; min-width: 0; flex: 1 1 auto; min-height: 92px; cursor: text; }
 .file-reference-menu { position: absolute; z-index: 30; left: 12px; bottom: 8px; width: min(520px, calc(100% - 24px)); overflow: hidden; border: 1px solid #bcc4b4; border-radius: 10px; background: rgba(249,250,246,.98); box-shadow: 0 16px 42px rgba(27,34,23,.18); backdrop-filter: blur(10px); }
 .file-reference-menu.directive-menu-layer { position: fixed; z-index: 340; right: auto; bottom: auto; box-sizing: border-box; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .file-reference-menu header { min-height: 34px; padding: 6px 9px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #dce1d7; }
@@ -5817,6 +5817,13 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 }
 .database-workspace-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .project-todo-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* Keep the shared TODO/Git tab strip compact when all semantic sections are present. */
+.project-todo-tabs, .git-tabs { container-name: semantic-panel; container-type: inline-size; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.semantic-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container semantic-panel (max-width: 520px) { .semantic-tab-label { font-size: calc(7px * var(--ui-font-scale)); } }
+@container semantic-panel (max-width: 420px) { .semantic-tab-label { max-width: 0; opacity: 0; } }
+@container semantic-panel (max-width: 340px) { .semantic-tab-label { position: absolute; clip-path: inset(50%); } }
 .project-source-tabs { margin-top: 28px; align-self: flex-start; }
 .composer-attachment-tabs { flex-wrap: wrap; }
 .database-object-kind-tabs { overflow-x: auto; }
@@ -7163,7 +7170,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
   box-shadow: 0 28px 90px color-mix(in srgb, var(--theme-shadow) 88%, transparent), 0 0 0 1px color-mix(in srgb, var(--theme-accent) 7%, transparent);
 }
 .git-history-commit-modal > .git-history-commit-header {
-  min-height: 70px;
+  min-height: 78px;
   padding: 10px 12px 10px 16px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--theme-surface) 94%, var(--theme-accent) 6%), var(--theme-surface));
 }
@@ -7605,3 +7612,25 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
   background: color-mix(in srgb, currentColor 7%, transparent);
 }
 .editor-statusbar .editor-git-file-state { margin-right: 1px; }
+
+/* Reconciled workbench metrics and tab density. */
+.agent-runtime-summary { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.agent-runtime-diagnostic-row { border-radius:10px; }
+.agent-runtime-detail { border-radius:10px; }
+.composer { min-height: 180px; max-height: min(420px, 54vh); height: 180px; position: relative; resize: none; border-bottom-color: color-mix(in srgb, var(--theme-border) 80%, transparent); }
+.composer { position: relative; resize: none; border-bottom-color: color-mix(in srgb, var(--theme-border) 80%, transparent); box-shadow: 0 10px 28px var(--theme-shadow); }
+.composer-rich-editor { min-height: 100%; }
+.composer-rich-editor > .quill { display: flex; min-height: 100%; }
+.composer-rich-editor .ql-container.ql-bubble { min-height: 100%; }
+.composer-rich-editor .ql-editor { min-height: 100%; }
+.git-tabs { grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: visible; background: var(--theme-surface); }
+.project-todo-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); /* grid-template-columns: repeat(3, minmax(0, 1fr)); legacy compact mode */ container-name: semantic-panel; container-type: inline-size; }
+.semantic-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-unpushed-list li { min-height: 52px; }
+.git-history-commit-modal > .git-history-commit-header { min-height: 78px; }
+.git-history-commit-modal > .git-history-commit-header > .git-history-commit-heading { display: flex; }
+.git-history-commit-modal > .git-history-commit-header > .git-history-commit-actions { display: flex; }
+.git-history-commit-stats { display: grid; grid-template-columns: repeat(3, minmax(54px, auto)); }
+@container semantic-panel (max-width: 520px) { .semantic-tab-label { font-size: calc(7px * var(--ui-font-scale)); } }
+@container semantic-panel (max-width: 420px) { .semantic-tab-label { max-width: 0; opacity: 0; } }
+@container semantic-panel (max-width: 340px) { .semantic-tab-label { position: absolute; clip-path: inset(50%); } }

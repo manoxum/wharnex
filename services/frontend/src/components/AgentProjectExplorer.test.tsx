@@ -10,7 +10,7 @@ const session = { id: 'ses_project', project_path: '/work/harness' } as Session
 function overview(files: GitWorkingFile[] = []): GitOverview {
   return {
     project_path: '/work/harness', available: true, commit_mode: 'manual', detached: false, has_identity: true,
-    current_branch: 'main', branches: [], remotes: [], commits: [], pending: [],
+    current_branch: 'main', branches: [], remotes: [], tags: [], commits: [], pending: [],
     working: { clean: files.length === 0, stageable_count: files.length, files },
   }
 }

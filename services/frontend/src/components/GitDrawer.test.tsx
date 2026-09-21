@@ -8,12 +8,15 @@ vi.mock('./ChangeDiffEditor', () => ({
   ChangeDiffEditor: ({ file }: { file: { path: string } }) => <div data-testid="change-diff-editor">Comparação estruturada: {file.path}</div>,
 }))
 
+vi.mock('../lib/appDialog', () => ({ confirmDialog: vi.fn(async () => true) }))
+
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
   return {
     ...actual,
     api: {
       gitOverview: vi.fn(),
+      gitHead: vi.fn(),
       gitFileDiff: vi.fn().mockResolvedValue({ path: 'app.go', diff: 'diff --git a/app.go b/app.go\n+changed' }),
       gitUnpushed: vi.fn().mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [] }),
       gitUnpushedCommit: vi.fn(),
@@ -27,9 +30,14 @@ vi.mock('../lib/api', async () => {
       gitFetch: vi.fn().mockResolvedValue({ outcome: 'fetched', remote: 'origin' }),
       gitPull: vi.fn().mockResolvedValue({ outcome: 'merged', remote: 'origin', branch: 'main', ref: 'origin/main' }),
       gitSwitch: vi.fn().mockResolvedValue({ outcome: 'switched', branch: 'feature' }),
+      gitCreateBranch: vi.fn().mockResolvedValue({ outcome: 'created', branch: 'feature/new' }),
+      gitDeleteBranch: vi.fn().mockResolvedValue({ outcome: 'deleted', branch: 'feature' }),
+      gitGenerateReleaseNotes: vi.fn().mockResolvedValue({ body: '## Novidades\n- melhoria', commit_count: 2 }),
+      gitCreateRelease: vi.fn().mockResolvedValue({ outcome: 'published', remote: 'origin', branch: 'origin/main', tag: 'v1.2.97.3-rc1', commit_sha: 'a1', release_url: 'https://github.com/org/repo/releases/tag/v1.2.97.3-rc1' }),
       gitHistory: vi.fn().mockResolvedValue([]),
       gitHistoryPage: vi.fn().mockResolvedValue({ commits: [], next_offset: 0, has_more: false }),
       gitHistoryCommit: vi.fn(),
+      gitContributors: vi.fn(),
       gitMergeCandidates: vi.fn(),
       setGitConflictStrategy: vi.fn().mockResolvedValue({ conflict_strategy: 'user_decide' }),
       setGitAuthorSettings: vi.fn().mockResolvedValue({ commit_author_strategy: 'wharnex_git_user' }),
@@ -46,6 +54,7 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
   return {
     project_path: '/w/alpha', available: true, commit_mode: 'manual', detached: false, has_identity: true,
     current_branch: 'main',
+    project_version: 'v1.2.97.3',
     branches: [
       { name: 'main', current: true, commit_sha: 'a1', subject: 'feat: applied by whx', upstream: 'origin/main', ahead: 1, behind: 0, has_upstream: true, gone: false, counterpart: 'origin/main', has_counterpart: true },
       { name: 'feature', current: false, commit_sha: 'a2', subject: 'chore: earlier', ahead: 0, behind: 0, has_upstream: false, gone: false },
@@ -53,6 +62,7 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
       { name: 'origin/feature', remote: 'origin', current: false, commit_sha: 'a2', subject: 'chore: earlier', ahead: 0, behind: 0, has_upstream: false, gone: false, counterpart: 'feature', has_counterpart: true },
     ],
     remotes: [{ name: 'origin', url: 'https://github.com/org/repo.git' }],
+    tags: [{ name: 'v1.2.96.0', commit_sha: 'a2a2a2a2a2a2', created_at: '2026-09-19T10:00:00Z' }],
     commits: [
       { sha: 'a1', short_sha: 'a1', subject: 'feat: applied by whx', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-10T10:00:00Z', parents: ['a2'], wharnex: true, merge: false, pushed: false },
       { sha: 'a2', short_sha: 'a2', subject: 'chore: earlier', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-09T10:00:00Z', parents: [], wharnex: false, merge: false, pushed: true },
@@ -66,7 +76,7 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
   }
 }
 
-function openTab(name: 'Alterações' | 'Histórico' | 'Branches' | 'Definições') {
+function openTab(name: 'Alterações' | 'Histórico' | 'Contribuidores' | 'Branches' | 'Definições') {
   const tabs = screen.getByRole('tablist', { name: 'Secções do Git' })
   const tab = Array.from(tabs.querySelectorAll<HTMLButtonElement>('[role=tab]')).find((candidate) => candidate.textContent?.includes(name))
   if (!tab) throw new Error(`tab ${name} not found`)
@@ -81,8 +91,27 @@ describe('GitDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
+    vi.mocked(api.gitHead).mockResolvedValue({ current_branch: 'main', detached: false, commit_sha: 'a1' })
     vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [] })
     vi.mocked(api.gitHistoryPage).mockResolvedValue({ commits: overview().commits, next_offset: overview().commits.length, has_more: false })
+    vi.mocked(api.gitContributors).mockResolvedValue({
+      total_commits: 5, truncated: false,
+      weeks: [
+        { started_at: '2026-08-31T00:00:00Z', commits: 2, additions: 18, deletions: 3 },
+        { started_at: '2026-09-07T00:00:00Z', commits: 3, additions: 27, deletions: 5 },
+      ],
+      days: [
+        { started_at: '2026-08-31T00:00:00Z', commits: 1, additions: 8, deletions: 1 },
+        { started_at: '2026-09-01T00:00:00Z', commits: 1, additions: 10, deletions: 2 },
+        { started_at: '2026-09-07T00:00:00Z', commits: 1, additions: 7, deletions: 1 },
+        { started_at: '2026-09-08T00:00:00Z', commits: 1, additions: 9, deletions: 2 },
+        { started_at: '2026-09-10T00:00:00Z', commits: 1, additions: 11, deletions: 2 },
+      ],
+      contributors: [
+        { name: 'Ana Costa', email: 'ana@example.test', commits: 3, additions: 32, deletions: 6, first_commit_at: '2026-08-31T10:00:00Z', last_commit_at: '2026-09-10T10:00:00Z', weekly_commits: [1, 2] },
+        { name: 'Bruno Lima', email: 'bruno@example.test', commits: 2, additions: 13, deletions: 2, first_commit_at: '2026-09-01T10:00:00Z', last_commit_at: '2026-09-08T10:00:00Z', weekly_commits: [1, 1] },
+      ],
+    })
     vi.mocked(api.gitMergeCandidates).mockImplementation(async (_id, target) => overview().branches.filter((branch) => branch.name !== target).map((branch) => ({ ...branch, unmerged_commits: 1 })))
   })
 
@@ -129,6 +158,69 @@ describe('GitDrawer', () => {
     expect(screen.getByText('feat: one')).toBeTruthy()
   })
 
+
+  it('creates and safely removes local branches from the branch directory', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Branches')
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Nome da nova branch' }), { target: { value: 'feature/new' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Criar branch' }))
+    await waitFor(() => expect(api.gitCreateBranch).toHaveBeenCalledWith('ses_1', 'feature/new', 'main'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remover branch feature' }))
+    await waitFor(() => expect(api.gitDeleteBranch).toHaveBeenCalledWith('ses_1', 'feature'))
+  })
+
+  it('lists tags and publishes a VERSION-based release from a remote branch modal', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Branches')
+
+    expect(screen.getByText('Tags e releases')).toBeTruthy()
+    expect(screen.getByText('v1.2.96.0')).toBeTruthy()
+    expect(screen.queryByText('Preparar uma nova release')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Nova release' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Criar nova release' })
+    const publish = within(dialog).getByRole('button', { name: 'Criar tag e release' }) as HTMLButtonElement
+    const branchSelect = within(dialog).getByRole('combobox', { name: 'Branch remota da release' })
+    expect(within(branchSelect).queryByRole('option', { name: 'main' })).toBeNull()
+    expect(within(branchSelect).getByRole('option', { name: 'origin/main' })).toBeTruthy()
+    expect(within(branchSelect).getByRole('option', { name: 'origin/feature' })).toBeTruthy()
+    expect(within(dialog).queryByRole('combobox', { name: 'Remoto da release' })).toBeNull()
+    expect(within(dialog).getAllByText('v1.2.97.3').length).toBeGreaterThan(0)
+    expect(publish.disabled).toBe(true)
+
+    fireEvent.change(branchSelect, { target: { value: 'origin/main' } })
+    const editor = within(dialog).getByRole('textbox', { name: 'Texto manual da release' })
+    editor.innerHTML = '<strong>Release estável</strong>'
+    fireEvent.input(editor)
+    expect(publish.disabled).toBe(false)
+
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Tag opcional da release' }), { target: { value: 'rc1' } })
+    expect(within(dialog).getAllByText('v1.2.97.3-rc1').length).toBeGreaterThan(0)
+    fireEvent.click(publish)
+
+    await waitFor(() => expect(api.gitCreateRelease).toHaveBeenCalledWith('ses_1', {
+      branch: 'origin/main', tag_suffix: 'rc1', title: '', body: '<strong>Release estável</strong>',
+    }))
+  })
+
+  it('allows an empty tag suffix and can delegate release-note writing to GPT for the remote branch', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Branches')
+    fireEvent.click(screen.getByRole('button', { name: 'Nova release' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Criar nova release' })
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Branch remota da release' }), { target: { value: 'origin/main' } })
+    expect((within(dialog).getByRole('textbox', { name: 'Tag opcional da release' }) as HTMLInputElement).value).toBe('')
+    expect(within(dialog).getAllByText('v1.2.97.3').length).toBeGreaterThan(0)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Gerar com GPT' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Gerar notas da branch' }))
+    await waitFor(() => expect(api.gitGenerateReleaseNotes).toHaveBeenCalledWith('ses_1', 'origin/main'))
+    expect((await screen.findByRole('textbox', { name: 'Notas de release geradas pelo GPT' }) as HTMLTextAreaElement).value).toContain('Novidades')
+  })
 
   it('lists changed worktree files and opens their current diff in auto-commit or manual mode', async () => {
     vi.mocked(api.gitOverview).mockResolvedValue(overview({ commit_mode: 'auto', pending: [] }))
@@ -224,6 +316,24 @@ describe('GitDrawer', () => {
     await waitFor(() => expect(api.gitHistoryPage).toHaveBeenCalledWith('ses_1', [], true, 0, 50))
   })
 
+  it('shows contributor ranking and weekly Git activity like repository insights', async () => {
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+    openTab('Contribuidores')
+
+    expect(await screen.findByText('Ranking')).toBeTruthy()
+    await waitFor(() => expect(api.gitContributors).toHaveBeenCalledWith('ses_1'))
+    expect(screen.getByText('Ana Costa')).toBeTruthy()
+    expect(screen.getByText('Bruno Lima')).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Commits por semana em 2 semanas' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: /Calendário de contribuições de/ })).toBeTruthy()
+    const ranking = document.querySelector('.git-contributor-ranking')
+    expect(ranking?.textContent).toContain('Ana Costa')
+    expect(ranking?.textContent).toContain('32')
+    expect(document.querySelectorAll('.git-contribution-day').length).toBe(371)
+    expect(document.querySelectorAll('.git-contributor-area-chart').length).toBe(2)
+  })
+
   it('presents branch history commit details with a dedicated visual hierarchy', async () => {
     const commit = { ...overview().commits[0], body: 'Improve the branch history diff review.', request_id: 'req_history_1', plan_id: 'plan_history_1', additions: 12, deletions: 3, files_changed: 2 }
     vi.mocked(api.gitHistoryPage).mockResolvedValue({ commits: [commit], next_offset: 1, has_more: false })
@@ -237,8 +347,10 @@ describe('GitDrawer', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Commit a1' })
     expect(dialog.classList.contains('git-history-commit-modal')).toBe(true)
     expect(dialog.querySelector('.git-history-commit-header')?.textContent).toContain('Dev')
-    expect(dialog.querySelector('.git-history-commit-actions')?.textContent).toContain('+12')
-    expect(dialog.querySelector('.git-history-commit-actions')?.textContent).toContain('−3')
+    expect(dialog.querySelector('.git-history-commit-eyebrow')?.textContent).toContain('a1')
+    expect(dialog.querySelector('.git-history-commit-stats')?.textContent).toContain('+12adições')
+    expect(dialog.querySelector('.git-history-commit-stats')?.textContent).toContain('−3remoções')
+    expect(dialog.querySelector('.git-history-commit-actions')?.textContent).toContain('2ficheiro(s)')
     expect(dialog.querySelector('.git-history-commit-disclosure')?.textContent).toContain('req_history_1')
     expect(dialog.querySelector('.git-history-commit-disclosure')?.textContent).toContain('plan_history_1')
     expect(screen.getByTestId('change-diff-editor').textContent).toContain('app.go')
@@ -291,13 +403,34 @@ describe('GitDrawer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Pull/ }))
     const featureRow = screen.getByText('feature', { selector: '.git-branch-name' }).closest('li')
-    const featureSwitch = featureRow ? within(featureRow).getByRole('button', { name: 'Alternar' }) : null
-    if (!featureSwitch) throw new Error('feature switch missing')
+    if (!featureRow) throw new Error('feature row missing')
+    const featureSwitch = within(featureRow).getByRole('button', { name: 'Alternar para feature' })
+    expect(featureSwitch.textContent).toBe('')
+    expect(within(featureRow).getByRole('button', { name: 'Remover branch feature' }).textContent).toBe('')
     await waitFor(() => expect((featureSwitch as HTMLButtonElement).disabled).toBe(false))
     expect(api.gitPull).toHaveBeenCalledWith('ses_1', 'origin', 'main')
 
     fireEvent.click(featureSwitch)
     await waitFor(() => expect(api.gitSwitch).toHaveBeenCalledWith('ses_1', 'feature'))
+  })
+
+  it('copies branch names and remote URLs from version control', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    await screen.findByText('Alterações locais')
+
+    openTab('Branches')
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar nome da branch main' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('main'))
+    const featureRow = screen.getByText('feature', { selector: '.git-branch-name' }).closest('li')
+    if (!featureRow) throw new Error('feature row missing')
+    fireEvent.click(within(featureRow).getByRole('button', { name: 'Copiar nome da branch feature' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('feature'))
+
+    openTab('Definições')
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar URL de origin' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://github.com/org/repo.git'))
   })
 
   it('toggles the commit mode from settings', async () => {

@@ -1619,6 +1619,16 @@ func (s *Service) RetryFailedRequest(ctx context.Context, sessionID string) (dom
 	return s.retryFailedRequest(ctx, sessionID, false)
 }
 
+// RetryFailedRequestWithGuidance is RetryFailedRequest's operator-guided form,
+// exposed over HTTP so a chat blocked on a failure the planner declared
+// non-retryable — see plannerDeclaredNonRetryable — can be unblocked once an
+// operator confirms the named condition changed, without that guidance
+// having to travel through any other endpoint. An empty guidance behaves
+// exactly like RetryFailedRequest.
+func (s *Service) RetryFailedRequestWithGuidance(ctx context.Context, sessionID, guidance string) (domain.Session, error) {
+	return s.retryFailedRequestWithGuidance(ctx, sessionID, false, guidance)
+}
+
 func (s *Service) retryFailedRequest(ctx context.Context, sessionID string, automatic bool) (domain.Session, error) {
 	return s.retryFailedRequestWithGuidance(ctx, sessionID, automatic, "")
 }
@@ -1638,14 +1648,26 @@ func (s *Service) retryFailedRequestWithGuidance(ctx context.Context, sessionID 
 	// resuming after the budget is spent must always be an explicit human
 	// decision, never inferred from an empty retry.
 	exhaustedConflict := current.State == "conflict_resolution_exhausted"
-	if !exhaustedConflict && (current.State != "failed" || strings.TrimSpace(current.LastRepairError) == "") {
+	// A host Apply failure leaves the session `verified` with a successful
+	// LastExecution — the sandbox run really did succeed; Apply is what failed —
+	// so it matched none of the shapes below and the operator was told there was
+	// nothing to repair while the failure sat on screen. That left a chat with no
+	// correction reachable at all: none started on its own, and none could be
+	// started by hand.
+	applyFailure := !exhaustedConflict && current.State != "failed" &&
+		strings.TrimSpace(current.LastRepairError) != "" &&
+		len(hostApplicablePendingChanges(pendingHostChanges(current))) > 0
+	if !exhaustedConflict && !applyFailure && (current.State != "failed" || strings.TrimSpace(current.LastRepairError) == "") {
 		return domain.Session{}, errors.New("no terminal failed request is available to retry")
 	}
-	if exhaustedConflict {
+	if exhaustedConflict || applyFailure {
 		if strings.TrimSpace(current.LastRepairError) == "" {
 			return domain.Session{}, errors.New("no terminal failed request is available to retry")
 		}
 		if strings.TrimSpace(guidance) == "" {
+			if applyFailure {
+				return current, errors.New("host apply failed with the verified candidate retained; retrying requires explicit operator guidance stating what changed on the host")
+			}
 			return current, errors.New("automatic conflict resolution already spent its attempt budget; resuming requires explicit operator guidance stating what changed")
 		}
 	}
@@ -2607,7 +2629,29 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 
 	if updated.IntegrationConflict != nil && updated.Plan != nil && updated.IntegrationConflict.RequestID == updated.Plan.RequestID {
 		if effortAttemptAvailable(updated) {
-			if retried, retryErr := s.prepareConflictResolutionRetry(ctx, sessionID, updated, cause); retryErr == nil {
+			// A replay this late in the flow can fail on paths the open
+			// conflict's capsule never authorized — the same candidate commit
+			// drifting further out of sync with the host between rounds, not a
+			// fresh collision. An offline merge-tree preflight against the
+			// live host HEAD (never planner prose or a patch tool's stdout,
+			// which do not exist for every failure shape here) is the ground
+			// truth for whether that happened; extending the thread and
+			// resending a full capsule for that case is what stops the plain
+			// retry below from resending byte-identical content the planner
+			// already rejected as incomplete. See ADR-0065.
+			if s.conflictNeedsCapsuleExtension(ctx, updated) {
+				if renewed, renewErr := s.refreshConflictCapsule(ctx, sessionID, updated); renewErr == nil {
+					updated = renewed
+					updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
+						current.RepairAttempt++
+						current.RepairParentPlanID = result.PlanID
+						current.LastRepairError = cause.Error()
+						return nil
+					})
+				} else {
+					s.bus.Publish(sessionID, "conflict.retry_prepare_failed", map[string]any{"error": renewErr.Error()})
+				}
+			} else if retried, retryErr := s.prepareConflictResolutionRetry(ctx, sessionID, updated, cause); retryErr == nil {
 				updated = retried
 				updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 					current.RepairAttempt++
@@ -2747,6 +2791,12 @@ func (s *Service) RequestFailureRepair(ctx context.Context, sessionID, guidance 
 		// the same guided-retry path, which requires guidance unconditionally
 		// for this state and resets the spent attempt budget on success.
 		if current.State == "conflict_resolution_exhausted" {
+			return s.retryFailedRequestWithGuidance(ctx, sessionID, false, cleanGuidance)
+		}
+		// A host Apply failure keeps its verified candidate and a successful
+		// LastExecution, so it reached this refusal too — the operator was told
+		// nothing was repairable while looking straight at the failure.
+		if strings.TrimSpace(current.LastRepairError) != "" && len(hostApplicablePendingChanges(pendingHostChanges(current))) > 0 {
 			return s.retryFailedRequestWithGuidance(ctx, sessionID, false, cleanGuidance)
 		}
 		return current, errors.New("no repairable failure is available")
@@ -3133,8 +3183,11 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		return item, err
 	}
 	if len(pending) == 0 {
-		s.bus.Publish(sessionID, "host.apply_duplicate_blocked", map[string]any{"state": item.State, "reason": "every pending candidate was superseded by a later resolution"})
-		return item, ErrExecutionRequired
+		// Nothing is left to integrate because the host already carries it, or
+		// because later rounds superseded it. Settling here is what keeps the
+		// chat from asking for an Apply it can never complete: returning an
+		// error instead left a session holding work the host demonstrably had.
+		return s.settleAlreadyIntegratedApply(sessionID, item)
 	}
 	if pendingHostResolutionBlocked(item) {
 		return item, errors.New("finish the active planner/repair turn before applying pending host changes")
@@ -3258,14 +3311,10 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		}
 		s.bus.Publish(sessionID, "baseline.apply_blocked", map[string]any{"plan_id": pending[index].Plan.PlanID, "expected_sha256": expected, "current_sha256": currentBaseline, "impact_files": pending[index].Plan.ImpactFiles})
 		failure := fmt.Errorf("%w: host apply blocked by stale baseline: plan %s was verified on %s but current baseline is %s", ErrStaleHostBaseline, pending[index].Plan.PlanID, expected, currentBaseline)
-		updated, persistErr := s.store.Update(sessionID, func(current *domain.Session) error {
-			current.LastRepairError = failure.Error()
-			return nil
-		})
+		updated, persistErr := s.recordHostApplyFailure(sessionID, pending[index].Plan.PlanID, failure, 0)
 		if persistErr != nil {
 			return item, fmt.Errorf("%w; retain host apply failure for correction: %v", failure, persistErr)
 		}
-		s.bus.Publish(sessionID, "host.apply_failed", map[string]any{"plan_id": pending[index].Plan.PlanID, "error": failure.Error(), "rolled_back_patch_count": 0})
 		return updated, failure
 	}
 	if reverify {
@@ -3397,11 +3446,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		default:
 			failure = s.rollbackHostPatches(ctx, item.ProjectPath, appliedPatches, cause)
 		}
-		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
-			current.LastRepairError = failure.Error()
-			return nil
-		})
-		s.bus.Publish(sessionID, "host.apply_failed", map[string]any{"plan_id": latestPlanID, "error": failure.Error(), "rolled_back_patch_count": len(appliedPatches)})
+		_, _ = s.recordHostApplyFailure(sessionID, latestPlanID, failure, len(appliedPatches))
 		return failure
 	}
 	if useIntegrationBranches {

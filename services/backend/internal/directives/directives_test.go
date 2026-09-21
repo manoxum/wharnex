@@ -159,6 +159,7 @@ func TestParseAcceptsSeeAndLookAsTheSameKind(t *testing.T) {
 
 func TestSeeQualifiedPathsAlsoRepresentDirectories(t *testing.T) {
 	for input, wantPath := range map[string]string{
+		"@{[see]file|src}":                         "src",
 		"@{[see]project|src}":                      "src",
 		"@{[see]ref|flowcore|services/api}":        "services/api",
 		"@{[see]attach|/srv/contracts|openapi/v1}": "openapi/v1",
@@ -177,14 +178,43 @@ func TestSeeRequiresQualifiedContextPaths(t *testing.T) {
 		}
 	}
 	for input, wantSource := range map[string]string{
+		"@{[see]file|src/App.tsx}":                      "file",
 		"@{[see]project|src/App.tsx}":                   "project",
 		"@{[see]ref|flowcore|services/api/auth.go}":     "ref",
 		"@{[see]attach|/srv/contracts|openapi/api.yml}": "attach",
 		"@{[see]upload|diagram.png}":                    "upload",
+		"@{[see]chat|artifact|artifact_123}":            "chat",
+		"@{[see]lib|session|ses_123|artifact_456}":      "lib",
 	} {
 		parsed := Parse(input)
 		if len(parsed) != 1 || parsed[0].Source != wantSource {
 			t.Fatalf("%q parsed=%#v", input, parsed)
+		}
+	}
+}
+
+func TestSeeChatAndLibraryTargetsReuseArtifactGrammar(t *testing.T) {
+	tests := []struct {
+		input   string
+		project string
+		path    string
+	}{
+		{"@{[see]chat|artifact|artifact_123}", "", "artifact_123"},
+		{"@{[see]chat|entry|bundle_1|artifacts/report.md}", "bundle_1", "artifacts/report.md"},
+		{"@{[see]lib|session|ses_123|artifact_456}", "ses_123", "artifact_456"},
+	}
+	for _, test := range tests {
+		parsed := Parse(test.input)
+		if len(parsed) != 1 || parsed[0].Kind != KindSee || parsed[0].Project != test.project || parsed[0].Path != test.path {
+			t.Fatalf("%q parsed=%#v", test.input, parsed)
+		}
+	}
+	for _, malformed := range []string{
+		"@{[see]chat|entry|bundle_1|../secret.txt}",
+		"@{[see]lib|session|../bad|artifact_456}",
+	} {
+		if parsed := Parse(malformed); len(parsed) != 0 {
+			t.Fatalf("%q must not parse, got %#v", malformed, parsed)
 		}
 	}
 }
