@@ -7288,7 +7288,17 @@ function registerIPC() {
     if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) throw new Error('Invalid spellcheck context-menu point')
     const x = Math.max(0, Math.min(Math.round(rawX), Math.max(0, width - 1)))
     const y = Math.max(0, Math.min(Math.round(rawY), Math.max(0, height - 1)))
-    windowState.window.webContents.sendInputEvent({ type: 'contextMenu', x, y, button: 'right' })
+    // Chromium's spelling metadata is populated by the native right-click
+    // path. A synthetic `contextMenu` event can open a generic editable menu
+    // without resolving the misspelled word, which leaves Ctrl+Space with no
+    // correction candidates even though the word is visibly underlined. Keep
+    // the BrowserWindow focused (required by sendInputEvent) and replay the
+    // same mouse sequence as a real right click at the Quill word bounds.
+    windowState.window.focus()
+    const input = windowState.window.webContents
+    input.sendInputEvent({ type: 'mouseMove', x, y })
+    input.sendInputEvent({ type: 'mouseDown', x, y, button: 'right', clickCount: 1 })
+    input.sendInputEvent({ type: 'mouseUp', x, y, button: 'right', clickCount: 1 })
     return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:show', async (event, request) => {
