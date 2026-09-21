@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { buildExecutionTimeline, executionTimelineOverview } from './executionTimeline'
+import { buildExecutionTimeline, executionTimelineOverview, groupExecutionSubtasks } from './executionTimeline'
 import type { HarnessEvent } from '../types'
 
 it('groups one command with all of its streamed output and duration', () => {
@@ -95,6 +95,25 @@ it('groups standard, repair, and evidence iterations under their main request', 
   ])
 })
 
+
+it('groups execution history into expandable subtasks by request and iteration', () => {
+  const event = (id: string, type: string, data: Record<string, unknown>, timestamp: string): HarnessEvent => ({ id, session_id: 's', type, timestamp, data })
+  const entries = buildExecutionTimeline([
+    event('1', 'execution.started', { request_id: 'req-main', root_request_id: 'req-main', iteration_kind: 'standard' }, '2026-09-04T06:00:00Z'),
+    event('2', 'command.completed', { run_id: 'main-command', argv: ['npm', 'test'], exit_code: 1, success: false }, '2026-09-04T06:01:00Z'),
+    event('3', 'repair.started', { request_id: 'req-repair', root_request_id: 'req-main', iteration_kind: 'repair' }, '2026-09-04T06:02:00Z'),
+    event('4', 'execution.completed', { request_id: 'req-repair', root_request_id: 'req-main', iteration_kind: 'repair' }, '2026-09-04T06:03:00Z'),
+  ])
+  const groups = groupExecutionSubtasks(entries)
+
+  expect(groups).toHaveLength(2)
+  expect(groups.map((group) => [group.requestId, group.iterationKind, group.entries.length])).toEqual([
+    ['req-main', 'standard', 2],
+    ['req-repair', 'repair', 2],
+  ])
+  expect(groups[1].overview).toBe('success')
+  expect(groups[1].updatedAt).toBe('2026-09-04T06:03:00Z')
+})
 
 it('keeps generic audit events inspectable with structured payload and severity', () => {
   const entries = buildExecutionTimeline([{
