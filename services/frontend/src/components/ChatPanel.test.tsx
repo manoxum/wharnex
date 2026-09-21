@@ -1284,6 +1284,19 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
+  it('enables Portuguese spell checking on the actual Quill editing root', async () => {
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="spellcheck" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    await waitFor(() => {
+      const editor = ref.current?.getComposerEditor()
+      expect(editor?.root.getAttribute('spellcheck')).toBe('true')
+      expect(editor?.root.getAttribute('lang')).toBe('pt-PT')
+    })
+    view.unmount()
+  })
+
   it('adds files pasted from the operating-system clipboard', () => {
     const ref = panelRef()
     const view = render(

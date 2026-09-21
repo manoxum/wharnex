@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ClipboardItem, Notification, WebContentsView, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } from 'electron'
+import { app, BrowserWindow, ClipboardItem, Menu, Notification, WebContentsView, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -34,6 +34,7 @@ import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROB
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
 import { reasoningEffortAdjustScript, reasoningEffortStateScript } from './chat-agent-scripts.mjs'
 import { CHATGPT_REASONING_EFFORTS, ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort } from './chatgpt-effort.mjs'
+import { spellcheckContextMenuTemplate } from './spellcheck-menu.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
@@ -6984,6 +6985,22 @@ function openInternalChatGPTBrowser(windowState, value) {
   return { ok: true, reused: false }
 }
 
+function installLocalEditorContextMenu(win) {
+  win.webContents.on('context-menu', (_event, params) => {
+    if (!params.isEditable) return
+    const template = spellcheckContextMenuTemplate(params, {
+      replaceMisspelling: (suggestion) => {
+        if (!win.isDestroyed()) win.webContents.replaceMisspelling(suggestion)
+      },
+      addToDictionary: (word) => {
+        if (!win.isDestroyed()) win.webContents.session.addWordToSpellCheckerDictionary(word)
+      },
+    })
+    if (!template.length || win.isDestroyed()) return
+    Menu.buildFromTemplate(template).popup({ window: win })
+  })
+}
+
 function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true, launch = {}) {
   const id = /^[A-Za-z0-9_-]{1,80}$/.test(String(windowId || '')) ? String(windowId) : `window-${randomUUID()}`
   const surface = launch?.surface && typeof launch.surface === 'object' ? launch.surface : undefined
@@ -7036,6 +7053,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
     try { if (new URL(url).origin !== FRONTEND_ORIGIN) event.preventDefault() }
     catch { event.preventDefault() }
   })
+  installLocalEditorContextMenu(win)
   // The trusted local frontend renderer previously had no crash recovery at
   // all: a GPU/OOM-triggered renderer death left a permanently blank window
   // with no diagnostic trace, indistinguishable from the whole app crashing.

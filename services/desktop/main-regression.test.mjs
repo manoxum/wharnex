@@ -989,6 +989,16 @@ test('Portuguese spell checking is configured from Chromium dictionaries', async
 })
 
 
+test('local editable fields wire native spelling corrections into the Electron menu', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /webContents\.on\('context-menu'/)
+  assert.match(source, /spellcheckContextMenuTemplate/)
+  assert.match(source, /replaceMisspelling/)
+  assert.match(source, /addWordToSpellCheckerDictionary/)
+  assert.match(source, /Menu\.buildFromTemplate/)
+})
+
+
 test('two Supervisor slots double-buffer renderer IPC while bounded workers stay outside chat view ownership', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
