@@ -8,6 +8,7 @@ import { ChatPanel } from '../ChatPanel'
 import { encodeChatAttachments } from '../../lib/chatAttachments'
 import { desktopBridge } from '../../lib/desktop'
 import { errorMessage } from '../../lib/errorMessage'
+import { promptDialog } from '../../lib/appDialog'
 
 export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], chatProps, onGoToChat, onError, proposal, busy, onProposal, onRun, onOpenTasks, onSelectTask }: {
   session: Session
@@ -84,6 +85,26 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
       if (attachmentCacheKey && bridge) await bridge.attachments.removeChat({ cacheKey: attachmentCacheKey }).catch(() => undefined)
       onError?.(errorMessage(reason, 'Não foi possível preparar o pedido do Orchestrator.'))
     }
+  }
+
+  async function rejectDraftPlan() {
+    if (!draftPlan || busy) return
+    await onRun(() => api.rejectOrchestratorPlan(session.id, draftPlan.id), () => onProposal(undefined))
+  }
+
+  async function reviseDraftPlan() {
+    if (!draftPlan || busy) return
+    const guidance = await promptDialog({
+      title: 'Pedir alteração do plano',
+      message: 'Descreva o que deve mudar. O Wharnex enviará o plano proposto atual como anexo para o Planner gerar uma nova versão.',
+      inputLabel: 'Alteração pretendida',
+      placeholder: 'Ex.: dividir a tarefa de migração e acrescentar uma etapa de rollback',
+      confirmLabel: 'Pedir alteração',
+      validate: (value) => value.trim() ? undefined : 'Descreva a alteração pretendida.',
+    })
+    if (guidance === undefined) return
+    const result = await onRun(() => api.reviseOrchestratorPlan(session.id, draftPlan.id, guidance.trim()))
+    if (result) onProposal(result)
   }
 
   async function importManual() {
@@ -168,7 +189,11 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
     {draftPlan && <section className="orchestrator-proposal-card">
       <header>
         <div><span>Plano proposto · {draftTasks.length} tarefas</span><h2>{draftPlan.title}</h2><p>{draftPlan.objective}</p></div>
-        <button type="button" disabled={busy} onClick={() => void onRun(() => api.approveOrchestratorPlan(session.id, draftPlan.id), () => onProposal(undefined))}><Icon name="check" size={15}/> Aprovar e enviar ao fluxo</button>
+        <div className="orchestrator-proposal-actions">
+          <button type="button" className="secondary danger" disabled={busy} onClick={() => void rejectDraftPlan()}><Icon name="close" size={14}/> Recusar</button>
+          <button type="button" className="secondary" disabled={busy} onClick={() => void reviseDraftPlan()}><Icon name="refresh" size={14}/> Pedir alteração</button>
+          <button type="button" disabled={busy} onClick={() => void onRun(() => api.approveOrchestratorPlan(session.id, draftPlan.id), () => onProposal(undefined))}><Icon name="check" size={15}/> Aprovar e enviar ao fluxo</button>
+        </div>
       </header>
       <div className="orchestrator-proposal-flow">
         {draftTasks.map((task, index) => <button key={task.id} type="button" onClick={() => onSelectTask(task)}>

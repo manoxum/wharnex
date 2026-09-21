@@ -2786,6 +2786,10 @@ test('orchestrator planning carries shared-composer context and attachments into
 
   assert.match(worker, /const includeContext = payload\.include_context === true/)
   assert.match(worker, /storedAttachmentPath\(chatAttachmentRoot\(\), String\(attachment\?\.storage_ref \|\| ''\)\)/)
+  assert.match(worker, /const generatedAttachments = Array\.isArray\(payload\.generated_attachments\)/)
+  assert.match(worker, /const attachmentDir = path\.join\(dir, `generated-\$\{index \+ 1\}`\)/)
+  assert.match(worker, /const filePath = path\.join\(attachmentDir, name\)/)
+  assert.match(worker, /generatedAttachmentBytes > 2 \* 1024 \* 1024/)
   assert.match(worker, /const context = await fetchContextZip\(sessionId\)/)
   assert.match(worker, /await pasteChatGPTFile\(target\.entry, uploadPaths\[index\], index \+ 1, uploadPaths\.length, \{ pacedWorker \}\)/)
   assert.match(worker, /removeStoredChatAttachments\(chatAttachmentRoot\(\), attachmentCacheKey\)/)

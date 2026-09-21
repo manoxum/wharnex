@@ -5653,12 +5653,14 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
   const includeContext = payload.include_context === true
   const attachmentCacheKey = String(payload.attachment_cache_key || '').trim()
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : []
+  const generatedAttachments = Array.isArray(payload.generated_attachments) ? payload.generated_attachments : []
   if (!/^orp_[A-Za-z0-9_-]{8,180}$/.test(requestId) || !prompt) {
     return { status: 'failed', error: 'orchestrator planning worker payload is incomplete' }
   }
   if (attachments.length && !/^[A-Za-z0-9_-]{1,128}$/.test(attachmentCacheKey)) {
     return { status: 'failed', error: 'orchestrator planning attachment cache key is invalid' }
   }
+  if (generatedAttachments.length > 4) return { status: 'failed', error: 'orchestrator generated attachment count is invalid' }
 
   // A request already checkpointed under the legacy contract finishes on it;
   // everything new is born as the project's standard response bundle.
@@ -5728,6 +5730,26 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         const filePath = await storedAttachmentPath(chatAttachmentRoot(), String(attachment?.storage_ref || ''))
         uploadPaths.push(filePath)
         uploadBytes += Math.max(0, Number(attachment?.size || 0))
+      }
+      let generatedAttachmentBytes = 0
+      for (let index = 0; index < generatedAttachments.length; index += 1) {
+        const attachment = generatedAttachments[index]
+        const name = String(attachment?.name || '').trim()
+        const content = String(attachment?.content || '')
+        if (!/^[A-Za-z0-9._-]{1,180}$/.test(name) || name === '.' || name === '..' || !content) {
+          throw new Error('orchestrator generated attachment is invalid')
+        }
+        const bytes = Buffer.from(content, 'utf8')
+        generatedAttachmentBytes += bytes.byteLength
+        if (bytes.byteLength > 2 * 1024 * 1024 || generatedAttachmentBytes > 2 * 1024 * 1024) {
+          throw new Error('orchestrator generated attachment is too large')
+        }
+        const attachmentDir = path.join(dir, `generated-${index + 1}`)
+        await mkdir(attachmentDir, { recursive: true, mode: 0o700 })
+        const filePath = path.join(attachmentDir, name)
+        await writeFile(filePath, bytes, { mode: 0o600 })
+        uploadPaths.push(filePath)
+        uploadBytes += bytes.byteLength
       }
       for (let index = 0; index < uploadPaths.length; index += 1) {
         await pasteChatGPTFile(target.entry, uploadPaths[index], index + 1, uploadPaths.length, { pacedWorker })

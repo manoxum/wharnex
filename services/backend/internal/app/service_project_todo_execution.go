@@ -160,6 +160,23 @@ func (s *Service) bindProjectTodosToOrchestratorPlan(requestID, planID string) {
 	}
 }
 
+func (s *Service) rebindProjectTodosForOrchestratorRevision(projectPath, previousPlanID, requestID, planID string) {
+	items, err := s.store.ListProjectTodos(projectPath)
+	if err != nil {
+		return
+	}
+	for _, item := range items {
+		if item.ExecutionPlanID != previousPlanID {
+			continue
+		}
+		item.ExecutionRequestID = requestID
+		item.ExecutionPlanID = planID
+		item.ExecutionStatus = domain.ProjectTodoExecutionProcessing
+		item.ExecutionError = ""
+		_, _ = s.store.SaveProjectTodo(item)
+	}
+}
+
 func (s *Service) reconcileProjectTodosForOrchestratorPlan(ctx context.Context, projectPath, planID string) {
 	if strings.TrimSpace(planID) == "" {
 		return

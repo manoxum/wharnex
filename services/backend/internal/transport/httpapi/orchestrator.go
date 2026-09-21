@@ -110,6 +110,30 @@ func (a *API) orchestratorApprovePlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, overview)
 }
 
+func (a *API) orchestratorRejectPlan(w http.ResponseWriter, r *http.Request) {
+	overview, err := a.service.RejectOrchestratorPlan(r.Context(), r.PathValue("id"), r.PathValue("plan_id"))
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_reject_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, overview)
+}
+
+func (a *API) orchestratorRevisePlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Guidance string `json:"guidance"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := a.service.ReviseOrchestratorPlan(r.Context(), r.PathValue("id"), r.PathValue("plan_id"), body.Guidance)
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_revise_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
 func (a *API) orchestratorCreateTask(w http.ResponseWriter, r *http.Request) {
 	var body app.OrchestratorTaskInput
 	if !decodeJSON(w, r, &body) {
