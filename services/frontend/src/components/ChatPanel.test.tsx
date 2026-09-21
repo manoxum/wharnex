@@ -1265,6 +1265,34 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
+  it('browses files and folders from an indexed @ref that is not attached yet', async () => {
+    vi.spyOn(api, 'knownProjects').mockResolvedValue({ projects: [{ name: 'flowcore', project_path: '/work/flowcore', open: false }] })
+    const inspection = {
+      root: '/work/flowcore', kind: 'directory', auto_exclude: true, include: [], include_overrides: [], exclude: [],
+      included_files: 2, included_bytes: 20, excluded_items: 0, truncated: false, max_file_bytes: 1024, max_total_bytes: 4096, max_files: 100,
+      entries: [
+        { path: 'services/api/auth.go', kind: 'file', status: 'included' as const, size: 10 },
+        { path: 'services/web/App.tsx', kind: 'file', status: 'included' as const, size: 10 },
+      ],
+    }
+    const inspect = vi.spyOn(api, 'referenceInspection').mockResolvedValue(inspection)
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="see-unattached-ref" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+    const prompt = 'usa @{[ref]flowcore} e destaca @see:'
+    typeInComposer(ref, prompt, prompt.length)
+
+    await waitFor(() => expect(inspect).toHaveBeenCalledWith(session.id, '@{[ref]flowcore}'))
+    const source = await screen.findByRole('option', { name: /@ref flowcore/ })
+    fireEvent.click(source)
+
+    await waitFor(() => expect(screen.getByText('services/').closest('button')).toBeTruthy())
+    expect(screen.getByText('services/api/').closest('button')).toBeTruthy()
+    expect(screen.getByText('services/api/auth.go').closest('button')).toBeTruthy()
+    view.unmount()
+  })
+
   it('moves the directive suggestion selection with ArrowUp and ArrowDown', () => {
     const sourceSession = {
       ...session,

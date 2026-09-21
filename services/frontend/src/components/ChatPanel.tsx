@@ -237,6 +237,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // in sync live: a menu that is a request behind reality is a normal, minor
   // staleness, unlike suggesting a name the engine will actually refuse.
   const [knownProjects, setKnownProjects] = useState<{ name: string; projectPath: string }[]>([])
+  const [referenceInspectionCache, setReferenceInspectionCache] = useState<{ key: string; files: Record<string, string[]> }>({ key: '', files: {} })
   const [browsableProjectFiles, setBrowsableProjectFiles] = useState<string[]>([])
   const [libraryArtifacts, setLibraryArtifacts] = useState<ManagedArtifact[]>([])
   const [chatFiles, setChatFiles] = useState<ChatFileRecord[]>([])
@@ -323,6 +324,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const directiveState = useMemo(() => composerDirectiveState(message), [message])
   const parsedDirectives = directiveState.parsed
   const canonicalReferenceDirectives = directiveState.indexed
+  const indexedReferenceKey = useMemo(() => canonicalReferenceDirectives.filter((directive) => directive.kind === 'ref').map(canonicalDirective).join('\n'), [canonicalReferenceDirectives])
+  const inspectedReferenceFiles = useMemo(() => referenceInspectionCache.key === indexedReferenceKey ? referenceInspectionCache.files : {}, [indexedReferenceKey, referenceInspectionCache])
   // `@ref` names any project Wharnex has worked on before — attached projects
   // first, so a shared basename resolves to the one already in front of the
   // operator, then every other known project by name only (its files are not
@@ -333,12 +336,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     files: project.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'),
   })), [session.context.related_projects])
   const referenceableProjects = useMemo<ReferenceableProject[]>(() => {
+    const withInspectedFiles = (project: ReferenceableProject) => {
+      const inspected = inspectedReferenceFiles[project.name.toLowerCase()] || []
+      if (!inspected.length) return project
+      return { ...project, files: [...new Set([...project.files, ...inspected])] }
+    }
     const attachedPaths = new Set(attachedProjects.map((project) => project.projectPath))
     const unattached = knownProjects
       .filter((project) => !attachedPaths.has(project.projectPath))
-      .map((project) => ({ name: project.name, projectPath: project.projectPath, files: [], attached: false }))
-    return [...attachedProjects, ...unattached]
-  }, [attachedProjects, knownProjects])
+      .map((project) => withInspectedFiles({ name: project.name, projectPath: project.projectPath, files: [], attached: false }))
+    const projects = [...attachedProjects.map(withInspectedFiles), ...unattached]
+    const indexedNames = new Set(projects.map((project) => project.name.toLowerCase()))
+    for (const directive of canonicalReferenceDirectives.filter((item) => item.kind === 'ref')) {
+      const key = directive.project.toLowerCase()
+      if (indexedNames.has(key)) continue
+      projects.push(withInspectedFiles({ name: directive.project, projectPath: '', files: [], attached: false }))
+      indexedNames.add(key)
+    }
+    return projects
+  }, [attachedProjects, canonicalReferenceDirectives, inspectedReferenceFiles, knownProjects])
   useEffect(() => {
     let alive = true
     void api.knownProjects(session.id)
@@ -346,6 +362,36 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       .catch(() => { if (alive) setKnownProjects([]) })
     return () => { alive = false }
   }, [session.id])
+  const referenceExplorerNeeded = fileQuery?.kind === 'see' && Boolean(indexedReferenceKey)
+  useEffect(() => {
+    let alive = true
+    if (!referenceExplorerNeeded) return () => { alive = false }
+    // `@ref` can name a project Wharnex knows even before that project is
+    // attached to this session. While @see is choosing a target, inspect the
+    // already-indexed reference exactly as the request builder would so the
+    // picker can drill into its admitted files and directories just like
+    // @attach does, without making @see transport anything itself.
+    const directives = parseDirectives(indexedReferenceKey).filter((directive) => directive.kind === 'ref')
+    void Promise.all(directives.map(async (directive) => {
+      try {
+        const inspection = await api.referenceInspection(session.id, canonicalDirective(directive))
+        return {
+          project: directive.project.toLowerCase(),
+          files: inspection.entries
+            .filter((entry) => entry.status === 'included' && entry.kind === 'file' && entry.path !== 'EXPORTS.md')
+            .map((entry) => entry.path),
+        }
+      } catch {
+        return { project: directive.project.toLowerCase(), files: [] as string[] }
+      }
+    })).then((results) => {
+      if (!alive) return
+      const next: Record<string, string[]> = {}
+      for (const result of results) next[result.project] = [...new Set([...(next[result.project] || []), ...result.files])]
+      setReferenceInspectionCache({ key: indexedReferenceKey, files: next })
+    })
+    return () => { alive = false }
+  }, [indexedReferenceKey, referenceExplorerNeeded, session.id])
   const projectExplorerNeeded = fileQuery?.kind === 'file' || (fileQuery?.kind === 'see' && canonicalReferenceDirectives.some((directive) => directive.kind === 'file'))
   useEffect(() => {
     if (!projectExplorerNeeded) return

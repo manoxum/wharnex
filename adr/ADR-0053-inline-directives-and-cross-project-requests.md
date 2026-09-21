@@ -98,6 +98,8 @@ The source menu has a stable semantic order rather than an alphabetical one: dir
 
 The backend keeps the canonical parser backward-compatible, but a non-upload `@see` is resolved for the planner only when the request text also carries a matching backing directive whose scope covers the spotlight target. A hand-written or stale `@see` therefore cannot claim content that the composer did not index. Direct uploads remain the explicit exception because their admission is represented by the attachment transport rather than a second inline directive. None of this changes the original `@see` transport rule: it still adds no bytes, thumbnail or write authority of its own.
 
+For an indexed `@ref` whose project is known but not yet attached to the session, the composer now resolves its visible file inventory on demand through the existing reference-inspection endpoint while `@see` completion is active. That gives `@see` the same file/directory drill-down affordance already available for indexed `@attach` roots without creating another transport: the inspection is only autocomplete evidence, and submission still relies on the backing `@ref` to attach/admit the referenced project context. Attached projects keep their existing manifest candidates, with inspected entries merged only as additional visible targets.
+
 ## Consequences
 
 - A cross-repository change is one request. The operator writes the relation once, in one sentence, and each project still gets its own sandbox, verification and integration.
