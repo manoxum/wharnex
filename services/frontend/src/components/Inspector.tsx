@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppConfig, ChatChangeFile, ChatGPTActivity, HarnessEvent, Operation, Session } from '../types'
 import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
@@ -12,7 +12,7 @@ import { MarkdownContent } from './MarkdownContent'
 import { TranslatableMarkdown } from './TranslatableMarkdown'
 import { ConflictResolverModal } from './ConflictResolverModal'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
-import { buildExecutionTimeline, executionTimelineOverview } from '../lib/executionTimeline'
+import { buildExecutionTimeline, executionTimelineOverview, groupExecutionSubtasks, type ExecutionSubtaskGroup, type ExecutionTimelineEntry } from '../lib/executionTimeline'
 import { requestIdFromBundleName } from '../lib/bundlename'
 import { sessionHostResolutionBlocked } from '../lib/attentionCenter'
 import { activePendingRequestId } from '../lib/pendingRequest'
@@ -178,19 +178,28 @@ function PlanHistorySurface({ session, chat, events, loading, error, currentPlan
 
 function PlanHistoryBlock({ group, session, currentPlan, defaultOpen }: { group: { rootRequestId: string; plans: ReturnType<typeof collectPlanActivities>; updatedAt: string }; session: Session; currentPlan: import('react').ReactNode; defaultOpen: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
-  return <details className="main-request-block" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary><span><strong>Main Request</strong><small>{formatExecutionDate(group.updatedAt)} · {group.plans.length} {group.plans.length === 1 ? 'plano' : 'planos'}</small></span><code>{shortRequestId(group.rootRequestId)}</code></summary>
+  const lead = group.plans[0]?.plan
+  return <details className="main-request-block plan-history-block" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary className="main-request-summary">
+      <span className="main-request-summary-mark"><Icon name="plan" size={14}/></span>
+      <span className="main-request-summary-copy"><span className="panel-kicker">Main Request</span><strong>{lead?.summary || 'Histórico de planos'}</strong><small>{formatExecutionDate(group.updatedAt)} · {group.plans.length} {group.plans.length === 1 ? 'subplano' : 'subplanos'}</small></span>
+      <span className="main-request-summary-meta"><code title={group.rootRequestId}>{shortRequestId(group.rootRequestId)}</code><span className="history-count">{group.plans.length}</span><span className="history-chevron"><Icon name="chevron" size={13}/></span></span>
+    </summary>
     {open && <div className="main-request-plan-list">{group.plans.map((item, planIndex) => {
       const current = item.plan.plan_id === session.plan?.plan_id
-      return <PlanHistoryLine key={item.id} label={`Plano ${String(group.plans.length - planIndex).padStart(2, '0')}`} itemLabel={item.label} timestamp={item.timestamp} planId={item.plan.plan_id} defaultOpen={current}>{current ? currentPlan : <PlanView session={sessionForPlan(item)} readOnly/>}</PlanHistoryLine>
+      return <PlanHistoryLine key={item.id} label={`Subplano ${String(group.plans.length - planIndex).padStart(2, '0')}`} itemLabel={item.label} summary={item.plan.summary} protocol={item.plan.protocol} risk={item.plan.risk} timestamp={item.timestamp} planId={item.plan.plan_id} defaultOpen={current}>{current ? currentPlan : <PlanView session={sessionForPlan(item)} readOnly/>}</PlanHistoryLine>
     })}</div>}
   </details>
 }
 
-function PlanHistoryLine({ label, itemLabel, timestamp, planId, defaultOpen, children }: { label: string; itemLabel: string; timestamp: string; planId: string; defaultOpen: boolean; children: import('react').ReactNode }) {
+function PlanHistoryLine({ label, itemLabel, summary, protocol, risk, timestamp, planId, defaultOpen, children }: { label: string; itemLabel: string; summary: string; protocol: string; risk?: string; timestamp: string; planId: string; defaultOpen: boolean; children: import('react').ReactNode }) {
   const [open, setOpen] = useState(defaultOpen)
   return <details className="main-request-plan-row" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary><span><strong>{label}</strong><small>{itemLabel} · {formatExecutionDate(timestamp)}</small></span><code>{planId}</code></summary>
+    <summary className="main-request-plan-summary">
+      <span className="plan-history-sequence">{label.replace(/^Subplano\s+/, '')}</span>
+      <span className="main-request-plan-copy"><span className="panel-kicker">{label} · {itemLabel}</span><strong>{summary || 'Plano de execução'}</strong><small>{formatExecutionDate(timestamp)} · {protocol} · risco {riskLabel(risk).toLocaleLowerCase()}</small></span>
+      <span className="main-request-plan-meta"><code title={planId}>{shortPlanId(planId)}</code><span className="history-chevron"><Icon name="chevron" size={12}/></span></span>
+    </summary>
     {open && <div className="main-request-plan-detail">{children}</div>}
   </details>
 }
@@ -209,8 +218,12 @@ function ExecutionHistoryBlock({ group, defaultOpen }: { group: ReturnType<typeo
   const [open, setOpen] = useState(defaultOpen)
   const overview = useMemo(() => executionTimelineOverview(buildExecutionTimeline(group.events)), [group.events])
   const status = overview === 'active' ? 'Em curso' : overview === 'failed' ? 'Falhou' : overview === 'recovered' ? 'Recuperada' : overview === 'success' ? 'Concluída' : 'Registada'
-  return <details className="main-request-block" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary><span><strong>Main Request · {status}</strong><small>{formatExecutionDate(group.updatedAt)} · {group.requestIds.length || 1} subrequest(s) · {group.events.length} eventos</small></span><code>{shortRequestId(group.rootRequestId)}</code></summary>
+  return <details className={`main-request-block execution-main-request tone-${overview}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary className="main-request-summary">
+      <span className="main-request-summary-mark"><Icon name="terminal" size={14}/></span>
+      <span className="main-request-summary-copy"><span className="panel-kicker">Main Request · execução</span><strong>{status}</strong><small>{formatExecutionDate(group.updatedAt)} · {group.requestIds.length || 1} subtarefa(s) · {group.events.length} eventos</small></span>
+      <span className="main-request-summary-meta"><code title={group.rootRequestId}>{shortRequestId(group.rootRequestId)}</code><span className={`history-status tone-${overview}`}>{status}</span><span className="history-chevron"><Icon name="chevron" size={13}/></span></span>
+    </summary>
     {open && <div className="main-request-execution-detail"><TerminalView events={group.events} compact/></div>}
   </details>
 }
@@ -220,6 +233,7 @@ function AuditHistoryNotice({ text, danger = false }: { text: string; danger?: b
 }
 
 function shortRequestId(value: string) { return value ? value.replace(/^req_/, '').slice(0, 28) : 'sessão' }
+function shortPlanId(value: string) { return value ? value.replace(/^plan_/, '').slice(0, 26) : 'plano' }
 
 function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManualJSON, busy, copy, onManualPlan }: {
   config?: AppConfig
@@ -466,7 +480,14 @@ export function PlanView({ session, readOnly = false, busy = false, canExecute =
       {manualPatches.length > 0 && <div className="plan-manual-tools"><div className="plan-manual-copy"><span className="plan-manual-mark"><Icon name="download" size={13}/></span><div><span className="panel-kicker">Fallback manual</span><strong>Aplicação alternativa dos patches</strong><small>Guarde uma cópia em /patches ou copie um lote com quoting seguro para executar manualmente na raiz do projeto.</small></div></div><div className="plan-manual-actions"><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void savePatchesToProject()}><Icon name="download" size={13}/> Descarregar patches</button><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void copyManualCommands()}><Icon name="copy" size={13}/> Copiar lote de comandos</button></div></div>}
     </div>}
     {!readOnly && manualNotice && <p className="plan-manual-notice" role="status">{manualNotice}</p>}
-    <div className="section-heading plan-heading"><div><span className="panel-kicker">{plan.debug ? `Debug ${plan.debug.target} · ${session.workflow_round || 0}/6` : workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span><h3>{plan.summary}</h3></div><StatusPill tone={policyTone}>{policyStatus}</StatusPill></div>
+    <div className="section-heading plan-heading">
+      <div className="plan-heading-copy">
+        <span className="panel-kicker">{plan.debug ? `Debug ${plan.debug.target} · ${session.workflow_round || 0}/6` : workflow ? `Workflow local ${session.workflow_round || 0}/6 · sandbox` : plan.protocol}</span>
+        <h3>{plan.summary}</h3>
+        <div className="plan-heading-meta"><code title={plan.plan_id}>{shortPlanId(plan.plan_id)}</code><span>{operations.length} {operations.length === 1 ? 'operação' : 'operações'}</span><span>{verification.length} {verification.length === 1 ? 'verificação' : 'verificações'}</span></div>
+      </div>
+      <StatusPill tone={policyTone}>{policyStatus}</StatusPill>
+    </div>
     {plan.debug && <div className="policy-box"><Icon name="terminal" size={17}/><div><strong>{plan.debug.protocol === 'harness.interactive/v2' ? `Interactive v2 · ${plan.debug.target} · ${plan.debug.access || 'observe'}` : plan.debug.target === 'host' && plan.debug.access === 'modify' ? 'Ação de debug no host' : `Probe de debug · ${plan.debug.target}`}</strong><span>{plan.debug.rationale}</span>{plan.debug.protocol === 'harness.interactive/v2' ? <><span>Capacidades: {(plan.debug.capabilities || []).join(', ') || 'nenhuma'}.</span><span>Escopo: {interactiveScopeSummary(plan.debug.scope)}</span><span>{plan.debug.access === 'modify' ? 'A autorização é one-shot e vinculada ao plano/digest; qualquer novo impacto exige nova decisão.' : 'A autorização fica limitada ao Main Request, target, capacidades e escopo apresentados.'}</span></> : <span>{plan.debug.target === 'host' && plan.debug.access === 'modify' ? 'Pode alterar o host somente após aprovação deste plano; patches continuam proibidos e rede/ferramentas seguem a Policy.' : 'Somente observação validada; sem patches, rede ou alterações no host.'}</span>}</div></div>}
     {session.policy?.reasons?.length ? <div className="policy-box"><Icon name="shield" size={17}/><div><strong>Policy decision</strong>{session.policy.reasons.map((r) => <span key={r}>{r}</span>)}</div></div> : null}
     <div className="metric-row plan-metrics"><Metric label="Operações" value={String(operations.length)}/><Metric label="Verificações" value={String(verification.length)}/><Metric label="Ficheiros previstos" value={String(plan.impact_files?.length || patches.length)}/><Metric label="Dependências" value={String(dependencies.length)}/><Metric label="Ferramentas SO" value={String(systemTools.length)}/><Metric label="Risco" value={riskLabel(session.policy?.risk || plan.risk)}/></div>
@@ -581,6 +602,7 @@ function IntegrationQueue({ session, conflictGuidance, onConflictGuidance, onRes
 
 export function TerminalView({ events, compact = false }: { events: HarnessEvent[]; compact?: boolean }) {
   const entries = useMemo(() => buildExecutionTimeline(events), [events])
+  const subtasks = useMemo(() => groupExecutionSubtasks(entries), [entries])
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -601,30 +623,54 @@ export function TerminalView({ events, compact = false }: { events: HarnessEvent
   const succeeded = overview === 'success'
   return <div className="execution-view">
     {!compact && <div className="execution-overview">
-      <div><span className="panel-kicker">Execução observável</span><h3>{active ? 'Operação em curso' : failed ? 'Execução com falha' : recovered ? 'Execução recuperada' : succeeded ? 'Execução concluída' : 'Atividade de execução'}</h3><p>Cada comando é um único item: ao expandir, mostra o motivo e o propósito declarados pela IA, além de stdout, stderr, erros, data/hora e duração. A vista acompanha o fim enquanto esta aba estiver ativa.</p></div>
+      <div><span className="panel-kicker">Execução observável</span><h3>{active ? 'Operação em curso' : failed ? 'Execução com falha' : recovered ? 'Execução recuperada' : succeeded ? 'Execução concluída' : 'Atividade de execução'}</h3><p>As execuções ficam organizadas por subtarefa. Expanda cada etapa para ver os seus comandos e, dentro deles, o propósito, stdout, stderr, erros, data/hora e duração.</p></div>
       <StatusPill tone={failed ? 'danger' : active ? 'warning' : 'success'}>{active ? 'LIVE' : failed ? 'Falhou' : recovered ? 'Recuperada' : succeeded ? 'Concluída' : 'Atualizada'}</StatusPill>
     </div>}
-    <div className="execution-timeline">
-      {entries.map((entry, index) => {
-        const canExpand = Boolean(entry.output || entry.rationale)
-        const isExpanded = expanded.has(entry.id)
-		const previous = index > 0 ? entries[index - 1] : undefined
-		const showGroup = !previous || previous.requestId !== entry.requestId || previous.iterationKind !== entry.iterationKind
-        return <Fragment key={entry.id}>{showGroup && <div className={`execution-group-header kind-${entry.iterationKind}`}><strong>{executionKindLabel(entry.iterationKind)}</strong><a href={`#request-${entry.requestId || entry.rootRequestId}`} title={entry.requestId || entry.rootRequestId}>{entry.requestId ? entry.requestId.replace(/^req_/, '').slice(0, 22) : entry.rootRequestId ? entry.rootRequestId.replace(/^req_/, '').slice(0, 22) : 'atividade da sessão'}</a></div>}<div className={`execution-command-card ${entry.running ? 'running' : ''}`}>
-          <div className="execution-event">
-            <span className={`lamp ${entry.tone === 'fail' ? 'fail' : entry.tone === 'warning' ? 'warning' : ''} ${entry.running ? 'blinking' : ''}`} />
-            <div className="execution-event-copy"><strong>{entry.title}</strong><span>{formatExecutionDate(entry.timestamp)}{entry.detail ? ` · ${entry.detail}` : ''}{entry.durationMs !== undefined ? ` · ${formatDuration(entry.durationMs)}` : ''}</span></div>
-            <div className="execution-event-actions"><code>{entry.badge}</code>{canExpand && <button type="button" className={isExpanded ? 'execution-expand open' : 'execution-expand'} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(entry.id)) next.delete(entry.id); else next.add(entry.id); return next })} title={isExpanded ? 'Ocultar detalhes' : 'Mostrar detalhes'} aria-label={isExpanded ? 'Ocultar detalhes' : 'Mostrar detalhes'}>⌄</button>}</div>
-          </div>
-          {canExpand && isExpanded && <div className="execution-command-output" role="log" aria-label="Detalhes da execução">
-            {entry.rationale && <div className="execution-rationale"><strong>Porquê / propósito</strong><span>{entry.rationale}</span></div>}
-            {entry.outputSegments.length ? entry.outputSegments.map((segment, segmentIndex) => <pre key={`${entry.id}-output-${segmentIndex}`} className={`execution-output-segment ${segment.stream}`} data-stream={segment.stream} aria-label={segment.stream === 'stderr' ? 'stderr' : undefined}>{segment.text}</pre>) : entry.output ? <pre className="execution-output-segment meta">{entry.output}</pre> : null}
-          </div>}
-        </div></Fragment>
-      })}
+    <div className="execution-timeline execution-subtask-list">
+      {subtasks.map((group, index) => <ExecutionSubtaskBlock
+        key={group.id}
+        group={group}
+        sequence={index + 1}
+        defaultOpen={group.overview === 'active' || index === subtasks.length - 1}
+        expanded={expanded}
+        onToggleEntry={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })}
+      />)}
       <div ref={endRef}/>
     </div>
   </div>
+}
+
+function ExecutionSubtaskBlock({ group, sequence, defaultOpen, expanded, onToggleEntry }: { group: ExecutionSubtaskGroup; sequence: number; defaultOpen: boolean; expanded: Set<string>; onToggleEntry: (id: string) => void }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const status = executionSubtaskStatus(group.overview)
+  const requestId = group.requestId || group.rootRequestId
+  return <details className={`execution-subtask tone-${group.overview}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary className="execution-subtask-summary">
+      <span className="execution-subtask-index">{String(sequence).padStart(2, '0')}</span>
+      <span className="execution-subtask-copy"><span className="panel-kicker">Subtarefa {String(sequence).padStart(2, '0')}</span><strong>{executionKindLabel(group.iterationKind)}</strong><small>{formatExecutionDate(group.updatedAt)} · {group.entries.length} {group.entries.length === 1 ? 'evento' : 'eventos'}</small></span>
+      <span className="execution-subtask-meta"><code title={requestId}>{shortRequestId(requestId)}</code><span className={`history-status tone-${group.overview}`}>{status}</span><span className="history-chevron"><Icon name="chevron" size={12}/></span></span>
+    </summary>
+    {open && <div className="execution-subtask-events">{group.entries.map((entry) => <ExecutionEntryCard key={entry.id} entry={entry} expanded={expanded.has(entry.id)} onToggle={() => onToggleEntry(entry.id)}/>)}</div>}
+  </details>
+}
+
+function ExecutionEntryCard({ entry, expanded, onToggle }: { entry: ExecutionTimelineEntry; expanded: boolean; onToggle: () => void }) {
+  const canExpand = Boolean(entry.output || entry.rationale)
+  return <div className={`execution-command-card ${entry.running ? 'running' : ''}`}>
+    <div className="execution-event">
+      <span className={`lamp ${entry.tone === 'fail' ? 'fail' : entry.tone === 'warning' ? 'warning' : ''} ${entry.running ? 'blinking' : ''}`} />
+      <div className="execution-event-copy"><strong>{entry.title}</strong><span>{formatExecutionDate(entry.timestamp)}{entry.detail ? ` · ${entry.detail}` : ''}{entry.durationMs !== undefined ? ` · ${formatDuration(entry.durationMs)}` : ''}</span></div>
+      <div className="execution-event-actions"><code>{entry.badge}</code>{canExpand && <button type="button" className={expanded ? 'execution-expand open' : 'execution-expand'} onClick={onToggle} title={expanded ? 'Ocultar detalhes' : 'Mostrar detalhes'} aria-label={expanded ? 'Ocultar detalhes' : 'Mostrar detalhes'}>⌄</button>}</div>
+    </div>
+    {canExpand && expanded && <div className="execution-command-output" role="log" aria-label="Detalhes da execução">
+      {entry.rationale && <div className="execution-rationale"><strong>Porquê / propósito</strong><span>{entry.rationale}</span></div>}
+      {entry.outputSegments.length ? entry.outputSegments.map((segment, segmentIndex) => <pre key={`${entry.id}-output-${segmentIndex}`} className={`execution-output-segment ${segment.stream}`} data-stream={segment.stream} aria-label={segment.stream === 'stderr' ? 'stderr' : undefined}>{segment.text}</pre>) : entry.output ? <pre className="execution-output-segment meta">{entry.output}</pre> : null}
+    </div>}
+  </div>
+}
+
+function executionSubtaskStatus(overview: ReturnType<typeof executionTimelineOverview>) {
+  return overview === 'active' ? 'Em curso' : overview === 'failed' ? 'Falhou' : overview === 'recovered' ? 'Recuperada' : overview === 'success' ? 'Concluída' : 'Registada'
 }
 
 function executionKindLabel(kind: 'standard' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict') {

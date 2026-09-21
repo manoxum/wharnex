@@ -42,6 +42,40 @@ describe('plan control surface CSS', () => {
     expect(css).toContain('.plan-decision-actions > button { flex: 1 1 132px; }')
   })
 
+
+  it('gives plan headers and metrics a compact card hierarchy', () => {
+    const heading = rule('.plan-heading')
+    const metrics = rule('.plan-metrics')
+
+    expect(heading).toContain('border-radius: 14px')
+    expect(heading).toContain('background: color-mix')
+    expect(metrics).toContain('gap: 7px')
+    expect(metrics).toContain('background: transparent !important')
+  })
+
+  it('styles Main Request and subplan summaries as nested disclosure cards', () => {
+    const history = rule('.main-request-history')
+    const summary = rule('.main-request-block > .main-request-summary')
+    const subplan = rule('.main-request-plan-row')
+
+    expect(history).toContain('container-type: inline-size')
+    expect(summary).toContain('grid-template-columns: 36px minmax(0, 1fr) auto')
+    expect(subplan).toContain('border-radius: 11px')
+    expect(css).toContain('@container request-history (max-width: 660px)')
+  })
+
+  it('presents execution subtasks as expandable cards instead of a flat stream', () => {
+    const list = rule('.execution-subtask-list')
+    const card = rule('.execution-subtask')
+    const summary = rule('.execution-subtask > .execution-subtask-summary')
+
+    expect(list).toContain('display: grid')
+    expect(card).toContain('border-radius: 11px')
+    expect(summary).toContain('grid-template-columns: 30px minmax(0, 1fr) auto')
+    expect(css).toContain('.execution-subtask[open] > .execution-subtask-summary')
+    expect(css).not.toContain('linear-gradient')
+  })
+
   it('keeps the extracted control styling out of the legacy stylesheet', () => {
     expect(legacy).not.toContain('.plan-control-surface {')
     expect(legacy).not.toContain('.plan-control-primary {')

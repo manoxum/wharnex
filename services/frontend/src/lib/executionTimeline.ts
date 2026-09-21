@@ -26,6 +26,38 @@ export type ExecutionTimelineEntry = {
 
 export type ExecutionTimelineOverview = 'active' | 'failed' | 'recovered' | 'success' | 'neutral'
 
+export type ExecutionSubtaskGroup = {
+  id: string
+  requestId: string
+  rootRequestId: string
+  iterationKind: ExecutionTimelineEntry['iterationKind']
+  entries: ExecutionTimelineEntry[]
+  overview: ExecutionTimelineOverview
+  updatedAt: string
+}
+
+export function groupExecutionSubtasks(entries: ExecutionTimelineEntry[]): ExecutionSubtaskGroup[] {
+  const groups: Omit<ExecutionSubtaskGroup, 'overview'>[] = []
+  for (const entry of entries) {
+    const requestId = entry.requestId || entry.rootRequestId
+    const previous = groups.at(-1)
+    if (previous && previous.requestId === requestId && previous.iterationKind === entry.iterationKind) {
+      previous.entries.push(entry)
+      previous.updatedAt = entry.timestamp
+      continue
+    }
+    groups.push({
+      id: `${requestId || 'session'}:${entry.iterationKind}:${groups.length}`,
+      requestId,
+      rootRequestId: entry.rootRequestId,
+      iterationKind: entry.iterationKind,
+      entries: [entry],
+      updatedAt: entry.timestamp,
+    })
+  }
+  return groups.map((group) => ({ ...group, overview: executionTimelineOverview(group.entries) }))
+}
+
 export function executionTimelineOverview(entries: ExecutionTimelineEntry[]): ExecutionTimelineOverview {
   if (entries.some((entry) => entry.running)) return 'active'
   let latest: ExecutionTimelineEntry['lifecycleState']
