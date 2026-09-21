@@ -194,6 +194,10 @@ desktop-check:
 lifecycle-check:
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/lifecycle-check.sh"
 
+# Manual gate (SoT/QUALITY_GATES.md G11); not part of `check` yet — see adr/ADR-0066.
+file-size-check:
+	@"$(ROOT_DIR)/scripts/check-file-size.sh"
+
 check:
 	@$(MAKE) --no-print-directory backend-check
 	@$(MAKE) --no-print-directory frontend-check

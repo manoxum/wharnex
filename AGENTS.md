@@ -41,8 +41,11 @@ When implementation conflicts with a Source of Truth, the implementation is wron
 
 - Prefer standard library in the Go core when practical.
 - Functions should be small and cohesive. Split responsibilities before files become difficult to review.
-- New production Go files SHOULD remain under 250 lines where practical.
+- A new implementation file — any language (Go, TS/TSX, JS/JSX, MJS/CJS, CSS, HTML, and future ones), production or test — MUST NOT exceed 200 lines (plain `wc -l`). This supersedes the previous Go-only 250-line SHOULD. Scope, exemptions and enforcement are defined in `SoT/CODE_QUALITY.md`.
+- Editing a legacy file that already exceeds 200 lines MUST extract the concern being touched/maintained into its own dedicated file/module as part of that same change, instead of growing the oversized file further. See `SoT/CODE_QUALITY.md` for the extract-on-touch protocol.
+- Code touched for any reason MUST be left cleaner than it was found, bounded to the area actually touched (continuous refactoring) — this is not license for unrelated drive-by rewrites.
 - New React feature modules SHOULD remain focused and avoid god-components.
+- Frontend styling MUST follow `SoT/FRONTEND_STYLING.md`'s incremental Twind migration: new UI work uses Twind; touched legacy CSS SHOULD migrate to Twind when practical. No big-bang rewrite of `styles.css`/`theme.css` is authorized.
 - Error messages must preserve actionable context without leaking secrets.
 - Every bug fix or new behavior requires an automated test at the lowest useful layer.
 - A verification gate is never made to pass by changing what it verifies. Relaxing an assertion, deleting a test, reverting an accepted change or loosening a check so a stale expectation matches is a defect, not a fix — it destroys work already accepted while passing every structural check. A failure a change did not introduce is not that change's to fix; Wharnex attributes suite failures against the unmodified baseline and MUST tell the planner which failures are its own.

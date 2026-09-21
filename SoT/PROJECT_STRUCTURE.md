@@ -8,6 +8,11 @@ Production code stays under domain-aligned service roots:
 
 Cross-cutting schemas live in `/schemas`; normative documents live in `/SoT`; container execution assets live in `/docker`; repository automation lives in `/scripts`.
 
+File-size limits, the extract-on-touch rule for legacy oversized files, and
+continuous-refactoring expectations are defined in `SoT/CODE_QUALITY.md`.
+Frontend styling direction (incremental Twind migration) is defined in
+`SoT/FRONTEND_STYLING.md`. See `adr/ADR-0066`.
+
 Every linked project root also has an engine-owned `/VERSION` file. Wharnex creates it when missing and is the sole writer; planner patches must never target it. The canonical stored form is four numeric components prefixed by `v` (`vA.B.C.D`).
 
 Orchestrator-specific implementation follows the same boundaries:

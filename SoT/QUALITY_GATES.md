@@ -94,3 +94,13 @@ Runtime state belongs under `.harness/` and must never be committed.
 - Frontend tests MUST keep Orchestrator available as a first-class workspace mode and SHOULD cover draft approval, manual planner import, task creation and the four task projections.
 - Manual-adapter proposal tests MUST prove the objective becomes a durable highest-priority Worker request, remains visible in Overview across remount/restart, and imports only an exact bounded `harness.orchestrator-plan/v1` JSON artifact.
 - A task Start regression MUST prove it delegates to the normal Agent execution path and that a second `DOING` task in the same project is refused; it MUST NOT introduce a direct command-execution seam.
+
+## G11 File size and module boundaries
+
+- `scripts/check-file-size.sh` (`make file-size-check`) reports every new,
+  extension-matched, non-exempt file over 200 lines against a base ref, per
+  `SoT/CODE_QUALITY.md` and `adr/ADR-0066`.
+- Not currently invoked by `scripts/quality-gates.sh` or CI — run manually
+  until deliberately promoted to a blocking gate. Reviewers enforce the
+  extract-on-touch rule for legacy oversized files by inspection, since that
+  rule is not mechanically checkable.
