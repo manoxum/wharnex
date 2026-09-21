@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     close: () => invoke('wharness:windows:close'),
     activateSelfEvolution: (impacts) => invoke('wharness:windows:activate-self-evolution', { impacts }),
   }),
+  spellcheck: Object.freeze({
+    showSuggestions: (point = {}) => invoke('wharness:spellcheck:show-suggestions', { x: Number(point?.x), y: Number(point?.y) }),
+  }),
   chatgpt: Object.freeze({
     show: (bounds, cacheKey, url) => invoke('wharness:chatgpt:show', { bounds, cacheKey, url: String(url || '') }),
     hide: (cacheKey) => invoke('wharness:chatgpt:hide', { cacheKey }),

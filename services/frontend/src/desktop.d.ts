@@ -80,6 +80,9 @@ interface WharnessDesktopBridge {
     close(): Promise<{ ok: boolean }>
     activateSelfEvolution(impacts: Array<'backend' | 'frontend' | 'desktop' | 'tunnel'>): Promise<{ ok: boolean; action: 'services' | 'reload' | 'relaunch' }>
   }
+  spellcheck: {
+    showSuggestions(point: { x: number; y: number }): Promise<{ ok: boolean }>
+  }
   chatgpt: {
     show(bounds: DesktopBounds, cacheKey: string, url?: string): Promise<{ ok: boolean }>
     hide(cacheKey: string): Promise<{ ok: boolean }>

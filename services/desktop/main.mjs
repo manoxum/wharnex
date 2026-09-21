@@ -7019,7 +7019,7 @@ function installLocalEditorContextMenu(win) {
       },
     })
     if (!template.length || win.isDestroyed()) return
-    Menu.buildFromTemplate(template).popup({ window: win })
+    Menu.buildFromTemplate(template).popup({ window: win, x: params.x, y: params.y })
   })
 }
 
@@ -7279,6 +7279,17 @@ function registerIPC() {
       return { ok: true, action: 'reload' }
     }
     return { ok: true, action: 'services' }
+  })
+  ipcMain.handle('wharness:spellcheck:show-suggestions', (event, request) => {
+    const windowState = trustedSender(event)
+    const [width, height] = windowState.window.getContentSize()
+    const rawX = Number(request?.x)
+    const rawY = Number(request?.y)
+    if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) throw new Error('Invalid spellcheck context-menu point')
+    const x = Math.max(0, Math.min(Math.round(rawX), Math.max(0, width - 1)))
+    const y = Math.max(0, Math.min(Math.round(rawY), Math.max(0, height - 1)))
+    windowState.window.webContents.sendInputEvent({ type: 'contextMenu', x, y, button: 'right' })
+    return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:show', async (event, request) => {
     const windowState = trustedSender(event)
