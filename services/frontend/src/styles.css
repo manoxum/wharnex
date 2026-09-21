@@ -9673,3 +9673,179 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .evolution-event-list time { font-size: calc(9px * var(--ui-font-scale)); }
 .evolution-event-list article details { font-size: calc(9.5px * var(--ui-font-scale)); }
 .evolution-event-list pre { border-radius: 3px; font-size: calc(9.5px * var(--ui-font-scale)); }
+
+
+/* v1.2.53 — premium optical refinement: one icon scale, quieter chrome and
+   compact desktop hit areas across Terminal, Explorer and technical tools. */
+:root {
+  --icon-xs: 14px;
+  --icon-sm: 16px;
+  --icon-md: 18px;
+  --toolbar-hit: 28px;
+  --toolbar-height: 32px;
+  --panel-title-size: calc(10.2px * var(--ui-font-scale));
+  --module-title-size: calc(13px * var(--ui-font-scale));
+  --ui-text-size: calc(9.8px * var(--ui-font-scale));
+  --ui-meta-size: calc(9px * var(--ui-font-scale));
+}
+
+/* Activity rails keep icon optics separate from the clickable target. */
+.workspace-main-row > .agent-activity-bar {
+  width: 46px;
+  flex-basis: 46px;
+  padding: 6px 3px;
+  gap: 4px;
+}
+.workspace-main-row > .agent-activity-bar button {
+  width: 40px;
+  height: 38px;
+  border-radius: var(--radius-control);
+  color: color-mix(in srgb, var(--theme-text) 48%, transparent);
+}
+.workspace-main-row > .agent-activity-bar button > svg { width: var(--icon-md); height: var(--icon-md); stroke-width: 1.8; }
+.workspace-main-row > .agent-activity-bar button:hover:not(:disabled) { color: color-mix(in srgb, var(--theme-text) 75%, transparent); }
+.workspace-main-row > .agent-activity-bar button.active:not(:disabled) { color: color-mix(in srgb, var(--theme-text) 94%, transparent); }
+.workspace-main-row > .agent-activity-bar button::before { width: 2px; left: -3px; top: 7px; bottom: 7px; }
+
+/* Tool-window titles and icon hit areas share a predictable optical scale. */
+.workspace-side-drawer .agent-drawer-heading strong { font-size: var(--panel-title-size); font-weight: 650; }
+.workspace-side-drawer .agent-drawer-heading .panel-kicker { font-size: calc(8px * var(--ui-font-scale)); }
+.workspace-side-drawer .agent-drawer-icon,
+.agent-project-explorer .agent-drawer-icon {
+  width: var(--toolbar-hit);
+  height: var(--toolbar-hit);
+  flex-basis: var(--toolbar-hit);
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border-radius: var(--radius-control);
+}
+.workspace-side-drawer .agent-drawer-icon > svg,
+.agent-project-explorer .agent-drawer-icon > svg { width: var(--icon-sm); height: var(--icon-sm); }
+.agent-tree-chevron { width: 16px; height: 20px; display: inline-grid; place-items: center; }
+.agent-tree-chevron > svg { width: var(--icon-xs); height: var(--icon-xs); }
+.agent-tree-row .file-glyph > svg { width: 15px; height: 15px; }
+.agent-tree-name { font-size: var(--ui-text-size); }
+.agent-tree-git-count,
+.agent-tree-git-status { font-size: var(--ui-meta-size); }
+
+/* Terminal keeps frequent actions visible and moves recovery/window actions to
+   a compact overflow. No extra banner or secondary toolbar is introduced. */
+.terminal-tab-select { font: 500 calc(9.7px * var(--ui-font-scale))/1 var(--ui-font-family); }
+.terminal-tab-select > svg,
+.terminal-tab-edit > svg { width: var(--icon-sm); height: var(--icon-sm); }
+.terminal-tab-action {
+  width: var(--toolbar-hit);
+  height: var(--toolbar-hit);
+  margin-right: 1px;
+  border-radius: 4px;
+}
+.terminal-tab-action > svg { width: var(--icon-xs); height: var(--icon-xs); }
+.terminal-surface-actions button,
+.terminal-add-tab {
+  width: var(--toolbar-hit);
+  min-width: var(--toolbar-hit);
+  height: var(--toolbar-hit);
+  min-height: var(--toolbar-hit);
+}
+.terminal-surface-actions button > svg,
+.terminal-add-tab > svg { width: var(--icon-sm); height: var(--icon-sm); }
+.terminal-active-status { font-size: var(--ui-meta-size); }
+.terminal-overflow { position: relative; display: grid; place-items: center; }
+.terminal-overflow-menu {
+  min-width: 176px;
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 4px);
+  right: 0;
+  padding: 4px;
+  display: grid;
+  gap: 1px;
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-popover);
+  background: var(--theme-elevated);
+  box-shadow: 0 12px 28px var(--theme-shadow);
+}
+.terminal-overflow-menu button {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--theme-text-soft);
+  font-size: var(--ui-text-size);
+  white-space: nowrap;
+}
+.terminal-overflow-menu button:hover { background: var(--theme-hover); color: var(--theme-text); }
+.terminal-overflow-menu button > svg { width: var(--icon-xs); height: var(--icon-xs); }
+
+/* Docker: module title carries hierarchy; controls remain compact and neutral. */
+.docker-services-header { min-height: 48px; padding: 6px 8px 6px 12px; background: var(--theme-surface); }
+.docker-services-header strong { font-size: calc(11.5px * var(--docker-font-scale)); font-weight: 650; }
+.docker-services-header small { font-size: calc(7.8px * var(--docker-font-scale)); }
+.docker-services-header-actions button,
+.docker-logs-toolbar button { min-width: var(--toolbar-hit); height: var(--toolbar-hit); border-radius: var(--radius-control); }
+.docker-services-header-actions button > svg { width: var(--icon-sm); height: var(--icon-sm); }
+.docker-container-actions button { height: 29px; font-size: calc(8.3px * var(--docker-font-scale)); }
+.docker-container-actions button > svg { width: var(--icon-xs); height: var(--icon-xs); }
+.docker-resource-filter { min-height: 38px; padding-block: 4px; }
+.docker-resource-searchbox { height: 30px; border-radius: var(--radius-control); }
+
+/* Library: desktop toolbar geometry, readable module title and 16px action glyphs. */
+.artifact-explorer-heading {
+  min-height: 46px;
+  padding: 6px 10px 6px 12px;
+  background: var(--theme-surface);
+}
+.artifact-explorer-heading > div { gap: 1px; }
+.artifact-explorer-heading strong { font-size: var(--module-title-size); font-weight: 650; }
+.artifact-explorer-heading > div > span { font-size: var(--ui-meta-size); letter-spacing: .02em; text-transform: none; }
+.file-library-heading-actions { gap: 2px !important; }
+.file-library-heading-actions button { width: var(--toolbar-hit); height: var(--toolbar-hit); border-radius: var(--radius-control); }
+.file-library-heading-actions button > svg { width: var(--icon-sm); height: var(--icon-sm); }
+.file-library-tabs { min-height: 36px; padding: 0 7px; gap: 1px; }
+.file-library-tabs button { min-height: 35px; padding-inline: 9px; font-size: var(--ui-text-size); }
+.file-library-tabs button > svg { width: var(--icon-xs); height: var(--icon-xs); }
+.file-library-panel .artifact-explorer-toolbar { padding: 6px 8px; gap: 6px; background: var(--theme-surface); }
+.file-library-panel .panel-search-field,
+.file-library-panel .artifact-explorer-toolbar > select { height: var(--toolbar-height); border-radius: var(--radius-control); background: var(--theme-bg); }
+.file-library-panel .panel-search-field input,
+.file-library-panel .artifact-explorer-toolbar > select { font-size: var(--ui-text-size); }
+.file-view-switch { padding: 1px; border-radius: var(--radius-control); background: var(--theme-bg); }
+.file-view-switch button { width: 29px; height: 29px; border-radius: 3px; }
+.file-view-switch button > svg { width: var(--icon-sm); height: var(--icon-sm); }
+
+/* Database Studio adopts the same flat tool-window chrome and tab scale. */
+.database-studio-header {
+  min-height: 48px;
+  padding: 6px 10px;
+  border-bottom-color: var(--theme-border);
+  background: var(--theme-surface);
+}
+.database-studio-mark { width: 30px; height: 30px; flex-basis: 30px; border-radius: var(--radius-control); background: transparent; box-shadow: none; }
+.database-studio-identity { gap: 8px; }
+.database-studio-identity > div { gap: 1px; }
+.database-studio-identity strong { font-size: var(--module-title-size); font-weight: 650; }
+.database-studio-identity > div > span { font-size: var(--ui-meta-size); font-weight: 500; letter-spacing: .02em; text-transform: none; }
+.database-health { min-height: 24px; padding-inline: 7px; border-radius: var(--radius-control); font-size: var(--ui-meta-size); font-weight: 600; }
+.database-health.ready i { box-shadow: none; }
+.database-workspace-tabs { min-height: 36px; padding: 0 6px; gap: 1px; }
+.database-workspace-tabs button { min-height: 35px; padding-inline: 8px; border-radius: 0; font-size: var(--ui-text-size); font-weight: 600; }
+.database-workspace-tabs button > svg { width: var(--icon-xs); height: var(--icon-xs); }
+.database-status { min-height: 32px; padding: 4px 7px 4px 10px; background: var(--theme-surface); font-size: var(--ui-meta-size); }
+.database-status > button { width: var(--toolbar-hit); height: var(--toolbar-hit); border-radius: var(--radius-control); }
+.database-status > button > svg { width: var(--icon-xs); height: var(--icon-xs); }
+
+/* Status bar remains 24px but the content is no longer microscopically small. */
+.workbench-status-bar { height: 24px; flex-basis: 24px; gap: 10px; font: 600 var(--ui-meta-size)/1 var(--ui-font-family); }
+.workbench-status-bar svg { width: 13px; height: 13px; stroke-width: 1.8; }
+.workbench-bundle-meter-label svg { width: 13px; height: 13px; }
+
+/* Core workbench scrollbars stay quiet until interaction. */
+.workspace-root *::-webkit-scrollbar { width: 4px; height: 4px; }
+.workspace-root *::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--theme-text-muted) 34%, transparent); }
+.workspace-root *::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--theme-text-muted) 62%, transparent); }
