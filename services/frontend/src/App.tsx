@@ -96,8 +96,9 @@ import { reconcileTunnelConfig } from './lib/tunnelConfigState'
 import { mergeDurableChatItems } from './lib/chatHistory'
 import { executionStartedNotice } from './lib/executionNotice'
 import { createEventStreamCoalescer, type EventStreamCoalescer } from './lib/eventStream'
-import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
+import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
 import { loadWorkbenchState, saveWorkbenchState } from './lib/workbenchPreferences'
+import { subscribeHeaderPopover } from './lib/headerPopover'
 import { workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget, type WorkspaceSurfaceTransferPoint } from './lib/workspaceSurface'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
@@ -153,8 +154,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // operator in Orchestrator, so it always opens on the planning queue that
   // sent them there instead of whichever section was last left open.
   const [orchestratorFocusNonce, setOrchestratorFocusNonce] = useState(0)
-  // Workbench geometry is project-scoped: tool-window visibility and sizes
-  // survive mode switches and project restarts without leaking to another root.
+  // Drawer geometry remains project-scoped, but the activity-rail ordering is
+  // shared across projects so the IDE chrome stays structurally consistent.
   const initialWorkbench = useRef(loadWorkbenchState(embeddedProject)).current
   const [sideDrawer, setSideDrawer] = useState<Drawer>(() => initialWorkbench.left.open ? (initialWorkbench.left.tool as Drawer) : '')
   const [rightDrawer, setRightDrawer] = useState<Drawer>(() => initialWorkbench.right.open ? (initialWorkbench.right.tool as Drawer) : '')
@@ -180,6 +181,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [executionFIFO, setExecutionFIFO] = useState<FrontendExecutionQueueItem[]>([])
   const [editorOpenPath, setEditorOpenPath] = useState<string | undefined>(surfaceRequest?.kind === 'editor' ? surfaceRequest.path : undefined)
   const [editorOpenNonce, setEditorOpenNonce] = useState(surfaceRequest?.kind === 'editor' && surfaceRequest.path ? 1 : 0)
+  const [explorerReveal, setExplorerReveal] = useState<{ path?: string; nonce: number }>({ nonce: 0 })
   const [splitSurface, setSplitSurface] = useState<{ direction: WorkspaceSplitDirection; target: WorkspaceSurfaceTarget; ratio: number }>()
   const [surfaceTabs, setSurfaceTabs] = useState<WorkspaceSurfaceTarget[]>(() => initialSurfaceTarget ? [initialSurfaceTarget] : [])
   const [activeSurfaceKey, setActiveSurfaceKey] = useState(() => initialSurfaceTarget ? workspaceSurfaceKey(initialSurfaceTarget) : '')
@@ -597,6 +599,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     return () => window.removeEventListener('storage', syncTransport)
   }, [])
 
+  useEffect(() => subscribeWorkspaceRailLayout(setRailLayout), [])
+
+  useEffect(() => subscribeHeaderPopover((source) => {
+    if (source !== 'attention') setAttentionPreviewOpen(false)
+  }), [])
+
   useEffect(() => {
     if (!embeddedProject) return
     const handler = (event: MessageEvent) => {
@@ -608,6 +616,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (event.data?.type === 'wharness:set-workspace-mode' && (event.data.mode === 'editor' || event.data.mode === 'agent' || event.data.mode === 'orchestrator')) setMode(event.data.mode)
       if (event.data?.type === 'wharness:open-project-settings') setProjectSettingsOpen(true)
       if (event.data?.type === 'wharness:open-attention') setAttentionPreviewOpen((open) => !open)
+      if (event.data?.type === 'wharness:close-header-overlays') setAttentionPreviewOpen(false)
     }
     window.addEventListener('message', handler)
     window.parent.postMessage({ type: 'wharness:project-ready', projectPath: embeddedProject }, window.location.origin)
@@ -3410,6 +3419,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const openLeftDrawer = (next: Drawer) => { setSideDrawer(next) }
   const openRightDrawer = (next: Drawer) => { setRightDrawer(next) }
 
+  function locateFileInExplorer(path: string) {
+    const projectOnLeft = railLayout.left.includes('project') || railLayout.pinned.left.includes('project')
+    if (projectOnLeft) setSideDrawer('project')
+    else setRightDrawer('project')
+    setExplorerReveal((current) => ({ path, nonce: current.nonce + 1 }))
+  }
+
   function activateWorkspaceSurface(target: WorkspaceSurfaceTarget) {
     if (!session || target.projectPath !== session.project_path) { setError('Não é possível mover tabs entre janelas de projetos diferentes.'); return }
     if (target.kind === 'chat') {
@@ -3615,19 +3631,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onRenameChat={renameWorkspaceChat}
         onGenerateChatTitle={generateWorkspaceChatTitle}
         onOpenFile={openFileFromChat}
+        explorerRevealPath={explorerReveal.path}
+        explorerRevealNonce={explorerReveal.nonce}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
         onError={setError}
         onSession={setSession}
         onResolveConflictWithGPT={resolveConflictWithGPT}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
+        onRunInTerminal={runInTerminal}
       />
       <div className="workspace-center-column">
         <div className={`workspace-surface-content ${splitSurface ? `is-split split-${splitSurface.direction}` : ''}`} style={splitSurface ? { ['--workspace-split-primary' as string]: `${Math.round(splitSurface.ratio * 1000) / 10}%` } as React.CSSProperties : undefined}>
           <div className="workspace-surface-primary">
         <div className="workspace-mode-stack">
         <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
-        <EditorWorkspace session={session} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} hiddenPaths={hiddenEditorPaths} onDetachFile={(path, point) => point ? moveSurfaceByDrag(surfaceTarget('editor', { path }), point) : detachSurface(surfaceTarget('editor', { path }))} onSplitFile={(path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />
+        <EditorWorkspace session={session} active={mode === 'editor'} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} hiddenPaths={hiddenEditorPaths} onLocateFile={locateFileInExplorer} onDetachFile={(path, point) => point ? moveSurfaceByDrag(surfaceTarget('editor', { path }), point) : detachSurface(surfaceTarget('editor', { path }))} onSplitFile={(path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />
       </div>
       <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
         <OrchestratorWorkspace
@@ -3713,12 +3732,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onRenameChat={renameWorkspaceChat}
         onGenerateChatTitle={generateWorkspaceChatTitle}
         onOpenFile={openFileFromChat}
+        explorerRevealPath={explorerReveal.path}
+        explorerRevealNonce={explorerReveal.nonce}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
         onError={setError}
         onSession={setSession}
         onResolveConflictWithGPT={resolveConflictWithGPT}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
+        onRunInTerminal={runInTerminal}
       />
       </div>
       <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} bundleRefreshKey={`${session.id}:${session.artifacts?.length || 0}`} />

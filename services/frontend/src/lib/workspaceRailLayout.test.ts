@@ -1,30 +1,54 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_WORKSPACE_RAIL_LAYOUT, loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout } from './workspaceRailLayout'
+import { DEFAULT_WORKSPACE_RAIL_LAYOUT, loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout } from './workspaceRailLayout'
 
 describe('workspaceRailLayout', () => {
   beforeEach(() => localStorage.clear())
 
   it('keeps the project explorer on the right and pins the terminal at the lower left by default', () => {
-    expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.right).toEqual(['project', 'database'])
+    expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.right).toEqual(['project', 'docker', 'database'])
     expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.left).toEqual(['terminal'])
     const moved = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'library', 'right', 'database')
     const reordered = moveWorkspaceTool(moved, 'git', 'left', 'todo')
     const pinned = moveWorkspaceTool(reordered, 'knowledge', 'right', undefined, true)
     saveWorkspaceRailLayout(pinned)
-    expect(loadWorkspaceRailLayout().right).toEqual(['project', 'library', 'database'])
+    expect(loadWorkspaceRailLayout().right).toEqual(['project', 'docker', 'library', 'database'])
     expect(loadWorkspaceRailLayout().left.slice(0, 3)).toEqual(['archive', 'git', 'todo'])
     expect(loadWorkspaceRailLayout().pinned.right).toEqual(['knowledge'])
   })
 
-  it('restores the last dropped position independently for each project', () => {
+  it('shares the latest rail arrangement across every project', () => {
     const projectA = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'knowledge', 'right', 'database')
     const projectB = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'git', 'right', undefined, true)
     saveWorkspaceRailLayout(projectA, '/projects/a')
-    saveWorkspaceRailLayout(projectB, '/projects/b')
+    expect(loadWorkspaceRailLayout('/projects/b').right).toEqual(['project', 'docker', 'knowledge', 'database'])
 
-    expect(loadWorkspaceRailLayout('/projects/a').right).toEqual(['project', 'knowledge', 'database'])
-    expect(loadWorkspaceRailLayout('/projects/b').pinned.right).toEqual(['git'])
-    expect(loadWorkspaceRailLayout('/projects/a').pinned.right).toEqual([])
+    saveWorkspaceRailLayout(projectB, '/projects/b')
+    expect(loadWorkspaceRailLayout('/projects/a').pinned.right).toEqual(['git'])
+  })
+
+  it('notifies mounted workspaces when the shared rail arrangement changes', () => {
+    const updates: string[][] = []
+    const unsubscribe = subscribeWorkspaceRailLayout((layout) => updates.push(layout.right))
+    saveWorkspaceRailLayout(moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'knowledge', 'right', 'database'), '/projects/a')
+    unsubscribe()
+    expect(updates).toEqual([['project', 'docker', 'knowledge', 'database']])
+  })
+
+
+  it('migrates the shared v5 layout without losing pinned tools and adds Docker', () => {
+    localStorage.setItem('whx.workspace.rail-layout.v5', JSON.stringify({ left: ['archive'], right: ['project', 'database'], pinned: { left: ['terminal'], right: ['git'] } }))
+    const migrated = loadWorkspaceRailLayout()
+    expect(migrated.right).toContain('docker')
+    expect(migrated.pinned.left).toEqual(['terminal'])
+    expect(migrated.pinned.right).toEqual(['git'])
+  })
+
+
+  it('migrates the active project scoped v4 layout into the shared layout once', () => {
+    localStorage.setItem('whx.workspace.rail-layout.v4:/projects/a', JSON.stringify({ left: ['archive'], right: ['project', 'knowledge', 'database'], pinned: { left: ['terminal'], right: [] } }))
+    const migrated = loadWorkspaceRailLayout('/projects/a')
+    expect(migrated.right.slice(0, 3)).toEqual(['project', 'knowledge', 'database'])
+    expect(loadWorkspaceRailLayout('/projects/b').right.slice(0, 3)).toEqual(['project', 'knowledge', 'database'])
   })
 
   it('migrates v2 layouts by moving project right and preserving the terminal side as pinned', () => {
@@ -54,7 +78,7 @@ describe('workspaceRailLayout', () => {
     expect(layout.right).toContain('project')
     expect(layout.right).toContain('database')
     expect(layout.pinned.left).toContain('terminal')
-    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(13)
+    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(14)
   })
 
   it('drops legacy Planos and Execuções rail entries in favor of Tarefas', () => {

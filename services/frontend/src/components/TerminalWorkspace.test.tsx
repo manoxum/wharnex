@@ -4,7 +4,7 @@ import type { Session } from '../types'
 import { TerminalWorkspace } from './TerminalWorkspace'
 
 vi.mock('./InteractiveTerminal', () => ({
-  InteractiveTerminal: ({ visible, initialTarget, session: terminalSession, runRequest }: { visible?: boolean; initialTarget?: string; session: Session; runRequest?: { command: string } }) => <div data-testid="terminal-instance" data-visible={visible ? 'yes' : 'no'} data-target={initialTarget} data-session={terminalSession.id} data-command={runRequest?.command} />,
+  InteractiveTerminal: ({ visible, reconnectNonce, session: terminalSession, runRequest }: { visible?: boolean; reconnectNonce?: number; session: Session; runRequest?: { command: string } }) => <div data-testid="terminal-instance" data-visible={visible ? 'yes' : 'no'} data-reconnect={reconnectNonce} data-session={terminalSession.id} data-command={runRequest?.command} />,
 }))
 
 const session = { id: 'ses_multi', project_path: '/tmp/project' } as Session
@@ -53,13 +53,24 @@ describe('TerminalWorkspace', () => {
     expect(terminal.getAttribute('data-session')).toBe('ses_multi')
   })
 
-  it('creates a new Host terminal for an Editor execution', () => {
+  it('creates a new host-only terminal for an Editor execution', () => {
     render(<TerminalWorkspace session={session} height={300} visible={true} runRequest={{ id: 7, command: 'npm test', cwd: 'services/frontend', label: 'npm test', target: 'host', openNew: true }} onHeight={() => undefined} onError={() => undefined} />)
     expect(screen.getAllByTestId('terminal-instance')).toHaveLength(2)
     const host = screen.getAllByTestId('terminal-instance')[1]
-    expect(host.getAttribute('data-target')).toBe('host')
     expect(host.getAttribute('data-command')).toBe("cd 'services/frontend' && npm test")
     expect(screen.getByRole('tab', { name: /npm test/ }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('keeps terminal identity, status and controls on one top line', () => {
+    const { container } = render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
+    const tabbar = container.querySelector('.terminal-tabbar')
+    expect(tabbar?.contains(screen.getByRole('tab', { name: /Terminal 1/ }))).toBe(true)
+    expect(tabbar?.contains(screen.getByLabelText('Fechar Terminal 1'))).toBe(true)
+    expect(tabbar?.contains(screen.getByLabelText('Reconectar terminal'))).toBe(true)
+    expect(tabbar?.contains(screen.getByLabelText('Aumentar/reduzir terminal'))).toBe(true)
+
+    fireEvent.click(screen.getByLabelText('Reconectar terminal'))
+    expect(screen.getByTestId('terminal-instance').getAttribute('data-reconnect')).toBe('1')
   })
 
   it('exposes vertical, horizontal and detached terminal surfaces', () => {

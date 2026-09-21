@@ -463,7 +463,7 @@ func TestGitOverviewReportsBranchesPendingAndWorkingState(t *testing.T) {
 	if overview.Working.Clean || overview.Working.StageableCount != 1 {
 		t.Fatalf("expected one uncommitted path, got %+v", overview.Working)
 	}
-	if len(overview.Working.Files) != 1 || overview.Working.Files[0].Path != "app.go" || overview.Working.Files[0].Kind != "change" {
+	if len(overview.Working.Files) != 1 || overview.Working.Files[0].Path != "app.go" || overview.Working.Files[0].Kind != "change" || overview.Working.Files[0].Status != "modified" {
 		t.Fatalf("expected changed worktree files to be listed, got %+v", overview.Working.Files)
 	}
 	if len(overview.Pending) != 1 || overview.Pending[0].Subject != "feat(app): dirty" {
@@ -578,6 +578,13 @@ func TestGitFileDiffIncludesUntrackedChangedPath(t *testing.T) {
 	runGitForApp(t, root, "commit", "-qm", "chore: project config")
 	if err := os.WriteFile(filepath.Join(root, "new.go"), []byte("package extra\n"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	overview, err := service.GitOverview(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Working.Files) != 1 || overview.Working.Files[0].Path != "new.go" || overview.Working.Files[0].Status != "added" {
+		t.Fatalf("expected the untracked path to be exposed as added, got %+v", overview.Working.Files)
 	}
 	diff, err := service.GitFileDiff(context.Background(), sessionID, "new.go")
 	if err != nil {

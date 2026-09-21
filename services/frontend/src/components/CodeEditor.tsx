@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type * as Monaco from 'monaco-editor'
 import { activeMonacoTheme, configureMonaco, editorModelURI, monaco } from '../lib/monaco'
 import { editorLanguageForPath } from '../lib/editorLanguage'
-import { subscribeUIPreferences } from '../lib/uiPreferences'
+import type { EditorGitChange } from '../lib/editorGitChanges'
+import type { EditorRuntimeMarker } from '../lib/editorRuntimeMarkers'
+import { subscribeUIPreferences, workspaceEditorFontSize } from '../lib/uiPreferences'
 
 type Cursor = { line: number; column: number }
 type RunAction = { id: string; label: string; line?: number }
@@ -16,10 +18,16 @@ type Props = {
   onRunSelection?: (text: string) => void
   runActions?: RunAction[]
   onRunAction?: (id: string) => void
+  gitChanges?: EditorGitChange[]
+  onGitChangeClick?: (change: EditorGitChange) => void
+  runtimeMarkers?: EditorRuntimeMarker[]
   readOnly?: boolean
+  revealLine?: number
+  revealColumn?: number
+  revealNonce?: number
 }
 
-export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRunSelection, runActions = [], onRunAction, readOnly = false }: Props) {
+export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRunSelection, runActions = [], onRunAction, gitChanges = [], onGitChangeClick, runtimeMarkers = [], readOnly = false, revealLine, revealColumn, revealNonce = 0 }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const activePath = useRef(path)
@@ -29,16 +37,24 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRu
   const onCursorRef = useRef(onCursorChange)
   const onRunSelectionRef = useRef(onRunSelection)
   const onRunActionRef = useRef(onRunAction)
+  const onGitChangeClickRef = useRef(onGitChangeClick)
   const runActionsRef = useRef(runActions)
+  const gitChangesRef = useRef(gitChanges)
+  const runtimeMarkersRef = useRef(runtimeMarkers)
   const embeddedDecorations = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
   const runDecorations = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
+  const gitDecorations = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
+  const runtimeDecorations = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
 
   onChangeRef.current = onChange
   onSaveRef.current = onSave
   onCursorRef.current = onCursorChange
   onRunSelectionRef.current = onRunSelection
   onRunActionRef.current = onRunAction
+  onGitChangeClickRef.current = onGitChangeClick
   runActionsRef.current = runActions
+  gitChangesRef.current = gitChanges
+  runtimeMarkersRef.current = runtimeMarkers
 
   useLayoutEffect(() => {
     if (!host.current) return
@@ -47,7 +63,7 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRu
       theme: activeMonacoTheme(),
       automaticLayout: true,
       fontFamily: "ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
-      fontSize: 12.5,
+      fontSize: workspaceEditorFontSize(),
       lineHeight: 20,
       lineNumbersMinChars: 4,
       glyphMargin: true,
@@ -126,8 +142,12 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRu
       onCursorRef.current({ line: position.lineNumber, column: position.column })
     })
     const mouseSubscription = instance.onMouseDown((event) => {
+      const line = event.target.position?.lineNumber ?? event.target.range?.startLineNumber
+      if (event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS && line) {
+        const change = gitChangeAtLine(gitChangesRef.current, line, instance.getModel()?.getLineCount() || line)
+        if (change) { onGitChangeClickRef.current?.(change); return }
+      }
       if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return
-      const line = event.target.position?.lineNumber
       const action = line ? runActionsRef.current.find((item) => item.line === line) : undefined
       if (action) onRunActionRef.current?.(action.id)
     })
@@ -177,12 +197,19 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRu
       embeddedDecorations.current = null
       runDecorations.current?.clear()
       runDecorations.current = null
+      gitDecorations.current?.clear()
+      gitDecorations.current = null
+      runtimeDecorations.current?.clear()
+      runtimeDecorations.current = null
       instance.dispose()
       editor.current = null
     }
   }, [])
 
-  useEffect(() => subscribeUIPreferences(() => monaco.editor.setTheme(activeMonacoTheme())), [])
+  useEffect(() => subscribeUIPreferences((preferences) => {
+    monaco.editor.setTheme(activeMonacoTheme())
+    editor.current?.updateOptions({ fontSize: workspaceEditorFontSize(preferences) })
+  }), [])
 
   useEffect(() => {
     const instance = editor.current
@@ -214,10 +241,26 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRu
     embeddedDecorations.current = instance.createDecorationsCollection(decorations)
     runDecorations.current?.clear()
     runDecorations.current = instance.createDecorationsCollection(runActionDecorations(runActionsRef.current, model.getLineCount()))
+    gitDecorations.current?.clear()
+    gitDecorations.current = instance.createDecorationsCollection(gitChangeDecorations(gitChangesRef.current, model.getLineCount()))
+    runtimeDecorations.current?.clear()
+    runtimeDecorations.current = instance.createDecorationsCollection(runtimeMarkerDecorations(runtimeMarkersRef.current, model.getLineCount()))
     const state = viewStates.current.get(path)
     if (state) instance.restoreViewState(state)
     instance.focus()
   }, [path])
+
+  useEffect(() => {
+    const instance = editor.current
+    const model = instance?.getModel()
+    if (!instance || !model || !revealLine || !revealNonce || activePath.current !== path) return
+    const lineNumber = Math.min(Math.max(1, revealLine), model.getLineCount())
+    const column = Math.min(Math.max(1, revealColumn || 1), model.getLineMaxColumn(lineNumber))
+    const position = { lineNumber, column }
+    instance.setPosition(position)
+    instance.revealPositionInCenter(position)
+    instance.focus()
+  }, [path, revealColumn, revealLine, revealNonce])
 
   useEffect(() => {
     const instance = editor.current
@@ -234,7 +277,59 @@ export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRu
     runDecorations.current = instance.createDecorationsCollection(runActionDecorations(runActions, model.getLineCount()))
   }, [path, runActions])
 
+  useEffect(() => {
+    const instance = editor.current
+    const model = instance?.getModel()
+    if (!instance || !model || activePath.current !== path) return
+    gitDecorations.current?.clear()
+    gitDecorations.current = instance.createDecorationsCollection(gitChangeDecorations(gitChanges, model.getLineCount()))
+  }, [gitChanges, path])
+
+  useEffect(() => {
+    const instance = editor.current
+    const model = instance?.getModel()
+    if (!instance || !model || activePath.current !== path) return
+    runtimeDecorations.current?.clear()
+    runtimeDecorations.current = instance.createDecorationsCollection(runtimeMarkerDecorations(runtimeMarkers, model.getLineCount()))
+  }, [path, runtimeMarkers])
+
   return <div className="monaco-editor-host" ref={host} aria-label={`Editor de ${path}`} />
+}
+
+function gitChangeAtLine(changes: EditorGitChange[], line: number, lineCount: number) {
+  return changes.find((change) => change.kind === 'deleted' ? Math.min(change.anchorLine, lineCount) === line : line >= change.startLine && line <= change.endLine)
+}
+
+function gitChangeDecorations(changes: EditorGitChange[], lineCount: number): Monaco.editor.IModelDeltaDecoration[] {
+  return changes.flatMap((change) => {
+    if (lineCount < 1) return []
+    const startLine = Math.min(Math.max(1, change.startLine), lineCount)
+    const endLine = Math.min(Math.max(startLine, change.endLine), lineCount)
+    const label = change.kind === 'added' ? 'Linhas adicionadas' : change.kind === 'deleted' ? 'Linhas removidas' : 'Linhas modificadas'
+    return [{
+      range: new monaco.Range(startLine, 1, endLine, 1),
+      options: {
+        isWholeLine: true,
+        className: change.kind === 'deleted' ? undefined : `editor-git-change-line editor-git-change-line-${change.kind}`,
+        linesDecorationsClassName: `editor-git-change-marker editor-git-change-marker-${change.kind}`,
+        hoverMessage: { value: `${label} · clique no marcador para abrir este diff` },
+      },
+    }]
+  })
+}
+
+function runtimeMarkerDecorations(markers: EditorRuntimeMarker[], lineCount: number): Monaco.editor.IModelDeltaDecoration[] {
+  return markers.flatMap((marker) => {
+    if (marker.line < 1 || marker.line > lineCount) return []
+    return [{
+      range: new monaco.Range(marker.line, 1, marker.line, 1),
+      options: {
+        isWholeLine: false,
+        glyphMarginClassName: `editor-compose-glyph state-${marker.tone}`,
+        glyphMarginHoverMessage: { value: marker.label },
+      },
+    }]
+  })
 }
 
 function runActionDecorations(runActions: RunAction[], lineCount: number): Monaco.editor.IModelDeltaDecoration[] {

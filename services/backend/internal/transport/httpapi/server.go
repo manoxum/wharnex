@@ -24,6 +24,7 @@ import (
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/utility"
+	"kernl.local/harness/backend/internal/workspacefs"
 )
 
 type API struct {
@@ -194,6 +195,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PATCH /api/sessions/{id}/files", a.renameWorkspacePath)
 	mux.HandleFunc("DELETE /api/sessions/{id}/files", a.deleteWorkspacePath)
 	mux.HandleFunc("GET /api/sessions/{id}/file", a.readFile)
+	mux.HandleFunc("POST /api/sessions/{id}/search", a.searchWorkspace)
 	mux.HandleFunc("GET /api/sessions/{id}/file/preview", a.previewFile)
 	mux.HandleFunc("PUT /api/sessions/{id}/file", a.writeFile)
 	mux.HandleFunc("POST /api/sessions/{id}/translate-markdown", a.translateMarkdown)
@@ -215,6 +217,12 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/transition", a.orchestratorTransitionTask)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/start", a.orchestratorStartTask)
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/tasks/{task_id}/runs", a.orchestratorTaskRuns)
+	mux.HandleFunc("GET /api/sessions/{id}/docker", a.dockerOverview)
+	mux.HandleFunc("GET /api/sessions/{id}/docker/containers/{container_id}/logs", a.dockerContainerLogs)
+	mux.HandleFunc("POST /api/sessions/{id}/docker/containers/{container_id}/{action}", a.dockerContainerAction)
+	mux.HandleFunc("POST /api/sessions/{id}/docker/compose/{project}/down", a.dockerComposeDown)
+	mux.HandleFunc("POST /api/sessions/{id}/docker/compose/{project}/redeploy", a.dockerComposeRedeploy)
+	mux.HandleFunc("POST /api/sessions/{id}/docker/resources/{kind}/{name}/remove", a.dockerResourceRemove)
 	mux.HandleFunc("POST /api/sessions/{id}/terminal/reset", a.resetTerminal)
 	a.registerGitRoutes(mux)
 	a.registerConflictRoutes(mux)
@@ -1746,6 +1754,28 @@ func (a *API) readFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, file)
+}
+
+func (a *API) searchWorkspace(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Query         string `json:"query"`
+		CaseSensitive bool   `json:"case_sensitive"`
+		Regex         bool   `json:"regex"`
+		WholeWord     bool   `json:"whole_word"`
+		Fuzzy         bool   `json:"fuzzy"`
+		Limit         int    `json:"limit"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := a.service.SearchWorkspace(r.PathValue("id"), workspacefs.SearchOptions{
+		Query: body.Query, CaseSensitive: body.CaseSensitive, Regex: body.Regex, WholeWord: body.WholeWord, Fuzzy: body.Fuzzy, Limit: body.Limit,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "workspace_search_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (a *API) previewFile(w http.ResponseWriter, r *http.Request) {

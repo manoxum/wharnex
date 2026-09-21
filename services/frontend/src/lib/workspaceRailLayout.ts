@@ -1,33 +1,55 @@
 export type WorkspaceRailSide = 'left' | 'right'
-export type WorkspaceTool = 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'errors' | 'fifo' | 'evolution' | 'terminal' | 'database'
+export type WorkspaceTool = 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'errors' | 'fifo' | 'evolution' | 'terminal' | 'database' | 'docker'
 export type WorkspaceRailLayout = Record<WorkspaceRailSide, WorkspaceTool[]> & { pinned: Record<WorkspaceRailSide, WorkspaceTool[]> }
 
-const STORAGE_KEY = 'whx.workspace.rail-layout.v4'
-const LEGACY_STORAGE_KEYS = ['whx.workspace.rail-layout.v3', 'whx.workspace.rail-layout.v2', 'whx.workspace.rail-layout.v1']
-const ALL_TOOLS: WorkspaceTool[] = ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'terminal', 'database']
+const STORAGE_KEY = 'whx.workspace.rail-layout.v6'
+const LAYOUT_CHANGED_EVENT = 'wharnex:workspace-rail-layout-changed'
+const LEGACY_STORAGE_KEYS = ['whx.workspace.rail-layout.v5', 'whx.workspace.rail-layout.v4', 'whx.workspace.rail-layout.v3', 'whx.workspace.rail-layout.v2', 'whx.workspace.rail-layout.v1']
+const ALL_TOOLS: WorkspaceTool[] = ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'terminal', 'database', 'docker']
 
 export const DEFAULT_WORKSPACE_RAIL_LAYOUT: WorkspaceRailLayout = {
   left: ['archive', 'todo', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution'],
-  right: ['project', 'database'],
+  right: ['project', 'docker', 'database'],
   pinned: { left: ['terminal'], right: [] },
 }
 
 export function loadWorkspaceRailLayout(scope = ''): WorkspaceRailLayout {
   try {
-    const current = localStorage.getItem(storageKey(scope))
+    const current = localStorage.getItem(STORAGE_KEY)
     if (current) return normalizeWorkspaceRailLayout(JSON.parse(current) as Partial<WorkspaceRailLayout>)
     for (const key of LEGACY_STORAGE_KEYS) {
-      const raw = localStorage.getItem(legacyStorageKey(key, scope))
-      if (raw) return migrateLegacyLayout(JSON.parse(raw) as Partial<WorkspaceRailLayout>, key.endsWith('.v1') || key.endsWith('.v2'))
+      for (const candidate of legacyStorageCandidates(key, scope)) {
+        const raw = localStorage.getItem(candidate)
+        if (!raw) continue
+        const parsed = JSON.parse(raw) as Partial<WorkspaceRailLayout>
+        const migrated = key.endsWith('.v5') || key.endsWith('.v4') ? normalizeWorkspaceRailLayout(parsed) : migrateLegacyLayout(parsed, key.endsWith('.v1') || key.endsWith('.v2'))
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated)) } catch { /* best effort */ }
+        return migrated
+      }
     }
     return cloneDefault()
   } catch { return cloneDefault() }
 }
 
 export function saveWorkspaceRailLayout(layout: WorkspaceRailLayout, scope = '') {
+  void scope
   const normalized = normalizeWorkspaceRailLayout(layout)
-  try { localStorage.setItem(storageKey(scope), JSON.stringify(normalized)) } catch { /* best effort */ }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)) } catch { /* best effort */ }
+  window.dispatchEvent(new CustomEvent<WorkspaceRailLayout>(LAYOUT_CHANGED_EVENT, { detail: normalized }))
   return normalized
+}
+
+export function subscribeWorkspaceRailLayout(listener: (layout: WorkspaceRailLayout) => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY) listener(loadWorkspaceRailLayout())
+  }
+  const onLocalChange = (event: Event) => listener(normalizeWorkspaceRailLayout((event as CustomEvent<WorkspaceRailLayout>).detail))
+  window.addEventListener('storage', onStorage)
+  window.addEventListener(LAYOUT_CHANGED_EVENT, onLocalChange)
+  return () => {
+    window.removeEventListener('storage', onStorage)
+    window.removeEventListener(LAYOUT_CHANGED_EVENT, onLocalChange)
+  }
 }
 
 export function moveWorkspaceTool(layout: WorkspaceRailLayout, tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool, pinned = false): WorkspaceRailLayout {
@@ -83,6 +105,8 @@ function migrateLegacyLayout(value: Partial<WorkspaceRailLayout>, moveProject: b
   return normalizeWorkspaceRailLayout(normalized)
 }
 
-function storageKey(scope: string) { return scope ? `${STORAGE_KEY}:${scope}` : STORAGE_KEY }
-function legacyStorageKey(key: string, scope: string) { return scope && !key.endsWith('.v1') ? `${key}:${scope}` : key }
+function legacyStorageCandidates(key: string, scope: string) {
+  if (!scope || key.endsWith('.v1')) return [key]
+  return [`${key}:${scope}`, key]
+}
 function cloneDefault(): WorkspaceRailLayout { return { left: [...DEFAULT_WORKSPACE_RAIL_LAYOUT.left], right: [...DEFAULT_WORKSPACE_RAIL_LAYOUT.right], pinned: { left: [...DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.left], right: [...DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.right] } } }

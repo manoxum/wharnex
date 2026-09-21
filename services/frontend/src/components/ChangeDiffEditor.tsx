@@ -4,11 +4,11 @@ import { api } from '../lib/api'
 import { editorLanguageForPath } from '../lib/editorLanguage'
 import { activeMonacoTheme, configureMonaco, monaco } from '../lib/monaco'
 import { buildDiffDocument, type DiffDocument } from '../lib/unifiedDiff'
-import { subscribeUIPreferences } from '../lib/uiPreferences'
+import { subscribeUIPreferences, workspaceEditorFontSize } from '../lib/uiPreferences'
 import type { ChatChangeFile } from '../types'
 import { Icon } from './Icon'
 
-export function ChangeDiffEditor({ sessionId, file }: { sessionId: string; file: ChatChangeFile }) {
+export function ChangeDiffEditor({ sessionId, file, fragmentOnly = false }: { sessionId: string; file: ChatChangeFile; fragmentOnly?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null)
   type DiffLineChange = { modifiedStartLineNumber: number; originalStartLineNumber: number }
@@ -25,11 +25,15 @@ export function ChangeDiffEditor({ sessionId, file }: { sessionId: string; file:
     setActiveChange(0)
     setChangeCount(0)
     changes.current = []
+    if (fragmentOnly) {
+      setDocument(buildDiffDocument(file.diff))
+      return () => { cancelled = true }
+    }
     api.readFile(sessionId, file.path)
       .then((current) => { if (!cancelled) setDocument(buildDiffDocument(file.diff, current.content)) })
       .catch(() => { if (!cancelled) setDocument(buildDiffDocument(file.diff)) })
     return () => { cancelled = true }
-  }, [sessionId, file.path, file.diff])
+  }, [sessionId, file.path, file.diff, fragmentOnly])
 
   useLayoutEffect(() => {
     if (!host.current || !document) return
@@ -50,7 +54,7 @@ export function ChangeDiffEditor({ sessionId, file }: { sessionId: string; file:
       ignoreTrimWhitespace: false,
       hideUnchangedRegions: { enabled: document.complete, contextLineCount: 3, minimumLineCount: 4, revealLineCount: 12 },
       fontFamily: "ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
-      fontSize: 12.5,
+      fontSize: workspaceEditorFontSize(),
       lineHeight: 20,
       lineNumbersMinChars: 3,
       glyphMargin: true,
@@ -80,7 +84,10 @@ export function ChangeDiffEditor({ sessionId, file }: { sessionId: string; file:
     }
   }, [document, file.path])
 
-  useEffect(() => subscribeUIPreferences(() => monaco.editor.setTheme(activeMonacoTheme())), [])
+  useEffect(() => subscribeUIPreferences((preferences) => {
+    monaco.editor.setTheme(activeMonacoTheme())
+    editor.current?.updateOptions({ fontSize: workspaceEditorFontSize(preferences) })
+  }), [])
   useEffect(() => { editor.current?.updateOptions({ renderSideBySide: sideBySide }) }, [sideBySide])
 
   function navigate(direction: -1 | 1) {

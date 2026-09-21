@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ComponentProps } from 'react'
-import type { HarnessEvent, ProjectTodo, Session } from '../types'
+import type { HarnessEvent, ProjectTodo, Session, TerminalRunInput } from '../types'
 import { ChatPanel } from './ChatPanel'
 import { promptDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
@@ -32,12 +32,13 @@ const ProjectTasksDrawer = lazy(() => import('./ProjectTasksDrawer').then((m) =>
 const ArtifactExplorerPanel = lazy(() => import('./ArtifactExplorerPanel').then((m) => ({ default: m.ArtifactExplorerPanel })))
 const DatabaseExplorerPanel = lazy(() => import('./DatabaseExplorerPanel').then((m) => ({ default: m.DatabaseExplorerPanel })))
 const ProjectTodoPanel = lazy(() => import('./ProjectTodoPanel').then((m) => ({ default: m.ProjectTodoPanel })))
+const DockerServicesPanel = lazy(() => import('./DockerServicesPanel').then((m) => ({ default: m.DockerServicesPanel })))
 
 function DrawerFallback() {
   return <PanelSkeleton/>
 }
 
-export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | 'errors' | ''
+export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | 'docker' | 'errors' | ''
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 44
@@ -80,12 +81,15 @@ export type WorkspaceSideRailProps = {
   onRenameChat: ComponentProps<typeof ChatPanel>['onRenameChat']
   onGenerateChatTitle: ComponentProps<typeof ChatPanel>['onGenerateChatTitle']
   onOpenFile: (path: string) => void
+  explorerRevealPath?: string
+  explorerRevealNonce?: number
   onAnalyzeEvolution?: (ids: string[]) => Promise<void>
   onError: (message: string) => void
   onSession?: (session: Session) => void
   onResolveConflictWithGPT?: (session: Session) => Promise<void>
   terminalOpen: boolean
   onToggleTerminal: () => void
+  onRunInTerminal?: (input: TerminalRunInput) => void
   onGoToChat?: (chatId?: string, sessionId?: string) => void
   onGoToOrchestrator?: () => void
   onPromoteTodoToChat?: (todo: ProjectTodo) => Promise<void>
@@ -141,6 +145,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     if (tool === 'fifo') return { label: 'Fila FIFO de execução', title: 'Fila FIFO de execução', icon: 'play', drawer: 'fifo', badge: activeExecutionCount }
     if (tool === 'evolution') return { label: 'Logs de auto-evolução', title: 'Logs e análise de auto-evolução', icon: 'refresh', drawer: 'evolution' }
     if (tool === 'database') return { label: 'Database connection', title: 'Database connection', icon: 'database', drawer: 'database' }
+    if (tool === 'docker') return { label: 'Docker', title: 'Containers, imagens, volumes e redes', icon: 'container', drawer: 'docker' }
     return { label: props.terminalOpen ? 'Fechar terminal' : 'Abrir terminal', title: props.terminalOpen ? 'Fechar terminal' : 'Abrir terminal do projeto', icon: 'terminal' }
   }
 
@@ -199,7 +204,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     {drawer === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
     {drawer === 'todo' && props.chatProps ? <ProjectTodoPanel session={session} chatProps={props.chatProps} onClose={close} onPromoteToChat={props.onPromoteTodoToChat} onPromoteToCurrentChat={props.onPromoteTodoToCurrentChat} onLocateChat={props.onLocateTodoChat} onGoToOrchestrator={props.onGoToOrchestrator} onError={onError}/> : null}
     {drawer === 'archive' ? <ChatManagementDrawer projectPath={session.project_path} savedChats={savedChats} archivedChats={archivedChats} busy={busy} onRestoreSaved={props.onRestoreSavedChat} onArchiveSaved={props.onArchiveSavedChat} onRestoreArchived={props.onRestoreChat} onDeleteArchived={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
-    {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={props.onOpenFile} onError={onError} onClose={close}/> : null}
+    {drawer === 'project' ? <AgentProjectExplorer session={session} onOpen={props.onOpenFile} onError={onError} onClose={close} revealPath={props.explorerRevealPath} revealNonce={props.explorerRevealNonce}/> : null}
     {drawer === 'library' ? <ArtifactExplorerPanel sessionId={session.id} onError={onError} onClose={close}/> : null}
     {drawer === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
     {drawer === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession} onResolveConflictWithGPT={props.onResolveConflictWithGPT}/> : null}
@@ -209,6 +214,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     {drawer === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
     {drawer === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
     {drawer === 'database' ? <div className="workspace-database-drawer"><DatabaseExplorerPanel onError={onError}/><button type="button" className="workspace-right-close" onClick={close} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button></div> : null}
+    {drawer === 'docker' ? <DockerServicesPanel session={session} onError={onError} onClose={close} onRunInTerminal={props.onRunInTerminal}/> : null}
     </Suspense>
   </aside> : null
   const splitter = drawer ? <button type="button" className={`agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`} aria-label={`Redimensionar painel lateral ${side === 'left' ? 'esquerdo' : 'direito'}`} title="Arraste para redimensionar" onPointerDown={beginDrawerResize}/> : null
@@ -217,7 +223,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
 }
 
 function isWorkspaceTool(value: string): value is WorkspaceTool {
-  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'terminal', 'database'].includes(value)
+  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'terminal', 'database', 'docker'].includes(value)
 }
 function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
   const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable'>('all')

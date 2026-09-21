@@ -4125,6 +4125,14 @@ func (s *Service) ReadFile(sessionID, path string) (workspacefs.File, error) {
 	return workspacefs.Read(item.ProjectPath, path)
 }
 
+func (s *Service) SearchWorkspace(sessionID string, options workspacefs.SearchOptions) (workspacefs.SearchResult, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return workspacefs.SearchResult{}, err
+	}
+	return workspacefs.Search(item.ProjectPath, options)
+}
+
 func (s *Service) OpenFilePreview(sessionID, path string) (*os.File, os.FileInfo, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {

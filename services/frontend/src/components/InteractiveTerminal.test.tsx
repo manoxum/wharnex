@@ -60,43 +60,40 @@ describe('InteractiveTerminal PTY', () => {
     Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: { clipboard } })
     clipboard.readText.mockResolvedValue('printf "copiado"\n')
     clipboard.writeText.mockResolvedValue({ ok: true })
-    vi.mocked(api.openTerminal).mockResolvedValue({ terminal_id: 'pty-1', target: 'sandbox' })
+    vi.mocked(api.openTerminal).mockResolvedValue({ terminal_id: 'pty-1', target: 'host' })
     vi.mocked(api.terminalInput).mockResolvedValue(undefined)
     vi.mocked(api.resizeTerminal).mockResolvedValue(undefined)
     vi.mocked(api.closeTerminal).mockResolvedValue(undefined)
-    vi.mocked(api.resetTerminal).mockResolvedValue({ status: 'ok' })
   })
 
-  it('opens an isolated PTY and sends keyboard data directly to its shell', async () => {
-    render(<InteractiveTerminal session={session} height={245} onHeight={() => undefined} onError={() => undefined} />)
-    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledWith('ses-terminal', expect.objectContaining({ cwd: '.', network: false, cols: 80, rows: 24 }), 'sandbox', false))
+  it('opens a host PTY and sends keyboard data directly to its shell', async () => {
+    render(<InteractiveTerminal session={session} height={245} onError={() => undefined} />)
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledWith('ses-terminal', expect.objectContaining({ cwd: '.', network: false, cols: 80, rows: 24 }), 'host', true))
     terminalMock.onData?.('nano README.md\r')
     await waitFor(() => expect(api.terminalInput).toHaveBeenCalledWith('ses-terminal', 'pty-1', 'nano README.md\r'))
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.getByLabelText('Terminal interactivo')).toBeTruthy()
   })
 
-  it('switches directly to the explicitly selected full-access Host PTY', async () => {
-    vi.mocked(api.openTerminal).mockResolvedValueOnce({ terminal_id: 'pty-sandbox', target: 'sandbox' }).mockResolvedValueOnce({ terminal_id: 'pty-host', target: 'host' })
-    render(<InteractiveTerminal session={session} height={245} onHeight={() => undefined} onError={() => undefined} />)
+  it('does not expose sandbox selection or the redundant host-direct banner', async () => {
+    render(<InteractiveTerminal session={session} height={245} onError={() => undefined} />)
     await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(1))
-    fireEvent.click(screen.getByRole('button', { name: 'Host' }))
-    await waitFor(() => expect(api.openTerminal).toHaveBeenLastCalledWith('ses-terminal', expect.objectContaining({ network: false }), 'host', true))
-    expect(screen.getByText('HOST DIRECTO')).toBeTruthy()
-    expect(screen.getByText(/Sessão real do utilizador do sistema/)).toBeTruthy()
-    terminalMock.onData?.('vim src/App.tsx\r')
-    await waitFor(() => expect(api.terminalInput).toHaveBeenCalledWith('ses-terminal', 'pty-host', 'vim src/App.tsx\r'))
+    expect(screen.queryByRole('button', { name: 'Sandbox' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Host' })).toBeNull()
+    expect(screen.queryByText('HOST DIRECTO')).toBeNull()
   })
 
-  it('opens an editor-created terminal directly on Host', async () => {
-    vi.mocked(api.openTerminal).mockResolvedValueOnce({ terminal_id: 'pty-host', target: 'host' })
-    render(<InteractiveTerminal session={session} height={245} initialTarget="host" onHeight={() => undefined} onError={() => undefined} />)
-    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledWith('ses-terminal', expect.objectContaining({ network: false }), 'host', true))
-    expect(screen.getByText('HOST DIRECTO')).toBeTruthy()
+  it('reconnects the same host terminal surface when the reconnect nonce changes', async () => {
+    vi.mocked(api.openTerminal).mockResolvedValueOnce({ terminal_id: 'pty-host-1', target: 'host' }).mockResolvedValueOnce({ terminal_id: 'pty-host-2', target: 'host' })
+    const { rerender } = render(<InteractiveTerminal session={session} height={245} reconnectNonce={0} onError={() => undefined} />)
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(1))
+    rerender(<InteractiveTerminal session={session} height={245} reconnectNonce={1} onError={() => undefined} />)
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(2))
+    expect(api.openTerminal).toHaveBeenLastCalledWith('ses-terminal', expect.objectContaining({ network: false }), 'host', true)
   })
 
   it('copies selections and pastes clipboard text through desktop shortcuts', async () => {
-    render(<InteractiveTerminal session={session} height={245} onHeight={() => undefined} onError={() => undefined} />)
+    render(<InteractiveTerminal session={session} height={245} onError={() => undefined} />)
     await waitFor(() => expect(api.openTerminal).toHaveBeenCalled())
     const root = screen.getByLabelText('Terminal interactivo')
     terminalMock.selection = './bin/promote republish prod'
@@ -107,7 +104,7 @@ describe('InteractiveTerminal PTY', () => {
   })
 
   it('forwards terminal dimensions to the live PTY', async () => {
-    render(<InteractiveTerminal session={session} height={245} onHeight={() => undefined} onError={() => undefined} />)
+    render(<InteractiveTerminal session={session} height={245} onError={() => undefined} />)
     await waitFor(() => expect(api.openTerminal).toHaveBeenCalled())
     terminalMock.onResize?.({ cols: 132, rows: 41 })
     await waitFor(() => expect(api.resizeTerminal).toHaveBeenCalledWith('ses-terminal', 'pty-1', 132, 41))

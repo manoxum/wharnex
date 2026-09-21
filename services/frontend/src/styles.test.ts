@@ -99,6 +99,56 @@ describe('execution queue CSS', () => {
   })
 })
 
+describe('drawer heading actions CSS', () => {
+  it('keeps heading controls horizontal and out of the project tree hit area', () => {
+    const title = lastRule('.agent-drawer-heading > div:first-child')
+    const actions = lastRule('.agent-drawer-heading > .agent-runtime-heading-actions')
+
+    expect(title).toContain('display: grid')
+    expect(actions).toContain('display: flex')
+    expect(actions).toContain('flex: 0 0 auto')
+    expect(css).not.toContain('.agent-drawer-heading > div {')
+  })
+})
+
+describe('Docker services CSS regression', () => {
+  it('keeps the pre-merge Docker workbench hierarchy instead of browser-default buttons', () => {
+    const panel = lastRule('.docker-services-panel')
+    const section = firstRule('.docker-section-heading')
+    const composeToggle = lastRule('.docker-compose-toggle')
+    const detailHeading = firstRule('.docker-container-heading')
+    const detailTabs = firstRule('.docker-detail-tabs')
+    const facts = firstRule('.docker-fact')
+
+    expect(panel).toContain('--docker-font-scale:calc(var(--ui-font-scale) * var(--docker-user-scale, 1.15))')
+    expect(section).toContain('display:grid')
+    expect(section).toContain('grid-template-columns:10px 14px minmax(0,1fr) auto')
+    expect(section).toContain('border:0')
+    expect(section).toContain('background:transparent')
+    expect(composeToggle).toContain('grid-template-columns:11px 8px minmax(0,1fr)')
+    expect(composeToggle).toContain('border:0')
+    expect(detailHeading).toContain('align-items:center')
+    expect(detailTabs).toContain('display:flex')
+    expect(facts).toContain('grid-template-columns:minmax(74px,27%) minmax(0,1fr)')
+    expect(css).toContain(".docker-detail-tabs button[aria-selected='true']::after")
+    expect(css).not.toContain('.docker-detail-tabs button.active {')
+  })
+})
+
+describe('editor Git and Compose gutter CSS', () => {
+  it('keeps clickable Git blocks and Compose runtime state visible in the editor gutter', () => {
+    const marker = lastRule('.editor-git-change-marker')
+    const added = lastRule('.editor-git-change-marker-added')
+    const compose = lastRule('.editor-compose-glyph')
+    const running = lastRule('.editor-compose-glyph.state-running')
+
+    expect(marker).toContain('cursor: pointer')
+    expect(added).toContain('var(--theme-success)')
+    expect(compose).toContain('position: relative')
+    expect(running).toContain('var(--theme-success)')
+  })
+})
+
 describe('panel search controls CSS', () => {
   it('shares one polished search treatment across compact drawers and utility panels', () => {
     const field = lastRule('.panel-search-field')
@@ -663,6 +713,26 @@ describe('workbench rail and theme integrity CSS', () => {
 })
 
 
+describe('workspace readability and Git focus CSS', () => {
+  it('routes every legacy micro font at or below 10px through the UI scale', () => {
+    const directSmall = [...css.matchAll(/font-size\s*:\s*(\d+(?:\.\d+)?)px/g)].filter((match) => Number(match[1]) <= 10)
+    const shorthandSmall = [...css.matchAll(/font\s*:\s*([^;]+);/g)].filter((match) => {
+      if (match[1].includes('var(--ui-font-scale)')) return false
+      const size = match[1].match(/(?:^|\s)(\d+(?:\.\d+)?)px/)
+      return Boolean(size && Number(size[1]) <= 10)
+    })
+    expect(directSmall).toEqual([])
+    expect(shorthandSmall).toEqual([])
+  })
+
+  it('keeps Git file state visible in Explorer and Editor without relying on colour alone', () => {
+    expect(lastRule('.agent-project-git-summary')).toContain('var(--ui-font-scale)')
+    expect(lastRule('.agent-tree-git-status')).toContain('display: inline-flex')
+    expect(lastRule('.editor-git-file-state')).toContain('display: inline-flex')
+    expect(lastRule('.agent-tree-row.git-changed::before')).toContain('width: 2px')
+  })
+})
+
 describe('semantic panel tabs CSS', () => {
   it('keeps TODO and Git tabs on one row and collapses labels by strip width', () => {
     const todoTabs = lastRule('.project-todo-tabs')
@@ -678,5 +748,25 @@ describe('semantic panel tabs CSS', () => {
     expect(css).toContain('@container semantic-panel (max-width: 420px)')
     expect(css).toContain('clip-path: inset(50%)')
     expect(css).toContain('@container semantic-panel (max-width: 340px)')
+  })
+})
+
+
+describe('editor search palette CSS', () => {
+  it('renders global search and double-shift file lookup as compact IDE overlays', () => {
+    const backdrop = firstRule('.editor-search-backdrop')
+    const palette = firstRule('.editor-search-palette')
+    const input = lastRule('.editor-search-input')
+    const options = lastRule('.editor-search-options button')
+    const result = lastRule(".editor-search-results > button[role='option']")
+
+    expect(backdrop).toContain('position: fixed')
+    expect(backdrop).toContain('place-items: start center')
+    expect(palette).toContain('width: min(760px, calc(100vw - 40px))')
+    expect(palette).toContain('border-radius: 13px')
+    expect(input).toContain('grid-template-columns: auto minmax(0, 1fr) auto')
+    expect(options).toContain('white-space: nowrap')
+    expect(result).toContain('grid-template-columns: 18px minmax(0, 1fr)')
+    expect(css).toContain(".editor-search-options button[aria-pressed='true']")
   })
 })

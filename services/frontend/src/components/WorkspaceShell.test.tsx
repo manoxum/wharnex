@@ -26,14 +26,14 @@ describe('WorkspaceShell project actions', () => {
   })
 
   it('uses Signal Core alone as the primary toolbar brand mark', () => {
-    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     expect(screen.getByRole('img', { name: 'Signal Core' })).toBeTruthy()
     expect(screen.queryByText('WHX')).toBeNull()
     expect(screen.queryByText('Wharnex')).toBeNull()
   })
 
   it('leads the title bar with Signal Core while keeping the active project first in the switcher', () => {
-    const { container } = render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/gamma" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    const { container } = render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/gamma" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     const bar = container.querySelector('.multi-project-bar')
     const brand = container.querySelector('.multi-project-brand')
     const switcher = container.querySelector('.project-quick-switch')
@@ -45,7 +45,7 @@ describe('WorkspaceShell project actions', () => {
 
   it('keeps project unlink on the project tab instead of the global action cluster', () => {
     const onUnbind = vi.fn()
-    const { container } = render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    const { container } = render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onNewWindow={vi.fn()} />)
 
     const activeTab = container.querySelector('.project-tab-shell.active')
     const unlink = within(activeTab as HTMLElement).getByRole('button', { name: 'Desvincular alpha desta janela' })
@@ -56,7 +56,7 @@ describe('WorkspaceShell project actions', () => {
   })
 
   it('marks the shell chrome as the desktop window title bar', () => {
-    const { container } = render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    const { container } = render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     expect(container.querySelector('.multi-project-bar')?.getAttribute('data-window-titlebar')).toBe('true')
   })
 
@@ -66,7 +66,7 @@ describe('WorkspaceShell project actions', () => {
     const close = vi.fn().mockResolvedValue({ ok: true })
     window.wharnessDesktop = { windows: { minimize, toggleMaximize, close } } as unknown as WharnessDesktopBridge
 
-    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Minimizar janela' }))
     fireEvent.click(screen.getByRole('button', { name: 'Maximizar ou restaurar janela' }))
     fireEvent.click(screen.getByRole('button', { name: 'Fechar janela' }))
@@ -79,13 +79,13 @@ describe('WorkspaceShell project actions', () => {
   it('keeps themed title-bar window controls in the Desktop shell', () => {
     window.wharnessDesktop = { platform: 'linux', windows: {} } as unknown as WharnessDesktopBridge
 
-    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={[]} activeProject="" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
 
     expect(screen.getByRole('group', { name: 'Controlos da janela' })).toBeTruthy()
   })
 
   it('places the active WHX runtime badge inside the unified window controls', () => {
-    render(<ShellChrome projects={['/tmp/self']} activeProject="/tmp/self" activeRuntime={{ selfEvolution: true, instanceId: '' }} mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={['/tmp/self']} activeProject="/tmp/self" activeRuntime={{ selfEvolution: true, instanceId: '' }} mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
 
     const controls = screen.getByRole('group', { name: 'Controlos da janela' })
     const badge = screen.getByText('WHX · AUTO-EVOLUÇÃO')
@@ -95,7 +95,7 @@ describe('WorkspaceShell project actions', () => {
 
   it('places the active project notification control in the desktop title bar', () => {
     const onAttention = vi.fn()
-    const { container } = render(<ShellChrome projects={['/tmp/alpha']} activeProject="/tmp/alpha" activeAttention={{ total: 4, urgent: 1, actionable: 2 }} mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onAttention={onAttention} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    const { container } = render(<ShellChrome projects={['/tmp/alpha']} activeProject="/tmp/alpha" activeAttention={{ total: 4, urgent: 1, actionable: 2 }} mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onAttention={onAttention} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     const button = screen.getByRole('button', { name: /Centro de notificações, 4 alerta\(s\), 1 urgente\(s\), 2 com ação/ })
     expect(button.closest('.multi-project-actions')).toBeTruthy()
     expect(button.className).toContain('has-alerts')
@@ -106,13 +106,27 @@ describe('WorkspaceShell project actions', () => {
     expect(onAttention).toHaveBeenCalledTimes(1)
   })
 
-  it('binds an additional project from its complete local path', () => {
-    const onBindPath = vi.fn()
-    render(<ShellChrome projects={['/work/current']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={onBindPath} onNewWindow={vi.fn()} />)
+  it('keeps header popovers mutually exclusive', async () => {
+    render(<ShellChrome projects={['/tmp/alpha']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'alpha' }))
+    expect(screen.getByText('Projetos abertos')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Aparência rápida' }))
+    expect(screen.queryByText('Projetos abertos')).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Aparência rápida' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'alpha' }))
+    expect(screen.queryByRole('dialog', { name: 'Aparência rápida' })).toBeNull()
+    expect(screen.getByText('Projetos abertos')).toBeTruthy()
+  })
+
+  it('keeps manual path binding out of the quick project actions menu', () => {
+    render(<ShellChrome projects={['/work/current']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Ações de projeto' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Caminho completo do projeto' }), { target: { value: '/work/related' } })
-    fireEvent.click(screen.getByRole('menuitem', { name: /Vincular por caminho/i }))
-    expect(onBindPath).toHaveBeenCalledWith('/work/related')
+
+    expect(screen.queryByRole('textbox', { name: 'Caminho completo do projeto' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: /Vincular por caminho/i })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: /Vincular projeto/i })).toBeTruthy()
   })
 
   it('places the active branch and project version before the mode selector', async () => {
@@ -121,7 +135,7 @@ describe('WorkspaceShell project actions', () => {
       has_identity: true, branches: [{ name: 'feature/git-shell', current: true, commit_sha: 'abc123', has_upstream: false, ahead: 0, behind: 0, gone: false }], remotes: [], tags: [], commits: [], pending: [],
       working: { clean: true, stageable_count: 0, files: [] },
     })
-    render(<ShellChrome projects={['/tmp/legacy']} activeProject="/tmp/legacy" activeSessionID="ses_git" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={['/tmp/legacy']} activeProject="/tmp/legacy" activeSessionID="ses_git" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     const badge = await screen.findByLabelText('Git: feature/git-shell, projeto v2.4.1.0')
     expect(badge.textContent).toContain('feature/git-shell')
     expect(badge.textContent).toContain('v2.4.1.0')
@@ -130,6 +144,15 @@ describe('WorkspaceShell project actions', () => {
     expect(Boolean(badge.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   })
 
+
+  it('renders shell workspace modes as icon-only controls with accessible names', () => {
+    render(<ShellChrome projects={['/tmp/legacy']} activeProject="/tmp/legacy" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
+    for (const name of ['Editor', 'Agent', 'Orchestrator']) {
+      const button = screen.getByRole('button', { name })
+      expect(button.textContent).toBe('')
+      expect(button.getAttribute('title')).toBe(name)
+    }
+  })
 
   it('shows recent projects before opening the native folder chooser', async () => {
     vi.spyOn(api, 'config').mockResolvedValue({ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false })
@@ -166,7 +189,7 @@ describe('WorkspaceShell project actions', () => {
     } as unknown as WharnessDesktopBridge
     const onActivate = vi.fn()
 
-    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     const alpha = screen.getByRole('button', { name: 'alpha' })
     const gamma = screen.getByRole('button', { name: 'gamma' })
     expect(alpha.style.getPropertyValue('--project-hue')).not.toBe('')
@@ -187,7 +210,7 @@ describe('WorkspaceShell project actions', () => {
       windows: { projects: vi.fn().mockResolvedValue({ currentWindowId: 'window-a', items: [] }) },
     } as unknown as WharnessDesktopBridge
 
-    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={['/tmp/alpha', '/tmp/gamma']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={onActivate} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={onUnbind} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Desvincular gamma desta janela' }))
 
     expect(onUnbind).toHaveBeenCalledWith('/tmp/gamma')
@@ -215,6 +238,23 @@ describe('WorkspaceShell project actions', () => {
 
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith(
       { type: 'wharness:project-active', active: true, projects: ['/tmp/active-project'] },
+      window.location.origin,
+    ))
+  })
+
+  it('asks the active embedded project to close its header overlay when another shell control opens', async () => {
+    vi.spyOn(api, 'config').mockResolvedValue({ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: false, chatgpt_web_embed: true })
+    saveBoundProjects(['/tmp/active-project'])
+    saveBoundActiveProject('/tmp/active-project')
+    window.wharnessDesktop = { projects: { acquire: vi.fn().mockResolvedValue({ ok: true, path: '/tmp/active-project' }) } } as unknown as WharnessDesktopBridge
+
+    render(<WorkspaceShell />)
+    const frame = await screen.findByTitle('Wharnex · active-project') as HTMLIFrameElement
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage')
+    fireEvent.click(screen.getByRole('button', { name: 'Aparência rápida' }))
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith(
+      { type: 'wharness:close-header-overlays' },
       window.location.origin,
     ))
   })
@@ -285,7 +325,7 @@ describe('WorkspaceShell project actions', () => {
   })
 
   it('shows when bound projects share analysis context', () => {
-    render(<ShellChrome projects={['/work/current', '/work/related']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onBindPath={vi.fn()} onNewWindow={vi.fn()} />)
+    render(<ShellChrome projects={['/work/current', '/work/related']} activeProject="/work/current" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)
     expect(screen.getByText('2 projetos no contexto')).toBeTruthy()
   })
 })

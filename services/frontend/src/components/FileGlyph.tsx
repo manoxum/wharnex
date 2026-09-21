@@ -1,9 +1,10 @@
+import { directoryGlyphKind, fileGlyphKind, fileGlyphMark, type DirectoryGlyphKind, type FileGlyphKind } from '../lib/workspaceGlyph'
 import { Icon } from './Icon'
-
-type FileGlyphKind = 'file' | 'env' | 'docker' | 'package' | 'json' | 'typescript' | 'javascript' | 'style' | 'markup' | 'markdown' | 'config' | 'shell' | 'php' | 'go' | 'python' | 'database'
 
 export function FileGlyph({ path, size = 12 }: { path: string; size?: number }) {
   const kind = fileGlyphKind(path)
+  const mark = fileGlyphMark(path, kind)
+  if (mark) return <span className={`file-glyph file-glyph-${kind} file-glyph-mark`} style={{ ['--file-glyph-size' as string]: `${size}px` }} aria-hidden="true">{mark}</span>
   const icon: 'file' | 'package' | 'database' | 'settings' | 'terminal' | 'code' =
     kind === 'package' || kind === 'docker' ? 'package'
       : kind === 'database' ? 'database'
@@ -14,29 +15,30 @@ export function FileGlyph({ path, size = 12 }: { path: string; size?: number }) 
   return <span className={`file-glyph file-glyph-${kind}`} aria-hidden="true"><Icon name={icon} size={size}/></span>
 }
 
-function fileGlyphKind(path: string): FileGlyphKind {
-  const name = path.split('/').pop()?.toLowerCase() || path.toLowerCase()
-  if (name === '.env' || name.startsWith('.env.') || name.endsWith('.env')) return 'env'
-  if (name === 'dockerfile' || name.startsWith('dockerfile.')) return 'docker'
-  if (name === 'package.json' || name === 'package-lock.json' || name === 'pnpm-lock.yaml' || name === 'yarn.lock' || name === 'bun.lock' || name === 'bun.lockb') return 'package'
-  const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : ''
-  switch (extension) {
-    case 'json': return 'json'
-    case 'ts': case 'tsx': return 'typescript'
-    case 'js': case 'jsx': case 'mjs': case 'cjs': return 'javascript'
-    case 'css': case 'scss': case 'sass': case 'less': return 'style'
-    case 'html': case 'htm': case 'xml': case 'svg': return 'markup'
-    case 'md': case 'mdx': return 'markdown'
-    case 'yaml': case 'yml': case 'toml': case 'ini': case 'conf': case 'config': return 'config'
-    case 'sh': case 'bash': case 'zsh': return 'shell'
-    case 'php': return 'php'
-    case 'go': return 'go'
-    case 'py': case 'pyw': return 'python'
-    case 'sql': case 'db': case 'sqlite': case 'sqlite3': return 'database'
-    default: return 'file'
-  }
+export function DirectoryGlyph({ path, size = 13 }: { path: string; size?: number }) {
+  const kind = directoryGlyphKind(path)
+  const icon: 'folder' | 'code' | 'package' | 'terminal' | 'database' | 'settings' | 'knowledge' | 'archive' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema' = directoryIcon(kind)
+  return <span className={`file-glyph directory-glyph directory-glyph-${kind}`} aria-hidden="true"><Icon name={icon} size={size}/></span>
 }
 
 function isCodeKind(kind: FileGlyphKind) {
   return kind === 'typescript' || kind === 'javascript' || kind === 'style' || kind === 'markup' || kind === 'php' || kind === 'go' || kind === 'python'
+}
+
+function directoryIcon(kind: DirectoryGlyphKind): 'folder' | 'code' | 'package' | 'terminal' | 'database' | 'settings' | 'knowledge' | 'archive' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema' {
+  switch (kind) {
+    case 'source': case 'frontend': return 'code'
+    case 'backend': return 'server'
+    case 'build': return 'build'
+    case 'docker': return 'container'
+    case 'scripts': return 'terminal'
+    case 'database': return 'database'
+    case 'schema': return 'schema'
+    case 'config': return 'settings'
+    case 'docs': return 'knowledge'
+    case 'tests': return 'flask'
+    case 'assets': return 'image'
+    case 'styles': return 'archive'
+    default: return 'folder'
+  }
 }

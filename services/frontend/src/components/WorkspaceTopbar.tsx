@@ -1,4 +1,5 @@
 import type { AppConfig, AutomationMode, ExecutionMode, Session, WorkspaceMode } from '../types'
+import { announceHeaderPopover } from '../lib/headerPopover'
 import { Icon } from './Icon'
 import { QuickSwitcher } from './QuickSwitcher'
 import { ProjectGitBadge } from './ProjectGitBadge'
@@ -32,22 +33,22 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
     <div className="workspace-switches">
       <ProjectGitBadge session={session} busy={busy} onSession={onSession} />
       <div className="mode-switch" role="group" aria-label="Modo do workspace">
-        <button className={mode === 'editor' ? 'active' : ''} onClick={() => onMode('editor')}><Icon name="code" size={15}/> Editor</button>
-        <button className={mode === 'agent' ? 'active' : ''} onClick={() => onMode('agent')}><Icon name="agent" size={15}/> Agent</button>
-        <button className={mode === 'orchestrator' ? 'active' : ''} onClick={() => onMode('orchestrator')}><Icon name="plan" size={15}/> Orchestrator</button>
+        <button className={mode === 'editor' ? 'active' : ''} aria-label="Editor" title="Editor" onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={15}/></button>
+        <button className={mode === 'agent' ? 'active' : ''} aria-label="Agent" title="Agent" onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={15}/></button>
+        <button className={mode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" title="Orchestrator" onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={15}/></button>
       </div>
     </div>
     <div className="workspace-status">
       {session.self_evolution && <TopbarIndicator tone="warning" label="Auto-evolução ativa" visibleLabel="WHX · AUTO-EVOLUÇÃO" icon="refresh" />}
-      {restartPending && <button className="topbar-indicator warning actionable restart" type="button" disabled={busy || restartBlocked} title={restartBlocked ? 'Conclua a tarefa ativa antes de reiniciar o Wharnex' : 'Alterações prontas · reinício pendente'} aria-label="Reinício pendente" onClick={onRestartPending}><Icon name="refresh" size={14}/><span className="indicator-dot"/></button>}
+      {restartPending && <button className="topbar-indicator warning actionable restart" type="button" disabled={busy || restartBlocked} title={restartBlocked ? 'Conclua a tarefa ativa antes de reiniciar o Wharnex' : 'Alterações prontas · reinício pendente'} aria-label="Reinício pendente" onClick={() => { announceHeaderPopover('workspace-action'); onRestartPending?.() }}><Icon name="refresh" size={14}/><span className="indicator-dot"/></button>}
       {executionMode === 'unprotected' && <TopbarIndicator tone="danger" label="Host direto · Unprotected" icon="terminal" />}
       {automationMode === 'auto' && <TopbarIndicator tone="success" label="Automação automática" icon="play" />}
       {automationMode === 'auto_approve' && <TopbarIndicator tone="warning" label="Automação automática com aprovação automática" visibleLabel="AUTO + APROVAR" icon="play" />}
       <TopbarIndicator tone={automaticPlanner ? 'success' : 'neutral'} label={config?.planner === 'openai' ? 'AI automático' : 'AI manual'} icon={config?.planner === 'openai' ? 'chatgpt' : 'agent'} />
       <QuickSwitcher compact />
-      <button className={`icon-button workspace-attention-button${attention?.total ? ' has-alerts' : ''}${attention?.urgent ? ' urgent' : ''}`} data-attention-trigger="true" type="button" aria-label={notificationLabel} title="Notificações · ver alertas recentes" onClick={onAttention}><Icon name="bell" size={17}/>{Boolean(attention?.total) && <b className="workspace-attention-count" aria-hidden="true">{attention!.total > 99 ? '99+' : attention!.total}</b>}</button>
-      <button className="icon-button" aria-label="Configuração do projeto" title="Configuração do projeto" onClick={onSettings}><Icon name="settings" size={16}/></button>
-      <button className="icon-button" aria-label="Fechar workspace" title="Fechar workspace" onClick={onClose}><Icon name="close" size={16}/></button>
+      <button className={`icon-button workspace-attention-button${attention?.total ? ' has-alerts' : ''}${attention?.urgent ? ' urgent' : ''}`} data-attention-trigger="true" type="button" aria-label={notificationLabel} title="Notificações · ver alertas recentes" onClick={() => { announceHeaderPopover('attention'); onAttention?.() }}><Icon name="bell" size={17}/>{Boolean(attention?.total) && <b className="workspace-attention-count" aria-hidden="true">{attention!.total > 99 ? '99+' : attention!.total}</b>}</button>
+      <button className="icon-button" aria-label="Configuração do projeto" title="Configuração do projeto" onClick={() => { announceHeaderPopover('settings'); onSettings() }}><Icon name="settings" size={16}/></button>
+      <button className="icon-button" aria-label="Fechar workspace" title="Fechar workspace" onClick={() => { announceHeaderPopover('workspace-action'); onClose() }}><Icon name="close" size={16}/></button>
     </div>
   </header>
 }

@@ -29,6 +29,11 @@ import (
 type WorkingState struct {
 	// Stageable lists paths `git add -A` will genuinely capture.
 	Stageable []string
+	// Statuses preserves the human-facing Git state for paths reported by
+	// porcelain. It is intentionally separate from the safety classification
+	// above: Apply cares whether a path is capturable, while the workbench also
+	// needs to explain whether that path was added, modified or deleted.
+	Statuses map[string]string
 	// DirtySubmodules lists submodules whose working tree has uncommitted
 	// content. Their dirt lives in another repository and the superproject
 	// cannot commit it.
@@ -73,7 +78,7 @@ func Working(ctx context.Context, root string) (WorkingState, error) {
 	if err != nil {
 		return WorkingState{}, fmt.Errorf("inspect host working tree: %s", output)
 	}
-	state := WorkingState{}
+	state := WorkingState{Statuses: map[string]string{}}
 	for _, record := range strings.Split(output, "\x00") {
 		if record == "" {
 			continue
@@ -86,6 +91,7 @@ func Working(ctx context.Context, root string) (WorkingState, error) {
 			// "u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>"
 			if path := recordPath(record, 10); path != "" {
 				state.Unmerged = append(state.Unmerged, path)
+				state.Statuses[path] = "unmerged"
 			}
 		case '?':
 			classifyUntrackedEntry(root, recordPath(record, 1), &state)
@@ -104,10 +110,12 @@ func classifyChangedEntry(record string, state *WorkingState) {
 	if len(fields) < 9 {
 		return
 	}
+	status := workingPathStatus(fields[1])
 	path := filepath.ToSlash(fields[8])
 	if path == "" {
 		return
 	}
+	state.Statuses[path] = status
 	submoduleField := fields[2]
 	if !strings.HasPrefix(submoduleField, "S") || len(submoduleField) < 4 {
 		state.Stageable = append(state.Stageable, path)
@@ -136,6 +144,17 @@ func classifyUntrackedEntry(root, path string, state *WorkingState) {
 		return
 	}
 	state.Stageable = append(state.Stageable, trimmed)
+	state.Statuses[trimmed] = "added"
+}
+
+func workingPathStatus(xy string) string {
+	if strings.Contains(xy, "D") {
+		return "deleted"
+	}
+	if strings.Contains(xy, "A") {
+		return "added"
+	}
+	return "modified"
 }
 
 // recordPath returns the path field of a porcelain v2 record, given how many

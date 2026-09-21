@@ -269,6 +269,52 @@ export type TerminalFrame = { type: 'ready' | 'output' | 'exit' | 'error'; data?
 export type TerminalRunInput = { command: string; cwd: string; label?: string }
 export type TerminalRunRequest = TerminalRunInput & { id: number; target?: TerminalTarget; openNew?: boolean }
 
+
+export type DockerContainerCondition = 'running' | 'restarting' | 'paused' | 'created' | 'error' | 'stopped'
+export type DockerContainer = {
+  id: string
+  name: string
+  image: string
+  state: string
+  condition?: DockerContainerCondition | string
+  status: string
+  ports?: string
+  networks?: string
+  compose_project?: string
+  compose_service?: string
+  exit_code?: number
+  error?: string
+  protected?: boolean
+}
+
+export type DockerComposeService = { name: string; container_count: number; running_count: number; error_count: number }
+export type DockerComposeProject = {
+  name: string
+  container_count: number
+  running_count: number
+  error_count: number
+  stopped_count: number
+  protected?: boolean
+  redeploy_available?: boolean
+  redeploy_reason?: string
+  config_files?: string[]
+  services?: DockerComposeService[]
+}
+export type DockerImage = { id: string; repository: string; tag: string; size: string; created_since?: string; in_use?: boolean; container_count?: number }
+export type DockerVolume = { name: string; driver: string; mountpoint?: string; scope?: string; in_use?: boolean; container_count?: number }
+export type DockerNetwork = { id: string; name: string; driver: string; scope?: string; internal?: boolean; in_use?: boolean; container_count?: number }
+export type DockerOverview = {
+  compose_projects: DockerComposeProject[]
+  containers: DockerContainer[]
+  images: DockerImage[]
+  volumes: DockerVolume[]
+  networks: DockerNetwork[]
+  refreshed_at: string
+}
+export type DockerLogs = { container_id: string; tail: number; content: string }
+export type DockerContainerAction = 'start' | 'stop' | 'restart'
+export type DockerResourceKind = 'volume' | 'network'
+
 export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
 
 export type InterviewOption = { id: string; label: string }
@@ -628,6 +674,27 @@ export type WorkspaceFile = {
   size: number
 }
 
+export type WorkspaceSearchOptions = {
+  query: string
+  case_sensitive: boolean
+  regex: boolean
+  whole_word: boolean
+  fuzzy: boolean
+  limit?: number
+}
+
+export type WorkspaceSearchMatch = {
+  path: string
+  line: number
+  column: number
+  preview: string
+}
+
+export type WorkspaceSearchResult = {
+  matches: WorkspaceSearchMatch[]
+  truncated: boolean
+}
+
 
 export type ProjectConfig = {
   version: number
@@ -861,9 +928,12 @@ export type GitPendingCommit = {
   created_at: string
 }
 
+export type GitWorkingStatus = 'modified' | 'added' | 'deleted' | 'unmerged'
+
 export type GitWorkingFile = {
   path: string
   kind: 'change' | 'gitlink' | 'submodule' | 'embedded_repository' | 'unmerged'
+  status: GitWorkingStatus
   additions?: number
   deletions?: number
 }

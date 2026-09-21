@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { GitBranch, GitOverview, Session } from '../types'
 import { api } from '../lib/api'
+import { announceHeaderPopover, subscribeOtherHeaderPopover } from '../lib/headerPopover'
 import { announceGitChanged, subscribeGitLiveSync } from '../lib/gitLiveSync'
 import { Icon } from './Icon'
 import { GitOperationModal, type GitOperation } from './GitOperationModal'
@@ -73,6 +74,8 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
     }
   }, [id, busy, working])
 
+  useEffect(() => subscribeOtherHeaderPopover('git', () => setOpen(false)), [])
+
   useEffect(() => {
     if (!open) { setBranchPickerOpen(false); return }
 
@@ -116,6 +119,10 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
   const selected = (overview?.branches || []).find((item) => item.name === branch)
   const remote = current?.upstream?.split('/')[0] || overview?.remotes[0]?.name || ''
   const currentBranch = overview?.detached ? 'HEAD destacado' : overview?.current_branch || 'sem branch'
+  const workingCount = overview?.working.files.length || overview?.working.stageable_count || 0
+  const pendingCommitCount = overview?.pending.length || 0
+  const outgoingCount = current?.has_upstream && !current.gone ? current.ahead : (overview?.commits || []).filter((commit) => !commit.pushed).length
+  const gitStateLabel = gitProjectStateLabel(workingCount, pendingCommitCount, outgoingCount)
 
   async function copyBranch(name: string) {
     try {
@@ -165,8 +172,8 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
 
   const disabled = busy || working || !id || !overview?.available
   return <div ref={rootRef} className="project-git-badge-wrap">
-    <button type="button" className={`project-git-badge ${open ? 'active' : ''}`} onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label={`Git: ${currentBranch}, projeto ${overview?.project_version || 'sem versão'}`}>
-      <span className="project-git-branch"><Icon name="git" size={13}/><strong>{currentBranch}</strong></span>
+    <button type="button" className={`project-git-badge ${workingCount ? 'has-working' : ''} ${pendingCommitCount ? 'has-pending-commit' : ''} ${outgoingCount ? 'has-outgoing' : ''} ${open ? 'active' : ''}`.trim()} onClick={() => { if (!open) announceHeaderPopover('git'); setOpen((value) => !value) }} aria-expanded={open} aria-label={`Git: ${currentBranch}, projeto ${overview?.project_version || 'sem versão'}`}>
+      <span className="project-git-branch"><span className="project-git-icon"><Icon name="git" size={13}/>{gitStateLabel && <span className="project-git-state-dots" aria-label={gitStateLabel}>{workingCount ? <i className="working" title={`${workingCount} alteração${workingCount === 1 ? '' : 'ões'} sem commit`}/> : null}{pendingCommitCount ? <i className="pending" title={`${pendingCommitCount} commit${pendingCommitCount === 1 ? '' : 's'} pendente${pendingCommitCount === 1 ? '' : 's'}`}/> : null}{outgoingCount ? <i className="outgoing" title={`${outgoingCount} commit${outgoingCount === 1 ? '' : 's'} por enviar`}/> : null}</span>}</span><strong>{currentBranch}</strong></span>
       <span className="project-git-version">{overview?.project_version || 'v…'}</span>
       <Icon name="chevron" size={11}/>
     </button>
@@ -218,6 +225,14 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
       document.body,
     )}
   </div>
+}
+
+function gitProjectStateLabel(working: number, pending: number, outgoing: number) {
+  const parts: string[] = []
+  if (working) parts.push(`${working} alteração${working === 1 ? '' : 'ões'} sem commit`)
+  if (pending) parts.push(`${pending} commit${pending === 1 ? '' : 's'} pendente${pending === 1 ? '' : 's'}`)
+  if (outgoing) parts.push(`${outgoing} commit${outgoing === 1 ? '' : 's'} por enviar`)
+  return parts.join(' · ')
 }
 
 function branchSummary(branch: GitBranch) {

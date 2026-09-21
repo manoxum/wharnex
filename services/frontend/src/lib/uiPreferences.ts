@@ -80,6 +80,15 @@ export function loadUIPreferences(): UIPreferences {
   } catch { return DEFAULT_UI_PREFERENCES }
 }
 
+
+export function workspaceEditorFontSize(value: UIPreferences = loadUIPreferences()) {
+  return Math.round(14 * value.scale * 10) / 10
+}
+
+export function workspaceTerminalFontSize(value: UIPreferences = loadUIPreferences()) {
+  return Math.round(13 * value.scale * 10) / 10
+}
+
 export function saveUIPreferences(value: UIPreferencesInput) {
   const normalized = normalizeUIPreferences(value)
   try { localStorage.setItem(UI_PREFERENCES_KEY, JSON.stringify(normalized)) } catch { /* best effort */ }
