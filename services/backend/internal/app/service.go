@@ -2622,20 +2622,25 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 			// A replay this late in the flow can fail on paths the open
 			// conflict's capsule never authorized — the same candidate commit
 			// drifting further out of sync with the host between rounds, not a
-			// fresh collision. Extending the thread and resending a full
-			// capsule for that case first is what stops the plain retry below
-			// from resending byte-identical content the planner already
-			// rejected as incomplete; see ADR-0065.
-			if extended, driftHandled, driftErr := s.extendConflictWithReplayDrift(ctx, sessionID, updated, cause); driftErr == nil && driftHandled {
-				updated = extended
-				updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
-					current.RepairAttempt++
-					current.RepairParentPlanID = result.PlanID
-					current.LastRepairError = cause.Error()
-					return nil
-				})
-			} else if driftErr != nil {
-				s.bus.Publish(sessionID, "conflict.retry_prepare_failed", map[string]any{"error": driftErr.Error()})
+			// fresh collision. An offline merge-tree preflight against the
+			// live host HEAD (never planner prose or a patch tool's stdout,
+			// which do not exist for every failure shape here) is the ground
+			// truth for whether that happened; extending the thread and
+			// resending a full capsule for that case is what stops the plain
+			// retry below from resending byte-identical content the planner
+			// already rejected as incomplete. See ADR-0065.
+			if s.conflictNeedsCapsuleExtension(ctx, updated) {
+				if renewed, renewErr := s.refreshConflictCapsule(ctx, sessionID, updated); renewErr == nil {
+					updated = renewed
+					updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
+						current.RepairAttempt++
+						current.RepairParentPlanID = result.PlanID
+						current.LastRepairError = cause.Error()
+						return nil
+					})
+				} else {
+					s.bus.Publish(sessionID, "conflict.retry_prepare_failed", map[string]any{"error": renewErr.Error()})
+				}
 			} else if retried, retryErr := s.prepareConflictResolutionRetry(ctx, sessionID, updated, cause); retryErr == nil {
 				updated = retried
 				updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {

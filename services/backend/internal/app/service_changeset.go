@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -755,11 +754,19 @@ func (s *Service) RenewConflictCapsule(ctx context.Context, sessionID string, ap
 
 // refreshConflictCapsule rebuilds the harness.conflict/v1 capsule for the
 // conflict thread currently open on this session from its own recorded paths
-// and sources, then resends it as a fresh request in the same lineage. BASE
-// and RESULT are re-read at the commits the thread already recorded for each
-// path (a Git-conflict thread reads BASE/RESULT from its GitConflictContext
-// instead); CURRENT is always re-read at the live host HEAD, exactly like the
-// capsule builders that create a conflict thread in the first place.
+// and sources, then resends it as a fresh request in the same lineage.
+//
+// Before reading any file, it folds in whatever extendConflictWithLiveDrift
+// finds: the thread's recorded path set is a snapshot, and a planner
+// reporting the capsule as stale is frequently reporting that the snapshot
+// under-counts, not merely that its content aged — an earlier round of the
+// exact incident this function exists for kept resending a single-path
+// capsule while the live host had moved three more paths of the same
+// candidate out of sync. BASE and RESULT are re-read at the commits the
+// thread already recorded for each path (a Git-conflict thread reads
+// BASE/RESULT from its GitConflictContext instead); CURRENT is always
+// re-read at the live host HEAD, exactly like the capsule builders that
+// create a conflict thread in the first place.
 func (s *Service) refreshConflictCapsule(ctx context.Context, sessionID string, item domain.Session) (domain.Session, error) {
 	conflict := item.IntegrationConflict
 	if conflict == nil || strings.TrimSpace(conflict.RequestID) == "" {
@@ -773,6 +780,7 @@ func (s *Service) refreshConflictCapsule(ctx context.Context, sessionID string, 
 	if err != nil {
 		return item, fmt.Errorf("resolve host HEAD: %w", err)
 	}
+	conflict = extendConflictWithLiveDrift(ctx, repoPath, hostSHA, conflict)
 	paths := normalizedPaths(conflict.Paths)
 	files := make([]conflictCapsuleFile, 0, len(paths))
 	for _, path := range paths {
@@ -865,65 +873,56 @@ func (s *Service) refreshConflictCapsule(ctx context.Context, sessionID string, 
 	return updated, err
 }
 
-// gitApplyConflictPathPattern matches the per-file lines `git apply --3way`
-// itself prints when a hunk in that file did not apply cleanly. It is the
-// command's own literal wording (see patch_strategy.go), never Wharnex prose.
-var gitApplyConflictPathPattern = regexp.MustCompile(`Applied patch to '([^']+)' with conflicts\.`)
-
-// parseGitApplyConflictPaths extracts the paths a `git apply --3way` attempt
-// reported as conflicting from that command's own stdout/stderr text.
-func parseGitApplyConflictPaths(diagnostic string) []string {
-	matches := gitApplyConflictPathPattern.FindAllStringSubmatch(diagnostic, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	paths := make([]string, 0, len(matches))
-	for _, match := range matches {
-		paths = append(paths, match[1])
-	}
-	return normalizedPaths(paths)
-}
-
-// extendConflictWithReplayDrift folds newly observed conflicting paths a
-// local replay just reported into the session's already-open conflict
-// thread, then rebuilds and resends a full capsule covering the union.
+// extendConflictWithLiveDrift asks Git itself — via an offline merge-tree
+// preflight, never planner prose or a patch tool's stdout — which paths a
+// fresh merge of this thread's candidate into the CURRENT host HEAD would
+// actually conflict on, and folds any path beyond what the thread already
+// owns into it.
 //
-// A replay failure this late in the flow — replaying the SAME candidate
-// commit this conflict thread already owns, restricted to paths it once
-// considered non-conflicting (see ADR-0054's cumulative path replacement) —
-// is not a fresh git merge, so it never reaches prepareConflictResolutionFromMerge.
-// Left alone, the generic same-capsule retry below (prepareConflictResolutionRetry)
-// resends byte-identical content that never authorized the paths this replay
-// just failed on, and the planner rejects it exactly as ADR-0065 describes
-// for a stale capsule — except here the capsule was never stale, only
-// incomplete. Every new path shares the one candidate commit's CandidateSHA
-// and MergeBaseSHA that an already-known path already recorded, so reusing
-// that source is exact, not a guess.
+// The path set a conflict thread was opened with is a snapshot. Further host
+// commits between rounds can push more of the same candidate's paths out of
+// sync — observed in production as three UI files a resolution round's own
+// replay failed on while the open capsule still authorized only one file
+// (see ADR-0065's amendment). A resolver only receives the paths a capsule
+// names, so a stale set there is not an approximation of the problem; it is
+// a request that cannot be answered. Every new path is given the same
+// CandidateSHA/MergeBaseSHA an already-known path already recorded, since a
+// drifted path belongs to the exact same one candidate commit, never a
+// separate collision.
 //
-// ok is false when the diagnostic named no path outside what the capsule
-// already authorizes, so the caller falls back to the cheaper same-capsule
-// retry ADR-0054 describes for a genuinely unchanged path set.
-func (s *Service) extendConflictWithReplayDrift(ctx context.Context, sessionID string, item domain.Session, cause error) (updated domain.Session, ok bool, err error) {
-	conflict := item.IntegrationConflict
-	if conflict == nil || cause == nil {
-		return item, false, nil
+// Returns the original conflict unchanged when the preflight is unsupported,
+// reports the merge as clean, or names no path outside the existing set —
+// the caller then keeps ADR-0054's byte-identical retry for a genuinely
+// unchanged path set.
+func extendConflictWithLiveDrift(ctx context.Context, repoPath, hostSHA string, conflict *domain.ConflictResolution) *domain.ConflictResolution {
+	candidateSHA := ""
+	if conflict.Git != nil {
+		candidateSHA = conflict.Git.TheirsSHA
+	} else {
+		for _, source := range conflict.PathSources {
+			candidateSHA = source.CandidateSHA
+			break
+		}
 	}
-	observed := parseGitApplyConflictPaths(cause.Error())
-	if len(observed) == 0 {
-		return item, false, nil
+	if strings.TrimSpace(candidateSHA) == "" {
+		return conflict
+	}
+	preflight, err := sandbox.PreflightMerge(ctx, repoPath, hostSHA, candidateSHA)
+	if err != nil || !preflight.Supported || preflight.Clean {
+		return conflict
 	}
 	known := make(map[string]bool, len(conflict.Paths))
 	for _, path := range conflict.Paths {
 		known[path] = true
 	}
-	newPaths := make([]string, 0, len(observed))
-	for _, path := range observed {
+	var newPaths []string
+	for _, path := range preflight.ConflictPaths {
 		if !known[path] {
 			newPaths = append(newPaths, path)
 		}
 	}
 	if len(newPaths) == 0 {
-		return item, false, nil
+		return conflict
 	}
 	var fresh domain.ConflictPathSource
 	for _, source := range conflict.PathSources {
@@ -939,16 +938,25 @@ func (s *Service) extendConflictWithReplayDrift(ctx context.Context, sessionID s
 	for _, path := range newPaths {
 		extended.PathSources[path] = fresh
 	}
-	withExtendedConflict, err := s.store.Update(sessionID, func(current *domain.Session) error {
-		current.IntegrationConflict = &extended
-		return nil
-	})
-	if err != nil {
-		return item, false, err
+	return &extended
+}
+
+// conflictNeedsCapsuleExtension reports whether the session's open conflict
+// thread is missing a path the live host would actually conflict on, per
+// extendConflictWithLiveDrift. It is the decision point between the cheap
+// same-capsule retry ADR-0054 describes and a full refreshConflictCapsule
+// rebuild: only the latter can add an authorized path.
+func (s *Service) conflictNeedsCapsuleExtension(ctx context.Context, item domain.Session) bool {
+	conflict := item.IntegrationConflict
+	if conflict == nil {
+		return false
 	}
-	s.bus.Publish(sessionID, "conflict.replay_drift_observed", map[string]any{"conflict_id": conflict.ID, "new_paths": newPaths})
-	renewed, err := s.refreshConflictCapsule(ctx, sessionID, withExtendedConflict)
-	return renewed, true, err
+	hostSHA, err := sandbox.ResolveRef(ctx, item.ProjectPath, "HEAD")
+	if err != nil {
+		return false
+	}
+	extended := extendConflictWithLiveDrift(ctx, item.ProjectPath, hostSHA, conflict)
+	return len(extended.Paths) > len(conflict.Paths)
 }
 
 func validateConflictResolutionPlan(item domain.Session, plan *domain.ExecutionPlan) error {

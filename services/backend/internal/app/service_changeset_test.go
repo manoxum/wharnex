@@ -1,7 +1,12 @@
 package app
 
 import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -77,31 +82,119 @@ func TestIntegrationVerificationKeepsEveryGateWhenNothingRepeats(t *testing.T) {
 	}
 }
 
-func TestParseGitApplyConflictPathsExtractsOnlyConflictingFiles(t *testing.T) {
-	// Real `git apply --3way` output: several files apply cleanly, two do
-	// not. Only the ones this thread's capsule does not yet authorize matter
-	// to extendConflictWithReplayDrift, so the parser must report exactly
-	// the "with conflicts" files and ignore the "cleanly" ones.
-	diagnostic := "replay pending plan plan_20260920T222003_git_mutation_review: git apply --3way failed: " +
-		"Applied patch to 'AGENTS.md' cleanly. " +
-		"Applied patch to 'services/frontend/src/components/GitDrawer.test.tsx' with conflicts. " +
-		"Applied patch to 'services/frontend/src/components/GitDrawer.tsx' with conflicts. " +
-		"Falling back to direct application... " +
-		"Applied patch to 'services/frontend/src/styles.css' with conflicts."
-	got := parseGitApplyConflictPaths(diagnostic)
-	want := []string{
-		"services/frontend/src/components/GitDrawer.test.tsx",
-		"services/frontend/src/components/GitDrawer.tsx",
-		"services/frontend/src/styles.css",
+func mustRunGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
 	}
-	slices.Sort(want)
-	if !slices.Equal(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
+	return strings.TrimSpace(string(output))
+}
+
+// TestExtendConflictWithLiveDriftAddsAPathTheCapsuleNeverAuthorized
+// reproduces the production incident behind ADR-0065's amendment: a conflict
+// thread opened for one file, then the host moved a second, unrelated file
+// out of sync with the same candidate commit before the resolution round
+// replayed. The stale capsule only ever named the first path; the fix is
+// reading the live drift straight from Git instead of trusting that snapshot.
+func TestExtendConflictWithLiveDriftAddsAPathTheCapsuleNeverAuthorized(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	repo := t.TempDir()
+	mustRunGit(t, repo, "init", "-q")
+	mustRunGit(t, repo, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "root")
+	baseSHA := mustRunGit(t, repo, "rev-parse", "HEAD")
+
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("base-a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("base-b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, repo, "add", "a.txt", "b.txt")
+	mustRunGit(t, repo, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "seed")
+
+	// The candidate: changes both files relative to baseSHA.
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("candidate-a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("candidate-b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, repo, "commit", "-qam", "candidate")
+	candidateSHA := mustRunGit(t, repo, "rev-parse", "HEAD")
+
+	// The host: moved on independently from the same seed, conflicting on
+	// BOTH files — but only "a.txt" is what an earlier round already opened
+	// a conflict thread for.
+	mustRunGit(t, repo, "checkout", "-q", "-b", "host", "HEAD~1")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("host-a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("host-b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, repo, "commit", "-qam", "host drift")
+	hostSHA := mustRunGit(t, repo, "rev-parse", "HEAD")
+
+	conflict := &domain.ConflictResolution{
+		ID: "conflict-1", Paths: []string{"a.txt"},
+		PathSources: map[string]domain.ConflictPathSource{
+			"a.txt": {PlanID: "plan-1", CandidateSHA: candidateSHA, MergeBaseSHA: baseSHA},
+		},
+	}
+
+	extended := extendConflictWithLiveDrift(context.Background(), repo, hostSHA, conflict)
+	if len(extended.Paths) != 2 {
+		t.Fatalf("expected the live drift on b.txt to be folded in, got paths=%v", extended.Paths)
+	}
+	source, ok := extended.PathSources["b.txt"]
+	if !ok {
+		t.Fatal("the newly discovered path must get a usable ConflictPathSource")
+	}
+	if source.CandidateSHA != candidateSHA || source.MergeBaseSHA != baseSHA {
+		t.Fatalf("a drifted path must reuse the one candidate's own commit/base, got %+v", source)
+	}
+
+	item := domain.Session{ProjectPath: repo, IntegrationConflict: conflict}
+	if !(&Service{}).conflictNeedsCapsuleExtension(context.Background(), item) {
+		t.Fatal("conflictNeedsCapsuleExtension must report the same drift refreshConflictCapsule would act on")
 	}
 }
 
-func TestParseGitApplyConflictPathsIsEmptyForAnUnrelatedFailure(t *testing.T) {
-	if got := parseGitApplyConflictPaths("connection refused while pushing to origin"); len(got) != 0 {
-		t.Fatalf("an unrelated failure must report no conflicting paths, got %v", got)
+func TestExtendConflictWithLiveDriftLeavesAnUnchangedPathSetAlone(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	repo := t.TempDir()
+	mustRunGit(t, repo, "init", "-q")
+	mustRunGit(t, repo, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "root")
+	baseSHA := mustRunGit(t, repo, "rev-parse", "HEAD")
+
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("base-a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, repo, "add", "a.txt")
+	mustRunGit(t, repo, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "seed")
+
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("candidate-a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, repo, "commit", "-qam", "candidate")
+	candidateSHA := mustRunGit(t, repo, "rev-parse", "HEAD")
+	hostSHA := mustRunGit(t, repo, "rev-parse", "HEAD~1") // host never diverged further
+
+	conflict := &domain.ConflictResolution{
+		ID: "conflict-1", Paths: []string{"a.txt"},
+		PathSources: map[string]domain.ConflictPathSource{
+			"a.txt": {PlanID: "plan-1", CandidateSHA: candidateSHA, MergeBaseSHA: baseSHA},
+		},
+	}
+	extended := extendConflictWithLiveDrift(context.Background(), repo, hostSHA, conflict)
+	if len(extended.Paths) != 1 {
+		t.Fatalf("a merge that only conflicts where the thread already knows must not grow the path set, got %v", extended.Paths)
 	}
 }
