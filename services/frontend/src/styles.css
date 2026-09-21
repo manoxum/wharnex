@@ -5854,7 +5854,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .docker-detail-tabs { height:32px; padding:0 10px; display:flex; align-items:flex-end; gap:14px; }
 .docker-detail-tabs button { height:31px; padding:0 1px; font-size:calc(6.8px * var(--ui-font-scale)); }
 .docker-container-overview { padding:10px; gap:1px; }
-.docker-fact { min-height:38px; padding:6px 8px; grid-template-columns:minmax(74px,27%) minmax(0,1fr); gap:9px; }
+.docker-fact { min-height:38px; padding:6px 8px; display:grid; grid-template-columns:minmax(74px,27%) minmax(0,1fr); align-items:start; gap:9px; border-bottom:1px solid var(--theme-border-soft); }
 .docker-fact span { font-size:calc(6.3px * var(--ui-font-scale)); }
 .docker-fact strong { font-size:calc(6.5px * var(--ui-font-scale)); }
 .docker-services-footer { min-height:28px; font-size:calc(6px * var(--ui-font-scale)); }
