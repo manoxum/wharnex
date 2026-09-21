@@ -111,16 +111,17 @@ describe('drawer heading actions CSS', () => {
   })
 })
 
-describe('editor Compose runtime CSS', () => {
-  it('keeps Compose state compact and horizontally scrollable inside the status bar', () => {
-    const primary = lastRule('.editor-statusbar-primary')
-    const runtime = lastRule('.editor-compose-runtime')
-    const service = lastRule('.editor-compose-runtime-project, .editor-compose-runtime-service')
+describe('editor Git and Compose gutter CSS', () => {
+  it('keeps clickable Git blocks and Compose runtime state visible in the editor gutter', () => {
+    const marker = lastRule('.editor-git-change-marker')
+    const added = lastRule('.editor-git-change-marker-added')
+    const compose = lastRule('.editor-compose-glyph')
+    const running = lastRule('.editor-compose-glyph.state-running')
 
-    expect(primary).toContain('overflow: hidden')
-    expect(runtime).toContain('overflow-x: auto')
-    expect(runtime).toContain('scrollbar-width: none')
-    expect(service).toContain('white-space: nowrap')
+    expect(marker).toContain('cursor: pointer')
+    expect(added).toContain('var(--theme-success)')
+    expect(compose).toContain('position: relative')
+    expect(running).toContain('var(--theme-success)')
   })
 })
 

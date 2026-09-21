@@ -87,6 +87,25 @@ describe('ProjectGitBadge', () => {
     expect(screen.queryByRole('region', { name: 'Operações da branch atual' })).toBeNull()
   })
 
+  it('distinguishes worktree changes, pending commits and outgoing commits in the header', async () => {
+    const state = overview()
+    state.working = { clean: false, stageable_count: 1, files: [{ path: 'src/App.tsx', kind: 'change', status: 'modified', additions: 2, deletions: 1 }] }
+    state.pending = [{ id: 'pending_1', project_path: '/w/alpha', subject: 'feat: pending', message: 'feat: pending', paths: ['src/App.tsx'], created_at: '2026-09-21T08:00:00Z' }]
+    state.branches[0].ahead = 2
+    vi.mocked(api.gitOverview).mockResolvedValue(state)
+
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+
+    const indicators = await screen.findByLabelText('1 alteração sem commit · 1 commit pendente · 2 commits por enviar')
+    expect(indicators.querySelector('.working')).toBeTruthy()
+    expect(indicators.querySelector('.pending')).toBeTruthy()
+    expect(indicators.querySelector('.outgoing')).toBeTruthy()
+    const badge = screen.getByRole('button', { name: 'Git: main, projeto v1.2.64.0' })
+    expect(badge.className).toContain('has-working')
+    expect(badge.className).toContain('has-pending-commit')
+    expect(badge.className).toContain('has-outgoing')
+  })
+
   it('shows the Git operation modal for fetch, pull and push from the branch popup', async () => {
     const fetch = deferred<Awaited<ReturnType<typeof api.gitFetch>>>()
     const pull = deferred<Awaited<ReturnType<typeof api.gitPull>>>()

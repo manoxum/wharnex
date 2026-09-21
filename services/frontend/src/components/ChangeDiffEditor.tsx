@@ -8,7 +8,7 @@ import { subscribeUIPreferences, workspaceEditorFontSize } from '../lib/uiPrefer
 import type { ChatChangeFile } from '../types'
 import { Icon } from './Icon'
 
-export function ChangeDiffEditor({ sessionId, file }: { sessionId: string; file: ChatChangeFile }) {
+export function ChangeDiffEditor({ sessionId, file, fragmentOnly = false }: { sessionId: string; file: ChatChangeFile; fragmentOnly?: boolean }) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null)
   type DiffLineChange = { modifiedStartLineNumber: number; originalStartLineNumber: number }
@@ -25,11 +25,15 @@ export function ChangeDiffEditor({ sessionId, file }: { sessionId: string; file:
     setActiveChange(0)
     setChangeCount(0)
     changes.current = []
+    if (fragmentOnly) {
+      setDocument(buildDiffDocument(file.diff))
+      return () => { cancelled = true }
+    }
     api.readFile(sessionId, file.path)
       .then((current) => { if (!cancelled) setDocument(buildDiffDocument(file.diff, current.content)) })
       .catch(() => { if (!cancelled) setDocument(buildDiffDocument(file.diff)) })
     return () => { cancelled = true }
-  }, [sessionId, file.path, file.diff])
+  }, [sessionId, file.path, file.diff, fragmentOnly])
 
   useLayoutEffect(() => {
     if (!host.current || !document) return

@@ -5,11 +5,15 @@ import type { GitOverview, GitWorkingFile, Session } from '../types'
 import { EditorWorkspace } from './EditorWorkspace'
 
 const fileRecordCalls: unknown[] = []
+const codeEditorPropsCalls: Array<{ path: string; gitChanges?: unknown[]; runtimeMarkers?: unknown[]; onGitChangeClick?: (change: unknown) => void }> = []
 vi.mock('./ChangeDiffEditor', () => ({
   ChangeDiffEditor: (props: { file: unknown }) => { fileRecordCalls.push(props.file); return <div data-testid="change-diff-editor"/> },
 }))
 vi.mock('./CodeEditor', () => ({
-  CodeEditor: ({ path, value, onChange, onSave }: { path: string; value: string; onChange: (value: string) => void; onSave: () => void }) => <div data-testid="code-editor-stub"><textarea aria-label={`Editor de ${path}`} value={value} onChange={(event) => onChange(event.target.value)}/><button type="button" onClick={onSave}>Guardar agora</button></div>,
+  CodeEditor: (props: { path: string; value: string; onChange: (value: string) => void; onSave: () => void; gitChanges?: unknown[]; runtimeMarkers?: unknown[]; onGitChangeClick?: (change: unknown) => void }) => {
+    codeEditorPropsCalls.push(props)
+    return <div data-testid="code-editor-stub"><textarea aria-label={`Editor de ${props.path}`} value={props.value} onChange={(event) => props.onChange(event.target.value)}/><button type="button" onClick={props.onSave}>Guardar agora</button></div>
+  },
 }))
 vi.mock('../lib/monaco', () => ({ disposeEditorModel: () => undefined }))
 
@@ -34,7 +38,7 @@ function overview(files: GitWorkingFile[] = []): GitOverview {
 // live-observed ballooning a renderer to several GB and crashing it.
 describe('EditorWorkspace git diff stability', () => {
   beforeEach(() => { vi.spyOn(api, 'gitOverview').mockResolvedValue(overview()) })
-  afterEach(() => { fileRecordCalls.length = 0; vi.restoreAllMocks() })
+  afterEach(() => { fileRecordCalls.length = 0; codeEditorPropsCalls.length = 0; vi.restoreAllMocks() })
 
   it('keeps the same file object across unrelated re-renders while a git diff is open', async () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
@@ -73,9 +77,14 @@ describe('EditorWorkspace git diff stability', () => {
     await waitFor(() => expect(screen.getByText('Guardado')).toBeTruthy())
   })
 
-  it('shows Compose runtime state in the editor status bar for the matching YAML', async () => {
+  it('passes Compose runtime state to gutter markers for the matching YAML', async () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
-    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'compose.yml', content: 'services: {}', sha256: 'abc123', size: 12 })
+    vi.spyOn(api, 'readFile').mockResolvedValue({
+      path: 'compose.yml',
+      content: ['services:', '  backend:', '    image: demo/backend', '  database:', '    image: postgres', '  worker:', '    image: demo/worker'].join('\n'),
+      sha256: 'abc123',
+      size: 98,
+    })
     const dockerOverview = vi.spyOn(api, 'dockerOverview').mockResolvedValue({
       compose_projects: [{
         name: 'demo', container_count: 3, running_count: 1, error_count: 1, stopped_count: 1,
@@ -91,11 +100,14 @@ describe('EditorWorkspace git diff stability', () => {
 
     render(<EditorWorkspace session={session} onError={() => undefined} onRunInTerminal={() => undefined} openPath="compose.yml" openNonce={1}/>)
 
-    const runtime = await screen.findByRole('status', { name: 'Estado Docker Compose demo' })
-    expect(runtime.textContent).toContain('demoErro')
-    expect(runtime.textContent).toContain('backendA correr')
-    expect(runtime.textContent).toContain('databaseParado')
-    expect(runtime.textContent).toContain('workerErro')
+    await waitFor(() => expect(codeEditorPropsCalls.some((props) => (props.runtimeMarkers?.length || 0) === 4)).toBe(true))
+    const markers = [...codeEditorPropsCalls].reverse().find((props) => (props.runtimeMarkers?.length || 0) === 4)?.runtimeMarkers
+    expect(markers).toEqual([
+      { id: 'compose:demo', line: 1, tone: 'error', label: 'Docker Compose demo: Erro' },
+      { id: 'compose:demo:backend', line: 2, tone: 'running', label: 'backend: A correr · 1/1 containers' },
+      { id: 'compose:demo:database', line: 4, tone: 'stopped', label: 'database: Parado · 0/1 containers' },
+      { id: 'compose:demo:worker', line: 6, tone: 'error', label: 'worker: Erro · 0/1 containers · 1 erro' },
+    ])
     expect(dockerOverview).toHaveBeenCalledWith('ses-editor')
   })
 
@@ -145,10 +157,12 @@ describe('EditorWorkspace git diff stability', () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [{ path: 'src/App.tsx', name: 'App.tsx', kind: 'file', size: 9 }] })
     vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'src/App.tsx', content: 'export {}', sha256: 'abc123', size: 9 })
     vi.mocked(api.gitOverview).mockResolvedValue(overview([{ path: 'src/App.tsx', kind: 'change', status: 'modified', additions: 5, deletions: 2 }]))
+    vi.spyOn(api, 'gitFileDiff').mockResolvedValue({ path: 'src/App.tsx', diff: ['diff --git a/src/App.tsx b/src/App.tsx', '--- a/src/App.tsx', '+++ b/src/App.tsx', '@@ -1 +1 @@', '-export const value = 1', '+export const value = 2', ''].join('\n') })
 
     const { container } = render(<EditorWorkspace session={session} onError={() => undefined} onRunInTerminal={() => undefined} openPath="src/App.tsx" openNonce={1} />)
 
     await waitFor(() => expect(container.querySelectorAll('.editor-git-file-state').length).toBeGreaterThanOrEqual(2))
+    await waitFor(() => expect(codeEditorPropsCalls.some((props) => (props.gitChanges?.length || 0) === 1)).toBe(true))
     const contextState = container.querySelector('.editor-git-context-state')
     expect(contextState?.textContent).toContain('M')
     expect(contextState?.textContent).toContain('+5')
