@@ -683,6 +683,8 @@ function BranchList({ title, description, branches, disabled = false, onSwitch, 
       const counterpartLabel = branch.remote ? (branch.has_counterpart ? `Existe localmente como ${branch.counterpart}` : 'Ainda não existe localmente') : (branch.has_counterpart ? `Existe remotamente como ${branch.counterpart}` : 'Ainda não existe remotamente')
       const counterpartText = branch.remote ? (branch.has_counterpart ? 'Local' : 'Sem local') : (branch.has_counterpart ? 'Remota' : 'Sem remota')
       const inSync = branch.ahead === 0 && branch.behind === 0
+      const createsLocal = Boolean(branch.remote) && !branch.has_counterpart
+      const switchLabel = createsLocal ? `Criar branch local a partir de ${branch.name}` : `Alternar para ${branch.name}`
       return <li key={branch.name} className={`${branch.current ? 'current' : ''} ${branch.remote ? 'remote' : ''}`}>
         <div className="git-branch-primary">
           <span className="git-branch-marker"><Icon name="git" size={12}/></span>
@@ -700,8 +702,8 @@ function BranchList({ title, description, branches, disabled = false, onSwitch, 
             <span className={`git-branch-counterpart ${branch.has_counterpart ? 'active' : ''}`} title={counterpartLabel} aria-label={counterpartLabel}><Icon name="link" size={10}/><b>{counterpartText}</b></span>
           </span>
           <button type="button" className="git-inline-copy git-branch-copy-action" aria-label={`Copiar nome da branch ${branch.name}`} title="Copiar nome da branch" onClick={() => onCopy(branch.name)}><Icon name="copy" size={11}/></button>
-          {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)}>{branch.remote && !branch.has_counterpart ? 'Criar local' : 'Alternar'}</button>}
-          {onDelete && !branch.current && <button type="button" className="git-action small danger git-branch-delete" disabled={disabled} onClick={() => onDelete(branch.name)}>Remover</button>}
+          {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-row-action git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)} aria-label={switchLabel} title={switchLabel}><Icon name={createsLocal ? 'plus' : 'arrow-right'} size={12}/></button>}
+          {onDelete && !branch.current && <button type="button" className="git-action small danger git-branch-row-action git-branch-delete" disabled={disabled} onClick={() => onDelete(branch.name)} aria-label={`Remover branch ${branch.name}`} title={`Remover branch ${branch.name}`}><Icon name="trash" size={12}/></button>}
         </div>
       </li>
     })}</ul>
