@@ -741,3 +741,23 @@ describe('semantic panel tabs CSS', () => {
     expect(css).toContain('@container semantic-panel (max-width: 340px)')
   })
 })
+
+
+describe('editor search palette CSS', () => {
+  it('renders global search and double-shift file lookup as compact IDE overlays', () => {
+    const backdrop = firstRule('.editor-search-backdrop')
+    const palette = firstRule('.editor-search-palette')
+    const input = lastRule('.editor-search-input')
+    const options = lastRule('.editor-search-options button')
+    const result = lastRule(".editor-search-results > button[role='option']")
+
+    expect(backdrop).toContain('position: fixed')
+    expect(backdrop).toContain('place-items: start center')
+    expect(palette).toContain('width: min(760px, calc(100vw - 40px))')
+    expect(palette).toContain('border-radius: 13px')
+    expect(input).toContain('grid-template-columns: auto minmax(0, 1fr) auto')
+    expect(options).toContain('white-space: nowrap')
+    expect(result).toContain('grid-template-columns: 18px minmax(0, 1fr)')
+    expect(css).toContain(".editor-search-options button[aria-pressed='true']")
+  })
+})

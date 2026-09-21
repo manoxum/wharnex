@@ -88,15 +88,15 @@ export function EditorSearchPalette({ mode, sessionId, files, onClose, onOpen }:
   }
 
   return <div className="editor-search-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
-    <section className="editor-search-palette" role="dialog" aria-modal="true" aria-label={mode === 'files' ? 'Localizar ficheiro' : 'Pesquisar em todo o projeto'} onKeyDown={(event) => {
+    <section className={`editor-search-palette mode-${mode}`} role="dialog" aria-modal="true" aria-label={mode === 'files' ? 'Localizar ficheiro' : 'Pesquisar em todo o projeto'} onKeyDown={(event) => {
       if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
       if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex((index) => Math.min(Math.max(0, resultCount - 1), index + 1)); return }
       if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex((index) => Math.max(0, index - 1)); return }
       if (event.key === 'Enter') { event.preventDefault(); openActive() }
     }}>
       <header>
-        <div><span className="panel-kicker">{mode === 'files' ? 'Navegação rápida' : 'Pesquisa global'}</span><strong>{mode === 'files' ? 'Localizar ficheiro' : 'Pesquisar no projeto'}</strong></div>
-        <kbd>{mode === 'files' ? 'Shift Shift' : 'Ctrl ⇧ F'}</kbd>
+        <div className="editor-search-heading"><span className="panel-kicker">{mode === 'files' ? 'Navegação rápida' : 'Pesquisa global'}</span><strong>{mode === 'files' ? 'Localizar ficheiro' : 'Pesquisar no projeto'}</strong><small>{mode === 'files' ? 'Abra rapidamente qualquer ficheiro pelo nome ou caminho.' : 'Encontre texto no workspace inteiro e abra a correspondência exata.'}</small></div>
+        <div className="editor-search-header-actions"><kbd>{mode === 'files' ? 'Shift Shift' : 'Ctrl ⇧ F'}</kbd><button type="button" onClick={onClose} aria-label="Fechar pesquisa" title="Fechar"><Icon name="close" size={13}/></button></div>
       </header>
       <label className="editor-search-input">
         <Icon name="search" size={16}/>
@@ -116,7 +116,7 @@ export function EditorSearchPalette({ mode, sessionId, files, onClose, onOpen }:
           <FileGlyph path={match.path} size={14}/><span><strong>{match.path}<em>{match.line}:{match.column}</em></strong><small>{match.preview || 'Linha sem pré-visualização'}</small></span>
         </button>)}
         {!loading && query && !error && resultCount === 0 ? <div className="editor-search-empty"><Icon name="search" size={18}/><strong>Sem resultados</strong><span>Tente outro termo ou altere as opções de correspondência.</span></div> : null}
-        {!query && <div className="editor-search-empty compact"><span>{mode === 'files' ? 'Escreva parte do nome ou caminho. A ordenação tolera abreviações.' : 'Caracteres especiais são literais por defeito. Ative Regex apenas quando quiser uma expressão.'}</span></div>}
+        {!query && mode === 'project' && <div className="editor-search-empty compact"><span>Caracteres especiais são literais por defeito. Ative Regex apenas quando quiser uma expressão.</span></div>}
         {error && <div className="editor-search-error"><Icon name="alert" size={14}/><span>{error}</span></div>}
       </div>
       <footer><span>{resultCount} {resultCount === 1 ? 'resultado' : 'resultados'}{truncated ? ' · primeiros 300' : ''}</span><span><kbd>↑</kbd><kbd>↓</kbd> navegar · <kbd>Enter</kbd> abrir · <kbd>Esc</kbd> fechar</span></footer>
