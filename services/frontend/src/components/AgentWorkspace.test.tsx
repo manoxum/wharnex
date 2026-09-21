@@ -170,6 +170,27 @@ describe('AgentWorkspace', () => {
   })
 
 
+  it('keeps both panes mounted while visual focus follows the direct ChatGPT surface', () => {
+    const view = props()
+    const rendered = render(view.element)
+    const workspace = rendered.container.querySelector('.agent-workspace') as HTMLElement
+    const chatStage = rendered.container.querySelector('.agent-chat-stage') as HTMLElement
+
+    expect(workspace.getAttribute('data-focused-pane')).toBe('chat')
+    expect(workspace.getAttribute('data-inspector-tab')).toBe('plan')
+    expect(chatStage).toBeTruthy()
+    expect(rendered.container.querySelector('.agent-inspector-stage')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'ChatGPT' }))
+    expect(workspace.getAttribute('data-focused-pane')).toBe('inspector')
+    expect(workspace.getAttribute('data-inspector-tab')).toBe('direct-chatgpt')
+    expect(rendered.container.querySelector('.agent-chat-stage')).toBeTruthy()
+
+    fireEvent.pointerDown(chatStage)
+    expect(workspace.getAttribute('data-focused-pane')).toBe('chat')
+    expect(workspace.getAttribute('data-inspector-tab')).toBe('direct-chatgpt')
+  })
+
   it('keeps chat tabs visible while switching single-pane Agent surfaces', () => {
     const view = props()
     const rendered = render(<view.Harness singlePane />)
