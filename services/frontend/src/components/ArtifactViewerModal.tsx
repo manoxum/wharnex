@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ArtifactPresentationItem } from '../types'
 
 export type ArtifactViewerItem = Pick<ArtifactPresentationItem, 'path' | 'size'> & Partial<Pick<ArtifactPresentationItem, 'preview_path' | 'label' | 'description' | 'alt' | 'content_type' | 'kind'>>
@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { artifactPreviewDefinition } from '../lib/artifactPreviewRegistry'
 import { ArtifactPreview } from './ArtifactPreview'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 
 export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, initialIndex, onClose }: {
   sessionId: string
@@ -34,7 +35,6 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
   const [mediaExport, setMediaExport] = useState<'clip' | 'audio' | ''>('')
   const [mediaStatus, setMediaStatus] = useState('')
   const [documentMarker, setDocumentMarker] = useState('')
-  const dialogRef = useRef<HTMLElement>(null)
   const drawCanvasRef = useRef<HTMLCanvasElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -71,26 +71,12 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
     return () => observer?.disconnect()
   }, [cropRatio, definition.kind, index])
 
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null
-    const dialog = dialogRef.current
-    const focusables = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled])') || [])
-    focusables()[0]?.focus()
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
-      const target = event.target
-      const editingControl = target instanceof HTMLElement && (target.matches('input, select, textarea') || target.isContentEditable)
-      if (event.key === 'ArrowLeft' && items.length > 1 && !editingControl) { event.preventDefault(); setIndex((value) => (value - 1 + items.length) % items.length); return }
-      if (event.key === 'ArrowRight' && items.length > 1 && !editingControl) { event.preventDefault(); setIndex((value) => (value + 1) % items.length); return }
-      if (event.key !== 'Tab') return
-      const nodes = focusables(); if (!nodes.length) return
-      const first = nodes[0]; const last = nodes[nodes.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => { window.removeEventListener('keydown', onKeyDown); previous?.focus() }
-  }, [items.length, onClose])
+  const onViewerKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    const target = event.target
+    const editingControl = target instanceof HTMLElement && (target.matches('input, select, textarea') || target.isContentEditable)
+    if (event.key === 'ArrowLeft' && items.length > 1 && !editingControl) { event.preventDefault(); setIndex((value) => (value - 1 + items.length) % items.length); return }
+    if (event.key === 'ArrowRight' && items.length > 1 && !editingControl) { event.preventDefault(); setIndex((value) => (value + 1) % items.length) }
+  }
 
   if (!item) return null
   const canRaw = definition.capabilities.includes('raw')
@@ -189,8 +175,8 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
       setMediaExport('')
     }
   }
-  return <div className="artifact-viewer-backdrop" role="presentation" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section ref={dialogRef} className="artifact-viewer" role="dialog" aria-modal="true" aria-label={`Visualizar ${item.label || baseName(item.path)}`}>
+  return <InternalWindow title={item.label || baseName(item.path)} onClose={onClose} layerClassName="artifact-viewer-backdrop">
+    <section className="artifact-viewer" role="dialog" aria-modal="false" aria-label={`Visualizar ${item.label || baseName(item.path)}`} onKeyDown={onViewerKeyDown}>
       <header>
         <div className="artifact-viewer-heading">
           <span className="artifact-viewer-kind" aria-hidden="true"><Icon name="file" size={15}/></span>
@@ -242,7 +228,7 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
           : <ArtifactPreview sessionId={sessionId} path={item.path} size={item.size} url={previewURL} kind={item.kind} mode={mode} wrap={wrap} highlight={documentMarker}/>}
       </div>
     </section>
-  </div>
+  </InternalWindow>
 }
 
 function baseName(path: string) { return path.split('/').pop() || path }

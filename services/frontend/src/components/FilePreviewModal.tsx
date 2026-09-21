@@ -3,6 +3,7 @@ import { api } from '../lib/api'
 import { confirmDialog } from '../lib/appDialog'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 import { TranslatableMarkdown } from './TranslatableMarkdown'
 
 export function FilePreviewModal({ sessionId, path, onOpenInEditor, onClose }: {
@@ -65,8 +66,8 @@ export function FilePreviewModal({ sessionId, path, onOpenInEditor, onClose }: {
     onClose()
   }
 
-  return <div className="diff-inspector-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) void close() }}>
-    <section className="diff-inspector file-preview-inspector" role="dialog" aria-modal="true" aria-label={`Pré-visualização de ${path}`}>
+  return <InternalWindow title={`Pré-visualização de ${path}`} layerClassName="diff-inspector-backdrop" onClose={() => void close()}>
+    <section className="diff-inspector file-preview-inspector" role="dialog" aria-modal="false" aria-label={`Pré-visualização de ${path}`}>
       <header>
         <div><strong>{path}</strong>{typeof size === 'number' && <span>{formatBytes(size)}</span>}{dirty && <span className="file-preview-dirty">Alterado</span>}</div>
         <div>
@@ -82,7 +83,7 @@ export function FilePreviewModal({ sessionId, path, onOpenInEditor, onClose }: {
         : markdown && markdownPreview ? <div className="file-preview-markdown"><TranslatableMarkdown sessionId={sessionId} markdown={draft || 'Ficheiro vazio.'}/></div>
         : <div className="file-preview-editor"><CodeEditor path={path} value={draft} onChange={setDraft} onSave={() => void save()} onCursorChange={() => undefined}/></div>}
     </section>
-  </div>
+  </InternalWindow>
 }
 
 function formatBytes(size: number) {

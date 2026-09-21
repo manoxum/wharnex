@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ChatAttachmentInfo } from '../types'
 import { artifactPreviewDefinition, type ArtifactPreviewKind } from '../lib/artifactPreviewRegistry'
@@ -6,6 +6,7 @@ import { desktopBridge, formatBytes } from '../lib/desktop'
 import { storedAttachmentFile } from '../lib/projectTodoForwarding'
 import { ArtifactPreview } from './ArtifactPreview'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 
 type AttachmentViewerSource =
   | { file: File; attachment?: never }
@@ -18,7 +19,6 @@ export function ChatAttachmentViewer({ source, onClose }: { source: AttachmentVi
   const [error, setError] = useState('')
   const [mode, setMode] = useState<'preview' | 'raw'>('preview')
   const [wrap, setWrap] = useState(false)
-  const closeRef = useRef<HTMLButtonElement>(null)
   const name = file?.name || attachment?.name || 'anexo'
   const size = file?.size ?? attachment?.size ?? 0
   const mime = file?.type || attachment?.mime || 'application/octet-stream'
@@ -49,22 +49,10 @@ export function ChatAttachmentViewer({ source, onClose }: { source: AttachmentVi
     return () => { if (typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(next) }
   }, [file])
 
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null
-    closeRef.current?.focus()
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => { window.removeEventListener('keydown', onKeyDown); previous?.focus() }
-  }, [onClose])
-
   const canRaw = definition.capabilities.includes('raw')
   const canWrap = definition.capabilities.includes('wrap')
-  const body = <div className="artifact-viewer-backdrop" data-chatgpt-overlay-blocker="true" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="artifact-viewer attachment-viewer" role="dialog" aria-modal="true" aria-label={`Abrir ${name}`}>
+  const body = <InternalWindow title={`Anexo ${name}`} onClose={onClose} layerClassName="artifact-viewer-backdrop">
+    <section className="artifact-viewer attachment-viewer" role="dialog" aria-modal="false" aria-label={`Abrir ${name}`}>
       <header>
         <div className="artifact-viewer-heading">
           <span className="artifact-viewer-kind"><Icon name="file" size={16}/></span>
@@ -72,7 +60,7 @@ export function ChatAttachmentViewer({ source, onClose }: { source: AttachmentVi
         </div>
         <div className="artifact-viewer-actions">
           {url && <a href={url} download={name} title={`Descarregar ${name}`}><Icon name="download" size={13}/>Descarregar</a>}
-          <button ref={closeRef} type="button" className="icon-button light" onClick={onClose} aria-label="Fechar anexo"><Icon name="close" size={13}/></button>
+          <button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar anexo"><Icon name="close" size={13}/></button>
         </div>
       </header>
       <div className="artifact-viewer-toolbar">
@@ -88,7 +76,7 @@ export function ChatAttachmentViewer({ source, onClose }: { source: AttachmentVi
             : <ArtifactPreview path={name} url={url} size={file.size} kind={kind} mode={mode} wrap={wrap}/>}
       </div>
     </section>
-  </div>
+  </InternalWindow>
 
   return createPortal(body, document.body)
 }

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { GitBranch, GitCommitDetail, GitRemote, GitUnpushedOverview } from '../types'
 import { api, APIError } from '../lib/api'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 import { GitDiffReview } from './GitDiffReview'
 
 export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled, onFullPush, onSelectedPush }: {
@@ -122,8 +123,8 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
 
 function CommitDetailModal({ sessionId, detail, onClose }: { sessionId: string; detail: GitCommitDetail; onClose: () => void }) {
   const commit = detail.commit
-  return createPortal(<div className="git-diff-backdrop" onMouseDown={onClose}>
-    <div className="git-diff-modal git-commit-detail-modal" role="dialog" aria-modal="true" aria-label={`Commit ${commit.short_sha}`} onMouseDown={(event) => event.stopPropagation()}>
+  return createPortal(<InternalWindow title={`Commit ${commit.short_sha}`} onClose={onClose} layerClassName="git-diff-backdrop">
+    <div className="git-diff-modal git-commit-detail-modal" role="dialog" aria-modal="false" aria-label={`Commit ${commit.short_sha}`}>
       <header>
         <div><span className="panel-kicker">Commit local</span><strong>{commit.subject}</strong><small>+{commit.additions || 0} −{commit.deletions || 0} · {commit.files_changed || 0} ficheiro(s)</small></div>
         <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar detalhes"><Icon name="close" size={13}/></button>
@@ -143,7 +144,7 @@ function CommitDetailModal({ sessionId, detail, onClose }: { sessionId: string; 
       <GitDiffReview sessionId={sessionId} diff={detail.diff} emptyText="Este commit não contém alterações de ficheiros."/>
       {detail.diff_truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
     </div>
-  </div>, document.body)
+  </InternalWindow>, document.body)
 }
 
 function formatDate(value: string, full = false) {

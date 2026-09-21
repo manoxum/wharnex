@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { confirmDialog, noticeDialog, promptDialog } from './appDialog'
+import { INTERNAL_WINDOW_DOCK_ID } from './internalWindow'
 
 afterEach(() => {
   document.querySelectorAll('.app-dialog-backdrop').forEach((element) => element.remove())
   document.documentElement.classList.remove('app-dialog-open')
+  document.getElementById(INTERNAL_WINDOW_DOCK_ID)?.remove()
 })
 
 describe('appDialog', () => {
@@ -27,6 +29,8 @@ describe('appDialog', () => {
 
     const card = document.querySelector<HTMLElement>('.app-dialog-card')
     expect(card?.getAttribute('role')).toBe('alertdialog')
+    expect(card?.getAttribute('aria-modal')).toBe('false')
+    expect(document.querySelector('.app-dialog-backdrop')?.hasAttribute('data-chatgpt-overlay-blocker')).toBe(false)
     expect(card?.textContent).toContain('Aplicar alterações?')
     const apply = [...document.querySelectorAll<HTMLButtonElement>('.app-dialog-button')].find((button) => button.textContent === 'Aplicar')
     apply?.click()
@@ -76,4 +80,20 @@ describe('appDialog', () => {
     document.querySelector<HTMLButtonElement>('.app-dialog-button')?.click()
     await expect(result).resolves.toBeUndefined()
   })
+  it('minimizes to the shared lower-right dock without resolving the dialog', async () => {
+    const result = confirmDialog({ title: 'Revisão', message: 'Continuar depois.' })
+    const minimize = document.querySelector<HTMLButtonElement>('[aria-label="Minimizar Revisão"]')!
+    minimize.click()
+
+    expect(document.querySelector('.app-dialog-backdrop')?.classList.contains('is-minimized')).toBe(true)
+    expect(document.getElementById(INTERNAL_WINDOW_DOCK_ID)?.textContent).toContain('Revisão')
+
+    document.querySelector<HTMLButtonElement>('[title="Restaurar Revisão"]')?.click()
+    expect(document.querySelector('.app-dialog-backdrop')?.classList.contains('is-minimized')).toBe(false)
+
+    const cancel = [...document.querySelectorAll<HTMLButtonElement>('.app-dialog-button')].find((button) => button.textContent === 'Cancelar')!
+    cancel.click()
+    await expect(result).resolves.toBe(false)
+  })
+
 })

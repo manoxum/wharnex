@@ -1,4 +1,4 @@
-export const CHATGPT_OVERLAY_SELECTOR = '[aria-modal="true"], [data-chatgpt-overlay-blocker="true"]'
+export const CHATGPT_OVERLAY_SELECTOR = '[data-chatgpt-overlay-blocker="true"]'
 
 export function chatGPTOverlayDocuments(currentWindow: Window): Document[] {
   const documents = [currentWindow.document]
@@ -22,7 +22,7 @@ export function observeChatGPTOverlayBlockers(currentWindow: Window, onBlocked: 
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ['class', 'style', 'aria-hidden', 'aria-modal', 'data-chatgpt-overlay-blocker'],
+      attributeFilter: ['class', 'style', 'aria-hidden', 'data-chatgpt-overlay-blocker'],
     })
     return [observer]
   })

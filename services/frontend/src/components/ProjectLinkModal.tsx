@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { desktopBridge, isDesktop } from '../lib/desktop'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 
 type Mode = 'recent' | 'create' | 'clone'
 
@@ -44,8 +45,8 @@ export function ProjectLinkModal({ recent, boundProjects, busy, error, onOpen, o
     if (repository.trim() && parent.trim() && await onClone(repository.trim(), parent.trim(), directory.trim())) onClose()
   }
 
-  return <div className="project-link-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
-    <section className="project-link-modal" role="dialog" aria-modal="true" aria-labelledby="project-link-title">
+  return <InternalWindow title="Vincular projeto" layerClassName="project-link-backdrop" onClose={onClose} closeDisabled={busy}>
+    <section className="project-link-modal" role="dialog" aria-modal="false" aria-labelledby="project-link-title">
       <header>
         <div><span className="panel-kicker">Workspace</span><h2 id="project-link-title">Vincular projeto</h2><p>Retome um projeto usado recentemente ou escolha como adicionar outro a esta janela.</p></div>
         <button type="button" className="agent-drawer-icon" disabled={busy} onClick={onClose} aria-label="Fechar vinculação"><Icon name="close" size={14}/></button>
@@ -90,7 +91,7 @@ export function ProjectLinkModal({ recent, boundProjects, busy, error, onOpen, o
         <button type="button" className={mode === 'clone' ? 'active' : ''} disabled={busy} onClick={() => setMode('clone')}><Icon name="git" size={16}/><span><strong>Clonar Git</strong><small>Trazer um repositório</small></span></button>
       </footer>
     </section>
-  </div>
+  </InternalWindow>
 }
 
 function projectName(projectPath: string) { return projectPath.split('/').filter(Boolean).at(-1) || projectPath }

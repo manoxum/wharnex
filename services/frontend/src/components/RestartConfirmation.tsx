@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import type { ActivationImpact, ChatChangeSummary } from '../types'
 import { GitDiffReview } from './GitDiffReview'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 
 type RestartConfirmationProps = {
   sessionId: string
@@ -21,8 +22,8 @@ export function RestartConfirmation({ sessionId, change, impacts, busy, onLater,
     deletions: current.deletions + file.deletions,
   }), { additions: 0, deletions: 0 }), [files])
 
-  return <div className="restart-confirmation-backdrop" data-chatgpt-overlay-blocker="true" role="presentation">
-    <section className="restart-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="restart-confirmation-title">
+  return <InternalWindow title="Ativar nova versão" layerClassName="restart-confirmation-backdrop" onClose={onLater} closeDisabled={busy}>
+    <section className="restart-confirmation-dialog" role="dialog" aria-modal="false" aria-labelledby="restart-confirmation-title">
       <header className="restart-confirmation-hero">
         <div className="restart-confirmation-icon"><Icon name="refresh" size={20}/></div>
         <div className="restart-confirmation-copy">
@@ -75,5 +76,5 @@ export function RestartConfirmation({ sessionId, change, impacts, busy, onLater,
         </div>
       </footer>
     </section>
-  </div>
+  </InternalWindow>
 }

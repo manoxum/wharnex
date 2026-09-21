@@ -1,4 +1,5 @@
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 
 export type GitOperationPhase = 'running' | 'refreshing' | 'success' | 'error'
 export type GitOperation = {
@@ -22,8 +23,8 @@ export function GitOperationModal({ operation, onClose }: { operation: GitOperat
           ? 'A ação terminou, mas o painel não foi atualizado'
           : 'A operação Git falhou'
 
-  return <div className="git-operation-backdrop">
-    <div className={`git-operation-modal ${operation.phase}`} role="dialog" aria-modal="true" aria-label={operation.title}>
+  return <InternalWindow title={operation.title} layerClassName="git-operation-backdrop" onClose={onClose} closeDisabled={running}>
+    <div className={`git-operation-modal ${operation.phase}`} role="dialog" aria-modal="false" aria-label={operation.title}>
       <div className="git-operation-symbol" aria-hidden="true">
         {running ? <span className="git-operation-spinner"/> : <Icon name={success ? 'check' : 'alert'} size={19}/>}
       </div>
@@ -41,5 +42,5 @@ export function GitOperationModal({ operation, onClose }: { operation: GitOperat
       {(operation.message || running) && <p className="git-operation-message" aria-live="polite">{operation.message || phaseLabel}</p>}
       {!running && <button type="button" className="git-action primary git-operation-close" onClick={onClose}>Fechar</button>}
     </div>
-  </div>
+  </InternalWindow>
 }

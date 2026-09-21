@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
 import type { AppConfig, TunnelTestResult } from '../types'
 import { Icon } from './Icon'
+import { InternalWindow } from './InternalWindow'
 
 export function TunnelOverviewModal({ onClose }: { onClose: () => void }) {
   const [config, setConfig] = useState<AppConfig>()
@@ -9,7 +10,6 @@ export function TunnelOverviewModal({ onClose }: { onClose: () => void }) {
   const [results, setResults] = useState<Record<string, TunnelTestResult | string>>({})
   const [error, setError] = useState('')
   useEffect(() => { api.config().then(setConfig).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))) }, [])
-  useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }; window.addEventListener('keydown', close); return () => window.removeEventListener('keydown', close) }, [onClose])
   const tunnels = useMemo(() => [...(config?.remote_input?.instances || [])].sort((a, b) => a.priority - b.priority), [config])
   async function test(instanceID: string) {
     setTesting(instanceID)
@@ -17,8 +17,8 @@ export function TunnelOverviewModal({ onClose }: { onClose: () => void }) {
     catch (cause) { setResults((current) => ({ ...current, [instanceID]: cause instanceof Error ? cause.message : String(cause) })) }
     finally { setTesting('') }
   }
-  return <div className="modal-backdrop tunnel-overview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="tunnel-overview" role="dialog" aria-modal="true" aria-labelledby="tunnel-overview-title">
+  return <InternalWindow title="Túneis ativos" layerClassName="modal-backdrop tunnel-overview-backdrop" onClose={onClose}>
+    <section className="tunnel-overview" role="dialog" aria-modal="false" aria-labelledby="tunnel-overview-title">
       <header><div><span className="panel-kicker">Infraestrutura remota</span><h2 id="tunnel-overview-title">Túneis ativos</h2><p>Rotas públicas ordenadas pela prioridade efetiva do WHX.</p></div><button className="icon-button light" onClick={onClose} aria-label="Fechar túneis"><Icon name="close" size={14}/></button></header>
       {error && <div className="tunnel-empty tunnel-empty-error danger-text" role="alert"><span className="tunnel-empty-icon"><Icon name="alert" size={18}/></span><strong>Não foi possível carregar os túneis</strong><span>{error}</span></div>}
       <div className="tunnel-overview-list">{tunnels.map((tunnel, index) => {
@@ -30,5 +30,5 @@ export function TunnelOverviewModal({ onClose }: { onClose: () => void }) {
         </article>
       })}{config && !tunnels.length && <div className="tunnel-empty tunnel-empty-state"><span className="tunnel-empty-icon"><Icon name="network" size={18}/></span><strong>Nenhum túnel ativo</strong><span>Configure um provedor nas definições do projeto para publicar uma rota remota.</span></div>}</div>
     </section>
-  </div>
+  </InternalWindow>
 }
