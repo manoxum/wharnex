@@ -85,3 +85,70 @@ func TestStartupReconciliationAppliesAStrandedVerifiedCandidate(t *testing.T) {
 	// subprocess.
 	time.Sleep(100 * time.Millisecond)
 }
+
+// Regression test for a restart after the host already contains the verified
+// candidate but HEAD no longer contains its integration commit. Manual commit
+// mode creates exactly this shape deliberately: the integration is verified,
+// then HEAD is moved back while the result stays on disk for the operator to
+// commit. Startup reconciliation must settle that durable candidate instead of
+// executing the same patch again.
+func TestStartupReconciliationDoesNotReplayMaterializedManualCandidate(t *testing.T) {
+	requireGitForApp(t)
+	root := gitRepo(t, "shared.txt", "old\n")
+	base := headOf(t, root)
+
+	if err := os.WriteFile(filepath.Join(root, "shared.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForApp(t, root, "add", "shared.txt")
+	runGitForApp(t, root, "commit", "-qm", "candidate")
+	candidateCommit := headOf(t, root)
+	runGitForApp(t, root, "reset", "--mixed", "--quiet", base)
+
+	change := candidateFor("req-restart", "plan-restart", "shared.txt")
+	change.IntegrationCommit = candidateCommit
+	change.IntegrationBranch = "whx/req-restart"
+	change.Execution = domain.ExecutionResult{PlanID: change.Plan.PlanID, Success: true, CompletedAt: time.Now().UTC()}
+	change.VerifiedAt = change.Execution.CompletedAt
+
+	service := baseRootService(change.Plan)
+	seeded := domain.Session{
+		ID: "ses-restart-materialized", ProjectPath: root,
+		ExecutionMode: domain.ExecutionModeProtected, AutomationMode: domain.AutomationModeAuto,
+		State: "verified", Plan: &change.Plan, LastExecution: &change.Execution,
+		PendingHostChanges: []domain.PendingHostChange{change},
+	}
+	if err := service.store.Put(seeded); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := NewService(service.store, service.bus, service.context, fakePlanner{change.Plan}, service.policy, service.runner)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		current, err := restarted.store.Get(seeded.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.State == "applied" {
+			if len(current.PendingHostChanges) != 0 {
+				t.Fatalf("settled restart left a pending candidate: %#v", current.PendingHostChanges)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("restart did not settle the already materialized candidate: state=%q pending=%d", current.State, len(current.PendingHostChanges))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if head := headOf(t, root); head != base {
+		t.Fatalf("startup must not merge the candidate again: head=%s base=%s", head, base)
+	}
+	body, err := os.ReadFile(filepath.Join(root, "shared.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "new\n" {
+		t.Fatalf("startup changed the already materialized result: %q", body)
+	}
+}

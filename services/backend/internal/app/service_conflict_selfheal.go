@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/hostrepo"
 	"kernl.local/harness/backend/internal/sandbox"
 )
 
@@ -19,12 +20,29 @@ import (
 // failure was recorded against a candidate that had in fact landed, and the
 // session sat holding it indefinitely.
 //
-// Containment is proven by Git ancestry rather than inferred from the failure,
-// so this can only ever retire work the host demonstrably carries.
+// Containment is proven by Git ancestry or by an exact comparison between the
+// candidate commit's changed paths and the current worktree. The latter is the
+// durable proof needed by manual commit mode, where HEAD intentionally moves
+// back while the verified files remain on disk.
 func retireAlreadyIntegratedCandidates(ctx context.Context, projectPath string, pending []domain.PendingHostChange) (kept, retired []domain.PendingHostChange) {
 	kept = make([]domain.PendingHostChange, 0, len(pending))
 	for _, change := range pending {
-		if change.IntegrationCommit != "" && sandbox.CommitIsAncestorOfHead(ctx, projectPath, change.IntegrationCommit) {
+		alreadyIntegrated := false
+		if change.IntegrationCommit != "" {
+			alreadyIntegrated = sandbox.CommitIsAncestorOfHead(ctx, projectPath, change.IntegrationCommit)
+			if !alreadyIntegrated {
+				// Manual commit mode intentionally resets HEAD after integration and
+				// leaves the verified result as uncommitted work. A restart can
+				// therefore see a still-pending durable candidate whose commit is
+				// not an ancestor even though applying it again would duplicate the
+				// exact change already present on disk. Compare only the paths the
+				// candidate commit changed; unrelated dirty work must not affect the
+				// proof. Any inspection error degrades safely to keeping the
+				// candidate and following the normal Apply path.
+				alreadyIntegrated, _ = hostrepo.WorktreeMatchesCommitPaths(ctx, projectPath, change.IntegrationCommit)
+			}
+		}
+		if alreadyIntegrated {
 			retired = append(retired, change)
 			continue
 		}
@@ -305,7 +323,7 @@ func (s *Service) healPendingIntegrationState(ctx context.Context, sessionID str
 		}
 		s.bus.Publish(sessionID, "integration.already_integrated", map[string]any{
 			"plans": planIDsOf(alreadyIntegrated), "remaining_candidates": len(kept),
-			"reason": "the host already contains these candidates, proven by Git ancestry",
+			"reason": "the host already contains these candidates, proven by Git ancestry or exact candidate-path worktree state",
 		})
 		pending, item = kept, updated
 	}
