@@ -73,6 +73,32 @@ describe('EditorWorkspace git diff stability', () => {
     await waitFor(() => expect(screen.getByText('Guardado')).toBeTruthy())
   })
 
+  it('shows Compose runtime state in the editor status bar for the matching YAML', async () => {
+    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
+    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'compose.yml', content: 'services: {}', sha256: 'abc123', size: 12 })
+    const dockerOverview = vi.spyOn(api, 'dockerOverview').mockResolvedValue({
+      compose_projects: [{
+        name: 'demo', container_count: 3, running_count: 1, error_count: 1, stopped_count: 1,
+        config_files: ['/workspace/demo/compose.yml'],
+        services: [
+          { name: 'backend', container_count: 1, running_count: 1, error_count: 0 },
+          { name: 'database', container_count: 1, running_count: 0, error_count: 0 },
+          { name: 'worker', container_count: 1, running_count: 0, error_count: 1 },
+        ],
+      }],
+      containers: [], images: [], volumes: [], networks: [], refreshed_at: '2026-09-21T07:00:00Z',
+    })
+
+    render(<EditorWorkspace session={session} onError={() => undefined} onRunInTerminal={() => undefined} openPath="compose.yml" openNonce={1}/>)
+
+    const runtime = await screen.findByRole('status', { name: 'Estado Docker Compose demo' })
+    expect(runtime.textContent).toContain('demoErro')
+    expect(runtime.textContent).toContain('backendA correr')
+    expect(runtime.textContent).toContain('databaseParado')
+    expect(runtime.textContent).toContain('workerErro')
+    expect(dockerOverview).toHaveBeenCalledWith('ses-editor')
+  })
+
   it('keeps detached editor surfaces minimal', async () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
     vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'src/App.tsx', content: 'export {}', sha256: 'abc123', size: 9 })

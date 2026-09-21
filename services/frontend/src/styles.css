@@ -572,10 +572,27 @@ body.terminal-resizing { cursor: ns-resize; user-select: none; }
 .editor-breadcrumbs i { color: #4f574b; font-style: normal; }
 .editor-shortcuts { flex: 0 0 auto; display: flex; gap: 10px; color: #596157; font:calc(8.5px * var(--ui-font-scale)) ui-monospace, 'SFMono-Regular', Consolas, monospace; }
 .monaco-editor-host { flex: 1; min-width: 0; min-height: 0; background: #151713; }
-.editor-statusbar { height: 24px; flex: 0 0 24px; border-color: #30342d; background: #1e211c; color: #70786b; }
+.editor-statusbar { height: 24px; flex: 0 0 24px; gap: 10px; overflow: hidden; border-color: #30342d; background: #1e211c; color: #70786b; }
 .editor-statusbar > div { display: flex; align-items: center; gap: 12px; }
 .editor-statusbar > div span + span { position: relative; }
 .editor-statusbar > div span + span::before { content: '·'; position: absolute; left: -8px; color: #454b41; }
+.editor-statusbar-primary { min-width: 0; flex: 1 1 auto; gap: 8px !important; overflow: hidden; }
+.editor-statusbar-path { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-statusbar-meta { flex: 0 0 auto; }
+.editor-compose-runtime { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.editor-compose-runtime::-webkit-scrollbar { display: none; }
+.editor-compose-runtime-project, .editor-compose-runtime-service { height: 18px; flex: 0 0 auto; padding: 0 5px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--theme-border-soft); border-radius: 4px; background: color-mix(in srgb, var(--theme-surface) 90%, var(--theme-bg)); color: var(--theme-text-muted); white-space: nowrap; font: 600 calc(7.5px * var(--ui-font-scale))/1 var(--ui-font-family); }
+.editor-compose-runtime-project b, .editor-compose-runtime-service b { color: var(--theme-text-soft); font-weight: 700; }
+.editor-compose-runtime-project em, .editor-compose-runtime-service em { color: inherit; font-style: normal; }
+.editor-compose-state-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--theme-text-muted); }
+.editor-compose-runtime-project.state-running, .editor-compose-runtime-service.state-running { color: var(--theme-success); }
+.editor-compose-state-dot.state-running { background: var(--theme-success); }
+.editor-compose-runtime-project.state-warning, .editor-compose-runtime-service.state-warning { color: var(--theme-warning); }
+.editor-compose-state-dot.state-warning { background: var(--theme-warning); }
+.editor-compose-runtime-project.state-error, .editor-compose-runtime-service.state-error { color: var(--theme-danger, #d66b62); }
+.editor-compose-state-dot.state-error { background: var(--theme-danger, #d66b62); }
+.editor-compose-runtime-project.state-stopped, .editor-compose-runtime-service.state-stopped { color: var(--theme-text-muted); }
+.editor-compose-state-dot.state-stopped { background: var(--theme-text-muted); }
 .editor-empty { background: #151713; color: #687063; }
 .editor-empty .empty-mark { color: #30352d; }
 .editor-empty h3 { color: #a3ab9c; }
@@ -2049,7 +2066,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 
 .agent-drawer { grid-column: 2; grid-row: 3; position: relative; z-index: 11; width: auto; min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid #30342d; background: #151713; color: #c7cec0; box-shadow: none; }
 .agent-drawer-heading { height: 46px; padding: 0 8px 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #2b2f29; background: #1b1e19; }
-.agent-drawer-heading > div { min-width: 0; display: grid; gap: 1px; }
+.agent-drawer-heading > div:first-child { min-width: 0; display: grid; gap: 1px; }
+.agent-drawer-heading > .agent-runtime-heading-actions { min-width: 0; flex: 0 0 auto; display: flex; align-items: center; gap: 2px; }
 .agent-drawer-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d5dacd; font-size: calc(9.5px * var(--ui-font-scale)); }
 .agent-drawer-heading .panel-kicker { color: #697263; font-size: calc(7.5px * var(--ui-font-scale)); }
 .agent-drawer-icon { width: 26px; height: 26px; flex: 0 0 26px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #778171; cursor: pointer; }
@@ -7470,12 +7488,6 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .docker-compose-files { min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
 .docker-compose-file { min-width:0; max-width:100%; height:22px; padding:0 6px; display:inline-flex; align-items:center; gap:4px; border:1px solid var(--theme-border-soft); border-radius:4px; background:var(--theme-surface-soft); color:var(--theme-text-muted); }
 .docker-compose-file strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--theme-text-soft); font:600 calc(8.5px * var(--docker-font-scale))/1.2 ui-monospace,'SFMono-Regular',Consolas,monospace; }
-.docker-compose-services { min-width:0; display:grid; gap:2px; }
-.docker-compose-service { min-width:0; min-height:28px; padding:3px 5px; display:grid; grid-template-columns:8px minmax(0,1fr) auto; align-items:center; gap:6px; border-radius:4px; color:var(--theme-text-muted); }
-.docker-compose-service:hover { background:var(--theme-hover); }
-.docker-compose-service .docker-resource-copy strong { color:var(--theme-text-soft); font-size:calc(8px * var(--docker-font-scale)); }
-.docker-compose-service .docker-resource-copy small { font-size:calc(7px * var(--docker-font-scale)); }
-.docker-compose-service .docker-row-state { font-size:calc(6.8px * var(--docker-font-scale)); }
 .docker-compose-actions { display:flex; align-items:center; gap:3px; }
 .docker-compose-actions button { height:25px; padding:0 7px; display:inline-flex; align-items:center; gap:4px; border:1px solid var(--theme-border); border-radius:4px; background:transparent; color:var(--theme-text-muted); font-size:calc(7.5px * var(--docker-font-scale)); cursor:pointer; }
 .docker-compose-actions button:disabled { opacity:.38; cursor:default; }

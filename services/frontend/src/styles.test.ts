@@ -99,6 +99,31 @@ describe('execution queue CSS', () => {
   })
 })
 
+describe('drawer heading actions CSS', () => {
+  it('keeps heading controls horizontal and out of the project tree hit area', () => {
+    const title = lastRule('.agent-drawer-heading > div:first-child')
+    const actions = lastRule('.agent-drawer-heading > .agent-runtime-heading-actions')
+
+    expect(title).toContain('display: grid')
+    expect(actions).toContain('display: flex')
+    expect(actions).toContain('flex: 0 0 auto')
+    expect(css).not.toContain('.agent-drawer-heading > div {')
+  })
+})
+
+describe('editor Compose runtime CSS', () => {
+  it('keeps Compose state compact and horizontally scrollable inside the status bar', () => {
+    const primary = lastRule('.editor-statusbar-primary')
+    const runtime = lastRule('.editor-compose-runtime')
+    const service = lastRule('.editor-compose-runtime-project, .editor-compose-runtime-service')
+
+    expect(primary).toContain('overflow: hidden')
+    expect(runtime).toContain('overflow-x: auto')
+    expect(runtime).toContain('scrollbar-width: none')
+    expect(service).toContain('white-space: nowrap')
+  })
+})
+
 describe('panel search controls CSS', () => {
   it('shares one polished search treatment across compact drawers and utility panels', () => {
     const field = lastRule('.panel-search-field')

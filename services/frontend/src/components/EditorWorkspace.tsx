@@ -4,7 +4,7 @@ import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
 import { editorExecutableOptions, loadEditorRunHistory, parentDirectory, recentEditorRunOptions, rememberEditorRun, selectionCommand } from '../lib/editorExecution'
 import { workspaceDragEndedOutside, type WorkspaceSurfaceTransferPoint } from '../lib/workspaceSurface'
-import type { FileEntry, GitFileDiff, GitWorkingFile, Session, TerminalRunInput, WorkspaceFile } from '../types'
+import type { DockerComposeProject, DockerComposeService, DockerOverview, FileEntry, GitFileDiff, GitWorkingFile, Session, TerminalRunInput, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
 import { FileGlyph } from './FileGlyph'
@@ -47,6 +47,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const [gitFiles, setGitFiles] = useState<GitWorkingFile[]>([])
   const [gitDiff, setGitDiff] = useState<GitFileDiff>()
   const [gitDiffLoading, setGitDiffLoading] = useState(false)
+  const [dockerOverview, setDockerOverview] = useState<DockerOverview>()
   const [searchMode, setSearchMode] = useState<EditorSearchMode>()
   const [revealLocation, setRevealLocation] = useState<{ path: string; line: number; column: number; nonce: number }>()
   const lastShiftAtRef = useRef(0)
@@ -68,7 +69,9 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const visibleDocuments = useMemo(() => documents.filter((item) => !hiddenPathSet.has(item.path)), [documents, hiddenPathSet])
   const gitByPath = useMemo(() => new Map(gitFiles.map((file) => [file.path, file])), [gitFiles])
   const selected = documents.find((item) => item.path === activePath && !hiddenPathSet.has(item.path))
-  const selectedGit = selected ? gitByPath.get(selected.path) : undefined
+  const selectedPath = selected?.path
+  const selectedGit = selectedPath ? gitByPath.get(selectedPath) : undefined
+  const selectedComposeProject = useMemo(() => selectedPath ? dockerComposeProjectForFile(dockerOverview, session.project_path, selectedPath) : undefined, [dockerOverview, selectedPath, session.project_path])
   useEffect(() => {
     if (activePath && hiddenPathSet.has(activePath)) setActivePath(visibleDocuments[0]?.path)
   }, [activePath, hiddenPathSet, visibleDocuments])
@@ -103,6 +106,25 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     return () => { window.clearInterval(timer); window.removeEventListener('wharnex:git-working-tree-changed', sync) }
   }, [active, refreshGitState])
   useEffect(() => {
+    const path = selectedPath
+    if (!active || !path || !/\.ya?ml$/i.test(path)) {
+      setDockerOverview(undefined)
+      return
+    }
+    let cancelled = false
+    const refreshDocker = async () => {
+      try {
+        const overview = await api.dockerOverview(session.id)
+        if (!cancelled) setDockerOverview(overview)
+      } catch {
+        if (!cancelled) setDockerOverview(undefined)
+      }
+    }
+    void refreshDocker()
+    const timer = window.setInterval(refreshDocker, 10_000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [active, selectedPath, session.id])
+  useEffect(() => {
     setDocuments([])
     documentsRef.current = []
     setSavingPaths(new Set())
@@ -111,6 +133,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     setPreviewPaths(new Set())
     setGitFiles([])
     setGitDiff(undefined)
+    setDockerOverview(undefined)
     setSearchMode(undefined)
     setRevealLocation(undefined)
     setRecentRuns(loadEditorRunHistory(session.project_path))
@@ -324,8 +347,11 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
           </div>}
           {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} revealLine={revealLocation?.path === selected.path ? revealLocation.line : undefined} revealColumn={revealLocation?.path === selected.path ? revealLocation.column : undefined} revealNonce={revealLocation?.path === selected.path ? revealLocation.nonce : 0} />}
           {!minimalSurface && <div className="editor-statusbar">
-            <span>{selected.path}</span>
-            <div>{selectedGit && <GitFileState file={selectedGit} compact/>}<span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
+            <div className="editor-statusbar-primary">
+              <span className="editor-statusbar-path">{selected.path}</span>
+              {selectedComposeProject && <EditorComposeRuntime project={selectedComposeProject}/>}
+            </div>
+            <div className="editor-statusbar-meta">{selectedGit && <GitFileState file={selectedGit} compact/>}<span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
           </div>}
         </> : <div className="editor-empty"><div className="empty-mark">&lt;/&gt;</div><h3>Abra um ficheiro no Explorador do projeto</h3><p>O Editor agora usa o explorador único do workbench. Abra a tool window Projeto numa das barras e escolha um ficheiro; as tabs preservam rascunhos, undo, pesquisa, folding e navegação por linha.</p></div>}
       </div>
@@ -338,6 +364,49 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
       </section>
     </div>}
   </section>
+}
+
+
+type ComposeRuntimeTone = 'running' | 'warning' | 'error' | 'stopped'
+
+type ComposeRuntimeState = { tone: ComposeRuntimeTone; label: 'A correr' | 'Parcial' | 'Erro' | 'Parado' }
+
+function dockerComposeProjectForFile(overview: DockerOverview | undefined, projectRoot: string, path: string) {
+  if (!overview) return undefined
+  const absolutePath = normalizeEditorPath(path.startsWith('/') ? path : `${projectRoot}/${path}`)
+  return overview.compose_projects.find((project) => (project.config_files ?? []).some((file) => normalizeEditorPath(file) === absolutePath))
+}
+
+function normalizeEditorPath(value: string) {
+  const normalized = value.replaceAll('\\', '/').replace(/\/{2,}/g, '/')
+  return normalized.length > 1 ? normalized.replace(/\/$/, '') : normalized
+}
+
+function composeRuntimeState(item: Pick<DockerComposeProject, 'container_count' | 'running_count' | 'error_count'> | DockerComposeService): ComposeRuntimeState {
+  if (item.error_count > 0) return { tone: 'error', label: 'Erro' }
+  if (item.container_count > 0 && item.running_count === item.container_count) return { tone: 'running', label: 'A correr' }
+  if (item.running_count > 0) return { tone: 'warning', label: 'Parcial' }
+  return { tone: 'stopped', label: 'Parado' }
+}
+
+function EditorComposeRuntime({ project }: { project: DockerComposeProject }) {
+  const projectState = composeRuntimeState(project)
+  return <div className="editor-compose-runtime" role="status" aria-label={`Estado Docker Compose ${project.name}`} title={`Compose ${project.name}: ${projectState.label}`}>
+    <div className={`editor-compose-runtime-project state-${projectState.tone}`}>
+      <i className={`editor-compose-state-dot state-${projectState.tone}`} aria-hidden="true"/>
+      <b>{project.name}</b>
+      <em>{projectState.label}</em>
+    </div>
+    {(project.services ?? []).map((service) => {
+      const state = composeRuntimeState(service)
+      const detail = `${service.running_count}/${service.container_count} containers${service.error_count ? ` · ${service.error_count} erro` : ''}`
+      return <div className={`editor-compose-runtime-service state-${state.tone}`} key={service.name} title={`${service.name}: ${state.label} · ${detail}`}>
+        <i className={`editor-compose-state-dot state-${state.tone}`} aria-hidden="true"/>
+        <b>{service.name}</b>
+        <em>{state.label}</em>
+      </div>
+    })}
+  </div>
 }
 
 function EditorTabs({ documents, activePath, savingPaths, gitByPath, surfaceMode = false, onSelect, onClose, onSave, onDetach, onSplit }: {
