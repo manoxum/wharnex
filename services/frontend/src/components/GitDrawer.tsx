@@ -718,27 +718,66 @@ function GitReleaseSection({ branches, remotes, disabled, branch, remote, tag, t
 }) {
   const canPublish = Boolean(branch && remote && tag.trim() && body.trim())
   return <div className="git-release-panel">
-    <div className="git-branch-operations-heading">
-      <div><span>Publicação</span><strong>Tag e release no GitHub</strong></div>
-      <small>Seleciona explicitamente a branch que ficará associada à release.</small>
+    <div className="git-release-hero">
+      <span className="git-release-hero-icon"><Icon name="package" size={17}/></span>
+      <div className="git-release-hero-copy">
+        <span>Publicação</span>
+        <strong>Preparar uma nova release</strong>
+        <small>Define o destino, identifica a versão e revê as notas antes de publicar.</small>
+      </div>
+      <div className={`git-release-readiness ${canPublish ? 'ready' : 'pending'}`}>
+        <Icon name={canPublish ? 'check' : 'info'} size={12}/>
+        <span>{canPublish ? 'Pronta para publicar' : 'Preenche os campos obrigatórios'}</span>
+      </div>
     </div>
-    <div className="git-release-grid">
-      <label><span>Branch *</span><select aria-label="Branch da release" value={branch} disabled={disabled} onChange={(event) => { onBranch(event.target.value); onBody('') }}><option value="">Selecionar branch…</option>{branches.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
-      <label><span>Remoto</span><select aria-label="Remoto da release" value={remote} disabled={disabled} onChange={(event) => onRemote(event.target.value)}><option value="">Selecionar remoto…</option>{remotes.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
-      <label><span>Tag *</span><input aria-label="Tag da release" value={tag} disabled={disabled} onChange={(event) => onTag(event.target.value)} placeholder="v1.3.0"/></label>
-      <label><span>Título</span><input aria-label="Título da release" value={title} disabled={disabled} onChange={(event) => onTitle(event.target.value)} placeholder="Opcional · usa a tag se vazio"/></label>
+
+    <div className="git-release-fields">
+      <div className="git-release-card">
+        <div className="git-release-card-heading">
+          <span className="git-release-card-icon"><Icon name="git" size={14}/></span>
+          <div><span>Destino</span><strong>Branch e remoto</strong></div>
+        </div>
+        <div className="git-release-grid">
+          <label><span>Branch *</span><select aria-label="Branch da release" value={branch} disabled={disabled} onChange={(event) => { onBranch(event.target.value); onBody('') }}><option value="">Selecionar branch…</option>{branches.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
+          <label><span>Remoto</span><select aria-label="Remoto da release" value={remote} disabled={disabled} onChange={(event) => onRemote(event.target.value)}><option value="">Selecionar remoto…</option>{remotes.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
+        </div>
+      </div>
+      <div className="git-release-card">
+        <div className="git-release-card-heading">
+          <span className="git-release-card-icon"><Icon name="package" size={14}/></span>
+          <div><span>Identidade</span><strong>Tag e título</strong></div>
+        </div>
+        <div className="git-release-grid">
+          <label><span>Tag *</span><input aria-label="Tag da release" value={tag} disabled={disabled} onChange={(event) => onTag(event.target.value)} placeholder="v1.3.0"/></label>
+          <label><span>Título</span><input aria-label="Título da release" value={title} disabled={disabled} onChange={(event) => onTitle(event.target.value)} placeholder="Opcional · usa a tag se vazio"/></label>
+        </div>
+      </div>
     </div>
-    <div className="git-release-mode" role="group" aria-label="Modo das notas de release">
-      <button type="button" className={mode === 'manual' ? 'active' : ''} disabled={disabled} onClick={() => onMode('manual')}>Escrever manualmente</button>
-      <button type="button" className={mode === 'gpt' ? 'active' : ''} disabled={disabled} onClick={() => onMode('gpt')}>Gerar com GPT</button>
+
+    <div className="git-release-notes-card">
+      <div className="git-release-notes-heading">
+        <div>
+          <span>Conteúdo</span>
+          <strong>Notas da release</strong>
+          <small>Escreve manualmente ou deixa o GPT preparar um primeiro rascunho.</small>
+        </div>
+        <div className="git-release-mode" role="group" aria-label="Modo das notas de release">
+          <button type="button" className={mode === 'manual' ? 'active' : ''} disabled={disabled} onClick={() => onMode('manual')}><Icon name="edit" size={12}/>Escrever</button>
+          <button type="button" className={mode === 'gpt' ? 'active' : ''} disabled={disabled} onClick={() => onMode('gpt')}><Icon name="agent" size={12}/>Gerar com GPT</button>
+        </div>
+      </div>
+      {mode === 'manual' ? <GitReleaseRichText value={body} disabled={disabled} onChange={onBody}/> : <div className="git-release-gpt">
+        <div className="git-release-gpt-action"><button type="button" className="git-action" disabled={disabled || generating || !branch} onClick={() => void onGenerate()}><Icon name="agent" size={12}/>{generating ? 'A gerar…' : 'Gerar notas da branch'}</button><span>Usa apenas os commits da branch selecionada.</span></div>
+        <textarea aria-label="Notas de release geradas pelo GPT" value={body} disabled={disabled || generating} onChange={(event) => onBody(event.target.value)} placeholder={branch ? 'O GPT irá resumir os commits recentes desta branch.' : 'Seleciona primeiro uma branch.'}/>
+        <p className="git-hint">O GPT gera apenas as notas; podes revê-las antes de publicar.</p>
+      </div>}
     </div>
-    {mode === 'manual' ? <GitReleaseRichText value={body} disabled={disabled} onChange={onBody}/> : <div className="git-release-gpt">
-      <button type="button" className="git-action" disabled={disabled || generating || !branch} onClick={() => void onGenerate()}>{generating ? 'A gerar…' : 'Gerar notas da branch'}</button>
-      <textarea aria-label="Notas de release geradas pelo GPT" value={body} disabled={disabled || generating} onChange={(event) => onBody(event.target.value)} placeholder={branch ? 'O GPT irá resumir os commits recentes desta branch.' : 'Seleciona primeiro uma branch.'}/>
-      <p className="git-hint">O GPT gera apenas as notas; podes revê-las antes de publicar.</p>
-    </div>}
+
     {error && <p className="git-notice error-card" role="alert">{error}</p>}
-    <div className="git-release-footer"><span>A tag é criada no commit da branch selecionada e enviada sem force.</span><button type="button" className="git-action primary" disabled={disabled || generating || !canPublish} onClick={() => void onPublish()}>Criar tag e release</button></div>
+    <div className="git-release-footer">
+      <div className="git-release-safety-note"><span><Icon name="shield" size={13}/></span><div><strong>Publicação segura</strong><small>A tag nasce no commit da branch escolhida e é enviada sem force.</small></div></div>
+      <button type="button" className="git-action primary git-release-publish" disabled={disabled || generating || !canPublish} onClick={() => void onPublish()}><Icon name="arrow-up" size={13}/>Criar tag e release</button>
+    </div>
   </div>
 }
 

@@ -176,6 +176,10 @@ describe('GitDrawer', () => {
     openTab('Branches')
 
     const publish = screen.getByRole('button', { name: 'Criar tag e release' }) as HTMLButtonElement
+    const releasePanel = screen.getByText('Preparar uma nova release').closest('.git-release-panel')
+    expect(releasePanel).toBeTruthy()
+    expect(releasePanel?.querySelectorAll('.git-release-card').length).toBe(2)
+    expect(screen.getByText('Preenche os campos obrigatórios')).toBeTruthy()
     expect(publish.disabled).toBe(true)
     fireEvent.change(screen.getByRole('combobox', { name: 'Branch da release' }), { target: { value: 'main' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Tag da release' }), { target: { value: 'v1.3.0' } })
@@ -183,6 +187,7 @@ describe('GitDrawer', () => {
     editor.innerHTML = '<strong>Release estável</strong>'
     fireEvent.input(editor)
     expect(publish.disabled).toBe(false)
+    expect(screen.getByText('Pronta para publicar')).toBeTruthy()
     fireEvent.click(publish)
 
     await waitFor(() => expect(api.gitCreateRelease).toHaveBeenCalledWith('ses_1', {
