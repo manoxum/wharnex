@@ -12,6 +12,7 @@ import {
   KEYWORDS,
   parseDirectives,
   removeDirective,
+  requiresProjectContextTransport,
   seeDirectiveAvailable,
 } from './composerDirectives'
 
@@ -67,12 +68,15 @@ describe('composer directives', () => {
     }])
   })
 
-  it('offers this project’s files for @file', () => {
+  it('offers files and directories from the project tree for @file', () => {
+    const files = ['src/lib/auth.ts', 'src/App.tsx', 'README.md']
     const query = directiveQuery('read @file:auth', 15)
     expect(query).toMatchObject({ kind: 'file', query: 'auth' })
-    expect(directiveSuggestions(query!, ['src/lib/auth.ts', 'README.md'], projects, [])[0]).toMatchObject({
-      value: 'src/lib/auth.ts',
-    })
+    expect(directiveSuggestions(query!, files, projects, [])[0]).toMatchObject({ value: 'src/lib/auth.ts' })
+    expect(directiveSuggestions(directiveQuery('read @file:src', 14)!, files, projects, [])).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'src', label: 'src/', detail: 'Diretório do projeto' }),
+      expect.objectContaining({ value: 'src/lib', label: 'src/lib/', detail: 'Diretório do projeto' }),
+    ]))
   })
 
   // An empty prefix is someone who has just decided to reference something and
@@ -187,9 +191,12 @@ describe('see directives', () => {
     for (const text of ['@see:../secrets.txt', '@see:dir/file.png', '@{[see]a/b}']) {
       expect(parseDirectives(text)).toHaveLength(0)
     }
+    expect(parseDirectives('@{[see]file|src/App.tsx}')[0]).toMatchObject({ project: 'file', path: 'src/App.tsx' })
     expect(parseDirectives('@{[see]project|src/App.tsx}')[0]).toMatchObject({ project: 'project', path: 'src/App.tsx' })
     expect(parseDirectives('@{[see]ref|flowcore|services/api/auth.go}')[0]).toMatchObject({ project: 'flowcore', path: 'services/api/auth.go' })
     expect(parseDirectives('@{[see]attach|/srv/contracts|openapi/api.yml}')[0]).toMatchObject({ project: '/srv/contracts', path: 'openapi/api.yml' })
+    expect(parseDirectives('@{[see]chat|entry|bundle_1|artifacts/report.md}')[0]).toMatchObject({ project: 'bundle_1', path: 'artifacts/report.md' })
+    expect(parseDirectives('@{[see]lib|session|ses_123|artifact_456}')[0]).toMatchObject({ project: 'ses_123', path: 'artifact_456' })
   })
 
   it('requires a direct-upload source before offering its file names', () => {
@@ -206,12 +213,20 @@ describe('see directives', () => {
       name: 'flowcore', projectPath: '/work/flowcore', attached: true,
       files: ['services/api/auth.go'],
     }]
+    const chatFiles = [{ value: 'entry|bundle_1|artifacts/report.md', label: 'report.md', detail: 'Ficheiro devolvido' }]
+    const libraryFiles = [{ value: 'session|ses_123|artifact_456', label: 'spec.pdf', detail: '/work/core · document' }]
     const query = directiveQuery('destaca @see:', 'destaca @see:'.length)!
-    expect(directiveSuggestions(query, ['src/App.tsx'], visibleProjects, ['diagram.png'])).toEqual(expect.arrayContaining([
-      expect.objectContaining({ value: 'project|', label: 'Projeto atual', continues: true }),
+    expect(directiveSuggestions(query, ['src/App.tsx'], visibleProjects, ['diagram.png'], [], chatFiles, libraryFiles)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'file|', label: '@file Projeto atual', continues: true }),
+      expect.objectContaining({ value: 'chat|', label: '@chat Ficheiros do chat', continues: true }),
+      expect.objectContaining({ value: 'lib|', label: '@lib Biblioteca', continues: true }),
       expect.objectContaining({ value: 'ref|flowcore|', label: '@ref flowcore', continues: true }),
       expect.objectContaining({ value: 'upload|', label: 'Anexos diretos', continues: true }),
     ]))
+    expect(directiveSuggestions(directiveQuery('destaca @see:chat|rep', 'destaca @see:chat|rep'.length)!, ['src/App.tsx'], visibleProjects, ['diagram.png'], [], chatFiles, libraryFiles)[0])
+      .toMatchObject({ value: 'chat|entry|bundle_1|artifacts/report.md', label: 'report.md' })
+    expect(directiveSuggestions(directiveQuery('destaca @see:lib|spec', 'destaca @see:lib|spec'.length)!, ['src/App.tsx'], visibleProjects, ['diagram.png'], [], chatFiles, libraryFiles)[0])
+      .toMatchObject({ value: 'lib|session|ses_123|artifact_456', label: 'spec.pdf' })
     expect(directiveSuggestions(directiveQuery('destaca @see:ref|flowcore|', 'destaca @see:ref|flowcore|'.length)!, ['src/App.tsx'], visibleProjects, ['diagram.png']))
       .toEqual(expect.arrayContaining([
         { value: 'ref|flowcore|services', label: 'services/', detail: 'Diretório · @ref flowcore', sourceIcon: 'folder' },
@@ -220,27 +235,39 @@ describe('see directives', () => {
       ]))
   })
 
-  it('lets @see select a directory without changing its canonical grammar', () => {
+  it('lets @see select an @file directory without changing its canonical grammar', () => {
     const files = ['src/App.tsx', 'src/lib/auth.ts', 'README.md']
-    const rows = directiveSuggestions(directiveQuery('destaca @see:project|src', 'destaca @see:project|src'.length)!, files, projects, [])
+    const rows = directiveSuggestions(directiveQuery('destaca @see:file|src', 'destaca @see:file|src'.length)!, files, projects, [])
     expect(rows).toEqual(expect.arrayContaining([
-      { value: 'project|src', label: 'src/', detail: 'Diretório · Projeto atual', sourceIcon: 'folder' },
-      { value: 'project|src/lib', label: 'src/lib/', detail: 'Diretório · Projeto atual', sourceIcon: 'folder' },
-      { value: 'project|src/App.tsx', label: 'src/App.tsx', detail: 'Ficheiro · Projeto atual', sourceIcon: 'file' },
+      { value: 'file|src', label: 'src/', detail: 'Diretório · @file Projeto atual', sourceIcon: 'folder' },
+      { value: 'file|src/lib', label: 'src/lib/', detail: 'Diretório · @file Projeto atual', sourceIcon: 'folder' },
+      { value: 'file|src/App.tsx', label: 'src/App.tsx', detail: 'Ficheiro · @file Projeto atual', sourceIcon: 'file' },
     ]))
-    const applied = applyDirectiveSuggestion('destaca @see:project|src', directiveQuery('destaca @see:project|src', 'destaca @see:project|src'.length)!, rows[0])
+    const applied = applyDirectiveSuggestion('destaca @see:file|src', directiveQuery('destaca @see:file|src', 'destaca @see:file|src'.length)!, rows[0])
     expect(parseDirectives(applied.text)[0]).toMatchObject({ kind: 'see', path: expect.any(String) })
   })
 
-  it('recognizes qualified @see directories as available when they have visible descendants', () => {
+  it('recognizes @file, @chat, @lib and qualified directory targets as available', () => {
     const visibleProjects = [{ name: 'flowcore', projectPath: '/work/flowcore', attached: true, files: ['services/api/auth.go'] }]
     const attachedPaths = [{ root: '/srv/contracts', files: ['openapi/v1/api.yml'] }]
-    const [projectDir] = parseDirectives('@{[see]project|src}')
+    const chatFiles = [{ value: 'entry|bundle_1|artifacts/report.md', label: 'report.md' }]
+    const libraryFiles = [{ value: 'session|ses_123|artifact_456', label: 'spec.pdf' }]
+    const [projectDir] = parseDirectives('@{[see]file|src}')
+    const [chat] = parseDirectives('@{[see]chat|entry|bundle_1|artifacts/report.md}')
+    const [lib] = parseDirectives('@{[see]lib|session|ses_123|artifact_456}')
     const [refDir] = parseDirectives('@{[see]ref|flowcore|services/api}')
     const [attachDir] = parseDirectives('@{[see]attach|/srv/contracts|openapi}')
-    expect(seeDirectiveAvailable(projectDir, ['src/App.tsx'], visibleProjects, [], attachedPaths)).toBe(true)
-    expect(seeDirectiveAvailable(refDir, ['src/App.tsx'], visibleProjects, [], attachedPaths)).toBe(true)
-    expect(seeDirectiveAvailable(attachDir, ['src/App.tsx'], visibleProjects, [], attachedPaths)).toBe(true)
+    expect(seeDirectiveAvailable(projectDir, ['src/App.tsx'], visibleProjects, [], attachedPaths, chatFiles, libraryFiles)).toBe(true)
+    expect(seeDirectiveAvailable(chat, ['src/App.tsx'], visibleProjects, [], attachedPaths, chatFiles, libraryFiles)).toBe(true)
+    expect(seeDirectiveAvailable(lib, ['src/App.tsx'], visibleProjects, [], attachedPaths, chatFiles, libraryFiles)).toBe(true)
+    expect(seeDirectiveAvailable(refDir, ['src/App.tsx'], visibleProjects, [], attachedPaths, chatFiles, libraryFiles)).toBe(true)
+    expect(seeDirectiveAvailable(attachDir, ['src/App.tsx'], visibleProjects, [], attachedPaths, chatFiles, libraryFiles)).toBe(true)
+  })
+
+  it('forces context transport for @file and @see:file selectors', () => {
+    expect(requiresProjectContextTransport('usa @{[file]generated/report.md}')).toBe(true)
+    expect(requiresProjectContextTransport('destaca @{[see]file|generated}')).toBe(true)
+    expect(requiresProjectContextTransport('destaca @{[see]chat|artifact|artifact_1}')).toBe(false)
   })
 
   it('labels a see chip by the attachment name', () => {

@@ -940,6 +940,25 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
+  it('offers @file targets from the whole safe project explorer, including directories outside the current context snapshot', async () => {
+    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [
+      { path: 'src', name: 'src', kind: 'directory', size: 0 },
+      { path: 'src/App.tsx', name: 'App.tsx', kind: 'file', size: 10 },
+      { path: 'generated', name: 'generated', kind: 'directory', size: 0 },
+      { path: 'generated/report.md', name: 'report.md', kind: 'file', size: 20 },
+    ] })
+    const ref = panelRef()
+    const view = render(
+      <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="file-whole-project" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    await waitFor(() => expect(api.listFiles).toHaveBeenCalledWith(session.id))
+    typeInComposer(ref, 'Revê @file:generated', 'Revê @file:generated'.length)
+    expect(await screen.findByRole('option', { name: /generated\// })).toBeTruthy()
+    expect(screen.getByRole('option', { name: /generated\/report\.md/ })).toBeTruthy()
+    view.unmount()
+  })
+
   it('inserts @chat references at the current composer caret as a chip', async () => {
     const ref = panelRef()
     const view = render(
@@ -1116,7 +1135,8 @@ describe('ChatPanel', () => {
     )
     const references = 'usa @{[file]src/App.tsx} @{[ref]flowcore} @{[attach]/srv/contracts} @{[see]upload|mock.png} @{[chat]artifact|artifact-1} @{[lib]session|ses-a|artifact-b} @{[todo]todo_1}'
     typeInComposer(ref, references, references.length)
-    for (const kind of ['file', 'ref', 'attach', 'see', 'chat', 'lib', 'todo']) expect(view.container.querySelector(`.composer-reference-thumbnail.${kind}`)).toBeTruthy()
+    for (const kind of ['file', 'ref', 'attach', 'chat', 'lib', 'todo']) expect(view.container.querySelector(`.composer-reference-thumbnail.${kind}`)).toBeTruthy()
+    expect(view.container.querySelector('.composer-reference-thumbnail.see')).toBeNull()
     expect(view.container.querySelector('.composer-directive-chip.file')).toBeTruthy()
 
     const repeated = 'usa @{[file]src/App.tsx} e depois @{[file]src/App.tsx}'
@@ -1193,8 +1213,8 @@ describe('ChatPanel', () => {
     view.unmount()
   })
 
-  // @see/@look points at a file already attached directly to this message —
-  // it renders and configures exactly like the other three kinds.
+  // @see/@look is a spotlight marker, not a second attachment thumbnail. It stays
+  // inline and remains editable/configurable like every other directive.
   it('renders an @see chip and configures it like the other directive kinds', () => {
     const ref = panelRef()
     const view = render(
@@ -1204,8 +1224,8 @@ describe('ChatPanel', () => {
     expect(view.container.querySelector('.composer-directive-chip.see')?.getAttribute('title')).toBe('@{[see]diagram.png}')
     fireEvent.click(screen.getByLabelText('Configurar referência'))
     const popover = view.container.querySelector('.composer-directive-popover')
-    expect(popover?.textContent).toContain('Ficheiro ou diretório visível')
-    expect(popover?.textContent).toContain('Não encontrado no contexto atual')
+    expect(popover?.textContent).toContain('Destacar referência')
+    expect(popover?.textContent).toContain('Referência não encontrada')
     view.unmount()
   })
 
@@ -1226,7 +1246,7 @@ describe('ChatPanel', () => {
     expect(directoryOption).toBeTruthy()
     expect(screen.getByRole('option', { name: /src\/App\.tsx/ })).toBeTruthy()
     fireEvent.click(directoryOption!)
-    expect(composerText(ref)).toBe('destaca @{[see]project|src}')
+    expect(composerText(ref)).toBe('destaca @{[see]file|src}')
     view.unmount()
   })
 
@@ -1244,12 +1264,11 @@ describe('ChatPanel', () => {
     typeInComposer(ref, 'destaca @see:', 14)
     const editor = ref.current?.getComposerEditor()
     fireEvent.keyDown(editor!.root, { key: 'ArrowDown' })
-    expect(screen.getByRole('option', { name: /Projeto atual/ }).getAttribute('aria-selected')).toBe('true')
-    fireEvent.keyDown(editor!.root, { key: 'ArrowUp' })
     expect(screen.getByRole('option', { name: /@ref flowcore/ }).getAttribute('aria-selected')).toBe('true')
-    fireEvent.keyDown(editor!.root, { key: 'ArrowDown' })
+    fireEvent.keyDown(editor!.root, { key: 'ArrowUp' })
+    expect(screen.getByRole('option', { name: /Projeto atual/ }).getAttribute('aria-selected')).toBe('true')
     fireEvent.keyDown(editor!.root, { key: 'Enter' })
-    expect(composerText(ref)).toBe('destaca @see:project|')
+    expect(composerText(ref)).toBe('destaca @see:file|')
     view.unmount()
   })
 

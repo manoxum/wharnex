@@ -236,6 +236,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // in sync live: a menu that is a request behind reality is a normal, minor
   // staleness, unlike suggesting a name the engine will actually refuse.
   const [knownProjects, setKnownProjects] = useState<{ name: string; projectPath: string }[]>([])
+  const [browsableProjectFiles, setBrowsableProjectFiles] = useState<string[]>([])
   const [libraryArtifacts, setLibraryArtifacts] = useState<ManagedArtifact[]>([])
   const [chatFiles, setChatFiles] = useState<ChatFileRecord[]>([])
   const [projectTodos, setProjectTodos] = useState<ProjectTodo[]>([])
@@ -317,6 +318,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const { afterHeight, beforeHeight, endRef, hasOlder, hasNewer, hiddenItemCount, hiddenNewerItemCount, loadOlder, loadNewer, onScroll: onHistoryScroll, streamRef, visibleItems } = useProgressiveChatHistory(items, activeChatId, busy, historyViewportStore)
   const whxNoticeRuns = useMemo(() => indexWhxNoticeRuns(visibleItems), [visibleItems])
   const eligibleProjectFiles = useMemo(() => session.context.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'), [session.context.manifest.files])
+  const projectFileCandidates = browsableProjectFiles.length ? browsableProjectFiles : eligibleProjectFiles
   // `@ref` names any project Wharnex has worked on before — attached projects
   // first, so a shared basename resolves to the one already in front of the
   // operator, then every other known project by name only (its files are not
@@ -340,6 +342,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       .catch(() => { if (alive) setKnownProjects([]) })
     return () => { alive = false }
   }, [session.id])
+  useEffect(() => {
+    let alive = true
+    // @file browses the whole safe project tree, not only the current context
+    // snapshot. listFiles already enforces the editor/project containment rules.
+    void api.listFiles(session.id)
+      .then((result) => { if (alive) setBrowsableProjectFiles((result.files || []).filter((entry) => entry.kind === 'file' && entry.path !== 'EXPORTS.md').map((entry) => entry.path)) })
+      .catch(() => { if (alive) setBrowsableProjectFiles([]) })
+    return () => { alive = false }
+  }, [session.id, session.context.manifest.sha256])
   useEffect(() => {
     let alive = true
     void api.managedArtifacts('', false, 'library')
@@ -383,7 +394,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }), [chatFiles, promptIndexByRequest])
   const libraryFileCandidates = useMemo(() => libraryArtifacts.map((item) => ({ value: `session|${item.session_id}|${item.artifact.id}`, label: item.artifact.name, detail: `${item.project_path} · ${item.artifact.kind}` })), [libraryArtifacts])
   const todoCandidates = useMemo(() => projectTodos.filter((todo) => todo.status === 'open').map((todo) => ({ value: todo.id, label: todo.body.slice(0, 90), detail: todo.execution_status === 'processing' ? 'Em execução' : todo.id })), [projectTodos])
-  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, eligibleProjectFiles, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates) : [], [eligibleProjectFiles, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates])
+  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates) : [], [projectFileCandidates, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates])
   const kindSuggestions = useMemo(() => kindQuery ? directiveKindSuggestions(kindQuery.query) : [], [kindQuery])
   const activeSuggestionCount = kindQuery
     ? kindSuggestions.length
@@ -397,7 +408,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   // autocomplete fragments stay plain text until a concrete reference is chosen.
   const canonicalReferenceDirectives = useMemo(() => {
     const seen = new Set<string>()
-    return parsedDirectives.filter((directive) => isCanonicalDirective(message, directive)).filter((directive) => {
+    return parsedDirectives.filter((directive) => directive.kind !== 'see' && isCanonicalDirective(message, directive)).filter((directive) => {
       const key = canonicalDirective(directive)
       if (seen.has(key)) return false
       seen.add(key)
@@ -457,7 +468,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     return () => window.removeEventListener('wharnex:todo-insert', onTodoInsert)
   }, [activeChatId])
   const isProjectAttached = (name: string) => attachedProjects.some((project) => project.name.toLowerCase() === name.toLowerCase())
-  const isSeeTargetAvailable = (directive: ComposerDirective) => seeDirectiveAvailable(directive, eligibleProjectFiles, referenceableProjects, attachmentNames, attachedPathFiles)
+  const isSeeTargetAvailable = (directive: ComposerDirective) => seeDirectiveAvailable(directive, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates)
   // The directive the caret currently sits inside, if any — the one that gets
   // the chip toolbar. Recomputed from the same parse the overlay itself draws
   // from, so "which chip is active" can never disagree with "which chips
@@ -657,7 +668,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       const key = `${file.name}:${file.size}`
       if (!seen.has(key)) { files.push(file); seen.add(key) }
     }
-    const indexedDirectives = parseDirectives(text).filter((item) => item.kind === 'chat' || item.kind === 'lib' || item.kind === 'todo')
+    const indexedDirectives = [...new Map(parseDirectives(text).flatMap((item) => {
+      if (item.kind === 'chat' || item.kind === 'lib' || item.kind === 'todo') return [item]
+      if (item.kind !== 'see') return []
+      if (item.value.startsWith('chat|')) {
+        const [target] = parseDirectives(canonicalDirective({ kind: 'chat', value: item.value.slice('chat|'.length) }))
+        return target ? [target] : []
+      }
+      if (item.value.startsWith('lib|')) {
+        const [target] = parseDirectives(canonicalDirective({ kind: 'lib', value: item.value.slice('lib|'.length) }))
+        return target ? [target] : []
+      }
+      return []
+    }).map((item) => [`${item.kind}:${item.value}`, item] as const)).values()]
     let currentTodos = projectTodos
     if (indexedDirectives.some((item) => item.kind === 'todo')) {
       const refreshed = await api.projectTodos(session.id)
