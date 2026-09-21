@@ -18,6 +18,9 @@
   --danger: #a54038;
   --warning: #996117;
   --success: #39734b;
+  --theme-danger: var(--danger);
+  --theme-warning: var(--warning);
+  --theme-success: var(--success);
   --theme-bg: #f1f3ed;
   --theme-surface: #f8faf5;
   --theme-elevated: #fdfefb;

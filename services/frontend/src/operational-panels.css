@@ -595,3 +595,218 @@
   .project-knowledge-layout { grid-template-columns: 1fr; }
   .project-knowledge-content { padding-inline: 14px; }
 }
+
+
+/* Final IDE tool-window grammar: flat lists, separators and quiet state accents. */
+.agent-runtime-drawer,
+.git-drawer,
+.chat-agent-tasks-drawer,
+.project-knowledge-drawer {
+  background: var(--theme-bg);
+}
+.agent-runtime-drawer .agent-drawer-heading,
+.git-drawer .agent-drawer-heading,
+.chat-agent-tasks-drawer .agent-drawer-heading,
+.project-knowledge-drawer .agent-drawer-heading {
+  min-height: 44px;
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+}
+
+/* Runtime: one inspection surface, not nested cards. */
+.agent-runtime-summary,
+.agent-runtime-memory-summary {
+  gap: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--theme-border-soft);
+}
+.agent-runtime-summary span,
+.agent-runtime-memory-summary span {
+  min-height: 42px;
+  padding: 6px 10px;
+  border: 0;
+  border-right: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.agent-runtime-summary span:last-child,
+.agent-runtime-memory-summary span:last-child { border-right: 0; }
+.agent-runtime-tabs { padding-inline: 10px; background: var(--theme-surface); }
+.agent-runtime-body { gap: 0; padding: 0; }
+.agent-runtime-list,
+.agent-runtime-detail {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.agent-runtime-list { padding: 0; gap: 0; border-right: 1px solid var(--theme-border-soft); }
+.agent-runtime-list > button {
+  min-height: 52px;
+  padding-inline: 12px;
+  border-radius: 0;
+  border-bottom: 1px solid var(--theme-border-soft);
+  box-shadow: none;
+}
+.agent-runtime-list > button:hover:not(:disabled) { background: var(--theme-hover); }
+.agent-runtime-list > button.active:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-state) 6%, var(--theme-surface));
+  box-shadow: inset 2px 0 var(--agent-state);
+}
+.agent-runtime-detail { padding: 14px 16px 18px; }
+.agent-runtime-diagnostics,
+.agent-runtime-scale { gap: 0; padding: 0 14px; }
+.agent-runtime-diagnostic-row,
+.agent-runtime-scale-card {
+  min-height: 44px;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.agent-runtime-pause {
+  margin: 0 14px;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+}
+.agent-runtime-policy-section {
+  padding: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.agent-runtime-policy-section:first-child { border-top: 0; }
+.agent-runtime-policy-section .agent-runtime-pause,
+.agent-runtime-policy-section .agent-runtime-scale-card,
+.agent-runtime-worker-policy {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.agent-runtime-policy-section .agent-runtime-pause.is-paused,
+.agent-runtime-worker-policy.is-paused { box-shadow: inset 2px 0 var(--warning); }
+.agent-runtime-worker-policy {
+  border: 0;
+  border-top: 1px solid var(--theme-border-soft);
+  padding-inline: 10px;
+}
+.agent-runtime-policy-chip,
+.agent-runtime-inline-status { border-radius: 4px; }
+.agent-runtime-task-tree-root,
+.agent-runtime-task-tree-group,
+.agent-runtime-task-tree-group header,
+.agent-runtime-task-tree-leaf {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.agent-runtime-task-tree-group {
+  border: 0;
+  border-left: 1px solid var(--theme-border-soft);
+}
+.agent-runtime-task-tree-group header { border-bottom: 1px solid var(--theme-border-soft); }
+.agent-runtime-task-tree-leaf { min-height: 32px; }
+.agent-runtime-task-tree-node-mark { border-radius: 4px; background: transparent; }
+
+/* Git: tabs and rows carry hierarchy; container chrome stays secondary. */
+.git-heading-branch {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.git-tabs { padding-inline: 10px; background: var(--theme-surface); }
+.git-tab-content { padding: 0 14px 16px; gap: 0; }
+.git-section,
+.git-worktree-card,
+.git-branch-hero {
+  border: 1px solid var(--theme-border-soft);
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+  background: var(--theme-surface);
+  box-shadow: none;
+}
+.git-section { padding: 12px 0; gap: 10px; }
+.git-worktree-card,
+.git-branch-hero { padding: 10px 0; }
+.git-worktree-status { width: 30px; height: 30px; border-radius: var(--radius-control); }
+.git-action { border-radius: var(--radius-control); box-shadow: none; }
+.git-notice { border-radius: 0; }
+
+/* Chat management and task queues: compact rows with one semantic edge. */
+.agent-chat-management-tabs,
+.chat-agent-task-tabs { background: var(--theme-surface); }
+.agent-archive-list,
+.chat-agent-task-list { gap: 0; padding-inline: 12px; }
+.agent-archive-item,
+.chat-agent-task-card {
+  padding: 10px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.agent-archive-item:hover,
+.chat-agent-task-card:hover { background: var(--theme-hover); }
+.chat-agent-task-card:hover { border-color: var(--theme-border-soft); }
+.chat-agent-task-section > p {
+  padding: 14px 8px;
+  border: 0;
+  border-left: 2px solid var(--theme-border);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+.chat-agent-tasks-body { padding: 10px 12px 16px; gap: 0; }
+
+/* Durable knowledge behaves like a navigator + reader, not a dashboard. */
+.project-knowledge-toolbar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+}
+.project-knowledge-meta > span,
+.project-knowledge-meta > code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--theme-text-muted);
+}
+.project-knowledge-index { padding: 6px 0; background: var(--theme-surface); }
+.project-knowledge-index-heading { padding-inline: 10px; }
+.project-knowledge-index-heading > b { border-radius: 4px; background: transparent; }
+.project-knowledge-index button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 0;
+  border-left: 2px solid transparent;
+}
+.project-knowledge-index button.active {
+  border-left-color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 6%, var(--theme-surface));
+  box-shadow: none;
+}
+.project-knowledge-content { padding: 16px 20px 32px; }
+.project-knowledge-content .markdown-translation-toolbar {
+  border-radius: var(--radius-control);
+  background: var(--theme-surface);
+  box-shadow: none;
+}
+
+@media (max-width: 820px) {
+  .agent-runtime-list { border-right: 0; border-bottom: 1px solid var(--theme-border-soft); }
+  .project-knowledge-content { padding-inline: 14px; }
+}
