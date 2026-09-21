@@ -9124,3 +9124,228 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
   background: color-mix(in srgb, var(--theme-text-muted) 36%, transparent);
   background-clip: padding-box;
 }
+
+/* v1.2.51 — unified side tool windows, Git surface and Explorer glyphs.
+   Sidebars share one compact desktop chrome; only the actual content region
+   scrolls, while Git tabs fit the drawer width instead of creating a second
+   horizontal scrollbar. */
+.workspace-side-drawer {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--theme-surface);
+}
+.workspace-side-drawer > * {
+  min-width: 0;
+  min-height: 0;
+}
+.workspace-side-drawer .agent-drawer-heading {
+  height: 40px;
+  min-height: 40px;
+  flex: 0 0 40px;
+  padding: 0 7px 0 10px;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+}
+.workspace-side-drawer .agent-drawer-heading strong {
+  font-size: calc(9.6px * var(--ui-font-scale));
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+.workspace-side-drawer .agent-drawer-heading .panel-kicker {
+  font-size: calc(7px * var(--ui-font-scale));
+  letter-spacing: .055em;
+}
+.workspace-side-drawer .agent-drawer-icon {
+  width: 27px;
+  height: 27px;
+  flex-basis: 27px;
+  border-radius: var(--radius-control);
+}
+.workspace-side-drawer .agent-drawer-icon:hover:not(:disabled) {
+  background: var(--theme-hover);
+  color: var(--theme-text);
+}
+.execution-queue-drawer { grid-template-rows: 40px auto auto auto minmax(0, 1fr); }
+.chat-agent-tasks-drawer { grid-template-rows: 40px auto minmax(0, 1fr); }
+.agent-runtime-drawer { grid-template-rows: 40px auto auto minmax(0, 1fr); }
+.project-tasks-drawer { grid-template-rows: 40px auto auto minmax(0, 1fr); }
+
+/* Explorer glyphs are semantic, compact and visually stable at 100% scale. */
+.file-glyph {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 3px;
+}
+.file-glyph > svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+.file-glyph-mark {
+  width: 17px;
+  height: 17px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font: 750 calc(6.2px * var(--ui-font-scale))/1 var(--mono-font-family);
+  letter-spacing: -.04em;
+}
+.directory-glyph {
+  color: color-mix(in srgb, var(--theme-text-muted) 80%, var(--theme-accent));
+}
+.directory-glyph-source,
+.directory-glyph-frontend { color: #73a8dc; }
+.directory-glyph-backend { color: #83ad88; }
+.directory-glyph-docker { color: #5fa8df; }
+.directory-glyph-database,
+.directory-glyph-schema { color: #8da7cf; }
+.directory-glyph-tests { color: #b299d2; }
+.directory-glyph-config { color: #a6a98d; }
+.directory-glyph-assets { color: #c69586; }
+.agent-tree-row:hover .file-glyph,
+.agent-tree-row.selected-node .file-glyph { filter: saturate(1.12) brightness(1.06); }
+
+/* Git: one compact tool-window header, flat content margins and no nested
+   horizontal scrolling. The branch is metadata, not a competing headline. */
+.git-drawer-heading {
+  min-height: 40px;
+  padding: 0 7px 0 10px;
+  background: var(--theme-surface);
+}
+.git-heading-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.git-heading-symbol {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: var(--theme-muted);
+  color: var(--theme-text-muted);
+}
+.git-heading-text {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+.git-heading-text > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-heading-branch {
+  min-width: 0;
+  padding-left: 7px;
+  border-left: 1px solid var(--theme-border-soft);
+  overflow: hidden;
+  color: var(--theme-text-muted);
+  font-size: calc(7.5px * var(--ui-font-scale));
+  font-family: var(--mono-font-family);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-heading-actions { gap: 1px; }
+.git-tabs {
+  min-height: 38px;
+  padding: 0 4px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  background: var(--theme-surface);
+}
+.git-tabs button {
+  min-width: 0;
+  padding: 0 6px;
+  gap: 5px;
+  font-size: calc(8px * var(--ui-font-scale));
+}
+.git-tabs button.active::after {
+  right: 6px;
+  left: 6px;
+}
+.git-tab-content {
+  padding: 0;
+  gap: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--theme-bg);
+  scrollbar-gutter: auto;
+}
+.git-tab-content > .git-changes-tabs {
+  margin: 8px 10px 6px;
+}
+.git-changes-tabs {
+  width: auto;
+  max-width: calc(100% - 20px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 2px;
+  overflow: hidden;
+  border-color: var(--theme-border-soft);
+  border-radius: var(--radius-control);
+  background: var(--theme-surface);
+}
+.git-changes-tabs button {
+  min-width: 0;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 3px;
+  box-shadow: none;
+}
+.git-changes-tabs button.active {
+  background: var(--theme-hover);
+  box-shadow: inset 0 -2px var(--theme-accent);
+}
+.git-change-surface {
+  margin: 0;
+  padding: 10px;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.git-section {
+  margin: 0 10px 8px;
+  padding: 10px;
+  gap: 8px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: var(--radius-control);
+  background: var(--theme-surface);
+  box-shadow: none;
+}
+.git-settings-stack { padding-top: 8px; gap: 0; }
+.git-worktree-card,
+.git-branch-hero,
+.git-merge-card,
+.git-pending-list li,
+.git-remote-list li {
+  border-radius: var(--radius-control);
+  box-shadow: none;
+}
+.git-worktree-card,
+.git-branch-hero,
+.git-merge-card {
+  border-color: var(--theme-border-soft);
+  background: var(--theme-surface);
+}
+
+@container semantic-panel (max-width: 430px) {
+  .git-tabs button { padding-inline: 5px; }
+  .git-tabs .git-tab-count { min-width: 15px; height: 15px; padding-inline: 4px; }
+  .git-heading-text { grid-template-columns: minmax(0, 1fr); gap: 1px; }
+  .git-heading-branch { padding-left: 0; border-left: 0; }
+}
+
