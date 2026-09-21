@@ -71,6 +71,9 @@ func TestBuildDockerOverviewGroupsComposeAndResourceUsage(t *testing.T) {
 	if project.Name != "demo" || project.ContainerCount != 2 || project.RunningCount != 1 || project.ErrorCount != 1 {
 		t.Fatalf("unexpected compose project summary: %#v", project)
 	}
+	if len(project.Services) != 2 || project.Services[0].Name != "web" || project.Services[0].RunningCount != 1 || project.Services[1].Name != "worker" || project.Services[1].ErrorCount != 1 {
+		t.Fatalf("unexpected compose service summary: %#v", project.Services)
+	}
 	if overview.Containers[0].ComposeService != "web" || overview.Containers[1].Condition != "error" {
 		t.Fatalf("unexpected container metadata: %#v", overview.Containers)
 	}
@@ -124,6 +127,19 @@ func TestDockerComposeRedeployMetadataUsesAccessibleComposeFiles(t *testing.T) {
 	if got := dockerComposeRedeployArgs("demo", runtime); !reflect.DeepEqual(got, wantArgs) {
 		t.Fatalf("unexpected redeploy args:\n got %#v\nwant %#v", got, wantArgs)
 	}
+	wantConfigArgs := []string{"compose", "-p", "demo", "--project-directory", workingDir, "-f", configFile, "--env-file", envFile, "config", "--services"}
+	if got := dockerComposeConfigServicesArgs("demo", runtime); !reflect.DeepEqual(got, wantConfigArgs) {
+		t.Fatalf("unexpected compose config args:\n got %#v\nwant %#v", got, wantConfigArgs)
+	}
+}
+
+func TestMergeDockerComposeServicesKeepsConfiguredInactiveServices(t *testing.T) {
+	current := []DockerComposeService{{Name: "web", ContainerCount: 1, RunningCount: 1}, {Name: "worker", ContainerCount: 1, ErrorCount: 1}}
+	merged := mergeDockerComposeServices(current, []string{"worker", "scheduler", "web"})
+	want := []DockerComposeService{{Name: "scheduler"}, {Name: "web", ContainerCount: 1, RunningCount: 1}, {Name: "worker", ContainerCount: 1, ErrorCount: 1}}
+	if !reflect.DeepEqual(merged, want) {
+		t.Fatalf("unexpected compose services:\n got %#v\nwant %#v", merged, want)
+	}
 }
 
 func TestBuildDockerOverviewReportsComposeRedeployAvailability(t *testing.T) {
@@ -145,5 +161,8 @@ func TestBuildDockerOverviewReportsComposeRedeployAvailability(t *testing.T) {
 	overview := buildDockerOverview([]dockerContainerRow{container}, []dockerContainerInspect{inspected}, nil, nil, nil, time.Unix(1, 0).UTC())
 	if len(overview.ComposeProjects) != 1 || !overview.ComposeProjects[0].RedeployAvailable || overview.ComposeProjects[0].RedeployReason != "" {
 		t.Fatalf("expected Compose redeploy metadata to be available: %#v", overview.ComposeProjects)
+	}
+	if !reflect.DeepEqual(overview.ComposeProjects[0].ConfigFiles, []string{configFile}) {
+		t.Fatalf("expected Compose config files to be exposed: %#v", overview.ComposeProjects[0].ConfigFiles)
 	}
 }
