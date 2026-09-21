@@ -725,6 +725,145 @@ func (s *Service) prepareConflictResolutionRetry(ctx context.Context, sessionID 
 	return updated, err
 }
 
+// RenewConflictCapsule is the dedicated recovery for
+// domain.FailureKindConflictCapsuleStale: a conflict-resolution round that
+// reached the planner without a refreshed harness.conflict/v1 capsule for the
+// paths the thread still owes a resolution for.
+//
+// This is deliberately not folded into retryFailedRequestWithGuidance's
+// generic "FRESH REQUEST RECOVERY" text, which carries no capsule at all —
+// sending it while a conflict thread is open reproduces exactly the
+// rejection this recovery exists to fix. Unlike prepareConflictResolutionRetry
+// (which copies the same capsule bytes back for a *local* verification
+// failure, where CURRENT has not moved), this rebuilds every file fresh from
+// the live host HEAD: the planner named the capsule itself as stale, so
+// resending byte-identical content would not address what it reported.
+func (s *Service) RenewConflictCapsule(ctx context.Context, sessionID string, approved bool) (domain.Session, error) {
+	if !approved {
+		return domain.Session{}, ErrApprovalRequired
+	}
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return current, err
+	}
+	if sessionFailureKind(current) != domain.FailureKindConflictCapsuleStale {
+		return current, errors.New("no stale conflict capsule failure is available to renew")
+	}
+	return s.refreshConflictCapsule(ctx, sessionID, current)
+}
+
+// refreshConflictCapsule rebuilds the harness.conflict/v1 capsule for the
+// conflict thread currently open on this session from its own recorded paths
+// and sources, then resends it as a fresh request in the same lineage. BASE
+// and RESULT are re-read at the commits the thread already recorded for each
+// path (a Git-conflict thread reads BASE/RESULT from its GitConflictContext
+// instead); CURRENT is always re-read at the live host HEAD, exactly like the
+// capsule builders that create a conflict thread in the first place.
+func (s *Service) refreshConflictCapsule(ctx context.Context, sessionID string, item domain.Session) (domain.Session, error) {
+	conflict := item.IntegrationConflict
+	if conflict == nil || strings.TrimSpace(conflict.RequestID) == "" {
+		return item, errors.New("active integration conflict is unavailable")
+	}
+	if conflictResolutionExhausted(item) {
+		return s.exhaustConflictResolution(sessionID, item, conflict.ID, conflict.Paths)
+	}
+	repoPath := item.ProjectPath
+	hostSHA, err := sandbox.ResolveRef(ctx, repoPath, "HEAD")
+	if err != nil {
+		return item, fmt.Errorf("resolve host HEAD: %w", err)
+	}
+	paths := normalizedPaths(conflict.Paths)
+	files := make([]conflictCapsuleFile, 0, len(paths))
+	for _, path := range paths {
+		baseRef, resultRef := "", ""
+		if conflict.Git != nil {
+			baseRef, resultRef = conflict.Git.BaseSHA, conflict.Git.TheirsSHA
+		} else {
+			source := conflict.PathSources[path]
+			baseRef, resultRef = source.MergeBaseSHA, source.CandidateSHA
+		}
+		base, baseExists, err := sandbox.ReadFileAtRef(ctx, repoPath, baseRef, path)
+		if err != nil {
+			return item, fmt.Errorf("read merge-base content for %s: %w", path, err)
+		}
+		hostContent, currentExists, err := sandbox.ReadFileAtRef(ctx, repoPath, hostSHA, path)
+		if err != nil {
+			return item, fmt.Errorf("read host content for %s: %w", path, err)
+		}
+		result, resultExists, err := sandbox.ReadFileAtRef(ctx, repoPath, resultRef, path)
+		if err != nil {
+			return item, fmt.Errorf("read candidate content for %s: %w", path, err)
+		}
+		files = append(files, conflictCapsuleFile{
+			Path: path, Reason: "merge conflict", BaseExists: baseExists, CurrentExists: currentExists, ResultExists: resultExists,
+			BaseSHA256: hashBytes([]byte(base)), CurrentSHA256: hashBytes([]byte(hostContent)), ResultSHA256: hashBytes([]byte(result)),
+			Base: truncateRepairText(base, 24000), Current: truncateRepairText(hostContent, 24000), Result: truncateRepairText(result, 24000),
+		})
+	}
+
+	requestID := ids.New("req")
+	parentRequestID := conflict.RequestID
+	capsule := conflictCapsule{
+		Protocol: "harness.conflict/v1", ConflictID: conflict.ID, CurrentRevision: item.Context.Manifest.SHA256,
+		OriginalPlanIDs: conflict.OriginalPlanIDs,
+		Intent:          s.buildConflictIntent(ctx, item, repoPath, nil, paths),
+		Files:           files,
+	}
+	if conflict.Git != nil {
+		capsule.Git = &conflictCapsuleGit{
+			Ref: conflict.Git.Ref, TargetBranch: conflict.Git.TargetBranch, Remote: conflict.Git.Remote,
+			BaseSHA: conflict.Git.BaseSHA, OursSHA: hostSHA, TheirsSHA: conflict.Git.TheirsSHA,
+			SourceRefs: append([]string(nil), conflict.Git.SourceRefs...),
+		}
+	}
+	capsuleJSON, err := json.MarshalIndent(capsule, "", "  ")
+	if err != nil {
+		return item, err
+	}
+	message := buildConflictResolutionMessage(paths, "") +
+		"\n\nThe previous recovery round for this conflict did not carry a refreshed capsule; this request attaches one rebuilt from the live host and the thread's own recorded sources."
+	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, item.ProjectPath)
+	if err != nil {
+		return item, err
+	}
+	s.prepareContinuation(ctx, item, requestID, parentRequestID)
+	prompt := planner.BuildManualPrompt(s.plannerRequest(ctx, planner.Request{
+		SessionID: sessionID, RequestID: requestID, ParentRequestID: parentRequestID, Message: message,
+		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
+		PreviousResponseID: item.LastProviderResponseID, AutomationMode: item.AutomationMode,
+		SelfEvolution: s.isSelfEvolution(item), PlanningMode: "direct",
+		ExpectedBundleFilename: expectedResponseBundleFilenameForDerivedRequest(item, requestID, parentRequestID),
+	}, knowledgeSnapshot, item.ProjectPath))
+	resolution := *conflict
+	resolution.RequestID = requestID
+	resolution.AttemptHistory = appendConflictAttempt(intentHistory(item), conflictAttemptRecord(item, paths))
+	var prunedContexts []string
+	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		recordRequestSupportArtifact(current, requestID, conflictCapsuleArtifactPath, capsuleJSON)
+		recordRequestLineage(current, requestID, parentRequestID, requestKindConflict)
+		recordRequestKnowledge(current, requestID, knowledgeSnapshot)
+		current.ConflictAttempt++
+		if domain.AutomationModeIsAutomatic(current.AutomationMode) {
+			current.AutomationAttempt = automaticAttemptsSpent(*current) + 1
+		}
+		current.IntegrationConflict = &resolution
+		current.LastRequestID = requestID
+		current.LastManualPrompt = prompt
+		current.PendingManualRequestIDs = appendUnique(current.PendingManualRequestIDs, requestID)
+		current.State = "conflict_resolution_pending"
+		current.LastRepairError = ""
+		current.FailureKind = ""
+		recordRequestBaseline(current, requestID, item.Context.Manifest.SHA256)
+		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
+		return nil
+	})
+	if err == nil {
+		s.cleanupPrunedRequestContexts(prunedContexts)
+		s.bus.Publish(sessionID, "conflict.capsule_renewed", map[string]any{"conflict_id": conflict.ID, "request_id": requestID, "parent_request_id": parentRequestID, "paths": paths})
+	}
+	return updated, err
+}
+
 func validateConflictResolutionPlan(item domain.Session, plan *domain.ExecutionPlan) error {
 	if item.IntegrationConflict == nil || plan == nil || plan.RequestID != item.IntegrationConflict.RequestID {
 		return nil

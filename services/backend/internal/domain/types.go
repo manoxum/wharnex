@@ -236,6 +236,16 @@ const (
 	// Repeating the same request would loop, but an operator may provide new
 	// evidence or guidance and deliberately start a materially different round.
 	FailureKindPlannerGuidanceRequired = "planner_guidance_required"
+
+	// FailureKindConflictCapsuleStale marks a recovery round for an active Git
+	// conflict resolution thread that reached the planner without a refreshed
+	// harness.conflict/v1 capsule for the paths it still owes a resolution for.
+	// This is never an operator-guidance gap: the capsule's BASE/CURRENT/RESULT
+	// content is already known locally (IntegrationConflict.PathSources plus
+	// the live host HEAD), so retrying identically — with or without operator
+	// text — reproduces the same rejection every round. Its dedicated recovery,
+	// RenewConflictCapsule, rebuilds and resends that exact capsule.
+	FailureKindConflictCapsuleStale = "conflict_capsule_stale"
 )
 
 type ExecutionMode string

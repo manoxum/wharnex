@@ -47,6 +47,9 @@ var nonRepairablePlannerReasonCodes = map[string]string{
 	"host_working_state_blocked":                   domain.FailureKindHostWorkingStateBlocked,
 	"submodule_boundary":                           domain.FailureKindSubmoduleWrite,
 	"submodule_write":                              domain.FailureKindSubmoduleWrite,
+	"conflict_capsule_refresh_required":            domain.FailureKindConflictCapsuleStale,
+	"conflict_capsule_stale":                       domain.FailureKindConflictCapsuleStale,
+	"conflict_capsule_missing":                     domain.FailureKindConflictCapsuleStale,
 }
 
 // classifyExecutionFailure derives a domain.FailureKind from a Wharnex
@@ -255,6 +258,18 @@ func sessionFailureKind(item domain.Session) string {
 	if item.FailureKind == domain.FailureKindRemoteInputTransport && sessionHasSubmoduleWriteDiagnostic(item) {
 		return domain.FailureKindSubmoduleWrite
 	}
+	// A session that failed before conflict_capsule_refresh_required had its
+	// own FailureKind was classified into the generic planner_guidance_required
+	// bucket, which asks an operator for guidance that cannot exist: the
+	// planner named a mechanical gap in what the Engine sent, not a change in
+	// what the operator wants. Recognizing it here, the same way the
+	// submodule-write migration above recognizes its own prior bucket, is what
+	// makes RenewConflictCapsule reachable for a session already stuck in that
+	// state rather than only for one that fails after this classification
+	// exists.
+	if item.FailureKind == domain.FailureKindPlannerGuidanceRequired && sessionHasConflictCapsuleStaleDiagnostic(item) {
+		return domain.FailureKindConflictCapsuleStale
+	}
 	if item.FailureKind != "" {
 		return item.FailureKind
 	}
@@ -315,6 +330,33 @@ func sessionFailureKind(item domain.Session) string {
 		return domain.FailureKindPlannerGuidanceRequired
 	}
 	return ""
+}
+
+// conflictCapsuleStaleReasonCodes is the set of planner-reported reason codes
+// recognized as the same structural gap: a recovery round for an active
+// conflict thread reached the planner without a refreshed harness.conflict/v1
+// capsule for the paths it still owes a resolution for.
+var conflictCapsuleStaleReasonCodes = []string{
+	"conflict_capsule_refresh_required",
+	"conflict_capsule_stale",
+	"conflict_capsule_missing",
+}
+
+// sessionHasConflictCapsuleStaleDiagnostic recognizes the prose Wharnex itself
+// records for this failure (via plannerOutcomeFailureDetail's "Planner
+// reported <status>: <reason_code>: <message>" format) in a session
+// persisted before conflict_capsule_stale had its own FailureKind.
+func sessionHasConflictCapsuleStaleDiagnostic(item domain.Session) bool {
+	if item.IntegrationConflict == nil {
+		return false
+	}
+	detail := strings.ToLower(item.LastRepairError)
+	for _, code := range conflictCapsuleStaleReasonCodes {
+		if strings.Contains(detail, code) {
+			return true
+		}
+	}
+	return false
 }
 
 func sessionHasSubmoduleWriteDiagnostic(item domain.Session) bool {
