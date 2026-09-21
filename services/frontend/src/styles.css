@@ -5832,6 +5832,33 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .docker-compose-toggle { width:100%; }
 .docker-compose-toggle strong,.docker-resource-select strong { overflow:hidden; color:var(--theme-text); font-size:calc(10px * var(--docker-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
 .docker-compose-containers .docker-resource-row { padding-left:42px; }
+
+/* Exact Docker density from feature/improvements. Keep the split and detail
+   hierarchy stable while allowing the newer resource/filter actions. */
+.docker-services-header { min-height:48px; padding:8px 8px 8px 12px; }
+.docker-services-header strong { font-size:calc(10px * var(--ui-font-scale)); }
+.docker-services-header small { font-size:calc(7px * var(--ui-font-scale)); }
+.docker-services-layout { grid-template-columns:minmax(178px,42%) minmax(0,1fr); }
+.docker-section-heading { min-height:30px; padding:0 8px; grid-template-columns:10px 14px minmax(0,1fr) auto; gap:5px; }
+.docker-section-heading strong { font-size:calc(7.5px * var(--ui-font-scale)); }
+.docker-section-items { padding:1px 0 4px; }
+.docker-resource-row { min-height:30px; padding:4px 8px 4px 27px; }
+.docker-resource-copy strong { font-size:calc(7px * var(--ui-font-scale)); }
+.docker-resource-copy small { font-size:calc(6px * var(--ui-font-scale)); }
+.docker-container-heading { min-height:58px; padding:9px 12px; }
+.docker-container-identity { display:flex; align-items:center; gap:8px; }
+.docker-container-identity > div { min-width:0; display:grid; gap:2px; }
+.docker-container-identity strong { font-size:calc(9px * var(--ui-font-scale)); }
+.docker-container-identity small { font-size:calc(6.2px * var(--ui-font-scale)); }
+.docker-container-actions { padding:7px 10px; flex-wrap:wrap; }
+.docker-detail-tabs { height:32px; padding:0 10px; display:flex; align-items:flex-end; gap:14px; }
+.docker-detail-tabs button { height:31px; padding:0 1px; font-size:calc(6.8px * var(--ui-font-scale)); }
+.docker-container-overview { padding:10px; gap:1px; }
+.docker-fact { min-height:38px; padding:6px 8px; grid-template-columns:minmax(74px,27%) minmax(0,1fr); gap:9px; }
+.docker-fact span { font-size:calc(6.3px * var(--ui-font-scale)); }
+.docker-fact strong { font-size:calc(6.5px * var(--ui-font-scale)); }
+.docker-services-footer { min-height:28px; font-size:calc(6px * var(--ui-font-scale)); }
+@container (max-width: 430px) { .docker-services-layout { grid-template-columns:1fr; grid-template-rows:minmax(170px,42%) minmax(0,1fr); } }
 .docker-compose-actions,.docker-container-actions { display:flex; align-items:center; gap:3px; }
 .docker-compose-actions button,.docker-container-actions button { height:25px; padding:0 7px; display:inline-flex; align-items:center; gap:4px; border:1px solid var(--theme-border); border-radius:4px; background:transparent; color:var(--theme-text-muted); font-size:calc(7.5px * var(--docker-font-scale)); cursor:pointer; }
 .docker-compose-redeploy:hover,.docker-container-actions button:hover { border-color:color-mix(in srgb,var(--theme-accent) 45%,var(--theme-border)); background:var(--theme-accent-soft); color:var(--theme-accent); }
