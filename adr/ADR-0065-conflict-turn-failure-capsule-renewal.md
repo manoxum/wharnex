@@ -63,6 +63,38 @@ allowlist, so classifying this failure is what stops the prohibited
 capsule-less repair from being generated again, independent of the new
 recovery being invoked.
 
+## Amendment — path drift discovered by the replay itself
+
+Recovering the session above with `RenewConflictCapsule` uncovered a second,
+related gap in the same incident. The next automatic Apply replayed the
+conflict's own candidate commit (`ADR-0054`'s "canonical residual" of every
+non-conflicting path) against the host again, and this time `git apply
+--3way` itself reported new conflicts on paths the capsule never
+authorized — `services/frontend/src/components/GitDrawer.tsx`,
+`GitDrawer.test.tsx` and `styles.css` had drifted out of sync with the host
+between rounds. That failure is a plain `error`, not one of the two typed
+conflict shapes (`pendingChangeSetReplayConflict`,
+`pendingIntegrationReplayConflict`) that already carry a parsed path list, so
+it fell to the same-request retry branch, which called
+`prepareConflictResolutionRetry` — the `ADR-0054` byte-identical resend that
+is correct only when the path set has not changed. Sent for a capsule that
+authorized one path while three others now failed, the planner reported the
+same `conflict_capsule_refresh_required` code again, for the same underlying
+reason `RenewConflictCapsule` exists to fix: the capsule was incomplete, not
+merely stale.
+
+`extendConflictWithReplayDrift` closes this gap where it occurs. It reads the
+new conflicting paths straight out of `git apply --3way`'s own "Applied patch
+to '<path>' with conflicts." lines (`parseGitApplyConflictPaths`), and when
+any of them are not already in the open conflict's `Paths`, extends the
+thread with them — every new path reuses an already-known path's
+`ConflictPathSource`, since a replay failure here is the *same* candidate
+commit the thread already owns, never a new collision — and calls
+`refreshConflictCapsule` to rebuild and resend the full, now-complete
+capsule. Only when the replay names no path outside the capsule's authority
+does the branch fall through to the original `prepareConflictResolutionRetry`
+byte-copy, preserving `ADR-0054`'s behavior for the case it was designed for.
+
 ## Consequences
 
 - A conflict-resolution turn that fails at the planner level, not only one
@@ -75,9 +107,15 @@ recovery being invoked.
 - `POST /api/sessions/{id}/conflict-capsule-renew` is the new endpoint;
   `api.renewConflictCapsule` is its frontend client. Surfacing it as an
   attention-center action is left to the UI work that follows this fix.
+- A local replay that discovers additional conflicting paths mid-resolution
+  no longer resends a capsule the planner already knows is incomplete;
+  `ADR-0054`'s byte-identical retry remains the automatic path whenever the
+  conflicting path set is genuinely unchanged.
 
 ## Verification
 
-`go build ./...` and `go test ./...` pass for `services/backend`. The stuck
-session named in Evidence was recovered by calling the new endpoint directly
-against the running backend.
+`go build ./...` and `go test ./...` pass for `services/backend`, including
+new unit coverage for `parseGitApplyConflictPaths`. The stuck session named
+in Evidence was recovered by calling the new endpoint directly against the
+running backend, then again once the replay-drift amendment above was
+deployed.

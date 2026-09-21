@@ -76,3 +76,32 @@ func TestIntegrationVerificationKeepsEveryGateWhenNothingRepeats(t *testing.T) {
 		t.Fatalf("no pending changes means no gates, got %d", len(runs))
 	}
 }
+
+func TestParseGitApplyConflictPathsExtractsOnlyConflictingFiles(t *testing.T) {
+	// Real `git apply --3way` output: several files apply cleanly, two do
+	// not. Only the ones this thread's capsule does not yet authorize matter
+	// to extendConflictWithReplayDrift, so the parser must report exactly
+	// the "with conflicts" files and ignore the "cleanly" ones.
+	diagnostic := "replay pending plan plan_20260920T222003_git_mutation_review: git apply --3way failed: " +
+		"Applied patch to 'AGENTS.md' cleanly. " +
+		"Applied patch to 'services/frontend/src/components/GitDrawer.test.tsx' with conflicts. " +
+		"Applied patch to 'services/frontend/src/components/GitDrawer.tsx' with conflicts. " +
+		"Falling back to direct application... " +
+		"Applied patch to 'services/frontend/src/styles.css' with conflicts."
+	got := parseGitApplyConflictPaths(diagnostic)
+	want := []string{
+		"services/frontend/src/components/GitDrawer.test.tsx",
+		"services/frontend/src/components/GitDrawer.tsx",
+		"services/frontend/src/styles.css",
+	}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestParseGitApplyConflictPathsIsEmptyForAnUnrelatedFailure(t *testing.T) {
+	if got := parseGitApplyConflictPaths("connection refused while pushing to origin"); len(got) != 0 {
+		t.Fatalf("an unrelated failure must report no conflicting paths, got %v", got)
+	}
+}

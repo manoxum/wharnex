@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -862,6 +863,92 @@ func (s *Service) refreshConflictCapsule(ctx context.Context, sessionID string, 
 		s.bus.Publish(sessionID, "conflict.capsule_renewed", map[string]any{"conflict_id": conflict.ID, "request_id": requestID, "parent_request_id": parentRequestID, "paths": paths})
 	}
 	return updated, err
+}
+
+// gitApplyConflictPathPattern matches the per-file lines `git apply --3way`
+// itself prints when a hunk in that file did not apply cleanly. It is the
+// command's own literal wording (see patch_strategy.go), never Wharnex prose.
+var gitApplyConflictPathPattern = regexp.MustCompile(`Applied patch to '([^']+)' with conflicts\.`)
+
+// parseGitApplyConflictPaths extracts the paths a `git apply --3way` attempt
+// reported as conflicting from that command's own stdout/stderr text.
+func parseGitApplyConflictPaths(diagnostic string) []string {
+	matches := gitApplyConflictPathPattern.FindAllStringSubmatch(diagnostic, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(matches))
+	for _, match := range matches {
+		paths = append(paths, match[1])
+	}
+	return normalizedPaths(paths)
+}
+
+// extendConflictWithReplayDrift folds newly observed conflicting paths a
+// local replay just reported into the session's already-open conflict
+// thread, then rebuilds and resends a full capsule covering the union.
+//
+// A replay failure this late in the flow — replaying the SAME candidate
+// commit this conflict thread already owns, restricted to paths it once
+// considered non-conflicting (see ADR-0054's cumulative path replacement) —
+// is not a fresh git merge, so it never reaches prepareConflictResolutionFromMerge.
+// Left alone, the generic same-capsule retry below (prepareConflictResolutionRetry)
+// resends byte-identical content that never authorized the paths this replay
+// just failed on, and the planner rejects it exactly as ADR-0065 describes
+// for a stale capsule — except here the capsule was never stale, only
+// incomplete. Every new path shares the one candidate commit's CandidateSHA
+// and MergeBaseSHA that an already-known path already recorded, so reusing
+// that source is exact, not a guess.
+//
+// ok is false when the diagnostic named no path outside what the capsule
+// already authorizes, so the caller falls back to the cheaper same-capsule
+// retry ADR-0054 describes for a genuinely unchanged path set.
+func (s *Service) extendConflictWithReplayDrift(ctx context.Context, sessionID string, item domain.Session, cause error) (updated domain.Session, ok bool, err error) {
+	conflict := item.IntegrationConflict
+	if conflict == nil || cause == nil {
+		return item, false, nil
+	}
+	observed := parseGitApplyConflictPaths(cause.Error())
+	if len(observed) == 0 {
+		return item, false, nil
+	}
+	known := make(map[string]bool, len(conflict.Paths))
+	for _, path := range conflict.Paths {
+		known[path] = true
+	}
+	newPaths := make([]string, 0, len(observed))
+	for _, path := range observed {
+		if !known[path] {
+			newPaths = append(newPaths, path)
+		}
+	}
+	if len(newPaths) == 0 {
+		return item, false, nil
+	}
+	var fresh domain.ConflictPathSource
+	for _, source := range conflict.PathSources {
+		fresh = source
+		break
+	}
+	extended := *conflict
+	extended.Paths = normalizedPaths(append(append([]string(nil), conflict.Paths...), newPaths...))
+	extended.PathSources = make(map[string]domain.ConflictPathSource, len(conflict.PathSources)+len(newPaths))
+	for path, source := range conflict.PathSources {
+		extended.PathSources[path] = source
+	}
+	for _, path := range newPaths {
+		extended.PathSources[path] = fresh
+	}
+	withExtendedConflict, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		current.IntegrationConflict = &extended
+		return nil
+	})
+	if err != nil {
+		return item, false, err
+	}
+	s.bus.Publish(sessionID, "conflict.replay_drift_observed", map[string]any{"conflict_id": conflict.ID, "new_paths": newPaths})
+	renewed, err := s.refreshConflictCapsule(ctx, sessionID, withExtendedConflict)
+	return renewed, true, err
 }
 
 func validateConflictResolutionPlan(item domain.Session, plan *domain.ExecutionPlan) error {
