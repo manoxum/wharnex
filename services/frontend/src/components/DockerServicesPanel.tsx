@@ -261,7 +261,6 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
                 </div>
               </div>
               {projectOpen ? <>
-                <DockerComposeDefinition project={project}/>
                 <div className="docker-compose-containers">{containers.map((container) => <DockerContainerRow key={container.id} container={container} active={selection?.kind === 'container' && selection.key === container.id} onSelect={() => selectResource({ kind: 'container', key: container.id })}/>)}</div>
               </> : null}
             </div>
@@ -310,16 +309,6 @@ type DockerSectionIcon = 'package' | 'container' | 'image' | 'database' | 'netwo
 
 function DockerSection({ label, icon, count, open, onToggle, children }: { label: string; icon: DockerSectionIcon; count: number; open: boolean; onToggle: () => void; children: ReactNode }) {
   return <section className="docker-resource-section"><button type="button" className="docker-section-heading" aria-expanded={open} onClick={onToggle}><Icon name="chevron-right" size={10}/><Icon name={icon} size={13}/><strong>{label}</strong><span>{count}</span></button>{open ? <div className="docker-section-items">{children}</div> : null}</section>
-}
-
-function DockerComposeDefinition({ project }: { project: DockerComposeProject }) {
-  const files = project.config_files ?? []
-  if (!files.length) return null
-  return <div className="docker-compose-definition">
-    <div className="docker-compose-files" aria-label={`Ficheiros Compose de ${project.name}`}>
-      {files.map((file) => <span className="docker-compose-file" key={file} title={file}><Icon name="file" size={11}/><strong>{dockerComposeFileName(file)}</strong></span>)}
-    </div>
-  </div>
 }
 
 function DockerContainerRow({ container, active, onSelect }: { container: DockerContainer; active: boolean; onSelect: () => void }) {
@@ -570,7 +559,6 @@ function dockerStateTone(state: string) { const value = (state || '').toLowerCas
 function dockerConditionLabel(state: string) { const value = (state || '').toLowerCase(); if (value === 'running') return 'A correr'; if (value === 'error' || value === 'dead') return 'Erro'; if (value === 'restarting') return 'A reiniciar'; if (value === 'paused') return 'Pausado'; if (value === 'created') return 'Criado'; return 'Parado' }
 function dockerComposeTone(project: DockerComposeProject) { if (project.error_count > 0) return 'error'; if (project.container_count > 0 && project.running_count === project.container_count) return 'running'; if (project.running_count > 0) return 'warning'; return 'stopped' }
 function composeSummary(project: DockerComposeProject) { return `${project.running_count}/${project.container_count} running${project.error_count ? ` · ${project.error_count} erro` : ''}` }
-function dockerComposeFileName(value: string) { const parts = value.replaceAll('\\', '/').split('/').filter(Boolean); return parts.at(-1) || value }
 function dockerComposeServiceStatus(service: DockerComposeService): { tone: 'running' | 'warning' | 'error' | 'stopped'; label: string; detail: string } {
   if (service.error_count > 0) return { tone: 'error', label: 'Erro', detail: `${service.error_count} com erro · ${service.container_count} container${service.container_count === 1 ? '' : 's'}` }
   if (service.running_count > 0) return { tone: service.running_count === service.container_count ? 'running' : 'warning', label: 'Ativo', detail: `${service.running_count}/${service.container_count} container${service.container_count === 1 ? '' : 's'} ativo${service.running_count === 1 ? '' : 's'}` }

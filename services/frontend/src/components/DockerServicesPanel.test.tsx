@@ -49,7 +49,7 @@ describe('DockerServicesPanel', () => {
     openSection('Compose')
     fireEvent.click(screen.getByRole('button', { name: 'Expandir Compose project' }))
     expect((await screen.findAllByText('web')).length).toBeGreaterThan(0)
-    expect(screen.getByText('compose.yml')).toBeTruthy()
+    expect(screen.queryByText('compose.yml')).toBeNull()
     expect(screen.queryByLabelText('Serviço web: Ativo')).toBeNull()
     expect(screen.queryByLabelText('Serviço worker: Sem container')).toBeNull()
 
@@ -148,7 +148,8 @@ describe('DockerServicesPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Limpar filtro' }))
     fireEvent.change(screen.getByLabelText('Filtrar recursos Docker'), { target: { value: 'compose.yml' } })
-    expect(await within(tree).findByText('compose.yml')).toBeTruthy()
+    expect(await within(tree).findByRole('button', { name: 'Recolher Compose project' })).toBeTruthy()
+    expect(within(tree).queryByText('compose.yml')).toBeNull()
     expect(within(tree).queryByLabelText(/Serviço .*:/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Limpar filtro' }))
     openSection('Images')

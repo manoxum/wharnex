@@ -4,7 +4,9 @@ import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
 import { editorExecutableOptions, loadEditorRunHistory, parentDirectory, recentEditorRunOptions, rememberEditorRun, selectionCommand } from '../lib/editorExecution'
 import { workspaceDragEndedOutside, type WorkspaceSurfaceTransferPoint } from '../lib/workspaceSurface'
-import type { DockerComposeProject, DockerComposeService, DockerOverview, FileEntry, GitFileDiff, GitWorkingFile, Session, TerminalRunInput, WorkspaceFile } from '../types'
+import { parseEditorGitChanges, type EditorGitChange } from '../lib/editorGitChanges'
+import { dockerComposeRuntimeMarkers } from '../lib/editorRuntimeMarkers'
+import type { DockerOverview, FileEntry, GitFileDiff, GitWorkingFile, Session, TerminalRunInput, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
 import { FileGlyph } from './FileGlyph'
@@ -46,6 +48,8 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set())
   const [gitFiles, setGitFiles] = useState<GitWorkingFile[]>([])
   const [gitDiff, setGitDiff] = useState<GitFileDiff>()
+  const [gitLineDiff, setGitLineDiff] = useState<GitFileDiff>()
+  const [gitDiffScope, setGitDiffScope] = useState<string>()
   const [gitDiffLoading, setGitDiffLoading] = useState(false)
   const [dockerOverview, setDockerOverview] = useState<DockerOverview>()
   const [searchMode, setSearchMode] = useState<EditorSearchMode>()
@@ -71,7 +75,10 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const selected = documents.find((item) => item.path === activePath && !hiddenPathSet.has(item.path))
   const selectedPath = selected?.path
   const selectedGit = selectedPath ? gitByPath.get(selectedPath) : undefined
+  const selectedSaved = Boolean(selected && selected.draft === selected.content)
   const selectedComposeProject = useMemo(() => selectedPath ? dockerComposeProjectForFile(dockerOverview, session.project_path, selectedPath) : undefined, [dockerOverview, selectedPath, session.project_path])
+  const gitLineChanges = useMemo(() => selectedSaved && selectedPath && gitLineDiff?.path === selectedPath ? parseEditorGitChanges(gitLineDiff.diff, selectedPath) : [], [gitLineDiff, selectedPath, selectedSaved])
+  const runtimeMarkers = useMemo(() => selected && selectedComposeProject ? dockerComposeRuntimeMarkers(selected.draft, selectedComposeProject) : [], [selected, selectedComposeProject])
   useEffect(() => {
     if (activePath && hiddenPathSet.has(activePath)) setActivePath(visibleDocuments[0]?.path)
   }, [activePath, hiddenPathSet, visibleDocuments])
@@ -125,6 +132,17 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     return () => { cancelled = true; window.clearInterval(timer) }
   }, [active, selectedPath, session.id])
   useEffect(() => {
+    if (!active || !selectedPath || !selectedGit || !selectedSaved || isBinaryPreview(selectedPath) || selectedGit.kind === 'submodule' || selectedGit.kind === 'embedded_repository') {
+      setGitLineDiff(undefined)
+      return
+    }
+    let cancelled = false
+    void api.gitFileDiff(session.id, selectedPath)
+      .then((diff) => { if (!cancelled) setGitLineDiff(diff) })
+      .catch(() => { if (!cancelled) setGitLineDiff(undefined) })
+    return () => { cancelled = true }
+  }, [active, selectedGit, selectedPath, selectedSaved, session.id])
+  useEffect(() => {
     setDocuments([])
     documentsRef.current = []
     setSavingPaths(new Set())
@@ -133,6 +151,8 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     setPreviewPaths(new Set())
     setGitFiles([])
     setGitDiff(undefined)
+    setGitLineDiff(undefined)
+    setGitDiffScope(undefined)
     setDockerOverview(undefined)
     setSearchMode(undefined)
     setRevealLocation(undefined)
@@ -186,6 +206,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
         setActivePath((current) => current ? rename(current) : current)
         setPreviewPaths((items) => new Set([...items].map(rename)))
         setGitDiff((current) => current && (current.path === detail.from || current.path.startsWith(`${detail.from}/`)) ? undefined : current)
+        setGitLineDiff((current) => current && (current.path === detail.from || current.path.startsWith(`${detail.from}/`)) ? undefined : current)
       } else if (detail.kind === 'delete') {
         const removed = documentsRef.current.filter((item) => item.path === detail.path || item.path.startsWith(`${detail.path}/`))
         for (const document of removed) disposeEditorModel(document.path)
@@ -193,6 +214,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
         setActivePath((current) => current && (current === detail.path || current.startsWith(`${detail.path}/`)) ? undefined : current)
         setPreviewPaths((items) => new Set([...items].filter((path) => path !== detail.path && !path.startsWith(`${detail.path}/`))))
         setGitDiff((current) => current && (current.path === detail.path || current.path.startsWith(`${detail.path}/`)) ? undefined : current)
+        setGitLineDiff((current) => current && (current.path === detail.path || current.path.startsWith(`${detail.path}/`)) ? undefined : current)
       }
       void refreshFiles()
       void refreshGitState()
@@ -295,10 +317,27 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
 
   async function showGitDiff() {
     if (!selected) return
+    setGitDiffScope(undefined)
+    if (gitLineDiff?.path === selected.path) {
+      setGitDiff(gitLineDiff)
+      return
+    }
     setGitDiffLoading(true)
-    try { setGitDiff(await api.gitFileDiff(session.id, selected.path)) }
-    catch (error) { onError(messageOf(error)) }
+    try {
+      const diff = await api.gitFileDiff(session.id, selected.path)
+      setGitLineDiff(diff)
+      setGitDiff(diff)
+    } catch (error) { onError(messageOf(error)) }
     finally { setGitDiffLoading(false) }
+  }
+
+  function showGitChange(change: EditorGitChange) {
+    if (!selected) return
+    const maxLine = Math.max(1, selected.draft.replace(/\r\n/g, '\n').split('\n').length)
+    const start = change.kind === 'deleted' ? Math.min(change.anchorLine, maxLine) : change.startLine
+    const end = change.kind === 'deleted' ? start : change.endLine
+    setGitDiffScope(start === end ? `Alteração na linha ${start}` : `Alterações nas linhas ${start}–${end}`)
+    setGitDiff({ path: selected.path, diff: change.diff })
   }
 
   function runSelection(text: string) {
@@ -345,11 +384,10 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
               {!previewPaths.has(selected.path) && <><span>Ctrl+F ficheiro</span><span>Ctrl+Shift+F projeto</span><span>Shift Shift ficheiros</span></>}
             </div>
           </div>}
-          {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} revealLine={revealLocation?.path === selected.path ? revealLocation.line : undefined} revealColumn={revealLocation?.path === selected.path ? revealLocation.column : undefined} revealNonce={revealLocation?.path === selected.path ? revealLocation.nonce : 0} />}
+          {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} gitChanges={gitLineChanges} onGitChangeClick={showGitChange} runtimeMarkers={runtimeMarkers} revealLine={revealLocation?.path === selected.path ? revealLocation.line : undefined} revealColumn={revealLocation?.path === selected.path ? revealLocation.column : undefined} revealNonce={revealLocation?.path === selected.path ? revealLocation.nonce : 0} />}
           {!minimalSurface && <div className="editor-statusbar">
             <div className="editor-statusbar-primary">
               <span className="editor-statusbar-path">{selected.path}</span>
-              {selectedComposeProject && <EditorComposeRuntime project={selectedComposeProject}/>}
             </div>
             <div className="editor-statusbar-meta">{selectedGit && <GitFileState file={selectedGit} compact/>}<span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
           </div>}
@@ -359,17 +397,14 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     {searchMode && <EditorSearchPalette mode={searchMode} sessionId={session.id} files={files} onClose={() => setSearchMode(undefined)} onOpen={(path, line, column) => void openFileAt(path, line, column)} />}
     {gitDiff && <div className="diff-inspector-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}>
       <section className="diff-inspector editor-git-diff">
-        <header><div><strong>{gitDiff.path}</strong><span>{selected?.draft !== selected?.content ? 'O diff reflete o ficheiro guardado; aguarde o salvamento automático ou use Ctrl+S para o incluir.' : gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Diferença do worktree em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff">×</button></header>
-        {gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile} /> : <div className="editor-git-diff-empty"><Icon name="check" size={18}/><strong>Sem alterações Git neste ficheiro</strong><span>O conteúdo guardado coincide com HEAD ou o ficheiro ainda não faz parte de um diff rastreado.</span></div>}
+        <header><div><strong>{gitDiff.path}</strong><span>{gitDiffScope || (selected?.draft !== selected?.content ? 'O diff reflete o ficheiro guardado; aguarde o salvamento automático ou use Ctrl+S para o incluir.' : gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Diferença do worktree em relação ao HEAD.')}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff">×</button></header>
+        {gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile} fragmentOnly={Boolean(gitDiffScope)} /> : <div className="editor-git-diff-empty"><Icon name="check" size={18}/><strong>Sem alterações Git neste ficheiro</strong><span>O conteúdo guardado coincide com HEAD ou o ficheiro ainda não faz parte de um diff rastreado.</span></div>}
       </section>
     </div>}
   </section>
 }
 
 
-type ComposeRuntimeTone = 'running' | 'warning' | 'error' | 'stopped'
-
-type ComposeRuntimeState = { tone: ComposeRuntimeTone; label: 'A correr' | 'Parcial' | 'Erro' | 'Parado' }
 
 function dockerComposeProjectForFile(overview: DockerOverview | undefined, projectRoot: string, path: string) {
   if (!overview) return undefined
@@ -382,32 +417,6 @@ function normalizeEditorPath(value: string) {
   return normalized.length > 1 ? normalized.replace(/\/$/, '') : normalized
 }
 
-function composeRuntimeState(item: Pick<DockerComposeProject, 'container_count' | 'running_count' | 'error_count'> | DockerComposeService): ComposeRuntimeState {
-  if (item.error_count > 0) return { tone: 'error', label: 'Erro' }
-  if (item.container_count > 0 && item.running_count === item.container_count) return { tone: 'running', label: 'A correr' }
-  if (item.running_count > 0) return { tone: 'warning', label: 'Parcial' }
-  return { tone: 'stopped', label: 'Parado' }
-}
-
-function EditorComposeRuntime({ project }: { project: DockerComposeProject }) {
-  const projectState = composeRuntimeState(project)
-  return <div className="editor-compose-runtime" role="status" aria-label={`Estado Docker Compose ${project.name}`} title={`Compose ${project.name}: ${projectState.label}`}>
-    <div className={`editor-compose-runtime-project state-${projectState.tone}`}>
-      <i className={`editor-compose-state-dot state-${projectState.tone}`} aria-hidden="true"/>
-      <b>{project.name}</b>
-      <em>{projectState.label}</em>
-    </div>
-    {(project.services ?? []).map((service) => {
-      const state = composeRuntimeState(service)
-      const detail = `${service.running_count}/${service.container_count} containers${service.error_count ? ` · ${service.error_count} erro` : ''}`
-      return <div className={`editor-compose-runtime-service state-${state.tone}`} key={service.name} title={`${service.name}: ${state.label} · ${detail}`}>
-        <i className={`editor-compose-state-dot state-${state.tone}`} aria-hidden="true"/>
-        <b>{service.name}</b>
-        <em>{state.label}</em>
-      </div>
-    })}
-  </div>
-}
 
 function EditorTabs({ documents, activePath, savingPaths, gitByPath, surfaceMode = false, onSelect, onClose, onSave, onDetach, onSplit }: {
   documents: EditorDocument[]; activePath?: string; savingPaths: Set<string>; gitByPath: Map<string, GitWorkingFile>; surfaceMode?: boolean
