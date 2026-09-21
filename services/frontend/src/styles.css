@@ -9886,3 +9886,18 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
   border: 0;
   border-radius: 0;
 }
+
+/* Terminal canvas continuity + full-height Agent chat resource tabs. */
+.agent-chat-switcher .chat-tabs {
+  height: 100%;
+  align-self: stretch;
+  border-bottom: 0;
+}
+.agent-chat-switcher .chat-tab-group {
+  height: 100%;
+  min-height: 100%;
+}
+.agent-chat-switcher .chat-tab,
+.agent-chat-switcher .chat-tab-remove {
+  height: 100%;
+}

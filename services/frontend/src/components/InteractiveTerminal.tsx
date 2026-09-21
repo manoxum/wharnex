@@ -166,7 +166,9 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
 
   useEffect(() => subscribeUIPreferences((preferences) => {
     if (!terminalRef.current) return
-    terminalRef.current.options.theme = activeTerminalTheme()
+    const theme = activeTerminalTheme()
+    terminalRef.current.options.theme = theme
+    if (terminalRootRef.current) terminalRootRef.current.style.background = theme.background
     terminalRef.current.options.fontSize = workspaceTerminalFontSize(preferences)
     try { fitRef.current?.fit() } catch { /* panel may still be resizing */ }
   }), [])
@@ -180,7 +182,7 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
   }, [runRequest, session.id, status])
 
   return <section className="ide-terminal" style={{ height }}>
-    <div ref={terminalRootRef} className="terminal-xterm" aria-label="Terminal interactivo" title="Tab completa; Ctrl+R pesquisa; ↑/↓ navega; Ctrl+C interrompe; Ctrl+Shift+C/V copia e cola (⌘C/⌘V no macOS)." />
+    <div ref={terminalRootRef} className="terminal-xterm" style={{ background: activeTerminalTheme().background }} aria-label="Terminal interactivo" title="Tab completa; Ctrl+R pesquisa; ↑/↓ navega; Ctrl+C interrompe; Ctrl+Shift+C/V copia e cola (⌘C/⌘V no macOS)." />
   </section>
 }
 
