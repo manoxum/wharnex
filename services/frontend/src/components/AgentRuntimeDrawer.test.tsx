@@ -116,6 +116,21 @@ describe('AgentRuntimeDrawer', () => {
     }
   })
 
+  it('groups policy controls into readable operational sections', async () => {
+    window.wharnessDesktop = { agents: agentsBridge() } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
+
+    const provider = screen.getByRole('region', { name: 'Proteção do provedor' })
+    const capacity = screen.getByRole('region', { name: 'Capacidade dos agentes' })
+    const automation = screen.getByRole('region', { name: 'Automação dos Workers' })
+
+    expect(provider.querySelectorAll('.agent-runtime-policy-wide')).toHaveLength(2)
+    expect(capacity.querySelectorAll('.agent-runtime-scale-card')).toHaveLength(4)
+    expect(automation.querySelectorAll('.agent-runtime-scale-card')).toHaveLength(2)
+  })
+
   it('toggles Auto scale and global Keep flowing policies', async () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
