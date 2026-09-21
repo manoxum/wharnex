@@ -28,6 +28,8 @@ describe('InternalWindow', () => {
     const dialog = screen.getByRole('dialog', { name: 'Pré-visualização' })
     expect(dialog.getAttribute('aria-modal')).toBe('false')
     expect(document.querySelector('.internal-window-layer')?.className).toContain('example-layer')
+    expect(dialog.querySelector('.internal-window-controls')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Minimizar Pré-visualização' }).closest('[role="dialog"]')).toBe(dialog)
     const draft = screen.getByRole('textbox', { name: 'Rascunho' }) as HTMLInputElement
     fireEvent.change(draft, { target: { value: 'preservado' } })
 
