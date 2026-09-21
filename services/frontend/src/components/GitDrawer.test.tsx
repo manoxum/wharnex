@@ -61,7 +61,7 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
       { id: 'p1', project_path: '/w/alpha', subject: 'feat: one', message: 'feat: one\n\nRequest-Id: req_1', paths: ['a.go'], created_at: '2026-09-10T10:00:00Z' },
       { id: 'p2', project_path: '/w/alpha', subject: 'fix: two', message: 'fix: two', paths: ['b.go'], created_at: '2026-09-10T11:00:00Z' },
     ],
-    working: { clean: false, stageable_count: 2, files: [{ path: 'app.go', kind: 'change' }, { path: 'new.ts', kind: 'change' }] },
+    working: { clean: false, stageable_count: 2, files: [{ path: 'app.go', kind: 'change', status: 'modified' }, { path: 'new.ts', kind: 'change', status: 'added' }] },
     ...patch,
   }
 }

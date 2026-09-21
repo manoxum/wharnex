@@ -911,9 +911,12 @@ export type GitPendingCommit = {
   created_at: string
 }
 
+export type GitWorkingStatus = 'modified' | 'added' | 'deleted' | 'unmerged'
+
 export type GitWorkingFile = {
   path: string
   kind: 'change' | 'gitlink' | 'submodule' | 'embedded_repository' | 'unmerged'
+  status: GitWorkingStatus
   additions?: number
   deletions?: number
 }

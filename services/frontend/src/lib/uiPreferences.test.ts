@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_UI_PREFERENCES, loadUIPreferences, resolveContentScheme, resolveTheme, saveUIPreferences } from './uiPreferences'
+import { DEFAULT_UI_PREFERENCES, loadUIPreferences, resolveContentScheme, resolveTheme, saveUIPreferences, workspaceEditorFontSize, workspaceTerminalFontSize } from './uiPreferences'
 
 describe('UI preferences', () => {
   beforeEach(() => {
@@ -42,6 +42,14 @@ describe('UI preferences', () => {
     const saved = saveUIPreferences({ uiFont: 'elegant', monoFont: 'jetbrains', scale: 0, theme: 'original', errorPopups: true })
     expect(saved.scale).toBe(0.4)
     expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('0.528')
+  })
+
+  it('gives code and terminal surfaces readable scale-aware base sizes', () => {
+    expect(workspaceEditorFontSize(DEFAULT_UI_PREFERENCES)).toBe(14)
+    expect(workspaceTerminalFontSize(DEFAULT_UI_PREFERENCES)).toBe(13)
+    const enlarged = { ...DEFAULT_UI_PREFERENCES, scale: 1.25 }
+    expect(workspaceEditorFontSize(enlarged)).toBe(17.5)
+    expect(workspaceTerminalFontSize(enlarged)).toBe(16.3)
   })
 
   it('migrates legacy preferences without reviving floating tool windows', () => {

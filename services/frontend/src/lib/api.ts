@@ -88,7 +88,10 @@ export function normalizeGitOverview(overview: GitOverview): GitOverview {
     pending: Array.isArray(overview?.pending) ? overview.pending : [],
     working: {
       ...(overview?.working || { clean: true, stageable_count: 0 }),
-      files: Array.isArray(overview?.working?.files) ? overview.working.files : [],
+      files: Array.isArray(overview?.working?.files) ? overview.working.files.map((file) => ({
+        ...file,
+        status: file.status === 'added' || file.status === 'deleted' || file.status === 'unmerged' ? file.status : 'modified',
+      })) : [],
     },
   }
 }

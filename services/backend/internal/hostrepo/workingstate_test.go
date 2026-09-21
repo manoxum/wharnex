@@ -126,6 +126,27 @@ func TestWorkingReportsUnmergedPaths(t *testing.T) {
 	}
 }
 
+func TestWorkingPreservesHumanFacingPathStatuses(t *testing.T) {
+	requireGit(t)
+	root := newRepo(t, "modified.txt", "before\n")
+	write(t, root, "deleted.txt", "remove me\n")
+	git(t, root, "add", "deleted.txt")
+	git(t, root, "commit", "-qm", "add deleted fixture")
+	write(t, root, "modified.txt", "after\n")
+	write(t, root, "added.txt", "new\n")
+	if err := os.Remove(filepath.Join(root, "deleted.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := Working(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Statuses["modified.txt"] != "modified" || state.Statuses["added.txt"] != "added" || state.Statuses["deleted.txt"] != "deleted" {
+		t.Fatalf("expected modified/added/deleted statuses, got %+v", state.Statuses)
+	}
+}
+
 // Paths with spaces must survive classification: porcelain v2's path field is
 // the remainder of the record, not its last space-separated token.
 func TestWorkingHandlesPathsWithSpaces(t *testing.T) {

@@ -4,7 +4,7 @@ import { editorDisplayLanguage } from '../lib/editorLanguage'
 import { disposeEditorModel } from '../lib/monaco'
 import { editorExecutableOptions, loadEditorRunHistory, parentDirectory, recentEditorRunOptions, rememberEditorRun, selectionCommand } from '../lib/editorExecution'
 import { workspaceDragEndedOutside, type WorkspaceSurfaceTransferPoint } from '../lib/workspaceSurface'
-import type { FileEntry, GitFileDiff, Session, TerminalRunInput, WorkspaceFile } from '../types'
+import type { FileEntry, GitFileDiff, GitWorkingFile, Session, TerminalRunInput, WorkspaceFile } from '../types'
 import { CodeEditor } from './CodeEditor'
 import { Icon } from './Icon'
 import { FileGlyph } from './FileGlyph'
@@ -44,6 +44,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const failedAutosaveDraftsRef = useRef(new Map<string, string>())
   const [cursor, setCursor] = useState<Cursor>({ line: 1, column: 1 })
   const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set())
+  const [gitFiles, setGitFiles] = useState<GitWorkingFile[]>([])
   const [gitDiff, setGitDiff] = useState<GitFileDiff>()
   const [gitDiffLoading, setGitDiffLoading] = useState(false)
   const [searchMode, setSearchMode] = useState<EditorSearchMode>()
@@ -65,7 +66,9 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const [recentRuns, setRecentRuns] = useState(() => loadEditorRunHistory(session.project_path))
   const hiddenPathSet = useMemo(() => new Set(hiddenPaths), [hiddenPaths])
   const visibleDocuments = useMemo(() => documents.filter((item) => !hiddenPathSet.has(item.path)), [documents, hiddenPathSet])
+  const gitByPath = useMemo(() => new Map(gitFiles.map((file) => [file.path, file])), [gitFiles])
   const selected = documents.find((item) => item.path === activePath && !hiddenPathSet.has(item.path))
+  const selectedGit = selected ? gitByPath.get(selected.path) : undefined
   useEffect(() => {
     if (activePath && hiddenPathSet.has(activePath)) setActivePath(visibleDocuments[0]?.path)
   }, [activePath, hiddenPathSet, visibleDocuments])
@@ -81,7 +84,24 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     catch (error) { onError(messageOf(error)) }
   }, [session.id, onError])
 
+  const refreshGitState = useCallback(async () => {
+    try {
+      const overview = await api.gitOverview(session.id)
+      setGitFiles(overview.available ? overview.working.files : [])
+    } catch {
+      setGitFiles([])
+    }
+  }, [session.id])
+
   useEffect(() => { void refreshFiles() }, [refreshFiles])
+  useEffect(() => {
+    void refreshGitState()
+    if (!active) return
+    const sync = () => { if (document.visibilityState === 'visible') void refreshGitState() }
+    const timer = window.setInterval(sync, 4500)
+    window.addEventListener('wharnex:git-working-tree-changed', sync)
+    return () => { window.clearInterval(timer); window.removeEventListener('wharnex:git-working-tree-changed', sync) }
+  }, [active, refreshGitState])
   useEffect(() => {
     setDocuments([])
     documentsRef.current = []
@@ -89,6 +109,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     setActivePath(undefined)
     setCursor({ line: 1, column: 1 })
     setPreviewPaths(new Set())
+    setGitFiles([])
     setGitDiff(undefined)
     setSearchMode(undefined)
     setRevealLocation(undefined)
@@ -151,10 +172,11 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
         setGitDiff((current) => current && (current.path === detail.path || current.path.startsWith(`${detail.path}/`)) ? undefined : current)
       }
       void refreshFiles()
+      void refreshGitState()
     }
     window.addEventListener('wharnex:workspace-files-changed', onWorkspaceMutation)
     return () => window.removeEventListener('wharnex:workspace-files-changed', onWorkspaceMutation)
-  }, [refreshFiles])
+  }, [refreshFiles, refreshGitState])
 
   async function openFile(path: string) {
     if (documents.some((item) => item.path === path)) { setActivePath(path); return }
@@ -206,7 +228,8 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
         })
         documentsRef.current = nextDocuments
         setDocuments(nextDocuments)
-        await refreshFiles()
+        await Promise.all([refreshFiles(), refreshGitState()])
+        window.dispatchEvent(new CustomEvent('wharnex:git-working-tree-changed'))
         return fullySaved
       } catch (error) {
         if (sessionIDRef.current !== operationSessionID) return false
@@ -219,7 +242,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     })()
     savePromisesRef.current.set(saveKey, operation)
     try { return await operation } finally { savePromisesRef.current.delete(saveKey) }
-  }, [onError, refreshFiles, session.id])
+  }, [onError, refreshFiles, refreshGitState, session.id])
 
   useEffect(() => {
     const openPaths = new Set(documents.map((document) => document.path))
@@ -285,13 +308,14 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   return <section className="editor-workspace">
     <div className="editor-main">
       <div className="editor-area">
-        {visibleDocuments.length > 0 && !minimalSurface && <EditorTabs documents={visibleDocuments} activePath={activePath} savingPaths={savingPaths} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} />}
+        {visibleDocuments.length > 0 && !minimalSurface && <EditorTabs documents={visibleDocuments} activePath={activePath} savingPaths={savingPaths} gitByPath={gitByPath} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} />}
         {selected ? <>
           {!minimalSurface && <div className="editor-contextbar">
             <div className="editor-breadcrumbs">{selected.path.split('/').map((part, index, parts) => <span key={`${part}-${index}`}>{part}{index < parts.length - 1 && <i>›</i>}</span>)}</div>
             <div className="editor-shortcuts">
+              {selectedGit && <GitFileState file={selectedGit} className="editor-git-context-state"/>}
               {onLocateFile && <button title="Localizar este ficheiro no Explorer" onClick={() => onLocateFile(selected.path)}><Icon name="locate" size={12}/> Localizar</button>}
-              <button title="Comparar o ficheiro guardado com o Git" disabled={gitDiffLoading || isBinaryPreview(selected.path)} onClick={() => void showGitDiff()}><Icon name="git" size={12}/>{gitDiffLoading ? 'A comparar…' : 'Git diff'}</button>
+              <button title={selectedGit ? 'Comparar o ficheiro guardado com o Git' : 'Sem alterações Git guardadas neste ficheiro'} disabled={!selectedGit || gitDiffLoading || isBinaryPreview(selected.path) || selectedGit.kind === 'submodule' || selectedGit.kind === 'embedded_repository'} onClick={() => void showGitDiff()}><Icon name="git" size={12}/>{gitDiffLoading ? 'A comparar…' : 'Git diff'}</button>
               {directRunOption && <button title={directRunOption.label} onClick={() => runAction(directRunOption.id)}><Icon name="play" size={11}/> Executar</button>}
               {recentRunOptions.length > 0 && <details className="editor-run-menu"><summary><Icon name="play" size={11}/> Recentes</summary><div>{recentRunOptions.map((option) => <button type="button" key={`${option.cwd}:${option.command}`} onClick={(event) => { runAction(option.id); (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open') }}><span>{option.label}</span><code>{option.command}</code></button>)}</div></details>}
               {isRichPreview(selected.path) && !isBinaryPreview(selected.path) && <button title="Alternar editor e pré-visualização" onClick={() => setPreviewPaths((items) => { const next = new Set(items); if (next.has(selected.path)) next.delete(selected.path); else next.add(selected.path); return next })}><Icon name={previewPaths.has(selected.path) ? 'code' : 'external'} size={12}/>{previewPaths.has(selected.path) ? 'Editar' : 'Pré-visualizar'}</button>}
@@ -301,7 +325,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
           {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} revealLine={revealLocation?.path === selected.path ? revealLocation.line : undefined} revealColumn={revealLocation?.path === selected.path ? revealLocation.column : undefined} revealNonce={revealLocation?.path === selected.path ? revealLocation.nonce : 0} />}
           {!minimalSurface && <div className="editor-statusbar">
             <span>{selected.path}</span>
-            <div><span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
+            <div>{selectedGit && <GitFileState file={selectedGit} compact/>}<span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
           </div>}
         </> : <div className="editor-empty"><div className="empty-mark">&lt;/&gt;</div><h3>Abra um ficheiro no Explorador do projeto</h3><p>O Editor agora usa o explorador único do workbench. Abra a tool window Projeto numa das barras e escolha um ficheiro; as tabs preservam rascunhos, undo, pesquisa, folding e navegação por linha.</p></div>}
       </div>
@@ -316,8 +340,8 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   </section>
 }
 
-function EditorTabs({ documents, activePath, savingPaths, surfaceMode = false, onSelect, onClose, onSave, onDetach, onSplit }: {
-  documents: EditorDocument[]; activePath?: string; savingPaths: Set<string>; surfaceMode?: boolean
+function EditorTabs({ documents, activePath, savingPaths, gitByPath, surfaceMode = false, onSelect, onClose, onSave, onDetach, onSplit }: {
+  documents: EditorDocument[]; activePath?: string; savingPaths: Set<string>; gitByPath: Map<string, GitWorkingFile>; surfaceMode?: boolean
   onSelect: (path: string) => void; onClose: (path: string) => void; onSave: (path: string) => Promise<boolean>
   onDetach?: (path: string, point?: WorkspaceSurfaceTransferPoint) => void; onSplit?: (path: string, direction: 'vertical' | 'horizontal') => void
 }) {
@@ -325,8 +349,9 @@ function EditorTabs({ documents, activePath, savingPaths, surfaceMode = false, o
     <div className="editor-tabs-scroll">{documents.map((document) => {
       const dirty = document.draft !== document.content
       const name = document.path.split('/').pop() || document.path
+      const gitFile = gitByPath.get(document.path)
       return <button className={`editor-tab ${activePath === document.path ? 'active' : ''}`} key={document.path} draggable={Boolean(onDetach)} onDragEnd={(event) => { if (onDetach && workspaceDragEndedOutside(event)) onDetach(document.path, { screenX: event.screenX, screenY: event.screenY }) }} onClick={() => onSelect(document.path)} title={document.path}>
-        <FileGlyph path={document.path} size={13}/><span>{name}</span>{dirty && <i className="dirty-dot"/>}
+        <FileGlyph path={document.path} size={13}/><span>{name}</span>{gitFile && <GitFileState file={gitFile} compact/>}{dirty && <i className="dirty-dot"/>}
         {!surfaceMode && <span className="editor-tab-close" aria-hidden="true" onClick={(event) => { event.stopPropagation(); onClose(document.path) }}>×</span>}
       </button>
     })}</div>
@@ -337,6 +362,13 @@ function EditorTabs({ documents, activePath, savingPaths, surfaceMode = false, o
     <button className="editor-save" disabled={!activePath || !documents.some((item) => item.path === activePath && item.draft !== item.content) || Boolean(activePath && savingPaths.has(activePath))} onClick={() => activePath && void onSave(activePath)} title="Guardar agora (Ctrl+S)"><Icon name="save" size={14}/>Guardar agora</button>
     </div>
   </div>
+}
+
+
+function GitFileState({ file, compact = false, className = '' }: { file: GitWorkingFile; compact?: boolean; className?: string }) {
+  const code = file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : file.status === 'unmerged' ? '!' : 'M'
+  const label = file.status === 'added' ? 'Adicionado' : file.status === 'deleted' ? 'Removido' : file.status === 'unmerged' ? 'Conflito' : 'Modificado'
+  return <span className={`editor-git-file-state ${file.status} ${compact ? 'compact' : ''} ${className}`.trim()} title={`${label} no Git · +${file.additions || 0} −${file.deletions || 0}`}><b>{code}</b>{!compact && file.additions ? <i className="git-lines-added">+{file.additions}</i> : null}{!compact && file.deletions ? <i className="git-lines-deleted">−{file.deletions}</i> : null}</span>
 }
 
 function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }
