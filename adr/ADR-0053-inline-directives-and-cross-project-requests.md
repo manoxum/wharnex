@@ -90,6 +90,14 @@ The composer now treats `@file` as a request-local context selector rather than 
 
 `@see` is now purely a semantic spotlight over an existing transport source. Its source picker understands `file`, `chat`, `lib`, `ref`, `attach` and `upload`, while legacy `project` and bare-upload forms remain parseable for continuity. A `file`/legacy-project source resolves through the primary project context; `chat` and `lib` reuse the same artefact materialization paths as their canonical directives; references, external attachments and uploads keep their existing namespaces. The `@see` marker itself never creates another byte transport, never widens write authority and never generates a reference thumbnail — the inline chip is the whole additional UI state.
 
+## Indexed-source `@see` autocomplete (v1.3.14)
+
+`@see` no longer discovers a second universe of references. Its autocomplete is a projection of what the operator has already committed in the current composer: completed canonical `@file`, `@ref`, `@lib`, `@chat`, `@todo` and `@attach` markers, plus direct uploads already attached to the message. An incomplete typed fragment does not count as indexed, and another `@see` never becomes a source. This keeps the spotlight subordinate to an existing reference instead of turning it into an alternate admission path.
+
+The source menu has a stable semantic order rather than an alphabetical one: direct attachments first, then primary-project `@file`, then `@ref`, then stored/synthetic references (`@lib`, `@chat`, `@todo`), followed by any remaining indexed source kinds such as external `@attach`. Within `@file`, `@ref` and `@attach`, autocomplete is scoped to the path already indexed: indexing a directory may expose its admitted descendants, but it does not make siblings or the rest of that source visible to `@see`.
+
+The backend keeps the canonical parser backward-compatible, but a non-upload `@see` is resolved for the planner only when the request text also carries a matching backing directive whose scope covers the spotlight target. A hand-written or stale `@see` therefore cannot claim content that the composer did not index. Direct uploads remain the explicit exception because their admission is represented by the attachment transport rather than a second inline directive. None of this changes the original `@see` transport rule: it still adds no bytes, thumbnail or write authority of its own.
+
 ## Consequences
 
 - A cross-repository change is one request. The operator writes the relation once, in one sentence, and each project still gets its own sandbox, verification and integration.

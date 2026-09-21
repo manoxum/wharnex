@@ -1252,7 +1252,8 @@ describe('ChatPanel', () => {
     const view = render(
       <ChatPanel ref={ref} session={sourceSession} items={[]} chats={[]} activeChatId="see-source-test" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
-    typeInComposer(ref, 'destaca @see:', 14)
+    const prompt = 'usa @{[file]src} e destaca @see:'
+    typeInComposer(ref, prompt, prompt.length)
     expect(screen.getByRole('option', { name: /Projeto atual/ })).toBeTruthy()
     expect(screen.queryByRole('option', { name: /src\/App\.tsx/ })).toBeNull()
     fireEvent.click(screen.getByRole('option', { name: /Projeto atual/ }))
@@ -1260,7 +1261,7 @@ describe('ChatPanel', () => {
     expect(directoryOption).toBeTruthy()
     expect(screen.getByRole('option', { name: /src\/App\.tsx/ })).toBeTruthy()
     fireEvent.click(directoryOption!)
-    expect(composerText(ref)).toBe('destaca @{[see]file|src}')
+    expect(composerText(ref)).toBe('usa @{[file]src} e destaca @{[see]file|src}')
     view.unmount()
   })
 
@@ -1275,19 +1276,18 @@ describe('ChatPanel', () => {
     }
     const ref = panelRef()
     const view = render(<ChatPanel ref={ref} session={sourceSession} items={[]} chats={[]} activeChatId="directive-arrows" busy={false} onSend={async () => undefined} {...chatActions} />)
-    typeInComposer(ref, 'destaca @see:', 14)
+    const prompt = 'usa @{[file]src} e @{[ref]flowcore/api} e destaca @see:'
+    typeInComposer(ref, prompt, prompt.length)
     const editor = ref.current?.getComposerEditor()
     fireEvent.keyDown(editor!.root, { key: 'ArrowDown' })
     expect(screen.getByRole('option', { name: /@ref flowcore/ }).getAttribute('aria-selected')).toBe('true')
     fireEvent.keyDown(editor!.root, { key: 'ArrowUp' })
     expect(screen.getByRole('option', { name: /Projeto atual/ }).getAttribute('aria-selected')).toBe('true')
     fireEvent.keyDown(editor!.root, { key: 'Enter' })
-    expect(composerText(ref)).toBe('destaca @see:file|')
+    expect(composerText(ref)).toBe('usa @{[file]src} e @{[ref]flowcore/api} e destaca @see:file|')
     view.unmount()
   })
 
-  // Nothing bound is not a failed search: the operator has made no mistake, and
-  // saying so points at the action that fixes it.
   it('explains an empty @ref menu when Wharnex knows no other project', () => {
     const ref = panelRef()
     const view = render(

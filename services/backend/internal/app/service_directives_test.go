@@ -85,17 +85,33 @@ func TestDirectiveLegendExplainsTodoAnalysisTransport(t *testing.T) {
 	}
 }
 
+func TestDirectiveLegendResolvesSeeTodoThroughExistingTodoTransport(t *testing.T) {
+	legend := directiveLegendWithContext("index @{[todo]todo_1} then focus @{[see]todo|todo_1}", domain.ContextBundle{})
+	for _, want := range []string{"@todo", "@{[todo]todo_1}", "prioritize this TODO"} {
+		if !strings.Contains(legend, want) {
+			t.Fatalf("legend must explain TODO spotlight %q: %s", want, legend)
+		}
+	}
+}
+
 func TestDirectiveLegendResolvesQualifiedSeeToExactBundlePath(t *testing.T) {
 	context := domain.ContextBundle{
 		Manifest:        manifestWith("src/App.tsx"),
 		RelatedProjects: []domain.RelatedProjectContext{{Name: "core", Prefix: "RELATED_PROJECTS/01-core/", Manifest: manifestWith("api/auth.go")}},
 		Attachments:     []domain.AttachedPathContext{{Root: "/srv/contracts", Prefix: "ATTACHMENTS/01-contracts/", IncludedPaths: []string{"openapi/api.yml"}}},
 	}
-	legend := directiveLegendWithContext("focus @{[see]file|src/App.tsx} @{[see]ref|core|api/auth.go} @{[see]attach|/srv/contracts|openapi/api.yml} @{[see]chat|artifact|artifact_1} @{[see]lib|session|ses_1|artifact_2}", context)
+	legend := directiveLegendWithContext("index @{[file]src} @{[ref]core/api} @{[attach]/srv/contracts} @{[chat]artifact|artifact_1} @{[lib]session|ses_1|artifact_2}; focus @{[see]file|src/App.tsx} @{[see]ref|core|api/auth.go} @{[see]attach|/srv/contracts|openapi/api.yml} @{[see]chat|artifact|artifact_1} @{[see]lib|session|ses_1|artifact_2}", context)
 	for _, path := range []string{"src/App.tsx", "ref-context/01-core/api/auth.go", "att-context/attach-01/openapi/api.yml", "@{[chat]artifact|artifact_1}", "@{[lib]session|ses_1|artifact_2}"} {
 		if !strings.Contains(legend, path) {
 			t.Fatalf("legend must resolve %q: %s", path, legend)
 		}
+	}
+}
+
+func TestDirectiveLegendRejectsUnindexedSeeSource(t *testing.T) {
+	legend := directiveLegendWithContext("focus @{[see]file|src/App.tsx}", domain.ContextBundle{Manifest: manifestWith("src/App.tsx")})
+	if !strings.Contains(legend, "not backed by an indexed composer reference") || strings.Contains(legend, "prioritize this file") {
+		t.Fatalf("unindexed @see must not resolve: %s", legend)
 	}
 }
 
@@ -105,7 +121,7 @@ func TestDirectiveLegendResolvesSeeDirectoriesFromVisibleDescendants(t *testing.
 		RelatedProjects: []domain.RelatedProjectContext{{Name: "core", Prefix: "RELATED_PROJECTS/01-core/", Manifest: manifestWith("api/auth/handler.go")}},
 		Attachments:     []domain.AttachedPathContext{{Root: "/srv/contracts", Prefix: "ATTACHMENTS/01-contracts/", IncludedPaths: []string{"openapi/v1/api.yml"}}},
 	}
-	legend := directiveLegendWithContext("focus @{[see]file|src} @{[see]ref|core|api/auth} @{[see]attach|/srv/contracts|openapi}", context)
+	legend := directiveLegendWithContext("index @{[file]src} @{[ref]core/api} @{[attach]/srv/contracts}; focus @{[see]file|src} @{[see]ref|core|api/auth} @{[see]attach|/srv/contracts|openapi}", context)
 	for _, path := range []string{"src/", "ref-context/01-core/api/auth/", "att-context/attach-01/openapi/"} {
 		if !strings.Contains(legend, path) {
 			t.Fatalf("legend must resolve directory %q: %s", path, legend)
