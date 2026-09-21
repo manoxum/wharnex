@@ -161,8 +161,8 @@ type Directive struct {
 	// Path is the path half of Value and Project is empty.
 	Project string
 	Path    string
-	// Source qualifies KindSee as file/project, ref, attach, upload, chat or
-	// lib. Empty is the legacy bare-upload spelling and is interpreted as upload.
+	// Source qualifies KindSee as file/project, ref, attach, upload, chat, lib or
+	// todo. Empty is the legacy bare-upload spelling and is interpreted as upload.
 	Source string
 	// Rules is the include/exclude selection for a KindAttach directive that
 	// points at a directory. It is deliberately the same shape the project's own
@@ -342,58 +342,6 @@ func parseLibraryValue(raw string) (Directive, bool) {
 	}
 	value := "session|" + parts[1] + "|" + parts[2]
 	return Directive{Kind: KindLib, Value: value, Project: parts[1], Path: parts[2], Source: "library"}, true
-}
-
-func parseSeeValue(raw string) (Directive, bool) {
-	if raw == "" || len(raw) > MaxValueLength || strings.ContainsAny(raw, "{}\x00") {
-		return Directive{}, false
-	}
-	parts := strings.Split(raw, "|")
-	if len(parts) == 1 {
-		name, ok := safeAttachmentName(raw)
-		return Directive{Kind: KindSee, Value: name, Source: "upload", Project: "upload", Path: name}, ok
-	}
-	source := parts[0]
-	switch source {
-	case "file", "project":
-		if len(parts) != 2 {
-			return Directive{}, false
-		}
-		file, ok := safeRelativePath(parts[1])
-		return Directive{Kind: KindSee, Value: source + "|" + file, Source: source, Project: source, Path: file}, ok
-	case "chat":
-		target, ok := parseChatValue(strings.TrimPrefix(raw, "chat|"))
-		if !ok {
-			return Directive{}, false
-		}
-		return Directive{Kind: KindSee, Value: "chat|" + target.Value, Source: source, Project: target.Project, Path: target.Path}, true
-	case "lib":
-		target, ok := parseLibraryValue(strings.TrimPrefix(raw, "lib|"))
-		if !ok {
-			return Directive{}, false
-		}
-		return Directive{Kind: KindSee, Value: "lib|" + target.Value, Source: source, Project: target.Project, Path: target.Path}, true
-	case "upload":
-		if len(parts) != 2 {
-			return Directive{}, false
-		}
-		name, ok := safeAttachmentName(parts[1])
-		return Directive{Kind: KindSee, Value: "upload|" + name, Source: source, Project: source, Path: name}, ok
-	case "ref":
-		if len(parts) != 3 || !ValidProjectName(parts[1]) {
-			return Directive{}, false
-		}
-		file, ok := safeRelativePath(parts[2])
-		return Directive{Kind: KindSee, Value: "ref|" + parts[1] + "|" + file, Source: source, Project: parts[1], Path: file}, ok
-	case "attach":
-		if len(parts) != 3 || !strings.HasPrefix(parts[1], "/") || strings.ContainsAny(parts[1], "{}\x00") {
-			return Directive{}, false
-		}
-		file, ok := safeRelativePath(parts[2])
-		return Directive{Kind: KindSee, Value: "attach|" + parts[1] + "|" + file, Source: source, Project: parts[1], Path: file}, ok
-	default:
-		return Directive{}, false
-	}
 }
 
 // safeAttachmentName accepts only a bare file name: no path separator, since a

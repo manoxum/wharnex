@@ -17,7 +17,6 @@ import {
   directiveKindQuery,
   directiveKindSuggestions,
   directiveQuery,
-  isCanonicalDirective,
   directiveSuggestions,
   parseDirectives,
   removeDirective,
@@ -44,6 +43,7 @@ import { activePendingRequestId } from '../lib/pendingRequest'
 import { ARTIFACT_INDEX_EVENT, artifactIndexMarker, type ArtifactIndexRequest } from '../lib/artifactIndexing'
 import { projectTodoPrePlanAttachment, storedAttachmentFile } from '../lib/projectTodoForwarding'
 import { loadUIPreferences } from '../lib/uiPreferences'
+import { composerDirectiveState } from '../lib/composerDirectiveIndex'
 
 const COMPOSER_TYPING_ATTENTION_MS = 1600
 const LONG_CHAT_MARKDOWN_CHARS = 1400
@@ -320,6 +320,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const whxNoticeRuns = useMemo(() => indexWhxNoticeRuns(visibleItems), [visibleItems])
   const eligibleProjectFiles = useMemo(() => session.context.manifest.files.map((file) => file.path).filter((path) => path !== 'EXPORTS.md'), [session.context.manifest.files])
   const projectFileCandidates = browsableProjectFiles.length ? browsableProjectFiles : eligibleProjectFiles
+  const directiveState = useMemo(() => composerDirectiveState(message), [message])
+  const parsedDirectives = directiveState.parsed
+  const canonicalReferenceDirectives = directiveState.indexed
   // `@ref` names any project Wharnex has worked on before — attached projects
   // first, so a shared basename resolves to the one already in front of the
   // operator, then every other known project by name only (its files are not
@@ -343,13 +346,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       .catch(() => { if (alive) setKnownProjects([]) })
     return () => { alive = false }
   }, [session.id])
-  const projectExplorerNeeded = fileQuery?.kind === 'file' || fileQuery?.kind === 'see'
+  const projectExplorerNeeded = fileQuery?.kind === 'file' || (fileQuery?.kind === 'see' && canonicalReferenceDirectives.some((directive) => directive.kind === 'file'))
   useEffect(() => {
     if (!projectExplorerNeeded) return
     let alive = true
     // Browsing the whole safe tree is comparatively expensive and can trigger
-    // unrelated async churn in the composer. Resolve it only while @file/@see
-    // is actively being completed; the context manifest remains the fallback
+    // unrelated async churn in the composer. Resolve it for @file, or for @see
+    // only when an already-indexed @file source needs its scoped descendants;
+    // the context manifest remains the fallback
     // everywhere else. listFiles already enforces project containment rules.
     void api.listFiles(session.id)
       .then((result) => { if (alive) setBrowsableProjectFiles((result.files || []).filter((entry) => entry.kind === 'file' && entry.path !== 'EXPORTS.md').map((entry) => entry.path)) })
@@ -399,7 +403,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }), [chatFiles, promptIndexByRequest])
   const libraryFileCandidates = useMemo(() => libraryArtifacts.map((item) => ({ value: `session|${item.session_id}|${item.artifact.id}`, label: item.artifact.name, detail: `${item.project_path} · ${item.artifact.kind}` })), [libraryArtifacts])
   const todoCandidates = useMemo(() => projectTodos.filter((todo) => todo.status === 'open').map((todo) => ({ value: todo.id, label: todo.body.slice(0, 90), detail: todo.execution_status === 'processing' ? 'Em execução' : todo.id })), [projectTodos])
-  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates) : [], [projectFileCandidates, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates])
+  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates, canonicalReferenceDirectives) : [], [projectFileCandidates, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates, canonicalReferenceDirectives])
   const kindSuggestions = useMemo(() => kindQuery ? directiveKindSuggestions(kindQuery.query) : [], [kindQuery])
   const activeSuggestionCount = kindQuery
     ? kindSuggestions.length
@@ -408,18 +412,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       : fileSuggestions.length
   const selectedSuggestionIndex = activeSuggestionCount ? Math.min(activeSuggestionIndex, activeSuggestionCount - 1) : 0
   useEffect(() => { setActiveSuggestionIndex(0) }, [fileQuery?.kind, fileQuery?.start, fileQuery?.end, fileQuery?.query, kindQuery?.start, kindQuery?.end, kindQuery?.query])
-  const parsedDirectives = useMemo(() => parseDirectives(message), [message])
-  // Miniatures are a projection only of completed canonical markers. Typed
-  // autocomplete fragments stay plain text until a concrete reference is chosen.
-  const canonicalReferenceDirectives = useMemo(() => {
-    const seen = new Set<string>()
-    return parsedDirectives.filter((directive) => directive.kind !== 'see' && isCanonicalDirective(message, directive)).filter((directive) => {
-      const key = canonicalDirective(directive)
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-  }, [message, parsedDirectives])
   const nextPromptIndex = useMemo(() => items.filter((item) => item.role === 'user').length + 1, [items])
   const attachedPaths = useMemo(() => parsedDirectives.filter((directive) => directive.kind === 'attach'), [parsedDirectives])
   const attachmentDirectiveKey = useMemo(() => attachedPaths.map(canonicalDirective).join(' '), [attachedPaths])
@@ -473,7 +465,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     return () => window.removeEventListener('wharnex:todo-insert', onTodoInsert)
   }, [activeChatId])
   const isProjectAttached = (name: string) => attachedProjects.some((project) => project.name.toLowerCase() === name.toLowerCase())
-  const isSeeTargetAvailable = (directive: ComposerDirective) => seeDirectiveAvailable(directive, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates)
+  const isSeeTargetAvailable = (directive: ComposerDirective) => seeDirectiveAvailable(directive, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates, canonicalReferenceDirectives)
   // The directive the caret currently sits inside, if any — the one that gets
   // the chip toolbar. Recomputed from the same parse the overlay itself draws
   // from, so "which chip is active" can never disagree with "which chips
@@ -1428,13 +1420,13 @@ function formatMessageTime(value?: string) {
 function directiveMenuHint(query: DirectiveQuery, results: number, knownProjects: number) {
   if (results) {
     if (query.kind === 'ref') return 'Escolha um projeto já trabalhado ou um ficheiro dele'
-    if (query.kind === 'see') return query.query.includes('|') ? 'Escolha o ficheiro ou diretório dentro desta fonte' : 'Primeiro escolha a fonte do caminho'
+    if (query.kind === 'see') return query.query.includes('|') ? 'Escolha o alvo dentro desta referência já indexada' : 'Escolha uma fonte já indexada no composer'
     if (query.kind === 'todo') return 'Escolha um TODO do projeto; pode referenciar vários no mesmo pedido'
     return 'Escolha um ficheiro do contexto'
   }
   if (query.kind === 'file') return 'Nenhum ficheiro elegível encontrado'
   if (query.kind === 'todo') return 'Nenhum TODO corresponde'
-  if (query.kind === 'see') return query.query.includes('|') ? 'Nenhum ficheiro ou diretório desta fonte corresponde' : 'Nenhuma fonte com caminhos disponíveis neste pedido'
+  if (query.kind === 'see') return query.query.includes('|') ? 'Nenhum alvo desta referência corresponde' : 'Indexe primeiro um anexo ou referência no composer'
   if (!knownProjects) return 'Nenhum outro projeto conhecido por este Wharnex'
   return 'Nenhum projeto ou ficheiro corresponde'
 }
