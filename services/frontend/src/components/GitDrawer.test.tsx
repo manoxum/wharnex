@@ -33,7 +33,7 @@ vi.mock('../lib/api', async () => {
       gitCreateBranch: vi.fn().mockResolvedValue({ outcome: 'created', branch: 'feature/new' }),
       gitDeleteBranch: vi.fn().mockResolvedValue({ outcome: 'deleted', branch: 'feature' }),
       gitGenerateReleaseNotes: vi.fn().mockResolvedValue({ body: '## Novidades\n- melhoria', commit_count: 2 }),
-      gitCreateRelease: vi.fn().mockResolvedValue({ outcome: 'published', remote: 'origin', branch: 'main', tag: 'v1.3.0', commit_sha: 'a1', release_url: 'https://github.com/org/repo/releases/tag/v1.3.0' }),
+      gitCreateRelease: vi.fn().mockResolvedValue({ outcome: 'published', remote: 'origin', branch: 'origin/main', tag: 'v1.2.97.3-rc1', commit_sha: 'a1', release_url: 'https://github.com/org/repo/releases/tag/v1.2.97.3-rc1' }),
       gitHistory: vi.fn().mockResolvedValue([]),
       gitHistoryPage: vi.fn().mockResolvedValue({ commits: [], next_offset: 0, has_more: false }),
       gitHistoryCommit: vi.fn(),
@@ -54,6 +54,7 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
   return {
     project_path: '/w/alpha', available: true, commit_mode: 'manual', detached: false, has_identity: true,
     current_branch: 'main',
+    project_version: 'v1.2.97.3',
     branches: [
       { name: 'main', current: true, commit_sha: 'a1', subject: 'feat: applied by whx', upstream: 'origin/main', ahead: 1, behind: 0, has_upstream: true, gone: false, counterpart: 'origin/main', has_counterpart: true },
       { name: 'feature', current: false, commit_sha: 'a2', subject: 'chore: earlier', ahead: 0, behind: 0, has_upstream: false, gone: false },
@@ -61,6 +62,7 @@ function overview(patch: Partial<GitOverview> = {}): GitOverview {
       { name: 'origin/feature', remote: 'origin', current: false, commit_sha: 'a2', subject: 'chore: earlier', ahead: 0, behind: 0, has_upstream: false, gone: false, counterpart: 'feature', has_counterpart: true },
     ],
     remotes: [{ name: 'origin', url: 'https://github.com/org/repo.git' }],
+    tags: [{ name: 'v1.2.96.0', commit_sha: 'a2a2a2a2a2a2', created_at: '2026-09-19T10:00:00Z' }],
     commits: [
       { sha: 'a1', short_sha: 'a1', subject: 'feat: applied by whx', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-10T10:00:00Z', parents: ['a2'], wharnex: true, merge: false, pushed: false },
       { sha: 'a2', short_sha: 'a2', subject: 'chore: earlier', author_name: 'Dev', author_email: 'dev@x', committed_at: '2026-09-09T10:00:00Z', parents: [], wharnex: false, merge: false, pushed: true },
@@ -170,39 +172,53 @@ describe('GitDrawer', () => {
     await waitFor(() => expect(api.gitDeleteBranch).toHaveBeenCalledWith('ses_1', 'feature'))
   })
 
-  it('requires an explicit release branch and publishes manual rich-text notes', async () => {
+  it('lists tags and publishes a VERSION-based release from a remote branch modal', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
     await screen.findByText('Alterações locais')
     openTab('Branches')
 
-    const publish = screen.getByRole('button', { name: 'Criar tag e release' }) as HTMLButtonElement
-    const releasePanel = screen.getByText('Preparar uma nova release').closest('.git-release-panel')
-    expect(releasePanel).toBeTruthy()
-    expect(releasePanel?.querySelectorAll('.git-release-card').length).toBe(2)
-    expect(screen.getByText('Preenche os campos obrigatórios')).toBeTruthy()
+    expect(screen.getByText('Tags e releases')).toBeTruthy()
+    expect(screen.getByText('v1.2.96.0')).toBeTruthy()
+    expect(screen.queryByText('Preparar uma nova release')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Nova release' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Criar nova release' })
+    const publish = within(dialog).getByRole('button', { name: 'Criar tag e release' }) as HTMLButtonElement
+    const branchSelect = within(dialog).getByRole('combobox', { name: 'Branch remota da release' })
+    expect(within(branchSelect).queryByRole('option', { name: 'main' })).toBeNull()
+    expect(within(branchSelect).getByRole('option', { name: 'origin/main' })).toBeTruthy()
+    expect(within(branchSelect).getByRole('option', { name: 'origin/feature' })).toBeTruthy()
+    expect(within(dialog).queryByRole('combobox', { name: 'Remoto da release' })).toBeNull()
+    expect(within(dialog).getAllByText('v1.2.97.3').length).toBeGreaterThan(0)
     expect(publish.disabled).toBe(true)
-    fireEvent.change(screen.getByRole('combobox', { name: 'Branch da release' }), { target: { value: 'main' } })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Tag da release' }), { target: { value: 'v1.3.0' } })
-    const editor = screen.getByRole('textbox', { name: 'Texto manual da release' })
+
+    fireEvent.change(branchSelect, { target: { value: 'origin/main' } })
+    const editor = within(dialog).getByRole('textbox', { name: 'Texto manual da release' })
     editor.innerHTML = '<strong>Release estável</strong>'
     fireEvent.input(editor)
     expect(publish.disabled).toBe(false)
-    expect(screen.getByText('Pronta para publicar')).toBeTruthy()
+
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Tag opcional da release' }), { target: { value: 'rc1' } })
+    expect(within(dialog).getAllByText('v1.2.97.3-rc1').length).toBeGreaterThan(0)
     fireEvent.click(publish)
 
     await waitFor(() => expect(api.gitCreateRelease).toHaveBeenCalledWith('ses_1', {
-      remote: 'origin', branch: 'main', tag: 'v1.3.0', title: '', body: '<strong>Release estável</strong>',
+      branch: 'origin/main', tag_suffix: 'rc1', title: '', body: '<strong>Release estável</strong>',
     }))
   })
 
-  it('can delegate release-note writing to GPT for the selected branch', async () => {
+  it('allows an empty tag suffix and can delegate release-note writing to GPT for the remote branch', async () => {
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
     await screen.findByText('Alterações locais')
     openTab('Branches')
-    fireEvent.change(screen.getByRole('combobox', { name: 'Branch da release' }), { target: { value: 'main' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Gerar com GPT' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Gerar notas da branch' }))
-    await waitFor(() => expect(api.gitGenerateReleaseNotes).toHaveBeenCalledWith('ses_1', 'main'))
+    fireEvent.click(screen.getByRole('button', { name: 'Nova release' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Criar nova release' })
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Branch remota da release' }), { target: { value: 'origin/main' } })
+    expect((within(dialog).getByRole('textbox', { name: 'Tag opcional da release' }) as HTMLInputElement).value).toBe('')
+    expect(within(dialog).getAllByText('v1.2.97.3').length).toBeGreaterThan(0)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Gerar com GPT' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Gerar notas da branch' }))
+    await waitFor(() => expect(api.gitGenerateReleaseNotes).toHaveBeenCalledWith('ses_1', 'origin/main'))
     expect((await screen.findByRole('textbox', { name: 'Notas de release geradas pelo GPT' }) as HTMLTextAreaElement).value).toContain('Novidades')
   })
 

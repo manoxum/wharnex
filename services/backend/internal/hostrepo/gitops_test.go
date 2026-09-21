@@ -892,6 +892,13 @@ func TestCreateDeleteBranchAndReleaseTagAreSafeAndIdempotent(t *testing.T) {
 	if again, err := CreateTagAtRef(context.Background(), root, "v1.0.0", "feature/release"); err != nil || again != sha {
 		t.Fatalf("idempotent tag retry = %q, %v; want %q", again, err, sha)
 	}
+	tags, err := Tags(context.Background(), root, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tags) != 1 || tags[0].Name != "v1.0.0" || tags[0].CommitSHA != sha {
+		t.Fatalf("unexpected tag inventory: %+v", tags)
+	}
 	if err := DeleteBranch(context.Background(), root, "feature/release"); err != nil {
 		t.Fatal(err)
 	}

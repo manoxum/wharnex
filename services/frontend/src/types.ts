@@ -822,6 +822,7 @@ export type GitBranch = {
 }
 
 export type GitRemote = { name: string; url: string }
+export type GitTag = { name: string; commit_sha: string; created_at?: string }
 
 export type GitCommit = {
   sha: string
@@ -949,6 +950,7 @@ export type GitOverview = {
   has_identity: boolean
   branches: GitBranch[]
   remotes: GitRemote[]
+  tags: GitTag[]
   commits: GitCommit[]
   pending: GitPendingCommit[]
   working: GitWorkingSummary

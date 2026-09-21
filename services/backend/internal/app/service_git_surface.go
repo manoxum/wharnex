@@ -311,6 +311,7 @@ type GitOverview struct {
 	HasIdentity      bool                       `json:"has_identity"`
 	Branches         []hostrepo.Branch          `json:"branches"`
 	Remotes          []hostrepo.Remote          `json:"remotes"`
+	Tags             []hostrepo.Tag             `json:"tags"`
 	Commits          []hostrepo.Commit          `json:"commits"`
 	Pending          []pendingcommit.Record     `json:"pending"`
 	Working          GitWorkingSummary          `json:"working"`
@@ -398,6 +399,9 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 	}
 	if remotes, remoteErr := hostrepo.Remotes(ctx, item.ProjectPath); remoteErr == nil {
 		overview.Remotes = remotes
+	}
+	if tags, tagErr := hostrepo.Tags(ctx, item.ProjectPath, 50); tagErr == nil {
+		overview.Tags = tags
 	}
 	if commits, logErr := hostrepo.Log(ctx, item.ProjectPath, 50); logErr == nil {
 		overview.Commits = commits

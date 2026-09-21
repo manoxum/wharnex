@@ -84,6 +84,7 @@ export function normalizeGitOverview(overview: GitOverview): GitOverview {
     ...overview,
     branches: Array.isArray(overview?.branches) ? overview.branches : [],
     remotes: Array.isArray(overview?.remotes) ? overview.remotes : [],
+    tags: Array.isArray(overview?.tags) ? overview.tags : [],
     commits: Array.isArray(overview?.commits) ? overview.commits : [],
     pending: Array.isArray(overview?.pending) ? overview.pending : [],
     working: {
@@ -314,7 +315,7 @@ export const api = {
   gitCreateBranch: (id: string, branch: string, startPoint: string) => request<GitBranchMutationResult>(`/api/sessions/${id}/git/branches`, { method: 'POST', body: JSON.stringify({ branch, start_point: startPoint }) }),
   gitDeleteBranch: (id: string, branch: string) => request<GitBranchMutationResult>(`/api/sessions/${id}/git/branches/delete`, { method: 'POST', body: JSON.stringify({ branch, confirmation: 'delete_branch' }) }),
   gitGenerateReleaseNotes: (id: string, branch: string) => request<GitReleaseNotesResult>(`/api/sessions/${id}/git/release-notes`, { method: 'POST', body: JSON.stringify({ branch }) }),
-  gitCreateRelease: (id: string, input: { remote: string; branch: string; tag: string; title: string; body: string }) => request<GitReleaseResult>(`/api/sessions/${id}/git/releases`, { method: 'POST', body: JSON.stringify({ ...input, confirmation: 'publish_release' }) }),
+  gitCreateRelease: (id: string, input: { branch: string; tag_suffix: string; title: string; body: string }) => request<GitReleaseResult>(`/api/sessions/${id}/git/releases`, { method: 'POST', body: JSON.stringify({ ...input, confirmation: 'publish_release' }) }),
   setGitCommitMode: (id: string, mode: GitCommitMode) => request<{ commit_mode: GitCommitMode }>(`/api/sessions/${id}/git/commit-mode`, { method: 'PUT', body: JSON.stringify({ commit_mode: mode }) }),
   setGitConflictStrategy: (id: string, strategy: GitConflictStrategy) => request<{ conflict_strategy: GitConflictStrategy }>(`/api/sessions/${id}/git/conflict-strategy`, { method: 'PUT', body: JSON.stringify({ conflict_strategy: strategy }) }),
   setGitAuthorSettings: (id: string, settings: GitAuthorSettings) => request<GitAuthorSettings>(`/api/sessions/${id}/git/author-settings`, { method: 'PUT', body: JSON.stringify(settings) }),
