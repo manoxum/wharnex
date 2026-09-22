@@ -58,6 +58,15 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     close: () => invoke('wharness:windows:close'),
     activateSelfEvolution: (impacts) => invoke('wharness:windows:activate-self-evolution', { impacts }),
   }),
+  notifications: Object.freeze({
+    publish: (request = {}) => invoke('wharness:notifications:publish', request),
+    onOpen: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('wharness:notifications:open', handler)
+      return () => ipcRenderer.removeListener('wharness:notifications:open', handler)
+    },
+  }),
   spellcheck: Object.freeze({
     showSuggestions: (point = {}) => invoke('wharness:spellcheck:show-suggestions', { x: Number(point?.x), y: Number(point?.y) }),
   }),

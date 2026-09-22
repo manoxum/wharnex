@@ -52,4 +52,20 @@ describe('RestartConfirmation', () => {
     render(<RestartConfirmation sessionId="ses-self" change={change} impacts={['backend']} busy={false} onLater={vi.fn()} onActivate={vi.fn()}/>)
     expect(screen.queryByLabelText('Resumo da alteração')).toBeNull()
   })
+
+
+  it('accumulates reports and activates the union of affected services once', () => {
+    const onActivate = vi.fn()
+    render(<RestartConfirmation reports={[
+      { sessionId: 'ses-front', chatId: 'chat-front', chatTitle: 'Frontend A', change, impacts: ['frontend'] },
+      { sessionId: 'ses-desktop', chatId: 'chat-desktop', chatTitle: 'Desktop B', change: { ...change, planId: 'plan-desktop', files: change.files.slice(0, 1) }, impacts: ['desktop', 'frontend'] },
+    ]} busy={false} onLater={vi.fn()} onActivate={onActivate}/>)
+
+    expect(screen.getByText('2 relatórios')).toBeTruthy()
+    expect(screen.getByLabelText('Relatórios acumulados').textContent).toContain('Frontend A')
+    expect(screen.getByLabelText('Relatórios acumulados').textContent).toContain('Desktop B')
+    expect(screen.getByText('3', { selector: '.restart-confirmation-total > b' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /reiniciar desktop agora/i }))
+    expect(onActivate).toHaveBeenCalledWith(['frontend', 'desktop'])
+  })
 })

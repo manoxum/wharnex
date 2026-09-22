@@ -151,6 +151,8 @@ if (!app.requestSingleInstanceLock()) {
 
 let mainWindow
 let desktopTray
+const desktopNotifications = new Map()
+const MAX_DESKTOP_NOTIFICATIONS = 24
 let chatgptViews = new Map()
 const chatGPTWorkerEntries = []
 const chatAgentWorkerStates = new Map()
@@ -832,19 +834,79 @@ function requestProjectClose(projectPath) {
   return true
 }
 
+function openDesktopNotification(record) {
+  if (!record) return false
+  record.read = true
+  const state = projectWindowState(record.projectPath)
+  refreshDesktopTray()
+  if (!state) return false
+  restoreProjectWindow(record.projectPath)
+  sendToWindowState(state, 'wharness:notifications:open', { ...record })
+  return true
+}
+
+function showDesktopNotification(record) {
+  if (!Notification.isSupported()) return
+  try {
+    const notification = new Notification({ title: record.title, body: record.body, silent: false })
+    notification.on('click', () => { openDesktopNotification(record) })
+    notification.show()
+  } catch (error) { console.warn('[notifications] native notification failed', error) }
+}
+
+function publishDesktopNotification(windowState, request) {
+  const projectPath = canonicalProjectPath(request?.projectPath)
+  if (!windowState.projects.has(projectPath)) throw new Error('Notification project does not belong to this window')
+  const id = String(request?.id || '').trim().slice(0, 512)
+  const chatId = String(request?.chatId || '').trim().slice(0, 256)
+  const kind = request?.kind === 'restart-pending' ? 'restart-pending' : request?.kind === 'task-completed' ? 'task-completed' : ''
+  if (!id || !chatId || !kind) throw new Error('Invalid completion notification')
+  const existing = desktopNotifications.get(id)
+  if (existing) return { ok: true, duplicate: true, id }
+  const record = {
+    id,
+    projectPath,
+    chatId,
+    kind,
+    title: String(request?.title || (kind === 'restart-pending' ? 'Auto-evolução concluída' : 'Tarefa concluída')).trim().slice(0, 160),
+    body: String(request?.body || '').trim().slice(0, 600),
+    occurredAt: String(request?.occurredAt || new Date().toISOString()).slice(0, 64),
+    read: false,
+  }
+  desktopNotifications.set(id, record)
+  while (desktopNotifications.size > MAX_DESKTOP_NOTIFICATIONS) desktopNotifications.delete(desktopNotifications.keys().next().value)
+  refreshDesktopTray()
+  showDesktopNotification(record)
+  return { ok: true, duplicate: false, id }
+}
+
 function refreshDesktopTray() {
   if (!desktopTray || desktopTray.isDestroyed()) return
   const projects = [...new Set([...desktopWindows.values()].flatMap((state) => [...state.projects]))]
-  const template = projects.map((projectPath) => ({
+  const notifications = [...desktopNotifications.values()].reverse()
+  const unread = notifications.filter((record) => !record.read).length
+  const template = []
+  if (notifications.length) {
+    template.push({
+      label: `Notificações${unread ? ` (${unread})` : ''}`,
+      submenu: notifications.slice(0, 12).map((record) => ({
+        label: `${record.read ? '' : '• '}${record.title} · ${projectMenuLabel(record.projectPath)}`,
+        click: () => { openDesktopNotification(record) },
+      })),
+    })
+    template.push({ type: 'separator' })
+  }
+  template.push(...projects.map((projectPath) => ({
     label: projectMenuLabel(projectPath),
     submenu: [
       { label: 'Restaurar janela', click: () => { restoreProjectWindow(projectPath) } },
       { label: 'Fechar projeto', click: () => { requestProjectClose(projectPath) } },
     ],
-  }))
-  if (!template.length) template.push({ label: 'Nenhum projeto aberto', enabled: false })
+  })))
+  if (!projects.length) template.push({ label: 'Nenhum projeto aberto', enabled: false })
   template.push({ type: 'separator' })
   template.push({ label: 'Sair', click: () => { void requestFullDesktopQuit() } })
+  desktopTray.setToolTip(`Wharnex · ${desktopInstanceName(DESKTOP_INSTANCE)}${unread ? ` · ${unread} notificação${unread === 1 ? '' : 'ões'}` : ''}`)
   desktopTray.setContextMenu(Menu.buildFromTemplate(template))
 }
 
@@ -852,8 +914,9 @@ function ensureDesktopTray() {
   if (desktopTray && !desktopTray.isDestroyed()) { refreshDesktopTray(); return desktopTray }
   const icon = DESKTOP_ICON.resize({ width: 18, height: 18 })
   desktopTray = new Tray(icon)
-  desktopTray.setToolTip(`Wharnex · ${desktopInstanceName(DESKTOP_INSTANCE)}`)
   desktopTray.on('click', () => {
+    const unread = [...desktopNotifications.values()].reverse().find((record) => !record.read)
+    if (unread && openDesktopNotification(unread)) return
     const project = [...desktopWindows.values()].flatMap((state) => [...state.projects])[0]
     if (project && restoreProjectWindow(project)) return
     const state = [...desktopWindows.values()].find((candidate) => !candidate.window.isDestroyed() && !candidate.transientSurface)
@@ -7563,6 +7626,7 @@ function registerIPC() {
   ipcMain.handle('wharness:windows:resolve-close', (event, request) => {
     return desktopWindowClose.resolve(trustedSender(event), request?.action)
   })
+  ipcMain.handle('wharness:notifications:publish', (event, request) => publishDesktopNotification(trustedSender(event), request))
   ipcMain.handle('wharness:windows:activate-self-evolution', (event, request) => {
     const windowState = trustedSender(event)
     const allowed = new Set(['backend', 'frontend', 'desktop', 'tunnel'])

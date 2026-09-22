@@ -61,7 +61,11 @@ function attentionSessionFrom(record: AttentionRecord, projectPath: string): Ses
     pending_manual_request_ids: Array.from({ length: record.pending_manual_requests || 0 }, (_, index) => `compact-${index}`),
     planner_in_flight: record.planner_in_flight,
     last_manual_prompt: record.has_manual_prompt ? 'Disponível' : undefined,
+    self_evolution: record.self_evolution,
     self_evolution_activation: record.self_evolution_activation,
+    self_evolution_impacts: record.self_evolution_impacts,
+    last_host_applied_at: record.last_host_applied_at,
+    pending_knowledge_review_request_id: record.pending_knowledge_review_request_id,
     integration_conflict: record.integration_conflict
       ? ({ id: record.integration_conflict.id, paths: Array.from({ length: record.integration_conflict.path_count }) } as Session['integration_conflict'])
       : undefined,
@@ -87,7 +91,7 @@ import { errorArtifact, executionArtifact } from './lib/executionArtifacts'
 import { canonicalizeDirectives, projectFileReferenceSuffix, requiresProjectContextTransport } from './lib/composerDirectives'
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
 import { activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest, sessionOwnsRequest } from './lib/pendingRequest'
-import { isRestartPending, restartConfirmationKey } from './lib/restartConfirmation'
+import { isRestartConfirmationReady, isRestartPending, type RestartReport } from './lib/restartConfirmation'
 import { hasRecordedRequest } from './lib/requestDispatch'
 import { executionNeedsAttention, sessionNeedsExecutionConsent } from './lib/executionRecovery'
 import { errorMessage as messageOf } from './lib/errorMessage'
@@ -177,6 +181,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const queueDrainRef = useRef(false)
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
   const [restartModalOpen, setRestartModalOpen] = useState(false)
+  const [restartReports, setRestartReports] = useState<RestartReport[]>([])
   const [interruptedExecutions, setInterruptedExecutions] = useState<Array<{ chat: WorkspaceChat; session: Session }>>([])
   const [executionFIFO, setExecutionFIFO] = useState<FrontendExecutionQueueItem[]>([])
   const [editorOpenPath, setEditorOpenPath] = useState<string | undefined>(surfaceRequest?.kind === 'editor' ? surfaceRequest.path : undefined)
@@ -210,7 +215,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const cancelledPromptDeliveryIdsRef = useRef(new Set<string>())
   const submitBundleFileRef = useRef<(contentBase64: string, requestId: string, filename: string) => Promise<string>>(async () => '')
   const ingestingBundleKeysRef = useRef(new Set<string>())
-  const dismissedRestartKeysRef = useRef(new Set<string>())
+  const nativeCompletionBaselineRef = useRef(Date.now())
+  const nativeNotificationIdsRef = useRef(new Set<string>())
   const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
   const [boundProjects, setBoundProjects] = useState<string[]>(() => embeddedProject ? [embeddedProject] : [])
   const relatedProjectsSyncRef = useRef('')
@@ -270,7 +276,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   const activeChatRecord = chats.find((chat) => chat.id === activeChatId)
   const activeChatOwnsSession = Boolean(activeChatRecord && session && activeChatRecord.sessionId === session.id)
-  const restartPresentationKey = activeChatOwnsSession ? restartConfirmationKey(session) : ''
   // Bundle delivery belongs to the workspace, not to whichever surface is
   // visible. Orchestrator/Editor can own the current session while Agent
   // workers finish in the background; disabling this listener in that state
@@ -351,12 +356,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [activeChatId, chats, session])
 
   useEffect(() => {
-    if (!restartPresentationKey) {
-      setRestartModalOpen(false)
-      return
-    }
-    if (!dismissedRestartKeysRef.current.has(restartPresentationKey)) setRestartModalOpen(true)
-  }, [restartPresentationKey])
+    if (!restartModalOpen || !session) return
+    void refreshRestartReports().catch((reason) => setError(messageOf(reason)))
+  }, [restartModalOpen, attentionSessions, activeChatId, chats, session?.id])
 
   function setChatBusy(chatId: string, value: boolean) {
     setBusyChats((current) => {
@@ -3013,23 +3015,61 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
 
+  async function refreshRestartReports(focusChatId = '', openWhenReady = false) {
+    if (!session) return [] as RestartReport[]
+    const candidates = chats.filter((chat) => {
+      const projected = chat.id === activeChatId && chat.sessionId === session.id ? session : attentionSessions[chat.id]
+      return chat.id === focusChatId || isRestartConfirmationReady(projected)
+    })
+    const reports = (await Promise.all(candidates.map(async (chat): Promise<RestartReport | undefined> => {
+      const candidate = chat.id === activeChatId && chat.sessionId === session.id ? session : await api.getSession(chat.sessionId)
+      sessionCacheRef.current[chat.id] = candidate
+      if (!isRestartConfirmationReady(candidate)) return undefined
+      return {
+        sessionId: candidate.id,
+        chatId: chat.id,
+        chatTitle: chat.title,
+        change: buildAppliedChangeSummary(candidate),
+        impacts: candidate.self_evolution_impacts || [],
+      } satisfies RestartReport
+    }))).filter((report): report is RestartReport => Boolean(report))
+    setRestartReports(reports)
+    if (openWhenReady) setRestartModalOpen(reports.length > 0)
+    else if (!reports.length) setRestartModalOpen(false)
+    return reports
+  }
+
+  async function openRestartConfirmation(focusChatId = '') {
+    setError(undefined)
+    try {
+      const reports = await refreshRestartReports(focusChatId, true)
+      if (!reports.length) setError('O lote de auto-evolução já não está pendente de ativação.')
+    } catch (reason) { setError(messageOf(reason)) }
+  }
+
   function dismissRestartConfirmation() {
-    if (restartPresentationKey) dismissedRestartKeysRef.current.add(restartPresentationKey)
     setRestartModalOpen(false)
   }
 
   async function confirmSelfRestart(impacts: import('./types').ActivationImpact[]) {
-    if (!session || !isRestartPending(session) || busy) return
-    const targetSession = session
-    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!restartReports.length || busy) return
+    const reports = [...restartReports]
+    const targetReport = reports.find((report) => report.chatId === activeChatId) || reports[0]
+    const targetChat = chats.find((chat) => chat.id === targetReport.chatId)
     if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
-      const updated = await api.restartSelfEvolution(targetSession.id)
-      acceptSessionForChat(targetChat, updated); setRestartModalOpen(false)
-      await desktopBridge()?.windows.activateSelfEvolution(impacts)
-      const detail = impacts.length ? impacts.join(', ') : 'nenhum serviço em execução'
-      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Ativação confirmada para: ${detail}. O supervisor transacional valida os componentes afetados e restaura automaticamente a versão anterior se a ativação falhar.`, meta: 'AUTO-EVOLUÇÃO · ativação confirmada' })
+      const updated = await api.restartSelfEvolution(targetReport.sessionId)
+      const canonicalImpacts = updated.self_evolution_impacts?.length ? updated.self_evolution_impacts : impacts
+      acceptSessionForChat(targetChat, updated)
+      setRestartModalOpen(false); setRestartReports([])
+      await desktopBridge()?.windows.activateSelfEvolution(canonicalImpacts)
+      const detail = canonicalImpacts.length ? canonicalImpacts.join(', ') : 'nenhum serviço em execução'
+      for (const report of reports) {
+        const chat = chats.find((candidate) => candidate.id === report.chatId)
+        if (!chat) continue
+        appendChatItem(chat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Ativação conjunta confirmada para: ${detail}. O supervisor transacional ativa uma única vez a união dos componentes afetados e restaura automaticamente a versão anterior se a ativação falhar.`, meta: 'AUTO-EVOLUÇÃO · lote ativado' })
+      }
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -3301,6 +3341,33 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const attentionItems = collectAttentionItems(chats, attentionSessions, chatgptHumanActions)
   const attentionSummary = summarizeAttention(attentionItems)
   useEffect(() => {
+    const notifications = desktopBridge()?.notifications
+    if (!notifications || !session) return
+    for (const entry of attentionItems) {
+      if (!entry.kind || !entry.occurredAt || nativeNotificationIdsRef.current.has(entry.id)) continue
+      nativeNotificationIdsRef.current.add(entry.id)
+      const occurredAt = Date.parse(entry.occurredAt)
+      if (entry.kind === 'task-completed' && Number.isFinite(occurredAt) && occurredAt < nativeCompletionBaselineRef.current - 1_000) continue
+      void notifications.publish({
+        id: entry.id,
+        projectPath: session.project_path,
+        chatId: entry.chatId,
+        kind: entry.kind,
+        title: entry.title,
+        body: entry.detail,
+        occurredAt: entry.occurredAt,
+      }).catch(() => undefined)
+    }
+  }, [attentionItems, session?.project_path])
+  useEffect(() => {
+    const notifications = desktopBridge()?.notifications
+    if (!notifications?.onOpen || !session) return
+    return notifications.onOpen((notice) => {
+      if (notice.projectPath !== session.project_path) return
+      void openDesktopNotification(notice)
+    })
+  }, [session?.project_path, activeChatId, chats, attentionSessions])
+  useEffect(() => {
     if (!embeddedProject) return
     window.parent.postMessage({ type: 'wharness:project-attention', projectPath: embeddedProject, total: attentionSummary.total, urgent: attentionSummary.urgent, actionable: attentionSummary.actionable }, window.location.origin)
   }, [embeddedProject, attentionSummary.total, attentionSummary.urgent, attentionSummary.actionable])
@@ -3340,7 +3407,17 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
     setMode('agent')
     if (item.chatId !== activeChatId) await selectChat(item.chatId)
+    if (item.kind === 'restart-pending') {
+      await openRestartConfirmation(item.chatId)
+      return
+    }
     if (item.target) setInspectorAttention((current) => ({ tab: item.target as AttentionTarget, nonce: current.nonce + 1 }))
+  }
+
+  async function openDesktopNotification(notice: DesktopCompletionNotification) {
+    setMode('agent')
+    if (notice.chatId && notice.chatId !== activeChatId && chats.some((chat) => chat.id === notice.chatId)) await selectChat(notice.chatId)
+    if (notice.kind === 'restart-pending') await openRestartConfirmation(notice.chatId)
   }
 
   // Shared by the Tarefas drawer and the Orchestrator planning queue: a
@@ -3567,7 +3644,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   return <main className="workspace-root">
-    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} attention={attentionSummary} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onAttention={() => setAttentionPreviewOpen((open) => !open)} onRestartPending={() => setRestartModalOpen(true)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
+    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} attention={attentionSummary} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onAttention={() => setAttentionPreviewOpen((open) => !open)} onRestartPending={() => void openRestartConfirmation(activeChatId)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
     {attentionPreviewOpen && <AttentionPopover
       items={attentionItems}
       activeChatId={activeChatId}
@@ -3579,7 +3656,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       onClose={() => setAttentionPreviewOpen(false)}
     />}
     {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} onTunnelConfigSaved={(document) => setConfig((current) => reconcileTunnelConfig(current, document))} />}
-    {restartModalOpen && restartPresentationKey && <RestartConfirmation sessionId={session.id} change={buildAppliedChangeSummary(session)} impacts={session.self_evolution_impacts || []} busy={busy} onLater={dismissRestartConfirmation} onActivate={(impacts) => void confirmSelfRestart(impacts)} />}
+    {restartModalOpen && restartReports.length > 0 && <RestartConfirmation reports={restartReports} busy={busy} onLater={dismissRestartConfirmation} onActivate={(impacts) => void confirmSelfRestart(impacts)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery
       items={interruptedExecutions.map((target) => ({ ...target, queue: executionFIFO.find((item) => item.chatId === target.chat.id && item.planId === target.session.interrupted_execution?.plan_id), humanAction: recoveryHumanAction(target.chat, chatgptHumanActions) }))}
       busyChats={busyChats}

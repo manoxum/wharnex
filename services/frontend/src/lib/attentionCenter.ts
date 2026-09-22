@@ -4,6 +4,7 @@ import { executionNeedsAttention, sessionCanExecutePlan, sessionNeedsExecutionCo
 import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable } from './plannerRecovery'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
+export type AttentionKind = 'task-completed' | 'restart-pending'
 export type AttentionTarget = 'plan' | 'terminal' | 'chatgpt'
 export type AttentionAction = 'approve-execution' | 'approve-debug' | 'retry-dependency-network' | 'repair-host-dependency' | 'repair-with-gpt' | 'retry-transport' | 'retry-host-apply'
 export const ATTENTION_ACTION_LABEL: Record<AttentionAction, string> = {
@@ -25,6 +26,8 @@ export type AttentionItem = {
   target?: AttentionTarget
   action?: AttentionAction
   requestId?: string
+  kind?: AttentionKind
+  occurredAt?: string
 }
 
 export type AttentionSummary = {
@@ -93,6 +96,8 @@ export function attentionPreviewItems(items: AttentionItem[], limit = 8): Attent
 }
 
 export function attentionResolutionLabel(item: AttentionItem) {
+  if (item.kind === 'restart-pending') return 'Rever e ativar'
+  if (item.kind === 'task-completed') return 'Abrir conclusão'
   if (item.action) return ATTENTION_ACTION_LABEL[item.action]
   if (item.target === 'chatgpt') return 'Abrir o Engine e resolver'
   if (item.target === 'terminal') return 'Abrir a execução'
@@ -224,8 +229,33 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   }
 
 
-  if (session.self_evolution_activation === 'restart_pending') {
-    items.push(item(chat, 'restart-pending', 'warning', 'Reinício do Wharnex pendente', 'As alterações já foram aplicadas e construídas; falta confirmar o reinício.', 'plan'))
+  const completionReady = Boolean(session.last_host_applied_at && !session.pending_knowledge_review_request_id)
+  if (session.self_evolution_activation === 'restart_pending' && completionReady) {
+    items.push(item(
+      chat,
+      `restart-pending:${session.last_host_applied_at}`,
+      'success',
+      'Auto-evolução concluída',
+      'Alterações aplicadas e construídas. Clique para rever o lote acumulado e escolher a ativação.',
+      undefined,
+      undefined,
+      session.last_request_id,
+      'restart-pending',
+      session.last_host_applied_at,
+    ))
+  } else if (!session.self_evolution && completionReady) {
+    items.push(item(
+      chat,
+      `task-completed:${session.last_host_applied_at}`,
+      'success',
+      'Tarefa concluída',
+      'Execução e integração no host concluídas com sucesso.',
+      undefined,
+      undefined,
+      session.last_request_id,
+      'task-completed',
+      session.last_host_applied_at,
+    ))
   }
   if (session.last_turn?.kind === 'clarification' && session.state === 'awaiting_clarification') {
     items.push(item(chat, 'clarification', 'warning', 'Resposta necessária', session.last_turn.message || 'O pedido aguarda um esclarecimento para continuar.'))
@@ -236,8 +266,8 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   return items
 }
 
-function item(chat: WorkspaceChat, suffix: string, tone: AttentionTone, title: string, detail: string, target?: AttentionTarget, action?: AttentionAction, requestId?: string): AttentionItem {
-  return { id: `${chat.id}:${suffix}`, chatId: chat.id, chatTitle: chat.title, title, detail, tone, target, action, requestId }
+function item(chat: WorkspaceChat, suffix: string, tone: AttentionTone, title: string, detail: string, target?: AttentionTarget, action?: AttentionAction, requestId?: string, kind?: AttentionKind, occurredAt?: string): AttentionItem {
+  return { id: `${chat.id}:${suffix}`, chatId: chat.id, chatTitle: chat.title, title, detail, tone, target, action, requestId, kind, occurredAt }
 }
 
 function attentionRank(tone: AttentionTone) {

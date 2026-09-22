@@ -2,6 +2,7 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 )
@@ -39,5 +40,21 @@ func TestAttentionRecordKeepsConsentAndDebugDecisionMetadata(t *testing.T) {
 
 	if !record.HasPlanDocument || record.PlanRequestID != "req-debug" || record.DebugTarget != "host" || record.DebugAccess != domain.DebugAccessModify || record.DebugRationale == "" {
 		t.Fatalf("compact projection lost an operator decision input: %+v", record)
+	}
+}
+
+func TestAttentionRecordProjectsCompletionAndRestartNotificationMetadata(t *testing.T) {
+	appliedAt := time.Date(2026, time.September, 22, 18, 47, 0, 123000000, time.UTC)
+	record := attentionRecordFor(domain.Session{
+		ID: "ses-complete", State: "restart_pending", SelfEvolution: true,
+		SelfEvolutionActivation: "restart_pending", SelfEvolutionImpacts: []string{"frontend", "desktop"},
+		LastHostAppliedAt: appliedAt, PendingKnowledgeReviewRequestID: "req-review",
+	})
+
+	if !record.SelfEvolution || record.SelfEvolutionActivation != "restart_pending" || len(record.SelfEvolutionImpacts) != 2 {
+		t.Fatalf("compact projection lost self-evolution completion metadata: %+v", record)
+	}
+	if record.LastHostAppliedAt != appliedAt.Format(time.RFC3339Nano) || record.PendingKnowledgeReview != "req-review" {
+		t.Fatalf("compact projection lost completion readiness metadata: %+v", record)
 	}
 }

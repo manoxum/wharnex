@@ -1,4 +1,14 @@
-import type { Session } from '../types'
+import type { ActivationImpact, ChatChangeSummary, Session } from '../types'
+
+export type RestartReport = {
+  sessionId: string
+  chatId: string
+  chatTitle: string
+  change?: ChatChangeSummary
+  impacts: ActivationImpact[]
+}
+
+const IMPACT_ORDER: ActivationImpact[] = ['backend', 'frontend', 'desktop', 'tunnel']
 
 export function isRestartPending(session?: Session) {
   return Boolean(session?.self_evolution && (
@@ -16,4 +26,9 @@ export function restartConfirmationKey(session?: Session) {
   const applied = session.last_applied_changes || []
   const planId = applied[applied.length - 1]?.plan.plan_id || session.plan?.plan_id || 'pending'
   return `${session.id}:${planId}`
+}
+
+export function mergeRestartImpacts(reports: RestartReport[]): ActivationImpact[] {
+  const impacts = new Set(reports.flatMap((report) => report.impacts))
+  return IMPACT_ORDER.filter((impact) => impacts.has(impact))
 }

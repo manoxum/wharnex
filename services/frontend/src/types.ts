@@ -797,7 +797,11 @@ export type AttentionRecord = {
   pending_manual_requests?: number
   planner_in_flight?: boolean
   has_manual_prompt?: boolean
+  self_evolution?: boolean
   self_evolution_activation?: Session['self_evolution_activation']
+  self_evolution_impacts?: ActivationImpact[]
+  last_host_applied_at?: string
+  pending_knowledge_review_request_id?: string
   integration_conflict?: { id: string; path_count: number }
   interrupted_execution?: { plan_id: string; status: string }
 }
