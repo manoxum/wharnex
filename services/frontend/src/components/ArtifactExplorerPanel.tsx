@@ -13,6 +13,7 @@ type ViewMode = 'cards' | 'table'
 type DirectionFilter = 'all' | 'input' | 'output'
 type LibraryMode = 'library' | 'bundles'
 type TimeWindow = 'all' | '24h' | '7d' | '30d' | '90d' | 'custom'
+type PageSize = 20 | 50 | 100 | 'all'
 
 export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { sessionId: string; onError: (message: string) => void; onClose?: () => void }) {
   const [mode, setMode] = useState<LibraryMode>('library')
@@ -27,6 +28,8 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [pageSize, setPageSize] = useState<PageSize>(50)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -47,7 +50,7 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
 
   useEffect(() => { setSelected(undefined); setSelectedKeys(new Set()); void refresh() }, [mode])
 
-  const visibleItems = useMemo(() => {
+  const filteredItems = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase('pt')
     return items
       .filter((item) => direction === 'all' || item.artifact.direction === direction)
@@ -55,6 +58,18 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
       .filter((item) => !needle || searchableArtifactText(item).includes(needle))
       .sort((left, right) => compareArtifacts(left, right, sortMode))
   }, [dateFrom, dateTo, direction, items, mode, query, sortMode, timeWindow])
+
+  const pageCount = mode !== 'bundles' || pageSize === 'all' ? 1 : Math.max(1, Math.ceil(filteredItems.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const visibleItems = useMemo(() => {
+    if (mode !== 'bundles' || pageSize === 'all') return filteredItems
+    const offset = (currentPage - 1) * pageSize
+    return filteredItems.slice(offset, offset + pageSize)
+  }, [currentPage, filteredItems, mode, pageSize])
+  const selectedItems = useMemo(() => items.filter((item) => selectedKeys.has(artifactKey(item))), [items, selectedKeys])
+  const selectedBytes = useMemo(() => selectedItems.reduce((total, item) => total + item.artifact.size, 0), [selectedItems])
+
+  useEffect(() => { setPage(1) }, [dateFrom, dateTo, direction, mode, pageSize, query, sortMode, timeWindow])
 
   const allVisibleSelected = visibleItems.length > 0 && visibleItems.every((item) => selectedKeys.has(artifactKey(item)))
 
@@ -96,7 +111,7 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
 
   async function remove(item: ManagedArtifact) {
     const isBundle = item.artifact.bundle
-    const ok = await confirmDialog({ title: isBundle ? 'Eliminar bundle?' : 'Eliminar ficheiro?', message: `${item.artifact.name}\n\nO objeto será removido definitivamente do armazenamento do Wharnex.`, tone: 'danger', confirmLabel: 'Eliminar' })
+    const ok = await confirmDialog({ title: isBundle ? 'Eliminar bundle?' : 'Eliminar ficheiro?', message: `${item.artifact.name}\n\nEspaço a libertar: ${formatBytes(item.artifact.size)}.\nO objeto será removido definitivamente do armazenamento do Wharnex.`, tone: 'danger', confirmLabel: 'Eliminar' })
     if (!ok) return
     try {
       await api.deleteManagedArtifact(item.session_id, item.artifact.id)
@@ -107,12 +122,13 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
   }
 
   async function removeSelected() {
-    const targets = items.filter((item) => selectedKeys.has(artifactKey(item)))
+    const targets = selectedItems
     if (!targets.length) return
     const bundles = targets.filter((item) => item.artifact.bundle).length
     const files = targets.length - bundles
     const parts = [bundles ? `${bundles} ${bundles === 1 ? 'bundle' : 'bundles'}` : '', files ? `${files} ${files === 1 ? 'ficheiro' : 'ficheiros'}` : ''].filter(Boolean)
-    const ok = await confirmDialog({ title: `Eliminar ${targets.length} itens?`, message: `${parts.join(' e ')} serão removidos definitivamente do armazenamento do Wharnex.`, tone: 'danger', confirmLabel: `Eliminar ${targets.length}` })
+    const totalBytes = targets.reduce((total, item) => total + item.artifact.size, 0)
+    const ok = await confirmDialog({ title: `Eliminar ${targets.length} itens?`, message: `${parts.join(' e ')} serão removidos definitivamente do armazenamento do Wharnex.\n\nEspaço a libertar: ${formatBytes(totalBytes)}.`, tone: 'danger', confirmLabel: `Eliminar ${targets.length}` })
     if (!ok) return
     setDeleting(true)
     const failed = new Set<string>()
@@ -152,7 +168,9 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
       {timeWindow !== 'all' ? <button type="button" className="artifact-filter-reset" onClick={() => { setTimeWindow('all'); setDateFrom(''); setDateTo('') }}>Limpar período</button> : null}
     </div> : null}
 
-    <div className="artifact-explorer-summary"><div><strong>{loading ? 'A carregar…' : visibleItems.length}</strong><span>{mode === 'library' ? 'ficheiros' : 'bundles'} visíveis · {items.length} no total</span></div><div className="artifact-explorer-selection-actions">{visibleItems.length ? <button type="button" onClick={toggleVisibleSelection}>{allVisibleSelected ? 'Limpar visíveis' : 'Selecionar visíveis'}</button> : null}{selectedKeys.size ? <><span className="file-library-selection-count">{selectedKeys.size} selecionado{selectedKeys.size === 1 ? '' : 's'}</span><button type="button" className="danger" disabled={deleting} onClick={() => void removeSelected()}><Icon name="trash" size={12}/>{deleting ? 'A eliminar…' : `Eliminar selecionados (${selectedKeys.size})`}</button></> : <small>{mode === 'library' ? 'Use Indexar para inserir @lib no próximo prompt.' : 'Abra, filtre, selecione ou elimine bundles em lote.'}</small>}</div></div>
+    {mode === 'bundles' ? <BundlePagination filteredCount={filteredItems.length} pageSize={pageSize} page={currentPage} pageCount={pageCount} onPageSize={setPageSize} onPage={setPage}/> : null}
+
+    <div className="artifact-explorer-summary"><div><strong>{loading ? 'A carregar…' : filteredItems.length}</strong><span>{mode === 'library' ? 'ficheiros' : 'bundles'} {mode === 'bundles' ? 'filtrados' : 'visíveis'} · {items.length} no total</span></div><div className="artifact-explorer-selection-actions">{visibleItems.length ? <button type="button" onClick={toggleVisibleSelection}>{allVisibleSelected ? (mode === 'bundles' ? 'Limpar página' : 'Limpar visíveis') : (mode === 'bundles' ? 'Selecionar página' : 'Selecionar visíveis')}</button> : null}{selectedKeys.size ? <><span className="file-library-selection-count">{selectedKeys.size} selecionado{selectedKeys.size === 1 ? '' : 's'} · {formatBytes(selectedBytes)}</span><button type="button" className="danger" disabled={deleting} onClick={() => void removeSelected()}><Icon name="trash" size={12}/>{deleting ? 'A eliminar…' : `Eliminar selecionados (${selectedKeys.size})`}</button></> : <small>{mode === 'library' ? 'Use Indexar para inserir @lib no próximo prompt.' : 'Selecione a página atual ou navegue para escolher bundles antigos.'}</small>}</div></div>
 
     {viewMode === 'cards' ? <div className="file-library-grid">{visibleItems.map((item) => <ArtifactCard key={artifactKey(item)} item={item} canIndex={mode === 'library'} selected={selectedKeys.has(artifactKey(item))} onToggleSelected={() => toggleSelection(item)} onOpen={() => setSelected(item)} onIndex={() => requestArtifactIndex('lib', `session|${item.session_id}|${item.artifact.id}`)} onDelete={() => void remove(item)}/>)}</div>
       : <ArtifactTable items={visibleItems} mode={mode} selectedKeys={selectedKeys} allVisibleSelected={allVisibleSelected} onToggleAll={toggleVisibleSelection} onToggle={toggleSelection} onOpen={setSelected} onDelete={(item) => void remove(item)}/>}
@@ -197,8 +215,23 @@ function ArtifactCard({ item, canIndex, selected, onToggleSelected, onOpen, onIn
 
 function BundleCardPreview({ item }: { item: ManagedArtifact }) {
   const artifact = item.artifact
-  return <div className={`file-library-bundle-visual ${artifact.direction}`}><span className="file-library-bundle-icon"><Icon name="package" size={30}/></span><div><strong>{artifact.direction === 'input' ? 'Bundle de pedido' : 'Bundle de resposta'}</strong><small>{artifact.request_id ? shortIdentifier(artifact.request_id, 28) : 'Sem request associado'}</small><span>{artifact.entry_count !== undefined ? `${artifact.entry_count} itens · ` : ''}SHA {artifact.sha256.slice(0, 10)}…</span></div></div>
+  return <div className={`file-library-bundle-thumbnail ${artifact.direction}`}>
+    <div className="file-library-bundle-file" aria-hidden="true"><span/><Icon name="package" size={28}/><b>ZIP</b></div>
+    <div className="file-library-bundle-thumbnail-copy"><strong>{artifact.direction === 'input' ? 'Bundle de pedido' : 'Bundle de resposta'}</strong><small>{formatBytes(artifact.size)}</small></div>
+  </div>
 }
+
+function BundlePagination({ filteredCount, pageSize, page, pageCount, onPageSize, onPage }: { filteredCount: number; pageSize: PageSize; page: number; pageCount: number; onPageSize: (size: PageSize) => void; onPage: (page: number) => void }) {
+  const start = filteredCount ? (pageSize === 'all' ? 1 : (page - 1) * pageSize + 1) : 0
+  const end = pageSize === 'all' ? filteredCount : Math.min(filteredCount, page * pageSize)
+  return <div className="file-library-pagination" aria-label="Paginação de bundles">
+    <label><span>Por página</span><select value={pageSize} onChange={(event) => onPageSize(parsePageSize(event.target.value))} aria-label="Bundles por página"><option value="20">20</option><option value="50">50</option><option value="100">100</option><option value="all">Todos</option></select></label>
+    <span className="file-library-page-status">A mostrar {start}–{end} de {filteredCount}</span>
+    <div><button type="button" disabled={page <= 1} onClick={() => onPage(Math.max(1, page - 1))} aria-label="Página anterior">‹</button><b>{page} / {pageCount}</b><button type="button" disabled={page >= pageCount} onClick={() => onPage(Math.min(pageCount, page + 1))} aria-label="Página seguinte">›</button></div>
+  </div>
+}
+
+function parsePageSize(value: string): PageSize { return value === 'all' ? 'all' : Number(value) as 20 | 50 | 100 }
 
 function artifactTypeLabel(name: string, contentType = '') {
   const extension = name.split('.').pop()?.trim().toUpperCase()
