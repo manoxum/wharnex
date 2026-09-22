@@ -12,7 +12,6 @@ import { MarkdownContent } from './MarkdownContent'
 import { TranslatableMarkdown } from './TranslatableMarkdown'
 import { ConflictResolverModal } from './ConflictResolverModal'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
-import { buildExecutionTimeline, executionTimelineOverview, groupExecutionSubtasks, type ExecutionSubtaskGroup, type ExecutionTimelineEntry } from '../lib/executionTimeline'
 import { requestIdFromBundleName } from '../lib/bundlename'
 import { sessionHostResolutionBlocked } from '../lib/attentionCenter'
 import { activePendingRequestId } from '../lib/pendingRequest'
@@ -20,12 +19,16 @@ import { sessionCanExecutePlan, sessionNeedsExecutionConsent } from '../lib/exec
 import { SignalCore } from './SignalCore'
 import { ChatArtifactLibrary } from './BundleExplorer'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
-import { collectPlanActivities, groupMainRequestActivity, mainRequestRoot, mergeAuditEvents, sessionForPlan } from '../lib/projectActivity'
+import { shortPlanId } from '../lib/activityFormat'
+import { PlanHistorySurface } from './PlanHistorySurface'
+import { ExecutionHistorySurface } from './ExecutionHistorySurface'
+import { filterExecutionAuditEvents } from '../lib/executionAudit'
+import { mergeAuditEvents } from '../lib/projectActivity'
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
+export { TerminalView } from './ExecutionHistorySurface'
 
 
-const EXECUTION_AUDIT_EVENT_TYPES = new Set(['execution.queued', 'execution.dequeued', 'execution.started', 'execution.completed', 'execution.failed', 'execution.duplicate_blocked', 'execution.recovery_discarded', 'execution.recovery_reconciled', 'automation.execution_failed', 'automation.execution_joined', 'automation.infrastructure_blocked', 'command.started', 'command.output', 'command.completed', 'patch.started', 'patch.applied', 'host.apply_started', 'host.apply_failed', 'host.applied', 'host.pending_rejected', 'host.revert_started', 'host.reverted', 'host.restore_started', 'host.restore_failed', 'host.restore_recovery_started', 'host.restored', 'self_evolution.host_build_started', 'self_evolution.host_build_output', 'self_evolution.host_build_completed', 'self_evolution.host_build_failed', 'verification.started', 'verification.completed', 'verification.baseline_unchanged', 'verification.baseline_changed', 'automation.policy_blocked', 'automation.approval_required', 'automation.approval_auto_granted', 'repair.started', 'repair.prompt_ready', 'repair.prepare_failed', 'workflow.started', 'workflow.completed', 'workflow.step_failed', 'workflow.policy_blocked', 'workflow.continuation_started', 'workflow.prompt_ready', 'baseline.peer_updated', 'baseline.continuation_ready', 'baseline.bundle_fast_forwarded', 'baseline.bundle_superseded', 'baseline.execution_fast_forwarded', 'baseline.candidate_reverified', 'baseline.apply_blocked', 'baseline.reverify_failed', 'changeset.base_restored', 'changeset.verified', 'changeset.replayed', 'changeset.integrated', 'bundle.incomplete_impact_files', 'integration.host_state_preserved', 'integration.host_state_uncaptured', 'integration.verification_started', 'integration.verification_completed', 'integration.verification_unsupported', 'integration.verification_baseline_unchanged', 'integration.verification_baseline_compare_failed', 'integration.race', 'self_evolution.transaction_aborted', 'conflict.prompt_ready', 'host_dependency_repair.started', 'host_dependency_repair.command_started', 'host_dependency_repair.command_completed', 'host_dependency_repair.completed', 'host_dependency_repair.failed', 'host_dependency_repair.reverify_failed'])
 
 export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onControlExecutionPlan, onPrepareExecutionPlanReversal, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
@@ -93,7 +96,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
     setDurableHistory([]); setHistoryError('')
   }, [session.id])
   const auditEvents = useMemo(() => mergeAuditEvents(durableHistory, events), [durableHistory, events])
-  const terminalEvents = useMemo(() => auditEvents.filter((event) => EXECUTION_AUDIT_EVENT_TYPES.has(event.type)), [auditEvents])
+  const terminalEvents = useMemo(() => filterExecutionAuditEvents(auditEvents), [auditEvents])
   const canExecute = sessionCanExecutePlan(session)
   const needsApproval = sessionNeedsExecutionConsent(session)
   const direct = session.execution_mode === 'unprotected'
@@ -130,7 +133,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
 
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''} ${selectedTab === 'files' ? 'files-content' : ''}`}>
         {selectedTab === 'files' && <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
-        {selectedTab === 'plan' && <PlanHistorySurface session={session} chat={chat} events={auditEvents} loading={historyLoading} error={historyError} currentPlan={<PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} onControlExecutionPlan={onControlExecutionPlan} onPrepareExecutionPlanReversal={onPrepareExecutionPlanReversal} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}/>}
+        {selectedTab === 'plan' && <PlanHistorySurface session={session} chat={chat} events={auditEvents} loading={historyLoading} error={historyError} renderHistoricalPlan={(historySession) => <PlanView session={historySession} readOnly/>} currentPlan={<PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} onControlExecutionPlan={onControlExecutionPlan} onPrepareExecutionPlanReversal={onPrepareExecutionPlanReversal} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}/>}
         {selectedTab === 'terminal' && <ExecutionHistorySurface session={session} events={auditEvents} loading={historyLoading} error={historyError}/>}
         {selectedTab === 'chatgpt' && session.chat_transport_mode === 'manual' && <ManualChatGPTPane session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} onBundleFile={onBundleFile} />}
         {selectedTab === 'chatgpt' && session.chat_transport_mode !== 'manual' && !desktop && <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
@@ -155,85 +158,6 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   )
 }
 
-
-function PlanHistorySurface({ session, chat, events, loading, error, currentPlan }: { session: Session; chat?: WorkspaceChat; events: HarnessEvent[]; loading: boolean; error: string; currentPlan: import('react').ReactNode }) {
-  const historyChat = useMemo<WorkspaceChat>(() => chat || ({ id: session.id, title: 'Chat atual', sessionId: session.id, createdAt: session.created_at, updatedAt: session.created_at }), [chat, session.created_at, session.id])
-  const items = useMemo(() => collectPlanActivities([{ chat: historyChat, session }], { [historyChat.id]: events }), [events, historyChat, session])
-  const groups = useMemo(() => {
-    const grouped = new Map<string, typeof items>()
-    for (const item of items) {
-      const root = mainRequestRoot(session, item.plan.request_id) || item.plan.request_id
-      const bucket = grouped.get(root) || []
-      bucket.push(item); grouped.set(root, bucket)
-    }
-    return [...grouped].map(([rootRequestId, plans]) => ({ rootRequestId, plans: plans.sort((a, b) => b.timestamp.localeCompare(a.timestamp)), updatedAt: plans[0]?.timestamp || '' })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-  }, [items, session])
-  if (!groups.length) return <>{loading && <AuditHistoryNotice text="A carregar histórico durável de planos…"/>}{error && <AuditHistoryNotice text={error} danger/>}{currentPlan}</>
-  return <div className="main-request-history">
-    <AuditHistoryNotice text={loading ? 'A atualizar o histórico durável de planos…' : `${groups.length} Main Request(s) com plano registado.`} danger={Boolean(error)}/>
-    {error && <AuditHistoryNotice text={error} danger/>}
-    {groups.map((group, index) => <PlanHistoryBlock key={group.rootRequestId} group={group} session={session} currentPlan={currentPlan} defaultOpen={index === 0}/>)}
-  </div>
-}
-
-function PlanHistoryBlock({ group, session, currentPlan, defaultOpen }: { group: { rootRequestId: string; plans: ReturnType<typeof collectPlanActivities>; updatedAt: string }; session: Session; currentPlan: import('react').ReactNode; defaultOpen: boolean }) {
-  const [open, setOpen] = useState(defaultOpen)
-  const lead = group.plans[0]?.plan
-  return <details className="main-request-block plan-history-block" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="main-request-summary">
-      <span className="main-request-summary-mark"><Icon name="plan" size={14}/></span>
-      <span className="main-request-summary-copy"><span className="panel-kicker">Main Request</span><strong>{lead?.summary || 'Histórico de planos'}</strong><small>{formatExecutionDate(group.updatedAt)} · {group.plans.length} {group.plans.length === 1 ? 'subplano' : 'subplanos'}</small></span>
-      <span className="main-request-summary-meta"><code title={group.rootRequestId}>{shortRequestId(group.rootRequestId)}</code><span className="history-count">{group.plans.length}</span><span className="history-chevron"><Icon name="chevron" size={13}/></span></span>
-    </summary>
-    {open && <div className="main-request-plan-list">{group.plans.map((item, planIndex) => {
-      const current = item.plan.plan_id === session.plan?.plan_id
-      return <PlanHistoryLine key={item.id} label={`Subplano ${String(group.plans.length - planIndex).padStart(2, '0')}`} itemLabel={item.label} summary={item.plan.summary} protocol={item.plan.protocol} risk={item.plan.risk} timestamp={item.timestamp} planId={item.plan.plan_id} defaultOpen={current}>{current ? currentPlan : <PlanView session={sessionForPlan(item)} readOnly/>}</PlanHistoryLine>
-    })}</div>}
-  </details>
-}
-
-function PlanHistoryLine({ label, itemLabel, summary, protocol, risk, timestamp, planId, defaultOpen, children }: { label: string; itemLabel: string; summary: string; protocol: string; risk?: string; timestamp: string; planId: string; defaultOpen: boolean; children: import('react').ReactNode }) {
-  const [open, setOpen] = useState(defaultOpen)
-  return <details className="main-request-plan-row" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="main-request-plan-summary">
-      <span className="plan-history-sequence">{label.replace(/^Subplano\s+/, '')}</span>
-      <span className="main-request-plan-copy"><span className="panel-kicker">{label} · {itemLabel}</span><strong>{summary || 'Plano de execução'}</strong><small>{formatExecutionDate(timestamp)} · {protocol} · risco {riskLabel(risk).toLocaleLowerCase()}</small></span>
-      <span className="main-request-plan-meta"><code title={planId}>{shortPlanId(planId)}</code><span className="history-chevron"><Icon name="chevron" size={12}/></span></span>
-    </summary>
-    {open && <div className="main-request-plan-detail">{children}</div>}
-  </details>
-}
-
-function ExecutionHistorySurface({ session, events, loading, error }: { session: Session; events: HarnessEvent[]; loading: boolean; error: string }) {
-  const groups = useMemo(() => groupMainRequestActivity(session, events).map((group) => ({ ...group, events: group.events.filter((event) => EXECUTION_AUDIT_EVENT_TYPES.has(event.type)) })).filter((group) => group.events.length), [events, session])
-  if (!groups.length) return <>{loading && <AuditHistoryNotice text="A carregar histórico durável de execução…"/>}{error && <AuditHistoryNotice text={error} danger/>}<TerminalView events={[]} /></>
-  return <div className="main-request-history execution-history">
-    <AuditHistoryNotice text={loading ? 'A atualizar o histórico durável de execução…' : `${groups.length} Main Request(s) com atividade de execução auditável.`} danger={Boolean(error)}/>
-    {error && <AuditHistoryNotice text={error} danger/>}
-    {groups.map((group, index) => <ExecutionHistoryBlock key={group.rootRequestId} group={group} defaultOpen={index === 0}/>) }
-  </div>
-}
-
-function ExecutionHistoryBlock({ group, defaultOpen }: { group: ReturnType<typeof groupMainRequestActivity>[number]; defaultOpen: boolean }) {
-  const [open, setOpen] = useState(defaultOpen)
-  const overview = useMemo(() => executionTimelineOverview(buildExecutionTimeline(group.events)), [group.events])
-  const status = overview === 'active' ? 'Em curso' : overview === 'failed' ? 'Falhou' : overview === 'recovered' ? 'Recuperada' : overview === 'success' ? 'Concluída' : 'Registada'
-  return <details className={`main-request-block execution-main-request tone-${overview}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="main-request-summary">
-      <span className="main-request-summary-mark"><Icon name="terminal" size={14}/></span>
-      <span className="main-request-summary-copy"><span className="panel-kicker">Main Request · execução</span><strong>{status}</strong><small>{formatExecutionDate(group.updatedAt)} · {group.requestIds.length || 1} subtarefa(s) · {group.events.length} eventos</small></span>
-      <span className="main-request-summary-meta"><code title={group.rootRequestId}>{shortRequestId(group.rootRequestId)}</code><span className={`history-status tone-${overview}`}>{status}</span><span className="history-chevron"><Icon name="chevron" size={13}/></span></span>
-    </summary>
-    {open && <div className="main-request-execution-detail"><TerminalView events={group.events} compact/></div>}
-  </details>
-}
-
-function AuditHistoryNotice({ text, danger = false }: { text: string; danger?: boolean }) {
-  return <div className={`audit-history-notice${danger ? ' danger' : ''}`}><Icon name="history" size={13}/><span>{text}</span></div>
-}
-
-function shortRequestId(value: string) { return value ? value.replace(/^req_/, '').slice(0, 28) : 'sessão' }
-function shortPlanId(value: string) { return value ? value.replace(/^plan_/, '').slice(0, 26) : 'plano' }
 
 function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManualJSON, busy, copy, onManualPlan }: {
   config?: AppConfig
@@ -598,96 +522,6 @@ function IntegrationQueue({ session, conflictGuidance, onConflictGuidance, onRes
 		{pending.map((change) => <div className="operation" key={change.plan.plan_id}><div className="operation-index"><Icon name="apply" size={14}/></div><div className="operation-body"><strong>{change.plan.summary}</strong><span>{change.change_set ? `${change.change_set.state} · ${change.change_set.mutations.map((mutation) => mutation.path).join(', ')}` : 'Compatibilidade v1 · patch pendente'}</span></div></div>)}
 		{session.integration_conflict && <div className="policy-box conflict-choice"><Icon name="git" size={17}/><div><strong>Escolha como resolver o conflito</strong><span>{session.integration_conflict.paths.join(', ')}</span><span>Pode resolver tudo manualmente, usar GPT, ou começar manualmente e delegar o restante.</span><textarea className="conflict-guidance" value={conflictGuidance} onChange={(event) => onConflictGuidance?.(event.target.value)} placeholder="Instrução auxiliar opcional para o GPT…" rows={2}/></div><div className="conflict-choice-actions"><button className="secondary-button" type="button" onClick={onResolveManually}>Resolver manualmente</button><button className="secondary-button" type="button" onClick={onResolveWithGPT}><Icon name="chatgpt" size={14}/> Resolver com GPT</button></div></div>}
 	</section>
-}
-
-export function TerminalView({ events, compact = false }: { events: HarnessEvent[]; compact?: boolean }) {
-  const entries = useMemo(() => buildExecutionTimeline(events), [events])
-  const subtasks = useMemo(() => groupExecutionSubtasks(entries), [entries])
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
-  const endRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const expandable = entries.filter((entry) => (entry.kind === 'command' || entry.kind === 'patch') && (entry.output || entry.rationale)).slice(-5)
-    setExpanded(new Set(expandable.map((entry) => entry.id)))
-    if (!compact) endRef.current?.scrollIntoView?.({ block: 'end' })
-    // This component mounts only while the Execução tab is active; the first
-    // render intentionally expands only the five most recent output-bearing commands.
-  }, [])
-  useEffect(() => { if (!compact) endRef.current?.scrollIntoView?.({ block: 'end' }) }, [compact, events.length])
-
-  if (!events.length) return <Empty title="Execução limpa" text="Operações, verificações, aplicação no host, stdout e stderr aparecerão aqui em tempo real. O terminal interativo continua no modo Editor." />
-  const overview = executionTimelineOverview(entries)
-  const active = overview === 'active'
-  const failed = overview === 'failed'
-  const recovered = overview === 'recovered'
-  const succeeded = overview === 'success'
-  return <div className="execution-view">
-    {!compact && <div className="execution-overview">
-      <div><span className="panel-kicker">Execução observável</span><h3>{active ? 'Operação em curso' : failed ? 'Execução com falha' : recovered ? 'Execução recuperada' : succeeded ? 'Execução concluída' : 'Atividade de execução'}</h3><p>As execuções ficam organizadas por subtarefa. Expanda cada etapa para ver os seus comandos e, dentro deles, o propósito, stdout, stderr, erros, data/hora e duração.</p></div>
-      <StatusPill tone={failed ? 'danger' : active ? 'warning' : 'success'}>{active ? 'LIVE' : failed ? 'Falhou' : recovered ? 'Recuperada' : succeeded ? 'Concluída' : 'Atualizada'}</StatusPill>
-    </div>}
-    <div className="execution-timeline execution-subtask-list">
-      {subtasks.map((group, index) => <ExecutionSubtaskBlock
-        key={group.id}
-        group={group}
-        sequence={index + 1}
-        defaultOpen={group.overview === 'active' || index === subtasks.length - 1}
-        expanded={expanded}
-        onToggleEntry={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })}
-      />)}
-      <div ref={endRef}/>
-    </div>
-  </div>
-}
-
-function ExecutionSubtaskBlock({ group, sequence, defaultOpen, expanded, onToggleEntry }: { group: ExecutionSubtaskGroup; sequence: number; defaultOpen: boolean; expanded: Set<string>; onToggleEntry: (id: string) => void }) {
-  const [open, setOpen] = useState(defaultOpen)
-  const status = executionSubtaskStatus(group.overview)
-  const requestId = group.requestId || group.rootRequestId
-  return <details className={`execution-subtask tone-${group.overview}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary className="execution-subtask-summary">
-      <span className="execution-subtask-index">{String(sequence).padStart(2, '0')}</span>
-      <span className="execution-subtask-copy"><span className="panel-kicker">Subtarefa {String(sequence).padStart(2, '0')}</span><strong>{executionKindLabel(group.iterationKind)}</strong><small>{formatExecutionDate(group.updatedAt)} · {group.entries.length} {group.entries.length === 1 ? 'evento' : 'eventos'}</small></span>
-      <span className="execution-subtask-meta"><code title={requestId}>{shortRequestId(requestId)}</code><span className={`history-status tone-${group.overview}`}>{status}</span><span className="history-chevron"><Icon name="chevron" size={12}/></span></span>
-    </summary>
-    {open && <div className="execution-subtask-events">{group.entries.map((entry) => <ExecutionEntryCard key={entry.id} entry={entry} expanded={expanded.has(entry.id)} onToggle={() => onToggleEntry(entry.id)}/>)}</div>}
-  </details>
-}
-
-function ExecutionEntryCard({ entry, expanded, onToggle }: { entry: ExecutionTimelineEntry; expanded: boolean; onToggle: () => void }) {
-  const canExpand = Boolean(entry.output || entry.rationale)
-  return <div className={`execution-command-card ${entry.running ? 'running' : ''}`}>
-    <div className="execution-event">
-      <span className={`lamp ${entry.tone === 'fail' ? 'fail' : entry.tone === 'warning' ? 'warning' : ''} ${entry.running ? 'blinking' : ''}`} />
-      <div className="execution-event-copy"><strong>{entry.title}</strong><span>{formatExecutionDate(entry.timestamp)}{entry.detail ? ` · ${entry.detail}` : ''}{entry.durationMs !== undefined ? ` · ${formatDuration(entry.durationMs)}` : ''}</span></div>
-      <div className="execution-event-actions"><code>{entry.badge}</code>{canExpand && <button type="button" className={expanded ? 'execution-expand open' : 'execution-expand'} onClick={onToggle} title={expanded ? 'Ocultar detalhes' : 'Mostrar detalhes'} aria-label={expanded ? 'Ocultar detalhes' : 'Mostrar detalhes'}>⌄</button>}</div>
-    </div>
-    {canExpand && expanded && <div className="execution-command-output" role="log" aria-label="Detalhes da execução">
-      {entry.rationale && <div className="execution-rationale"><strong>Porquê / propósito</strong><span>{entry.rationale}</span></div>}
-      {entry.outputSegments.length ? entry.outputSegments.map((segment, segmentIndex) => <pre key={`${entry.id}-output-${segmentIndex}`} className={`execution-output-segment ${segment.stream}`} data-stream={segment.stream} aria-label={segment.stream === 'stderr' ? 'stderr' : undefined}>{segment.text}</pre>) : entry.output ? <pre className="execution-output-segment meta">{entry.output}</pre> : null}
-    </div>}
-  </div>
-}
-
-function executionSubtaskStatus(overview: ReturnType<typeof executionTimelineOverview>) {
-  return overview === 'active' ? 'Em curso' : overview === 'failed' ? 'Falhou' : overview === 'recovered' ? 'Recuperada' : overview === 'success' ? 'Concluída' : 'Registada'
-}
-
-function executionKindLabel(kind: 'standard' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict') {
-	return kind === 'repair' ? 'Resolução de erro' : kind === 'revert_restore' ? 'Reposição de reversão' : kind === 'improvement' ? 'Melhoria contínua' : kind === 'evidence' ? 'Extração de informações' : kind === 'conflict' ? 'Resolução de conflito' : 'Execução principal'
-}
-
-function formatExecutionDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date)
-}
-
-function formatDuration(value: number) {
-  if (value < 1000) return `${value} ms`
-  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} s`
-  const minutes = Math.floor(value / 60_000)
-  return `${minutes}m ${Math.round((value % 60_000) / 1000)}s`
 }
 
 function Empty({ title, text }: { title: string; text: string }) { return <div className="empty-state"><div className="empty-mark">K/</div><h3>{title}</h3><p>{text}</p></div> }
