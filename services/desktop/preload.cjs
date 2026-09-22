@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
   }),
   windows: Object.freeze({
     info: () => invoke('wharness:windows:info'),
+    recovery: () => invoke('wharness:windows:recovery'),
     projects: () => invoke('wharness:windows:projects'),
     focusProject: (projectPath) => invoke('wharness:windows:focus-project', { projectPath: String(projectPath || '') }),
     onActivateProject: (callback) => {
@@ -20,6 +21,12 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('wharness:windows:activate-project', handler)
       return () => ipcRenderer.removeListener('wharness:windows:activate-project', handler)
+    },
+    onCloseProject: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('wharness:windows:close-project', handler)
+      return () => ipcRenderer.removeListener('wharness:windows:close-project', handler)
     },
     open: () => invoke('wharness:windows:open'),
     openSurface: (request = {}) => invoke('wharness:windows:open-surface', request),

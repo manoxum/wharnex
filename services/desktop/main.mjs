@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ClipboardItem, Menu, Notification, WebContentsView, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } from 'electron'
+import { app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, WebContentsView, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -132,6 +132,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 let mainWindow
+let desktopTray
 let chatgptViews = new Map()
 const chatGPTWorkerEntries = []
 const chatAgentWorkerStates = new Map()
@@ -159,6 +160,7 @@ const internalChatGPTBrowsers = new Map()
 const desktopWindows = new Map()
 const projectWindowRegistry = new ProjectWindowRegistry()
 let quitting = false
+let explicitDesktopExit = false
 const preparedChatGPTDrafts = new Map()
 const retryableChatGPTPrompts = new Map()
 const pendingChatGPTComments = new Map()
@@ -685,6 +687,7 @@ function acquireProjectForWindow(windowState, value) {
   windowState.projects.add(lock.path)
   windowState.activeProject = lock.path
   windowState.window.setTitle(desktopWindowTitle(lock.path, DESKTOP_INSTANCE))
+  refreshDesktopTray()
   return lock
 }
 
@@ -718,6 +721,7 @@ function releaseProjectForWindow(windowState, value) {
       windowState.window.setTitle(desktopWindowTitle(windowState.activeProject, DESKTOP_INSTANCE))
     }
   }
+  refreshDesktopTray()
   return result
 }
 
@@ -725,6 +729,182 @@ function releaseWindowProjects(windowState) {
   projectWindowRegistry.releaseWindow(windowState.id)
   windowState.projects.clear()
   windowState.activeProject = ''
+  refreshDesktopTray()
+}
+
+function desktopRecoverySessionPath() { return path.join(app.getPath('userData'), 'wharness-desktop-recovery-session.json') }
+
+function desktopRecoveryWindowSnapshot(windowState) {
+  if (!windowState?.window || windowState.window.isDestroyed() || windowState.transientSurface) return undefined
+  const projects = [...windowState.projects].filter(Boolean)
+  if (!projects.length) return undefined
+  return {
+    id: windowState.id,
+    projects,
+    active_project: projects.includes(windowState.activeProject) ? windowState.activeProject : projects[0],
+  }
+}
+
+function persistDesktopRecoverySession() {
+  try {
+    const windows = [...desktopWindows.values()].map(desktopRecoveryWindowSnapshot).filter(Boolean)
+    if (!windows.length) {
+      rmSync(desktopRecoverySessionPath(), { force: true })
+      return false
+    }
+    writeFileSync(desktopRecoverySessionPath(), JSON.stringify({ version: 1, created_at: Date.now(), windows }), { mode: 0o600 })
+    return true
+  } catch (error) {
+    console.warn('[windows] recovery session persistence failed', error)
+    return false
+  }
+}
+
+function consumeDesktopRecoverySession() {
+  try {
+    const filename = desktopRecoverySessionPath()
+    const parsed = JSON.parse(readFileSync(filename, 'utf8'))
+    try { rmSync(filename, { force: true }) } catch { /* best effort */ }
+    if (parsed?.version !== 1 || !Array.isArray(parsed.windows)) return undefined
+    const windows = []
+    const seenProjects = new Set()
+    for (const candidate of parsed.windows.slice(0, 12)) {
+      const id = typeof candidate?.id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(candidate.id) ? candidate.id : ''
+      if (!id || !Array.isArray(candidate?.projects)) continue
+      const projects = []
+      for (const value of candidate.projects) {
+        try {
+          const projectPath = canonicalProjectPath(value)
+          if (!seenProjects.has(projectPath)) { seenProjects.add(projectPath); projects.push(projectPath) }
+        } catch { /* stale project path */ }
+      }
+      if (!projects.length) continue
+      const activeProject = projects.includes(candidate.active_project) ? candidate.active_project : projects[0]
+      windows.push({ id, projects, activeProject })
+    }
+    return windows.length ? { windows } : undefined
+  } catch { return undefined }
+}
+
+function projectMenuLabel(projectPath) {
+  const basename = path.basename(projectPath) || projectPath
+  const duplicates = [...desktopWindows.values()].flatMap((state) => [...state.projects]).filter((candidate) => path.basename(candidate) === basename)
+  return duplicates.length > 1 ? `${basename} · ${projectPath}` : basename
+}
+
+function projectWindowState(projectPath) {
+  return [...desktopWindows.values()].find((state) => state.projects.has(projectPath) && state.window && !state.window.isDestroyed())
+}
+
+function restoreProjectWindow(projectPath) {
+  const state = projectWindowState(projectPath)
+  if (!state) return false
+  if (state.window.isMinimized()) state.window.restore()
+  state.window.show()
+  state.window.focus()
+  mainWindow = state.window
+  sendToWindowState(state, 'wharness:windows:activate-project', { projectPath })
+  return true
+}
+
+function requestProjectClose(projectPath) {
+  const state = projectWindowState(projectPath)
+  if (!state) return false
+  sendToWindowState(state, 'wharness:windows:close-project', { projectPath })
+  return true
+}
+
+function refreshDesktopTray() {
+  if (!desktopTray || desktopTray.isDestroyed()) return
+  const projects = [...new Set([...desktopWindows.values()].flatMap((state) => [...state.projects]))]
+  const template = projects.map((projectPath) => ({
+    label: projectMenuLabel(projectPath),
+    submenu: [
+      { label: 'Restaurar janela', click: () => { restoreProjectWindow(projectPath) } },
+      { label: 'Fechar projeto', click: () => { requestProjectClose(projectPath) } },
+    ],
+  }))
+  if (!template.length) template.push({ label: 'Nenhum projeto aberto', enabled: false })
+  template.push({ type: 'separator' })
+  template.push({ label: 'Sair', click: () => { void requestFullDesktopQuit() } })
+  desktopTray.setContextMenu(Menu.buildFromTemplate(template))
+}
+
+function ensureDesktopTray() {
+  if (desktopTray && !desktopTray.isDestroyed()) { refreshDesktopTray(); return desktopTray }
+  const icon = DESKTOP_ICON.resize({ width: 18, height: 18 })
+  desktopTray = new Tray(icon)
+  desktopTray.setToolTip(`Wharnex · ${desktopInstanceName(DESKTOP_INSTANCE)}`)
+  desktopTray.on('click', () => {
+    const project = [...desktopWindows.values()].flatMap((state) => [...state.projects])[0]
+    if (project && restoreProjectWindow(project)) return
+    const state = [...desktopWindows.values()].find((candidate) => !candidate.window.isDestroyed() && !candidate.transientSurface)
+    if (state) { state.window.show(); state.window.focus(); return }
+    const created = createWindow('primary')
+    created.window.show(); created.window.focus()
+  })
+  refreshDesktopTray()
+  return desktopTray
+}
+
+async function requestFullDesktopQuit() {
+  if (quitting) return
+  explicitDesktopExit = true
+  persistWindowLayout()
+  persistDesktopRecoverySession()
+  try { await session.defaultSession.flushStorageData() } catch (error) { console.warn('[windows] renderer storage flush failed', error) }
+  app.quit()
+}
+
+function confirmDesktopWindowClose(windowState, event) {
+  if (quitting || windowState.transientSurface) return
+  event.preventDefault()
+  const projectPath = windowState.activeProject && windowState.projects.has(windowState.activeProject) ? windowState.activeProject : [...windowState.projects][0] || ''
+  const response = dialog.showMessageBoxSync(windowState.window, {
+    type: 'question',
+    title: projectPath ? `Fechar ${path.basename(projectPath)}` : 'Fechar janela do Wharnex',
+    message: projectPath ? `O que pretende fazer com o projeto ${path.basename(projectPath)}?` : 'O que pretende fazer com esta janela?',
+    detail: 'Enviar para background mantém o Wharnex ativo no ícone da área de notificação. Sair guarda a sessão recuperável antes de encerrar.',
+    buttons: ['Enviar para background', projectPath ? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'],
+    defaultId: 0,
+    cancelId: 3,
+    noLink: true,
+  })
+  if (response === 0) {
+    hideChatAgentInteractionsForWindow(windowState)
+    windowState.window.hide()
+    ensureDesktopTray()
+    return
+  }
+  if (response === 1) {
+    if (projectPath) requestProjectClose(projectPath)
+    else windowState.window.destroy()
+    return
+  }
+  if (response === 2) setTimeout(() => { void requestFullDesktopQuit() }, 0)
+}
+
+function promptDesktopRecoverySession(recovery) {
+  if (!recovery?.windows?.length) return []
+  const accepted = []
+  for (const record of recovery.windows) {
+    const projects = []
+    for (const projectPath of record.projects) {
+      const response = dialog.showMessageBoxSync({
+        type: 'question',
+        title: 'Recuperar sessão do projeto',
+        message: `Recuperar a última sessão de ${path.basename(projectPath) || projectPath}?`,
+        detail: 'Recuperar repõe a janela e o estado persistido do workspace. Descartar remove apenas esta sessão de janela; os chats guardados do projeto são preservados.',
+        buttons: ['Recuperar sessão', 'Descartar sessão'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      })
+      if (response === 0) projects.push(projectPath)
+    }
+    if (projects.length) accepted.push({ id: record.id, projects, activeProject: projects.includes(record.activeProject) ? record.activeProject : projects[0] })
+  }
+  return accepted
 }
 
 function windowLayoutPath() { return path.join(app.getPath('userData'), 'wharness-window-layout.json') }
@@ -761,27 +941,39 @@ function normalizedWindowSize(value) {
   return { width: Math.round(width), height: Math.round(height) }
 }
 
+function normalizedWindowBounds(value) {
+  const size = normalizedWindowSize(value)
+  if (!size) return undefined
+  const x = Number(value?.x)
+  const y = Number(value?.y)
+  if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 100_000 || Math.abs(y) > 100_000) return size
+  return { ...size, x: Math.round(x), y: Math.round(y) }
+}
+
 function readWindowLayoutState() {
   try {
     const parsed = JSON.parse(readFileSync(windowLayoutPath(), 'utf8'))
     const windows = Array.isArray(parsed?.windows) ? parsed.windows.filter((item) => typeof item === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(item)) : []
-    const sizes = {}
-    if (parsed?.sizes && typeof parsed.sizes === 'object') {
-      for (const [id, value] of Object.entries(parsed.sizes)) {
-        if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) continue
-        const size = normalizedWindowSize(value)
-        if (size) sizes[id] = size
-      }
+    const bounds = {}
+    const maximized = {}
+    const sourceBounds = parsed?.bounds && typeof parsed.bounds === 'object' ? parsed.bounds : parsed?.sizes && typeof parsed.sizes === 'object' ? parsed.sizes : {}
+    for (const [id, value] of Object.entries(sourceBounds)) {
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) continue
+      const placement = normalizedWindowBounds(value)
+      if (placement) bounds[id] = placement
     }
-    return { windows: windows.length ? [...new Set(windows)].slice(0, 12) : ['primary'], sizes }
-  } catch { return { windows: ['primary'], sizes: {} } }
+    if (parsed?.maximized && typeof parsed.maximized === 'object') {
+      for (const [id, value] of Object.entries(parsed.maximized)) if (/^[A-Za-z0-9_-]{1,80}$/.test(id) && value === true) maximized[id] = true
+    }
+    return { windows: windows.length ? [...new Set(windows)].slice(0, 12) : ['primary'], bounds, maximized }
+  } catch { return { windows: ['primary'], bounds: {}, maximized: {} } }
 }
 
-function persistedWindowSize(windowState) {
+function persistedWindowPlacement(windowState) {
   if (!windowState?.window || windowState.window.isDestroyed()) return undefined
   try {
-    const bounds = typeof windowState.window.getNormalBounds === 'function' ? windowState.window.getNormalBounds() : windowState.window.getBounds()
-    return normalizedWindowSize(bounds)
+    const raw = typeof windowState.window.getNormalBounds === 'function' ? windowState.window.getNormalBounds() : windowState.window.getBounds()
+    return normalizedWindowBounds(raw)
   } catch { return undefined }
 }
 
@@ -789,13 +981,15 @@ function persistWindowLayout(ids = [...desktopWindows.values()].filter((state) =
   try {
     const previous = readWindowLayoutState()
     const windows = [...new Set(ids)].filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id)).slice(0, 12)
-    const sizes = {}
+    const bounds = {}
+    const maximized = {}
     for (const id of windows) {
       const live = desktopWindows.get(id)
-      const size = persistedWindowSize(live) || previous.sizes[id]
-      if (size) sizes[id] = size
+      const placement = persistedWindowPlacement(live) || previous.bounds[id]
+      if (placement) bounds[id] = placement
+      if (live?.window && !live.window.isDestroyed() ? live.window.isMaximized() : previous.maximized[id]) maximized[id] = true
     }
-    writeFileSync(windowLayoutPath(), JSON.stringify({ version: 2, windows, sizes }), { mode: 0o600 })
+    writeFileSync(windowLayoutPath(), JSON.stringify({ version: 3, windows, bounds, maximized }), { mode: 0o600 })
   } catch (error) { console.warn('[windows] layout persistence failed', error) }
 }
 
@@ -809,7 +1003,18 @@ function scheduleWindowLayoutPersistence() {
 
 function loadWindowLayout() { return readWindowLayoutState().windows }
 
-function loadWindowSize(id) { return readWindowLayoutState().sizes[id] || DEFAULT_DESKTOP_WINDOW_SIZE }
+function loadWindowPlacement(id) {
+  const state = readWindowLayoutState()
+  const placement = state.bounds[id] || DEFAULT_DESKTOP_WINDOW_SIZE
+  if (!('x' in placement) || !('y' in placement)) return { ...placement, maximized: Boolean(state.maximized[id]) }
+  try {
+    const visible = screen.getAllDisplays().some((display) => {
+      const area = display.workArea
+      return placement.x < area.x + area.width - 80 && placement.x + placement.width > area.x + 80 && placement.y < area.y + area.height - 60 && placement.y + placement.height > area.y + 60
+    })
+    return visible ? { ...placement, maximized: Boolean(state.maximized[id]) } : { ...DEFAULT_DESKTOP_WINDOW_SIZE, maximized: Boolean(state.maximized[id]) }
+  } catch { return { ...placement, maximized: Boolean(state.maximized[id]) } }
+}
 
 function restartIntentPath() { return path.join(app.getPath('userData'), 'wharness-window-restart-intent.json') }
 
@@ -7084,11 +7289,16 @@ function installLocalEditorContextMenu(win) {
 function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true, launch = {}) {
   const id = /^[A-Za-z0-9_-]{1,80}$/.test(String(windowId || '')) ? String(windowId) : `window-${randomUUID()}`
   const surface = launch?.surface && typeof launch.surface === 'object' ? launch.surface : undefined
-  const initialWindowSize = { ...loadWindowSize(id) }
-  if (surface) Object.assign(initialWindowSize, { width: 1280, height: 820 })
+  const recovery = launch?.recovery && typeof launch.recovery === 'object' ? {
+    active: true,
+    projects: Array.isArray(launch.recovery.projects) ? launch.recovery.projects.map(canonicalProjectPath) : [],
+    activeProject: typeof launch.recovery.activeProject === 'string' && launch.recovery.activeProject.trim() ? canonicalProjectPath(launch.recovery.activeProject) : '',
+  } : undefined
+  const initialWindowPlacement = surface ? { width: 1280, height: 820, maximized: false } : loadWindowPlacement(id)
   const win = new BrowserWindow({
-    width: initialWindowSize.width,
-    height: initialWindowSize.height,
+    width: initialWindowPlacement.width,
+    height: initialWindowPlacement.height,
+    ...(Number.isFinite(initialWindowPlacement.x) && Number.isFinite(initialWindowPlacement.y) ? { x: initialWindowPlacement.x, y: initialWindowPlacement.y } : {}),
     minWidth: surface ? 760 : MIN_DESKTOP_WINDOW_SIZE.width,
     minHeight: surface ? 520 : MIN_DESKTOP_WINDOW_SIZE.height,
     title: desktopWindowTitle('', DESKTOP_INSTANCE),
@@ -7103,7 +7313,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
     frame: false,
     webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
   })
-  const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '', transientSurface: Boolean(surface) }
+  const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '', transientSurface: Boolean(surface), recovery }
   if (surface?.projectPath) {
     state.projects.add(surface.projectPath)
     state.activeProject = surface.projectPath
@@ -7111,6 +7321,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
   }
   desktopWindows.set(id, state)
   mainWindow = win
+  if (!surface && initialWindowPlacement.maximized) win.maximize()
 
   const target = new URL(FRONTEND_URL)
   target.searchParams.set('wharnessWindow', id)
@@ -7173,8 +7384,20 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
   win.webContents.on('responsive', () => console.log(`[frontend-renderer] window=${id} responsive`))
   win.on('focus', () => { mainWindow = win; win.flashFrame(false); publishChatGPTState(state.activeChatGPTKey) })
   win.on('blur', () => publishChatGPTState(state.activeChatGPTKey))
-  if (!state.transientSurface) win.on('resize', scheduleWindowLayoutPersistence)
-  win.on('close', () => { hideChatAgentInteractionsForWindow(state); if (!quitting) rehomeChatGPTWorkers(state) })
+  if (!state.transientSurface) {
+    win.on('resize', scheduleWindowLayoutPersistence)
+    win.on('move', scheduleWindowLayoutPersistence)
+    win.on('maximize', scheduleWindowLayoutPersistence)
+    win.on('unmaximize', scheduleWindowLayoutPersistence)
+  }
+  win.on('close', (event) => {
+    if (!quitting && !state.transientSurface) {
+      confirmDesktopWindowClose(state, event)
+      if (event.defaultPrevented) return
+    }
+    hideChatAgentInteractionsForWindow(state)
+    if (!quitting) rehomeChatGPTWorkers(state)
+  })
   win.on('closed', () => {
     closeInternalChatGPTBrowserForWindow(state)
     closeChatGPTViewsForWindow(state)
@@ -7182,6 +7405,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
     desktopWindows.delete(id)
     if (mainWindow === win) mainWindow = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
     if (!quitting && !state.transientSurface) persistWindowLayout()
+    refreshDesktopTray()
   })
 
   void win.loadURL(target.href)
@@ -7245,6 +7469,14 @@ function registerIPC() {
   ipcMain.handle('wharness:windows:info', (event) => {
     const windowState = trustedSender(event)
     return { windowId: windowState.id, windowCount: desktopWindows.size }
+  })
+  ipcMain.handle('wharness:windows:recovery', (event) => {
+    const windowState = trustedSender(event)
+    return {
+      active: Boolean(windowState.recovery?.active),
+      projects: Array.isArray(windowState.recovery?.projects) ? [...windowState.recovery.projects] : [],
+      activeProject: String(windowState.recovery?.activeProject || ''),
+    }
   })
   ipcMain.handle('wharness:windows:projects', (event) => {
     const current = trustedSender(event)
@@ -8046,10 +8278,12 @@ app.whenReady().then(async () => {
   console.log(`ChatGPT compatibility UA: Chrome/${CHATGPT_CHROMIUM_VERSION}`)
   chatAgentPolicies = loadChatAgentPolicies()
   registerIPC()
+  ensureDesktopTray()
   chatGPTDownloadPoller = setInterval(() => { void flushQueuedChatGPTComments(); void pollChatGPTVisibleActivity(); void pollExpectedChatGPTDownloads(); void reconcileChatAgentAutoScale() }, DOM_DOWNLOAD_POLL_MS)
 
   const layout = loadWindowLayout()
   const restartIntent = consumeRestartIntent()
+  const recovery = restartIntent ? undefined : consumeDesktopRecoverySession()
   if (restartIntent?.scope === 'current' && layout.includes(restartIntent.currentWindowId)) {
     // A process-level self-evolution restart cannot physically keep sibling windows
     // alive. Recreate the requesting window first, then restore the saved topology.
@@ -8059,10 +8293,20 @@ app.whenReady().then(async () => {
       for (const windowId of layout) if (windowId !== restartIntent.currentWindowId && !desktopWindows.has(windowId)) createWindow(windowId, false)
       persistWindowLayout()
     }, 900)
+  } else if (recovery) {
+    const accepted = promptDesktopRecoverySession(recovery)
+    if (accepted.length) {
+      for (const record of accepted) createWindow(record.id, false, { recovery: { projects: record.projects, activeProject: record.activeProject } })
+      persistWindowLayout(accepted.map((record) => record.id))
+    } else {
+      createWindow('primary', false, { recovery: { projects: [], activeProject: '' } })
+      persistWindowLayout(['primary'])
+    }
   } else {
     for (const windowId of layout) createWindow(windowId, false)
     persistWindowLayout()
   }
+  refreshDesktopTray()
 
   const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
   chatAgentScheduler = new ChatAgentSchedulerClient({
@@ -8244,6 +8488,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('before-quit', () => {
+  if (!explicitDesktopExit) persistDesktopRecoverySession()
   quitting = true
   persistWindowLayout()
   if (chatGPTDownloadPoller) clearInterval(chatGPTDownloadPoller)
@@ -8251,5 +8496,11 @@ app.on('before-quit', () => {
   if (chatTranslatorScheduler) void chatTranslatorScheduler.stop()
   if (chatSupervisorScheduler) void chatSupervisorScheduler.stop()
 })
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow('primary') })
+app.on('window-all-closed', () => {
+  if (!quitting) ensureDesktopTray()
+})
+app.on('activate', () => {
+  const existing = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed() && !state.transientSurface)
+  if (existing) { existing.window.show(); existing.window.focus(); return }
+  createWindow('primary')
+})

@@ -42,6 +42,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   sessionIDRef.current = session.id
   const runMenuRef = useRef<HTMLDetailsElement>(null)
   const [activePath, setActivePath] = useState<string>()
+  const [editorMemoryReady, setEditorMemoryReady] = useState(false)
   const [savingPaths, setSavingPaths] = useState<Set<string>>(new Set())
   const autosaveTimersRef = useRef(new Map<string, { id: number; draft: string }>())
   const savePromisesRef = useRef(new Map<string, Promise<boolean>>())
@@ -160,6 +161,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     return () => { cancelled = true }
   }, [active, selectedGit, selectedPath, selectedSaved, session.id])
   useEffect(() => {
+    setEditorMemoryReady(false)
     setDocuments([])
     documentsRef.current = []
     setSavingPaths(new Set())
@@ -181,6 +183,36 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
       for (const document of documentsRef.current) disposeEditorModel(document.path)
     }
   }, [session.id, session.project_path])
+  useEffect(() => {
+    let cancelled = false
+    const memory = loadEditorWorkspaceMemory(session.project_path)
+    void (async () => {
+      const restored: EditorDocument[] = []
+      const preview = new Set<string>()
+      for (const remembered of memory.documents.slice(0, 24)) {
+        try {
+          const file = isBinaryPreview(remembered.path)
+            ? { path: remembered.path, content: '', sha256: '', size: 0 }
+            : await api.readFile(session.id, remembered.path)
+          if (cancelled) return
+          const draft = remembered.sha256 && remembered.sha256 === file.sha256 ? remembered.draft : file.content
+          restored.push({ ...file, draft })
+          if (isRichPreview(remembered.path)) preview.add(remembered.path)
+        } catch { /* files removed since shutdown are skipped */ }
+      }
+      if (cancelled) return
+      documentsRef.current = restored
+      setDocuments(restored)
+      setPreviewPaths(preview)
+      setActivePath(restored.some((item) => item.path === memory.activePath) ? memory.activePath : restored[0]?.path)
+      setEditorMemoryReady(true)
+    })()
+    return () => { cancelled = true }
+  }, [session.id, session.project_path])
+  useEffect(() => {
+    if (!editorMemoryReady) return
+    saveEditorWorkspaceMemory(session.project_path, documents, activePath || '')
+  }, [activePath, documents, editorMemoryReady, session.project_path])
   useEffect(() => {
     if (!dirtyCount) return
     const guard = (event: BeforeUnloadEvent) => { event.preventDefault() }
@@ -401,7 +433,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
               {!previewPaths.has(selected.path) && <><span>Ctrl+F ficheiro</span><span>Ctrl+Shift+F projeto</span><span>Shift Shift ficheiros</span></>}
             </div>
           </div>}
-          {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} gitChanges={gitLineChanges} onGitChangeClick={showGitChange} runtimeMarkers={runtimeMarkers} revealLine={revealLocation?.path === selected.path ? revealLocation.line : undefined} revealColumn={revealLocation?.path === selected.path ? revealLocation.column : undefined} revealNonce={revealLocation?.path === selected.path ? revealLocation.nonce : 0} />}
+          {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} viewStateScope={session.project_path} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} gitChanges={gitLineChanges} onGitChangeClick={showGitChange} runtimeMarkers={runtimeMarkers} revealLine={revealLocation?.path === selected.path ? revealLocation.line : undefined} revealColumn={revealLocation?.path === selected.path ? revealLocation.column : undefined} revealNonce={revealLocation?.path === selected.path ? revealLocation.nonce : 0} />}
           {!minimalSurface && <div className="editor-statusbar">
             <div className="editor-statusbar-primary">
               <span className="editor-statusbar-path">{selected.path}</span>
@@ -422,6 +454,31 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
 }
 
 
+const EDITOR_WORKSPACE_MEMORY_PREFIX = 'whx.editor.workspace.v1:'
+const MAX_PERSISTED_EDITOR_DRAFT = 512 * 1024
+
+type EditorWorkspaceMemory = { activePath: string; documents: Array<{ path: string; draft: string; sha256: string }> }
+
+function loadEditorWorkspaceMemory(projectPath: string): EditorWorkspaceMemory {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`${EDITOR_WORKSPACE_MEMORY_PREFIX}${projectPath}`) || '{}')
+    const documents = Array.isArray(parsed?.documents) ? parsed.documents.slice(0, 24).flatMap((value: unknown) => {
+      if (!value || typeof value !== 'object') return []
+      const item = value as Record<string, unknown>
+      const path = String(item.path || '').trim()
+      if (!path) return []
+      return [{ path: path.slice(0, 4096), draft: String(item.draft || '').slice(-MAX_PERSISTED_EDITOR_DRAFT), sha256: String(item.sha256 || '').slice(0, 128) }]
+    }) : []
+    return { activePath: String(parsed?.activePath || ''), documents }
+  } catch { return { activePath: '', documents: [] } }
+}
+
+function saveEditorWorkspaceMemory(projectPath: string, documents: EditorDocument[], activePath: string) {
+  try {
+    const persisted = documents.slice(0, 24).map((document) => ({ path: document.path, draft: document.draft.slice(-MAX_PERSISTED_EDITOR_DRAFT), sha256: document.sha256 }))
+    localStorage.setItem(`${EDITOR_WORKSPACE_MEMORY_PREFIX}${projectPath}`, JSON.stringify({ version: 1, activePath, documents: persisted }))
+  } catch { /* storage quota is best-effort */ }
+}
 
 function dockerComposeProjectForFile(overview: DockerOverview | undefined, projectRoot: string, path: string) {
   if (!overview) return undefined

@@ -38,7 +38,7 @@ function activeTerminalTheme() {
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'closed' | 'error'
 
-export function InteractiveTerminal({ session, height, onError, visible = true, runRequest, reconnectNonce = 0, onStatusChange }: { session: Session; height: number; onError: (message: string) => void; visible?: boolean; runRequest?: TerminalRunRequest; reconnectNonce?: number; onStatusChange?: (status: ConnectionStatus) => void }) {
+export function InteractiveTerminal({ session, height, onError, visible = true, runRequest, reconnectNonce = 0, onStatusChange, cwd = '.', initialHistory = '', initialViewportY = 0, onSnapshot }: { session: Session; height: number; onError: (message: string) => void; visible?: boolean; runRequest?: TerminalRunRequest; reconnectNonce?: number; onStatusChange?: (status: ConnectionStatus) => void; cwd?: string; initialHistory?: string; initialViewportY?: number; onSnapshot?: (snapshot: { cwd: string; history: string; viewportY: number }) => void }) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const statusRef = useRef<ConnectionStatus>('connecting')
   const terminalRootRef = useRef<HTMLDivElement>(null)
@@ -48,8 +48,10 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
   const deliveredRunRef = useRef(0)
   const onErrorRef = useRef(onError)
   const onStatusChangeRef = useRef(onStatusChange)
+  const onSnapshotRef = useRef(onSnapshot)
   onErrorRef.current = onError
   onStatusChangeRef.current = onStatusChange
+  onSnapshotRef.current = onSnapshot
 
   useEffect(() => {
     const root = terminalRootRef.current
@@ -61,6 +63,9 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     let inputTimer = 0
     let inputQueue = Promise.resolve()
     let resizeTimer = 0
+    let snapshotTimer = 0
+    let history = String(initialHistory || '').slice(-MAX_PERSISTED_TERMINAL_HISTORY)
+    const rememberedCwd = cwd || '.'
     const terminal = new XTerm({
       cursorBlink: true, scrollback: 10_000, allowProposedApi: false,
       fontFamily: "ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
@@ -68,6 +73,21 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     })
     const fit = new FitAddon()
     terminal.loadAddon(fit); terminal.open(root); fitRef.current = fit; terminalRef.current = terminal
+    if (history) {
+      terminal.write(history, () => {
+        try { terminal.scrollToLine(Math.max(0, initialViewportY)) } catch { /* xterm may still be sizing */ }
+      })
+    }
+    const emitSnapshot = () => onSnapshotRef.current?.({ cwd: rememberedCwd, history, viewportY: terminal.buffer.active.viewportY })
+    const scheduleSnapshot = () => {
+      window.clearTimeout(snapshotTimer)
+      snapshotTimer = window.setTimeout(emitSnapshot, 250)
+    }
+    const appendHistory = (data: string) => {
+      history = `${history}${data}`.slice(-MAX_PERSISTED_TERMINAL_HISTORY)
+      scheduleSnapshot()
+    }
+    const scrollDisposable = terminal.onScroll(scheduleSnapshot)
 
     const setConnectionStatus = (next: ConnectionStatus) => {
       statusRef.current = next
@@ -130,7 +150,7 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     async function connect() {
       setConnectionStatus('connecting')
       try {
-        const descriptor = await api.openTerminal(session.id, { cwd: '.', network: false, cols: terminal.cols || 80, rows: terminal.rows || 24 }, 'host', true)
+        const descriptor = await api.openTerminal(session.id, { cwd: rememberedCwd, network: false, cols: terminal.cols || 80, rows: terminal.rows || 24 }, 'host', true)
         if (!active) { void api.closeTerminal(session.id, descriptor.terminal_id).catch(() => undefined); return }
         terminalID = descriptor.terminal_id; terminalIDRef.current = terminalID
         void api.resizeTerminal(session.id, terminalID, terminal.cols || 80, terminal.rows || 24).catch(reportError)
@@ -140,10 +160,10 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
           try {
             const terminalFrame = JSON.parse(event.data) as TerminalFrame
             if (terminalFrame.type === 'ready') { setConnectionStatus('connected'); terminal.focus() }
-            else if (terminalFrame.type === 'output' && terminalFrame.data) terminal.write(terminalFrame.data)
+            else if (terminalFrame.type === 'output' && terminalFrame.data) { appendHistory(terminalFrame.data); terminal.write(terminalFrame.data) }
             else if (terminalFrame.type === 'exit') {
               setConnectionStatus('closed')
-              if (terminalFrame.message) terminal.writeln(`\r\n\x1b[38;2;214;165;107m${terminalFrame.message}\x1b[0m`)
+              if (terminalFrame.message) { const line = `\r\n\x1b[38;2;214;165;107m${terminalFrame.message}\x1b[0m`; appendHistory(line); terminal.writeln(line) }
               source?.close()
             } else if (terminalFrame.type === 'error') reportError(terminalFrame.message || 'Erro no terminal')
           } catch { /* ignore malformed transport frames */ }
@@ -155,13 +175,17 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
 
     return () => {
       active = false
-      window.cancelAnimationFrame(frame); window.clearTimeout(inputTimer); window.clearTimeout(resizeTimer)
-      observer?.disconnect(); source?.close(); root.removeEventListener('keydown', clipboardShortcut, true); inputDisposable.dispose(); resizeDisposable.dispose(); terminal.dispose()
+      emitSnapshot()
+      window.cancelAnimationFrame(frame); window.clearTimeout(inputTimer); window.clearTimeout(resizeTimer); window.clearTimeout(snapshotTimer)
+      observer?.disconnect(); source?.close(); root.removeEventListener('keydown', clipboardShortcut, true); inputDisposable.dispose(); resizeDisposable.dispose(); scrollDisposable.dispose(); terminal.dispose()
       fitRef.current = null
       if (terminalRef.current === terminal) terminalRef.current = null
       if (terminalIDRef.current === terminalID) terminalIDRef.current = ''
       if (terminalID) void api.closeTerminal(session.id, terminalID).catch(() => undefined)
     }
+  // `cwd` and restored history are initial conditions for a new PTY. They do not
+  // reconnect a live shell merely because its remembered metadata changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id, reconnectNonce])
 
   useEffect(() => subscribeUIPreferences((preferences) => {
@@ -204,3 +228,5 @@ function splitTerminalInput(data: string) {
   if (chunk) chunks.push(chunk)
   return chunks
 }
+
+const MAX_PERSISTED_TERMINAL_HISTORY = 256 * 1024

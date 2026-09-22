@@ -12,7 +12,7 @@ test('workspace toolbar owns the themed title bar and window controls', async ()
 })
 
 
-test('desktop windows restore their last normal size per window id', async () => {
+test('desktop windows restore normal bounds and maximized state per window id', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const persistenceStart = source.indexOf('function windowLayoutPath()')
   const persistenceEnd = source.indexOf('\nfunction restartIntentPath()', persistenceStart)
@@ -21,15 +21,30 @@ test('desktop windows restore their last normal size per window id', async () =>
   const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
   const create = source.slice(createStart, registerStart)
 
-  assert.match(persistence, /JSON\.stringify\(\{ version: 2, windows, sizes \}\)/)
+  assert.match(persistence, /JSON\.stringify\(\{ version: 3, windows, bounds, maximized \}\)/)
   assert.match(persistence, /getNormalBounds/)
-  assert.match(persistence, /function loadWindowSize\(id\)/)
-  assert.match(create, /const initialWindowSize = \{ \.\.\.loadWindowSize\(id\) \}/)
-  assert.match(create, /if \(surface\) Object\.assign\(initialWindowSize, \{ width: 1280, height: 820 \}\)/)
-  assert.match(create, /width: initialWindowSize\.width/)
-  assert.match(create, /height: initialWindowSize\.height/)
+  assert.match(persistence, /function loadWindowPlacement\(id\)/)
+  assert.match(create, /const initialWindowPlacement = surface \? \{ width: 1280, height: 820, maximized: false \} : loadWindowPlacement\(id\)/)
+  assert.match(create, /width: initialWindowPlacement\.width/)
+  assert.match(create, /height: initialWindowPlacement\.height/)
   assert.match(create, /win\.on\('resize', scheduleWindowLayoutPersistence\)/)
+  assert.match(create, /win\.on\('move', scheduleWindowLayoutPersistence\)/)
+  assert.match(create, /if \(!surface && initialWindowPlacement\.maximized\) win\.maximize\(\)/)
   assert.doesNotMatch(create, /windowStatePersistence/)
+})
+
+test('desktop tray owns background lifecycle, project actions and recoverable shutdown', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /new Tray\(icon\)/)
+  assert.match(source, /label: 'Restaurar janela'/)
+  assert.match(source, /label: 'Fechar projeto'/)
+  assert.match(source, /label: 'Sair'/)
+  assert.match(source, /buttons: \['Enviar para background', projectPath \? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'\]/)
+  assert.match(source, /persistDesktopRecoverySession\(\)/)
+  assert.match(source, /buttons: \['Recuperar sessão', 'Descartar sessão'\]/)
+  assert.match(source, /ipcMain\.handle\('wharness:windows:recovery'/)
+  assert.match(source, /wharness:windows:close-project/)
+  assert.match(source, /app\.on\('window-all-closed', \(\) => \{[\s\S]*ensureDesktopTray\(\)/)
 })
 
 test('Linux Desktop uses software compositing to avoid GPU renderer traps', async () => {
@@ -71,6 +86,8 @@ test('renderer window controls are closed preload IPC operations', async () => {
   assert.match(preload, /minimize: \(\) => invoke\('wharness:windows:minimize'\)/)
   assert.match(preload, /toggleMaximize: \(\) => invoke\('wharness:windows:toggle-maximize'\)/)
   assert.match(preload, /close: \(\) => invoke\('wharness:windows:close'\)/)
+  assert.match(preload, /recovery: \(\) => invoke\('wharness:windows:recovery'\)/)
+  assert.match(preload, /ipcRenderer\.on\('wharness:windows:close-project', handler\)/)
   assert.match(preload, /activateSelfEvolution: \(impacts\) => invoke\('wharness:windows:activate-self-evolution'/)
   const activation = source.slice(source.indexOf("ipcMain.handle('wharness:windows:activate-self-evolution'"), source.indexOf("ipcMain.handle('wharness:chatgpt:show'"))
   assert.match(activation, /impacts\.includes\('desktop'\)[\s\S]*app\.relaunch\(\); app\.exit\(0\)/)
@@ -3174,7 +3191,7 @@ test('detached workbench surfaces stay transient and keep project ownership with
   const createWindowSource = source.slice(createStart, createEnd)
   assert.match(createWindowSource, /transientSurface: Boolean\(surface\)/)
   assert.match(createWindowSource, /if \(surface\?\.projectPath\) \{[\s\S]*state\.projects\.add\(surface\.projectPath\)/)
-  assert.match(createWindowSource, /if \(!state\.transientSurface\) win\.on\('resize', scheduleWindowLayoutPersistence\)/)
+  assert.match(createWindowSource, /if \(!state\.transientSurface\) \{[\s\S]*win\.on\('resize', scheduleWindowLayoutPersistence\)/)
   assert.match(createWindowSource, /if \(!quitting && !state\.transientSurface\) persistWindowLayout\(\)/)
   assert.match(source, /function persistWindowLayout\(ids = \[\.\.\.desktopWindows\.values\(\)\]\.filter\(\(state\) => !state\.window\.isDestroyed\(\) && !state\.transientSurface\)/)
   assert.match(source, /find\(\(state\) => !state\.window\.isDestroyed\(\) && !state\.transientSurface && state\.projects\.has\(projectPath\)\)/)

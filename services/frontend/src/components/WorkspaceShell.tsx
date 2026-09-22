@@ -47,9 +47,11 @@ export function WorkspaceShell() {
     async function initialize() {
       try { if (alive) setConfig(await api.config()) } catch (reason) { if (alive) setError(messageOf(reason)) }
       const bridge = desktopBridge()
+      let recovery: { active: boolean; projects: string[]; activeProject: string } | undefined
+      try { recovery = await bridge?.windows.recovery?.() } catch { /* recovery is best-effort */ }
       const legacy = desktopWindowScope() === 'primary' ? loadActiveWorkspace()?.projectPath || '' : ''
-      const candidates = loadBoundProjects()
-      if (!candidates.length && legacy) candidates.push(legacy)
+      const candidates = recovery?.active ? [...recovery.projects] : loadBoundProjects()
+      if (!recovery?.active && !candidates.length && legacy) candidates.push(legacy)
       const acquired: string[] = []
       for (const candidate of candidates) {
         try {
@@ -58,7 +60,7 @@ export function WorkspaceShell() {
         } catch { /* stale saved binding is ignored */ }
       }
       if (!alive) return
-      const preferred = loadBoundActiveProject()
+      const preferred = recovery?.active ? recovery.activeProject : loadBoundActiveProject()
       const active = acquired.includes(preferred) ? preferred : acquired[0] || ''
       setProjects(acquired); setActiveProject(active); saveBoundProjects(acquired); saveBoundActiveProject(active); setBusy(false); setInitialized(true)
     }
@@ -159,6 +161,14 @@ export function WorkspaceShell() {
       if (projects.includes(payload.projectPath)) setActiveProject(payload.projectPath)
     })
   }, [projects])
+
+  useEffect(() => {
+    const windows = desktopBridge()?.windows
+    if (!windows?.onCloseProject) return
+    return windows.onCloseProject((payload) => {
+      if (projects.includes(payload.projectPath)) void unbindProject(payload.projectPath)
+    })
+  }, [projects, busy, activeProject])
 
   // Keep iframe URLs stable across project switches. Hidden frames remain mounted so in-flight
   // work and page/UI state are preserved instead of being reloaded on activation.
