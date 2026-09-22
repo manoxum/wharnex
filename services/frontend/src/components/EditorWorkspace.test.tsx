@@ -19,7 +19,6 @@ vi.mock('../lib/monaco', () => ({ disposeEditorModel: () => undefined }))
 
 const session = {
   id: 'ses-editor', project_path: '/workspace/demo', state: 'ready', execution_mode: 'protected', automation_mode: 'auto', chat_transport_mode: 'scraper', effort_level: 'high', created_at: '2026-09-12T15:00:00.000Z',
-  repository: '', repositories: [],
   context: { id: 'ctx', manifest: { id: 'ctx', project_root: '/workspace/demo', sha256: 'abc', files: [], excluded: [], text_truncated: false } },
 } satisfies Session
 
