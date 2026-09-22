@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { GitContributionDay, GitContributorsOverview } from '../types'
 import { api } from '../lib/api'
+import { GitContributorsSkeleton } from './GitContributorsSkeleton'
 
 const CONTRIBUTION_CALENDAR_WEEKS = 53
 
@@ -20,7 +21,7 @@ export function GitContributorsSection({ sessionId, repository, repositoryLabel 
     return () => { cancelled = true }
   }, [sessionId, repository])
 
-  if (loading) return <section className="git-section git-contributors-section"><p className="git-empty inline">A calcular contribuições do repositório…</p></section>
+  if (loading) return <GitContributorsSkeleton repositoryLabel={repositoryLabel}/>
   if (error) return <section className="git-section git-contributors-section"><p className="git-notice warning-card">{error}</p></section>
   if (!overview || overview.contributors.length === 0) return <section className="git-section git-contributors-section"><p className="git-empty inline">Ainda não existem contribuições no histórico.</p></section>
 
