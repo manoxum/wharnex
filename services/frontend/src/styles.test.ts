@@ -911,6 +911,7 @@ describe('operational surface visual hierarchy', () => {
   it('flattens library, execution errors and evidence into quiet IDE lists', () => {
     expect(lastRule('.file-library-card')).toContain('border-radius: 4px')
     expect(lastRule('.file-library-card')).toContain('box-shadow: none')
+    expect(lastRule('.file-library-grid')).toContain('grid-auto-rows: max-content')
     const bundleCard = lastRule('.file-library-card.file-library-bundle-card')
     expect(bundleCard).toContain('aspect-ratio: 1 / 1')
     expect(bundleCard).toContain('border-radius: 12px')
