@@ -16,13 +16,17 @@ export function currentMainRequestRoot(session: Session) {
  * it must not keep an older Main Request labelled as actively executing. A
  * later terminal lifecycle result also outranks an earlier orphaned RUN entry.
  */
-export function executionActivityOverview(entries: ExecutionTimelineEntry[], allowActive = true): ExecutionTimelineOverview {
-  let latestActiveIndex = -1
+export function executionActivityOverview(entries: ExecutionTimelineEntry[], allowActive = true, activeRequestId = ''): ExecutionTimelineOverview {
+  let latestLive: { index: number; state: 'active' | 'waiting' } | undefined
   let latestTerminal: { index: number; state: 'success' | 'failure' } | undefined
   let hadFailure = false
 
   entries.forEach((entry, index) => {
-    if (entry.running || entry.lifecycleState === 'active') latestActiveIndex = index
+    const requestIsCurrent = !activeRequestId || entry.requestId === activeRequestId
+    if (allowActive && requestIsCurrent) {
+      if (entry.running || entry.lifecycleState === 'active') latestLive = { index, state: 'active' }
+      else if (entry.lifecycleState === 'waiting') latestLive = { index, state: 'waiting' }
+    }
     if (entry.lifecycleState === 'failure') {
       hadFailure = true
       latestTerminal = { index, state: 'failure' }
@@ -31,9 +35,9 @@ export function executionActivityOverview(entries: ExecutionTimelineEntry[], all
     }
   })
 
-  if (allowActive && latestActiveIndex > (latestTerminal?.index ?? -1)) return 'active'
+  if (latestLive && latestLive.index > (latestTerminal?.index ?? -1)) return latestLive.state
   if (latestTerminal?.state === 'failure') return 'failed'
   if (latestTerminal?.state === 'success') return hadFailure ? 'recovered' : 'success'
-  if (allowActive && latestActiveIndex >= 0) return 'active'
+  if (latestLive) return latestLive.state
   return 'neutral'
 }
