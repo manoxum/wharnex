@@ -243,10 +243,11 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   return <section className="git-drawer" aria-label="Git do projeto">
     <header className="agent-drawer-heading git-drawer-heading">
       <div className="git-heading-copy">
+        <span className="panel-kicker git-heading-kicker">Controlo de versão</span>
         <span className="git-heading-symbol" aria-hidden="true"><Icon name="git" size={14}/></span>
         <div className="git-heading-text">
           <strong>Git do projeto</strong>
-          {overview?.available && <span className="git-heading-branch">{overview.detached ? 'HEAD destacado' : current?.name || overview.current_branch || 'sem branch'}</span>}
+          {overview?.available && <span className="git-heading-branch"><Icon name="git" size={9}/><span>{overview.detached ? 'HEAD destacado' : current?.name || overview.current_branch || 'sem branch'}</span></span>}
         </div>
       </div>
       <div className="git-heading-actions">
