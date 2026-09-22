@@ -9704,6 +9704,37 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .file-library-bundle-thumbnail-copy { min-width: 0; display: grid; gap: 5px; text-align: left; }
 .file-library-bundle-thumbnail-copy strong { overflow: hidden; color: var(--theme-text); font-size: calc(11px * var(--ui-font-scale)); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .file-library-bundle-thumbnail-copy small { color: var(--theme-text-muted); font: 600 calc(9px * var(--ui-font-scale))/1.2 var(--mono-font-family); }
+.file-library-card.file-library-bundle-card {
+  aspect-ratio: 1 / 1;
+  height: auto;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto 40px;
+  border-color: color-mix(in srgb, var(--theme-border) 86%, transparent);
+  border-radius: 12px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--theme-elevated) 88%, var(--theme-surface)), var(--theme-surface));
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 9%, transparent);
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+.file-library-card.file-library-bundle-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border));
+  background: linear-gradient(160deg, color-mix(in srgb, var(--theme-accent) 3%, var(--theme-elevated)), var(--theme-surface));
+  box-shadow: 0 12px 28px color-mix(in srgb, #000 13%, transparent);
+}
+.file-library-card.file-library-bundle-card.selected {
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border));
+  background: linear-gradient(160deg, color-mix(in srgb, var(--theme-accent) 6%, var(--theme-elevated)), var(--theme-surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 18%, transparent), 0 12px 28px color-mix(in srgb, #000 12%, transparent);
+}
+.file-library-bundle-card .file-library-card-preview { background: color-mix(in srgb, var(--theme-elevated) 78%, var(--theme-bg)); }
+.file-library-bundle-card .file-library-bundle-thumbnail {
+  padding: 23px 14px 14px;
+  flex-direction: column;
+  gap: 9px;
+}
+.file-library-bundle-card .file-library-bundle-thumbnail-copy { justify-items: center; gap: 3px; text-align: center; }
+.file-library-bundle-card .file-library-card-copy { padding: 10px 11px 8px; gap: 3px; }
+.file-library-bundle-card .file-library-card-actions { min-height: 40px; padding: 5px 7px; }
 @media (max-width:900px) {
   .file-library-pagination { flex-wrap: wrap; }
   .file-library-page-status { order: 3; width: 100%; }

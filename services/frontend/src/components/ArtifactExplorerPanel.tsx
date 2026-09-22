@@ -194,7 +194,7 @@ function StorageSummary({ storage }: { storage?: BackendStorageUsage }) {
 function ArtifactCard({ item, canIndex, selected, onToggleSelected, onOpen, onIndex, onDelete }: { item: ManagedArtifact; canIndex: boolean; selected: boolean; onToggleSelected: () => void; onOpen: () => void; onIndex: () => void; onDelete: () => void }) {
   const artifact = item.artifact
   const directionLabel = artifact.bundle ? (artifact.direction === 'input' ? 'Pedido' : 'Resposta') : artifact.direction === 'input' ? 'Recebido' : 'Devolvido'
-  return <article className={`file-library-card ${artifact.bundle ? 'bundle-card' : ''} ${selected ? 'selected' : ''}`}>
+  return <article className={`file-library-card ${artifact.bundle ? 'file-library-bundle-card' : ''} ${selected ? 'selected' : ''}`}>
     <label className="artifact-explorer-check file-library-card-check" title={`Selecionar ${artifact.name}`}><input type="checkbox" checked={selected} onChange={onToggleSelected} aria-label={`Selecionar ${artifact.name}`}/><span/></label>
     <button type="button" className="file-library-card-preview" aria-label={`Abrir ${artifact.name}`} onClick={onOpen}>
       {artifact.bundle ? <BundleCardPreview item={item}/> : <ArtifactPreview path={artifact.name} size={artifact.size} compact url={api.artifactURL(item.session_id, artifact.id, true)}/>}
