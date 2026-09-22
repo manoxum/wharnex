@@ -2,6 +2,7 @@ import { app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, WebContent
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TextDecoder } from 'node:util'
@@ -38,7 +39,21 @@ import { spellcheckContextMenuTemplate } from './spellcheck-menu.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
-const DESKTOP_ICON = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(desktopIconSVG(DESKTOP_INSTANCE)).toString('base64')}`)
+const DESKTOP_SLUG = desktopInstanceName(DESKTOP_INSTANCE).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'wharnex'
+
+function resolveDesktopIcon() {
+  const dataHome = process.env.WHARNESS_DESKTOP_DATA_HOME || path.join(homedir(), '.local', 'share')
+  for (const candidate of [
+    path.join(dataHome, 'icons', 'hicolor', '256x256', 'apps', `wharnex-${DESKTOP_SLUG}.png`),
+    path.join(dataHome, 'icons', 'hicolor', 'scalable', 'apps', `wharnex-${DESKTOP_SLUG}.svg`),
+  ]) {
+    const image = nativeImage.createFromPath(candidate)
+    if (!image.isEmpty()) return image
+  }
+  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(desktopIconSVG(DESKTOP_INSTANCE)).toString('base64')}`)
+}
+
+const DESKTOP_ICON = resolveDesktopIcon()
 app.setName(`Wharnex - ${desktopInstanceName(DESKTOP_INSTANCE)}`)
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
 const BACKEND_URL = requireLocalHTTPURL(process.env.WHARNESS_API_URL || 'http://127.0.0.1:8888', 'Backend URL').href

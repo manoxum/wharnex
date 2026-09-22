@@ -7,6 +7,7 @@ _(reserved — no entries yet)_
 ### Chat 9ef77188-f590-4240-8714-61ac41b0deb9 (2026-09-22)
 
 - Add a persistent desktop tray lifecycle with explicit background/project/all-project close choices, per-project tray restore/close actions, recoverable multi-project shutdown state, restored window geometry, editor tabs/view positions, and best-effort terminal tab/history/workdir/scroll recovery while preserving durable chat data when a workspace session is discarded.
+- Fix the Linux tray glyph so it reuses the installed per-instance Wharnex raster icon (with installed SVG and generated SVG fallbacks) instead of relying first on an SVG data URL that can render as a generic three-dot placeholder.
 
 
 ### Chat 86aa9548-a1b2-412f-ae42-50680a6f3b92 (2026-09-22)
