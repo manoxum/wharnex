@@ -13,7 +13,7 @@ describe('App knowledge-review dispatch', () => {
     // pending_knowledge_review_request_id alone, with its own dedup
     // namespace, and must not fold into the repair/conflict/baseline
     // dispatch effect above it (which explicitly keys off session.state).
-    const start = source.indexOf('pending_knowledge_review_request_id')
+    const start = source.indexOf('session.pending_knowledge_review_request_id')
     expect(start).toBeGreaterThan(-1)
     const effectStart = source.lastIndexOf('useEffect(() => {', start)
     const effectEnd = source.indexOf('}, [session, activeChatOwnsSession, activeChatId, chats])', start)
@@ -49,7 +49,7 @@ describe('App knowledge-review dispatch', () => {
     expect(terminalPackage).toContain('presentAppliedSession(targetChat, updated)')
     expect(terminalPackage).not.toContain('appendChatItem(targetChat, updated.project_path, bundleItem)')
     expect(changeSummarySource).toContain('Alterações e comandos aplicados ao host.')
-    expect(source).toContain('restartModalOpen && restartPresentationKey && <RestartConfirmation')
-    expect(source).toContain('change={buildAppliedChangeSummary(session)}')
+    expect(source).toContain('restartModalOpen && restartReports.length > 0 && <RestartConfirmation reports={restartReports}')
+    expect(source).toContain('change: buildAppliedChangeSummary(candidate)')
   })
 })

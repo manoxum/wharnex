@@ -15,6 +15,7 @@ type DesktopBundleDownloadError = { cacheKey?: string; filename?: string; reques
 type DesktopChatGPTActivity = { cacheKey?: string; requestId?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
 type DesktopChatGPTHumanAction = { cacheKey: string; requestId?: string; active: boolean; kind: 'verification' | 'authentication' | 'access' | 'surface' | 'transport' | string; source?: string; message: string; detectedAt: string; open?: boolean }
 type DesktopChatGPTCommentStatus = { cacheKey?: string; requestId: string }
+type DesktopCompletionNotification = { id: string; projectPath: string; chatId: string; kind: 'task-completed' | 'restart-pending'; title: string; body: string; occurredAt: string; read?: boolean }
 type DesktopChatGPTAccountAction = { cacheKey: string; action: 'organize' | 'archive' | string; ok: boolean; state: string; provider: 'official-api' | 'typed-browser' | string }
 type DesktopUserAttachment = { name: string; mime?: string; contentBase64: string }
 type DesktopStoredAttachment = { name: string; size: number; mime: string; storageRef: string; previewKind: 'thumbnail' | 'icon' | 'none' }
@@ -86,6 +87,10 @@ interface WharnessDesktopBridge {
     toggleMaximize(): Promise<{ ok: boolean; maximized: boolean }>
     close(): Promise<{ ok: boolean }>
     activateSelfEvolution(impacts: Array<'backend' | 'frontend' | 'desktop' | 'tunnel'>): Promise<{ ok: boolean; action: 'services' | 'reload' | 'relaunch' }>
+  }
+  notifications: {
+    publish(request: DesktopCompletionNotification): Promise<{ ok: boolean; duplicate: boolean; id: string }>
+    onOpen(callback: (notification: DesktopCompletionNotification) => void): () => void
   }
   spellcheck: {
     showSuggestions(point: { x: number; y: number }): Promise<{ ok: boolean }>

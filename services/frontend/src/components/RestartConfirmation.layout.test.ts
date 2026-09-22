@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(resolve(process.cwd(), 'src/styles/domains/restart-confirmation.css'), 'utf8')
+const reportCss = readFileSync(resolve(process.cwd(), 'src/styles/domains/restart-confirmation-reports.css'), 'utf8')
 
 function firstRule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -18,6 +19,9 @@ describe('restart confirmation layout CSS', () => {
 
     expect(dialog).toContain('grid-template-rows: auto auto minmax(0, 1fr) auto')
     expect(dialog).toContain('height: min(820px, calc(100dvh - 56px))')
+    expect(changes).toContain('grid-template-rows: auto minmax(0, 1fr)')
+    expect(reportCss).toContain('grid-template-rows: auto auto minmax(0, 1fr)')
+    expect(reportCss).toContain('.restart-confirmation-report-tabs')
     expect(changes).toContain('min-height: 0')
     expect(changes).toContain('height: auto')
     expect(actions).toContain('grid-column: auto')

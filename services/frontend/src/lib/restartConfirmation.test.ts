@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Session } from '../types'
-import { isRestartPending, restartConfirmationKey } from './restartConfirmation'
+import { isRestartPending, mergeRestartImpacts, restartConfirmationKey } from './restartConfirmation'
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -45,5 +45,14 @@ describe('restart confirmation state', () => {
     expect(restartConfirmationKey(session({ plan: { plan_id: 'plan-current' } as Session['plan'] }))).toBe('ses-1:plan-current')
     expect(restartConfirmationKey(session())).toBe('ses-1:pending')
     expect(restartConfirmationKey(session({ self_evolution_activation: 'restart_scheduled' }))).toBeUndefined()
+  })
+
+
+  it('unions cumulative service impacts in deterministic activation order', () => {
+    expect(mergeRestartImpacts([
+      { sessionId: 'ses-1', chatId: 'chat-1', chatTitle: 'Frontend', impacts: ['frontend'] },
+      { sessionId: 'ses-2', chatId: 'chat-2', chatTitle: 'Desktop', impacts: ['desktop', 'frontend'] },
+      { sessionId: 'ses-3', chatId: 'chat-3', chatTitle: 'Backend', impacts: ['backend'] },
+    ])).toEqual(['backend', 'frontend', 'desktop'])
   })
 })

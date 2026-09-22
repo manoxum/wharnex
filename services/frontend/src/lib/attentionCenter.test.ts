@@ -276,4 +276,35 @@ describe('attention center', () => {
     expect(items).toEqual([expect.objectContaining({ title: 'Debug aguarda autorização', target: 'plan', action: 'approve-debug' })])
     expect(items[0].detail).toContain('Ação de debug com alteração no host local')
   })
+
+  it('creates an informational notification for every completed host integration', () => {
+    const applied = session('ses-chat-1')
+    applied.state = 'applied'
+    applied.last_request_id = 'req-done'
+    applied.last_host_applied_at = '2026-09-22T18:47:00.000Z'
+    const items = collectAttentionItems([chat('chat-1', 'Concluído')], { 'chat-1': applied })
+    expect(items).toEqual([expect.objectContaining({
+      id: 'chat-1:task-completed:2026-09-22T18:47:00.000Z',
+      title: 'Tarefa concluída',
+      tone: 'success',
+      kind: 'task-completed',
+      occurredAt: '2026-09-22T18:47:00.000Z',
+    })])
+  })
+
+  it('turns a ready self-evolution completion into a restart notification instead of an automatic modal signal', () => {
+    const applied = session('ses-chat-1')
+    applied.state = 'restart_pending'
+    applied.self_evolution = true
+    applied.self_evolution_activation = 'restart_pending'
+    applied.self_evolution_impacts = ['frontend', 'desktop']
+    applied.last_host_applied_at = '2026-09-22T18:48:00.000Z'
+    const items = collectAttentionItems([chat('chat-1', 'Auto-evolução')], { 'chat-1': applied })
+    expect(items).toEqual([expect.objectContaining({
+      title: 'Auto-evolução concluída',
+      tone: 'success',
+      kind: 'restart-pending',
+    })])
+  })
+
 })

@@ -2,6 +2,7 @@ package app
 
 import (
 	"sort"
+	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 )
@@ -41,7 +42,11 @@ type AttentionRecord struct {
 	PendingManualCount      int                    `json:"pending_manual_requests,omitempty"`
 	PlannerInFlight         bool                   `json:"planner_in_flight,omitempty"`
 	HasManualPrompt         bool                   `json:"has_manual_prompt,omitempty"`
+	SelfEvolution           bool                   `json:"self_evolution,omitempty"`
 	SelfEvolutionActivation string                 `json:"self_evolution_activation,omitempty"`
+	SelfEvolutionImpacts    []string               `json:"self_evolution_impacts,omitempty"`
+	LastHostAppliedAt       string                 `json:"last_host_applied_at,omitempty"`
+	PendingKnowledgeReview  string                 `json:"pending_knowledge_review_request_id,omitempty"`
 	Conflict                *AttentionConflict     `json:"integration_conflict,omitempty"`
 	Interrupted             *AttentionInterrupted  `json:"interrupted_execution,omitempty"`
 }
@@ -90,7 +95,13 @@ func attentionRecordFor(item domain.Session) AttentionRecord {
 		PendingManualCount:      len(item.PendingManualRequestIDs),
 		PlannerInFlight:         item.PlannerInFlight,
 		HasManualPrompt:         currentAttentionPrompt(item),
+		SelfEvolution:           item.SelfEvolution,
 		SelfEvolutionActivation: item.SelfEvolutionActivation,
+		SelfEvolutionImpacts:    append([]string(nil), item.SelfEvolutionImpacts...),
+		PendingKnowledgeReview:  item.PendingKnowledgeReviewRequestID,
+	}
+	if !item.LastHostAppliedAt.IsZero() {
+		record.LastHostAppliedAt = item.LastHostAppliedAt.UTC().Format(time.RFC3339Nano)
 	}
 	if item.Plan != nil {
 		record.HasPlan = true

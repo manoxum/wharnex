@@ -11,7 +11,7 @@ _(reserved — no entries yet)_
 
 ### Chat ce7abbc3-364c-487b-ae37-936e0641abd0 (2026-09-22)
 
-_(reserved — no entries yet)_
+- Replace automatic self-evolution restart dialogs with completion notifications, accumulate ready restart reports across chats into one service-union activation, surface successful host integrations as informational notifications, and mirror completion notifications into the Desktop tray/native notification flow.
 
 
 ### Chat 9ef77188-f590-4240-8714-61ac41b0deb9 (2026-09-22)

@@ -19,26 +19,28 @@ describe('App restart confirmation recovery', () => {
     expect(restartConfirmationKey(baseSession)).toBe('ses-self:plan-self')
   })
 
-  it('derives modal presentation from persisted ready state instead of only apply responses', () => {
-    expect(source).toMatch(/const restartPresentationKey = activeChatOwnsSession \? restartConfirmationKey\(session\) : ''/)
-    expect(source).toMatch(/if \(!dismissedRestartKeysRef\.current\.has\(restartPresentationKey\)\) setRestartModalOpen\(true\)/)
-    expect(source).toContain('restartModalOpen && restartPresentationKey && <RestartConfirmation')
-    expect(source).toContain('change={buildAppliedChangeSummary(session)}')
-    expect(source).not.toMatch(/if \(submission\.restart_required\) setRestartModalOpen\(true\)/)
-    expect(source).not.toMatch(/if \(updated\.self_evolution && updated\.state === 'restart_pending'\) setRestartModalOpen\(true\)/)
+  it('does not auto-open restart confirmation and routes the notification click into it', () => {
+    expect(source).not.toContain('dismissedRestartKeysRef')
+    expect(source).not.toMatch(/setRestartModalOpen\(true\).*restartPresentationKey/)
+    expect(source).toContain("if (item.kind === 'restart-pending')")
+    expect(source).toContain('await openRestartConfirmation(item.chatId)')
+    expect(source).toContain('restartModalOpen && restartReports.length > 0 && <RestartConfirmation reports={restartReports}')
   })
 
-  it('records Mais tarde for the current activation while keeping manual reopening available', () => {
-    expect(source).toMatch(/dismissedRestartKeysRef\.current\.add\(restartPresentationKey\)/)
-    expect(source).toMatch(/onLater=\{dismissRestartConfirmation\}/)
-    expect(source).toMatch(/onRestartPending=\{\(\) => setRestartModalOpen\(true\)\}/)
-    expect(source).toContain('impacts={session.self_evolution_impacts || []}')
-    expect(source).toContain('onActivate={(impacts) => void confirmSelfRestart(impacts)}')
+  it('loads every ready pending session into one cumulative activation dialog', () => {
+    const start = source.indexOf('async function refreshRestartReports(')
+    const end = source.indexOf('\n  async function openRestartConfirmation', start)
+    const body = source.slice(start, end)
+    expect(body).toContain('isRestartConfirmationReady(projected)')
+    expect(body).toContain('await api.getSession(chat.sessionId)')
+    expect(body).toContain('buildAppliedChangeSummary(candidate)')
+    expect(source).toMatch(/onRestartPending=\{\(\) => void openRestartConfirmation\(activeChatId\)\}/)
   })
 
-  it('commits Desktop activation only after the backend accepts the detached handoff', () => {
+  it('commits Desktop activation only after the backend accepts the detached handoff and uses canonical impacts', () => {
     const restart = source.slice(source.indexOf('async function confirmSelfRestart('), source.indexOf('\n  async function commentOnActiveTask', source.indexOf('async function confirmSelfRestart(')))
-    expect(restart.indexOf('await api.restartSelfEvolution(targetSession.id)')).toBeGreaterThan(-1)
-    expect(restart.indexOf('await desktopBridge()?.windows.activateSelfEvolution(impacts)')).toBeGreaterThan(restart.indexOf('await api.restartSelfEvolution(targetSession.id)'))
+    expect(restart.indexOf('await api.restartSelfEvolution(targetReport.sessionId)')).toBeGreaterThan(-1)
+    expect(restart.indexOf('updated.self_evolution_impacts')).toBeGreaterThan(-1)
+    expect(restart.indexOf('await desktopBridge()?.windows.activateSelfEvolution(canonicalImpacts)')).toBeGreaterThan(restart.indexOf('await api.restartSelfEvolution(targetReport.sessionId)'))
   })
 })
