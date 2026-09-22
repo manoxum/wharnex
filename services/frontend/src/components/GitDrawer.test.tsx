@@ -518,7 +518,7 @@ describe('GitDrawer', () => {
     await waitFor(() => expect(api.gitRemoteMerge).toHaveBeenCalledWith('ses_1', 'origin/main', ['origin/feature'], ''))
   })
 
-  it('can target the superproject and submodules individually or together', async () => {
+  it('lists superproject and submodules together and selects targets per operation', async () => {
     const repositories = [
       { path: '', label: 'superproject', depth: 0, root: true, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'a1' },
       { path: 'services/core', label: 'services/core', depth: 1, root: false, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'b1' },
@@ -526,20 +526,15 @@ describe('GitDrawer', () => {
     vi.mocked(api.gitOverview).mockImplementation(async (_id, repository = '') => overview({ repository, repositories }))
 
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
-    const selector = await screen.findByLabelText('Repositório ativo')
-    expect((selector as HTMLSelectElement).value).toBe('')
-    fireEvent.change(selector, { target: { value: 'services/core' } })
-    await waitFor(() => expect(api.gitOverview).toHaveBeenCalledWith('ses_1', 'services/core'))
-
-    fireEvent.change(selector, { target: { value: '' } })
-    await waitFor(() => expect(api.gitOverview).toHaveBeenCalledWith('ses_1', ''))
-    fireEvent.click(screen.getByRole('button', { name: 'Todos' }))
+    await screen.findByText('Repositórios do projeto')
+    expect(screen.queryByLabelText('Repositório ativo')).toBeNull()
+    expect(screen.getByText('services/core')).toBeTruthy()
     openTab('Branches')
     fireEvent.click(await screen.findByRole('button', { name: 'Fetch de origin' }))
-    await waitFor(() => {
-      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', '')
-      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', 'services/core')
-    })
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Executar em services/core' }))
+    fireEvent.click(screen.getByRole('button', { name: /Continuar/ }))
+    await waitFor(() => expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', ''))
+    expect(api.gitFetch).not.toHaveBeenCalledWith('ses_1', 'origin', 'services/core')
   })
 
   it('warns when the repository has no Git identity for manual commits', async () => {
