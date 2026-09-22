@@ -75,10 +75,22 @@ type ChatAgentTaskConfig struct {
 	SweepIntervalMinutes int64
 }
 
+const (
+	DefaultChatAttachmentCountLimit = 0
+	DefaultRequestBundleTotalBytes  = int64(100 << 20)
+	DefaultRequestBundlePartBytes   = int64(30 << 20)
+	DefaultRequestBundlePartLimit   = 10
+	MaxRequestBundlePartBytes       = int64(256 << 20)
+)
+
 type ArtifactSettingsDocument struct {
-	Version           int `json:"version"`
-	RetentionDays     int `json:"retention_days"`
-	BundleWindowLimit int `json:"bundle_window_limit"`
+	Version                 int   `json:"version"`
+	RetentionDays           int   `json:"retention_days"`
+	BundleWindowLimit       int   `json:"bundle_window_limit"`
+	AttachmentCountLimit    int   `json:"attachment_count_limit"`
+	RequestBundleTotalBytes int64 `json:"request_bundle_total_bytes"`
+	RequestBundlePartBytes  int64 `json:"request_bundle_part_bytes"`
+	RequestBundlePartLimit  int   `json:"request_bundle_part_limit"`
 }
 
 type ExecutionSettingsDocument struct {
@@ -476,7 +488,13 @@ func envBool(key string, fallback bool) bool {
 }
 
 func ReadArtifactSettings(cfg ArtifactStorageConfig) (ArtifactSettingsDocument, error) {
-	defaults := ArtifactSettingsDocument{Version: 1, RetentionDays: 30, BundleWindowLimit: 80}
+	defaults := ArtifactSettingsDocument{
+		Version: 1, RetentionDays: 30, BundleWindowLimit: 80,
+		AttachmentCountLimit:    DefaultChatAttachmentCountLimit,
+		RequestBundleTotalBytes: DefaultRequestBundleTotalBytes,
+		RequestBundlePartBytes:  DefaultRequestBundlePartBytes,
+		RequestBundlePartLimit:  DefaultRequestBundlePartLimit,
+	}
 	raw, err := os.ReadFile(cfg.SettingsFile)
 	if errors.Is(err, os.ErrNotExist) {
 		return defaults, nil
@@ -493,6 +511,15 @@ func ReadArtifactSettings(cfg ArtifactStorageConfig) (ArtifactSettingsDocument, 
 	if document.BundleWindowLimit == 0 {
 		document.BundleWindowLimit = 80
 	}
+	if document.RequestBundleTotalBytes == 0 {
+		document.RequestBundleTotalBytes = DefaultRequestBundleTotalBytes
+	}
+	if document.RequestBundlePartBytes == 0 {
+		document.RequestBundlePartBytes = DefaultRequestBundlePartBytes
+	}
+	if document.RequestBundlePartLimit == 0 {
+		document.RequestBundlePartLimit = DefaultRequestBundlePartLimit
+	}
 	if err := validateArtifactSettings(document); err != nil {
 		return ArtifactSettingsDocument{}, err
 	}
@@ -505,6 +532,18 @@ func validateArtifactSettings(document ArtifactSettingsDocument) error {
 	}
 	if document.BundleWindowLimit < 1 || document.BundleWindowLimit > 10000 {
 		return errors.New("artifact settings require bundle_window_limit between 1 and 10000")
+	}
+	if document.AttachmentCountLimit < 0 || document.AttachmentCountLimit > 65500 {
+		return errors.New("artifact settings require attachment_count_limit between 0 and 65500, where 0 means unlimited")
+	}
+	if document.RequestBundleTotalBytes < 1<<20 || document.RequestBundleTotalBytes > int64(0xffffffff) {
+		return errors.New("artifact settings require request_bundle_total_bytes between 1 MiB and the ZIP32 limit")
+	}
+	if document.RequestBundlePartBytes < 1<<20 || document.RequestBundlePartBytes > MaxRequestBundlePartBytes {
+		return errors.New("artifact settings require request_bundle_part_bytes between 1 MiB and 256 MiB")
+	}
+	if document.RequestBundlePartLimit < 1 || document.RequestBundlePartLimit > 20 {
+		return errors.New("artifact settings require request_bundle_part_limit between 1 and 20")
 	}
 	return nil
 }

@@ -10,6 +10,13 @@ describe('chat attachments', () => {
     expect(addChatAttachments([], renamed).files).toHaveLength(2)
   })
 
+  it('does not impose fixed file-size or attachment-count caps in the renderer', () => {
+    const many = Array.from({ length: 24 }, (_, index) => new File([new Uint8Array(32)], `file-${index}.bin`, { lastModified: index + 1 }))
+    const result = addChatAttachments([], many)
+    expect(result.error).toBeUndefined()
+    expect(result.files).toHaveLength(24)
+  })
+
   it('avoids names already present in the composer', () => {
     const current = [new File(['old'], 'Prompt 03 · Clipboard 01.png', { type: 'image/png' })]
     const pasted = uniquifyPastedChatFiles(current, [new File(['new'], 'image.png', { type: 'image/png' })], 3)

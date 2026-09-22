@@ -18,7 +18,12 @@ import (
 	"kernl.local/harness/backend/internal/ids"
 )
 
-const defaultArtifactRetentionDays = 30
+const (
+	defaultArtifactRetentionDays   = 30
+	defaultRequestBundleTotalBytes = int64(100 << 20)
+	defaultRequestBundlePartBytes  = int64(30 << 20)
+	defaultRequestBundlePartLimit  = 10
+)
 
 type ArtifactObjectStore interface {
 	Put(context.Context, string, string, []byte) error
@@ -27,8 +32,12 @@ type ArtifactObjectStore interface {
 }
 
 type ArtifactSettings struct {
-	RetentionDays     int `json:"retention_days"`
-	BundleWindowLimit int `json:"bundle_window_limit"`
+	RetentionDays           int   `json:"retention_days"`
+	BundleWindowLimit       int   `json:"bundle_window_limit"`
+	AttachmentCountLimit    int   `json:"attachment_count_limit"`
+	RequestBundleTotalBytes int64 `json:"request_bundle_total_bytes"`
+	RequestBundlePartBytes  int64 `json:"request_bundle_part_bytes"`
+	RequestBundlePartLimit  int   `json:"request_bundle_part_limit"`
 }
 
 func (s *Service) SetArtifactStore(store ArtifactObjectStore, retentionDays int) {
@@ -46,12 +55,56 @@ func (s *Service) SetArtifactRetentionDays(days int) {
 	s.artifactRetentionDays.Store(int64(days))
 }
 
+func (s *Service) SetChatInputLimits(attachmentCount int, totalBytes, partBytes int64, partLimit int) {
+	if attachmentCount < 0 {
+		attachmentCount = 0
+	}
+	if attachmentCount > 65500 {
+		attachmentCount = 65500
+	}
+	if totalBytes < 1<<20 {
+		totalBytes = defaultRequestBundleTotalBytes
+	}
+	if partBytes < 1<<20 {
+		partBytes = defaultRequestBundlePartBytes
+	}
+	if partBytes > 256<<20 {
+		partBytes = 256 << 20
+	}
+	if partLimit < 1 || partLimit > 20 {
+		partLimit = defaultRequestBundlePartLimit
+	}
+	s.attachmentCountLimit.Store(int64(attachmentCount))
+	s.requestBundleTotalBytes.Store(totalBytes)
+	s.requestBundlePartBytes.Store(partBytes)
+	s.requestBundlePartLimit.Store(int64(partLimit))
+}
+
 func (s *Service) ArtifactSettings() ArtifactSettings {
 	days := int(s.artifactRetentionDays.Load())
 	if days < 1 {
 		days = defaultArtifactRetentionDays
 	}
-	return ArtifactSettings{RetentionDays: days, BundleWindowLimit: s.BundleWindowLimit()}
+	totalBytes := s.requestBundleTotalBytes.Load()
+	if totalBytes < 1<<20 {
+		totalBytes = defaultRequestBundleTotalBytes
+	}
+	partBytes := s.requestBundlePartBytes.Load()
+	if partBytes < 1<<20 {
+		partBytes = defaultRequestBundlePartBytes
+	}
+	partLimit := int(s.requestBundlePartLimit.Load())
+	if partLimit < 1 {
+		partLimit = defaultRequestBundlePartLimit
+	}
+	attachmentCount := int(s.attachmentCountLimit.Load())
+	if attachmentCount < 0 {
+		attachmentCount = 0
+	}
+	return ArtifactSettings{
+		RetentionDays: days, BundleWindowLimit: s.BundleWindowLimit(), AttachmentCountLimit: attachmentCount,
+		RequestBundleTotalBytes: totalBytes, RequestBundlePartBytes: partBytes, RequestBundlePartLimit: partLimit,
+	}
 }
 
 func (s *Service) PersistArtifact(ctx context.Context, sessionID, requestID, direction, kind, name, contentType string, raw []byte) (domain.ArtifactRecord, error) {

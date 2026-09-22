@@ -1,21 +1,12 @@
-export const MAX_CHAT_ATTACHMENT_COUNT = 10
-export const MAX_CHAT_ATTACHMENT_BYTES = 25 * 1024 * 1024
-export const MAX_CHAT_ATTACHMENTS_BYTES = 100 * 1024 * 1024
-
 export type AttachmentSelection = { files: File[]; error?: string }
 
 export function addChatAttachments(current: File[], incoming: File[]): AttachmentSelection {
   const unique = new Map(current.map((file) => [fileKey(file), file]))
   for (const file of incoming) {
     if (!file.size) return { files: current, error: `O ficheiro “${file.name}” está vazio.` }
-    if (file.size > MAX_CHAT_ATTACHMENT_BYTES) return { files: current, error: `“${file.name}” excede o limite de 25 MiB.` }
     unique.set(fileKey(file), file)
   }
-  const files = [...unique.values()]
-  if (files.length > MAX_CHAT_ATTACHMENT_COUNT) return { files: current, error: `Pode anexar no máximo ${MAX_CHAT_ATTACHMENT_COUNT} ficheiros.` }
-  const total = files.reduce((sum, file) => sum + file.size, 0)
-  if (total > MAX_CHAT_ATTACHMENTS_BYTES) return { files: current, error: 'Os anexos excedem o limite total de 100 MiB.' }
-  return { files }
+  return { files: [...unique.values()] }
 }
 
 export function uniquifyPastedChatFiles(current: File[], incoming: File[], promptIndex = 1) {
