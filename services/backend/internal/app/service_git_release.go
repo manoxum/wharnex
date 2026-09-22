@@ -37,14 +37,18 @@ func (s *Service) CreateBranch(ctx context.Context, sessionID, branch, startPoin
 	if err != nil {
 		return GitBranchMutationResult{}, err
 	}
+	repoRoot, repoPath, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitBranchMutationResult{}, err
+	}
 	lock := s.projectApplyLock(item.ProjectPath)
 	lock.Lock()
 	defer lock.Unlock()
-	if err := hostrepo.CreateBranch(ctx, item.ProjectPath, branch, startPoint); err != nil {
+	if err := hostrepo.CreateBranch(ctx, repoRoot, branch, startPoint); err != nil {
 		return GitBranchMutationResult{}, err
 	}
 	branch = strings.TrimSpace(branch)
-	s.bus.Publish(sessionID, "git.branch_created", map[string]any{"branch": branch, "start_point": strings.TrimSpace(startPoint)})
+	s.bus.Publish(sessionID, "git.branch_created", map[string]any{"branch": branch, "start_point": strings.TrimSpace(startPoint), "repository": repoPath})
 	return GitBranchMutationResult{Outcome: "created", Branch: branch}, nil
 }
 
@@ -53,11 +57,15 @@ func (s *Service) DeleteBranch(ctx context.Context, sessionID, branch string) (G
 	if err != nil {
 		return GitBranchMutationResult{}, err
 	}
+	repoRoot, repoPath, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitBranchMutationResult{}, err
+	}
 	lock := s.projectApplyLock(item.ProjectPath)
 	lock.Lock()
 	defer lock.Unlock()
 	branch = strings.TrimSpace(branch)
-	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	branches, err := hostrepo.Branches(ctx, repoRoot)
 	if err != nil {
 		return GitBranchMutationResult{}, err
 	}
@@ -72,12 +80,12 @@ func (s *Service) DeleteBranch(ctx context.Context, sessionID, branch string) (G
 		return GitBranchMutationResult{}, fmt.Errorf("unknown branch %q", branch)
 	}
 	if target.Remote == "" {
-		if err := hostrepo.DeleteBranch(ctx, item.ProjectPath, branch); err != nil {
+		if err := hostrepo.DeleteBranch(ctx, repoRoot, branch); err != nil {
 			return GitBranchMutationResult{}, err
 		}
 	} else {
 		remoteBranch := strings.TrimPrefix(branch, target.Remote+"/")
-		push, err := gitRemoteDeleteBranch(ctx, item.ProjectPath, target.Remote, remoteBranch)
+		push, err := gitRemoteDeleteBranch(ctx, repoRoot, target.Remote, remoteBranch)
 		if err != nil {
 			return GitBranchMutationResult{}, err
 		}
@@ -88,9 +96,9 @@ func (s *Service) DeleteBranch(ctx context.Context, sessionID, branch string) (G
 			}
 			return GitBranchMutationResult{}, fmt.Errorf("delete remote branch %s: %s", branch, detail)
 		}
-		_ = gitRemoteFetch(ctx, item.ProjectPath, target.Remote)
+		_ = gitRemoteFetch(ctx, repoRoot, target.Remote)
 	}
-	s.bus.Publish(sessionID, "git.branch_deleted", map[string]any{"branch": branch})
+	s.bus.Publish(sessionID, "git.branch_deleted", map[string]any{"branch": branch, "repository": repoPath})
 	return GitBranchMutationResult{Outcome: "deleted", Branch: branch}, nil
 }
 
@@ -116,11 +124,15 @@ func (s *Service) GenerateGitReleaseNotes(ctx context.Context, sessionID, branch
 	if err != nil {
 		return GitReleaseNotesResult{}, err
 	}
+	repoRoot, repoPath, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitReleaseNotesResult{}, err
+	}
 	branch = strings.TrimSpace(branch)
 	if branch == "" || strings.HasPrefix(branch, "-") {
 		return GitReleaseNotesResult{}, errors.New("select a remote branch before generating release notes")
 	}
-	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	branches, err := hostrepo.Branches(ctx, repoRoot)
 	if err != nil {
 		return GitReleaseNotesResult{}, err
 	}
@@ -134,7 +146,7 @@ func (s *Service) GenerateGitReleaseNotes(ctx context.Context, sessionID, branch
 	if !valid {
 		return GitReleaseNotesResult{}, fmt.Errorf("unknown remote branch %q", branch)
 	}
-	commits, err := hostrepo.LogRefs(ctx, item.ProjectPath, []string{branch}, false, 30)
+	commits, err := hostrepo.LogRefs(ctx, repoRoot, []string{branch}, false, 30)
 	if err != nil {
 		return GitReleaseNotesResult{}, err
 	}
@@ -154,7 +166,7 @@ func (s *Service) GenerateGitReleaseNotes(ctx context.Context, sessionID, branch
 	}
 	task, err := s.store.EnqueueChatAgentTask(session.ChatAgentTask{
 		Type: "RELEASE_NOTES", TaskID: taskID, ProjectID: item.ProjectPath, ChatID: sessionID, SessionID: sessionID,
-		RequestID: taskID, RootRequestID: taskID, DedupeKey: "release-notes:" + sessionID + ":" + branch,
+		RequestID: taskID, RootRequestID: taskID, DedupeKey: "release-notes:" + sessionID + ":" + repoPath + ":" + branch,
 		Payload: payload, MaxAttempts: 3,
 	})
 	if err != nil {
@@ -215,6 +227,10 @@ func (s *Service) CreateGitRelease(ctx context.Context, sessionID, branch, tagSu
 	if err != nil {
 		return GitReleaseResult{}, err
 	}
+	repoRoot, repoPath, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitReleaseResult{}, err
+	}
 	branch, tagSuffix, title, body = strings.TrimSpace(branch), strings.TrimSpace(tagSuffix), strings.TrimSpace(title), strings.TrimSpace(body)
 	if branch == "" {
 		return GitReleaseResult{}, errors.New("select a remote branch before creating a tag and release")
@@ -225,7 +241,7 @@ func (s *Service) CreateGitRelease(ctx context.Context, sessionID, branch, tagSu
 	lock := s.projectApplyLock(item.ProjectPath)
 	lock.Lock()
 	defer lock.Unlock()
-	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	branches, err := hostrepo.Branches(ctx, repoRoot)
 	if err != nil {
 		return GitReleaseResult{}, err
 	}
@@ -250,11 +266,11 @@ func (s *Service) CreateGitRelease(ctx context.Context, sessionID, branch, tagSu
 	if title == "" {
 		title = tag
 	}
-	sha, err := hostrepo.CreateTagAtRef(ctx, item.ProjectPath, tag, branch)
+	sha, err := hostrepo.CreateTagAtRef(ctx, repoRoot, tag, branch)
 	if err != nil {
 		return GitReleaseResult{}, err
 	}
-	push, err := gitRemotePushTag(ctx, item.ProjectPath, remote, tag)
+	push, err := gitRemotePushTag(ctx, repoRoot, remote, tag)
 	if err != nil {
 		return GitReleaseResult{}, err
 	}
@@ -265,11 +281,11 @@ func (s *Service) CreateGitRelease(ctx context.Context, sessionID, branch, tagSu
 		}
 		return GitReleaseResult{}, fmt.Errorf("publish tag %s: %s", tag, detail)
 	}
-	releaseURL, err := gitRemoteCreateGitHubRelease(ctx, item.ProjectPath, remote, tag, title, body)
+	releaseURL, err := gitRemoteCreateGitHubRelease(ctx, repoRoot, remote, tag, title, body)
 	if err != nil {
 		return GitReleaseResult{}, err
 	}
 	result := GitReleaseResult{Outcome: "published", Remote: remote, Branch: branch, Tag: tag, CommitSHA: sha, ReleaseURL: releaseURL}
-	s.bus.Publish(sessionID, "git.release_created", map[string]any{"remote": remote, "branch": branch, "tag": tag, "commit_sha": sha, "release_url": releaseURL})
+	s.bus.Publish(sessionID, "git.release_created", map[string]any{"remote": remote, "branch": branch, "tag": tag, "commit_sha": sha, "release_url": releaseURL, "repository": repoPath})
 	return result, nil
 }

@@ -82,6 +82,8 @@ export function normalizeOrchestratorOverview(overview: OrchestratorOverview): O
 export function normalizeGitOverview(overview: GitOverview): GitOverview {
   return {
     ...overview,
+    repository: overview?.repository || '',
+    repositories: Array.isArray(overview?.repositories) ? overview.repositories : [],
     branches: Array.isArray(overview?.branches) ? overview.branches : [],
     remotes: Array.isArray(overview?.remotes) ? overview.remotes : [],
     tags: Array.isArray(overview?.tags) ? overview.tags : [],
@@ -104,6 +106,11 @@ function chatAgentQuery(activeOnly: boolean, projectPath: string, limit = 0) {
   if (limit > 0) params.set('limit', String(limit))
   const query = params.toString()
   return query ? `?${query}` : ''
+}
+
+function gitQuery(path: string, repository = '') {
+  if (!repository) return path
+  return `${path}${path.includes('?') ? '&' : '?'}repository=${encodeURIComponent(repository)}`
 }
 
 export const api = {
@@ -301,48 +308,50 @@ export const api = {
   dockerComposeRedeploy: (id: string, project: string) => request<{ status: string; project: string }>(`/api/sessions/${id}/docker/compose/${encodeURIComponent(project)}/redeploy`, { method: 'POST', body: '{}' }),
   dockerResourceRemove: (id: string, kind: DockerResourceKind, name: string) => request<{ status: string; kind: DockerResourceKind; name: string }>(`/api/sessions/${id}/docker/resources/${kind}/${encodeURIComponent(name)}/remove`, { method: 'POST', body: '{}' }),
   resetTerminal: (id: string) => request<{ status: string }>(`/api/sessions/${id}/terminal/reset`, { method: 'POST', body: '{}' }),
-  gitOverview: (id: string) => request<GitOverview>(`/api/sessions/${id}/git/overview`).then(normalizeGitOverview),
-  gitHead: (id: string) => request<GitHeadState>(`/api/sessions/${id}/git/head`),
-  gitFileDiff: (id: string, path: string) => request<GitFileDiff>(`/api/sessions/${id}/git/diff?path=${encodeURIComponent(path)}`),
-  gitUnpushed: (id: string) => request<GitUnpushedOverview>(`/api/sessions/${id}/git/unpushed`),
-  gitUnpushedCommit: (id: string, sha: string) => request<GitCommitDetail>(`/api/sessions/${id}/git/unpushed/${encodeURIComponent(sha)}`),
-  gitHistory: (id: string, refs: string[] = [], all = false) => {
+  gitOverview: (id: string, repository = '') => request<GitOverview>(gitQuery(`/api/sessions/${id}/git/overview`, repository)).then(normalizeGitOverview),
+  gitHead: (id: string, repository = '') => request<GitHeadState>(gitQuery(`/api/sessions/${id}/git/head`, repository)),
+  gitFileDiff: (id: string, path: string, repository = '') => request<GitFileDiff>(gitQuery(`/api/sessions/${id}/git/diff?path=${encodeURIComponent(path)}`, repository)),
+  gitUnpushed: (id: string, repository = '') => request<GitUnpushedOverview>(gitQuery(`/api/sessions/${id}/git/unpushed`, repository)),
+  gitUnpushedCommit: (id: string, sha: string, repository = '') => request<GitCommitDetail>(gitQuery(`/api/sessions/${id}/git/unpushed/${encodeURIComponent(sha)}`, repository)),
+  gitHistory: (id: string, refs: string[] = [], all = false, repository = '') => {
     const params = new URLSearchParams()
     if (all) params.set('all', 'true')
     else refs.forEach((ref) => params.append('ref', ref))
+    if (repository) params.set('repository', repository)
     const query = params.toString()
     return request<GitCommit[]>(`/api/sessions/${id}/git/history${query ? `?${query}` : ''}`)
   },
-  gitHistoryPage: (id: string, refs: string[] = [], all = false, offset = 0, limit = 50) => {
+  gitHistoryPage: (id: string, refs: string[] = [], all = false, offset = 0, limit = 50, repository = '') => {
     const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
     if (all) params.set('all', 'true')
     else refs.forEach((ref) => params.append('ref', ref))
+    if (repository) params.set('repository', repository)
     return request<GitHistoryPage>(`/api/sessions/${id}/git/history/page?${params.toString()}`)
   },
-  gitHistoryCommit: (id: string, sha: string) => request<GitCommitDetail>(`/api/sessions/${id}/git/history/${encodeURIComponent(sha)}`),
-  gitContributors: (id: string) => request<GitContributorsOverview>(`/api/sessions/${id}/git/contributors`),
-  gitMergeCandidates: (id: string, target: string) => request<GitBranch[]>(`/api/sessions/${id}/git/merge-candidates?target=${encodeURIComponent(target)}`),
-  gitCreateBranch: (id: string, branch: string, startPoint: string) => request<GitBranchMutationResult>(`/api/sessions/${id}/git/branches`, { method: 'POST', body: JSON.stringify({ branch, start_point: startPoint }) }),
-  gitDeleteBranch: (id: string, branch: string) => request<GitBranchMutationResult>(`/api/sessions/${id}/git/branches/delete`, { method: 'POST', body: JSON.stringify({ branch, confirmation: 'delete_branch' }) }),
-  gitGenerateReleaseNotes: (id: string, branch: string) => request<GitReleaseNotesResult>(`/api/sessions/${id}/git/release-notes`, { method: 'POST', body: JSON.stringify({ branch }) }),
-  gitCreateRelease: (id: string, input: { branch: string; tag_suffix: string; title: string; body: string }) => request<GitReleaseResult>(`/api/sessions/${id}/git/releases`, { method: 'POST', body: JSON.stringify({ ...input, confirmation: 'publish_release' }) }),
+  gitHistoryCommit: (id: string, sha: string, repository = '') => request<GitCommitDetail>(gitQuery(`/api/sessions/${id}/git/history/${encodeURIComponent(sha)}`, repository)),
+  gitContributors: (id: string, repository = '') => request<GitContributorsOverview>(gitQuery(`/api/sessions/${id}/git/contributors`, repository)),
+  gitMergeCandidates: (id: string, target: string, repository = '') => request<GitBranch[]>(gitQuery(`/api/sessions/${id}/git/merge-candidates?target=${encodeURIComponent(target)}`, repository)),
+  gitCreateBranch: (id: string, branch: string, startPoint: string, repository = '') => request<GitBranchMutationResult>(`/api/sessions/${id}/git/branches`, { method: 'POST', body: JSON.stringify({ branch, start_point: startPoint, repository }) }),
+  gitDeleteBranch: (id: string, branch: string, repository = '') => request<GitBranchMutationResult>(`/api/sessions/${id}/git/branches/delete`, { method: 'POST', body: JSON.stringify({ branch, repository, confirmation: 'delete_branch' }) }),
+  gitGenerateReleaseNotes: (id: string, branch: string, repository = '') => request<GitReleaseNotesResult>(`/api/sessions/${id}/git/release-notes`, { method: 'POST', body: JSON.stringify({ branch, repository }) }),
+  gitCreateRelease: (id: string, input: { branch: string; tag_suffix: string; title: string; body: string }, repository = '') => request<GitReleaseResult>(`/api/sessions/${id}/git/releases`, { method: 'POST', body: JSON.stringify({ ...input, repository, confirmation: 'publish_release' }) }),
   setGitCommitMode: (id: string, mode: GitCommitMode) => request<{ commit_mode: GitCommitMode }>(`/api/sessions/${id}/git/commit-mode`, { method: 'PUT', body: JSON.stringify({ commit_mode: mode }) }),
   setGitConflictStrategy: (id: string, strategy: GitConflictStrategy) => request<{ conflict_strategy: GitConflictStrategy }>(`/api/sessions/${id}/git/conflict-strategy`, { method: 'PUT', body: JSON.stringify({ conflict_strategy: strategy }) }),
   setGitAuthorSettings: (id: string, settings: GitAuthorSettings) => request<GitAuthorSettings>(`/api/sessions/${id}/git/author-settings`, { method: 'PUT', body: JSON.stringify(settings) }),
   gitPendingCommit: (id: string, pendingID: string) => request<GitPendingCommit>(`/api/sessions/${id}/git/pending/${encodeURIComponent(pendingID)}`),
   commitGitPending: (id: string, pendingIDs: string[]) => request<GitCommitResult>(`/api/sessions/${id}/git/pending/commit`, { method: 'POST', body: JSON.stringify({ pending_ids: pendingIDs }) }),
-  commitGitWorktree: (id: string, message: string, paths: string[]) => request<GitWorktreeCommitResult>(`/api/sessions/${id}/git/worktree/commit`, { method: 'POST', body: JSON.stringify({ message, paths }) }),
+  commitGitWorktree: (id: string, message: string, paths: string[], repository = '', all = false) => request<GitWorktreeCommitResult>(`/api/sessions/${id}/git/worktree/commit`, { method: 'POST', body: JSON.stringify({ message, paths, repository, all }) }),
   discardGitPending: (id: string, pendingIDs: string[]) => request<{ removed: number }>(`/api/sessions/${id}/git/pending/discard`, { method: 'POST', body: JSON.stringify({ pending_ids: pendingIDs }) }),
   // The confirmation token is required by the backend: pushing publishes code
   // to a remote other people read and cannot be undone by a local reset, so it
   // must never be reachable by a stray click or a replayed request.
-  gitPush: (id: string, remote: string, branch: string, setUpstream: boolean) => request<GitPushResult>(`/api/sessions/${id}/git/push`, { method: 'POST', body: JSON.stringify({ remote, branch, set_upstream: setUpstream, confirmation: 'push' }) }),
-  gitPushSelected: (id: string, commitSHAs: string[]) => request<GitPushResult>(`/api/sessions/${id}/git/push-selected`, { method: 'POST', body: JSON.stringify({ commit_shas: commitSHAs, confirmation: 'push' }) }),
-  gitFetch: (id: string, remote: string) => request<GitBranchActionResult>(`/api/sessions/${id}/git/fetch`, { method: 'POST', body: JSON.stringify({ remote }) }),
-  gitPull: (id: string, remote: string, branch: string) => request<GitBranchActionResult>(`/api/sessions/${id}/git/pull`, { method: 'POST', body: JSON.stringify({ remote, branch }) }),
-  gitSwitch: (id: string, branch: string) => request<GitBranchActionResult>(`/api/sessions/${id}/git/switch`, { method: 'POST', body: JSON.stringify({ branch }) }),
-  gitMerge: (id: string, ref: string) => request<GitMergeResult>(`/api/sessions/${id}/git/merge`, { method: 'POST', body: JSON.stringify({ ref }) }),
-  gitRemoteMerge: (id: string, targetRef: string, sourceRefs: string[]) => request<GitRemoteMergeResult>(`/api/sessions/${id}/git/remote-merge`, { method: 'POST', body: JSON.stringify({ target_ref: targetRef, source_refs: sourceRefs, confirmation: 'merge_remote' }) }),
+  gitPush: (id: string, remote: string, branch: string, setUpstream: boolean, repository = '') => request<GitPushResult>(`/api/sessions/${id}/git/push`, { method: 'POST', body: JSON.stringify({ remote, branch, set_upstream: setUpstream, repository, confirmation: 'push' }) }),
+  gitPushSelected: (id: string, commitSHAs: string[], repository = '') => request<GitPushResult>(`/api/sessions/${id}/git/push-selected`, { method: 'POST', body: JSON.stringify({ commit_shas: commitSHAs, repository, confirmation: 'push' }) }),
+  gitFetch: (id: string, remote: string, repository = '') => request<GitBranchActionResult>(`/api/sessions/${id}/git/fetch`, { method: 'POST', body: JSON.stringify({ remote, repository }) }),
+  gitPull: (id: string, remote: string, branch: string, repository = '') => request<GitBranchActionResult>(`/api/sessions/${id}/git/pull`, { method: 'POST', body: JSON.stringify({ remote, branch, repository }) }),
+  gitSwitch: (id: string, branch: string, repository = '') => request<GitBranchActionResult>(`/api/sessions/${id}/git/switch`, { method: 'POST', body: JSON.stringify({ branch, repository }) }),
+  gitMerge: (id: string, ref: string, repository = '') => request<GitMergeResult>(`/api/sessions/${id}/git/merge`, { method: 'POST', body: JSON.stringify({ ref, repository }) }),
+  gitRemoteMerge: (id: string, targetRef: string, sourceRefs: string[], repository = '') => request<GitRemoteMergeResult>(`/api/sessions/${id}/git/remote-merge`, { method: 'POST', body: JSON.stringify({ target_ref: targetRef, source_refs: sourceRefs, repository, confirmation: 'merge_remote' }) }),
   orchestratorOverview: (id: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/overview`).then(normalizeOrchestratorOverview),
   proposeOrchestratorPlan: (id: string, objective: string, composer?: { include_context?: boolean; project_files?: string[]; attachment_cache_key?: string; attachments?: Array<{ name: string; size: number; mime: string; storage_ref: string }>; todo_ids?: string[] }) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/propose`, { method: 'POST', body: JSON.stringify({ objective, ...composer }) }),
   retryOrchestratorPlanning: (id: string, requestId: string) => request<OrchestratorPlanningRequest>(`/api/sessions/${id}/orchestrator/planning/${encodeURIComponent(requestId)}/retry`, { method: 'POST', body: '{}' }),

@@ -132,6 +132,7 @@ describe('WorkspaceShell project actions', () => {
   it('places the active branch and project version before the mode selector', async () => {
     vi.spyOn(api, 'gitOverview').mockResolvedValue({
       project_path: '/tmp/legacy', project_version: 'v2.4.1.0', available: true, commit_mode: 'auto', current_branch: 'feature/git-shell', detached: false,
+      repository: '', repositories: [],
       has_identity: true, branches: [{ name: 'feature/git-shell', current: true, commit_sha: 'abc123', has_upstream: false, ahead: 0, behind: 0, gone: false }], remotes: [], tags: [], commits: [], pending: [],
       working: { clean: true, stageable_count: 0, files: [] },
     })
@@ -283,6 +284,7 @@ describe('WorkspaceShell project actions', () => {
     vi.spyOn(api, 'config').mockResolvedValue({ planner: 'manual', sandbox: 'docker', model: 'test', api_configured: false, chatgpt_web_embed: true })
     const gitOverview = vi.spyOn(api, 'gitOverview').mockResolvedValue({
       project_path: '/tmp/active-project', project_version: 'v3.1.0.0', available: true, commit_mode: 'auto', current_branch: 'main', detached: false,
+      repository: '', repositories: [],
       has_identity: true, branches: [{ name: 'main', current: true, commit_sha: 'abc123', has_upstream: false, ahead: 0, behind: 0, gone: false }], remotes: [], tags: [], commits: [], pending: [],
       working: { clean: true, stageable_count: 0, files: [] },
     })
@@ -300,7 +302,7 @@ describe('WorkspaceShell project actions', () => {
       data: { type: 'wharness:project-session', projectPath: '/tmp/active-project', sessionId: 'ses_shell' },
     }))
 
-    await waitFor(() => expect(gitOverview).toHaveBeenCalledWith('ses_shell'))
+    await waitFor(() => expect(gitOverview).toHaveBeenCalledWith('ses_shell', ''))
     expect(await screen.findByLabelText('Git: main, projeto v3.1.0.0')).toBeTruthy()
   })
 

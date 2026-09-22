@@ -1004,9 +1004,24 @@ export type GitHeadState = {
   commit_sha?: string
 }
 
+export type GitRepository = {
+  path: string
+  label: string
+  depth: number
+  root: boolean
+  initialized: boolean
+  available: boolean
+  unavailable?: string
+  current_branch?: string
+  detached: boolean
+  commit_sha?: string
+}
+
 export type GitOverview = {
   project_path: string
   project_version?: string
+  repository: string
+  repositories: GitRepository[]
   available: boolean
   unavailable?: string
   commit_mode: GitCommitMode
@@ -1038,9 +1053,9 @@ export type GitPushResult = {
   integrated?: boolean
   conflict_id?: string
 }
-export type GitMergeResult = { outcome: string; ref: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
+export type GitMergeResult = { outcome: string; ref: string; commit_sha?: string; paths?: string[]; conflict_id?: string; detail?: string }
 export type GitRemoteMergeResult = { outcome: string; target_ref: string; source_refs: string[]; commit_sha?: string; push_outcome?: string; conflict_ref?: string; conflict_id?: string; paths?: string[]; detail?: string }
-export type GitBranchActionResult = { outcome: string; remote?: string; branch?: string; ref?: string; commit_sha?: string; paths?: string[]; conflict_id?: string }
+export type GitBranchActionResult = { outcome: string; remote?: string; branch?: string; ref?: string; commit_sha?: string; paths?: string[]; conflict_id?: string; detail?: string }
 export type GitBranchMutationResult = { outcome: 'created' | 'deleted'; branch: string }
 export type GitReleaseNotesResult = { body: string; commit_count: number }
 export type GitReleaseResult = { outcome: 'published'; remote: string; branch: string; tag: string; commit_sha: string; release_url: string }
