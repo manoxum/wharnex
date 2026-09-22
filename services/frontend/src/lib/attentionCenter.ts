@@ -223,7 +223,13 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
   }
 
   if (canExecute && sessionNeedsExecutionConsent(session)) {
-    items.push(item(chat, 'approval-required', 'warning', 'Aprovação necessária', `Plano pronto para executar · risco ${session.policy?.risk || session.plan?.risk || 'desconhecido'}.`, 'plan', 'approve-execution'))
+    const approval = session.policy?.approval_items?.find((candidate) => candidate.requires_sudo_password) || session.policy?.approval_items?.find((candidate) => candidate.argv?.length) || session.policy?.approval_items?.[0]
+    const command = approval?.argv?.length ? JSON.stringify(approval.argv) : ''
+    const approvalType = approval?.requires_sudo_password ? 'sudo + senha' : approval?.kind
+    const detail = command
+      ? `Aprovação de execução ${approvalType ? `(${approvalType}) ` : ''}necessária para: ${command}`
+      : `Plano pronto para executar · risco ${session.policy?.risk || session.plan?.risk || 'desconhecido'}.`
+    items.push(item(chat, 'approval-required', 'warning', 'Aprovação necessária', detail, 'plan', 'approve-execution'))
   } else if (session.plan && session.policy && !session.policy.allowed) {
     items.push(item(chat, 'policy-blocked', 'danger', 'Plano bloqueado pela Policy', session.policy.reasons?.[0] || 'Revise o plano antes de executar.', 'plan'))
   }

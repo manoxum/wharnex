@@ -23,9 +23,10 @@ func TestManifestPublishesPolicyAndBudgetsTheEngineActuallyEnforces(t *testing.T
 	if got, want := strings.Join(manifest.Policy.DeniedExecutables, ","), strings.Join(policy.DeniedExecutables(), ","); got != want {
 		t.Fatalf("denied executables drifted from the policy engine:\n got %s\nwant %s", got, want)
 	}
-	// python3 was proposed by a real plan and blocked; it must be discoverable.
-	if !contains(manifest.Policy.DeniedExecutables, "python3") {
-		t.Fatal("python3 must appear in the published denied set")
+	// python3 and shell runtimes are no longer repair-triggering denies; the planner
+	// must discover them as explicit approval boundaries instead.
+	if !contains(manifest.Policy.ApprovalRequiredExecutables, "python3") || !contains(manifest.Policy.ApprovalRequiredExecutables, "bash") || !contains(manifest.Policy.ApprovalRequiredExecutables, "sudo") {
+		t.Fatalf("approval-required executable set is incomplete: %#v", manifest.Policy.ApprovalRequiredExecutables)
 	}
 	if !contains(manifest.Policy.GitReadOnly, "symbolic-ref") {
 		t.Fatal("symbolic-ref query support must appear in the published read-only Git set")
@@ -80,6 +81,7 @@ func TestRenderEmbedsValidJSONAndTheUsageContract(t *testing.T) {
 		"host_tools",
 		"deterministic lockfile",
 		"denied_executables",
+		"approval_required_executables",
 		"command_timeout_seconds_max",
 	} {
 		if !strings.Contains(rendered, required) {

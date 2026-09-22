@@ -6,12 +6,15 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 )
 
-func TestDenyShell(t *testing.T) {
+func TestShellRequiresApprovalInsteadOfPolicyRepair(t *testing.T) {
 	plan := basePlan()
 	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("bash", "-c", "echo hi")}}
 	decision := NewEngine().Evaluate(plan)
-	if decision.Allowed {
-		t.Fatal("shell should be denied")
+	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
+		t.Fatalf("shell should be approval-gated rather than denied: %#v", decision)
+	}
+	if len(decision.ApprovalItems) != 1 || decision.ApprovalItems[0].Kind != "command" || !decision.ApprovalItems[0].BypassInFull {
+		t.Fatalf("shell approval metadata should be visible and Full-bypassable: %#v", decision.ApprovalItems)
 	}
 }
 
@@ -111,25 +114,22 @@ func TestProjectDefinedCommandsRaiseRiskWithoutForcingApproval(t *testing.T) {
 	}
 }
 
-func TestPolicyNeverLetsApprovalTurnInlineNodeIntoHostAuthority(t *testing.T) {
+func TestInlineNodeRequiresInformedApproval(t *testing.T) {
 	plan := basePlan()
-	plan.Risk = "high"
-	plan.RequiresApproval = true
-	plan.Debug = &domain.DebugSpec{Protocol: domain.DebugProtocolV1, Target: "host", Access: domain.DebugAccessModify, Rationale: "delete old bundles"}
-	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("node", "-e", "deleteEverything()")}}
+	plan.Operations = []domain.Operation{{Type: "command", Command: cmd("node", "-e", "doWork()")}}
 	decision := NewEngine().Evaluate(plan)
-	if decision.Allowed {
-		t.Fatalf("inline host program must be denied even after approval: %#v", decision)
+	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
+		t.Fatalf("inline programs should be approval-gated instead of forcing a repair round: %#v", decision)
 	}
 }
 
-func TestHumanPTYOnlyDeveloperToolsRemainDeniedToModelPlans(t *testing.T) {
+func TestHighImpactDeveloperToolsRequireApproval(t *testing.T) {
 	for _, executable := range []string{"pip3", "composer", "sqlite3", "psql", "redis-cli", "fzf", "tmux"} {
 		plan := basePlan()
 		plan.Operations = []domain.Operation{{Type: "command", Command: cmd(executable, "--version")}}
 		decision := NewEngine().Evaluate(plan)
-		if decision.Allowed {
-			t.Fatalf("human PTY tool %q must remain unavailable to model plans", executable)
+		if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
+			t.Fatalf("high-impact tool %q should require informed approval: %#v", executable, decision)
 		}
 	}
 }
@@ -160,6 +160,29 @@ func TestHostSystemToolMutationRequiresApproval(t *testing.T) {
 	decision := NewEngine().Evaluate(plan)
 	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
 		t.Fatalf("host tool installation must require explicit approval: %#v", decision)
+	}
+}
+
+func TestSudoRequiresPasswordAndCannotBeBypassedInFull(t *testing.T) {
+	plan := basePlan()
+	command := cmd("sudo", "systemctl", "restart", "demo.service")
+	command.Rationale = "restart the explicitly selected service"
+	plan.Operations = []domain.Operation{{Type: "command", Command: command}}
+	decision := NewEngine().Evaluate(plan)
+	if !decision.Allowed || !decision.RequiresApproval || decision.Risk != "high" {
+		t.Fatalf("sudo should be approval-gated: %#v", decision)
+	}
+	found := false
+	for _, item := range decision.ApprovalItems {
+		if item.Kind == "sudo" {
+			found = true
+			if !item.RequiresSudoPassword || item.BypassInFull || len(item.Argv) == 0 {
+				t.Fatalf("sudo approval must require a credential and remain explicit in Full: %#v", item)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("sudo approval metadata missing: %#v", decision.ApprovalItems)
 	}
 }
 

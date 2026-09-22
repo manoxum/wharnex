@@ -18,7 +18,12 @@ export function sessionCanExecutePlan(session: Session) {
 
 export function sessionNeedsExecutionConsent(session: Session) {
   if (!session.plan) return false
-  if (session.execution_mode === 'unprotected' || session.policy?.requires_approval) return true
+  if (session.execution_mode === 'unprotected') return true
+  if (session.policy?.requires_approval) {
+    if (session.execution_mode !== 'full') return true
+    const items = session.policy.approval_items || []
+    if (!items.length || items.some((item) => !item.bypass_in_full)) return true
+  }
   if (!session.plan.document?.trim()) return false
   const lineage = session.request_lineages?.[session.plan.request_id]
   return session.execution_mode === 'protected' && (!lineage || lineage.kind === 'standard')

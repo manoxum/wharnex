@@ -98,12 +98,13 @@ type Tool struct {
 // PolicySummary republishes the policy engine's closed decision sets so a plan
 // is written against them instead of discovering them through a rejection.
 type PolicySummary struct {
-	DeniedExecutables   []string `json:"denied_executables"`
-	ElevatedExecutables []string `json:"elevated_executables"`
-	GitReadOnly         []string `json:"git_read_only_subcommands"`
-	GitMutable          []string `json:"git_mutable_subcommands_requiring_approval"`
-	DeniedGitFlags      []string `json:"denied_git_flags"`
-	Rules               []string `json:"rules"`
+	DeniedExecutables           []string `json:"denied_executables"`
+	ApprovalRequiredExecutables []string `json:"approval_required_executables"`
+	ElevatedExecutables         []string `json:"elevated_executables"`
+	GitReadOnly                 []string `json:"git_read_only_subcommands"`
+	GitMutable                  []string `json:"git_mutable_subcommands_requiring_approval"`
+	DeniedGitFlags              []string `json:"denied_git_flags"`
+	Rules                       []string `json:"rules"`
 }
 
 // ProtocolBudgets republishes the protocol validator's numeric limits. A plan
@@ -176,7 +177,7 @@ func (m Manifest) Render() string {
 	b.WriteString("- Protected operations and verification MUST use executables listed under sandbox_tools (legacy tools is the same inventory). Post-merge/host prerequisites must be checked against host_tools. Never infer one environment from the other.\n")
 	b.WriteString("- A tool is listed only when its version probe succeeds; a package-manager shim that would need an unavailable network is treated as absent, not as installed.\n")
 	b.WriteString("- Missing Node project dependencies in Protected execution may be acquired automatically from a deterministic lockfile with an engine-owned temporary network window. Host tool install/update/configure is never automatic and requires explicit operator approval.\n")
-	b.WriteString("- policy.denied_executables are rejected before execution. Never propose them, not even inside a verification step. Use the listed equivalents instead.\n")
+	b.WriteString("- policy.denied_executables are rejected before execution. policy.approval_required_executables MAY be proposed when they are genuinely needed; Wharnex pauses before execution and shows the exact argv/rationale/effects to the operator. sudo additionally requires an ephemeral password and is never auto-approved.\n")
 	b.WriteString("- budgets are hard protocol limits. A command_timeout outside the published range, or a plan over a listed maximum, is rejected as a protocol error and the entire bundle is discarded.\n")
 	b.WriteString("- Size verification work against the published sandbox limits and free disk. Prefer targeted package tests over a whole-repository race build when the free space or memory headroom is small.\n")
 	if low := m.LowDiskVolumes(lowDiskWarningMB); len(low) > 0 {

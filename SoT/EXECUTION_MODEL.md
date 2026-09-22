@@ -2,7 +2,7 @@
 
 ## Informed consent and diagnostic execution (v1.3.11 — see `adr/ADR-0057`)
 
-The first enriched change plan of a Protected Main Request pauses before execution and exposes its complete contract: Markdown plan, dependency inventory, sandbox/host system-tool inventory, exact patches/commands, verification and Policy decision. Accepting it authorizes sandbox execution, post-verification host integration, and compatible correction waves in that request lineage; any later network/package/Git or host-tool impact is a new Policy approval boundary. When a later boundary requires another decision, that decision likewise covers both the resulting Protected execution and its host integration. Rejecting it records the decision and performs no command. Unprotected execution remains a distinct host-direct mode with confirmation for each execution.
+The first enriched change plan of a Protected Main Request pauses before execution and exposes its complete contract: Markdown plan, dependency inventory, sandbox/host system-tool inventory, exact patches/commands, verification and Policy decision. Accepting it authorizes sandbox execution, post-verification host integration, and compatible correction waves in that request lineage; any later network/package/Git or host-tool impact is a new Policy approval boundary. When a later boundary requires another decision, that decision likewise covers both the resulting Protected execution and its host integration. Rejecting it records the decision and performs no command. High-impact executable families are no longer forced into a GPT repair round merely because of their executable name: when Policy publishes them as approval-required, the UI shows the exact argv, planner rationale, effect and host impact before the user decides. Unprotected remains a host-direct mode with confirmation for each execution; Full is a separate host-direct opt-in described below.
 
 A `harness.interactive/v1` workflow is never an Apply candidate or patch carrier. It may gather evidence in the copied sandbox or through the closed read-only host diagnostic allowlist with `network=false`; Interativo enabled is a standing observe grant, while Interativo disabled requires one grant per Main Request root. Legacy `harness.debug/v1 access=observe` remains readable. `access=modify` is retired and rejected. Shells, inline programs, privilege escalation, Docker/host-service control, external access, package/tool installation, destructive operations and Apply remain outside Agent interactive authority.
 
@@ -36,7 +36,16 @@ Wharness supports a per-project execution mode selected in the workspace UI.
 7. A failed multi-operation plan can leave partial host changes. Wharness MUST state this risk and MUST NOT attempt an automatic destructive rollback over pre-existing user changes.
 8. `ApplyToHost` is unavailable for Unprotected sessions because the plan has already targeted the host.
 
-The Protected/Unprotected switch governs Agent plan execution and MUST NOT change the interactive Editor terminal. The normal Editor terminal is a human-only Host PTY; Protected Agent execution continues to use its isolated copied workspace independently.
+
+## Full (explicit per project)
+
+`Full` is a manual host-direct mode for operators who deliberately want command-policy gates out of the normal path. It shares Unprotected's direct-host execution semantics: no copied Agent sandbox, no later Apply step, Git readiness is checked before patching, failures may leave partial host state, and automatic modes are unavailable. Switching to Full is itself an explicit warned UI action, and pending Protected candidates must be integrated or rejected before the switch.
+
+For a structurally valid, Policy-allowed plan, command approval items marked `bypass_in_full` do not require a second per-command approval in Full. This includes shells and other high-impact executable families that Policy publishes in `approval_required_executables`, plus supported Git/network/package command boundaries. Non-command trust boundaries may remain explicit. Privilege escalation is never silently inherited from Full: `sudo` always requires a fresh execution approval and an ephemeral password, and `Auto + Aprovar` MUST NOT grant it. Wharnex injects that password only into the executor-owned stdin of the exact approved `sudo` command (`sudo -S -p ''`); the password MUST NOT be placed in argv, planner output, session JSON, audit events, command output metadata, or persistent recovery state. Because the credential is not durable, an interrupted sudo execution requires the operator to supply it again rather than recovering it from disk. `su` and `doas` remain denied until Wharnex has an equivalent non-persistent credential/identity boundary for them.
+
+Self-evolution is locked to Protected and MUST reject both Unprotected and Full.
+
+The Protected/Unprotected/Full switch governs Agent plan execution and MUST NOT change the interactive Editor terminal. The normal Editor terminal is a human-only Host PTY; Protected Agent execution continues to use its isolated copied workspace independently.
 
 ## Patch applicability
 
@@ -56,14 +65,14 @@ Editor file saves and Explorer create/rename/delete actions are explicit human m
 
 - Opening a project MUST ensure the project root owns a `.git` repository; when absent, Wharness initializes it with `git init` before context capture.
 - Wharness MUST NOT create an automatic host commit during bootstrap.
-- Protected host apply and Unprotected direct execution MUST re-check Git readiness before patching.
+- Protected host apply and Unprotected/Full direct execution MUST re-check Git readiness before patching.
 - Every isolated sandbox copy MUST initialize its own Git repository and baseline commit after filtering excluded/secrets. Host `.git` metadata is never copied into the sandbox.
-- Read-only verification such as `git diff --check` therefore runs against the sandbox baseline in Protected mode and against the project's own repository in Unprotected mode.
+- Read-only verification such as `git diff --check` therefore runs against the sandbox baseline in Protected mode and against the project's own repository in Unprotected or Full mode.
 - Git Policy classification is argument-sensitive for dual-mode commands. A `git symbolic-ref` invocation with exactly one ref name and only query flags (`--quiet`/`-q`, `--short`, `--no-recurse`) is read-only and MAY be used by planner verification without an extra approval; forms that write, delete, or provide a replacement ref remain denied. Supported Git mutations such as `switch -c` keep their explicit approval boundary and, in Protected mode, are replayed on the host only after sandbox verification.
 
 ## Human project provisioning (v1.2.17)
 
-Opening, creating, and cloning a project occurs before Agent execution and is driven only by explicit local UI actions. Creating a project makes a new directory and initializes its Git boundary. Cloning uses `git clone --recurse-submodules` into a destination that did not previously exist. These bootstrap actions do not change Protected/Unprotected mode and are never emitted or triggered by a model execution plan.
+Opening, creating, and cloning a project occurs before Agent execution and is driven only by explicit local UI actions. Creating a project makes a new directory and initializes its Git boundary. Cloning uses `git clone --recurse-submodules` into a destination that did not previously exist. These bootstrap actions do not change Protected/Unprotected/Full mode and are never emitted or triggered by a model execution plan.
 
 ## Interactive Host terminal semantics (v1.2.17.4, amended v1.2.53)
 
@@ -77,7 +86,7 @@ The runtime instance identifier is configured through `WHARNESS_INSTANCE_ID`. Op
 
 A session is `self_evolution=true` only when its canonical project root is exactly the canonical root of the currently running Wharness instance. A child directory, another checkout, or another worktree is not self-evolution unless it resolves to that exact runtime root.
 
-Self-evolution is locked to `Protected`; switching that session to `Unprotected` MUST be rejected. Normal sandbox execution and verification happen first. A successful Protected execution that contains patches then uses a self-evolution host batch instead of the generic Apply path:
+Self-evolution is locked to `Protected`; switching that session to either `Unprotected` or `Full` MUST be rejected. Normal sandbox execution and verification happen first. A successful Protected execution that contains patches then uses a self-evolution host batch instead of the generic Apply path:
 
 1. acquire a durable `.harness/self-evolution/active.lock` for the pending activation batch and a short-lived `stage.lock` for the current mutation stage;
 2. for the first batch member, snapshot patch-touched source files, root/frontend compiled artifacts, build stamp and known-good lifecycle scripts;

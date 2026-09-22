@@ -314,7 +314,7 @@ func (s *Service) StartSession(ctx context.Context, projectPath string, requeste
 		mode = requestedMode[0]
 	}
 	automationMode := domain.AutomationModeAuto
-	if mode == domain.ExecutionModeUnprotected {
+	if domain.ExecutionModeTargetsHost(mode) {
 		automationMode = domain.AutomationModeManual
 	}
 	return s.StartSessionWithModes(ctx, projectPath, mode, automationMode)
@@ -411,7 +411,7 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	if statableSelfOpenForbidden(s.runtimeInstanceID, selfEvolution) {
 		return domain.Session{}, errors.New("the statable Wharnex instance cannot open itself as a project")
 	}
-	if selfEvolution && executionMode == domain.ExecutionModeUnprotected {
+	if selfEvolution && domain.ExecutionModeTargetsHost(executionMode) {
 		executionMode = domain.ExecutionModeProtected
 	}
 	if !domain.ValidExecutionMode(executionMode) {
@@ -649,14 +649,14 @@ func (s *Service) SetExecutionMode(sessionID string, mode domain.ExecutionMode) 
 		return domain.Session{}, fmt.Errorf("unsupported execution mode %q", mode)
 	}
 	item, err := s.store.Update(sessionID, func(current *domain.Session) error {
-		if mode == domain.ExecutionModeUnprotected && s.isSelfEvolution(*current) {
+		if domain.ExecutionModeTargetsHost(mode) && s.isSelfEvolution(*current) {
 			return errors.New("Wharnex self-evolution is locked to Protected execution mode")
 		}
-		if mode == domain.ExecutionModeUnprotected && len(pendingHostChanges(*current)) > 0 {
-			return errors.New("apply or reject the pending Protected changes before switching to Unprotected mode")
+		if domain.ExecutionModeTargetsHost(mode) && len(pendingHostChanges(*current)) > 0 {
+			return errors.New("apply or reject the pending Protected changes before switching to a host-direct mode")
 		}
-		if mode == domain.ExecutionModeUnprotected && domain.AutomationModeIsAutomatic(current.AutomationMode) {
-			return errors.New("disable automatic mode before switching to unprotected")
+		if domain.ExecutionModeTargetsHost(mode) && domain.AutomationModeIsAutomatic(current.AutomationMode) {
+			return errors.New("disable automatic mode before switching to a host-direct execution mode")
 		}
 		current.ExecutionMode = mode
 		return nil
@@ -1792,18 +1792,19 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			return result
 		}
 		policyApprovalRequired := current.Policy.RequiresApproval && !coveredByPriorConsent
-		if policyApprovalRequired && !autoApprove {
+		sudoApprovalRequired := policyRequiresSudoCredential(current.Policy)
+		if sudoApprovalRequired || (policyApprovalRequired && !autoApprove) {
 			reason := strings.Join(current.Policy.Reasons, "; ")
 			if strings.TrimSpace(reason) == "" {
 				reason = "policy requires explicit approval"
 			}
 			result.AutoError = "automatic execution paused because this plan still requires explicit approval: " + reason
-			s.bus.Publish(sessionID, "automation.approval_required", map[string]any{"plan_id": planID, "transport": transport, "risk": current.Policy.Risk, "reasons": current.Policy.Reasons, "error": result.AutoError})
+			s.bus.Publish(sessionID, "automation.approval_required", map[string]any{"plan_id": planID, "transport": transport, "risk": current.Policy.Risk, "reasons": current.Policy.Reasons, "approval_items": current.Policy.ApprovalItems, "sudo_password_required": sudoApprovalRequired, "error": result.AutoError})
 			result.Session = current
 			return result
 		}
-		approved := autoApprove || coveredByPriorConsent
-		if autoApprove && (initialConsentRequired || policyApprovalRequired) {
+		approved := (autoApprove && !sudoApprovalRequired) || coveredByPriorConsent
+		if autoApprove && !sudoApprovalRequired && (initialConsentRequired || policyApprovalRequired) {
 			s.bus.Publish(sessionID, "automation.approval_auto_granted", map[string]any{"plan_id": planID, "transport": transport, "risk": current.Policy.Risk, "reasons": current.Policy.Reasons})
 		}
 		s.bus.Publish(sessionID, "automation.started", map[string]any{"plan_id": planID, "transport": transport, "attempt": attempt + 1})
@@ -1942,6 +1943,10 @@ func bundleFilenameRequestID(filename string) string {
 	return bundlename.RequestIDFromFilename(base)
 }
 
+func (s *Service) ExecuteAuthorized(ctx context.Context, sessionID string, approved bool, sudoPassword string) (domain.ExecutionResult, domain.Session, error) {
+	return s.Execute(withSudoPassword(ctx, sudoPassword), sessionID, approved)
+}
+
 func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) (result domain.ExecutionResult, item domain.Session, err error) {
 	item, err = s.store.Get(sessionID)
 	if err != nil {
@@ -1967,12 +1972,23 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 	if planExecutionHeld(item, item.Plan.PlanID) {
 		return result, item, errors.New("execution plan is paused or suspended")
 	}
-	unprotected := item.ExecutionMode == domain.ExecutionModeUnprotected
-	if unprotected && s.isSelfEvolution(item) {
-		return result, item, errors.New("Wharnex self-evolution cannot execute in Unprotected mode")
+	hostDirect := domain.ExecutionModeTargetsHost(item.ExecutionMode)
+	if hostDirect && s.isSelfEvolution(item) {
+		return result, item, errors.New("Wharnex self-evolution cannot execute in a host-direct mode")
 	}
-	if (item.Policy.RequiresApproval || unprotected) && !approved {
+	if (policyRequiresApprovalForMode(item.Policy, item.ExecutionMode) || item.ExecutionMode == domain.ExecutionModeUnprotected) && !approved {
 		return result, item, ErrApprovalRequired
+	}
+	if policyRequiresSudoCredential(item.Policy) {
+		if !hostDirect {
+			return result, item, errors.New("sudo commands require Unprotected or Full host-direct execution mode")
+		}
+		if !approved {
+			return result, item, ErrApprovalRequired
+		}
+		if len(sudoPasswordFromContext(ctx)) == 0 {
+			return result, item, ErrSudoCredentialRequired
+		}
 	}
 	planID := item.Plan.PlanID
 	updated, updateErr := s.store.Update(sessionID, func(current *domain.Session) error {
@@ -1988,7 +2004,7 @@ func (s *Service) Execute(ctx context.Context, sessionID string, approved bool) 
 		current.InterruptedExecution = &domain.InterruptedExecution{PlanID: planID, RequestedAt: time.Now().UTC(), Approved: approved, Status: domain.InterruptedExecutionRunning}
 		if approved && current.ExecutionMode == domain.ExecutionModeProtected {
 			current.ExecutionApprovedRootID = executionConsentRoot(*current, current.Plan.RequestID)
-			current.ApprovedBoundaryKeys = executionBoundaryKeys(current.Plan)
+			current.ApprovedBoundaryKeys = executionBoundaryKeysWithPolicy(current.Plan, current.Policy)
 		}
 		return nil
 	})
@@ -2118,15 +2134,26 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	if !item.Policy.Allowed {
 		return domain.ExecutionResult{}, item, errors.New("policy denied plan")
 	}
-	unprotected := item.ExecutionMode == domain.ExecutionModeUnprotected
-	if unprotected && s.isSelfEvolution(item) {
-		return domain.ExecutionResult{}, item, errors.New("Wharnex self-evolution cannot execute in Unprotected mode")
+	hostDirect := domain.ExecutionModeTargetsHost(item.ExecutionMode)
+	if hostDirect && s.isSelfEvolution(item) {
+		return domain.ExecutionResult{}, item, errors.New("Wharnex self-evolution cannot execute in a host-direct mode")
 	}
-	if (item.Policy.RequiresApproval || unprotected) && !approved {
+	if (policyRequiresApprovalForMode(item.Policy, item.ExecutionMode) || item.ExecutionMode == domain.ExecutionModeUnprotected) && !approved {
 		return domain.ExecutionResult{}, item, ErrApprovalRequired
 	}
+	if policyRequiresSudoCredential(item.Policy) {
+		if !hostDirect {
+			return domain.ExecutionResult{}, item, errors.New("sudo commands require Unprotected or Full host-direct execution mode")
+		}
+		if !approved {
+			return domain.ExecutionResult{}, item, ErrApprovalRequired
+		}
+		if len(sudoPasswordFromContext(ctx)) == 0 {
+			return domain.ExecutionResult{}, item, ErrSudoCredentialRequired
+		}
+	}
 
-	if unprotected {
+	if hostDirect {
 		directApplyLock := s.projectApplyLock(item.ProjectPath)
 		directApplyLock.Lock()
 		defer directApplyLock.Unlock()
@@ -2153,10 +2180,10 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 			}
 			item = advanced
 			s.bus.Publish(sessionID, "baseline.execution_fast_forwarded", map[string]any{"plan_id": item.Plan.PlanID, "from_sha256": expected, "to_sha256": currentBaseline})
-		} else if !unprotected && canReconcilePlanFromArchive(item, item.Plan) {
+		} else if !hostDirect && canReconcilePlanFromArchive(item, item.Plan) {
 			reconcileFromArchive = true
 			s.bus.Publish(sessionID, "changeset.base_restored", map[string]any{"plan_id": item.Plan.PlanID, "base_context_sha256": expected, "current_context_sha256": currentBaseline})
-		} else if !unprotected && canLegacyRebasePlan(item, item.Plan) {
+		} else if !hostDirect && canLegacyRebasePlan(item, item.Plan) {
 			advanced, updateErr := s.store.Update(sessionID, func(current *domain.Session) error {
 				if current.Plan != nil && current.Plan.PlanID == item.Plan.PlanID {
 					current.Plan.BaseContextSHA256 = currentBaseline
@@ -2178,7 +2205,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 
 	runner := s.runner
 	executionTarget := "sandbox"
-	if unprotected {
+	if hostDirect {
 		runner = s.hostRunner
 		executionTarget = "host"
 		if _, err := projectgit.Ensure(ctx, item.ProjectPath); err != nil {
@@ -2217,7 +2244,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	// normal three-way merge, which Git resolves without a model turn whenever
 	// the changes are actually compatible.
 	baseRootedBranch := ""
-	if !unprotected && !reconcileFromArchive {
+	if !hostDirect && !reconcileFromArchive {
 		if branch, _, rooted := s.prepareBaseRootedWorkspace(ctx, sessionID, item, item.Plan, workspace.Path); rooted {
 			baseRootedBranch = branch
 		}
@@ -2233,14 +2260,14 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 			return s.failExecution(ctx, sessionID, result, fmt.Errorf("compose focused conflict candidate: %w", err))
 		}
 	}
-	if !unprotected {
+	if !hostDirect {
 		if replayErr := s.replayPendingChangeSets(ctx, sessionID, item.ProjectPath, runner, workspace, pendingForExecution, item.Plan.PlanID, !reconcileFromArchive, &result); replayErr != nil {
 			return s.failExecution(ctx, sessionID, result, replayErr)
 		}
 	}
 	var changeBaseRoot string
 	var cleanupChangeBase func()
-	if !unprotected && reconcileFromArchive {
+	if !hostDirect && reconcileFromArchive {
 		// Snapshot the plan's write set BEFORE any patch is applied below —
 		// materializePlanChangeSet needs the pre-patch content to diff
 		// against, and workspace.Path is mutated in place by the operations
@@ -2275,8 +2302,12 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 			continue
 		}
 		command := op.Command
-		if !unprotected {
+		if !hostDirect {
 			command = protectedGitCommand(command)
+		}
+		command, prepareErr := prepareAuthorizedCommand(ctx, command, hostDirect)
+		if prepareErr != nil {
+			return s.failExecution(ctx, sessionID, result, prepareErr)
 		}
 		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, executionTarget)
 		result.Commands = append(result.Commands, commandResult)
@@ -2295,8 +2326,12 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	}()
 	for _, command := range item.Plan.Verification {
 		s.bus.Publish(sessionID, "verification.started", map[string]any{"argv": command.Argv, "target": executionTarget})
+		command, prepareErr := prepareAuthorizedCommand(ctx, command, hostDirect)
+		if prepareErr != nil {
+			return s.failExecution(ctx, sessionID, result, prepareErr)
+		}
 		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, executionTarget)
-		if runErr == nil && !commandResult.Success && !unprotected {
+		if runErr == nil && !commandResult.Success && !hostDirect {
 			// Infrastructure failures must never be laundered into a successful
 			// candidate merely because the unchanged baseline hits the same broken
 			// toolchain/network. Classify them before baseline attribution.
@@ -2355,7 +2390,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	var integrationBranch, integrationCommit string
 	var submoduleIntegrations []domain.RepositoryIntegration
 	var canonicalChangeSet *domain.ChangeSet
-	if !unprotected {
+	if !hostDirect {
 		if reconcileFromArchive {
 			// This sandbox was reconstructed from an immutable request-base
 			// archive (see executionBase), not cloned from the live host —
@@ -2392,7 +2427,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		current.PendingManualRequestIDs = nil
 		current.LastRequestID = item.Plan.RequestID
 		current.LastManualPrompt = ""
-		if unprotected {
+		if hostDirect {
 			current.State = "applied"
 			current.LastHostCommands = append([]domain.CommandResult(nil), result.Commands...)
 			current.LastHostAppliedAt = result.CompletedAt
@@ -2428,7 +2463,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 	for _, requestID := range retiredRequestIDs {
 		s.releaseRemoteInputLease(sessionID, requestID)
 	}
-	if unprotected {
+	if hostDirect {
 		s.resetDevspace(sessionID)
 		if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
 			updated = refreshed
@@ -2589,7 +2624,7 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 		return nil
 	})
 	s.setProjectTodosByRequestLineage(updated, updated.LastRequestID, domain.ProjectTodoExecutionFailed, cause.Error())
-	if updated.ExecutionMode == domain.ExecutionModeUnprotected {
+	if domain.ExecutionModeTargetsHost(updated.ExecutionMode) {
 		s.resetDevspace(sessionID)
 	}
 	if errors.Is(cause, sandbox.ErrOfflineDependenciesUnavailable) {
@@ -3044,8 +3079,8 @@ Use the current Wharnex project context as authoritative. Replace denied command
 	if len(item.PendingHostChanges) > 0 {
 		modeNote = "Verified host-pending changes are retained. Build the correction incrementally against the candidate state produced by the pending patches listed below; Wharnex will replay and verify the complete chain in a fresh Protected sandbox before offering Apply again."
 	}
-	if item.ExecutionMode == domain.ExecutionModeUnprotected {
-		modeNote = "The failed Unprotected execution may have partially changed the host. Wharnex refreshed the project context before creating this repair request; use that current context as authoritative."
+	if domain.ExecutionModeTargetsHost(item.ExecutionMode) {
+		modeNote = "The failed host-direct execution may have partially changed the host. Wharnex refreshed the project context before creating this repair request; use that current context as authoritative."
 	}
 	failureText := truncateRepairText(cause.Error(), 12000)
 	if strings.Contains(cause.Error(), "self-evolution host build failed") {
@@ -3177,8 +3212,8 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 	if err != nil {
 		return item, err
 	}
-	if item.ExecutionMode == domain.ExecutionModeUnprotected {
-		return item, errors.New("apply is unavailable in unprotected mode because execution already targets the host")
+	if domain.ExecutionModeTargetsHost(item.ExecutionMode) {
+		return item, errors.New("apply is unavailable in host-direct modes because execution already targets the host")
 	}
 	if item.Plan != nil && planExecutionHeld(item, item.Plan.PlanID) {
 		s.bus.Publish(sessionID, "host.apply_paused", map[string]any{"plan_id": item.Plan.PlanID, "state": planControlState(item, item.Plan.PlanID)})
@@ -3934,12 +3969,12 @@ func (s *Service) isSelfEvolution(item domain.Session) bool {
 func (s *Service) normalizeSelfEvolutionSessions() {
 	for _, item := range s.store.List() {
 		canonical := s.selfEvolution != nil && s.selfEvolution.IsProject(item.ProjectPath)
-		if item.SelfEvolution == canonical && (!canonical || item.ExecutionMode != domain.ExecutionModeUnprotected) {
+		if item.SelfEvolution == canonical && (!canonical || !domain.ExecutionModeTargetsHost(item.ExecutionMode)) {
 			continue
 		}
 		_, _ = s.store.Update(item.ID, func(current *domain.Session) error {
 			current.SelfEvolution = canonical
-			if canonical && current.ExecutionMode == domain.ExecutionModeUnprotected {
+			if canonical && domain.ExecutionModeTargetsHost(current.ExecutionMode) {
 				current.ExecutionMode = domain.ExecutionModeProtected
 			}
 			return nil

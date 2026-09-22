@@ -1465,9 +1465,11 @@ describe('ChatPanel', () => {
     expect(screen.getByRole('button', { name: 'Manual' }).getAttribute('aria-pressed')).toBe('true')
 
     fireEvent.click(screen.getByRole('button', { name: 'Unprotected' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
     fireEvent.click(screen.getByRole('button', { name: 'Auto' }))
     fireEvent.click(screen.getByRole('button', { name: 'Auto + Aprovar' }))
     expect(onExecutionMode).toHaveBeenCalledWith('unprotected')
+    expect(onExecutionMode).toHaveBeenCalledWith('full')
     expect(onAutomationMode).toHaveBeenCalledWith('auto')
     expect(onAutomationMode).toHaveBeenCalledWith('auto_approve')
   })

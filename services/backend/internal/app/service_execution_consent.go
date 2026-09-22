@@ -99,6 +99,35 @@ func acquisitionBoundaryKey(prefix, owner string, strategy domain.PlanAcquisitio
 	return prefix + ":" + owner + ":" + strategy.Method + ":" + strategy.Manager + ":" + strategy.Package + ":" + strategy.Version + ":" + strconv.FormatBool(strategy.Automatic)
 }
 
+func executionBoundaryKeysWithPolicy(plan *domain.ExecutionPlan, decision *domain.PolicyDecision) []string {
+	keys := executionBoundaryKeys(plan)
+	for _, approval := range decisionApprovalItems(decision) {
+		key := "approval:" + strings.TrimSpace(approval.Kind) + ":" + strings.Join(approval.Argv, "\x1f")
+		if len(approval.Argv) == 0 {
+			key += ":" + strings.TrimSpace(approval.Effect)
+		}
+		keys = append(keys, key)
+	}
+	if len(keys) < 2 {
+		return keys
+	}
+	sort.Strings(keys)
+	deduped := keys[:0]
+	for _, key := range keys {
+		if len(deduped) == 0 || deduped[len(deduped)-1] != key {
+			deduped = append(deduped, key)
+		}
+	}
+	return deduped
+}
+
+func decisionApprovalItems(decision *domain.PolicyDecision) []domain.ExecutionApproval {
+	if decision == nil {
+		return nil
+	}
+	return decision.ApprovalItems
+}
+
 func priorExecutionConsentCovers(item domain.Session) bool {
 	if item.Plan == nil || item.ExecutionApprovedRootID == "" || item.ExecutionApprovedRootID != executionConsentRoot(item, item.Plan.RequestID) {
 		return false
@@ -107,7 +136,7 @@ func priorExecutionConsentCovers(item domain.Session) bool {
 	for _, key := range item.ApprovedBoundaryKeys {
 		approved[key] = true
 	}
-	for _, key := range executionBoundaryKeys(item.Plan) {
+	for _, key := range executionBoundaryKeysWithPolicy(item.Plan, item.Policy) {
 		if !approved[key] {
 			return false
 		}

@@ -261,15 +261,15 @@ export const api = {
 	cancelPendingRequest: (id: string, requestId: string) => request<Session>(`/api/sessions/${id}/request/cancel`, { method: 'POST', body: JSON.stringify({ request_id: requestId }) }),
 	cancelInteractive: (id: string) => request<{ cancelled: boolean }>(`/api/sessions/${id}/interactive/cancel`, { method: 'POST' }),
 	remoteInputFailure: (id: string, requestId: string, reason: string, kind: 'transport' | 'bundle_validation' | 'submodule_write' = 'transport') => request<Session>(`/api/sessions/${id}/remote-input/failures`, { method: 'POST', body: JSON.stringify({ request_id: requestId, reason, kind }) }),
-  execute: (id: string, approved: boolean) =>
+  execute: (id: string, approved: boolean, sudoPassword = '') =>
     request<{ session: Session; result: ExecutionResult }>(`/api/sessions/${id}/execute`, {
-      method: 'POST', body: JSON.stringify({ approved }),
+      method: 'POST', body: JSON.stringify({ approved, ...(sudoPassword ? { sudo_password: sudoPassword } : {}) }),
     }),
   approveDebug: (id: string) => request<BundleSubmission>(`/api/sessions/${id}/debug/approve`, { method: 'POST', body: '{}' }),
   retryDependencyNetwork: (id: string) => request<Session>(`/api/sessions/${id}/dependency-network-retry`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
   retryHostDependencyRepair: (id: string) => request<Session>(`/api/sessions/${id}/host-dependency-repair`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
   renewConflictCapsule: (id: string) => request<Session>(`/api/sessions/${id}/conflict-capsule-renew`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
-  resumeInterruptedExecution: (id: string) => request<{ session: Session; plan_id: string; status: string }>(`/api/sessions/${id}/interrupted-execution/resume`, { method: 'POST', body: '{}' }),
+  resumeInterruptedExecution: (id: string, sudoPassword = '') => request<{ session: Session; plan_id: string; status: string }>(`/api/sessions/${id}/interrupted-execution/resume`, { method: 'POST', body: JSON.stringify({ ...(sudoPassword ? { sudo_password: sudoPassword } : {}) }) }),
   discardInterruptedExecution: (id: string) => request<Session>(`/api/sessions/${id}/interrupted-execution/discard`, { method: 'POST', body: '{}' }),
   apply: (id: string) => request<Session>(`/api/sessions/${id}/apply`, { method: 'POST', body: '{}' }),
   rejectPendingChanges: (id: string) => request<Session>(`/api/sessions/${id}/pending-changes/reject`, { method: 'POST', body: '{}' }),

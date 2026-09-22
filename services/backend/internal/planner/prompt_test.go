@@ -104,7 +104,7 @@ func TestBuildManualPromptDeclaresSelfEvolutionModeAndLifecycleOwnership(t *test
 	for _, want := range []string{
 		"SELF-EVOLUTION MODE: true",
 		"linked project is exactly the root of the currently running Wharnex instance",
-		"Never request Unprotected execution",
+		"Never request a host-direct mode (Unprotected or Full)",
 		"do NOT put Wharnex lifecycle commands",
 		"detached transactional supervisor",
 		"do not mutate .harness runtime/state/log/self-evolution files",

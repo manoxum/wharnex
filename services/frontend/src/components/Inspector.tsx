@@ -24,6 +24,7 @@ import { PlanHistorySurface } from './PlanHistorySurface'
 import { ExecutionHistorySurface } from './ExecutionHistorySurface'
 import { filterExecutionAuditEvents } from '../lib/executionAudit'
 import { mergeAuditEvents } from '../lib/projectActivity'
+import { ExecutionApprovalPanel } from './ExecutionApprovalPanel'
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 export { TerminalView } from './ExecutionHistorySurface'
@@ -47,7 +48,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
 	 onTransportFailure?: (requestId: string, reason: string) => void
   onCancelPendingRequest?: (requestId: string) => Promise<void>
   onContextSent?: (sha256: string, conversationUrl?: string) => void
-  onExecute: (approved: boolean) => Promise<void>
+  onExecute: (approved: boolean, sudoPassword?: string) => Promise<void>
   onApproveDebug?: () => Promise<void>
   onAdjustExecutionPlan?: () => void
   onRetryDependencyNetwork?: () => Promise<void>
@@ -99,7 +100,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const terminalEvents = useMemo(() => filterExecutionAuditEvents(auditEvents), [auditEvents])
   const canExecute = sessionCanExecutePlan(session)
   const needsApproval = sessionNeedsExecutionConsent(session)
-  const direct = session.execution_mode === 'unprotected'
+  const direct = session.execution_mode !== 'protected'
   const pendingCount = session.pending_host_changes?.length || 0
   const canReject = Boolean(!direct && pendingCount && (!sessionHostResolutionBlocked(session) || session.integration_conflict))
   const desktop = isDesktop()
@@ -116,7 +117,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
         <div className="brand-lockup small"><SignalCore size="compact" decorative /><div><strong>Agent Inspector</strong><span>{config?.planner || 'planner'} · {config?.sandbox || 'sandbox'}{desktop ? ' · desktop' : ''}</span></div></div>
         <div className="header-actions">
           {session.policy && <StatusPill tone={session.policy.allowed ? (session.policy.risk === 'high' ? 'warning' : 'accent') : 'danger'}>{riskLabel(session.policy.risk)}</StatusPill>}
-          {direct && <StatusPill tone="warning">Unprotected</StatusPill>}
+          {direct && <StatusPill tone="warning">{session.execution_mode === 'full' ? 'Full' : 'Unprotected'}</StatusPill>}
           {session.automation_mode === 'auto' && <StatusPill tone="success">Auto</StatusPill>}
           {session.automation_mode === 'auto_approve' && <StatusPill tone="warning">Auto + Aprovar</StatusPill>}
           {session.chat_transport_mode === 'manual' && <StatusPill tone="warning">Manual (sem DOM)</StatusPill>}
@@ -329,7 +330,7 @@ export function PlanView({ session, readOnly = false, busy = false, canExecute =
   canExecute?: boolean
   needsApproval?: boolean
   canRejectPending?: boolean
-  onExecute?: (approved: boolean) => Promise<void>
+  onExecute?: (approved: boolean, sudoPassword?: string) => Promise<void>
   onApproveDebug?: () => Promise<void>
   onAdjustExecutionPlan?: () => void
   onRejectExecutionPlan?: () => Promise<void>
@@ -343,7 +344,8 @@ export function PlanView({ session, readOnly = false, busy = false, canExecute =
 }) {
   const [manualNotice, setManualNotice] = useState('')
   const [manualBusy, setManualBusy] = useState(false)
-  useEffect(() => { setManualNotice('') }, [session.plan?.plan_id])
+  const [sudoPassword, setSudoPassword] = useState('')
+  useEffect(() => { setManualNotice(''); setSudoPassword('') }, [session.plan?.plan_id])
 	const integration = readOnly ? null : <IntegrationQueue session={session} conflictGuidance={conflictGuidance} onConflictGuidance={onConflictGuidance} onResolveManually={onResolveManually} onResolveWithGPT={onResolveWithGPT} />
 	if (!session.plan) return <>{integration}<Empty title="Nenhum plano ou passo local pendente" text="Perguntas podem ser respondidas sem plano. Quando uma mudança ou investigação local exigir execução, o passo validado aparecerá aqui." /></>
   const plan = session.plan
@@ -355,12 +357,23 @@ export function PlanView({ session, readOnly = false, busy = false, canExecute =
   const patches = operations.filter((operation) => operation.type === 'apply_patch')
   const manualPatches = manualPatchEntries(plan.plan_id, patches)
   const hostTools = systemTools.filter((tool) => tool.target === 'host' && tool.action !== 'use')
+  const approvalItems = session.policy?.approval_items || []
+  const requiresSudoPassword = approvalItems.some((item) => item.requires_sudo_password)
+  const sudoNeedsHostDirect = requiresSudoPassword && session.execution_mode === 'protected'
   const policyStatus = session.policy ? (session.policy.allowed ? (workflow ? 'Probe autorizada' : 'Policy OK') : 'Bloqueado') : 'Histórico'
   const pendingCount = session.pending_host_changes?.length || 0
   const planControl = session.plan_control?.plan_id === plan.plan_id ? session.plan_control.state : 'active'
   const hostApplied = Boolean(session.last_applied_changes?.some((change) => change.plan.plan_id === plan.plan_id))
   const canControlAutoApprovedPlan = !readOnly && session.automation_mode === 'auto_approve' && session.execution_mode === 'protected' && !workflow && plan.status === 'ready' && !hostApplied
   const canReverseAppliedPlan = !readOnly && session.execution_mode === 'protected' && hostApplied
+
+  async function executeApprovedPlan() {
+    try {
+      await onExecute?.(true, requiresSudoPassword ? sudoPassword : '')
+    } finally {
+      if (requiresSudoPassword) setSudoPassword('')
+    }
+  }
 
   async function savePatchesToProject() {
     if (!manualPatches.length) return
@@ -388,18 +401,19 @@ export function PlanView({ session, readOnly = false, busy = false, canExecute =
 	{integration}
     {!readOnly && <div className="plan-control-surface">
       <div className="plan-control-primary">
-        <div className="plan-control-copy"><span className="plan-control-mark"><Icon name="plan" size={15}/></span><div><span className="panel-kicker">Contrato de execução</span><strong>{canExecute ? 'Aguardando a sua decisão' : pendingCount ? 'Integração pendente de recuperação' : 'Plano registado'}</strong><span>{needsApproval ? 'Uma aprovação cobre a execução Protected e a integração automática no host; correções só voltam a pedir decisão quando introduzem novo impacto.' : pendingCount ? 'A aplicação ao host já foi autorizada pelo plano. Não existe uma segunda aprovação de Apply; apenas a recuperação do bloqueio pendente.' : 'Depois de uma execução Protected autorizada e verificada, a integração no host acontece sem uma segunda aprovação.'}</span></div></div>
+        <div className="plan-control-copy"><span className="plan-control-mark"><Icon name="plan" size={15}/></span><div><span className="panel-kicker">Contrato de execução</span><strong>{canExecute ? 'Aguardando a sua decisão' : pendingCount ? 'Integração pendente de recuperação' : 'Plano registado'}</strong><span>{session.execution_mode === 'full' ? 'Full executa diretamente no host e dispensa gates marcados como bypassáveis; sudo continua a exigir autorização explícita e senha efémera.' : session.execution_mode === 'unprotected' ? 'Unprotected executa diretamente no host após confirmação; não existe sandbox nem uma etapa posterior de Apply.' : needsApproval ? 'Uma aprovação cobre a execução Protected e a integração automática no host; correções só voltam a pedir decisão quando introduzem novo impacto.' : pendingCount ? 'A aplicação ao host já foi autorizada pelo plano. Não existe uma segunda aprovação de Apply; apenas a recuperação do bloqueio pendente.' : 'Depois de uma execução Protected autorizada e verificada, a integração no host acontece sem uma segunda aprovação.'}</span></div></div>
         <div className="plan-decision-actions">
           {session.state === 'debug_approval_required' && session.plan.debug && <button type="button" className="apply-button" disabled={busy} onClick={() => void onApproveDebug?.()}><Icon name="terminal" size={14}/> {session.plan.debug.protocol === 'harness.interactive/v2' ? `Autorizar Interactive v2 · ${session.plan.debug.target} · ${session.plan.debug.access || 'observe'}` : session.plan.debug.target === 'host' && session.plan.debug.access === 'modify' ? 'Autorizar alteração de debug no host' : `Autorizar debug ${session.plan.debug.target}`}</button>}
           {busy && session.plan.debug?.protocol === 'harness.interactive/v2' && <button type="button" className="danger-button" onClick={() => void api.cancelInteractive(session.id).then(() => setManualNotice('Cancelamento da ronda Interactive v2 solicitado.')).catch((error) => setManualNotice(error instanceof Error ? error.message : String(error)))}><Icon name="close" size={13}/> Parar ronda</button>}
           {canControlAutoApprovedPlan && planControl === 'active' && <button type="button" className="secondary-button" onClick={() => void onControlExecutionPlan?.('pause')}><Icon name="pause" size={13}/> Pausar</button>}
           {canControlAutoApprovedPlan && planControl !== 'active' && <button type="button" className="apply-button" onClick={() => void onControlExecutionPlan?.('resume')}><Icon name="play" size={13}/> Retomar</button>}
           {canControlAutoApprovedPlan && planControl !== 'suspended' && <button type="button" className="secondary-button" onClick={() => void onControlExecutionPlan?.('suspend')}><Icon name="close" size={13}/> Suspender</button>}
-          {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><button type="button" className="secondary-button" disabled={busy} onClick={() => onAdjustExecutionPlan?.()}><Icon name="edit" size={13}/> Ajustar</button><button type="button" className={session.execution_mode === 'unprotected' ? 'danger-button' : 'apply-button'} disabled={busy} onClick={() => void onExecute?.(true)}><Icon name="check" size={14}/> {session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
+          {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><button type="button" className="secondary-button" disabled={busy} onClick={() => onAdjustExecutionPlan?.()}><Icon name="edit" size={13}/> Ajustar</button><button type="button" className={session.execution_mode === 'protected' ? 'apply-button' : 'danger-button'} disabled={busy || sudoNeedsHostDirect || (requiresSudoPassword && !sudoPassword)} onClick={() => void executeApprovedPlan()}><Icon name="check" size={14}/> {sudoNeedsHostDirect ? 'sudo requer Full/Unprotected' : requiresSudoPassword ? 'Autorizar sudo e executar' : session.execution_mode === 'full' ? 'Executar no host · Full' : session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
           {canRejectPending && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={13}/> Rejeitar</button>}
           {canReverseAppliedPlan && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onPrepareExecutionPlanReversal?.()}><Icon name="history" size={13}/> Reverter com GPT</button>}
         </div>
       </div>
+      <ExecutionApprovalPanel items={approvalItems} mode={session.execution_mode} busy={busy} sudoPassword={sudoPassword} onSudoPassword={setSudoPassword} />
       {canControlAutoApprovedPlan && <div className="plan-manual-tools"><div className="plan-manual-copy"><span className="plan-manual-mark"><Icon name="shield" size={13}/></span><div><span className="panel-kicker">Auto + Aprovar</span><strong>{planControl === 'active' ? 'Plano ativo antes do Apply' : planControl === 'paused' ? 'Plano pausado antes do Apply' : 'Plano suspenso antes do Apply'}</strong><small>O plano permanece legível e a integração no host respeita este controlo mesmo se a sandbox já estiver a executar.</small></div></div></div>}
       {manualPatches.length > 0 && <div className="plan-manual-tools"><div className="plan-manual-copy"><span className="plan-manual-mark"><Icon name="download" size={13}/></span><div><span className="panel-kicker">Fallback manual</span><strong>Aplicação alternativa dos patches</strong><small>Guarde uma cópia em /patches ou copie um lote com quoting seguro para executar manualmente na raiz do projeto.</small></div></div><div className="plan-manual-actions"><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void savePatchesToProject()}><Icon name="download" size={13}/> Descarregar patches</button><button type="button" className="secondary-button" disabled={manualBusy} onClick={() => void copyManualCommands()}><Icon name="copy" size={13}/> Copiar lote de comandos</button></div></div>}
     </div>}

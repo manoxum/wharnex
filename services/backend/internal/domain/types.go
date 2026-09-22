@@ -258,17 +258,6 @@ const (
 	FailureKindConflictCapsuleStale = "conflict_capsule_stale"
 )
 
-type ExecutionMode string
-
-const (
-	ExecutionModeProtected   ExecutionMode = "protected"
-	ExecutionModeUnprotected ExecutionMode = "unprotected"
-)
-
-func ValidExecutionMode(mode ExecutionMode) bool {
-	return mode == ExecutionModeProtected || mode == ExecutionModeUnprotected
-}
-
 type AutomationMode string
 
 const (
@@ -373,6 +362,11 @@ type CommandSpec struct {
 	// EnvAllowlist is executor-owned metadata and is never planner-authored.
 	// A non-nil value constrains child-process inheritance to these names.
 	EnvAllowlist []string `json:"-"`
+	// Stdin is executor-owned ephemeral input. It is deliberately excluded from
+	// every JSON/audit representation so short-lived credentials (for example a
+	// sudo password entered by the operator) can reach the child process without
+	// becoming durable session or event data.
+	Stdin []byte `json:"-"`
 }
 
 type Operation struct {
@@ -666,13 +660,6 @@ type KnownProjectRef struct {
 	Name        string `json:"name"`
 	ProjectPath string `json:"project_path"`
 	Open        bool   `json:"open"`
-}
-
-type PolicyDecision struct {
-	Allowed          bool     `json:"allowed"`
-	RequiresApproval bool     `json:"requires_approval"`
-	Risk             string   `json:"risk"`
-	Reasons          []string `json:"reasons"`
 }
 
 type CommandResult struct {

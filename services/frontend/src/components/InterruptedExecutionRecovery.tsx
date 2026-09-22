@@ -16,7 +16,7 @@ type RecoveryDecision = 'continue' | 'discard'
 type Props = {
   items: InterruptedExecutionTarget[]
   busyChats: Record<string, boolean>
-  onDecision: (target: InterruptedExecutionTarget, decision: RecoveryDecision) => void
+  onDecision: (target: InterruptedExecutionTarget, decision: RecoveryDecision, sudoPassword?: string) => void
   onOpenChat: (target: InterruptedExecutionTarget) => void
   onOpenLogs: (target: InterruptedExecutionTarget) => void
   onOpenChatGPT: (target: InterruptedExecutionTarget) => void
@@ -48,19 +48,22 @@ function RecoveryCard({ target, pending, onDecision, onOpenChat, onOpenLogs, onO
   const state = recoveryState(target, pending)
   const active = pending || intent.status === 'resuming' || intent.status === 'running'
   const retry = intent.status === 'failed_retryable'
+  const requiresSudoPassword = Boolean(target.session.policy?.approval_items?.some((item) => item.requires_sudo_password))
+  const [sudoPassword, setSudoPassword] = useState('')
   return <article className={`execution-recovery-item ${state.tone}`}>
     <div className="execution-recovery-copy">
       <div className="execution-recovery-title"><strong>{target.chat.title}</strong><span className={`execution-recovery-status ${state.tone}`}>{state.label}</span></div>
       <span>{target.session.plan?.summary || intent.plan_id}</span>
-      <small>{intent.plan_id} · {new Date(intent.requested_at).toLocaleString()} · {target.session.execution_mode === 'unprotected' ? 'Host direto' : 'Sandbox protegida'}</small>
+      <small>{intent.plan_id} · {new Date(intent.requested_at).toLocaleString()} · {target.session.execution_mode === 'protected' ? 'Sandbox protegida' : target.session.execution_mode === 'full' ? 'Host direto · Full' : 'Host direto · Unprotected'}</small>
       {intent.last_error && <small className="execution-recovery-error">{intent.last_error}</small>}
+      {requiresSudoPassword && <label className="execution-recovery-sudo"><span>Senha sudo para retomar</span><input type="password" value={sudoPassword} autoComplete="off" spellCheck={false} disabled={active} onChange={(event) => setSudoPassword(event.target.value)} placeholder="Introduza novamente"/><small>A credencial não foi persistida e é usada apenas nesta retoma.</small></label>}
     </div>
     <div className="execution-recovery-actions">
       <button type="button" className="text-button" onClick={() => onOpenChat(target)}>Abrir chat</button>
       <button type="button" className="text-button" onClick={() => onOpenLogs(target)}><Icon name="terminal" size={12}/> Ver logs</button>
       {target.humanAction?.active && <button type="button" className="text-button recovery-human-action" onClick={() => onOpenChatGPT(target)}><Icon name="shield" size={12}/> Abrir ChatGPT</button>}
       <button type="button" className="secondary-button" disabled={active} onClick={() => onDecision(target, 'discard')}>Descartar</button>
-      <button type="button" className="apply-button" disabled={active} onClick={() => onDecision(target, 'continue')}><Icon name={active ? 'refresh' : 'play'} size={13}/>{active ? 'A acompanhar' : retry ? 'Repetir' : 'Continuar'}</button>
+      <button type="button" className="apply-button" disabled={active || (requiresSudoPassword && !sudoPassword)} onClick={() => { if (requiresSudoPassword) { onDecision(target, 'continue', sudoPassword); setSudoPassword('') } else { onDecision(target, 'continue') } }}><Icon name={active ? 'refresh' : 'play'} size={13}/>{active ? 'A acompanhar' : retry ? 'Repetir' : 'Continuar'}</button>
     </div>
   </article>
 }

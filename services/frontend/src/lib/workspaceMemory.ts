@@ -173,7 +173,7 @@ export function rememberRecent(projectPath: string) {
 export function loadExecutionMode(projectPath: string): ExecutionMode {
   try {
     const value = localStorage.getItem(EXECUTION_MODE_PREFIX + projectPath)
-    return value === 'unprotected' ? 'unprotected' : 'protected'
+    return value === 'unprotected' || value === 'full' ? value : 'protected'
   } catch { return 'protected' }
 }
 

@@ -48,12 +48,14 @@ describe('workspace memory', () => {
   })
 
 
-  it('persists protected/unprotected mode per project', () => {
+  it('persists protected/unprotected/full mode per project', () => {
     expect(loadExecutionMode('/tmp/project')).toBe('protected')
     saveExecutionMode('/tmp/project', 'unprotected')
     saveExecutionMode('/tmp/other', 'protected')
     expect(loadExecutionMode('/tmp/project')).toBe('unprotected')
     expect(loadExecutionMode('/tmp/other')).toBe('protected')
+    saveExecutionMode('/tmp/project', 'full')
+    expect(loadExecutionMode('/tmp/project')).toBe('full')
   })
 
   it('persists manual/auto automation mode per project', () => {

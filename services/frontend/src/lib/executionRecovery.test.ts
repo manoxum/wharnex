@@ -33,4 +33,29 @@ describe('execution recovery visibility', () => {
     current.request_lineages['req-repair'] = { request_id: 'req-repair', root_request_id: 'req-root', parent_request_id: 'req-root', kind: 'repair', created_at: '2026-09-08T18:21:00.000Z' }
     expect(sessionNeedsExecutionConsent(current)).toBe(false)
   })
+
+  it('lets Full waive only approval items explicitly marked bypassable', () => {
+    const current = session('running')
+    current.interrupted_execution = undefined
+    current.execution_mode = 'full'
+    current.plan = { protocol: 'harness.execution/v1', plan_id: 'plan-full', request_id: 'req-full', status: 'ready', summary: 'Full', risk: 'high', requires_approval: true, operations: [], verification: [] }
+    current.policy = {
+      allowed: true, requires_approval: true, risk: 'high', reasons: ['command approval'],
+      approval_items: [{ kind: 'command', argv: ['sh', '-n', 'script.sh'], rationale: 'Validate shell syntax', effect: 'Reads script syntax', host_impact: 'No persistent host change', bypass_in_full: true }],
+    }
+    expect(sessionNeedsExecutionConsent(current)).toBe(false)
+  })
+
+  it('keeps sudo approval non-bypassable in Full', () => {
+    const current = session('running')
+    current.interrupted_execution = undefined
+    current.execution_mode = 'full'
+    current.plan = { protocol: 'harness.execution/v1', plan_id: 'plan-sudo', request_id: 'req-sudo', status: 'ready', summary: 'Sudo', risk: 'high', requires_approval: true, operations: [], verification: [] }
+    current.policy = {
+      allowed: true, requires_approval: true, risk: 'high', reasons: ['sudo approval'],
+      approval_items: [{ kind: 'sudo', argv: ['sudo', 'systemctl', 'restart', 'example'], rationale: 'Restart service', effect: 'Restarts example', host_impact: 'Changes host service state', requires_sudo_password: true, bypass_in_full: false }],
+    }
+    expect(sessionNeedsExecutionConsent(current)).toBe(true)
+  })
+
 })

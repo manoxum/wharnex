@@ -1,3 +1,6 @@
+import type { ExecutionApproval, ExecutionMode } from './executionTypes'
+export type { ExecutionApproval, ExecutionMode } from './executionTypes'
+
 export type CommandSpec = {
   argv: string[]
   cwd: string
@@ -60,6 +63,7 @@ export type PolicyDecision = {
   requires_approval: boolean
   risk: 'low' | 'medium' | 'high'
   reasons: string[]
+  approval_items?: ExecutionApproval[]
 }
 
 export type CommandResult = {
@@ -254,7 +258,6 @@ export type KnownProjectRef = {
   open: boolean
 }
 
-export type ExecutionMode = 'protected' | 'unprotected'
 export type AutomationMode = 'manual' | 'auto' | 'auto_approve'
 export type EffortLevel = 'low' | 'medium' | 'high' | 'extra_high' | 'max' | 'ultra' | 'loop'
 export type ReasoningEffort = 'instant' | 'medium' | 'high'

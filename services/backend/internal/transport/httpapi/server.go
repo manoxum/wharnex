@@ -1392,23 +1392,6 @@ func (a *API) retryFailedRequest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
-func (a *API) execute(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Approved bool `json:"approved"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	result, item, err := a.service.Execute(r.Context(), r.PathValue("id"), body.Approved)
-	if err != nil {
-		status := 400
-		if errors.Is(err, app.ErrApprovalRequired) {
-			status = 409
-		}
-		writeJSON(w, status, map[string]any{"error": map[string]any{"code": "execution_failed", "message": err.Error()}, "result": result, "session": item})
-		return
-	}
-	writeJSON(w, 200, map[string]any{"result": result, "session": item})
-}
-
 func (a *API) retryDependencyNetwork(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Approved bool `json:"approved"`
@@ -1466,15 +1449,6 @@ func (a *API) cancelInteractive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]bool{"cancelled": true})
-}
-
-func (a *API) resumeInterruptedExecution(w http.ResponseWriter, r *http.Request) {
-	result, err := a.service.ResumeInterruptedExecution(r.PathValue("id"))
-	if err != nil {
-		writeError(w, http.StatusConflict, "execution_recovery_unavailable", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusAccepted, result)
 }
 
 func (a *API) discardInterruptedExecution(w http.ResponseWriter, r *http.Request) {
