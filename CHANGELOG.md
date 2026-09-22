@@ -1,4 +1,9 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat ce7abbc3-364c-487b-ae37-936e0641abd0 (2026-09-22)
+
+_(reserved — no entries yet)_
+
+
 ### Chat 9ef77188-f590-4240-8714-61ac41b0deb9 (2026-09-22)
 
 - Add a persistent desktop tray lifecycle with explicit background/project/all-project close choices, per-project tray restore/close actions, recoverable multi-project shutdown state, restored window geometry, editor tabs/view positions, and best-effort terminal tab/history/workdir/scroll recovery while preserving durable chat data when a workspace session is discarded.
