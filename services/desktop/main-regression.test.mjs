@@ -47,6 +47,23 @@ test('desktop tray owns background lifecycle, project actions and recoverable sh
   assert.match(source, /app\.on\('window-all-closed', \(\) => \{[\s\S]*ensureDesktopTray\(\)/)
 })
 
+test('desktop tray resolves the installed Wharnex raster icon before SVG fallback', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const resolveStart = source.indexOf('function resolveDesktopIcon()')
+  const resolveEnd = source.indexOf('\nconst DESKTOP_ICON = resolveDesktopIcon()', resolveStart)
+  const resolve = source.slice(resolveStart, resolveEnd)
+  const png = resolve.indexOf("'256x256'")
+  const svg = resolve.indexOf("'scalable'")
+  const fallback = resolve.indexOf('nativeImage.createFromDataURL')
+
+  assert.ok(resolveStart !== -1 && resolveEnd > resolveStart)
+  assert.match(resolve, /WHARNESS_DESKTOP_DATA_HOME/)
+  assert.match(resolve, /nativeImage\.createFromPath\(candidate\)/)
+  assert.match(resolve, /if \(!image\.isEmpty\(\)\) return image/)
+  assert.ok(png !== -1 && svg > png && fallback > svg)
+  assert.match(source, /const DESKTOP_ICON = resolveDesktopIcon\(\)/)
+})
+
 test('Linux Desktop uses software compositing to avoid GPU renderer traps', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /if \(process\.platform === 'linux'\) app\.disableHardwareAcceleration\(\)/)
