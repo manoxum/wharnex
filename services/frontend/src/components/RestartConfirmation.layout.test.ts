@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const css = readFileSync(resolve(process.cwd(), 'src/restart-confirmation.css'), 'utf8')
+const css = readFileSync(resolve(process.cwd(), 'src/styles/domains/restart-confirmation.css'), 'utf8')
 
 function firstRule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

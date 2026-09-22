@@ -70,12 +70,13 @@ interface WharnessDesktopBridge {
   }
   windows: {
     info(): Promise<{ windowId: string; windowCount: number }>
-    recovery(): Promise<{ active: boolean; projects: string[]; activeProject: string }>
+    recovery(): Promise<{ active: boolean; projects: string[]; activeProject: string; pending?: boolean }>
     projects(): Promise<{ currentWindowId: string; items: Array<{ windowId: string; projectPath: string; focused: boolean }> }>
     focusProject(projectPath: string): Promise<{ ok: boolean; windowId: string; projectPath: string }>
     onActivateProject(callback: (payload: { projectPath: string }) => void): () => void
     onCloseProject(callback: (payload: { projectPath: string }) => void): () => void
     onCloseConfirmation(callback: (payload: DesktopWindowClosePrompt) => void): () => void
+    acknowledgeClose(): Promise<{ ok: boolean; reason?: string }>
     resolveClose(action: DesktopWindowCloseAction): Promise<{ ok: boolean; action?: DesktopWindowCloseAction; reason?: string }>
     open(): Promise<{ ok: boolean; windowId: string }>
     openSurface(request: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string }): Promise<{ ok: boolean; windowId: string }>

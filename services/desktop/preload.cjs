@@ -1,5 +1,12 @@
+// This preload is attached to a window created with `sandbox: true`, where
+// Electron replaces `require` with a limited polyfill that resolves only
+// `electron` and a few Node builtins. Requiring a sibling file throws, the
+// whole preload aborts, and `wharnessDesktop` is never exposed — which drops
+// the trusted renderer into web-only mode with no window controls and no
+// native ChatGPT surfaces. This file MUST therefore stay self-contained and
+// MUST NOT import project modules, so it is exempt from the 200-line cap
+// (see `SoT/CODE_QUALITY.md` §1).
 const { contextBridge, ipcRenderer } = require('electron')
-const { createLocalServices } = require('./preload-local-services.cjs')
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload)
 
@@ -35,6 +42,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       ipcRenderer.on('wharness:windows:confirm-close', handler)
       return () => ipcRenderer.removeListener('wharness:windows:confirm-close', handler)
     },
+    acknowledgeClose: () => invoke('wharness:windows:acknowledge-close'),
     resolveClose: (action) => invoke('wharness:windows:resolve-close', { action: String(action || '') }),
     open: () => invoke('wharness:windows:open'),
     openSurface: (request = {}) => invoke('wharness:windows:open-surface', request),
@@ -196,5 +204,23 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       return () => ipcRenderer.removeListener('wharness:agents:state', handler)
     },
   }),
-  ...createLocalServices(invoke),
+  data: Object.freeze({
+    storage: () => invoke('wharness:data:storage'),
+    exportBrowserSession: () => invoke('wharness:data:export-browser-session'),
+    importBrowserSession: () => invoke('wharness:data:import-browser-session'),
+    clearBrowserSession: () => invoke('wharness:data:clear-browser-session'),
+    clearAll: (confirm) => invoke('wharness:data:clear-all', { confirm: String(confirm || '') }),
+  }),
+  attachments: Object.freeze({
+    persist: (request) => invoke('wharness:attachments:persist', request),
+    preview: (request) => invoke('wharness:attachments:preview', request),
+    read: (request) => invoke('wharness:attachments:read', request),
+    open: (request) => invoke('wharness:attachments:open', request),
+    removeChat: (request) => invoke('wharness:attachments:remove-chat', request),
+  }),
+  clipboard: Object.freeze({
+    copyContextZip: (request) => invoke('wharness:clipboard:copy-context-zip', request),
+    readText: () => invoke('wharness:clipboard:read-text'),
+    writeText: (text) => invoke('wharness:clipboard:write-text', String(text)),
+  }),
 }))

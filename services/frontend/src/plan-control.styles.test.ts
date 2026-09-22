@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const css = readFileSync(resolve(process.cwd(), 'src/plan-control.css'), 'utf8')
-const legacy = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+const css = readFileSync(resolve(process.cwd(), 'src/styles/domains/plan-control.css'), 'utf8')
+const legacy = readFileSync(resolve(process.cwd(), 'src/styles/legacy/styles.css'), 'utf8')
 
 function rule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

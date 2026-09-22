@@ -1,6 +1,19 @@
+/* Single entry point for every project-owned stylesheet, imported by main.tsx.
+   The order below is the cascade order main.tsx previously applied through
+   seven separate imports and MUST be preserved: the legacy monolith first,
+   then the per-domain sheets, then theme tokens and the remaining legacy
+   surfaces that were loaded after it. Reordering these changes appearance. */
+@import './legacy/styles.css';
 @import './base/async-loading.css';
 @import './domains/git-repositories.css';
 @import './domains/git-operations.css';
 @import './domains/git-panel.css';
 @import './domains/git-panel-spacing.css';
 @import './domains/desktop-close-dialog.css';
+@import './domains/workspace-shell-stage.css';
+@import './domains/desktop-recovery-dialog.css';
+@import './theme/theme.css';
+@import './domains/plan-control.css';
+@import './domains/activity-history.css';
+@import './domains/operational-panels.css';
+@import './domains/restart-confirmation.css';
