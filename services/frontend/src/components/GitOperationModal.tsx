@@ -25,10 +25,8 @@ export type GitOperation = {
 
 export function GitOperationModal({ operation, onClose }: { operation: GitOperation; onClose: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(() => initialSelection(operation))
-  useEffect(() => {
-    const allowed = (operation.targets || []).filter((target) => target.available !== false).map((target) => target.path)
-    setSelected(new Set(operation.defaultTargets?.length ? operation.defaultTargets.filter((path) => allowed.includes(path)) : allowed))
-  }, [operation])
+  const availableTargets = (operation.targets || []).filter((target) => target.available !== false)
+  useEffect(() => { setSelected(initialSelection(operation)) }, [operation])
 
   const selecting = operation.phase === 'selecting'
   const running = operation.phase === 'running' || operation.phase === 'refreshing'
@@ -47,19 +45,22 @@ export function GitOperationModal({ operation, onClose }: { operation: GitOperat
     <div className={`git-operation-modal ${operation.phase}`} role="dialog" aria-modal="false" aria-label={operation.title}>
       {selecting ? <div className="git-operation-targets">
         <div className="git-operation-copy"><span className="panel-kicker">Operação Git</span><strong>{operation.title}</strong><p>{operation.detail}</p></div>
+        <div className="git-operation-target-toolbar">
+          <span>{selected.size} de {availableTargets.length} selecionado(s)</span>
+          <div><button type="button" onClick={() => setSelected(new Set(availableTargets.map((target) => target.path)))} disabled={selected.size === availableTargets.length}>Todos</button><button type="button" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>Nenhum</button></div>
+        </div>
         <ul className="git-operation-target-list" aria-label="Repositórios para a operação">{(operation.targets || []).map((target) => {
           const enabled = target.available !== false
+          const detail = target.detail ? `${target.branch} · ${target.detail}` : target.branch
           return <li key={target.path || '__root__'}><label className={enabled ? '' : 'disabled'}>
-            <input type="checkbox" aria-label={`Executar em ${target.label}`} disabled={!enabled} checked={selected.has(target.path)} onChange={() => setSelected((current) => { const next = new Set(current); if (next.has(target.path)) next.delete(target.path); else next.add(target.path); return next })}/>
-            <span className="git-operation-target-copy"><strong>{target.label}</strong><small>{target.branch}{target.detail ? ` · ${target.detail}` : ''}</small></span>
-            <span className="git-operation-target-meta"><b>↑{target.ahead || 0}</b><b>↓{target.behind || 0}</b></span>
+            <input type="checkbox" aria-label={`Executar em ${target.label}`} disabled={!enabled} checked={selected.has(target.path)} onChange={() => setSelected((current) => toggleTarget(current, target.path))}/>
+            <span className="git-operation-target-copy"><strong title={target.label}>{target.label}</strong><small title={detail}>{detail}</small></span>
+            <span className="git-operation-target-meta" aria-label={`${target.ahead || 0} para enviar e ${target.behind || 0} para receber`}><b title={`${target.ahead || 0} commit(s) para enviar`}>↑{target.ahead || 0}</b><b title={`${target.behind || 0} commit(s) para receber`}>↓{target.behind || 0}</b></span>
           </label></li>
         })}</ul>
         <div className="git-operation-target-actions"><button type="button" className="git-action" onClick={onClose}>Cancelar</button><button type="button" className="git-action primary" disabled={selected.size === 0} onClick={() => operation.onConfirmTargets?.(Array.from(selected))}>Continuar ({selected.size})</button></div>
       </div> : <>
-        <div className="git-operation-symbol" aria-hidden="true">
-          {running ? <span className="git-operation-spinner"/> : <Icon name={success ? 'check' : 'alert'} size={19}/>}
-        </div>
+        <div className="git-operation-symbol" aria-hidden="true">{running ? <span className="git-operation-spinner"/> : <Icon name={success ? 'check' : 'alert'} size={19}/>}</div>
         <div className="git-operation-copy"><span className="panel-kicker">Operação Git</span><strong>{operation.title}</strong><p>{operation.detail}</p></div>
         <div className="git-operation-progress" aria-hidden="true"><i className={running ? 'active' : 'complete'}/></div>
         <ol className="git-operation-steps" aria-label="Progresso da operação">
@@ -77,4 +78,11 @@ export function GitOperationModal({ operation, onClose }: { operation: GitOperat
 function initialSelection(operation: GitOperation) {
   const allowed = (operation.targets || []).filter((target) => target.available !== false).map((target) => target.path)
   return new Set(operation.defaultTargets?.length ? operation.defaultTargets.filter((path) => allowed.includes(path)) : allowed)
+}
+
+function toggleTarget(current: Set<string>, path: string) {
+  const next = new Set(current)
+  if (next.has(path)) next.delete(path)
+  else next.add(path)
+  return next
 }
