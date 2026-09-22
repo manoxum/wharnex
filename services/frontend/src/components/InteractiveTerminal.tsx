@@ -9,11 +9,11 @@ import { subscribeUIPreferences, workspaceTerminalFontSize } from '../lib/uiPref
 
 const terminalThemes = {
   dark: {
-  background: '#121411', foreground: '#cfd5c7', cursor: '#95cf50', selectionBackground: '#556b3f88',
-  black: '#121411', red: '#e36a60', green: '#95cf50', yellow: '#d6a56b', blue: '#7da9d8',
-  magenta: '#c594d8', cyan: '#75b9ad', white: '#d8ddd1', brightBlack: '#697064',
-  brightRed: '#f08b82', brightGreen: '#b5e57b', brightYellow: '#edc487', brightBlue: '#9ac3ec',
-  brightMagenta: '#d8afe7', brightCyan: '#96d5ca', brightWhite: '#f2f4ef',
+    background: '#151715', foreground: '#D8DDD7', cursor: '#9FCB73', selectionBackground: '#3C473588',
+    black: '#111311', red: '#E27676', green: '#9FCB73', yellow: '#D8BB70', blue: '#7DA7D9',
+    magenta: '#B58AC9', cyan: '#71B7B0', white: '#D8DDD7', brightBlack: '#747B74',
+    brightRed: '#EE9188', brightGreen: '#B5DD8B', brightYellow: '#E4CB91', brightBlue: '#9ABEE5',
+    brightMagenta: '#CBA6DA', brightCyan: '#92CEC7', brightWhite: '#F0F2EE',
   },
   light: {
     background: '#f7f8f4', foreground: '#30362e', cursor: '#527c20', selectionBackground: '#cadab8aa',
@@ -166,7 +166,9 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
 
   useEffect(() => subscribeUIPreferences((preferences) => {
     if (!terminalRef.current) return
-    terminalRef.current.options.theme = activeTerminalTheme()
+    const theme = activeTerminalTheme()
+    terminalRef.current.options.theme = theme
+    if (terminalRootRef.current) terminalRootRef.current.style.background = theme.background
     terminalRef.current.options.fontSize = workspaceTerminalFontSize(preferences)
     try { fitRef.current?.fit() } catch { /* panel may still be resizing */ }
   }), [])
@@ -180,7 +182,7 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
   }, [runRequest, session.id, status])
 
   return <section className="ide-terminal" style={{ height }}>
-    <div ref={terminalRootRef} className="terminal-xterm" aria-label="Terminal interactivo" title="Tab completa; Ctrl+R pesquisa; ↑/↓ navega; Ctrl+C interrompe; Ctrl+Shift+C/V copia e cola (⌘C/⌘V no macOS)." />
+    <div ref={terminalRootRef} className="terminal-xterm" style={{ background: activeTerminalTheme().background }} aria-label="Terminal interactivo" title="Tab completa; Ctrl+R pesquisa; ↑/↓ navega; Ctrl+C interrompe; Ctrl+Shift+C/V copia e cola (⌘C/⌘V no macOS)." />
   </section>
 }
 

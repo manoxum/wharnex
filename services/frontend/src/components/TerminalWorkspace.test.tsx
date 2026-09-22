@@ -33,10 +33,13 @@ describe('TerminalWorkspace', () => {
     expect(screen.getAllByTestId('terminal-instance')).toHaveLength(1)
   })
 
-  it('renames a terminal tab without replacing its mounted PTY', () => {
+  it('renames a terminal tab by double click without a dedicated edit icon', () => {
     render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
     const terminal = screen.getByTestId('terminal-instance')
-    fireEvent.click(screen.getByLabelText('Renomear Terminal 1'))
+    const tab = screen.getByRole('tab', { name: /Terminal 1/ })
+    expect(screen.queryByRole('button', { name: 'Renomear Terminal 1' })).toBeNull()
+
+    fireEvent.doubleClick(tab)
     const input = screen.getByLabelText('Renomear Terminal 1')
     fireEvent.change(input, { target: { value: 'Servidor API' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -64,12 +67,18 @@ describe('TerminalWorkspace', () => {
   it('keeps terminal identity, status and controls on one top line', () => {
     const { container } = render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
     const tabbar = container.querySelector('.terminal-tabbar')
-    expect(tabbar?.contains(screen.getByRole('tab', { name: /Terminal 1/ }))).toBe(true)
+    const terminalTab = screen.getByRole('tab', { name: /Terminal 1/ })
+    expect(tabbar?.contains(terminalTab)).toBe(true)
+    expect(terminalTab.querySelector('svg')).toBeNull()
+    expect(terminalTab.getAttribute('title')).toContain('Terminal 1')
+    expect(screen.queryByRole('button', { name: 'Renomear Terminal 1' })).toBeNull()
     expect(tabbar?.contains(screen.getByLabelText('Fechar Terminal 1'))).toBe(true)
-    expect(tabbar?.contains(screen.getByLabelText('Reconectar terminal'))).toBe(true)
-    expect(tabbar?.contains(screen.getByLabelText('Aumentar/reduzir terminal'))).toBe(true)
+    expect(tabbar?.contains(screen.getByLabelText('Mais ações do terminal'))).toBe(true)
+    expect(screen.queryByRole('menu', { name: 'Ações adicionais do terminal' })).toBeNull()
 
-    fireEvent.click(screen.getByLabelText('Reconectar terminal'))
+    fireEvent.click(screen.getByLabelText('Mais ações do terminal'))
+    expect(screen.getByRole('menu', { name: 'Ações adicionais do terminal' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: /Reconectar/ }))
     expect(screen.getByTestId('terminal-instance').getAttribute('data-reconnect')).toBe('1')
   })
 
@@ -80,7 +89,8 @@ describe('TerminalWorkspace', () => {
 
     fireEvent.click(screen.getByLabelText('Dividir terminal verticalmente'))
     fireEvent.click(screen.getByLabelText('Dividir terminal horizontalmente'))
-    fireEvent.click(screen.getByLabelText('Abrir terminal numa janela independente'))
+    fireEvent.click(screen.getByLabelText('Mais ações do terminal'))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Abrir em janela/ }))
 
     expect(onSplitTerminal.mock.calls).toEqual([['vertical'], ['horizontal']])
     expect(onDetachTerminal.mock.calls).toHaveLength(1)

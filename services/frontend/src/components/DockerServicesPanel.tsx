@@ -225,8 +225,8 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
       <div className="docker-services-header-actions">
         <button type="button" className="docker-font-control" onClick={() => changeFontScale(-0.1)} title="Diminuir texto" aria-label="Diminuir texto">A−</button>
         <button type="button" className="docker-font-control" onClick={() => changeFontScale(0.1)} title="Aumentar texto" aria-label="Aumentar texto">A+</button>
-        <button type="button" onClick={() => void refresh(true)} disabled={loading} title="Atualizar Docker" aria-label="Atualizar Docker"><Icon name="refresh" size={13}/></button>
-        <button type="button" onClick={onClose} title="Fechar Docker" aria-label="Fechar Docker"><Icon name="close" size={13}/></button>
+        <button type="button" onClick={() => void refresh(true)} disabled={loading} title="Atualizar Docker" aria-label="Atualizar Docker"><Icon name="refresh" size={16}/></button>
+        <button type="button" onClick={onClose} title="Fechar Docker" aria-label="Fechar Docker"><Icon name="close" size={16}/></button>
       </div>
     </header>
 
@@ -236,7 +236,7 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
       <div className="docker-resource-searchbox">
         <Icon name="search" size={12}/>
         <input value={filterText} onChange={(event) => setFilterText(event.target.value)} aria-label="Filtrar recursos Docker" placeholder="Filtrar recursos Docker…" spellCheck={false}/>
-        {filterText ? <button type="button" className="docker-resource-filter-clear" onClick={() => setFilterText('')} title="Limpar filtro" aria-label="Limpar filtro"><Icon name="close" size={11}/></button> : null}
+        {filterText ? <button type="button" className="docker-resource-filter-clear" onClick={() => setFilterText('')} title="Limpar filtro" aria-label="Limpar filtro"><Icon name="close" size={14}/></button> : null}
       </div>
       <span className="docker-resource-filter-status">{normalizedFilter ? `${visibleCount} resultado${visibleCount === 1 ? '' : 's'}` : 'Todos'}</span>
     </div>

@@ -65,6 +65,18 @@ describe('EditorWorkspace git diff stability', () => {
     expect(fileRecordCalls[fileRecordCalls.length - 1]).toBe(firstFile)
   })
 
+  it('keeps the manual save action icon-only while preserving an accessible label', async () => {
+    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
+    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'a.ts', content: 'const a = 1', sha256: 'abc123', size: 11 })
+
+    const { container } = render(<EditorWorkspace session={session} onError={() => undefined} onRunInTerminal={() => undefined} openPath="a.ts" openNonce={1}/>)
+    await screen.findByLabelText('Editor de a.ts')
+
+    const save = container.querySelector<HTMLButtonElement>('.editor-save')
+    expect(save?.getAttribute('aria-label')).toBe('Guardar agora')
+    expect(save?.textContent).toBe('')
+  })
+
   it('autosaves edited text after a short debounce with optimistic concurrency', async () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
     vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'a.ts', content: 'const a = 1', sha256: 'abc123', size: 11 })

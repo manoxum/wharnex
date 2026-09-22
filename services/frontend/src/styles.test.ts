@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
+const operationalCss = readFileSync(resolve(process.cwd(), 'src/operational-panels.css'), 'utf8')
+const terminalSource = readFileSync(resolve(process.cwd(), 'src/components/InteractiveTerminal.tsx'), 'utf8')
 
 function lastRule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -14,6 +16,12 @@ function firstRule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const match = css.match(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm'))
   return match?.[1] || ''
+}
+
+function lastRuleIn(source: string, selector: string) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const matches = [...source.matchAll(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`, 'gm'))]
+  return matches.at(-1)?.[1] || ''
 }
 
 describe('chat header CSS', () => {
@@ -766,7 +774,240 @@ describe('editor search palette CSS', () => {
     expect(palette).toContain('border-radius: 13px')
     expect(input).toContain('grid-template-columns: auto minmax(0, 1fr) auto')
     expect(options).toContain('white-space: nowrap')
-    expect(result).toContain('grid-template-columns: 18px minmax(0, 1fr)')
+    expect(result).toContain('grid-template-columns: 20px minmax(0, 1fr)')
+    expect(lastRule('.editor-search-input input')).toContain('font-size: calc(13px * var(--ui-font-scale))')
+    expect(lastRule(".editor-search-results > button[role='option'] strong")).toContain('font-size: calc(12.5px * var(--ui-font-scale))')
     expect(css).toContain(".editor-search-options button[aria-pressed='true']")
+  })
+})
+
+describe('workbench visual hierarchy CSS', () => {
+  it('gives the focused pane a quiet accent without unmounting adjacent surfaces', () => {
+    const chatFocus = lastRule(".agent-workspace[data-focused-pane='chat']:not(.single-pane) .agent-chat-stage")
+    const inspectorFocus = lastRule(".agent-workspace[data-focused-pane='inspector']:not(.single-pane) .agent-inspector-stage")
+    const directChatGPT = lastRule(".agent-workspace.agent-rail-unified[data-focused-pane='inspector'][data-inspector-tab='direct-chatgpt']:not(.single-pane)")
+
+    expect(chatFocus).toContain('inset 0 2px')
+    expect(inspectorFocus).toContain('inset 0 2px')
+    expect(directChatGPT).toContain('--agent-chat-width: calc((100% - 6px) * 0.4)')
+  })
+
+  it('flattens repeated task and database cards into separator-led sections', () => {
+    const taskCard = lastRule('.project-task-card')
+    const databaseSection = lastRule('.database-connection-section')
+
+    expect(taskCard).toContain('border-radius: 0')
+    expect(taskCard).toContain('background: transparent')
+    expect(taskCard).toContain('box-shadow: none')
+    expect(databaseSection).toContain('border-radius: 0')
+    expect(databaseSection).toContain('background: transparent')
+  })
+
+  it('turns execution history into a light timeline and keeps scroll chrome subtle', () => {
+    const timeline = lastRule('.execution-timeline')
+    const thumb = lastRule('.workspace-body *::-webkit-scrollbar-thumb')
+
+    expect(timeline).toContain('border-left: 1px solid var(--theme-border-soft)')
+    expect(timeline).toContain('background: transparent')
+    expect(thumb).toContain('border-radius: 999px')
+    expect(thumb).toContain('background-clip: padding-box')
+  })
+})
+
+
+describe('quiet premium workbench design system', () => {
+  it('defines one restrained geometry scale and removes card chrome from core IDE surfaces', () => {
+    expect(css).toContain('--control-md: 32px')
+    expect(css).toContain('--radius-control: 4px')
+    expect(css).toContain('/* v1.2.49 — quiet premium workbench grammar.')
+    expect(css).toContain('.workspace-main-row > .agent-activity-bar button.active:not(:disabled)')
+    expect(css).toContain('background: transparent')
+    expect(css).toContain('.terminal-workspace:focus-within')
+    expect(css).toContain('border-top-color: color-mix(in srgb, var(--theme-accent) 45%, var(--theme-border))')
+    expect(css).toContain('.settings-premium-card:is(section, div)')
+    expect(css).toContain('.agent-runtime-list > button.active:not(:disabled)')
+    expect(css).toContain('box-shadow: inset 2px 0 var(--agent-state)')
+  })
+
+  it('keeps scrollbars quiet and universal actions compact', () => {
+    expect(css).toContain('.workspace-body *::-webkit-scrollbar { width: 4px; height: 4px; }')
+    expect(css).toContain('.editor-tabbar .editor-save {')
+    expect(css).toContain('width: var(--control-sm)')
+    expect(css).toContain('border-radius: var(--radius-control)')
+  })
+})
+
+
+describe('final workbench visual consolidation', () => {
+  it('keeps the late operational stylesheet flat instead of restoring nested cards', () => {
+    const runtimeSummary = lastRuleIn(operationalCss, '.agent-runtime-summary span,\n.agent-runtime-memory-summary span')
+    const runtimeDetail = lastRuleIn(operationalCss, '.agent-runtime-list,\n.agent-runtime-detail')
+    const taskCard = lastRuleIn(operationalCss, '.agent-archive-item,\n.chat-agent-task-card')
+    const knowledgeActive = lastRuleIn(operationalCss, '.project-knowledge-index button.active')
+
+    expect(operationalCss).toContain('/* Final IDE tool-window grammar: flat lists, separators and quiet state accents. */')
+    expect(runtimeSummary).toContain('border-radius: 0')
+    expect(runtimeSummary).toContain('box-shadow: none')
+    expect(runtimeDetail).toContain('background: transparent')
+    expect(taskCard).toContain('border-bottom: 1px solid var(--theme-border-soft)')
+    expect(taskCard).toContain('box-shadow: none')
+    expect(knowledgeActive).toContain('border-left-color: var(--theme-accent)')
+  })
+
+  it('uses the restrained semantic palette in the native terminal', () => {
+    expect(terminalSource).toContain("foreground: '#D8DDD7'")
+    expect(terminalSource).toContain("cursor: '#9FCB73'")
+    expect(terminalSource).toContain("red: '#E27676'")
+    expect(terminalSource).toContain("yellow: '#D8BB70'")
+    expect(terminalSource).toContain("blue: '#7DA7D9'")
+    expect(terminalSource).toContain("cyan: '#71B7B0'")
+    expect(terminalSource).toContain("magenta: '#B58AC9'")
+  })
+
+  it('keeps the final workbench chrome compact and semantically quiet', () => {
+    expect(css).toContain('.workspace-topbar {\n  height: 44px;')
+    expect(lastRule('.mode-switch')).toContain('background: transparent')
+    expect(lastRule('.error-toast')).toContain('border-left: 2px solid var(--danger)')
+    expect(lastRule('.app-dialog-card')).toContain('border-radius: 8px')
+    expect(lastRule('.topbar-indicator')).toContain('width: 27px')
+    expect(lastRule('.topbar-indicator')).toContain('border-color: transparent')
+  })
+})
+
+
+describe('editor explorer terminal visual consolidation', () => {
+  it('uses one flat IDE grammar across the three requested core surfaces', () => {
+    expect(css).toContain('/* v1.2.50 — one visual grammar for Editor, Explorer and Terminal.')
+    expect(lastRule('.editor-tabbar')).toContain('height: 36px')
+    expect(lastRule('.editor-contextbar')).toContain('background: var(--theme-surface)')
+    expect(lastRule('.agent-project-tree')).toContain('padding: 4px 0 8px')
+    expect(lastRule('.agent-tree-row')).toContain('height: 30px')
+    expect(lastRule('.agent-tree-row')).toContain('border-left: 2px solid transparent')
+    expect(lastRule('.agent-tree-row.selected-node')).toContain('border-left-color: var(--theme-accent)')
+    expect(lastRule('.agent-tree-row.selected-node')).toContain('box-shadow: none')
+    expect(lastRule('.terminal-tabbar')).toContain('min-height: 34px')
+    expect(lastRule('.terminal-tabs')).toContain('overflow-x: auto')
+    expect(lastRule('.terminal-tabs')).toContain('scrollbar-width: none')
+    expect(lastRule('.terminal-tab-shell.active')).toContain('box-shadow: inset 0 -2px var(--theme-accent)')
+  })
+
+  it('keeps terminal tab editing and actions aligned with desktop IDE chrome', () => {
+    expect(lastRule('.terminal-tabbar')).toContain('min-height: 34px')
+    expect(lastRule('.terminal-tab-action')).toContain('border-radius: 4px')
+    expect(lastRule('.terminal-tab-title')).toContain('flex: 1 1 auto')
+    expect(css).not.toContain('.terminal-tab-select > span')
+    expect(lastRule('.terminal-tab-edit input')).toContain('height: 25px')
+    expect(lastRule('.terminal-tab-edit input')).toContain('font: 500 calc(11px * var(--ui-font-scale))/1 var(--ui-font-family)')
+  })
+
+  it('keeps native code and terminal canvases on the same restrained dark surface', () => {
+    expect(terminalSource).toContain("background: '#151715'")
+    expect(css).toContain('.monaco-editor-host {\n  border: 0;\n  background: #151715;')
+    expect(css).toContain('.ide-terminal {\n  border: 0;\n  background: #151715;')
+  })
+})
+
+describe('operational surface visual hierarchy', () => {
+  it('flattens library, execution errors and evidence into quiet IDE lists', () => {
+    expect(lastRule('.file-library-card')).toContain('border-radius: 4px')
+    expect(lastRule('.file-library-card')).toContain('box-shadow: none')
+    expect(lastRule('.execution-errors-summary > span')).toContain('border-radius: 0')
+    expect(lastRule('.execution-errors-list > button')).toContain('border-radius: 0')
+    expect(lastRule('.evidence-metric')).toContain('border-radius: 0')
+    expect(lastRule('.evolution-event-list article')).toContain('border-radius: 0')
+  })
+})
+
+describe('execution queue visual hierarchy', () => {
+  it('keeps FIFO entries flat with a semantic state rail', () => {
+    const list = lastRule('.execution-queue-list')
+    const card = lastRule('.execution-queue-card')
+
+    expect(list).toContain('gap: 0')
+    expect(card).toContain('background: transparent')
+    expect(card).toContain('border-radius: 0')
+    expect(card).toContain('box-shadow: inset 2px 0 var(--queue-tone)')
+  })
+})
+
+describe('side tool windows and Git visual consolidation', () => {
+  it('keeps side drawers on one chrome system and Git free of nested horizontal scroll', () => {
+    expect(css).toContain('/* v1.2.51 — unified side tool windows, Git surface and Explorer glyphs.')
+    expect(lastRule('.workspace-side-drawer .agent-drawer-heading')).toContain('height: 40px')
+    expect(lastRule('.workspace-side-drawer .agent-drawer-heading')).toContain('background: var(--theme-surface)')
+    expect(lastRule('.file-glyph-mark')).toContain('border: 1px solid color-mix')
+    expect(lastRule('.file-glyph-mark')).toContain('font: 750 calc(6.2px * var(--ui-font-scale))')
+    expect(lastRule('.git-tabs')).toContain('overflow: hidden')
+    expect(lastRule('.git-tab-content')).toContain('overflow-x: hidden')
+    expect(lastRule('.git-section')).toContain('border: 1px solid var(--theme-border-soft)')
+    expect(lastRule('.git-section')).toContain('background: var(--theme-surface)')
+  })
+})
+
+
+
+describe('premium optical refinement', () => {
+  it('separates icon optics from hit areas across rails, Explorer and tool windows', () => {
+    expect(css).toContain('/* v1.2.53 — premium optical refinement')
+    expect(css).toContain('--icon-sm: 16px')
+    expect(lastRule('.workspace-main-row > .agent-activity-bar')).toContain('width: 46px')
+    expect(lastRule('.workspace-main-row > .agent-activity-bar button')).toContain('width: 40px')
+    expect(lastRule('.workspace-main-row > .agent-activity-bar button')).toContain('height: 38px')
+    expect(lastRule('.workspace-main-row > .agent-activity-bar button > svg')).toContain('width: 20px')
+    expect(lastRule('.workspace-main-row > .workspace-side-rail .workspace-rail-pinned button > svg')).toContain('width: 20px')
+    expect(lastRule(".workspace-main-row > .workspace-side-rail button[data-pinned='true']:not(.active)::after")).toContain('display: none')
+    expect(lastRule('.workspace-main-row > .workspace-side-rail .workspace-rail-pin-target')).toContain('opacity: 0')
+    expect(lastRule('.agent-tree-chevron > svg')).toContain('width: var(--icon-xs)')
+    expect(lastRule('.workbench-status-bar')).toContain('font: 600 var(--ui-meta-size)/1 var(--ui-font-family)')
+  })
+
+  it('keeps Terminal frequent actions visible while rare actions use one compact overflow', () => {
+    expect(lastRule('.terminal-tab-action')).toContain('width: var(--toolbar-hit)')
+    expect(lastRule('.terminal-overflow-menu')).toContain('min-width: 176px')
+    expect(lastRule('.terminal-overflow-menu button')).toContain('height: 30px')
+    expect(lastRule('.terminal-tabs')).toContain('overflow-x: auto')
+    expect(lastRule('.terminal-tabs')).toContain('scrollbar-width: none')
+  })
+
+  it('uses the same optical hierarchy for Docker, Library and Database Studio', () => {
+    expect(lastRule('.docker-services-header')).toContain('min-height: 48px')
+    expect(lastRule('.artifact-explorer-heading')).toContain('min-height: 46px')
+    expect(lastRule('.artifact-explorer-heading strong')).toContain('font-size: var(--module-title-size)')
+    expect(lastRule('.database-studio-header')).toContain('background: var(--theme-surface)')
+    expect(lastRule('.database-workspace-tabs button')).toContain('font-size: var(--ui-text-size)')
+  })
+})
+
+
+describe('flat Git branch overlays', () => {
+  it('does not restore rounded outlined frames around Git branch menus', () => {
+    const gitMenu = lastRule('.project-git-menu')
+    const branchMenu = lastRule('.project-git-branch-menu')
+    const branchOption = lastRule('.project-git-branch-option')
+    const branchMeta = lastRule('.project-git-branch-option-meta b')
+
+    expect(gitMenu).toContain('border: 0')
+    expect(gitMenu).toContain('border-radius: 0')
+    expect(branchMenu).toContain('border: 0')
+    expect(branchMenu).toContain('border-radius: 0')
+    expect(branchOption).toContain('border-radius: 0')
+    expect(branchMeta).toContain('border: 0')
+    expect(branchMeta).toContain('border-radius: 0')
+  })
+})
+
+describe('terminal canvas and Agent chat strip refinement', () => {
+  it('keeps the terminal inset on the active terminal theme instead of a dark frame', () => {
+    expect(terminalSource).toContain('style={{ background: activeTerminalTheme().background }}')
+    expect(terminalSource).toContain('const theme = activeTerminalTheme()')
+    expect(terminalSource).toContain('terminalRootRef.current.style.background = theme.background')
+  })
+
+  it('lets the active chat resource tab occupy the full switcher height', () => {
+    expect(lastRule('.agent-chat-switcher .chat-tabs')).toContain('height: 100%')
+    expect(lastRule('.agent-chat-switcher .chat-tabs')).toContain('border-bottom: 0')
+    expect(lastRule('.agent-chat-switcher .chat-tab-group')).toContain('height: 100%')
+    expect(lastRule('.agent-chat-switcher .chat-tab-group')).toContain('min-height: 100%')
+    expect(lastRule('.agent-chat-switcher .chat-tab,\n.agent-chat-switcher .chat-tab-remove')).toContain('height: 100%')
   })
 })

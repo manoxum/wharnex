@@ -13,6 +13,7 @@ import { boundedAgentChatWidth } from '../lib/agentLayout'
 const AGENT_CHAT_WIDTH_KEY = 'whx.agent.chat-width'
 const AGENT_CHAT_WIDTH_PREFIX = `${AGENT_CHAT_WIDTH_KEY}:`
 const AGENT_CHAT_WIDTH_MIGRATION_KEY = 'whx.agent.chat-width.scoped-v1'
+type AgentPaneFocus = 'chat' | 'inspector'
 
 function agentChatWidthStorageKey() { return `${AGENT_CHAT_WIDTH_PREFIX}${desktopWindowScope()}` }
 
@@ -59,6 +60,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
 }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>(inspectorProps.config?.planner === 'manual' ? 'chatgpt' : 'plan')
   const [singlePaneSurface, setSinglePaneSurface] = useState<'chat' | 'inspector'>('chat')
+  const [focusedPane, setFocusedPane] = useState<AgentPaneFocus>('chat')
   const workspaceRef = useRef<HTMLElement>(null)
   const [railTarget, setRailTarget] = useState<HTMLElement | null>(null)
   const chatTabsRef = useRef<HTMLDivElement>(null)
@@ -96,7 +98,11 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
     window.addEventListener('resize', reconcile)
     return () => window.removeEventListener('resize', reconcile)
   }, [chatWidth])
-  useEffect(() => { if (singlePane) setSinglePaneSurface('chat') }, [singlePane])
+  useEffect(() => {
+    if (!singlePane) return
+    setSinglePaneSurface('chat')
+    setFocusedPane('chat')
+  }, [singlePane])
   useEffect(() => {
     const openDrawer = () => onOpenAttentionDrawer()
     window.addEventListener('wharnex:open-attention-drawer', openDrawer)
@@ -154,15 +160,18 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   useEffect(() => {
     if (!chatgptAttentionNonce) return
     setInspectorTab('chatgpt')
+    setFocusedPane('inspector')
     if (singlePane) setSinglePaneSurface('inspector')
   }, [chatgptAttentionNonce, singlePane])
   useEffect(() => {
     if (!inspectorAttention?.nonce) return
     setInspectorTab(inspectorAttention.tab)
+    setFocusedPane('inspector')
     if (singlePane) setSinglePaneSurface('inspector')
   }, [inspectorAttention, singlePane])
   function openInspector(tab: InspectorTab) {
     setInspectorTab(tab)
+    setFocusedPane('inspector')
     if (singlePane) setSinglePaneSurface('inspector')
   }
 
@@ -234,7 +243,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
   }
 
   const surfaceTabs = <nav className="agent-chat-surface-tabs" aria-label="Áreas do Agent">
-    {singlePane && <button className={singlePaneSurface === 'chat' ? 'active' : ''} onClick={() => setSinglePaneSurface('chat')} title="Chat" aria-label="Chat"><Icon name="send" size={15}/></button>}
+    {singlePane && <button className={singlePaneSurface === 'chat' ? 'active' : ''} onClick={() => { setSinglePaneSurface('chat'); setFocusedPane('chat') }} title="Chat" aria-label="Chat"><Icon name="send" size={15}/></button>}
     <button className={inspectorTab === 'files' ? 'active' : ''} onClick={() => openInspector('files')} title="Ficheiros" aria-label="Ficheiros"><Icon name="folder" size={15}/></button>
     <button className={surfaceTabClass('plan')} onClick={() => openInspector('plan')} title={surfaceTabTitle('plan', 'Plano')} aria-label={surfaceTabTitle('plan', 'Plano')}><Icon name="plan" size={15}/>{surfaceAttention('plan').length > 0 && <span className="surface-attention-count">{surfaceAttention('plan').length}</span>}</button>
     <button className={surfaceTabClass('terminal')} onClick={() => openInspector('terminal')} title={surfaceTabTitle('terminal', 'Execução')} aria-label={surfaceTabTitle('terminal', 'Execução')}><Icon name="terminal" size={15}/>{surfaceAttention('terminal').length > 0 && <span className="surface-attention-count">{surfaceAttention('terminal').length}</span>}</button>
@@ -254,7 +263,13 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
 
   // The Agent shortcuts reuse the shell's existing right tool rail in the real
   // workbench. Standalone consumers keep the inline rail as a safe fallback.
-  return <section ref={workspaceRef} className={`agent-workspace${singlePane ? ' single-pane' : ''} ${railVisible ? 'agent-rail-unified' : ''}`.trim()} style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}>
+  return <section
+    ref={workspaceRef}
+    className={`agent-workspace${singlePane ? ' single-pane' : ''} ${railVisible ? 'agent-rail-unified' : ''}`.trim()}
+    data-focused-pane={focusedPane}
+    data-inspector-tab={inspectorTab}
+    style={chatWidth ? { '--agent-chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}
+  >
     {railVisible ? (railTarget ? createPortal(commandbar, railTarget) : null) : commandbar}
     <nav className="agent-chat-switcher" aria-label="Conversas do Harness">
       {!surfaceMode && <button className="chat-new-button" onClick={() => void chatProps.onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>}
@@ -294,10 +309,18 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
       {onSplitChat && <><button type="button" role="menuitem" onClick={() => { const chatId = chatTabMenu.chatId; setChatTabMenu(undefined); onSplitChat(chatId, 'vertical') }}><Icon name="arrow-right" size={12}/>Dividir à direita</button><button type="button" role="menuitem" onClick={() => { const chatId = chatTabMenu.chatId; setChatTabMenu(undefined); onSplitChat(chatId, 'horizontal') }}><Icon name="arrow-down" size={12}/>Dividir abaixo</button></>}
     </div>}
 
-    <div className={`agent-chat-stage${singlePane && singlePaneSurface !== 'chat' ? ' surface-hidden' : ''}`}><ChatPanel ref={chatPanelRef} key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
+    <div
+      className={`agent-chat-stage${singlePane && singlePaneSurface !== 'chat' ? ' surface-hidden' : ''}`}
+      onPointerDownCapture={() => setFocusedPane('chat')}
+      onFocusCapture={() => setFocusedPane('chat')}
+    ><ChatPanel ref={chatPanelRef} key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
     {!singlePane && (
       <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
     )}
-    <div className={`agent-inspector-stage${singlePane && singlePaneSurface === 'chat' ? ' surface-hidden' : ''}`}><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} onAdjustExecutionPlan={() => { if (session.plan) chatPanelRef.current?.prepareExecutionPlanAdjustment(session.plan) }} /></div>
+    <div
+      className={`agent-inspector-stage${singlePane && singlePaneSurface === 'chat' ? ' surface-hidden' : ''}`}
+      onPointerDownCapture={() => setFocusedPane('inspector')}
+      onFocusCapture={() => setFocusedPane('inspector')}
+    ><Inspector {...inspectorProps} embedded activeTab={inspectorTab} onTabChange={openInspector} onAdjustExecutionPlan={() => { if (session.plan) chatPanelRef.current?.prepareExecutionPlanAdjustment(session.plan) }} /></div>
   </section>
 }

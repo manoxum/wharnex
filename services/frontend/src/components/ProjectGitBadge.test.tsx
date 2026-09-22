@@ -195,6 +195,16 @@ describe('ProjectGitBadge', () => {
     expect(badge.className).toContain('has-outgoing')
   })
 
+  it('presents branch identity and upstream state as a compact Git summary', async () => {
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    await openBadge()
+
+    expect(screen.getByText('Git do projeto')).toBeTruthy()
+    expect(screen.getByText('Ligada ao remoto')).toBeTruthy()
+    expect(screen.getByText('origin/main')).toBeTruthy()
+    expect(screen.getByLabelText('1 para enviar e 0 para receber')).toBeTruthy()
+  })
+
   it('uses a rich branch picker with local/remote sync details and copy actions', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
