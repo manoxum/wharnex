@@ -1,0 +1,166 @@
+/* Compact durable Plan/Execution history. Component-scoped until Twind bootstrap lands. */
+.main-request-history {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+.main-request-block {
+  overflow: hidden;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 12px;
+  background: var(--theme-surface);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--theme-shadow) 13%, transparent);
+}
+.main-request-block > .main-request-summary {
+  min-height: 58px;
+  padding: 9px 10px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 9px;
+  background: var(--theme-elevated);
+}
+.main-request-block[open] > .main-request-summary {
+  border-bottom: 1px solid var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-accent-soft) 12%, var(--theme-elevated));
+}
+.main-request-block > summary::marker,
+.main-request-plan-row > summary::marker,
+.execution-subtask > summary::marker { content: ''; }
+.main-request-block > summary::-webkit-details-marker,
+.main-request-plan-row > summary::-webkit-details-marker,
+.execution-subtask > summary::-webkit-details-marker { display: none; }
+.main-request-summary-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-accent-soft) 72%, var(--theme-elevated));
+}
+.main-request-summary-copy strong { font-size: calc(9.6px * var(--ui-font-scale)); }
+.main-request-summary-copy small,
+.main-request-plan-copy small,
+.execution-subtask-copy small { font-size: calc(7px * var(--ui-font-scale)); }
+.main-request-summary-meta,
+.main-request-plan-meta,
+.execution-subtask-meta { gap: 5px; }
+.main-request-block > .main-request-summary .main-request-summary-meta code,
+.main-request-plan-row > .main-request-plan-summary .main-request-plan-meta code,
+.execution-subtask-meta code {
+  max-width: 175px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: calc(6.5px * var(--ui-font-scale));
+}
+.history-count,
+.history-status {
+  min-height: 20px;
+  padding: 0 6px;
+  font-size: calc(6.5px * var(--ui-font-scale));
+}
+.history-action,
+.history-chevron {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--theme-text-muted);
+}
+.history-action { padding: 0; cursor: pointer; }
+.history-action:hover,
+.history-chevron:hover {
+  border-color: var(--theme-border-soft);
+  background: var(--theme-hover);
+  color: var(--theme-text);
+}
+.history-action:focus-visible,
+.main-request-summary:focus-visible,
+.main-request-plan-summary:focus-visible,
+.execution-subtask-summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--theme-accent) 70%, transparent);
+  outline-offset: 2px;
+}
+.history-chevron { transition: transform .16s ease, background .16s ease, border-color .16s ease; }
+.main-request-block[open] > .main-request-summary .history-chevron,
+.main-request-plan-row[open] > .main-request-plan-summary .history-chevron,
+.execution-subtask[open] > .execution-subtask-summary .history-chevron { transform: rotate(90deg); }
+.main-request-plan-list { padding: 7px; gap: 6px; }
+.main-request-plan-row,
+.execution-subtask {
+  border-radius: 9px;
+  box-shadow: none;
+}
+.main-request-plan-row > .main-request-plan-summary,
+.execution-subtask > .execution-subtask-summary {
+  min-height: 50px;
+  padding: 7px 8px;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.plan-history-sequence,
+.execution-subtask-index {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: calc(6.5px * var(--ui-font-scale));
+}
+.main-request-plan-copy strong,
+.execution-subtask-copy strong { font-size: calc(8.6px * var(--ui-font-scale)); }
+.main-request-plan-detail,
+.main-request-execution-detail { padding: 8px; }
+.execution-main-request.tone-failed > .main-request-summary { box-shadow: inset 3px 0 var(--theme-danger, #d66b62); }
+.execution-main-request.tone-active > .main-request-summary { box-shadow: inset 3px 0 var(--theme-accent); }
+.execution-main-request.tone-success > .main-request-summary,
+.execution-main-request.tone-recovered > .main-request-summary { box-shadow: inset 3px 0 color-mix(in srgb, var(--success) 78%, var(--theme-border)); }
+.execution-subtask-list { gap: 6px; }
+.execution-subtask-events .execution-event { min-height: 40px; padding: 6px 8px; }
+.execution-subtask-events .execution-command-output { margin: 0 8px 8px 25px; }
+.execution-expand {
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--theme-text-muted);
+  transition: transform .16s ease, background .16s ease, border-color .16s ease;
+}
+.execution-expand:hover { border-color: var(--theme-border-soft); background: var(--theme-hover); color: var(--theme-text); }
+.execution-expand.open { transform: rotate(90deg); }
+.history-current-plan .plan-control-surface {
+  margin: 0 0 9px;
+  padding: 6px;
+  gap: 6px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.history-current-plan .plan-control-primary {
+  min-height: 52px;
+  padding: 8px 9px;
+  gap: 10px;
+  border-radius: 8px;
+}
+.history-current-plan .plan-control-copy { flex-basis: 320px; align-items: center; gap: 8px; }
+.history-current-plan .plan-control-mark { width: 28px; height: 28px; flex-basis: 28px; border-radius: 8px; }
+.history-current-plan .plan-control-copy .panel-kicker,
+.history-current-plan .plan-control-copy > div > span:last-child { display: none; }
+.history-current-plan .plan-control-copy strong { font-size: calc(9.5px * var(--ui-font-scale)); }
+.history-current-plan .plan-decision-actions { padding: 3px; border-radius: 8px; }
+.history-current-plan .plan-decision-actions .secondary-button,
+.history-current-plan .plan-decision-actions .apply-button,
+.history-current-plan .plan-decision-actions .danger-button { min-height: 28px; }
+@container request-history (max-width: 660px) {
+  .main-request-summary-meta code,
+  .main-request-plan-meta code,
+  .execution-subtask-meta code { display: none; }
+  .history-current-plan .plan-control-primary { align-items: stretch; flex-direction: column; }
+}
+@container request-history (max-width: 460px) {
+  .history-count,
+  .history-status { display: none; }
+  .main-request-block > .main-request-summary,
+  .main-request-plan-row > .main-request-plan-summary,
+  .execution-subtask > .execution-subtask-summary { padding: 7px; gap: 6px; }
+}
