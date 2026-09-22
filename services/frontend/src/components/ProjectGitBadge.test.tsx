@@ -25,6 +25,7 @@ vi.mock('../lib/api', async () => {
 function overview(): GitOverview {
   return {
     project_path: '/w/alpha', project_version: 'v1.2.64.0', available: true, commit_mode: 'auto', detached: false, has_identity: true,
+    repository: '', repositories: [],
     current_branch: 'main',
     branches: [
       { name: 'main', current: true, commit_sha: 'a1', subject: 'feat: current', upstream: 'origin/main', ahead: 1, behind: 0, has_upstream: true, gone: false, counterpart: 'origin/main', has_counterpart: true },
@@ -34,6 +35,10 @@ function overview(): GitOverview {
     remotes: [{ name: 'origin', url: 'https://github.com/org/repo.git' }],
     tags: [], commits: [], pending: [], working: { clean: true, stageable_count: 0, files: [] },
   }
+}
+
+function overviewWith(patch: Partial<GitOverview>): GitOverview {
+  return { ...overview(), ...patch }
 }
 
 function deferred<T>() {
@@ -66,12 +71,56 @@ describe('ProjectGitBadge', () => {
         await Promise.resolve()
         await Promise.resolve()
       })
-      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin')
+      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', '')
       expect(vi.mocked(api.gitOverview).mock.calls.length).toBeGreaterThanOrEqual(3)
     } finally {
       view.unmount()
       vi.useRealTimers()
     }
+  })
+
+  it('switches the branch popup to an initialized submodule repository', async () => {
+    const repositories = [
+      { path: '', label: 'superproject', depth: 0, root: true, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'a1' },
+      { path: 'packages/api', label: 'packages/api', depth: 1, root: false, initialized: true, available: true, current_branch: 'develop', detached: false, commit_sha: 'b1' },
+    ]
+    vi.mocked(api.gitOverview).mockImplementation(async (_id, repository = '') => {
+      if (repository === 'packages/api') {
+        return overviewWith({ repository, repositories, current_branch: 'develop', branches: [
+          { name: 'develop', current: true, commit_sha: 'b1', subject: 'feat: api', upstream: 'origin/develop', ahead: 0, behind: 0, has_upstream: true, gone: false, counterpart: 'origin/develop', has_counterpart: true },
+          { name: 'origin/develop', remote: 'origin', current: false, commit_sha: 'b1', subject: 'feat: api', ahead: 0, behind: 0, has_upstream: false, gone: false, counterpart: 'develop', has_counterpart: true },
+        ] })
+      }
+      return overviewWith({ repository, repositories })
+    })
+
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    await openBadge()
+    const selector = screen.getByLabelText('Repositório')
+    fireEvent.change(selector, { target: { value: 'packages/api' } })
+    await waitFor(() => expect(api.gitOverview).toHaveBeenCalledWith('ses_1', 'packages/api'))
+    await waitFor(() => expect(document.querySelector('.project-git-menu-header strong')?.textContent).toBe('develop'))
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch' }))
+    await waitFor(() => expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', 'packages/api'))
+  })
+
+  it('can run branch-popup operations across the superproject and submodules', async () => {
+    const repositories = [
+      { path: '', label: 'superproject', depth: 0, root: true, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'a1' },
+      { path: 'packages/api', label: 'packages/api', depth: 1, root: false, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'b1' },
+    ]
+    vi.mocked(api.gitOverview).mockResolvedValue(overviewWith({ repositories }))
+    vi.mocked(api.gitFetch).mockResolvedValue({ outcome: 'fetched', remote: 'origin' })
+
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    await openBadge()
+    fireEvent.click(screen.getByRole('button', { name: 'Todos' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch' }))
+
+    await waitFor(() => {
+      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', '')
+      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', 'packages/api')
+    })
   })
 
   it('dismisses the branch popup on outside interaction even when bubbling is stopped', async () => {
@@ -184,7 +233,7 @@ describe('ProjectGitBadge', () => {
     expect(fetchDialog.className).toContain('running')
     expect(fetchDialog.querySelector('.git-operation-message')?.textContent).toBe('A executar operação Git…')
     expect(document.body.querySelector('.project-git-operation-layer')).toBeTruthy()
-    expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin')
+    expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', '')
     fetch.resolve({ outcome: 'fetched', remote: 'origin' })
     await waitFor(() => expect(fetchDialog.className).toContain('success'))
     expect(fetchDialog.querySelector('.git-operation-message')?.textContent).toBe('Fetch de origin concluído.')
@@ -193,7 +242,7 @@ describe('ProjectGitBadge', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Pull' }))
     const pullDialog = await screen.findByRole('dialog', { name: 'A integrar alterações da origem' })
     expect(pullDialog.className).toContain('running')
-    expect(api.gitPull).toHaveBeenCalledWith('ses_1', 'origin', 'main')
+    expect(api.gitPull).toHaveBeenCalledWith('ses_1', 'origin', 'main', '')
     pull.resolve({ outcome: 'merged', remote: 'origin', branch: 'main', ref: 'origin/main' })
     await waitFor(() => expect(pullDialog.className).toContain('success'))
     expect(pullDialog.querySelector('.git-operation-message')?.textContent).toBe('Pull: merged.')
@@ -202,7 +251,7 @@ describe('ProjectGitBadge', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Push' }))
     const pushDialog = await screen.findByRole('dialog', { name: 'A publicar alterações' })
     expect(pushDialog.className).toContain('running')
-    expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'main', false)
+    expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'main', false, '')
     push.resolve({ outcome: 'pushed', remote: 'origin', branch: 'main' })
     await waitFor(() => expect(pushDialog.className).toContain('success'))
     expect(pushDialog.querySelector('.git-operation-message')?.textContent).toBe('Push: pushed.')

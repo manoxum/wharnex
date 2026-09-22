@@ -53,6 +53,7 @@ const session = { id: 'ses_1', project_path: '/w/alpha', state: 'ready' } as Ses
 function overview(patch: Partial<GitOverview> = {}): GitOverview {
   return {
     project_path: '/w/alpha', available: true, commit_mode: 'manual', detached: false, has_identity: true,
+    repository: '', repositories: [],
     current_branch: 'main',
     project_version: 'v1.2.97.3',
     branches: [
@@ -166,10 +167,10 @@ describe('GitDrawer', () => {
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Nome da nova branch' }), { target: { value: 'feature/new' } })
     fireEvent.click(screen.getByRole('button', { name: 'Criar branch' }))
-    await waitFor(() => expect(api.gitCreateBranch).toHaveBeenCalledWith('ses_1', 'feature/new', 'main'))
+    await waitFor(() => expect(api.gitCreateBranch).toHaveBeenCalledWith('ses_1', 'feature/new', 'main', ''))
 
     fireEvent.click(screen.getByRole('button', { name: 'Remover branch feature' }))
-    await waitFor(() => expect(api.gitDeleteBranch).toHaveBeenCalledWith('ses_1', 'feature'))
+    await waitFor(() => expect(api.gitDeleteBranch).toHaveBeenCalledWith('ses_1', 'feature', ''))
   })
 
   it('lists tags and publishes a VERSION-based release from a remote branch modal', async () => {
@@ -218,7 +219,7 @@ describe('GitDrawer', () => {
     expect(within(dialog).getAllByText('v1.2.97.3').length).toBeGreaterThan(0)
     fireEvent.click(within(dialog).getByRole('button', { name: 'Gerar com GPT' }))
     fireEvent.click(within(dialog).getByRole('button', { name: 'Gerar notas da branch' }))
-    await waitFor(() => expect(api.gitGenerateReleaseNotes).toHaveBeenCalledWith('ses_1', 'origin/main'))
+    await waitFor(() => expect(api.gitGenerateReleaseNotes).toHaveBeenCalledWith('ses_1', 'origin/main', ''))
     expect((await screen.findByRole('textbox', { name: 'Notas de release geradas pelo GPT' }) as HTMLTextAreaElement).value).toContain('Novidades')
   })
 
@@ -229,7 +230,7 @@ describe('GitDrawer', () => {
     expect(screen.getByText('app.go')).toBeTruthy()
     const diffButton = screen.getByRole('button', { name: 'Abrir diff de app.go' })
     fireEvent.click(diffButton)
-    await waitFor(() => expect(api.gitFileDiff).toHaveBeenCalledWith('ses_1', 'app.go'))
+    await waitFor(() => expect(api.gitFileDiff).toHaveBeenCalledWith('ses_1', 'app.go', ''))
     expect(await screen.findByRole('dialog', { name: 'Diff de app.go' })).toBeTruthy()
     expect(screen.getByTestId('change-diff-editor').textContent).toContain('app.go')
   })
@@ -243,7 +244,7 @@ describe('GitDrawer', () => {
     fireEvent.change(screen.getByPlaceholderText('ex.: fix(ui): ajustar painel Git'), { target: { value: 'fix(ui): ajustar painel Git' } })
     fireEvent.click(screen.getByRole('button', { name: /Commitar \(1\)/ }))
 
-    await waitFor(() => expect(api.commitGitWorktree).toHaveBeenCalledWith('ses_1', 'fix(ui): ajustar painel Git', ['app.go']))
+    await waitFor(() => expect(api.commitGitWorktree).toHaveBeenCalledWith('ses_1', 'fix(ui): ajustar painel Git', ['app.go'], ''))
   })
 
   it('shows unpublished commits with details and publishes only the selected oldest prefix', async () => {
@@ -261,10 +262,10 @@ describe('GitDrawer', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar feat: oldest unpublished' }))
     fireEvent.click(screen.getByRole('button', { name: /Push selecionado \(1\)/ }))
-    await waitFor(() => expect(api.gitPushSelected).toHaveBeenCalledWith('ses_1', [oldest.sha]))
+    await waitFor(() => expect(api.gitPushSelected).toHaveBeenCalledWith('ses_1', [oldest.sha], ''))
 
     fireEvent.click(screen.getByRole('button', { name: 'Abrir diff do commit 2222222' }))
-    await waitFor(() => expect(api.gitUnpushedCommit).toHaveBeenCalledWith('ses_1', newest.sha))
+    await waitFor(() => expect(api.gitUnpushedCommit).toHaveBeenCalledWith('ses_1', newest.sha, ''))
     expect(await screen.findByRole('dialog', { name: 'Commit 2222222' })).toBeTruthy()
     expect(screen.getByText(/Request/)).toBeTruthy()
     expect(screen.getByTestId('change-diff-editor').textContent).toContain('new.ts')
@@ -296,7 +297,7 @@ describe('GitDrawer', () => {
     expect((screen.getByRole('checkbox', { name: 'Selecionar fix: local unpublished commit' }) as HTMLInputElement).disabled).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: /Push completo/ }))
-    await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'fix/no-upstream', true))
+    await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'fix/no-upstream', true, ''))
   })
 
   it('loads selected and all-branch commit timelines', async () => {
@@ -309,11 +310,11 @@ describe('GitDrawer', () => {
     const featureOption = screen.getByRole('option', { name: 'feature' }) as HTMLOptionElement
     featureOption.selected = true
     fireEvent.change(branchSelect)
-    await waitFor(() => expect(api.gitHistoryPage).toHaveBeenCalledWith('ses_1', ['feature'], false, 0, 50))
+    await waitFor(() => expect(api.gitHistoryPage).toHaveBeenCalledWith('ses_1', ['feature'], false, 0, 50, ''))
     expect(await screen.findByText('feat: feature timeline')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Todas' }))
-    await waitFor(() => expect(api.gitHistoryPage).toHaveBeenCalledWith('ses_1', [], true, 0, 50))
+    await waitFor(() => expect(api.gitHistoryPage).toHaveBeenCalledWith('ses_1', [], true, 0, 50, ''))
   })
 
   it('shows contributor ranking and weekly Git activity like repository insights', async () => {
@@ -322,7 +323,7 @@ describe('GitDrawer', () => {
     openTab('Contribuidores')
 
     expect(await screen.findByText('Ranking')).toBeTruthy()
-    await waitFor(() => expect(api.gitContributors).toHaveBeenCalledWith('ses_1'))
+    await waitFor(() => expect(api.gitContributors).toHaveBeenCalledWith('ses_1', ''))
     expect(screen.getByText('Ana Costa')).toBeTruthy()
     expect(screen.getByText('Bruno Lima')).toBeTruthy()
     expect(screen.getByRole('img', { name: 'Commits por semana em 2 semanas' })).toBeTruthy()
@@ -377,7 +378,7 @@ describe('GitDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Fetch/ }))
     const fetchDialog = await screen.findByRole('dialog', { name: 'A procurar alterações na origem' })
     await waitFor(() => expect(fetchDialog.textContent).toContain('Fetch de origin concluído'))
-    expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin')
+    expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', '')
   })
 
   it('renders remote Git failures as high-contrast operational errors', async () => {
@@ -399,7 +400,7 @@ describe('GitDrawer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Fetch/ }))
     await waitFor(() => expect((screen.getByRole('button', { name: /Pull/ }) as HTMLButtonElement).disabled).toBe(false))
-    expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin')
+    expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', '')
 
     fireEvent.click(screen.getByRole('button', { name: /Pull/ }))
     const featureRow = screen.getByText('feature', { selector: '.git-branch-name' }).closest('li')
@@ -408,10 +409,10 @@ describe('GitDrawer', () => {
     expect(featureSwitch.textContent).toBe('')
     expect(within(featureRow).getByRole('button', { name: 'Remover branch feature' }).textContent).toBe('')
     await waitFor(() => expect((featureSwitch as HTMLButtonElement).disabled).toBe(false))
-    expect(api.gitPull).toHaveBeenCalledWith('ses_1', 'origin', 'main')
+    expect(api.gitPull).toHaveBeenCalledWith('ses_1', 'origin', 'main', '')
 
     fireEvent.click(featureSwitch)
-    await waitFor(() => expect(api.gitSwitch).toHaveBeenCalledWith('ses_1', 'feature'))
+    await waitFor(() => expect(api.gitSwitch).toHaveBeenCalledWith('ses_1', 'feature', ''))
   })
 
   it('copies branch names and remote URLs from version control', async () => {
@@ -468,7 +469,7 @@ describe('GitDrawer', () => {
     await screen.findByText('Alterações locais')
     openTab('Branches')
     fireEvent.click(screen.getByRole('button', { name: /Push/ }))
-    await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'main', false))
+    await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'main', false, ''))
     expect((await screen.findByRole('status')).textContent).toContain('Push concluído')
   })
 
@@ -489,7 +490,7 @@ describe('GitDrawer', () => {
     await waitFor(() => expect(Array.from((select as HTMLSelectElement).options).some((option) => option.value === 'feature')).toBe(true))
     fireEvent.change(select, { target: { value: 'feature' } })
     fireEvent.click(screen.getByRole('button', { name: 'Merge' }))
-    await waitFor(() => expect(api.gitMerge).toHaveBeenCalledWith('ses_1', 'feature'))
+    await waitFor(() => expect(api.gitMerge).toHaveBeenCalledWith('ses_1', 'feature', ''))
   })
 
 
@@ -504,7 +505,7 @@ describe('GitDrawer', () => {
     const switchButton = remoteRow?.querySelector<HTMLButtonElement>('.git-branch-switch')
     if (!switchButton) throw new Error('remote switch missing')
     fireEvent.click(switchButton)
-    await waitFor(() => expect(api.gitSwitch).toHaveBeenCalledWith('ses_1', 'origin/feature'))
+    await waitFor(() => expect(api.gitSwitch).toHaveBeenCalledWith('ses_1', 'origin/feature', ''))
   })
 
   it('merges selected remote branches into a remote target without changing the local checkout', async () => {
@@ -514,7 +515,31 @@ describe('GitDrawer', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Branch remota de destino' }), { target: { value: 'origin/main' } })
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Integrar origin/feature' }))
     fireEvent.click(screen.getByRole('button', { name: /Merge remoto \(1\)/ }))
-    await waitFor(() => expect(api.gitRemoteMerge).toHaveBeenCalledWith('ses_1', 'origin/main', ['origin/feature']))
+    await waitFor(() => expect(api.gitRemoteMerge).toHaveBeenCalledWith('ses_1', 'origin/main', ['origin/feature'], ''))
+  })
+
+  it('can target the superproject and submodules individually or together', async () => {
+    const repositories = [
+      { path: '', label: 'superproject', depth: 0, root: true, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'a1' },
+      { path: 'services/core', label: 'services/core', depth: 1, root: false, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'b1' },
+    ]
+    vi.mocked(api.gitOverview).mockImplementation(async (_id, repository = '') => overview({ repository, repositories }))
+
+    render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
+    const selector = await screen.findByLabelText('Repositório ativo')
+    expect((selector as HTMLSelectElement).value).toBe('')
+    fireEvent.change(selector, { target: { value: 'services/core' } })
+    await waitFor(() => expect(api.gitOverview).toHaveBeenCalledWith('ses_1', 'services/core'))
+
+    fireEvent.change(selector, { target: { value: '' } })
+    await waitFor(() => expect(api.gitOverview).toHaveBeenCalledWith('ses_1', ''))
+    fireEvent.click(screen.getByRole('button', { name: 'Todos' }))
+    openTab('Branches')
+    fireEvent.click(await screen.findByRole('button', { name: 'Fetch de origin' }))
+    await waitFor(() => {
+      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', '')
+      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', 'services/core')
+    })
   })
 
   it('warns when the repository has no Git identity for manual commits', async () => {

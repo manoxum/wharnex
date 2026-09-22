@@ -10,6 +10,8 @@ import { GitOperationModal, type GitOperation } from './GitOperationModal'
 export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }: { session?: Session; sessionID?: string; busy: boolean; onSession?: (session: Session) => void; onSync?: () => void }) {
   const id = session?.id || sessionID || ''
   const [overview, setOverview] = useState<GitOverview>()
+  const [repository, setRepository] = useState('')
+  const [targetRepositories, setTargetRepositories] = useState<Set<string>>(new Set(['']))
   const [open, setOpen] = useState(false)
   const [branchPickerOpen, setBranchPickerOpen] = useState(false)
   const [working, setWorking] = useState(false)
@@ -22,27 +24,27 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
 
   const refresh = useCallback(async () => {
     if (!id) throw new Error('Sessão Git ainda não disponível.')
-    const next = await api.gitOverview(id)
+    const next = await api.gitOverview(id, repository)
     setOverview(next)
     setBranch(next.current_branch || '')
     return next
-  }, [id])
+  }, [id, repository])
 
   useEffect(() => {
     let alive = true
     if (!id) { setOverview(undefined); setBranch(''); return }
-    void api.gitOverview(id).then((next) => {
+    void api.gitOverview(id, repository).then((next) => {
       if (!alive) return
       setOverview(next)
       setBranch(next.current_branch || '')
     }).catch(() => {})
     return () => { alive = false }
-  }, [id, session?.state, session?.last_host_applied_at])
+  }, [id, repository, session?.state, session?.last_host_applied_at])
 
   useEffect(() => {
     if (!id) return
-    return subscribeGitLiveSync(id, () => { void refresh().catch(() => {}) })
-  }, [id, refresh])
+    return subscribeGitLiveSync(id, repository, () => { void refresh().catch(() => {}) })
+  }, [id, repository, refresh])
 
   useEffect(() => {
     if (!id) return
@@ -52,14 +54,14 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
       autoFetchRunning.current = true
       void (async () => {
         try {
-          const snapshot = await api.gitOverview(id)
+          const snapshot = await api.gitOverview(id, repository)
           if (!snapshot.available || snapshot.remotes.length === 0) return
-          for (const remote of snapshot.remotes) await api.gitFetch(id, remote.name)
-          const updated = await api.gitOverview(id)
+          for (const remote of snapshot.remotes) await api.gitFetch(id, remote.name, repository)
+          const updated = await api.gitOverview(id, repository)
           if (alive) {
             setOverview(updated)
             setBranch(updated.current_branch || '')
-            announceGitChanged(id)
+            announceGitChanged(id, repository)
           }
         } catch {
           // Periodic remote refresh is best-effort; explicit actions report failures.
@@ -72,7 +74,7 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
       alive = false
       window.clearInterval(timer)
     }
-  }, [id, busy, working])
+  }, [id, repository, busy, working])
 
   useEffect(() => subscribeOtherHeaderPopover('git', () => setOpen(false)), [])
 
@@ -170,6 +172,24 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
     } finally { setWorking(false) }
   }
 
+  const availableRepositories = (overview?.repositories || []).filter((item) => item.available)
+  const operationRepositories = availableRepositories.filter((item) => targetRepositories.has(item.path)).map((item) => item.path)
+  if (!operationRepositories.length && repository) operationRepositories.push(repository)
+  if (!operationRepositories.length) operationRepositories.push('')
+
+  async function runForRepositories(action: (target: string) => Promise<string>) {
+    const successes: string[] = []
+    const failures: string[] = []
+    for (const target of operationRepositories) {
+      const label = overview?.repositories.find((item) => item.path === target)?.label || 'superprojeto'
+      try { successes.push(`${label}: ${await action(target)}`) }
+      catch (error) { failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`) }
+    }
+    if (failures.length) throw new Error(`${successes.length ? `${successes.length} repositório(s) concluído(s). ` : ''}Falhou em ${failures.join(' | ')}`)
+    if (successes.length === 1) return successes[0].replace(/^[^:]+: /, '')
+    return `Operação concluída em ${successes.length} repositórios.`
+  }
+
   const disabled = busy || working || !id || !overview?.available
   return <div ref={rootRef} className="project-git-badge-wrap">
     <button type="button" className={`project-git-badge ${workingCount ? 'has-working' : ''} ${pendingCommitCount ? 'has-pending-commit' : ''} ${outgoingCount ? 'has-outgoing' : ''} ${open ? 'active' : ''}`.trim()} onClick={() => { if (!open) announceHeaderPopover('git'); setOpen((value) => !value) }} aria-expanded={open} aria-label={`Git: ${currentBranch}, projeto ${overview?.project_version || 'sem versão'}`}>
@@ -185,6 +205,18 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
         <span className="project-git-menu-version">{overview?.project_version || '—'}</span>
       </header>
 
+      {(overview?.repositories.length || 0) > 1 && <label className="project-git-repository-picker">
+        <span>Repositório</span>
+        <select value={repository} disabled={busy || working} onChange={(event) => { const next = event.target.value; setRepository(next); setTargetRepositories(new Set([next])); setBranchPickerOpen(false); setNotice('') }}>
+          {overview?.repositories.map((item) => <option key={item.path || '__root__'} value={item.path} disabled={!item.available}>{item.root ? 'Superprojeto' : item.label}{item.available ? '' : ' · indisponível'}</option>)}
+        </select>
+      </label>}
+
+      {(overview?.repositories.length || 0) > 1 && <div className="project-git-repository-targets" role="group" aria-label="Executar operações Git em">
+        <div className="project-git-repository-target-actions"><span>Executar em</span><button type="button" disabled={busy || working} onClick={() => setTargetRepositories(new Set([repository]))}>Só ativo</button><button type="button" disabled={busy || working} onClick={() => setTargetRepositories(new Set(availableRepositories.map((item) => item.path)))}>Todos</button></div>
+        <div className="project-git-repository-target-list">{overview?.repositories.map((item) => <label key={item.path || '__root__'} className={!item.available ? 'disabled' : ''}><input type="checkbox" disabled={busy || working || !item.available} checked={targetRepositories.has(item.path)} onChange={() => setTargetRepositories((current) => { const next = new Set(current); if (next.has(item.path)) next.delete(item.path); else next.add(item.path); return next })}/><span>{item.root ? 'Superprojeto' : item.label}</span></label>)}</div>
+      </div>}
+
       <div ref={pickerRef} className="project-git-picker">
         <span className="project-git-picker-label">Alternar branch</span>
         <button type="button" className="project-git-picker-trigger" disabled={disabled} aria-haspopup="menu" aria-expanded={branchPickerOpen} onClick={() => setBranchPickerOpen((value) => !value)}>
@@ -198,22 +230,22 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
       </div>
 
       <div className="project-git-actions">
-        <button type="button" disabled={disabled || !branch || branch === overview?.current_branch} onClick={() => void run(async () => { await api.gitSwitch(id, branch); return `Branch alterada para ${branch}.` }, true)}><Icon name="bridge" size={12}/> Alternar</button>
+        <button type="button" disabled={disabled || !branch || (operationRepositories.length === 1 && branch === overview?.current_branch)} onClick={() => void run(async () => { return runForRepositories(async (target) => { await api.gitSwitch(id, branch, target); return `Branch alterada para ${branch}.` }) }, true)}><Icon name="bridge" size={12}/> Alternar</button>
         <button type="button" disabled={disabled || !remote} onClick={() => void runGitOperation(
           'A procurar alterações na origem',
           `A atualizar as referências remotas a partir de ${remote}.`,
-          async () => { await api.gitFetch(id, remote); return `Fetch de ${remote} concluído.` },
+          async () => runForRepositories(async (target) => { await api.gitFetch(id, remote, target); return `Fetch de ${remote} concluído.` }),
         )}><Icon name="refresh" size={12}/> Fetch</button>
         <button type="button" disabled={disabled || !remote || !overview?.current_branch} onClick={() => void runGitOperation(
           'A integrar alterações da origem',
           `A trazer ${remote}/${overview?.current_branch || ''} para a branch local.`,
-          async () => { const result = await api.gitPull(id, remote, overview?.current_branch || ''); return result.conflict_id ? 'Pull encontrou conflito. Escolha resolução manual ou GPT no chat.' : `Pull: ${result.outcome}.` },
+          async () => runForRepositories(async (target) => { const result = await api.gitPull(id, remote, overview?.current_branch || '', target); return result.detail || (result.conflict_id ? 'Pull encontrou conflito. Escolha resolução manual ou GPT no chat.' : `Pull: ${result.outcome}.`) }),
           true,
         )}><Icon name="arrow-down" size={12}/> Pull</button>
         <button type="button" disabled={disabled || !remote || !overview?.current_branch} onClick={() => void runGitOperation(
           'A publicar alterações',
           `A enviar ${overview?.current_branch || ''} para ${remote}${!current?.has_upstream ? ' e a configurar o upstream' : ''}.`,
-          async () => { const result = await api.gitPush(id, remote, overview?.current_branch || '', !current?.has_upstream); return result.conflict_id ? 'Push encontrou conflito. Escolha resolução manual ou GPT no chat.' : `Push: ${result.outcome}.` },
+          async () => runForRepositories(async (target) => { const result = await api.gitPush(id, remote, overview?.current_branch || '', !current?.has_upstream, target); return result.detail || (result.conflict_id ? 'Push encontrou conflito. Escolha resolução manual ou GPT no chat.' : `Push: ${result.outcome}.`) }),
           true,
         )}><Icon name="arrow-up" size={12}/> Push</button>
       </div>

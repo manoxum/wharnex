@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"kernl.local/harness/backend/internal/app"
 	"kernl.local/harness/backend/internal/gitsettings"
 )
 
@@ -48,7 +49,7 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 }
 
 func (a *API) gitOverview(w http.ResponseWriter, r *http.Request) {
-	overview, err := a.service.GitOverview(r.Context(), r.PathValue("id"))
+	overview, err := a.service.GitOverview(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
 		return
@@ -57,7 +58,7 @@ func (a *API) gitOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) gitHead(w http.ResponseWriter, r *http.Request) {
-	head, err := a.service.GitHead(r.Context(), r.PathValue("id"))
+	head, err := a.service.GitHead(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
 		return
@@ -76,7 +77,7 @@ func (a *API) gitRequestContext(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) gitHistory(w http.ResponseWriter, r *http.Request) {
 	all := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("all")), "true")
-	commits, err := a.service.GitHistory(r.Context(), r.PathValue("id"), r.URL.Query()["ref"], all)
+	commits, err := a.service.GitHistory(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"), r.URL.Query()["ref"], all)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_history_failed", err.Error())
 		return
@@ -85,7 +86,7 @@ func (a *API) gitHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) gitContributors(w http.ResponseWriter, r *http.Request) {
-	overview, err := a.service.GitContributors(r.Context(), r.PathValue("id"))
+	overview, err := a.service.GitContributors(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_contributors_failed", err.Error())
 		return
@@ -97,7 +98,7 @@ func (a *API) gitHistoryPage(w http.ResponseWriter, r *http.Request) {
 	all := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("all")), "true")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	page, err := a.service.GitHistoryPage(r.Context(), r.PathValue("id"), r.URL.Query()["ref"], all, limit, offset)
+	page, err := a.service.GitHistoryPage(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"), r.URL.Query()["ref"], all, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_history_failed", err.Error())
 		return
@@ -106,7 +107,7 @@ func (a *API) gitHistoryPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) gitHistoryCommit(w http.ResponseWriter, r *http.Request) {
-	detail, err := a.service.GitHistoryCommit(r.Context(), r.PathValue("id"), r.PathValue("sha"))
+	detail, err := a.service.GitHistoryCommit(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"), r.PathValue("sha"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "git_history_commit_not_found", err.Error())
 		return
@@ -115,7 +116,7 @@ func (a *API) gitHistoryCommit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) gitMergeCandidates(w http.ResponseWriter, r *http.Request) {
-	branches, err := a.service.GitMergeCandidates(r.Context(), r.PathValue("id"), r.URL.Query().Get("target"))
+	branches, err := a.service.GitMergeCandidates(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"), r.URL.Query().Get("target"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_merge_candidates_failed", err.Error())
 		return
@@ -124,7 +125,7 @@ func (a *API) gitMergeCandidates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) gitUnpushed(w http.ResponseWriter, r *http.Request) {
-	overview, err := a.service.GitUnpushed(r.Context(), r.PathValue("id"))
+	overview, err := a.service.GitUnpushed(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_unpushed_failed", err.Error())
 		return
@@ -133,7 +134,7 @@ func (a *API) gitUnpushed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) gitUnpushedCommit(w http.ResponseWriter, r *http.Request) {
-	detail, err := a.service.GitUnpushedCommit(r.Context(), r.PathValue("id"), r.PathValue("sha"))
+	detail, err := a.service.GitUnpushedCommit(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"), r.PathValue("sha"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "git_unpushed_commit_not_found", err.Error())
 		return
@@ -142,7 +143,7 @@ func (a *API) gitUnpushedCommit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) gitFileDiff(w http.ResponseWriter, r *http.Request) {
-	diff, err := a.service.GitFileDiff(r.Context(), r.PathValue("id"), r.URL.Query().Get("path"))
+	diff, err := a.service.GitFileDiff(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"), r.URL.Query().Get("path"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_diff_failed", err.Error())
 		return
@@ -231,13 +232,22 @@ func (a *API) commitGitPending(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) commitGitWorktree(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Message string   `json:"message"`
-		Paths   []string `json:"paths"`
+		Message    string   `json:"message"`
+		Paths      []string `json:"paths"`
+		Repository string   `json:"repository"`
+		All        bool     `json:"all"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := a.service.CommitWorkingFiles(r.Context(), r.PathValue("id"), body.Message, body.Paths)
+	ctx := app.WithGitRepository(r.Context(), body.Repository)
+	var result app.GitWorktreeCommitResult
+	var err error
+	if body.All {
+		result, err = a.service.CommitAllWorkingFiles(ctx, r.PathValue("id"), body.Message)
+	} else {
+		result, err = a.service.CommitWorkingFiles(ctx, r.PathValue("id"), body.Message, body.Paths)
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_worktree_commit_failed", err.Error())
 		return
@@ -266,6 +276,7 @@ func (a *API) gitPush(w http.ResponseWriter, r *http.Request) {
 		Branch       string `json:"branch"`
 		SetUpstream  bool   `json:"set_upstream"`
 		Confirmation string `json:"confirmation"`
+		Repository   string `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -278,7 +289,7 @@ func (a *API) gitPush(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "git_push_unconfirmed", "pushing to a remote requires an explicit confirmation")
 		return
 	}
-	result, err := a.service.PushBranch(r.Context(), r.PathValue("id"), body.Remote, body.Branch, body.SetUpstream)
+	result, err := a.service.PushBranch(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.Remote, body.Branch, body.SetUpstream)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_push_failed", err.Error())
 		return
@@ -290,6 +301,7 @@ func (a *API) gitPushSelected(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		CommitSHAs   []string `json:"commit_shas"`
 		Confirmation string   `json:"confirmation"`
+		Repository   string   `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -298,7 +310,7 @@ func (a *API) gitPushSelected(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "git_push_unconfirmed", "pushing to a remote requires an explicit confirmation")
 		return
 	}
-	result, err := a.service.PushSelectedCommits(r.Context(), r.PathValue("id"), body.CommitSHAs)
+	result, err := a.service.PushSelectedCommits(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.CommitSHAs)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_push_selected_failed", err.Error())
 		return
@@ -308,12 +320,13 @@ func (a *API) gitPushSelected(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) gitFetch(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Remote string `json:"remote"`
+		Remote     string `json:"remote"`
+		Repository string `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := a.service.FetchRemote(r.Context(), r.PathValue("id"), body.Remote)
+	result, err := a.service.FetchRemote(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.Remote)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_fetch_failed", err.Error())
 		return
@@ -323,13 +336,14 @@ func (a *API) gitFetch(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) gitPull(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Remote string `json:"remote"`
-		Branch string `json:"branch"`
+		Remote     string `json:"remote"`
+		Branch     string `json:"branch"`
+		Repository string `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := a.service.PullBranch(r.Context(), r.PathValue("id"), body.Remote, body.Branch)
+	result, err := a.service.PullBranch(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.Remote, body.Branch)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_pull_failed", err.Error())
 		return
@@ -339,12 +353,13 @@ func (a *API) gitPull(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) gitSwitch(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Branch string `json:"branch"`
+		Branch     string `json:"branch"`
+		Repository string `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := a.service.SwitchBranch(r.Context(), r.PathValue("id"), body.Branch)
+	result, err := a.service.SwitchBranch(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.Branch)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_switch_failed", err.Error())
 		return
@@ -356,11 +371,12 @@ func (a *API) gitCreateBranch(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Branch     string `json:"branch"`
 		StartPoint string `json:"start_point"`
+		Repository string `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := a.service.CreateBranch(r.Context(), r.PathValue("id"), body.Branch, body.StartPoint)
+	result, err := a.service.CreateBranch(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.Branch, body.StartPoint)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_branch_create_failed", err.Error())
 		return
@@ -372,6 +388,7 @@ func (a *API) gitDeleteBranch(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Branch       string `json:"branch"`
 		Confirmation string `json:"confirmation"`
+		Repository   string `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -380,7 +397,7 @@ func (a *API) gitDeleteBranch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "git_branch_delete_unconfirmed", "branch deletion requires an explicit confirmation")
 		return
 	}
-	result, err := a.service.DeleteBranch(r.Context(), r.PathValue("id"), body.Branch)
+	result, err := a.service.DeleteBranch(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.Branch)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_branch_delete_failed", err.Error())
 		return
@@ -390,12 +407,13 @@ func (a *API) gitDeleteBranch(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) gitReleaseNotes(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Branch string `json:"branch"`
+		Branch     string `json:"branch"`
+		Repository string `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := a.service.GenerateGitReleaseNotes(r.Context(), r.PathValue("id"), body.Branch)
+	result, err := a.service.GenerateGitReleaseNotes(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.Branch)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_release_notes_failed", err.Error())
 		return
@@ -410,6 +428,7 @@ func (a *API) gitCreateRelease(w http.ResponseWriter, r *http.Request) {
 		Title        string `json:"title"`
 		Body         string `json:"body"`
 		Confirmation string `json:"confirmation"`
+		Repository   string `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -418,7 +437,7 @@ func (a *API) gitCreateRelease(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "git_release_unconfirmed", "publishing a tag and GitHub release requires an explicit confirmation")
 		return
 	}
-	result, err := a.service.CreateGitRelease(r.Context(), r.PathValue("id"), body.Branch, body.TagSuffix, body.Title, body.Body)
+	result, err := a.service.CreateGitRelease(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.Branch, body.TagSuffix, body.Title, body.Body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_release_failed", err.Error())
 		return
@@ -428,12 +447,13 @@ func (a *API) gitCreateRelease(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) gitMerge(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Ref string `json:"ref"`
+		Ref        string `json:"ref"`
+		Repository string `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := a.service.MergeBranchIntoCurrent(r.Context(), r.PathValue("id"), body.Ref)
+	result, err := a.service.MergeBranchIntoCurrent(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.Ref)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_merge_failed", err.Error())
 		return
@@ -446,6 +466,7 @@ func (a *API) gitRemoteMerge(w http.ResponseWriter, r *http.Request) {
 		TargetRef    string   `json:"target_ref"`
 		SourceRefs   []string `json:"source_refs"`
 		Confirmation string   `json:"confirmation"`
+		Repository   string   `json:"repository"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
@@ -454,7 +475,7 @@ func (a *API) gitRemoteMerge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "git_remote_merge_unconfirmed", "remote branch merge requires an explicit confirmation")
 		return
 	}
-	result, err := a.service.MergeRemoteBranches(r.Context(), r.PathValue("id"), body.TargetRef, body.SourceRefs)
+	result, err := a.service.MergeRemoteBranches(app.WithGitRepository(r.Context(), body.Repository), r.PathValue("id"), body.TargetRef, body.SourceRefs)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "git_remote_merge_failed", err.Error())
 		return
