@@ -47,6 +47,20 @@ Canonical operator build command: `make build`. It must:
   temporary workspaces, context directories and unreachable project dependency
   caches; persisted sessions, request history, current context bases, artifacts
   and live sandboxes MUST remain untouched.
+- then reclaim, on the host, what the backend cannot see: settled self-evolution
+  transaction directories beyond the retention window, oversized lifecycle logs,
+  and Docker layers/build cache unused for that same window. Valid fingerprinted
+  dependency and compiled-artifact caches MUST survive — reclamation is
+  obsolescence-proven, never a cache wipe — and the immediately previous image
+  generation MUST survive so the rollout keeps its image-level rollback path.
+  This stage is housekeeping: it reports what it could not reclaim and MUST NOT
+  fail the build.
+
+`make install-dev` and the `make start` path that rebuilds a stale checkout reach
+the same reclamation because they run `make build`. `WHARNESS_RECLAIM_KEEP_HOURS`
+sets the retention window, `WHARNESS_RECLAIM_DOCKER=0` disables the Docker stage,
+and `WHARNESS_RECLAIM_VOLUMES=1` opts into reclaiming orphaned anonymous volumes;
+named volumes are unreachable from that sweep by construction.
 
 `make build-stage` performs application artifact/image staging but MUST NOT replace running services or rebuild the Protected runner, and it is the only build target used by transactional self-evolution. The operator-facing `make build` MUST invoke the runner build with the configured `RUNNER_IMAGE`; `make build-runner` remains available as a direct recovery target.
 
