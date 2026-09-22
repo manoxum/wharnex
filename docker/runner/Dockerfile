@@ -12,6 +12,14 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # helpers a developer routinely needs. Network clients (curl, wget, ssh, nc)
 # deliberately remain absent: the runner has no network by default and those
 # executables are denied by Policy regardless.
+#
+# pnpm/yarn are installed as real pinned binaries rather than Corepack shims,
+# because a shim resolves its payload over the network and the runner has none.
+# The base image already ships its own yarn under /opt, whose symlinks would
+# make the pinned install fail with EEXIST, so they are dropped first: the
+# version that ends up on PATH is always YARN_VERSION and never whatever the
+# base image happened to bundle. Both are then probed, since kernl-toolchain
+# only publishes a tool whose version command actually succeeds.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        bash bash-completion dash zsh git make ca-certificates \
@@ -23,7 +31,9 @@ RUN apt-get update \
        vim-tiny nano less fzf tmux procps psmisc lsof util-linux \
        unzip zip xz-utils file tree \
     && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v* \
     && npm install --global "pnpm@${PNPM_VERSION}" "yarn@${YARN_VERSION}" \
+    && pnpm --version && yarn --version \
     && useradd --create-home --uid 10001 --shell /bin/bash runner
 COPY docker/runner/entrypoint.sh /usr/local/bin/kernl-entrypoint
 COPY docker/runner/toolchain.sh /usr/local/bin/kernl-toolchain
