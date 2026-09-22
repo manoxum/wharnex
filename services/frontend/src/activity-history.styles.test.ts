@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(resolve(process.cwd(), 'src/activity-history.css'), 'utf8')
+const planSurface = readFileSync(resolve(process.cwd(), 'src/components/PlanHistorySurface.tsx'), 'utf8')
+const executionSurface = readFileSync(resolve(process.cwd(), 'src/components/ExecutionHistorySurface.tsx'), 'utf8')
 function rule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return css.match(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm'))?.[1] || ''
@@ -18,12 +20,31 @@ describe('durable activity history styling', () => {
     expect(css).not.toContain('linear-gradient')
   })
 
-  it('gives export and disclosure controls separate compact affordances', () => {
+  it('groups metadata separately from export and disclosure icons', () => {
     const controls = rule('.history-action,\n.history-chevron')
+    const meta = rule('.main-request-summary-meta,\n.main-request-plan-meta,\n.execution-subtask-meta')
+    const actions = rule('.history-summary-actions')
     expect(controls).toContain('width: 26px')
-    expect(controls).toContain('border-radius: 7px')
+    expect(meta).toContain('display: flex')
+    expect(meta).toContain('flex-wrap: nowrap')
+    expect(actions).toContain('display: inline-flex')
+    expect(actions).toContain('border: 1px solid var(--theme-border-soft)')
+    expect(actions).toContain('border-radius: 9px')
+    expect(css).toContain('.history-summary-actions .history-action,')
     expect(css).toContain('transform: rotate(90deg)')
     expect(css).toContain('.execution-expand.open { transform: rotate(90deg); }')
+  })
+
+  it('uses the same context and action grouping in plans and executions', () => {
+    expect(planSurface.match(/history-summary-actions/g)?.length).toBe(2)
+    expect(executionSurface.match(/history-summary-actions/g)?.length).toBe(2)
+    expect(planSurface.match(/history-summary-context/g)?.length).toBe(2)
+    expect(executionSurface.match(/history-summary-context/g)?.length).toBe(2)
+  })
+
+  it('keeps the action cluster intact while compacting narrow inspectors', () => {
+    expect(css).toContain('.history-summary-context { display: none; }')
+    expect(css).toContain('@container request-history (max-width: 460px)')
   })
 
   it('turns the nested current-plan contract into a compact control strip', () => {

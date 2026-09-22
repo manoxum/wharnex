@@ -38,7 +38,7 @@ function PlanHistoryBlock({ group, session, currentPlan, renderHistoricalPlan, d
     <summary className="main-request-summary">
       <span className="main-request-summary-mark"><Icon name="plan" size={14}/></span>
       <span className="main-request-summary-copy"><span className="panel-kicker">Main Request · plano</span><strong>{lead?.summary || 'Histórico de planos'}</strong><small>{formatActivityDate(group.updatedAt)} · {group.plans.length} {group.plans.length === 1 ? 'subplano' : 'subplanos'}</small></span>
-      <span className="main-request-summary-meta"><code title={group.rootRequestId}>{shortRequestId(group.rootRequestId)}</code><span className="history-count">{group.plans.length}</span><HistoryExportButton label="Exportar plano" onExport={exportGroup}/><span className="history-chevron"><Icon name="chevron-right" size={14}/></span></span>
+      <span className="main-request-summary-meta"><span className="history-summary-context"><code title={group.rootRequestId}>{shortRequestId(group.rootRequestId)}</code><span className="history-count">{group.plans.length}</span></span><span className="history-summary-actions"><HistoryExportButton label="Exportar plano" onExport={exportGroup}/><span className="history-chevron"><Icon name="chevron-right" size={14}/></span></span></span>
     </summary>
     {open && <div className="main-request-plan-list">{group.plans.map((item, planIndex) => {
       const current = item.plan.plan_id === session.plan?.plan_id
@@ -56,7 +56,7 @@ function PlanHistoryLine({ item, sequence, rootRequestId, defaultOpen, children 
     <summary className="main-request-plan-summary">
       <span className="plan-history-sequence">{String(sequence).padStart(2, '0')}</span>
       <span className="main-request-plan-copy"><span className="panel-kicker">{label} · {item.label}</span><strong>{item.plan.summary || 'Plano de execução'}</strong><small>{formatActivityDate(item.timestamp)} · {item.plan.protocol} · risco {riskLabel(item.plan.risk).toLocaleLowerCase()}</small></span>
-      <span className="main-request-plan-meta"><code title={item.plan.plan_id}>{shortPlanId(item.plan.plan_id)}</code><HistoryExportButton label={`Exportar ${label.toLocaleLowerCase()}`} onExport={exportItem}/><span className="history-chevron"><Icon name="chevron-right" size={13}/></span></span>
+      <span className="main-request-plan-meta"><span className="history-summary-context"><code title={item.plan.plan_id}>{shortPlanId(item.plan.plan_id)}</code></span><span className="history-summary-actions"><HistoryExportButton label={`Exportar ${label.toLocaleLowerCase()}`} onExport={exportItem}/><span className="history-chevron"><Icon name="chevron-right" size={13}/></span></span></span>
     </summary>
     {open && <div className="main-request-plan-detail">{children}</div>}
   </details>
