@@ -25,6 +25,7 @@ func (e *Engine) Evaluate(plan domain.ExecutionPlan) domain.PolicyDecision {
 	if plan.RequiresApproval {
 		decision.RequiresApproval = true
 		decision.Reasons = append(decision.Reasons, "planner requested explicit approval")
+		decision.ApprovalItems = append(decision.ApprovalItems, domain.ExecutionApproval{Kind: "planner", Effect: "The planner marked this plan as requiring an explicit operator decision.", HostImpact: "Review the complete plan before allowing execution.", BypassInFull: true})
 	}
 	if plan.Debug != nil && plan.Debug.Protocol == domain.InteractiveProtocolV2 {
 		return e.evaluateInteractiveV2(plan, decision)
@@ -37,6 +38,7 @@ func (e *Engine) Evaluate(plan domain.ExecutionPlan) domain.PolicyDecision {
 			decision.RequiresApproval = true
 			decision.Risk = maxRisk(decision.Risk, "high")
 			decision.Reasons = append(decision.Reasons, fmt.Sprintf("host tool %q requires explicit installation/configuration approval", tool.Name))
+			decision.ApprovalItems = append(decision.ApprovalItems, domain.ExecutionApproval{Kind: "host_tool", Effect: fmt.Sprintf("%s host tool %s", tool.Action, tool.Name), HostImpact: "May persistently change software or configuration on the host."})
 		}
 	}
 	for _, op := range plan.Operations {
@@ -120,22 +122,23 @@ func (e *Engine) evaluateInteractiveV2(plan domain.ExecutionPlan, decision domai
 
 func classifyCommand(command domain.CommandSpec, decision *domain.PolicyDecision) {
 	if command.Network {
-		decision.RequiresApproval = true
-		decision.Risk = maxRisk(decision.Risk, "high")
-		decision.Reasons = append(decision.Reasons, "command requests network access")
+		requireCommandApproval(command, decision, "network", "command requests network access", "Allows this command to contact external services.", true, false)
 	}
 	name := strings.ToLower(filepath.Base(command.Argv[0]))
 	if inlineCodeFlag(name, command.Argv[1:]) {
+		requireCommandApproval(command, decision, "inline_code", fmt.Sprintf("inline code execution through %q requires explicit approval", name), "Executes model-authored inline code rather than a checked project file.", true, false)
+	}
+	if hardDenied[name] {
 		decision.Allowed = false
 		decision.Risk = "high"
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("inline code execution through %q is denied in model plans", name))
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("executable %q is denied because Wharnex has no safe credential/identity boundary for it", name))
 		return
 	}
-	if denied[name] {
-		decision.Allowed = false
-		decision.Risk = "high"
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("executable %q is denied", name))
-		return
+	if name == "sudo" {
+		requireCommandApproval(command, decision, "sudo", "sudo requires explicit approval and an ephemeral password", "Runs the exact approved command with elevated host privileges; changes can affect files, packages or services outside the project.", false, true)
+	}
+	if approvalGated[name] {
+		requireCommandApproval(command, decision, "command", fmt.Sprintf("executable %q requires explicit approval", name), commandEffect(name), true, false)
 	}
 	if name == "git" {
 		classifyGit(command, decision)
@@ -146,43 +149,22 @@ func classifyCommand(command domain.CommandSpec, decision *domain.PolicyDecision
 	if name == "go" && len(command.Argv) >= 2 {
 		sub := strings.ToLower(command.Argv[1])
 		if sub == "generate" || sub == "install" || sub == "env" {
-			decision.Allowed = false
-			decision.Risk = "high"
-			decision.Reasons = append(decision.Reasons, "unsafe go subcommand denied")
-			return
+			requireCommandApproval(command, decision, "go_mutation", "go "+sub+" requires explicit approval", "May execute generators, install binaries, or alter Go environment state.", true, false)
 		}
 	}
 	if name == "npm" && len(command.Argv) >= 2 {
 		sub := strings.ToLower(command.Argv[1])
 		if sub == "install" || sub == "i" || sub == "publish" {
-			decision.RequiresApproval = true
-			decision.Risk = maxRisk(decision.Risk, "high")
-			decision.Reasons = append(decision.Reasons, "package/network mutation requires approval")
+			requireCommandApproval(command, decision, "package_mutation", "package/network mutation requires approval", "May change project dependencies, package metadata, caches, or publish artifacts.", true, false)
 		}
 	}
 	if elevated[name] {
 		// Project-defined build/test/runtime commands execute only in the selected
-		// target. In Protected Auto they remain isolated from the host, so merely
-		// running project code must raise visibility/risk without silently turning
-		// every normal verification command into a per-plan approval gate. Explicit
-		// planner approval, network access, package mutation and Git mutation keep
-		// their dedicated approval rules above.
+		// target. Running project code raises visibility/risk but does not require
+		// a separate approval unless another rule above says so.
 		decision.Risk = maxRisk(decision.Risk, "medium")
 		decision.Reasons = append(decision.Reasons, fmt.Sprintf("%s executes project-defined behavior", name))
 	}
-}
-
-var denied = map[string]bool{
-	"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true,
-	"sudo": true, "su": true, "docker": true, "podman": true, "systemctl": true,
-	"mount": true, "umount": true, "iptables": true, "nft": true,
-	"curl": true, "wget": true, "nc": true, "netcat": true, "socat": true,
-	"ssh": true, "scp": true, "rsync": true, "dd": true, "mkfs": true, "fdisk": true,
-	"rm": true, "chmod": true, "chown": true, "kill": true, "pkill": true,
-	"python": true, "python3": true, "perl": true, "ruby": true, "php": true,
-	"pip": true, "pip3": true, "composer": true,
-	"sqlite3": true, "psql": true, "redis-cli": true,
-	"fzf": true, "tmux": true,
 }
 
 var elevated = map[string]bool{"make": true, "cmake": true, "ninja": true, "npm": true, "node": true, "npx": true}
@@ -223,6 +205,7 @@ func classifyGit(command domain.CommandSpec, decision *domain.PolicyDecision) {
 	decision.RequiresApproval = true
 	decision.Risk = maxRisk(decision.Risk, "medium")
 	decision.Reasons = append(decision.Reasons, "git mutation requires explicit user approval")
+	decision.ApprovalItems = append(decision.ApprovalItems, domain.ExecutionApproval{Kind: "git_mutation", Argv: append([]string(nil), command.Argv...), Rationale: command.Rationale, Effect: "Mutates repository state.", HostImpact: commandHostImpact(command), BypassInFull: true})
 	if sub == "fetch" || sub == "pull" || sub == "push" {
 		if !command.Network {
 			decision.Allowed = false
@@ -342,11 +325,6 @@ func sortedSetKeys(values map[string]bool) []string {
 	sort.Strings(keys)
 	return keys
 }
-
-// DeniedExecutables is the closed set of executables a model plan may never
-// invoke. Published to the planner through the environment manifest so a plan
-// is written against the real policy rather than discovering it via rejection.
-func DeniedExecutables() []string { return sortedSetKeys(denied) }
 
 // ElevatedExecutables run project-defined behavior: allowed, but they raise
 // the plan's risk to at least medium.

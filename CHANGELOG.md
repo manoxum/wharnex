@@ -6,7 +6,8 @@
 
 ### Chat d2a78190-5e16-4fa9-80d8-819ef846003e (2026-09-22)
 
-_(reserved — no entries yet)_
+- Evolui a Policy para transformar comandos de alto impacto em aprovações informadas, com argv/motivo/efeitos/impacto visíveis, em vez de forçar uma ronda de reparação do GPT.
+- Adiciona o modo manual `Full` para execução direta no host, mantendo `sudo` fora da aprovação automática e protegido por confirmação explícita e senha efémera não persistida.
 
 
 ### Chat ce7abbc3-364c-487b-ae37-936e0641abd0 (2026-09-22)

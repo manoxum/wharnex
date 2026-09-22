@@ -44,4 +44,19 @@ describe('InterruptedExecutionRecovery', () => {
     expect((screen.getByRole('button', { name: 'Descartar' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: /A acompanhar/ }) as HTMLButtonElement).disabled).toBe(true)
   })
+  it('requires the ephemeral sudo password again before resuming a sudo execution', () => {
+    const item = target()
+    item.session.execution_mode = 'full'
+    item.session.policy = { allowed: true, requires_approval: true, risk: 'high', reasons: [], approval_items: [{ kind: 'sudo', argv: ['sudo', 'systemctl', 'restart', 'demo.service'], effect: 'restart service', host_impact: 'host service', requires_sudo_password: true }] }
+    const onDecision = vi.fn()
+    render(<InterruptedExecutionRecovery items={[item]} busyChats={{}} onDecision={onDecision} onOpenChat={vi.fn()} onOpenLogs={vi.fn()} onOpenChatGPT={vi.fn()}/>)
+    const resume = screen.getByRole('button', { name: /Continuar/ }) as HTMLButtonElement
+    expect(resume.disabled).toBe(true)
+    fireEvent.change(screen.getByPlaceholderText('Introduza novamente'), { target: { value: 'temporary-secret' } })
+    expect(resume.disabled).toBe(false)
+    fireEvent.click(resume)
+    expect(onDecision).toHaveBeenCalledWith(item, 'continue', 'temporary-secret')
+    expect((screen.getByPlaceholderText('Introduza novamente') as HTMLInputElement).value).toBe('')
+  })
+
 })

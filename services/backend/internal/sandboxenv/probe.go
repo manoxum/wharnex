@@ -109,14 +109,17 @@ func (p *Prober) describeSandbox() Sandbox {
 
 func describePolicy() PolicySummary {
 	return PolicySummary{
-		DeniedExecutables:   policy.DeniedExecutables(),
-		ElevatedExecutables: policy.ElevatedExecutables(),
-		GitReadOnly:         policy.GitReadOnlySubcommands(),
-		GitMutable:          policy.GitMutableSubcommands(),
-		DeniedGitFlags:      policy.DeniedGitFlags(),
+		DeniedExecutables:           policy.DeniedExecutables(),
+		ApprovalRequiredExecutables: policy.ApprovalRequiredExecutables(),
+		ElevatedExecutables:         policy.ElevatedExecutables(),
+		GitReadOnly:                 policy.GitReadOnlySubcommands(),
+		GitMutable:                  policy.GitMutableSubcommands(),
+		DeniedGitFlags:              policy.DeniedGitFlags(),
 		Rules: []string{
-			"commands are argv arrays; there is no shell, so pipes, redirects, globbing, command substitution and chaining are unavailable — express them as separate operations or as a tool's own flags",
+			"commands are argv arrays; invoking sh/bash as an executable is allowed only through the approval-required command boundary; never smuggle shell syntax into an unrelated argv field",
 			"a denied executable rejects the whole plan before anything executes",
+			"an approval-required executable pauses for informed consent instead of triggering a GPT repair round; Full mode waives command-policy approvals except sudo",
+			"sudo is always explicit, host-direct, and requires an ephemeral password that is never persisted or published",
 			"an elevated executable is allowed but raises plan risk to at least medium",
 			"a git subcommand outside the read-only list requires explicit user approval; one outside both lists is denied; dual-mode read-only entries remain argument-checked (symbolic-ref is query-only)",
 			"remote git (fetch/pull/push) additionally requires network=true and is high risk",

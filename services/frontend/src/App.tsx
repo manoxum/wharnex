@@ -2295,13 +2295,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
   }
 
-  async function execute(approved: boolean) {
+  async function execute(approved: boolean, sudoPassword = '') {
     if (!session) return
     const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
-    const direct = targetSession.execution_mode === 'unprotected'
-    if (direct && !(await confirmDialog({
+    const direct = targetSession.execution_mode !== 'protected'
+    if (targetSession.execution_mode === 'unprotected' && !(await confirmDialog({
       title: 'Executar em Unprotected?',
       message: 'Este plano será executado diretamente no projeto real. As alterações e comandos não passarão pela sandbox e não terão a etapa Apply.',
       tone: 'danger',
@@ -2318,7 +2318,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     let terminalStatus: 'completed' | 'failed' = 'failed'
     setChatBusy(targetChat.id, true); setError(undefined)
     try {
-      const response = await api.execute(targetSession.id, approved || direct)
+      const response = await api.execute(targetSession.id, targetSession.execution_mode === 'unprotected' ? true : approved, sudoPassword)
       acceptSessionForChat(targetChat, response.session)
       const ok = response.session.last_execution?.success
       const autoApplied = !direct && ok && (response.session.state === 'applied' || response.session.state === 'restart_pending')
@@ -2331,7 +2331,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       }
       appendChatItem(targetChat, response.session.project_path, {
         id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
-        text: ok ? (direct ? 'Plano executado diretamente no host em modo Unprotected. Não há etapa Apply.' : autoApplied ? 'A aprovação foi consumida uma única vez: o plano passou pela sandbox Protected e foi aplicado automaticamente ao host.' : (warnings.length ? 'Execução concluída na sandbox. As falhas de verificação já existentes na baseline permaneceram inalteradas; o plano não introduziu novas regressões nesses gates.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.')) : 'A execução terminou com falha.',
+        text: ok ? (direct ? `Plano executado diretamente no host em modo ${response.session.execution_mode === 'full' ? 'Full' : 'Unprotected'}. Não há etapa Apply.` : autoApplied ? 'A aprovação foi consumida uma única vez: o plano passou pela sandbox Protected e foi aplicado automaticamente ao host.' : (warnings.length ? 'Execução concluída na sandbox. As falhas de verificação já existentes na baseline permaneceram inalteradas; o plano não introduziu novas regressões nesses gates.' : 'Execução e verificações concluídas na sandbox. O host ainda não foi alterado.')) : 'A execução terminou com falha.',
         meta: (direct || autoApplied) && ok ? 'Host atualizado' : (warnings.length ? `${warnings.length} dívida(s) pré-existente(s)` : undefined),
       })
       if (!ok) reportChatError(errorArtifact(response.session) || 'A execução terminou com falha.', 'Execução falhou', targetChat, response.session.project_path)
@@ -2354,13 +2354,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     }
   }
 
-  async function resolveInterruptedExecution(target: { chat: WorkspaceChat; session: Session }, decision: 'continue' | 'discard') {
+  async function resolveInterruptedExecution(target: { chat: WorkspaceChat; session: Session }, decision: 'continue' | 'discard', sudoPassword = '') {
     const intent = target.session.interrupted_execution
     if (!intent) return
     setChatBusy(target.chat.id, true); setError(undefined)
     try {
       const updated = decision === 'continue'
-        ? (await api.resumeInterruptedExecution(target.session.id)).session
+        ? (await api.resumeInterruptedExecution(target.session.id, sudoPassword)).session
         : await api.discardInterruptedExecution(target.session.id)
       setInterruptedExecutions((current) => decision === 'discard' || !updated.interrupted_execution
         ? current.filter((candidate) => candidate.session.id !== target.session.id)
@@ -2847,17 +2847,20 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
-    if (targetSession.self_evolution && next === 'unprotected') { setError('A auto-evolução do próprio Wharnex é bloqueada em Unprotected. Use Protected para manter sandbox, build transacional e rollback.'); return }
+    if (targetSession.self_evolution && next !== 'protected') { setError('A auto-evolução do próprio Wharnex é bloqueada em modos host-direct. Use Protected para manter sandbox, build transacional e rollback.'); return }
     let nextAutomation = automationMode
-    if (next === 'unprotected') {
-      const warning = isAutomaticAutomationMode(automationMode)
-        ? 'Ativar UNPROTECTED? O modo automático será desativado porque Auto e Auto + Aprovar sempre exigem sandbox Protected antes de aplicar no host.'
-        : 'Ativar UNPROTECTED para este projeto? Os planos do Agent poderão alterar ficheiros e executar comandos diretamente no host, sem sandbox e sem etapa Apply.'
+    if (next === 'unprotected' || next === 'full') {
+      const full = next === 'full'
+      const warning = full
+        ? 'Ativar FULL para este projeto? Os planos serão executados diretamente no host e os gates de aprovação de comandos de alto impacto serão dispensados por padrão. sudo continua sempre a exigir uma aprovação explícita e uma senha efémera. Auto e Auto + Aprovar serão desativados.'
+        : isAutomaticAutomationMode(automationMode)
+          ? 'Ativar UNPROTECTED? O modo automático será desativado porque Auto e Auto + Aprovar sempre exigem sandbox Protected antes de aplicar no host.'
+          : 'Ativar UNPROTECTED para este projeto? Os planos do Agent poderão alterar ficheiros e executar comandos diretamente no host, sem sandbox e sem etapa Apply.'
       if (!(await confirmDialog({
-        title: 'Ativar Unprotected?',
+        title: full ? 'Ativar Full?' : 'Ativar Unprotected?',
         message: warning,
         tone: 'danger',
-        confirmLabel: 'Ativar Unprotected',
+        confirmLabel: full ? 'Ativar Full' : 'Ativar Unprotected',
       }))) return
       nextAutomation = 'manual'
     }
@@ -2869,7 +2872,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       void Promise.allSettled(chats.filter((chat) => chat.sessionId !== updated.id).map(async (chat) => {
         try { const candidate = await api.getSession(chat.sessionId); await syncSessionModes(candidate, next, nextAutomation) } catch { /* stale chat is repaired on selection */ }
       }))
-      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'unprotected' ? 'Modo Unprotected ativado. A automação foi desativada; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' })
+      appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'full' ? 'Modo Full ativado. A automação foi desativada; comandos de alto impacto deixam de pedir aprovação por padrão, mas sudo continua a exigir aprovação explícita e senha.' : next === 'unprotected' ? 'Modo Unprotected ativado. A automação foi desativada; execuções diretas continuam a exigir confirmação.' : 'Modo Protected ativado.', meta: next === 'full' ? 'Host direto · Full' : next === 'unprotected' ? 'Host direto' : 'Sandbox ativa' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
 
@@ -3660,7 +3663,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery
       items={interruptedExecutions.map((target) => ({ ...target, queue: executionFIFO.find((item) => item.chatId === target.chat.id && item.planId === target.session.interrupted_execution?.plan_id), humanAction: recoveryHumanAction(target.chat, chatgptHumanActions) }))}
       busyChats={busyChats}
-      onDecision={(target, decision) => void resolveInterruptedExecution(target, decision)}
+      onDecision={(target, decision, sudoPassword) => void resolveInterruptedExecution(target, decision, sudoPassword)}
       onOpenChat={(target) => void focusRecoveryTarget(target)}
       onOpenLogs={(target) => void focusRecoveryTarget(target, 'terminal')}
       onOpenChatGPT={(target) => void focusRecoveryTarget(target, 'chatgpt')}

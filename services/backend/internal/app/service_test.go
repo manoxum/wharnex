@@ -1180,7 +1180,7 @@ func TestUnprotectedExecutionTouchesHostImmediately(t *testing.T) {
 	if string(data) != "new\n" {
 		t.Fatalf("host was not changed directly: %q", data)
 	}
-	if _, err := service.ApplyToHost(context.Background(), s.ID); err == nil || !strings.Contains(err.Error(), "unprotected") {
+	if _, err := service.ApplyToHost(context.Background(), s.ID); err == nil || !strings.Contains(err.Error(), "host-direct") {
 		t.Fatalf("apply must be unavailable after direct execution, got %v", err)
 	}
 }
@@ -1208,6 +1208,13 @@ func TestExecutionModeCanChangePerSession(t *testing.T) {
 	}
 	if s.ExecutionMode != domain.ExecutionModeUnprotected {
 		t.Fatalf("updated mode = %q", s.ExecutionMode)
+	}
+	s, err = service.SetExecutionMode(s.ID, domain.ExecutionModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ExecutionMode != domain.ExecutionModeFull {
+		t.Fatalf("full mode = %q", s.ExecutionMode)
 	}
 	if _, err := service.SetExecutionMode(s.ID, domain.ExecutionMode("invalid")); err == nil {
 		t.Fatal("invalid execution mode should be rejected")
@@ -2773,6 +2780,12 @@ func TestAutoModeRequiresProtected(t *testing.T) {
 	if _, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeUnprotected, domain.AutomationModeAutoApprove); err == nil {
 		t.Fatal("expected auto_approve/unprotected rejection")
 	}
+	if _, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeFull, domain.AutomationModeAuto); err == nil {
+		t.Fatal("expected auto/full rejection")
+	}
+	if _, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeFull, domain.AutomationModeAutoApprove); err == nil {
+		t.Fatal("expected auto_approve/full rejection")
+	}
 }
 
 func TestStartSessionCreatesWhanessProjectConfig(t *testing.T) {
@@ -3234,6 +3247,9 @@ func TestSelfEvolutionRootIsForcedToProtectedMode(t *testing.T) {
 	}
 	if _, err := service.SetExecutionMode(created.ID, domain.ExecutionModeUnprotected); err == nil || !strings.Contains(err.Error(), "locked to Protected") {
 		t.Fatalf("self-evolution should reject later Unprotected switch, got %v", err)
+	}
+	if _, err := service.SetExecutionMode(created.ID, domain.ExecutionModeFull); err == nil || !strings.Contains(err.Error(), "locked to Protected") {
+		t.Fatalf("self-evolution should reject later Full switch, got %v", err)
 	}
 	if _, err := store.Update(created.ID, func(item *domain.Session) error {
 		item.Plan = &domain.ExecutionPlan{PlanID: "plan-runtime-rollback"}

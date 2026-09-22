@@ -17,6 +17,10 @@ type ExecutionRecoveryResponse struct {
 }
 
 func (s *Service) ResumeInterruptedExecution(sessionID string) (ExecutionRecoveryResponse, error) {
+	return s.ResumeInterruptedExecutionAuthorized(sessionID, "")
+}
+
+func (s *Service) ResumeInterruptedExecutionAuthorized(sessionID, sudoPassword string) (ExecutionRecoveryResponse, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
 		return ExecutionRecoveryResponse{}, err
@@ -28,6 +32,14 @@ func (s *Service) ResumeInterruptedExecution(sessionID string) (ExecutionRecover
 	planID := intent.PlanID
 	if item.Plan == nil || item.Plan.PlanID != planID {
 		return ExecutionRecoveryResponse{}, fmt.Errorf("interrupted plan %s is no longer the active plan", planID)
+	}
+	if policyRequiresSudoCredential(item.Policy) {
+		if !domain.ExecutionModeTargetsHost(item.ExecutionMode) {
+			return ExecutionRecoveryResponse{}, errors.New("sudo recovery requires Unprotected or Full host-direct execution mode")
+		}
+		if sudoPassword == "" {
+			return ExecutionRecoveryResponse{}, ErrSudoCredentialRequired
+		}
 	}
 	if planExecutionHeld(item, planID) {
 		return ExecutionRecoveryResponse{}, errors.New("interrupted execution is paused or suspended by the operator")
@@ -60,7 +72,7 @@ func (s *Service) ResumeInterruptedExecution(sessionID string) (ExecutionRecover
 	}
 	if launch {
 		s.bus.Publish(sessionID, "execution.recovery_resume_requested", map[string]any{"plan_id": planID})
-		go s.runInterruptedExecutionResume(sessionID, planID, intent.Approved)
+		go s.runInterruptedExecutionResume(sessionID, planID, intent.Approved, sudoPassword)
 	}
 	status := domain.InterruptedExecutionResuming
 	if updated.InterruptedExecution != nil && updated.InterruptedExecution.Status != "" {
@@ -69,8 +81,8 @@ func (s *Service) ResumeInterruptedExecution(sessionID string) (ExecutionRecover
 	return ExecutionRecoveryResponse{Session: updated, PlanID: planID, Status: status}, nil
 }
 
-func (s *Service) runInterruptedExecutionResume(sessionID, planID string, approved bool) {
-	ctx := context.Background()
+func (s *Service) runInterruptedExecutionResume(sessionID, planID string, approved bool, sudoPassword string) {
+	ctx := withSudoPassword(context.Background(), sudoPassword)
 	result, item, err := s.executeRecordedForPlan(ctx, sessionID, approved, planID)
 	if !result.Success && interruptedExecutionSettled(item, planID) {
 		// The resumed run reached a real terminal failure. Leave that failure to

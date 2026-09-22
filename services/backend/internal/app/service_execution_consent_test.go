@@ -75,6 +75,26 @@ func TestPlanNeedsInitialConsentOnlyForProtectedRootChange(t *testing.T) {
 	}
 }
 
+func TestPriorExecutionConsentRequiresSameHighImpactCommandBoundary(t *testing.T) {
+	item := domain.Session{
+		ExecutionMode:           domain.ExecutionModeProtected,
+		Plan:                    &domain.ExecutionPlan{RequestID: "req-repair", Document: "# Repair"},
+		Policy:                  &domain.PolicyDecision{Allowed: true, RequiresApproval: true, ApprovalItems: []domain.ExecutionApproval{{Kind: "command", Argv: []string{"sh", "scripts/check.sh"}, BypassInFull: true}}},
+		ExecutionApprovedRootID: "req-root",
+		RequestLineages: map[string]domain.RequestLineage{
+			"req-repair": {RequestID: "req-repair", RootRequestID: "req-root", Kind: requestKindRepair},
+		},
+	}
+	item.ApprovedBoundaryKeys = executionBoundaryKeysWithPolicy(item.Plan, item.Policy)
+	if !priorExecutionConsentCovers(item) {
+		t.Fatal("same approved command boundary should remain covered")
+	}
+	item.Policy = &domain.PolicyDecision{Allowed: true, RequiresApproval: true, ApprovalItems: []domain.ExecutionApproval{{Kind: "command", Argv: []string{"sh", "scripts/other.sh"}, BypassInFull: true}}}
+	if priorExecutionConsentCovers(item) {
+		t.Fatal("a different high-impact argv must require a fresh informed approval")
+	}
+}
+
 func TestPlanNeedsInitialConsentKeepsLegacyPlanCompatible(t *testing.T) {
 	item := domain.Session{ExecutionMode: domain.ExecutionModeProtected, Plan: &domain.ExecutionPlan{RequestID: "legacy"}}
 	if planNeedsInitialConsent(item) {

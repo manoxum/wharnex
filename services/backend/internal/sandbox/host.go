@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -116,6 +117,9 @@ func (r *HostRunner) RunStreaming(ctx context.Context, workspace Workspace, comm
 	cmd := exec.CommandContext(runCtx, command.Argv[0], command.Argv[1:]...)
 	cmd.Dir = cwd
 	cmd.Env = commandEnvironment(command)
+	if len(command.Stdin) > 0 {
+		cmd.Stdin = bytes.NewReader(command.Stdin)
+	}
 	stdout := newStreamCapture("stdout", onOutput)
 	stderr := newStreamCapture("stderr", onOutput)
 	cmd.Stdout = stdout

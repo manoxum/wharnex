@@ -42,6 +42,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
       {session.self_evolution && <TopbarIndicator tone="warning" label="Auto-evolução ativa" visibleLabel="WHX · AUTO-EVOLUÇÃO" icon="refresh" />}
       {restartPending && <button className="topbar-indicator warning actionable restart" type="button" disabled={busy || restartBlocked} title={restartBlocked ? 'Conclua a tarefa ativa antes de reiniciar o Wharnex' : 'Alterações prontas · reinício pendente'} aria-label="Reinício pendente" onClick={() => { announceHeaderPopover('workspace-action'); onRestartPending?.() }}><Icon name="refresh" size={14}/><span className="indicator-dot"/></button>}
       {executionMode === 'unprotected' && <TopbarIndicator tone="danger" label="Host direto · Unprotected" icon="terminal" />}
+      {executionMode === 'full' && <TopbarIndicator tone="danger" label="Host direto · Full" icon="terminal" />}
       {automationMode === 'auto' && <TopbarIndicator tone="success" label="Automação automática" icon="play" />}
       {automationMode === 'auto_approve' && <TopbarIndicator tone="warning" label="Automação automática com aprovação automática" visibleLabel="AUTO + APROVAR" icon="play" />}
       <TopbarIndicator tone={automaticPlanner ? 'success' : 'neutral'} label={config?.planner === 'openai' ? 'AI automático' : 'AI manual'} icon={config?.planner === 'openai' ? 'chatgpt' : 'agent'} />
