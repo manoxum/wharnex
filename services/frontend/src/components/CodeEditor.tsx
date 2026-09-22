@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type * as Monaco from 'monaco-editor'
-import { activeMonacoTheme, configureMonaco, editorModelURI, monaco } from '../lib/monaco'
+import { activeMonacoTheme, configureMonaco, editorModelURI, monaco, useMonacoRuntime } from '../lib/monaco'
 import { editorLanguageForPath } from '../lib/editorLanguage'
 import type { EditorGitChange } from '../lib/editorGitChanges'
 import type { EditorRuntimeMarker } from '../lib/editorRuntimeMarkers'
 import { subscribeUIPreferences, workspaceEditorFontSize } from '../lib/uiPreferences'
+import { ContentSkeleton } from './Skeleton'
 
 type Cursor = { line: number; column: number }
 type RunAction = { id: string; label: string; line?: number }
@@ -27,7 +28,17 @@ type Props = {
   revealNonce?: number
 }
 
-export function CodeEditor({ path, value, onChange, onSave, onCursorChange, onRunSelection, runActions = [], onRunAction, gitChanges = [], onGitChangeClick, runtimeMarkers = [], readOnly = false, revealLine, revealColumn, revealNonce = 0 }: Props) {
+// The surface below dereferences `monaco` from most of its effects, so it is
+// only mounted once the runtime is actually loaded. A file preview or the
+// conflict resolver can open without the editor workspace ever having been
+// activated, and startup no longer loads Monaco for everyone.
+export function CodeEditor(props: Props) {
+  const runtimeReady = useMonacoRuntime()
+  if (!runtimeReady) return <div className="code-editor-loading"><ContentSkeleton label="A carregar editor" rows={8}/></div>
+  return <CodeEditorSurface {...props}/>
+}
+
+function CodeEditorSurface({ path, value, onChange, onSave, onCursorChange, onRunSelection, runActions = [], onRunAction, gitChanges = [], onGitChangeClick, runtimeMarkers = [], readOnly = false, revealLine, revealColumn, revealNonce = 0 }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const activePath = useRef(path)

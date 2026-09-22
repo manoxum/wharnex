@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type * as Monaco from 'monaco-editor'
 
 declare const __MONACO_BASE_URL__: string
@@ -56,6 +57,25 @@ export function loadMonaco(): Promise<typeof Monaco> {
   })
 
   return loadPromise
+}
+
+// Every surface that touches `monaco` must gate on this first. Startup no
+// longer blocks on the runtime, and the editor workspace is not the only way
+// in: a Git diff opened from the explorer, a file preview or the conflict
+// resolver can each be the first thing that needs Monaco. Gating here rather
+// than at each of those call sites means a new entry point cannot reintroduce
+// the crash of dereferencing an unloaded runtime.
+export function useMonacoRuntime() {
+  const [ready, setReady] = useState(() => Boolean(monaco))
+
+  useEffect(() => {
+    if (ready) return
+    let cancelled = false
+    void loadMonaco().then(() => { if (!cancelled) setReady(true) }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [ready])
+
+  return ready
 }
 
 export function configureMonaco() {

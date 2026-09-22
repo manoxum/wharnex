@@ -2,13 +2,26 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type * as Monaco from 'monaco-editor'
 import { api } from '../lib/api'
 import { editorLanguageForPath } from '../lib/editorLanguage'
-import { activeMonacoTheme, configureMonaco, monaco } from '../lib/monaco'
+import { activeMonacoTheme, configureMonaco, monaco, useMonacoRuntime } from '../lib/monaco'
 import { buildDiffDocument, type DiffDocument } from '../lib/unifiedDiff'
 import { subscribeUIPreferences, workspaceEditorFontSize } from '../lib/uiPreferences'
 import type { ChatChangeFile } from '../types'
 import { Icon } from './Icon'
+import { ContentSkeleton } from './Skeleton'
 
-export function ChangeDiffEditor({ sessionId, file, fragmentOnly = false }: { sessionId: string; file: ChatChangeFile; fragmentOnly?: boolean }) {
+type ChangeDiffEditorProps = { sessionId: string; file: ChatChangeFile; fragmentOnly?: boolean }
+
+// The surface below dereferences `monaco` from several effects, so it is only
+// mounted once the runtime is actually loaded. A Git diff can be the first
+// thing in the app that needs Monaco — opened from the explorer, a chat or the
+// inspector — and startup no longer loads it for everyone.
+export function ChangeDiffEditor(props: ChangeDiffEditorProps) {
+  const runtimeReady = useMonacoRuntime()
+  if (!runtimeReady) return <div className="diff-editor-loading"><ContentSkeleton label="A carregar editor" rows={6}/></div>
+  return <ChangeDiffSurface {...props}/>
+}
+
+function ChangeDiffSurface({ sessionId, file, fragmentOnly = false }: ChangeDiffEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null)
   type DiffLineChange = { modifiedStartLineNumber: number; originalStartLineNumber: number }
