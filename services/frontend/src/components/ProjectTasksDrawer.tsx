@@ -14,6 +14,7 @@ import {
   type PlanActivityItem,
 } from '../lib/projectActivity'
 import { Icon } from './Icon'
+import { ContentSkeleton } from './Skeleton'
 import { PlanView, TerminalView } from './Inspector'
 import { ChatAgentTaskTimeline } from './ChatAgentTaskTimeline'
 
@@ -110,7 +111,7 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
       <TaskTab id="archived" label="Arquivadas" icon="archive" count={counts.archived} active={tab === 'archived'} onClick={() => setTab('archived')}/>
     </nav>
     <div id="project-task-panel" className="project-task-list" role="tabpanel">
-      {loading && !tasks.length ? <div className="agent-drawer-empty">A carregar tarefas, planos e histórico…</div> : visible.length ? visible.map((item) => <ProjectTaskCard key={item.key} item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents} onGoToChat={onGoToChat}/>) : <div className="agent-drawer-empty"><strong>{emptyTitle(tab)}</strong><span>{emptyDetail(tab)}</span></div>}
+      {loading && !tasks.length ? <ContentSkeleton label="A carregar tarefas, planos e histórico" rows={6}/> : visible.length ? visible.map((item) => <ProjectTaskCard key={item.key} item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents} onGoToChat={onGoToChat}/>) : <div className="agent-drawer-empty"><strong>{emptyTitle(tab)}</strong><span>{emptyDetail(tab)}</span></div>}
     </div>
   </section>
 }
@@ -163,7 +164,7 @@ function ProjectTaskDetail({ item, currentSession, activeChatId, activeEvents }:
     <section><header><Icon name="chatgpt" size={12}/><strong>Subtarefas GPT</strong><span>{item.requests.length}</span></header><div className="project-task-request-list">{item.requests.map((request) => <div key={request.requestId}><div><b>{request.requestId === item.rootRequestId ? 'Principal' : requestKindLabel(request.kind)}</b><code>{request.requestId}</code></div><span className={`request-state ${request.status.toLowerCase()}`}>{requestStatusLabel(request.status)}</span><small>{request.tasks.length} {request.tasks.length === 1 ? 'etapa de transporte' : 'etapas de transporte'} · {formatDate(request.createdAt)}</small></div>)}</div></section>
     <section><header><Icon name="plan" size={12}/><strong>Planos de execução</strong><span>{plans.length}</span></header>{plans.length ? <div className="project-task-plan-list">{plans.map((plan) => <PlanHistory key={plan.id} item={plan}/>)}</div> : <p className="project-task-empty-detail">Nenhum plano foi registado para esta Main Request.</p>}</section>
     <section><header><Icon name="history" size={12}/><strong>Execuções</strong><span>{executions.length}</span></header>{executions.length ? <div className="project-task-execution-list">{executions.map((execution) => <ExecutionHistory key={execution.id} item={execution} events={history}/>)}</div> : <p className="project-task-empty-detail">Nenhuma execução foi registada para esta Main Request.</p>}</section>
-    <section><header><Icon name="history" size={12}/><strong>Log completo da tarefa</strong><span>{rootEvents.length}</span></header>{loading ? <p className="project-task-empty-detail">A carregar audit log…</p> : historyError ? <p className="project-task-empty-detail danger">{historyError}</p> : rootEvents.length ? <div className="project-task-terminal"><TerminalView events={rootEvents}/></div> : <p className="project-task-empty-detail">Sem eventos de auditoria correlacionados.</p>}</section>
+    <section><header><Icon name="history" size={12}/><strong>Log completo da tarefa</strong><span>{rootEvents.length}</span></header>{loading ? <ContentSkeleton label="A carregar audit log" rows={4} compact/> : historyError ? <p className="project-task-empty-detail danger">{historyError}</p> : rootEvents.length ? <div className="project-task-terminal"><TerminalView events={rootEvents}/></div> : <p className="project-task-empty-detail">Sem eventos de auditoria correlacionados.</p>}</section>
     {anchorTask ? <section><header><Icon name="agent" size={12}/><strong>Transporte ChatGPT</strong></header><ChatAgentTaskTimeline taskId={anchorTask.task_id} enabled/></section> : null}
   </div>
 }

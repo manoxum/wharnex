@@ -3,6 +3,7 @@ import type { DockerComposeProject, DockerComposeService, DockerContainer, Docke
 import { api } from '../lib/api'
 import { confirmDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
+import { ContentSkeleton } from './Skeleton'
 
 const EMPTY_OVERVIEW: DockerOverview = { compose_projects: [], containers: [], images: [], volumes: [], networks: [], refreshed_at: '' }
 const REFRESH_INTERVAL_MS = 15_000
@@ -297,7 +298,7 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
         {selectedImage ? <DockerImageDetail image={selectedImage}/> : null}
         {selectedVolume ? <DockerVolumeDetail volume={selectedVolume} resourceBusy={Boolean(resourceBusy)} onRemove={() => void removeResource('volume', selectedVolume.name, Boolean(selectedVolume.in_use))}/> : null}
         {selectedNetwork ? <DockerNetworkDetail network={selectedNetwork} resourceBusy={Boolean(resourceBusy)} onRemove={() => void removeResource('network', selectedNetwork.name, Boolean(selectedNetwork.in_use))}/> : null}
-        {!selectedContainer && !selectedImage && !selectedVolume && !selectedNetwork ? <div className="docker-detail-empty"><Icon name="container" size={22}/><strong>{loading ? 'A consultar Docker…' : 'Selecione um recurso'}</strong><span>Escolha um container, imagem, volume ou rede para ver informação detalhada e as ações disponíveis.</span></div> : null}
+        {!selectedContainer && !selectedImage && !selectedVolume && !selectedNetwork ? (loading ? <ContentSkeleton label="A carregar recursos Docker" rows={6}/> : <div className="docker-detail-empty"><Icon name="container" size={22}/><strong>Selecione um recurso</strong><span>Escolha um container, imagem, volume ou rede para ver informação detalhada e as ações disponíveis.</span></div>) : null}
       </div>
     </div>
     <footer className="docker-services-footer"><span>{overview.containers.filter(dockerContainerRunning).length} running · {overview.containers.filter((item) => dockerCondition(item) === 'error').length} erro · {overview.containers.length} containers</span><span>{overview.refreshed_at ? `Atualizado ${formatRefreshTime(overview.refreshed_at)}` : ''}</span></footer>
@@ -391,7 +392,7 @@ function DockerLogsView({ logs, logsLoading, onRefresh }: { logs: string; logsLo
       <span className="docker-log-health"><span className="level-success">OK {counts.success}</span><span>Info {counts.info}</span>{counts.debug ? <span>Debug {counts.debug}</span> : null}</span>
     </div>
     <div className="docker-log-lines" aria-label="Linhas dos logs">
-      {logsLoading && !logs ? <div className="docker-log-placeholder">A carregar logs…</div> : null}
+      {logsLoading && !logs ? <ContentSkeleton label="A carregar logs do container" rows={5} compact/> : null}
       {!logsLoading && !lines.length ? <div className="docker-log-placeholder">Sem logs disponíveis.</div> : null}
       {lines.length > 0 && !visibleLines.length ? <div className="docker-log-placeholder">Nenhuma linha corresponde a este filtro.</div> : null}
       {visibleLines.map((line, index) => <div className={`docker-log-line level-${line.level}`} key={`${line.timestamp}-${index}`}>

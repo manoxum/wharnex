@@ -7,6 +7,7 @@ import { announceGitChanged, subscribeGitLiveSync } from '../lib/gitLiveSync'
 import { confirmDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
+import { ContentSkeleton } from './Skeleton'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
 import { GitOperationModal, type GitOperation, type GitOperationTarget } from './GitOperationModal'
@@ -256,7 +257,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
       </div>
     </header>
 
-    {loading && <p className="git-empty">A ler o estado do repositório…</p>}
+    {loading && <ContentSkeleton label="A carregar estado do repositório" rows={5}/>}
     {!loading && overview && !overview.available && <p className="git-empty warning-card">Não foi possível inspecionar o repositório: {overview.unavailable}</p>}
 
     {overview?.available && <>

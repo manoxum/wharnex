@@ -1,3 +1,5 @@
+@import './base/async-loading.css';
 @import './domains/git-repositories.css';
 @import './domains/git-operations.css';
 @import './domains/git-panel.css';
+@import './domains/git-panel-spacing.css';
