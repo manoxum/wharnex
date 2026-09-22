@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -268,5 +269,157 @@ func TestRestoreCompactedChatRebuildsArtifacts(t *testing.T) {
 	}
 	if restored.Artifacts[0].SHA256 != original.SHA256 {
 		t.Fatalf("restored artifact digest mismatch: got %s, want %s", restored.Artifacts[0].SHA256, original.SHA256)
+	}
+}
+
+// archiveCandidateRepo builds a one-commit repository holding an integration
+// branch, exactly as verification leaves one pushed into the host's own .git.
+func archiveCandidateRepo(t *testing.T, branch string) string {
+	t.Helper()
+	root := t.TempDir()
+	runGitForApp(t, root, "init", "-q", "-b", "main")
+	runGitForApp(t, root, "config", "user.name", "Tester")
+	runGitForApp(t, root, "config", "user.email", "test@example.invalid")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("root\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitForApp(t, root, "add", "-A")
+	runGitForApp(t, root, "commit", "-qm", "initial")
+	runGitForApp(t, root, "branch", branch)
+	return root
+}
+
+func hostBranchExists(t *testing.T, root, branch string) bool {
+	t.Helper()
+	cmd := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	return cmd.Run() == nil
+}
+
+// pendingCandidate carries a real apply_patch operation, because a candidate
+// only counts as host-applicable — and therefore only pins its branch against
+// the orphan sweep — when its plan actually writes something.
+func pendingCandidate(branch string) domain.PendingHostChange {
+	return domain.PendingHostChange{
+		Plan: domain.ExecutionPlan{
+			PlanID:     "plan_" + branch,
+			Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/README.md\n+++ b/README.md\n@@ -1 +1,2 @@\n root\n+line\n"}},
+		},
+		IntegrationBranch: branch,
+		VerifiedAt:        time.Now().UTC(),
+	}
+}
+
+// Closing a chat is the point the operator says its work is finished with. A
+// verified candidate that was never applied otherwise pins its whx/req_*
+// branch in the operator's own repository forever, because the startup orphan
+// sweep deliberately retains every branch still backing a pending candidate.
+func TestArchiveChatDisposesPendingCandidateBranches(t *testing.T) {
+	service, store, _ := newChatArchiveTestService(t)
+	branch := "whx/req_20260922T030412_43680b465275aca9"
+	root := archiveCandidateRepo(t, branch)
+	if err := store.Put(domain.Session{
+		ID: "ses_dispose", ProjectPath: root, CreatedAt: time.Now().UTC(),
+		PendingHostChanges: []domain.PendingHostChange{pendingCandidate(branch)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := service.ArchiveChat("ses_dispose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.PendingHostChanges) != 0 {
+		t.Fatalf("archiving must clear the candidate so no Apply that can only fail is offered, got %d", len(updated.PendingHostChanges))
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for hostBranchExists(t, root, branch) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if hostBranchExists(t, root, branch) {
+		t.Fatalf("expected the abandoned candidate's branch %s to be deleted from the host repository", branch)
+	}
+}
+
+// Retention exists so an operator can still apply verified work, and a failed
+// session is exactly one they may still repair. Only closing the chat ends it.
+func TestLiveFailedSessionKeepsItsCandidateBranch(t *testing.T) {
+	service, store, _ := newChatArchiveTestService(t)
+	branch := "whx/req_20260922T031351_f8c87759812ab2e5"
+	root := archiveCandidateRepo(t, branch)
+	if err := store.Put(domain.Session{
+		ID: "ses_live", ProjectPath: root, CreatedAt: time.Now().UTC(), State: "failed",
+		PendingHostChanges: []domain.PendingHostChange{pendingCandidate(branch)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service.reconcileOrphanedIntegrationBranches()
+
+	if !hostBranchExists(t, root, branch) {
+		t.Fatalf("a pending candidate on a live session must keep its branch %s", branch)
+	}
+	item, err := store.Get("ses_live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(item.PendingHostChanges) != 1 {
+		t.Fatalf("expected the live session to keep its candidate, got %d", len(item.PendingHostChanges))
+	}
+}
+
+// Re-archiving must stay the no-op the instant-flip contract promises: a
+// second call has no candidate left to dispose and must not report one.
+func TestReArchivingDisposesNothing(t *testing.T) {
+	service, store, _ := newChatArchiveTestService(t)
+	branch := "whx/req_20260920T222003_2e3751fb4375ef66"
+	root := archiveCandidateRepo(t, branch)
+	if err := store.Put(domain.Session{
+		ID: "ses_twice", ProjectPath: root, CreatedAt: time.Now().UTC(),
+		PendingHostChanges: []domain.PendingHostChange{pendingCandidate(branch)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.ArchiveChat("ses_twice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := service.ArchiveChat("ses_twice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ArchivedAt == nil || !again.ArchivedAt.Equal(*first.ArchivedAt) {
+		t.Fatalf("re-archiving moved ArchivedAt: %#v vs %#v", again.ArchivedAt, first.ArchivedAt)
+	}
+}
+
+// Startup is the second chance: a chat archived before disposal existed, or
+// while the backend was down, still pins its candidate's branch. This is the
+// path that releases branches already stranded in an operator's repository.
+func TestStartupReconcileReleasesArchivedChatBranches(t *testing.T) {
+	service, store, _ := newChatArchiveTestService(t)
+	branch := "whx/req_20260922T030412_43680b465275aca9"
+	root := archiveCandidateRepo(t, branch)
+	archivedAt := time.Now().UTC().Add(-2 * time.Hour)
+	if err := store.Put(domain.Session{
+		ID: "ses_stranded", ProjectPath: root, CreatedAt: time.Now().UTC(), State: "failed",
+		ArchivedAt:         &archivedAt,
+		PendingHostChanges: []domain.PendingHostChange{pendingCandidate(branch)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service.reconcileOrphanedIntegrationBranches()
+
+	if hostBranchExists(t, root, branch) {
+		t.Fatalf("expected startup reconciliation to release archived chat branch %s", branch)
+	}
+	item, err := store.Get("ses_stranded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(item.PendingHostChanges) != 0 {
+		t.Fatalf("expected the stale candidate to be cleared, got %d", len(item.PendingHostChanges))
 	}
 }

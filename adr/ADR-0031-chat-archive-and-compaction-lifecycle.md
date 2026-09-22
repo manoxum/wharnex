@@ -69,6 +69,53 @@ delete is treated as success, deleting zero event rows is a no-op, a
 missing context file is ignored). The session never advances past a
 checkpoint until the destructive step after it confirms success.
 
+### Pending integration candidates are disposed at archive (amendment)
+
+Archiving also disposes of whatever verified host candidates the session is
+still holding: their integration branches are deleted from the host's `.git`
+and the `PendingHostChanges` records are cleared.
+
+A verified candidate that was never applied keeps a `whx/req_*` branch alive
+in the operator's own repository, and the startup orphan sweep deliberately
+retains any branch still backing a pending candidate. Nothing else ever
+released them, so closing a chat with unapplied work left a branch in the
+project's branch list permanently — one per abandoned candidate, accumulating
+for as long as the project lives. That is the operator's own repository being
+polluted by Wharnex bookkeeping, and closing the chat is the point at which
+the operator has said the work is finished with.
+
+The candidate records are cleared in the same flip that deletes the branches,
+never left behind: a candidate whose branch is gone can only produce an Apply
+that fails, and a chat must not keep offering one (the same reason
+`settleAlreadyIntegratedApply` settles rather than refuses).
+
+This does not weaken candidate retention. Retention exists so an operator can
+still apply verified work, and it continues to hold for every live session,
+including a failed one still open for repair. It ends only where the operator
+themselves ended the chat.
+
+Archiving remains an instant, idempotent state flip. The session update — set
+`ArchivedAt`, clear `PendingHostChanges` — stays synchronous, while the Git
+branch deletions run off the request's own goroutine, exactly as this ADR's
+own instant-archive constraint already forces for the reserved-`CHANGELOG.md`
+cleanup (`adr/ADR-0068`). Deletion is best effort: a branch that cannot be
+removed is reported and leaves the merge history untouched, and a re-archive
+of an already-archived session disposes nothing, so the flip stays idempotent.
+
+Startup reconciliation is the second chance. `reconcileOrphanedIntegrationBranches`
+retains nothing for an archived session: a chat archived before this disposal
+existed, or while the backend was down, still pins its candidate's branch, and
+the sweep clears those stale records so the branches fall through as the
+orphans they are. The clearing re-checks `ArchivedAt` under the store's own
+lock, because a restore may land between the listing and the update, and a
+reopened chat's candidates are live again.
+
+The cost is that restoring a chat within the grace period no longer restores
+the ability to apply a candidate that was pending when it was archived. That
+is accepted deliberately: an unapplied candidate is superseded by whatever
+reached the host while the chat was closed, and replaying it would merge a
+tree nobody has verified against the host's current state.
+
 Restoring (`Service.RestoreChat`) is bimodal:
 
 - **Before compaction** (`CompactedAt` nil): a pure state flip clearing

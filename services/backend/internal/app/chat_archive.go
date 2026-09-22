@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -28,19 +29,59 @@ func restoredArtifactKey(sessionID, artifactID string) string {
 // never itself do heavy work (ADR-0031). The throttled CompactArchivedChats
 // sweep is the only place that later folds the session's data into one
 // package, and only once it has sat archived past the grace period.
+//
+// Closing a chat also disposes of whatever verified candidates it was still
+// holding (ADR-0031): each one pins a whx/req_* branch in the operator's own
+// repository that the startup orphan sweep deliberately retains for as long
+// as the candidate is pending, so an abandoned candidate polluted the branch
+// list permanently. The records are cleared in this same flip, because a
+// candidate whose branch is gone can only produce an Apply that fails. Only
+// the Git deletions run off this goroutine, so the flip itself stays instant.
 func (s *Service) ArchiveChat(sessionID string) (domain.Session, error) {
+	var disposed []domain.PendingHostChange
 	updated, err := s.store.Update(sessionID, func(current *domain.Session) error {
-		if current.ArchivedAt == nil {
-			now := time.Now().UTC()
-			current.ArchivedAt = &now
+		// Disposal rides the real nil -> set transition only: re-archiving an
+		// already-archived session must stay the no-op this flip promises.
+		if current.ArchivedAt != nil {
+			disposed = nil
+			return nil
 		}
+		now := time.Now().UTC()
+		current.ArchivedAt = &now
+		disposed = hostApplicablePendingChanges(pendingHostChanges(*current))
+		current.PendingHostChanges = nil
 		return nil
 	})
 	if err != nil {
 		return domain.Session{}, err
 	}
 	s.bus.Publish(sessionID, "session.archived", map[string]any{})
+	if len(disposed) > 0 {
+		s.bus.Publish(sessionID, "host.pending_disposed", map[string]any{"reason": "chat_archived", "plan_count": len(disposed), "patch_count": pendingPatchCount(disposed)})
+		go s.disposeIntegrationBranches(sessionID, updated.ProjectPath, disposed)
+	}
 	return updated, nil
+}
+
+// disposeIntegrationBranches releases the host branches behind candidates the
+// owning chat has just abandoned. Best effort by contract: a branch that
+// cannot be removed is reported and leaves the merge history untouched, and
+// the candidate records are already cleared either way, so a failure here
+// cannot resurrect an Apply the session no longer offers.
+func (s *Service) disposeIntegrationBranches(sessionID, projectPath string, disposed []domain.PendingHostChange) {
+	ctx := context.Background()
+	branches := make([]string, 0, len(disposed))
+	for _, change := range disposed {
+		if branch := strings.TrimSpace(change.IntegrationBranch); branch != "" {
+			branches = append(branches, branch)
+		}
+		if len(change.SubmoduleIntegrations) > 0 {
+			s.deleteSubmoduleIntegrationBranches(ctx, sessionID, projectPath, change.SubmoduleIntegrations)
+		}
+	}
+	if len(branches) > 0 {
+		s.deleteIntegrationBranches(ctx, sessionID, projectPath, branches)
+	}
 }
 
 // RestoreChat reopens an archived chat. Before compaction this is a pure

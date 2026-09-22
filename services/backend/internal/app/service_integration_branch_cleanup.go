@@ -41,6 +41,16 @@ func (s *Service) reconcileOrphanedIntegrationBranches() {
 			projects[projectPath] = project
 		}
 		project.sessionIDs = append(project.sessionIDs, item.ID)
+		// An archived chat retains nothing: closing it disposes its candidates
+		// (ADR-0031). One still holding them was archived before that disposal
+		// existed, or while the backend was down, so startup is the second
+		// chance to release the branches they are still pinning. The stale
+		// records are cleared here too — the branch is about to go, and a
+		// restore must not be offered an Apply that can only fail.
+		if item.ArchivedAt != nil {
+			s.discardArchivedPendingCandidates(item)
+			continue
+		}
 		for _, pending := range hostApplicablePendingChanges(pendingHostChanges(item)) {
 			retainIntegrationBranch(keep, projectPath, pending.IntegrationBranch)
 			for _, integration := range pending.SubmoduleIntegrations {
@@ -96,6 +106,31 @@ func (s *Service) reconcileOrphanedIntegrationBranches() {
 			}
 		}
 	}
+}
+
+// discardArchivedPendingCandidates clears candidates an archived chat is still
+// holding, so the sweep that follows treats their branches as the orphans they
+// are. The branch deletion itself is left to that sweep rather than repeated
+// here: it already reports every refusal per repository, and doing it once
+// keeps a single owner for the decision of what is safe to remove.
+func (s *Service) discardArchivedPendingCandidates(item domain.Session) {
+	if len(pendingHostChanges(item)) == 0 {
+		return
+	}
+	updated, err := s.store.Update(item.ID, func(current *domain.Session) error {
+		// Re-read under the store's own lock: a restore may have landed
+		// between the listing above and this update, and a reopened chat's
+		// candidates are live again.
+		if current.ArchivedAt == nil {
+			return nil
+		}
+		current.PendingHostChanges = nil
+		return nil
+	})
+	if err != nil || len(updated.PendingHostChanges) > 0 {
+		return
+	}
+	s.bus.Publish(item.ID, "host.pending_disposed", map[string]any{"reason": "archived_chat_startup_reconcile"})
 }
 
 func integrationRepositoryKey(path string) string {
