@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -75,9 +76,15 @@ func executionBoundaryKeys(plan *domain.ExecutionPlan) []string {
 	keys := make([]string, 0)
 	for _, dependency := range plan.Dependencies {
 		keys = append(keys, "dependency:"+dependency.Action+":"+dependency.Manager+":"+dependency.Name)
+		for _, acquisition := range dependency.Acquisition {
+			keys = append(keys, acquisitionBoundaryKey("dependency-acquisition", dependency.Name, acquisition))
+		}
 	}
 	for _, tool := range plan.SystemTools {
 		keys = append(keys, "tool:"+tool.Target+":"+tool.Action+":"+tool.Name)
+		for _, acquisition := range tool.Acquisition {
+			keys = append(keys, acquisitionBoundaryKey("tool-acquisition", tool.Name, acquisition))
+		}
 	}
 	for _, operation := range plan.Operations {
 		if operation.Type == "command" && operation.Command.Network {
@@ -86,6 +93,10 @@ func executionBoundaryKeys(plan *domain.ExecutionPlan) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func acquisitionBoundaryKey(prefix, owner string, strategy domain.PlanAcquisitionStrategy) string {
+	return prefix + ":" + owner + ":" + strategy.Method + ":" + strategy.Manager + ":" + strategy.Package + ":" + strategy.Version + ":" + strconv.FormatBool(strategy.Automatic)
 }
 
 func priorExecutionConsentCovers(item domain.Session) bool {

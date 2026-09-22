@@ -351,8 +351,50 @@ func TestPrepareCommandDependenciesExplainsMissingNodeModules(t *testing.T) {
 	}
 	defer os.RemoveAll(ws.Path)
 	err = prepareCommandDependencies(ws, domain.CommandSpec{Argv: []string{"npm", "run", "build"}, Cwd: "."})
-	if err == nil || !strings.Contains(err.Error(), "install dependencies on the host") {
-		t.Fatalf("expected actionable dependency error, got %v", err)
+	if !errors.Is(err, ErrNodeDependenciesUnavailable) {
+		t.Fatalf("expected sandbox dependency acquisition sentinel, got %v", err)
+	}
+}
+
+func TestNodeDependencyInstallCommandSelectsNearestSupportedLockfile(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "services", "app")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageDir, "package.json"), []byte(`{"scripts":{"build":"vite build"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	argv, cwd, err := nodeDependencyInstallCommand(root, "services/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(argv, " "); got != "pnpm install --frozen-lockfile" {
+		t.Fatalf("unexpected acquisition command: %s", got)
+	}
+	if cwd != "." {
+		t.Fatalf("workspace lockfile should install from root, got %q", cwd)
+	}
+}
+
+func TestNodeDependencyInstallCommandRequiresDeterministicLockfile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"scripts":{"test":"vitest"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := nodeDependencyInstallCommand(root, ".")
+	if err == nil || !strings.Contains(err.Error(), "supported lockfile") {
+		t.Fatalf("missing lockfile must block automatic acquisition, got %v", err)
+	}
+}
+
+func TestTransientNodeDependencyFetchRecognizesObservedCorepackDNSFailure(t *testing.T) {
+	diagnostic := "Error when performing the request to https://registry.npmjs.org/pnpm/latest: getaddrinfo EAI_AGAIN registry.npmjs.org"
+	if !transientNodeDependencyFetch(diagnostic) {
+		t.Fatalf("observed Corepack registry outage was not recognized: %s", diagnostic)
 	}
 }
 

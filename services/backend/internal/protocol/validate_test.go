@@ -378,3 +378,29 @@ func TestInteractiveV2CommandNetworkRequiresNetworkCapability(t *testing.T) {
 		t.Fatalf("expected command network capability rejection, got %v", err)
 	}
 }
+
+func TestValidateAcquisitionStrategiesRejectsAutomaticHostMutation(t *testing.T) {
+	plan := validPlan()
+	plan.SystemTools = []domain.PlanSystemTool{{
+		Target: "host", Name: "pnpm", Action: "install", Lifetime: domain.ToolLifetimePersistent, Reason: "run post-merge verification",
+		Acquisition: []domain.PlanAcquisitionStrategy{{Method: "package_manager", Manager: "npm", Package: "pnpm", Version: "10.17.1", Automatic: true, Reason: "install missing package manager"}},
+	}}
+	if err := Validate(plan); err == nil || !strings.Contains(err.Error(), "cannot be automatic") {
+		t.Fatalf("automatic host tool mutation must be rejected, got %v", err)
+	}
+	plan.SystemTools[0].Acquisition[0].Automatic = false
+	if err := Validate(plan); err != nil {
+		t.Fatalf("approval-gated host acquisition should be valid: %v", err)
+	}
+}
+
+func TestValidateAcquisitionStrategiesAcceptsAutomaticSandboxLockfileHydration(t *testing.T) {
+	plan := validPlan()
+	plan.Dependencies = []domain.PlanDependency{{
+		Scope: "services/app", Manager: "pnpm", Name: "workspace dependencies", Action: "use", Reason: "run verification",
+		Acquisition: []domain.PlanAcquisitionStrategy{{Method: "lockfile_install", Manager: "pnpm", Automatic: true, Reason: "hydrate missing node_modules from the committed lockfile"}},
+	}}
+	if err := Validate(plan); err != nil {
+		t.Fatalf("automatic sandbox lockfile acquisition should be valid: %v", err)
+	}
+}

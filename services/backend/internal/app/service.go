@@ -2280,33 +2280,40 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		s.bus.Publish(sessionID, "verification.started", map[string]any{"argv": command.Argv, "target": executionTarget})
 		commandResult, runErr := s.runCommandWithRunner(ctx, sessionID, runner, workspace, command, executionTarget)
 		if runErr == nil && !commandResult.Success && !unprotected {
-			baselineResult, unchanged, baselineErr := s.compareVerificationBaseline(ctx, runner, &baselineWorkspace, item.ProjectPath, pendingForExecution, command, commandResult)
-			if baselineErr == nil && unchanged {
-				commandResult.BaselineFailure = true
-				commandResult.BaselineExitCode = baselineResult.ExitCode
-				commandResult.BaselineOutput = commandResultDiagnostic(baselineResult)
-				commandResult.Success = true
-				warning := fmt.Sprintf("pre-existing verification failure unchanged: %s (exit %d)", strings.Join(command.Argv, " "), baselineResult.ExitCode)
-				result.Warnings = append(result.Warnings, warning)
-				s.bus.Publish(sessionID, "verification.baseline_unchanged", map[string]any{"argv": command.Argv, "exit_code": baselineResult.ExitCode, "diagnostic": commandResultDiagnostic(baselineResult)})
-			} else if baselineErr == nil {
-				// Attribution is useful even when the baseline passed. In that
-				// case every structured failure is introduced by the candidate,
-				// and saying so explicitly gives the repair round a compact cause
-				// instead of a wall of test-runner output. When the baseline also
-				// failed, the same report separates candidate regressions from
-				// repository debt.
-				commandResult.BaselineExitCode = baselineResult.ExitCode
-				commandResult.BaselineOutput = describeVerificationAttribution(baselineResult, commandResult)
-				s.bus.Publish(sessionID, "verification.baseline_changed", map[string]any{
-					"argv":                command.Argv,
-					"baseline_exit_code":  baselineResult.ExitCode,
-					"post_exit_code":      commandResult.ExitCode,
-					"introduced":          newVerificationFailures(baselineResult, commandResult),
-					"pre_existing":        preExistingVerificationFailures(baselineResult, commandResult),
-					"baseline_diagnostic": commandResultDiagnostic(baselineResult),
-					"post_diagnostic":     commandResultDiagnostic(commandResult),
-				})
+			// Infrastructure failures must never be laundered into a successful
+			// candidate merely because the unchanged baseline hits the same broken
+			// toolchain/network. Classify them before baseline attribution.
+			if infrastructureErr := verificationInfrastructureError(commandResult); infrastructureErr != nil {
+				runErr = infrastructureErr
+			} else {
+				baselineResult, unchanged, baselineErr := s.compareVerificationBaseline(ctx, runner, &baselineWorkspace, item.ProjectPath, pendingForExecution, command, commandResult)
+				if baselineErr == nil && unchanged {
+					commandResult.BaselineFailure = true
+					commandResult.BaselineExitCode = baselineResult.ExitCode
+					commandResult.BaselineOutput = commandResultDiagnostic(baselineResult)
+					commandResult.Success = true
+					warning := fmt.Sprintf("pre-existing verification failure unchanged: %s (exit %d)", strings.Join(command.Argv, " "), baselineResult.ExitCode)
+					result.Warnings = append(result.Warnings, warning)
+					s.bus.Publish(sessionID, "verification.baseline_unchanged", map[string]any{"argv": command.Argv, "exit_code": baselineResult.ExitCode, "diagnostic": commandResultDiagnostic(baselineResult)})
+				} else if baselineErr == nil {
+					// Attribution is useful even when the baseline passed. In that
+					// case every structured failure is introduced by the candidate,
+					// and saying so explicitly gives the repair round a compact cause
+					// instead of a wall of test-runner output. When the baseline also
+					// failed, the same report separates candidate regressions from
+					// repository debt.
+					commandResult.BaselineExitCode = baselineResult.ExitCode
+					commandResult.BaselineOutput = describeVerificationAttribution(baselineResult, commandResult)
+					s.bus.Publish(sessionID, "verification.baseline_changed", map[string]any{
+						"argv":                command.Argv,
+						"baseline_exit_code":  baselineResult.ExitCode,
+						"post_exit_code":      commandResult.ExitCode,
+						"introduced":          newVerificationFailures(baselineResult, commandResult),
+						"pre_existing":        preExistingVerificationFailures(baselineResult, commandResult),
+						"baseline_diagnostic": commandResultDiagnostic(baselineResult),
+						"post_diagnostic":     commandResultDiagnostic(commandResult),
+					})
+				}
 			}
 		}
 		result.Commands = append(result.Commands, commandResult)

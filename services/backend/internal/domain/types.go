@@ -157,6 +157,16 @@ const (
 	// thing that cannot be the cause. Retrying the Apply is the recovery.
 	FailureKindHostBuildDependencyNetwork = "host_build_dependency_network"
 
+	// FailureKindSandboxDependencyAcquisition marks a Protected dependency
+	// hydration attempt that could not obtain deterministic package payloads.
+	// Source repair cannot make a registry/DNS path available.
+	FailureKindSandboxDependencyAcquisition = "sandbox_dependency_acquisition"
+
+	// FailureKindSandboxToolUnavailable marks a verification executable that
+	// was not runnable in the published Protected image. It is infrastructure,
+	// never equivalent to a pre-existing project test failure.
+	FailureKindSandboxToolUnavailable = "sandbox_tool_unavailable"
+
 	// FailureKindSelfEvolutionBusy marks a local coordination block: another
 	// self-evolution transaction currently owns the activation lock. The
 	// verified candidate is retained and can be applied after that transaction
@@ -555,27 +565,45 @@ func (d DebugSpec) EffectiveAccess() string {
 	return d.Access
 }
 
-// PlanDependency describes project dependency impact. It is presentation
-// metadata only: package-manager authority still comes from Operations and
-// the Policy Engine.
+// PlanDependency describes project dependency impact plus bounded acquisition
+// strategies. It does not itself grant package-manager command authority; the
+// engine may only execute acquisition methods it explicitly owns, and the
+// Policy Engine remains authoritative for planner-supplied operations.
 type PlanDependency struct {
-	Scope   string `json:"scope"`
-	Manager string `json:"manager"`
-	Name    string `json:"name"`
-	Version string `json:"version,omitempty"`
-	Action  string `json:"action"`
-	Reason  string `json:"reason"`
+	Scope       string                    `json:"scope"`
+	Manager     string                    `json:"manager"`
+	Name        string                    `json:"name"`
+	Version     string                    `json:"version,omitempty"`
+	Action      string                    `json:"action"`
+	Reason      string                    `json:"reason"`
+	Acquisition []PlanAcquisitionStrategy `json:"acquisition,omitempty"`
 }
 
-// PlanSystemTool discloses an OS/runtime prerequisite. Lifetime is required
-// when a host-debug modify plan installs/updates/configures a tool so the
-// operator can distinguish disposable tooling from durable host state.
+// PlanAcquisitionStrategy tells the engine and operator how a declared
+// prerequisite can be obtained if it is absent. Automatic means Wharnex may
+// perform the strategy inside the Protected sandbox; host mutation strategies
+// are always approval-gated regardless of planner intent.
+type PlanAcquisitionStrategy struct {
+	Method    string `json:"method"`
+	Manager   string `json:"manager,omitempty"`
+	Package   string `json:"package,omitempty"`
+	Version   string `json:"version,omitempty"`
+	Automatic bool   `json:"automatic"`
+	Reason    string `json:"reason"`
+}
+
+// PlanSystemTool discloses an OS/runtime prerequisite and how it could be
+// acquired if absent. Lifetime is required when a host mutation installs,
+// updates or configures a tool so the operator can distinguish disposable
+// tooling from durable host state; host acquisition never becomes automatic
+// merely because the planner declared a strategy.
 type PlanSystemTool struct {
-	Target   string `json:"target"`
-	Name     string `json:"name"`
-	Action   string `json:"action"`
-	Lifetime string `json:"lifetime,omitempty"`
-	Reason   string `json:"reason"`
+	Target      string                    `json:"target"`
+	Name        string                    `json:"name"`
+	Action      string                    `json:"action"`
+	Lifetime    string                    `json:"lifetime,omitempty"`
+	Reason      string                    `json:"reason"`
+	Acquisition []PlanAcquisitionStrategy `json:"acquisition,omitempty"`
 }
 
 // ApprovedChatPlan binds an executable response to the exact planning-only

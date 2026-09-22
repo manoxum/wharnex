@@ -1,6 +1,8 @@
 FROM golang:1.23-bookworm AS go
 
 FROM node:22-bookworm
+ARG PNPM_VERSION=10.17.1
+ARG YARN_VERSION=1.22.22
 COPY --from=go /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}"
 # The image serves two different consumers. Agent commands remain constrained by
@@ -21,7 +23,7 @@ RUN apt-get update \
        vim-tiny nano less fzf tmux procps psmisc lsof util-linux \
        unzip zip xz-utils file tree \
     && rm -rf /var/lib/apt/lists/* \
-    && corepack enable \
+    && npm install --global "pnpm@${PNPM_VERSION}" "yarn@${YARN_VERSION}" \
     && useradd --create-home --uid 10001 --shell /bin/bash runner
 COPY docker/runner/entrypoint.sh /usr/local/bin/kernl-entrypoint
 COPY docker/runner/toolchain.sh /usr/local/bin/kernl-toolchain

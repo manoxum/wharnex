@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -58,6 +59,12 @@ var nonRepairablePlannerReasonCodes = map[string]string{
 func classifyExecutionFailure(cause error) string {
 	if errors.Is(cause, sandbox.ErrOfflineDependenciesUnavailable) {
 		return domain.FailureKindOfflineGoModuleCache
+	}
+	if errors.Is(cause, sandbox.ErrNodeDependencyAcquisition) {
+		return domain.FailureKindSandboxDependencyAcquisition
+	}
+	if errors.Is(cause, sandbox.ErrSandboxToolUnavailable) {
+		return domain.FailureKindSandboxToolUnavailable
 	}
 	if errors.Is(cause, selfevolution.ErrHostBuildToolchainMismatch) {
 		return domain.FailureKindHostBuildToolchain
@@ -139,6 +146,18 @@ var dependencyFetchContexts = []string{
 	"npm err!",
 	"registry.npmjs.org",
 	"proxy.golang.org",
+}
+
+func verificationInfrastructureError(result domain.CommandResult) error {
+	diagnostic := commandResultDiagnostic(result)
+	lower := strings.ToLower(diagnostic)
+	if result.ExitCode == 127 || strings.Contains(lower, "executable file not found") || strings.Contains(lower, "command not found") {
+		return fmt.Errorf("%w: %s", sandbox.ErrSandboxToolUnavailable, diagnostic)
+	}
+	if isDependencyNetworkDiagnostic(diagnostic) {
+		return fmt.Errorf("%w: %s", sandbox.ErrNodeDependencyAcquisition, diagnostic)
+	}
+	return nil
 }
 
 func isDependencyNetworkDiagnostic(diagnostic string) bool {

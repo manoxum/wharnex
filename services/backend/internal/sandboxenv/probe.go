@@ -67,7 +67,9 @@ func (p *Prober) Manifest(ctx context.Context, projectPath string) Manifest {
 	}
 	manifest.TestHarnesses = probeTestHarnesses(projectPath)
 	tools, warning := p.toolchain(ctx)
-	manifest.Tools = tools
+	manifest.Tools = append([]Tool{}, tools...)
+	manifest.SandboxTools = append([]Tool{}, tools...)
+	manifest.HostTools = probeHostToolchain(ctx)
 	if warning != "" {
 		manifest.Warnings = append(manifest.Warnings, warning)
 	}
@@ -93,8 +95,8 @@ func (p *Prober) describeSandbox() Sandbox {
 		Notes: []string{
 			"the workspace is an isolated copy/clone of the project, mounted read-write at /workspace; the container root filesystem is read-only",
 			"all Linux capabilities are dropped and no-new-privileges is set; there is no Docker socket and no host mount",
-			"network is disabled for every command unless the plan explicitly sets network=true, which requires approval; with network off GOPROXY=off, so only modules already in the Wharnex-owned cache resolve",
-			"GOCACHE and GOMODCACHE live on the workspace volume, not on the /tmp tmpfs, so a large build is bounded by host disk rather than by tmpfs_size",
+			"planner-requested network is disabled by default; Go remains offline unless explicitly approved, while Wharnex may open a bounded engine-owned network window to hydrate missing Node dependencies from a supported lockfile",
+			"COREPACK_HOME, npm cache, GOCACHE and GOMODCACHE live under /workspace/.kernl so dependency/tool payloads needed by later offline verification survive separate command containers",
 		},
 	}
 	if p.sandboxKind == "local" {
@@ -158,6 +160,56 @@ func (p *Prober) toolchain(ctx context.Context) ([]Tool, string) {
 	p.tools = tools
 	p.toolsErr = ""
 	return p.tools, ""
+}
+
+type hostToolProbe struct {
+	name string
+	argv []string
+}
+
+var hostToolProbes = []hostToolProbe{
+	{name: "go", argv: []string{"go", "version"}},
+	{name: "node", argv: []string{"node", "--version"}},
+	{name: "npm", argv: []string{"npm", "--version"}},
+	{name: "npx", argv: []string{"npx", "--version"}},
+	{name: "pnpm", argv: []string{"pnpm", "--version"}},
+	{name: "yarn", argv: []string{"yarn", "--version"}},
+	{name: "git", argv: []string{"git", "--version"}},
+	{name: "make", argv: []string{"make", "--version"}},
+	{name: "docker", argv: []string{"docker", "--version"}},
+	{name: "cc", argv: []string{"cc", "--version"}},
+	{name: "g++", argv: []string{"g++", "--version"}},
+	{name: "bash", argv: []string{"bash", "--version"}},
+	{name: "zip", argv: []string{"zip", "-v"}},
+}
+
+// probeHostToolchain describes the control container where HostRunner and
+// post-merge verification actually execute. A path alone is not enough: shims
+// such as Corepack can exist while their payload is absent, so a tool is
+// published only when its version command succeeds locally without repair.
+func probeHostToolchain(ctx context.Context) []Tool {
+	tools := make([]Tool, 0, len(hostToolProbes))
+	for _, probe := range hostToolProbes {
+		path, err := exec.LookPath(probe.name)
+		if err != nil {
+			continue
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		output, err := exec.CommandContext(probeCtx, probe.argv[0], probe.argv[1:]...).CombinedOutput()
+		cancel()
+		if err != nil {
+			continue
+		}
+		version := strings.TrimSpace(string(output))
+		if index := strings.IndexByte(version, '\n'); index >= 0 {
+			version = strings.TrimSpace(version[:index])
+		}
+		if version == "" {
+			continue
+		}
+		tools = append(tools, Tool{Name: probe.name, Version: version, Path: path})
+	}
+	return tools
 }
 
 func probeRunnerToolchain(ctx context.Context, image string) ([]Tool, error) {
