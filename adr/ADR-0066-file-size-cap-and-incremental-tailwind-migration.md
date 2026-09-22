@@ -1,7 +1,9 @@
-# ADR-0066 — 200-line file cap, extract-on-touch, and incremental Twind migration
+# ADR-0066 — 200-line file cap, extract-on-touch, and incremental Tailwind migration
 
 - Status: accepted
-- Evidence: operator directive, 2026-09-21 (no incident; a proactive quality-gate request)
+- Evidence: operator directive, 2026-09-21; styling engine settled on Tailwind
+  CSS by operator decision, 2026-09-22 (no incident; a proactive quality-gate
+  request)
 
 ## Context
 
@@ -26,8 +28,8 @@ The operator asked for two related but distinct normative changes:
    extract-on-touch discipline for legacy files that already exceed it, plus
    a standing continuous-refactoring expectation.
 2. A gradual (never big-bang) migration of frontend styling onto
-   [Twind](https://twind.dev), so new/touched UI work stops adding to the
-   monolithic CSS files instead of shrinking them.
+   [Tailwind CSS](https://tailwindcss.com), so new/touched UI work stops
+   adding to the monolithic CSS files instead of shrinking them.
 
 ## Decision
 
@@ -58,27 +60,46 @@ The operator asked for two related but distinct normative changes:
   extract-on-touch rule instead of the gate immediately failing on files
   nobody touched.
 
-### Frontend styling: incremental Twind adoption
+### Frontend styling: incremental Tailwind adoption
 
-- Twind is adopted as the target utility-first styling engine for the
+An earlier draft of this ADR named Twind (`twind.dev`, a runtime engine with
+no build step). The operator settled on Tailwind CSS itself, which is what
+this ADR records; the two share utility syntax but not their engine, so the
+bootstrap constraints below are Tailwind's, not Twind's.
+
+- Tailwind CSS is adopted as the target utility-first styling engine for the
   frontend, replacing hand-written CSS growth over time. This is declared in
   `SoT/FRONTEND_STYLING.md`, a new dedicated document, rather than folded
   into the behavior-focused `SoT/UI_UX.md`.
 - The migration is explicitly incremental, never a rewrite:
-  - New components, screens and features MUST be styled with Twind rather
+  - New components, screens and features MUST be styled with Tailwind rather
     than adding rules to `styles.css`/`theme.css`/`operational-panels.css`/
     `restart-confirmation.css`.
   - Modifying an existing component that still depends on legacy CSS SHOULD
-    migrate the touched styling surface to Twind in the same change,
+    migrate the touched styling surface to Tailwind in the same change,
     whenever practical, mirroring the same touch-triggers-cleanup principle
     as the file-size rule above.
   - No scheduled mass rewrite of the legacy CSS files is authorized or
     planned; they shrink only as their content is touched.
-- Adding the actual `twind` dependency/build wiring is a one-time bootstrap
+- Adopting Tailwind is safe for untouched UI by construction, which is why
+  an incremental migration is viable at all: the legacy stylesheet uses no
+  `@layer` anywhere, and unlayered CSS outranks the cascade layers Tailwind
+  emits its utilities into. A component nobody migrated keeps being decided
+  by its legacy rule. The same fact obliges a migration to delete the
+  component's legacy rules in the same change, or the new utilities are
+  silently overridden and the migration is a no-op its author believes
+  landed.
+- Adding the Tailwind dependency/build wiring is a one-time bootstrap
   prerequisite, tracked as follow-up implementation work in
   `SoT/FRONTEND_STYLING.md` rather than performed as part of this
   documentation-only change, so this change stays reviewable as policy and
   the bootstrap lands as its own reviewed, tested change per `AGENTS.md` §6.
+  `SoT/FRONTEND_STYLING.md` §4 binds that bootstrap to the constraints that
+  protect current appearance: no global Preflight reset, a theme generated
+  from the existing `--theme-*` tokens (which already carry Light/Dark
+  parity through `:root[data-theme='dark']`), a type scale that stays
+  multiplied by `var(--ui-font-scale)`, and statically analysable class
+  names.
 
 ### Continuous refactoring
 
@@ -89,6 +110,47 @@ The operator asked for two related but distinct normative changes:
   ("Split responsibilities before files become difficult to review"), not a
   license for unrelated drive-by rewrites.
 
+## Amendment (2026-09-22) — obligation, and one home for CSS
+
+The first version of this ADR expressed the migration as a preference
+("SHOULD migrate the touched styling surface … whenever practical") and said
+nothing about where a CSS file belongs. One day of measurement showed both
+gaps producing exactly the behavior they failed to forbid:
+
+- `src/styles.css` grew from 8459 to 10257 lines — roughly 1800 new lines —
+  *after* the rules landed. A preference did not slow the monolith down.
+- Agents did begin splitting CSS into separate files, which the 200-line cap
+  asks for, but dropped every one of them flat at the root of
+  `services/frontend/src/`. Six stylesheets now sit there and no CSS file
+  exists in any subdirectory. The cap was satisfied while the structure got
+  worse, because no document said where a new sheet goes.
+
+The amendment therefore makes two changes, both in
+`SoT/FRONTEND_STYLING.md` and restated in `AGENTS.md` §4:
+
+1. **Migration is an obligation, not a preference.** A change that modifies
+   or evolves an existing component MUST migrate the styling surface it
+   touches to Tailwind, scoped to what it touches. Exceptions remain
+   available — entangled shared cascade, third-party DOM, constructs
+   utilities cannot express — but MUST be named explicitly in the change
+   rather than applied silently. The obligation is suspended only until the
+   bootstrap in `SoT/FRONTEND_STYLING.md` §5 lands, since Tailwind is not
+   installed yet.
+2. **CSS has one home.** Project-owned CSS lives under
+   `services/frontend/src/styles/`, organized by domain (`theme/`, `base/`,
+   `domains/`, `vendor/`) behind a single entry point. Creating a `.css`
+   file at the root of `src/` is forbidden, and the six legacy root
+   stylesheets are frozen against new rules. Writing a CSS file at all is
+   the fallback: styling expressible as utilities belongs on the component,
+   so the file is never created. `SoT/PROJECT_STRUCTURE.md` carries the
+   directory layout, since that is the document an agent reads to learn
+   where things go.
+
+Moving the six legacy files into `styles/` is deliberately **not** ordered
+here: it would be the big-bang this ADR forbids, and it would rewrite the
+import graph in a change nobody asked for. They shrink through
+extract-on-touch instead.
+
 ## Consequences
 
 - `AGENTS.md` §4 now states the 200-line cap and extract-on-touch rule as
@@ -96,9 +158,10 @@ The operator asked for two related but distinct normative changes:
 - `SoT/QUALITY_GATES.md` gains G11, documenting `scripts/check-file-size.sh`
   as an available, currently non-blocking gate.
 - `SoT/PROJECT_STRUCTURE.md` points to both new SoT documents.
-- No source code changes in this ADR: no Twind dependency was added, no
-  existing file was refactored. Both are intentionally deferred to follow-up
-  changes so each lands as its own reviewable, tested unit of work.
+- No source code changes in this ADR: no Tailwind dependency was added, no
+  existing file was refactored, no component was migrated. All are
+  intentionally deferred to follow-up changes so each lands as its own
+  reviewable, tested unit of work.
 - Existing oversized files (`styles.css`, `theme.css`,
   `operational-panels.css`, `restart-confirmation.css`, `main.mjs`, and any
   other legacy file already over 200 lines) are not immediately non-compliant
