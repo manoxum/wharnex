@@ -75,6 +75,9 @@ func recordRequestBaseCommit(item *domain.Session, requestID, commitSHA string) 
 	}
 	for _, pending := range item.PendingHostChanges {
 		keep[pending.Plan.RequestID] = true
+		if baseRequestID := strings.TrimSpace(pending.IntegrationBaseRequestID); baseRequestID != "" {
+			keep[baseRequestID] = true
+		}
 	}
 	for id := range item.RequestBaseCommits {
 		if keep[id] {
@@ -120,23 +123,40 @@ func (s *Service) releaseRequestBaseRefs(ctx context.Context, sessionID, project
 // negotiates refs/heads/* only, so the ref itself has to be fetched explicitly
 // before it can be checked out.
 func (s *Service) prepareBaseRootedWorkspace(ctx context.Context, sessionID string, item domain.Session, plan *domain.ExecutionPlan, workspacePath string) (branch, baseCommit string, ok bool) {
+	if plan == nil {
+		return "", "", false
+	}
+	return s.prepareBaseRootedWorkspaceAtRequest(ctx, sessionID, item, plan, workspacePath, plan.RequestID)
+}
+
+// prepareBaseRootedWorkspaceAtRequest roots a plan's integration branch at a
+// specific retained request base. Normally that is plan.RequestID. A focused
+// conflict resolution may instead re-anchor a surviving predecessor delta at
+// the resolution request's base; keeping branch identity tied to the original
+// plan while choosing its materialization base explicitly prevents a later
+// legacy promotion from restoring the stale ancestry that caused the conflict.
+func (s *Service) prepareBaseRootedWorkspaceAtRequest(ctx context.Context, sessionID string, item domain.Session, plan *domain.ExecutionPlan, workspacePath, baseRequestID string) (branch, baseCommit string, ok bool) {
 	if plan == nil || len(actualPatchFiles(plan)) == 0 {
 		return "", "", false
 	}
-	baseCommit = requestBaseCommit(item, plan.RequestID)
+	baseRequestID = strings.TrimSpace(baseRequestID)
+	if baseRequestID == "" {
+		baseRequestID = strings.TrimSpace(plan.RequestID)
+	}
+	baseCommit = requestBaseCommit(item, baseRequestID)
 	if baseCommit == "" {
 		return "", "", false
 	}
-	ref := sandbox.RequestBaseRef(plan.RequestID)
+	ref := sandbox.RequestBaseRef(baseRequestID)
 	if err := sandbox.FetchRefFromHost(ctx, workspacePath, item.ProjectPath, ref); err != nil {
-		s.bus.Publish(sessionID, "execution.base_root_degraded", map[string]any{"plan_id": plan.PlanID, "request_id": plan.RequestID, "error": err.Error()})
+		s.bus.Publish(sessionID, "execution.base_root_degraded", map[string]any{"plan_id": plan.PlanID, "request_id": plan.RequestID, "base_request_id": baseRequestID, "error": err.Error()})
 		return "", "", false
 	}
 	branch = integrationBranchName(plan.RequestID)
 	if err := sandbox.CheckoutRequestBase(ctx, workspacePath, branch, baseCommit); err != nil {
-		s.bus.Publish(sessionID, "execution.base_root_degraded", map[string]any{"plan_id": plan.PlanID, "request_id": plan.RequestID, "error": err.Error()})
+		s.bus.Publish(sessionID, "execution.base_root_degraded", map[string]any{"plan_id": plan.PlanID, "request_id": plan.RequestID, "base_request_id": baseRequestID, "error": err.Error()})
 		return "", "", false
 	}
-	s.bus.Publish(sessionID, "execution.base_rooted", map[string]any{"plan_id": plan.PlanID, "request_id": plan.RequestID, "base_commit": baseCommit, "branch": branch})
+	s.bus.Publish(sessionID, "execution.base_rooted", map[string]any{"plan_id": plan.PlanID, "request_id": plan.RequestID, "base_request_id": baseRequestID, "base_commit": baseCommit, "branch": branch})
 	return branch, baseCommit, true
 }

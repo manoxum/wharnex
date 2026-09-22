@@ -973,6 +973,13 @@ type PendingHostChange struct {
 	// IntegrationCommit is the commit SHA IntegrationBranch pointed to right
 	// after it was created, for audit/diagnostics.
 	IntegrationCommit string `json:"integration_commit,omitempty"`
+	// IntegrationBaseRequestID overrides the request-base anchor used when a
+	// pending candidate has been narrowed by a later focused conflict
+	// resolution. The candidate keeps its original Plan.RequestID for lineage
+	// and branch identity, but any surviving delta must be materialized on top
+	// of the resolution request's base so promotion cannot resurrect stale
+	// ancestry that caused an incidental conflict outside the plan write set.
+	IntegrationBaseRequestID string `json:"integration_base_request_id,omitempty"`
 	// SubmoduleIntegrations are verified commits created in repositories nested
 	// below the open superproject. Apply merges IntegrationBranch, then advances
 	// each nested repository on the branch captured during verification.

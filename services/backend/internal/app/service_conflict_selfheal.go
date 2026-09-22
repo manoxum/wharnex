@@ -189,11 +189,15 @@ func (s *Service) recordHostApplyFailure(sessionID, planID string, failure error
 // which no merge can reconcile and no planner round can resolve: every Apply
 // reproduced the same collision, and the two threads alternated indefinitely.
 //
-// Lineage is the deliberate criterion, never path overlap. Two independent
-// candidates that happen to touch one file are an ordinary three-way merge and
-// must stay one. Only a candidate that is itself the conflict resolution of
-// another request may supersede that request's candidate, and only for the
-// paths it actually writes.
+// Lineage is the deliberate criterion for deciding whether a candidate may be
+// superseded at all. Two independent candidates that happen to touch one file
+// are an ordinary three-way merge and must stay one. Within a conflict lineage,
+// explicit write overlap still identifies every ancestor whose own mutation was
+// replaced. When no ancestor explicitly wrote a capsule path, the direct parent
+// is nevertheless retired/re-anchored for that path: an incidental collision can
+// come entirely from that parent's stale request-base history, and requiring
+// overlap there leaves the old ancestry alive forever. More distant ancestors
+// are not guessed in that incidental case.
 //
 // The result is shaped as a ConflictResolution so it drives the same retirement
 // the live path already uses, rather than growing a second implementation of it.
@@ -213,6 +217,7 @@ func supersededConflictResolution(item domain.Session, pending []domain.PendingH
 	}
 	supersededPaths := map[string]struct{}{}
 	supersededPlans := map[string]struct{}{}
+	replacementRequestID := ""
 	for _, change := range pending {
 		lineage, ok := item.RequestLineages[change.Plan.RequestID]
 		if !ok || lineage.Kind != requestKindConflict {
@@ -222,21 +227,42 @@ func supersededConflictResolution(item domain.Session, pending []domain.PendingH
 		if len(resolved) == 0 {
 			continue
 		}
-		for _, ancestorPlan := range pendingAncestorPlans(item, planForRequest, lineage.ParentRequestID, change.Plan.PlanID) {
-			ancestorPaths := pathsForPlan[ancestorPlan]
-			for _, path := range resolved {
-				if !containsString(ancestorPaths, path) {
+		ancestors := pendingAncestorPlans(item, planForRequest, lineage.ParentRequestID, change.Plan.PlanID)
+		if len(ancestors) == 0 {
+			continue
+		}
+		contributed := false
+		for _, path := range resolved {
+			matchedExplicitMutation := false
+			for _, ancestorPlan := range ancestors {
+				if !containsString(pathsForPlan[ancestorPlan], path) {
 					continue
 				}
-				supersededPaths[path] = struct{}{}
 				supersededPlans[ancestorPlan] = struct{}{}
+				matchedExplicitMutation = true
+				contributed = true
 			}
+			if !matchedExplicitMutation {
+				// The direct parent is the candidate whose failed replay created
+				// this conflict request. If the path is not in any ancestor's
+				// write set, stale ancestry on that parent is the only durable
+				// ownership evidence available after IntegrationConflict is gone.
+				supersededPlans[ancestors[0]] = struct{}{}
+				contributed = true
+			}
+			supersededPaths[path] = struct{}{}
+		}
+		if contributed {
+			// Pending changes are ordered by verification. The newest
+			// contributing conflict round is the base repaired candidates use.
+			replacementRequestID = change.Plan.RequestID
 		}
 	}
 	if len(supersededPaths) == 0 {
 		return nil
 	}
 	return &domain.ConflictResolution{
+		RequestID:       replacementRequestID,
 		Paths:           sortedKeys(supersededPaths),
 		OriginalPlanIDs: sortedKeys(supersededPlans),
 	}

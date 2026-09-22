@@ -64,6 +64,55 @@ func TestSupersededConflictResolutionRetiresEarlierRoundsOfTheSameThread(t *test
 	}
 }
 
+// A focused resolution can own a path that the predecessor never explicitly
+// patched. In that case the conflict came from the predecessor's stale request
+// ancestry, not from its write set. Requiring write-set overlap leaves the
+// predecessor branch rooted at the stale base and makes the same capsule paths
+// conflict again on every Apply.
+func TestSupersededConflictResolutionReanchorsAncestorForIncidentalCapsulePath(t *testing.T) {
+	item := domain.Session{RequestLineages: map[string]domain.RequestLineage{
+		"req-original":   {RequestID: "req-original", Kind: requestKindStandard},
+		"req-resolution": {RequestID: "req-resolution", ParentRequestID: "req-original", Kind: requestKindConflict},
+	}}
+	pending := []domain.PendingHostChange{
+		candidateFor("req-original", "plan-original", "services/backend/internal/app/service.go"),
+		candidateFor("req-resolution", "plan-resolution", "AGENTS.md", "SoT/FRONTEND_STYLING.md"),
+	}
+
+	superseded := supersededConflictResolution(item, pending)
+	if superseded == nil {
+		t.Fatal("a conflict child must supersede its ancestor's stale integration ancestry")
+	}
+	if superseded.RequestID != "req-resolution" {
+		t.Fatalf("recovery must re-anchor at the resolution request, got %q", superseded.RequestID)
+	}
+	assertContains(t, superseded.OriginalPlanIDs, "plan-original")
+	assertContains(t, superseded.Paths, "AGENTS.md")
+	assertContains(t, superseded.Paths, "SoT/FRONTEND_STYLING.md")
+}
+
+func TestSupersededConflictResolutionDoesNotGuessDistantIncidentalAncestors(t *testing.T) {
+	item := domain.Session{RequestLineages: map[string]domain.RequestLineage{
+		"req-root":       {RequestID: "req-root", Kind: requestKindStandard},
+		"req-parent":     {RequestID: "req-parent", ParentRequestID: "req-root", Kind: requestKindStandard},
+		"req-resolution": {RequestID: "req-resolution", ParentRequestID: "req-parent", Kind: requestKindConflict},
+	}}
+	pending := []domain.PendingHostChange{
+		candidateFor("req-root", "plan-root", "root.go"),
+		candidateFor("req-parent", "plan-parent", "parent.go"),
+		candidateFor("req-resolution", "plan-resolution", "policy.md"),
+	}
+
+	superseded := supersededConflictResolution(item, pending)
+	if superseded == nil {
+		t.Fatal("expected direct parent ancestry retirement")
+	}
+	assertContains(t, superseded.OriginalPlanIDs, "plan-parent")
+	if containsString(superseded.OriginalPlanIDs, "plan-root") {
+		t.Fatal("an incidental path with no explicit overlap must not guess ownership beyond the direct parent")
+	}
+}
+
 // AGENTS.md is explicit that whether two changes combine is decided by a real
 // three-way merge, never by impact-file overlap. Two unrelated candidates that
 // happen to touch one file must therefore be left alone.
@@ -112,6 +161,44 @@ func TestRetireConflictingMutationsNarrowsTheBranchNotOnlyTheChangeSet(t *testin
 	// same collision came back on every Apply.
 	if len(retiredBranches) != 1 || retiredBranches[0] != "whx/req-original" {
 		t.Fatalf("the integration branch was not retired: %v", retiredBranches)
+	}
+}
+
+// When a predecessor survives a focused conflict because the capsule path was
+// incidental to its explicit mutations, the surviving delta must remember the
+// newer request base it was composed against. Otherwise Apply can later promote
+// it from its original base and recreate the conflict that was just resolved.
+func TestRetireConflictingMutationsReanchorsSurvivingLegacyCandidate(t *testing.T) {
+	change := candidateFor("req-original", "plan-original", "services/backend/internal/app/service.go")
+	change.Plan.BaseContextSHA256 = "old-context"
+	change.ChangeSet = &domain.ChangeSet{
+		ID:           "chg-survivor",
+		BaseRevision: "old-context",
+		Mutations:    []domain.FileMutation{{Path: "services/backend/internal/app/service.go"}},
+	}
+
+	remaining, retiredBranches, err := retireConflictingMutations(
+		context.Background(), t.TempDir(), "resolution-context", []domain.PendingHostChange{change},
+		&domain.ConflictResolution{
+			RequestID:       "req-resolution",
+			Paths:           []string{"AGENTS.md", "SoT/FRONTEND_STYLING.md"},
+			OriginalPlanIDs: []string{"plan-original"},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retiredBranches) != 0 || len(remaining) != 1 {
+		t.Fatalf("the non-conflicting explicit delta must survive: branches=%v remaining=%d", retiredBranches, len(remaining))
+	}
+	got := remaining[0]
+	if got.IntegrationBaseRequestID != "req-resolution" {
+		t.Fatalf("survivor lost its replacement request base: %q", got.IntegrationBaseRequestID)
+	}
+	if got.Plan.BaseContextSHA256 != "resolution-context" {
+		t.Fatalf("plan provenance was not advanced: %q", got.Plan.BaseContextSHA256)
+	}
+	if got.ChangeSet == nil || got.ChangeSet.BaseRevision != "resolution-context" || len(got.ChangeSet.Mutations) != 1 {
+		t.Fatalf("legacy ChangeSet was not preserved on the replacement base: %#v", got.ChangeSet)
 	}
 }
 

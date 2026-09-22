@@ -244,10 +244,70 @@ func TestRequestBaseIsCapturedWithoutDisturbingTheHost(t *testing.T) {
 	}
 }
 
+func TestPrepareBaseRootedWorkspaceCanUseReplacementRequestBase(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("original\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, root, "init", "-q")
+	gitIn(t, root, "add", "a.txt")
+	gitIn(t, root, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "base")
+
+	originalBase, err := sandbox.CaptureRequestBase(context.Background(), root, "req-original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerIntegration(t, root, "a.txt", "resolution base\n")
+	resolutionBase, err := sandbox.CaptureRequestBase(context.Background(), root, "req-resolution")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if originalBase == resolutionBase {
+		t.Fatal("fixture must have distinct request bases")
+	}
+
+	service := baseRootService(domain.ExecutionPlan{})
+	workspace, err := service.runner.Prepare(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.runner.Cleanup(workspace)
+	item := domain.Session{ProjectPath: root, RequestBaseCommits: map[string]string{
+		"req-original":   originalBase,
+		"req-resolution": resolutionBase,
+	}}
+	plan := domain.ExecutionPlan{
+		PlanID: "plan-original", RequestID: "req-original", ImpactFiles: []string{"a.txt"},
+		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-original\n+candidate\n"}},
+	}
+
+	branch, base, ok := service.prepareBaseRootedWorkspaceAtRequest(context.Background(), "session", item, &plan, workspace.Path, "req-resolution")
+	if !ok {
+		t.Fatal("expected replacement request base to be usable")
+	}
+	if base != resolutionBase {
+		t.Fatalf("rooted at %s, expected replacement base %s", base, resolutionBase)
+	}
+	if branch != integrationBranchName("req-original") {
+		t.Fatalf("re-anchoring must not change the predecessor branch identity: %q", branch)
+	}
+	if head := gitIn(t, workspace.Path, "rev-parse", "HEAD"); head != resolutionBase {
+		t.Fatalf("workspace HEAD=%s, expected replacement request base %s", head, resolutionBase)
+	}
+}
+
 func TestRecordRequestBaseCommitEvictsOnlyReleasableAnchors(t *testing.T) {
-	item := &domain.Session{LastRequestID: "keep-active", PendingManualRequestIDs: []string{"keep-pending"}}
+	item := &domain.Session{
+		LastRequestID:           "keep-active",
+		PendingManualRequestIDs: []string{"keep-pending"},
+		PendingHostChanges: []domain.PendingHostChange{{
+			Plan: domain.ExecutionPlan{RequestID: "keep-plan"}, IntegrationBaseRequestID: "keep-replacement",
+		}},
+	}
 	recordRequestBaseCommit(item, "keep-active", "a1")
 	recordRequestBaseCommit(item, "keep-pending", "a2")
+	recordRequestBaseCommit(item, "keep-plan", "a3")
+	recordRequestBaseCommit(item, "keep-replacement", "a4")
 	var released []string
 	for index := 0; index < maxRetainedRequestBases+5; index++ {
 		released = append(released, recordRequestBaseCommit(item, "req-"+string(rune('a'+index)), "sha")...)
@@ -256,7 +316,7 @@ func TestRecordRequestBaseCommitEvictsOnlyReleasableAnchors(t *testing.T) {
 		t.Fatal("expected eviction beyond the retention bound")
 	}
 	for _, id := range released {
-		if id == "keep-active" || id == "keep-pending" {
+		if id == "keep-active" || id == "keep-pending" || id == "keep-plan" || id == "keep-replacement" {
 			t.Fatalf("evicted an anchor that is still needed: %s", id)
 		}
 	}
@@ -265,5 +325,11 @@ func TestRecordRequestBaseCommitEvictsOnlyReleasableAnchors(t *testing.T) {
 	}
 	if _, ok := item.RequestBaseCommits["keep-pending"]; !ok {
 		t.Fatal("a pending request's base was evicted")
+	}
+	if _, ok := item.RequestBaseCommits["keep-plan"]; !ok {
+		t.Fatal("a pending plan's original base was evicted")
+	}
+	if _, ok := item.RequestBaseCommits["keep-replacement"]; !ok {
+		t.Fatal("a conflict-narrowed candidate's replacement base was evicted")
 	}
 }
