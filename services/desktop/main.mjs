@@ -25,6 +25,7 @@ import { RATE_LIMIT_GATE, classifyChatGPTRateLimit, isChatGPTBackendAPIURL } fro
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry, canonicalProjectPath } from './project-window-registry.mjs'
 import { desktopIconSVG, desktopInstanceName, desktopWindowTitle } from './desktop-identity.mjs'
+import { createDesktopWindowCloseCoordinator } from './desktop-window-close.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
@@ -872,33 +873,20 @@ async function requestFullDesktopQuit() {
   app.quit()
 }
 
-function confirmDesktopWindowClose(windowState, event) {
-  if (quitting || windowState.transientSurface) return
-  event.preventDefault()
-  const projectPath = windowState.activeProject && windowState.projects.has(windowState.activeProject) ? windowState.activeProject : [...windowState.projects][0] || ''
-  const response = dialog.showMessageBoxSync(windowState.window, {
-    type: 'question',
-    title: projectPath ? `Fechar ${path.basename(projectPath)}` : 'Fechar janela do Wharnex',
-    message: projectPath ? `O que pretende fazer com o projeto ${path.basename(projectPath)}?` : 'O que pretende fazer com esta janela?',
-    detail: 'Enviar para background mantém o Wharnex ativo no ícone da área de notificação. Sair guarda a sessão recuperável antes de encerrar.',
-    buttons: ['Enviar para background', projectPath ? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'],
-    defaultId: 0,
-    cancelId: 3,
-    noLink: true,
-  })
-  if (response === 0) {
+const desktopWindowClose = createDesktopWindowCloseCoordinator({
+  publish: (windowState, payload) => {
+    const projectPath = payload.projectPath
+    sendToWindowState(windowState, 'wharness:windows:confirm-close', { ...payload, buttons: ['Enviar para background', projectPath ? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'] })
+  },
+  background: (windowState) => {
     hideChatAgentInteractionsForWindow(windowState)
     windowState.window.hide()
     ensureDesktopTray()
-    return
-  }
-  if (response === 1) {
-    if (projectPath) requestProjectClose(projectPath)
-    else windowState.window.destroy()
-    return
-  }
-  if (response === 2) setTimeout(() => { void requestFullDesktopQuit() }, 0)
-}
+  },
+  closeProject: (projectPath) => requestProjectClose(projectPath),
+  closeWindow: (windowState) => windowState.window.destroy(),
+  closeAll: () => setTimeout(() => { void requestFullDesktopQuit() }, 0),
+})
 
 function promptDesktopRecoverySession(recovery) {
   if (!recovery?.windows?.length) return []
@@ -7424,14 +7412,12 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
     win.on('unmaximize', scheduleWindowLayoutPersistence)
   }
   win.on('close', (event) => {
-    if (!quitting && !state.transientSurface) {
-      confirmDesktopWindowClose(state, event)
-      if (event.defaultPrevented) return
-    }
+    if (!quitting && !state.transientSurface && desktopWindowClose.request(state, event)) return
     hideChatAgentInteractionsForWindow(state)
     if (!quitting) rehomeChatGPTWorkers(state)
   })
   win.on('closed', () => {
+    desktopWindowClose.clear(state)
     closeInternalChatGPTBrowserForWindow(state)
     closeChatGPTViewsForWindow(state)
     releaseWindowProjects(state)
@@ -7578,6 +7564,9 @@ function registerIPC() {
       if (!windowState.window.isDestroyed()) windowState.window.close()
     }, 0)
     return { ok: true }
+  })
+  ipcMain.handle('wharness:windows:resolve-close', (event, request) => {
+    return desktopWindowClose.resolve(trustedSender(event), request?.action)
   })
   ipcMain.handle('wharness:windows:activate-self-evolution', (event, request) => {
     const windowState = trustedSender(event)

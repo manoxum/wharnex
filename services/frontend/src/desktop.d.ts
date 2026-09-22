@@ -1,4 +1,6 @@
 type DesktopBounds = { x: number; y: number; width: number; height: number }
+type DesktopWindowCloseAction = 'background' | 'close-project' | 'close-all' | 'cancel'
+type DesktopWindowClosePrompt = { projectPath: string; projectName: string; hasProject: boolean }
 type DesktopChatGPTAuthMode = 'embedded' | 'external'
 type DesktopChatGPTAffinityPhase = 'unbound' | 'armed' | 'candidate' | 'bound'
 type DesktopChatGPTState = { cacheKey?: string; surfaceDeferred?: boolean; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; externalAuthProvider?: string; authMode?: DesktopChatGPTAuthMode; authWindowOpen?: boolean; authenticated?: boolean; humanAction?: DesktopChatGPTHumanAction; affinityPhase?: DesktopChatGPTAffinityPhase; boundConversationUrl?: string; bindingCandidate?: string }
@@ -73,6 +75,8 @@ interface WharnessDesktopBridge {
     focusProject(projectPath: string): Promise<{ ok: boolean; windowId: string; projectPath: string }>
     onActivateProject(callback: (payload: { projectPath: string }) => void): () => void
     onCloseProject(callback: (payload: { projectPath: string }) => void): () => void
+    onCloseConfirmation(callback: (payload: DesktopWindowClosePrompt) => void): () => void
+    resolveClose(action: DesktopWindowCloseAction): Promise<{ ok: boolean; action?: DesktopWindowCloseAction; reason?: string }>
     open(): Promise<{ ok: boolean; windowId: string }>
     openSurface(request: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string }): Promise<{ ok: boolean; windowId: string }>
     moveSurface(request: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string; screenX?: number; screenY?: number }): Promise<{ ok: boolean; action: 'moved' | 'opened' | 'blocked'; windowId?: string; reason?: string; message?: string }>

@@ -14,6 +14,7 @@ import { TunnelOverviewModal } from './TunnelOverviewModal'
 import { ProjectGitBadge } from './ProjectGitBadge'
 import { SignalCore } from './SignalCore'
 import { ProjectLinkModal } from './ProjectLinkModal'
+import { DesktopCloseDialogHost } from './DesktopCloseDialogHost'
 
 type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
 type OpenProjectWindow = { windowId: string; projectPath: string; focused: boolean }
@@ -126,12 +127,7 @@ export function WorkspaceShell() {
         const projectPath = String(event.data.projectPath || '')
         if (projectPath) void unbindProject(projectPath)
       }
-      // Bring a project to the front from inside one of the bound frames.
-      //
-      // The three cases are genuinely different and only the shell can tell
-      // them apart: already bound here is a local activation, open in another
-      // window has to raise that window, and anything else has to be bound
-      // first or the request resolves to nothing at all.
+      // The shell disambiguates local activation, another window and a new binding.
       if (event.data?.type === 'wharness:focus-project') {
         const projectPath = String(event.data.projectPath || '')
         if (projectPath) void focusProject(projectPath)
@@ -326,6 +322,7 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
   const orderedProjects = activeProject ? [activeProject, ...projects.filter((projectPath) => projectPath !== activeProject)] : projects
 
   return <header className="multi-project-bar" data-window-titlebar="true">
+    <DesktopCloseDialogHost />
     <div className="multi-project-brand"><SignalCore size="compact" /></div>
     <nav className="project-quick-switch" aria-label="Projetos vinculados">
       {orderedProjects.map((projectPath) => {
