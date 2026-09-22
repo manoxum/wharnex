@@ -103,6 +103,7 @@ import { createEventStreamCoalescer, type EventStreamCoalescer } from './lib/eve
 import { loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool } from './lib/workspaceRailLayout'
 import { loadWorkbenchState, saveWorkbenchState } from './lib/workbenchPreferences'
 import { subscribeHeaderPopover } from './lib/headerPopover'
+import { buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from './lib/desktopTray'
 import { workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget, type WorkspaceSurfaceTransferPoint } from './lib/workspaceSurface'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
@@ -3377,6 +3378,43 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   useEffect(() => {
     if (embeddedProject && !shellActive) setAttentionPreviewOpen(false)
   }, [embeddedProject, shellActive])
+
+  useEffect(() => {
+    const tray = desktopBridge()?.tray
+    if (!tray?.updateProjectState || !session) return
+    const trayTaskInFlight = requestChainActive(session) || restartModalOpen || interruptedExecutions.some((target) => target.chat.id === activeChatId)
+    void tray.updateProjectState(buildDesktopTrayProjectState({
+      session, attentionItems, activeChatId, taskInFlight: trayTaskInFlight,
+      tunnelCount: config?.remote_input?.instances?.length || 0,
+    })).catch(() => undefined)
+  }, [session, activeChatId, attentionItems, restartModalOpen, interruptedExecutions, config?.remote_input?.instances])
+
+  useEffect(() => {
+    const tray = desktopBridge()?.tray
+    if (!tray?.onAction || !session) return
+    return tray.onAction((event) => {
+      if (event.projectPath !== session.project_path) return
+      const attentionAction = async (action: AttentionItem['action']) => {
+        const item = attentionItems.find((entry) => entry.chatId === activeChatId && entry.action === action)
+        if (item) await runAttentionItemAction(item)
+      }
+      void dispatchDesktopTrayProjectAction(event.action, {
+        openNotifications: () => { setMode('agent'); setAttentionPreviewOpen(true) },
+        openPlan: () => { setMode('agent'); setInspectorAttention((current) => ({ tab: 'plan', nonce: current.nonce + 1 })) },
+        openExecution: () => { setMode('agent'); setInspectorAttention((current) => ({ tab: 'terminal', nonce: current.nonce + 1 })) },
+        approveExecution: () => attentionAction('approve-execution'),
+        pauseExecution: () => controlExecutionPlan('pause'),
+        resumeExecution: () => controlExecutionPlan('resume'),
+        suspendExecution: () => controlExecutionPlan('suspend'),
+        continueRequest: () => attentionAction('retry-transport'),
+        openWorkers: () => {
+          setMode('agent')
+          const onLeft = railLayout.left.includes('agents') || railLayout.pinned.left.includes('agents')
+          if (onLeft) setSideDrawer('agents'); else setRightDrawer('agents')
+        },
+      }).catch((cause) => setError(messageOf(cause)))
+    })
+  }, [session, activeChatId, attentionItems, railLayout, runAttentionItemAction, controlExecutionPlan])
 
   const notifyComposerTyping = useCallback(() => {
     if (!embeddedProject) return

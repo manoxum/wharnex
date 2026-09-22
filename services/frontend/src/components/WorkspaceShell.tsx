@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { api } from '../lib/api'
 import { desktopBridge } from '../lib/desktop'
+import { isDesktopTrayTunnelAction } from '../lib/desktopTray'
 import { announceHeaderPopover, subscribeHeaderPopover, subscribeOtherHeaderPopover } from '../lib/headerPopover'
 import { desktopWindowScope, loadBoundActiveProject, loadBoundProjects, saveBoundActiveProject, saveBoundProjects } from '../lib/projectBindings'
 import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent } from '../lib/workspaceMemory'
@@ -325,6 +326,17 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
   useEffect(() => subscribeOtherHeaderPopover('project-list', () => setProjectWindowOpen(false)), [])
   useEffect(() => subscribeOtherHeaderPopover('project-actions', () => setProjectActionsOpen(false)), [])
   useEffect(() => subscribeOtherHeaderPopover('tunnels', () => setTunnelsOpen(false)), [])
+
+  useEffect(() => {
+    const tray = desktopBridge()?.tray
+    if (!tray?.onAction) return
+    return tray.onAction((event) => {
+      if (!isDesktopTrayTunnelAction(event, projects)) return
+      if (event.projectPath !== activeProject) onActivate(event.projectPath)
+      announceHeaderPopover('tunnels')
+      setTunnelsOpen(true)
+    })
+  }, [projects, activeProject, onActivate])
 
   useEffect(() => {
     if (!projectActionsOpen && !projectWindowOpen) return
