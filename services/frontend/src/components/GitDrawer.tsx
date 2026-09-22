@@ -24,6 +24,8 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   onResolveConflictWithGPT?: (session: Session) => Promise<void>
 }) {
   const [overview, setOverview] = useState<GitOverview | null>(null)
+  const [repository, setRepository] = useState('')
+  const [targetRepositories, setTargetRepositories] = useState<Set<string>>(new Set(['']))
   const [loading, setLoading] = useState(true)
   const [working, setWorking] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -48,10 +50,10 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   }, [onError])
 
   const loadOverview = useCallback(async () => {
-    const next = await api.gitOverview(session.id)
+    const next = await api.gitOverview(session.id, repository)
     setOverview(next)
     return next
-  }, [session.id])
+  }, [session.id, repository])
 
   const refresh = useCallback(async () => {
     try {
@@ -65,7 +67,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { void refresh() }, [session.last_host_applied_at, session.state, refresh])
-  useEffect(() => subscribeGitLiveSync(session.id, () => { void refresh() }), [session.id, refresh])
+  useEffect(() => subscribeGitLiveSync(session.id, repository, () => { void refresh() }), [session.id, repository, refresh])
   useEffect(() => {
     if (!overview) return
     const committable = new Set(overview.working.files.filter((file) => file.kind === 'change' || file.kind === 'gitlink').map((file) => file.path))
@@ -76,6 +78,24 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   const remoteBranches = useMemo(() => (overview?.branches || []).filter((branch) => branch.remote), [overview])
   const current = useMemo(() => localBranches.find((branch) => branch.current), [localBranches])
   const pending = overview?.pending || []
+  const availableRepositories = useMemo(() => (overview?.repositories || []).filter((item) => item.available), [overview])
+  const operationRepositories = useMemo(() => {
+    const valid = availableRepositories.filter((item) => targetRepositories.has(item.path)).map((item) => item.path)
+    return valid.length ? valid : [repository]
+  }, [availableRepositories, targetRepositories, repository])
+
+  async function runForRepositories(action: (target: string) => Promise<string>) {
+    const successes: string[] = []
+    const failures: string[] = []
+    for (const target of operationRepositories) {
+      const label = overview?.repositories.find((item) => item.path === target)?.label || 'superprojeto'
+      try { successes.push(`${label}: ${await action(target)}`) }
+      catch (error) { failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`) }
+    }
+    if (failures.length) throw new Error(`${successes.length ? `${successes.length} repositório(s) concluído(s). ` : ''}Falhou em ${failures.join(' | ')}`)
+    if (successes.length === 1) return successes[0].replace(/^[^:]+: /, '')
+    return `Operação concluída em ${successes.length} repositórios.`
+  }
 
   async function run(action: () => Promise<void>, syncSession = false) {
     setWorking(true)
@@ -173,12 +193,23 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     const paths = Array.from(selectedWorktree)
     await runGitOperation(
       'A criar commit manual',
-      `${paths.length} ficheiro(s) selecionado(s) serão adicionados ao histórico local.`,
+      operationRepositories.length === 1 && operationRepositories[0] === repository
+        ? `${paths.length} ficheiro(s) selecionado(s) serão adicionados ao histórico local.`
+        : `As alterações de ${operationRepositories.length} repositório(s) alvo serão registadas separadamente.`,
       async () => {
-        const result = await api.commitGitWorktree(session.id, worktreeCommitMessage, paths)
+        let message: string
+        if (operationRepositories.length !== 1 || operationRepositories[0] !== repository) {
+          message = await runForRepositories(async (target) => {
+            const result = await api.commitGitWorktree(session.id, worktreeCommitMessage, [], target, true)
+            return `Commit ${result.commit_sha.slice(0, 8)} criado com ${result.paths.length} ficheiro(s).`
+          })
+        } else {
+          const result = await api.commitGitWorktree(session.id, worktreeCommitMessage, paths, repository)
+          message = `Commit criado com ${result.paths.length} ficheiro(s): ${result.commit_sha.slice(0, 8)}.`
+        }
         setSelectedWorktree(new Set())
         setWorktreeCommitMessage('')
-        return `Commit criado com ${result.paths.length} ficheiro(s): ${result.commit_sha.slice(0, 8)}.`
+        return message
       },
     )
   }
@@ -200,6 +231,18 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     {!loading && overview && !overview.available && <p className="git-empty warning-card">Não foi possível inspecionar o repositório: {overview.unavailable}</p>}
 
     {overview?.available && <>
+      {overview.repositories.length > 1 && <div className="git-repository-scope">
+        <label className="git-repository-active"><span>Repositório ativo</span><select value={repository} disabled={disabled} onChange={(event) => {
+          const next = event.target.value
+          setRepository(next); setTargetRepositories(new Set([next])); setSelectedWorktree(new Set()); setSelected(new Set()); setMergeRef(''); setRemoteMergeSources([]); setNotice('')
+        }}>{overview.repositories.map((item) => <option key={item.path || '__root__'} value={item.path} disabled={!item.available}>{item.root ? 'Superprojeto' : item.label}{item.available ? '' : ' · indisponível'}</option>)}</select></label>
+        <div className="git-repository-targets">
+          <span>Executar operações em</span>
+          <div className="git-repository-target-actions"><button type="button" disabled={disabled} onClick={() => setTargetRepositories(new Set([repository]))}>Só ativo</button><button type="button" disabled={disabled} onClick={() => setTargetRepositories(new Set(availableRepositories.map((item) => item.path)))}>Todos</button></div>
+          <div className="git-repository-target-list">{overview.repositories.map((item) => <label key={item.path || '__root__'} className={!item.available ? 'disabled' : ''}><input type="checkbox" disabled={disabled || !item.available} checked={targetRepositories.has(item.path)} onChange={() => setTargetRepositories((currentSelection) => { const next = new Set(currentSelection); if (next.has(item.path)) next.delete(item.path); else next.add(item.path); return next })}/><span>{item.root ? 'Superprojeto' : item.label}</span><small>{item.current_branch || (item.detached ? 'HEAD destacado' : item.unavailable || 'sem branch')}</small></label>)}</div>
+          <small className="git-repository-target-hint">Operações coletivas são executadas sequencialmente e cada repositório mantém o seu próprio estado Git.</small>
+        </div>
+      </div>}
       <GitTabs active={activeTab} onChange={setActiveTab} overview={overview}/>
       {notice && <p className={`git-notice ${noticeError ? 'error-card' : ''}`} role={noticeError ? 'alert' : 'status'}>{notice}</p>}
       {overview.conflict && <div className="git-conflict-card warning-card">
@@ -228,18 +271,21 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             })}
             onCommit={() => void commitWorktree()}
             onOpenDiff={(path) => void (async () => {
-              try { setWorktreeDiff(await api.gitFileDiff(session.id, path)) } catch (error) { report(error) }
+              try { setWorktreeDiff(await api.gitFileDiff(session.id, path, repository)) } catch (error) { report(error) }
             })()}
           />}
           {activeChangesTab === 'pending' && <GitUnpushedSection
-            sessionId={session.id} activeBranch={current} remotes={overview.remotes} disabled={disabled}
+            sessionId={session.id} repository={repository} activeBranch={current} remotes={overview.remotes} disabled={disabled}
             onFullPush={async (remote, branch, setUpstream) => {
               await runGitOperation(
                 'A publicar alterações',
                 `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
                 async () => {
-                  const result = await api.gitPush(session.id, remote, branch, setUpstream)
-                  return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
+                  return runForRepositories(async (target) => {
+                    const result = await api.gitPush(session.id, remote, branch, setUpstream, target)
+                    if (result.conflict_id) return conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id))
+                    return result.detail || pushMessage(result.outcome, result.integrated, result.conflict_id)
+                  })
                 },
                 true,
               )
@@ -249,17 +295,17 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
                 'A publicar commits selecionados',
                 `A enviar ${commitSHAs.length} commit(s) para o upstream da branch atual.`,
                 async () => {
-                  const result = await api.gitPushSelected(session.id, commitSHAs)
+                  const result = await api.gitPushSelected(session.id, commitSHAs, repository)
                   return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
                 },
               )
             }}
           />}
         </>}
-        {activeTab === 'history' && <HistorySection sessionId={session.id} branches={overview.branches}/>}
-        {activeTab === 'contributors' && <GitContributorsSection sessionId={session.id}/>}
+        {activeTab === 'history' && <HistorySection sessionId={session.id} repository={repository} branches={overview.branches}/>}
+        {activeTab === 'contributors' && <GitContributorsSection sessionId={session.id} repository={repository}/>}
         {activeTab === 'branches' && <BranchSection
-          sessionId={session.id}
+          sessionId={session.id} repository={repository} allowCurrentSwitch={operationRepositories.length > 1}
           current={current?.name || overview.current_branch} detached={overview.detached}
           localBranches={localBranches} remoteBranches={remoteBranches} remotes={overview.remotes}
           projectVersion={overview.project_version || ''} tags={overview.tags || []}
@@ -270,10 +316,13 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             'A integrar branches remotas',
             `A integrar ${remoteMergeSources.join(', ')} em ${remoteMergeTarget} sem alterar a branch local.`,
             async () => {
-              const result = await api.gitRemoteMerge(session.id, remoteMergeTarget, remoteMergeSources)
-              if (result.outcome === 'conflict') return conflictMessage(result.conflict_id, `Merge remoto encontrou conflito em ${result.conflict_ref}; nenhuma branch local ou remota foi alterada.`)
+              const message = await runForRepositories(async (target) => {
+                const result = await api.gitRemoteMerge(session.id, remoteMergeTarget, remoteMergeSources, target)
+                if (result.outcome === 'conflict') return result.conflict_id ? conflictMessage(result.conflict_id, `Merge remoto encontrou conflito em ${result.conflict_ref}; nenhuma branch local ou remota foi alterada.`) : (result.detail || `Merge remoto encontrou conflito em ${result.conflict_ref}.`)
+                return `Merge remoto em ${result.target_ref}: ${result.outcome}${result.push_outcome ? ` · push ${result.push_outcome}` : ''}.`
+              })
               setRemoteMergeSources([])
-              return `Merge remoto em ${result.target_ref}: ${result.outcome}${result.push_outcome ? ` · push ${result.push_outcome}` : ''}.`
+              return message
             },
             true,
           )}
@@ -281,9 +330,12 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             'A integrar branch',
             `A fazer merge de ${mergeRef} na branch atual.`,
             async () => {
-              const result = await api.gitMerge(session.id, mergeRef)
+              const message = await runForRepositories(async (target) => {
+                const result = await api.gitMerge(session.id, mergeRef, target)
+                return result.conflict_id ? conflictMessage(result.conflict_id, `Merge de ${result.ref} entrou em conflito.`) : (result.detail || `Merge de ${result.ref}: ${result.outcome}.`)
+              })
               setMergeRef('')
-              return result.conflict_id ? conflictMessage(result.conflict_id, `Merge de ${result.ref} entrou em conflito.`) : `Merge de ${result.ref}: ${result.outcome}.`
+              return message
             },
             true,
           )}
@@ -291,40 +343,39 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             'A procurar alterações na origem',
             `A atualizar as referências remotas a partir de ${remote}.`,
             async () => {
-              await api.gitFetch(session.id, remote)
-              return `Fetch de ${remote} concluído.`
+              return runForRepositories(async (target) => { await api.gitFetch(session.id, remote, target); return `Fetch de ${remote} concluído.` })
             },
           )}
           onPull={(remote, branch) => runGitOperation(
             'A integrar alterações da origem',
             `A trazer ${remote}/${branch} para a branch local.`,
             async () => {
-              const result = await api.gitPull(session.id, remote, branch)
-              return result.conflict_id ? conflictMessage(result.conflict_id, `Pull de ${result.ref} encontrou conflito.`) : `Pull de ${result.ref}: ${result.outcome}.`
+              return runForRepositories(async (target) => {
+                const result = await api.gitPull(session.id, remote, branch, target)
+                return result.conflict_id ? conflictMessage(result.conflict_id, `Pull de ${result.ref} encontrou conflito.`) : (result.detail || `Pull de ${result.ref}: ${result.outcome}.`)
+              })
             },
             true,
           )}
           onSwitch={(branch) => run(async () => {
-            await api.gitSwitch(session.id, branch)
-            setNotice(`Branch alterada para ${branch}.`)
+            setNotice(await runForRepositories(async (target) => { await api.gitSwitch(session.id, branch, target); return `Branch alterada para ${branch}.` }))
           }, true)}
           onCreateBranch={(branch, startPoint) => run(async () => {
-            await api.gitCreateBranch(session.id, branch, startPoint)
-            setNotice(`Branch ${branch} criada a partir de ${startPoint || 'HEAD'}.`)
+            setNotice(await runForRepositories(async (target) => { await api.gitCreateBranch(session.id, branch, startPoint, target); return `Branch ${branch} criada a partir de ${startPoint || 'HEAD'}.` }))
           })}
           onDeleteBranch={(branch) => void (async () => {
             const confirmed = await confirmDialog({ title: `Remover branch ${branch}?`, message: 'Branches locais usam remoção segura sem força; branches remotas são removidas do remoto selecionado sem force push.', tone: 'danger', confirmLabel: 'Remover branch' })
             if (!confirmed) return
-            await run(async () => { await api.gitDeleteBranch(session.id, branch); setNotice(`Branch ${branch} removida.`) })
+            await run(async () => { setNotice(await runForRepositories(async (target) => { await api.gitDeleteBranch(session.id, branch, target); return `Branch ${branch} removida.` })) })
           })()}
           onCopyBranch={(branch) => void copyGitText(branch, `Nome da branch ${branch} copiado.`)}
           onCopyTag={(tag) => void copyGitText(tag, `Tag ${tag} copiada.`)}
-          onGenerateReleaseNotes={async (branch) => (await api.gitGenerateReleaseNotes(session.id, branch)).body}
+          onGenerateReleaseNotes={async (branch) => (await api.gitGenerateReleaseNotes(session.id, branch, repository)).body}
           onCreateRelease={(input) => runGitOperation(
             'A publicar release',
             `A criar ${releaseTagName(overview.project_version || '', input.tag_suffix)} a partir de ${input.branch} e a publicar a release no remoto dessa branch.`,
             async () => {
-              const result = await api.gitCreateRelease(session.id, input)
+              const result = await api.gitCreateRelease(session.id, input, repository)
               return `Release ${result.tag} publicada${result.release_url ? ` · ${result.release_url}` : ''}.`
             },
           )}
@@ -332,8 +383,11 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             'A publicar alterações',
             `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
             async () => {
-              const result = await api.gitPush(session.id, remote, branch, setUpstream)
-              return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
+              return runForRepositories(async (target) => {
+                const result = await api.gitPush(session.id, remote, branch, setUpstream, target)
+                if (result.conflict_id) return conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id))
+                return result.detail || pushMessage(result.outcome, result.integrated, result.conflict_id)
+              })
             },
             true,
           )}
@@ -512,8 +566,8 @@ function CommitModeSection({ overview, disabled, onChange }: { overview: GitOver
 
 type GitReleaseDraftInput = { branch: string; tag_suffix: string; title: string; body: string }
 
-function BranchSection({ sessionId, current, detached, localBranches, remoteBranches, remotes, projectVersion, tags, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onCreateBranch, onDeleteBranch, onCopyBranch, onCopyTag, onGenerateReleaseNotes, onCreateRelease, onPush }: {
-  sessionId: string; current?: string; detached: boolean; localBranches: GitOverview['branches']; remoteBranches: GitOverview['branches']; remotes: GitOverview['remotes']
+function BranchSection({ sessionId, repository, allowCurrentSwitch, current, detached, localBranches, remoteBranches, remotes, projectVersion, tags, disabled, mergeRef, onMergeRefChange, onMerge, remoteMergeTarget, remoteMergeSources, onRemoteMergeTargetChange, onRemoteMergeSourcesChange, onRemoteMerge, onFetch, onPull, onSwitch, onCreateBranch, onDeleteBranch, onCopyBranch, onCopyTag, onGenerateReleaseNotes, onCreateRelease, onPush }: {
+  sessionId: string; repository: string; allowCurrentSwitch: boolean; current?: string; detached: boolean; localBranches: GitOverview['branches']; remoteBranches: GitOverview['branches']; remotes: GitOverview['remotes']
   projectVersion: string; tags: GitOverview['tags']
   disabled: boolean; mergeRef: string; onMergeRefChange: (value: string) => void; onMerge: () => void
   remoteMergeTarget: string; remoteMergeSources: string[]; onRemoteMergeTargetChange: (value: string) => void; onRemoteMergeSourcesChange: (values: string[]) => void; onRemoteMerge: () => void
@@ -542,20 +596,20 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
   useEffect(() => {
     let alive = true
     if (!current || detached) { setLocalMergeOptions([]); return () => { alive = false } }
-    api.gitMergeCandidates(sessionId, current).then((items) => { if (alive) setLocalMergeOptions(items) }).catch(() => { if (alive) setLocalMergeOptions([]) })
+    api.gitMergeCandidates(sessionId, current, repository).then((items) => { if (alive) setLocalMergeOptions(items) }).catch(() => { if (alive) setLocalMergeOptions([]) })
     return () => { alive = false }
-  }, [sessionId, current, detached, localBranches, remoteBranches])
+  }, [sessionId, repository, current, detached, localBranches, remoteBranches])
   useEffect(() => {
     let alive = true
     if (!remoteMergeTarget) { setRemoteMergeOptions([]); return () => { alive = false } }
-    api.gitMergeCandidates(sessionId, remoteMergeTarget).then((items) => {
+    api.gitMergeCandidates(sessionId, remoteMergeTarget, repository).then((items) => {
       if (!alive) return
       setRemoteMergeOptions(items)
       const eligible = new Set(items.map((item) => item.name))
       onRemoteMergeSourcesChange(remoteMergeSources.filter((ref) => eligible.has(ref)))
     }).catch(() => { if (alive) setRemoteMergeOptions([]) })
     return () => { alive = false }
-  }, [sessionId, remoteMergeTarget, localBranches, remoteBranches])
+  }, [sessionId, repository, remoteMergeTarget, localBranches, remoteBranches])
   const toggleRemoteMergeSource = (ref: string) => onRemoteMergeSourcesChange(remoteMergeSources.includes(ref) ? remoteMergeSources.filter((value) => value !== ref) : [...remoteMergeSources, ref])
   return <section className="git-section git-branches-section">
     <div className="git-branch-overview">
@@ -648,8 +702,8 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
         <div><span>Repositório</span><strong>Branches disponíveis</strong></div>
         <span>{localBranches.length + remoteBranches.length} no total</span>
       </div>
-      <BranchList title="Locais" description="Branches disponíveis no workspace" branches={localBranches} disabled={disabled} onSwitch={onSwitch} onDelete={onDeleteBranch} onCopy={onCopyBranch}/>
-      <BranchList title="Remotas" description="Referências conhecidas no servidor" branches={remoteBranches} disabled={disabled} onSwitch={onSwitch} onDelete={onDeleteBranch} onCopy={onCopyBranch}/>
+      <BranchList title="Locais" description="Branches disponíveis no workspace" branches={localBranches} disabled={disabled} allowCurrentSwitch={allowCurrentSwitch} onSwitch={onSwitch} onDelete={onDeleteBranch} onCopy={onCopyBranch}/>
+      <BranchList title="Remotas" description="Referências conhecidas no servidor" branches={remoteBranches} disabled={disabled} allowCurrentSwitch={allowCurrentSwitch} onSwitch={onSwitch} onDelete={onDeleteBranch} onCopy={onCopyBranch}/>
     </div>
 
     <GitReleaseLibrary tags={tags} projectVersion={projectVersion} disabled={disabled} onCreate={() => setReleaseOpen(true)} onCopy={onCopyTag}/>
@@ -680,7 +734,7 @@ function BranchSection({ sessionId, current, detached, localBranches, remoteBran
   </section>
 }
 
-function BranchList({ title, description, branches, disabled = false, onSwitch, onDelete, onCopy }: { title: string; description: string; branches: GitBranch[]; disabled?: boolean; onSwitch?: (branch: string) => void; onDelete?: (branch: string) => void; onCopy: (branch: string) => void }) {
+function BranchList({ title, description, branches, disabled = false, allowCurrentSwitch = false, onSwitch, onDelete, onCopy }: { title: string; description: string; branches: GitBranch[]; disabled?: boolean; allowCurrentSwitch?: boolean; onSwitch?: (branch: string) => void; onDelete?: (branch: string) => void; onCopy: (branch: string) => void }) {
   return <div className="git-branch-group">
     <div className="git-branch-group-heading">
       <div className="git-branch-group-title"><span className="git-branch-group-icon"><Icon name="git" size={12}/></span><div><strong>{title}</strong><small>{description}</small></div></div>
@@ -709,7 +763,7 @@ function BranchList({ title, description, branches, disabled = false, onSwitch, 
             <span className={`git-branch-counterpart ${branch.has_counterpart ? 'active' : ''}`} title={counterpartLabel} aria-label={counterpartLabel}><Icon name="link" size={10}/><b>{counterpartText}</b></span>
           </span>
           <button type="button" className="git-inline-copy git-branch-copy-action" aria-label={`Copiar nome da branch ${branch.name}`} title="Copiar nome da branch" onClick={() => onCopy(branch.name)}><Icon name="copy" size={11}/></button>
-          {onSwitch && !branch.current && <button type="button" className="git-action small git-branch-row-action git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)} aria-label={switchLabel} title={switchLabel}><Icon name={createsLocal ? 'plus' : 'arrow-right'} size={12}/></button>}
+          {onSwitch && (!branch.current || allowCurrentSwitch) && <button type="button" className="git-action small git-branch-row-action git-branch-switch" disabled={disabled} onClick={() => onSwitch(branch.name)} aria-label={switchLabel} title={switchLabel}><Icon name={createsLocal ? 'plus' : 'arrow-right'} size={12}/></button>}
           {onDelete && !branch.current && <button type="button" className="git-action small danger git-branch-row-action git-branch-delete" disabled={disabled} onClick={() => onDelete(branch.name)} aria-label={`Remover branch ${branch.name}`} title={`Remover branch ${branch.name}`}><Icon name="trash" size={12}/></button>}
         </div>
       </li>
@@ -880,7 +934,7 @@ function PendingSection({ pending, selected, disabled, hasIdentity, commitMode, 
   </section>
 }
 
-function HistorySection({ sessionId, branches }: { sessionId: string; branches: GitOverview['branches'] }) {
+function HistorySection({ sessionId, repository, branches }: { sessionId: string; repository: string; branches: GitOverview['branches'] }) {
   const [mode, setMode] = useState<'current' | 'selected' | 'all'>('current')
   const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set())
   const [history, setHistory] = useState<GitOverview['commits']>([])
@@ -896,21 +950,21 @@ function HistorySection({ sessionId, branches }: { sessionId: string; branches: 
     if (loading || (!reset && !hasMore)) return
     setLoading(true); setError('')
     try {
-      const next = await api.gitHistoryPage(sessionId, mode === 'selected' ? Array.from(selectedRefs) : [], mode === 'all', reset ? 0 : offset, 50)
+      const next = await api.gitHistoryPage(sessionId, mode === 'selected' ? Array.from(selectedRefs) : [], mode === 'all', reset ? 0 : offset, 50, repository)
       setHistory((current) => reset ? next.commits : [...current, ...next.commits])
       setOffset(next.next_offset); setHasMore(next.has_more)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally { setLoading(false) }
-  }, [sessionId, mode, refsKey, offset, hasMore, loading])
+  }, [sessionId, repository, mode, refsKey, offset, hasMore, loading])
 
   useEffect(() => {
     setHistory([]); setOffset(0); setHasMore(true); setDetail(null); setLoading(true)
-    void api.gitHistoryPage(sessionId, mode === 'selected' ? Array.from(selectedRefs) : [], mode === 'all', 0, 50)
+    void api.gitHistoryPage(sessionId, mode === 'selected' ? Array.from(selectedRefs) : [], mode === 'all', 0, 50, repository)
       .then((next) => { setHistory(next.commits); setOffset(next.next_offset); setHasMore(next.has_more); setError('') })
       .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
       .finally(() => setLoading(false))
-  }, [sessionId, mode, refsKey])
+  }, [sessionId, repository, mode, refsKey])
 
   useEffect(() => {
     const node = sentinel.current
@@ -921,7 +975,7 @@ function HistorySection({ sessionId, branches }: { sessionId: string; branches: 
   }, [hasMore, history.length, loading, loadPage])
 
   function selectRefs(values: string[]) { setSelectedRefs(new Set(values)); setMode('selected') }
-  async function openCommit(sha: string) { try { setDetail(await api.gitHistoryCommit(sessionId, sha)) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } }
+  async function openCommit(sha: string) { try { setDetail(await api.gitHistoryCommit(sessionId, sha, repository)) } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) } }
 
   const rows = buildGitGraphRows(history)
   const refsBySHA = new Map<string, GitBranch[]>()

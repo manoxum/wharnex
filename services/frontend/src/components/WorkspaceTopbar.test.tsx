@@ -6,6 +6,7 @@ import { WorkspaceTopbar } from './WorkspaceTopbar'
 const mocks = vi.hoisted(() => ({
   gitOverview: vi.fn(async () => ({
     project_path: '/workspace/wharness',
+    repository: '', repositories: [],
     project_version: 'v1.2.46.13',
     available: true,
     commit_mode: 'auto',

@@ -302,14 +302,20 @@ func (s *Service) GitHead(ctx context.Context, sessionID string) (GitHeadState, 
 	if err != nil {
 		return GitHeadState{}, err
 	}
-	branch := hostrepo.CurrentBranch(ctx, item.ProjectPath)
-	sha, _ := hostrepo.HeadSHA(ctx, item.ProjectPath)
+	repoRoot, _, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitHeadState{}, err
+	}
+	branch := hostrepo.CurrentBranch(ctx, repoRoot)
+	sha, _ := hostrepo.HeadSHA(ctx, repoRoot)
 	return GitHeadState{CurrentBranch: branch, Detached: branch == "" && sha != "", CommitSHA: sha}, nil
 }
 
 // GitOverview is everything the Git surface renders in one round trip.
 type GitOverview struct {
 	ProjectPath      string                     `json:"project_path"`
+	Repository       string                     `json:"repository"`
+	Repositories     []GitRepository            `json:"repositories"`
 	ProjectVersion   string                     `json:"project_version"`
 	Available        bool                       `json:"available"`
 	Unavailable      string                     `json:"unavailable,omitempty"`
@@ -346,8 +352,12 @@ func (s *Service) GitFileDiff(ctx context.Context, sessionID, path string) (GitF
 	if err != nil {
 		return GitFileDiff{}, err
 	}
+	repoRoot, _, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitFileDiff{}, err
+	}
 	path = strings.TrimSpace(path)
-	state, err := hostrepo.Working(ctx, item.ProjectPath)
+	state, err := hostrepo.Working(ctx, repoRoot)
 	if err != nil {
 		return GitFileDiff{}, err
 	}
@@ -365,7 +375,7 @@ func (s *Service) GitFileDiff(ctx context.Context, sessionID, path string) (GitF
 	if file.Kind == "submodule" || file.Kind == "embedded_repository" {
 		return GitFileDiff{}, fmt.Errorf("inline diff is unavailable for %s", file.Kind)
 	}
-	diff, truncated, err := hostrepo.WorktreeDiff(ctx, item.ProjectPath, []string{file.Path}, 512<<10)
+	diff, truncated, err := hostrepo.WorktreeDiff(ctx, repoRoot, []string{file.Path}, 512<<10)
 	if err != nil {
 		return GitFileDiff{}, err
 	}
@@ -387,6 +397,13 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 		ConflictStrategy: string(projectSettings.ConflictStrategy),
 		AuthorSettings:   s.globalGitSettings(),
 	}
+	repoRoot, repoPath, repositories, repositoryErr := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	overview.Repository = repoPath
+	overview.Repositories = repositories
+	if repositoryErr != nil {
+		overview.Unavailable = repositoryErr.Error()
+		return overview, nil
+	}
 	if version, _, versionErr := projectversion.Ensure(item.ProjectPath); versionErr == nil {
 		overview.ProjectVersion = version
 	}
@@ -396,7 +413,7 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 		overview.CommitMode = string(gitsettings.CommitModeAuto)
 		overview.CommitModeFixed = true
 	}
-	topology, err := hostrepo.Inspect(ctx, item.ProjectPath)
+	topology, err := hostrepo.Inspect(ctx, repoRoot)
 	if err != nil {
 		overview.Unavailable = err.Error()
 		return overview, nil
@@ -405,28 +422,30 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 	overview.CurrentBranch = topology.Branch
 	overview.Detached = topology.Detached
 	overview.InProgress = string(topology.InProgress)
-	overview.HasIdentity = hostrepo.HasCommitIdentity(ctx, item.ProjectPath)
-	if branches, branchErr := hostrepo.Branches(ctx, item.ProjectPath); branchErr == nil {
+	overview.HasIdentity = hostrepo.HasCommitIdentity(ctx, repoRoot)
+	if branches, branchErr := hostrepo.Branches(ctx, repoRoot); branchErr == nil {
 		overview.Branches = branches
 	}
-	if remotes, remoteErr := hostrepo.Remotes(ctx, item.ProjectPath); remoteErr == nil {
+	if remotes, remoteErr := hostrepo.Remotes(ctx, repoRoot); remoteErr == nil {
 		overview.Remotes = remotes
 	}
-	if tags, tagErr := hostrepo.Tags(ctx, item.ProjectPath, 50); tagErr == nil {
+	if tags, tagErr := hostrepo.Tags(ctx, repoRoot, 50); tagErr == nil {
 		overview.Tags = tags
 	}
-	if commits, logErr := hostrepo.Log(ctx, item.ProjectPath, 50); logErr == nil {
+	if commits, logErr := hostrepo.Log(ctx, repoRoot, 50); logErr == nil {
 		overview.Commits = commits
 	}
-	if state, stateErr := hostrepo.Working(ctx, item.ProjectPath); stateErr == nil {
+	if state, stateErr := hostrepo.Working(ctx, repoRoot); stateErr == nil {
 		overview.Working = GitWorkingSummary{
-			Clean: state.Clean(), StageableCount: len(state.Stageable), Files: gitWorkingFiles(state, hostrepo.WorktreeStats(ctx, item.ProjectPath)),
+			Clean: state.Clean(), StageableCount: len(state.Stageable), Files: gitWorkingFiles(state, hostrepo.WorktreeStats(ctx, repoRoot)),
 			DirtySubmodules: state.DirtySubmodules, EmbeddedRepositories: state.EmbeddedRepositories,
 			UnmergedPaths: state.Unmerged,
 		}
 	}
-	overview.Pending = s.pendingRecordsWithoutDiffs(item.ProjectPath)
-	if item.IntegrationConflict != nil && item.IntegrationConflict.Git != nil {
+	if repoPath == "" {
+		overview.Pending = s.pendingRecordsWithoutDiffs(item.ProjectPath)
+	}
+	if repoPath == "" && item.IntegrationConflict != nil && item.IntegrationConflict.Git != nil {
 		overview.Conflict = item.IntegrationConflict.Git
 	}
 	return overview, nil
@@ -478,7 +497,11 @@ func (s *Service) GitUnpushed(ctx context.Context, sessionID string) (GitUnpushe
 	if err != nil {
 		return GitUnpushedOverview{}, err
 	}
-	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	repoRoot, _, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitUnpushedOverview{}, err
+	}
+	branches, err := hostrepo.Branches(ctx, repoRoot)
 	if err != nil {
 		return GitUnpushedOverview{}, err
 	}
@@ -496,7 +519,7 @@ func (s *Service) GitUnpushed(ctx context.Context, sessionID string) (GitUnpushe
 		}
 		limit = active.Ahead
 	}
-	commits, err := hostrepo.Unpushed(ctx, item.ProjectPath, limit)
+	commits, err := hostrepo.Unpushed(ctx, repoRoot, limit)
 	if err != nil {
 		return GitUnpushedOverview{}, err
 	}
@@ -512,6 +535,10 @@ func (s *Service) GitUnpushedCommit(ctx context.Context, sessionID, sha string) 
 	if err != nil {
 		return GitCommitDetail{}, err
 	}
+	repoRoot, _, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitCommitDetail{}, err
+	}
 	overview, err := s.GitUnpushed(ctx, sessionID)
 	if err != nil {
 		return GitCommitDetail{}, err
@@ -520,7 +547,7 @@ func (s *Service) GitUnpushedCommit(ctx context.Context, sessionID, sha string) 
 		if commit.SHA != strings.TrimSpace(sha) {
 			continue
 		}
-		diff, truncated, diffErr := hostrepo.CommitDiff(ctx, item.ProjectPath, commit.SHA, 512<<10)
+		diff, truncated, diffErr := hostrepo.CommitDiff(ctx, repoRoot, commit.SHA, 512<<10)
 		if diffErr != nil {
 			return GitCommitDetail{}, diffErr
 		}
@@ -536,10 +563,14 @@ func (s *Service) GitHistory(ctx context.Context, sessionID string, refs []strin
 	if err != nil {
 		return nil, err
 	}
-	if all {
-		return hostrepo.LogRefs(ctx, item.ProjectPath, nil, true, 200)
+	repoRoot, _, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return nil, err
 	}
-	branches, err := hostrepo.Branches(ctx, item.ProjectPath)
+	if all {
+		return hostrepo.LogRefs(ctx, repoRoot, nil, true, 200)
+	}
+	branches, err := hostrepo.Branches(ctx, repoRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -564,9 +595,9 @@ func (s *Service) GitHistory(ctx context.Context, sessionID string, refs []strin
 		}
 	}
 	if len(selected) == 0 {
-		return hostrepo.Log(ctx, item.ProjectPath, 50)
+		return hostrepo.Log(ctx, repoRoot, 50)
 	}
-	return hostrepo.LogRefs(ctx, item.ProjectPath, selected, false, 200)
+	return hostrepo.LogRefs(ctx, repoRoot, selected, false, 200)
 }
 
 type GitHistoryPage struct {
@@ -580,17 +611,21 @@ func (s *Service) GitHistoryPage(ctx context.Context, sessionID string, refs []s
 	if err != nil {
 		return GitHistoryPage{}, err
 	}
+	repoRoot, _, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitHistoryPage{}, err
+	}
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	selected, err := s.validHistoryRefs(ctx, item.ProjectPath, refs, all)
+	selected, err := s.validHistoryRefs(ctx, repoRoot, refs, all)
 	if err != nil {
 		return GitHistoryPage{}, err
 	}
-	commits, err := hostrepo.LogRefsPage(ctx, item.ProjectPath, selected, all, limit+1, offset)
+	commits, err := hostrepo.LogRefsPage(ctx, repoRoot, selected, all, limit+1, offset)
 	if err != nil {
 		return GitHistoryPage{}, err
 	}
@@ -637,11 +672,15 @@ func (s *Service) GitHistoryCommit(ctx context.Context, sessionID, sha string) (
 	if err != nil {
 		return GitCommitDetail{}, err
 	}
-	commit, err := hostrepo.CommitBySHA(ctx, item.ProjectPath, sha)
+	repoRoot, _, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
 	if err != nil {
 		return GitCommitDetail{}, err
 	}
-	diff, truncated, err := hostrepo.CommitDiff(ctx, item.ProjectPath, commit.SHA, 512<<10)
+	commit, err := hostrepo.CommitBySHA(ctx, repoRoot, sha)
+	if err != nil {
+		return GitCommitDetail{}, err
+	}
+	diff, truncated, err := hostrepo.CommitDiff(ctx, repoRoot, commit.SHA, 512<<10)
 	if err != nil {
 		return GitCommitDetail{}, err
 	}
@@ -653,7 +692,11 @@ func (s *Service) GitMergeCandidates(ctx context.Context, sessionID, targetRef s
 	if err != nil {
 		return nil, err
 	}
-	return hostrepo.MergeCandidates(ctx, item.ProjectPath, targetRef)
+	repoRoot, _, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return nil, err
+	}
+	return hostrepo.MergeCandidates(ctx, repoRoot, targetRef)
 }
 
 // pendingRecordsWithoutDiffs lists the queue with diffs stripped. A diff is up

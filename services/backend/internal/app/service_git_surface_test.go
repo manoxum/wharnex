@@ -534,6 +534,59 @@ func commitGitAsAt(t *testing.T, root, name, email, when, subject, fileName stri
 	}
 }
 
+func TestGitSurfaceTargetsInitializedSubmoduleRepositories(t *testing.T) {
+	requireGitForApp(t)
+	service, _ := gitSurfaceService(t)
+	childSource := gitRepo(t, "child.txt", "child\n")
+	root := gitRepo(t, "root.txt", "root\n")
+	runGitForApp(t, root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", childSource, "modules/child")
+	runGitForApp(t, root, "commit", "-qm", "chore: add child submodule")
+	childRoot := filepath.Join(root, "modules", "child")
+	runGitForApp(t, childRoot, "checkout", "-q", "main")
+	runGitForApp(t, childRoot, "config", "user.name", "Tester")
+	runGitForApp(t, childRoot, "config", "user.email", "test@example.invalid")
+	sessionID := startGitSession(t, service, root)
+	rootBefore := headOf(t, root)
+	childBefore := headOf(t, childRoot)
+
+	ctx := WithGitRepository(context.Background(), "modules/child")
+	overview, err := service.GitOverview(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Repository != "modules/child" || !overview.Available || overview.CurrentBranch != "main" {
+		t.Fatalf("unexpected submodule overview: %+v", overview)
+	}
+	if len(overview.Repositories) != 2 || overview.Repositories[0].Path != "" || overview.Repositories[1].Path != "modules/child" || !overview.Repositories[1].Available {
+		t.Fatalf("expected superproject and initialized submodule inventory, got %+v", overview.Repositories)
+	}
+
+	if err := os.WriteFile(filepath.Join(childRoot, "child.txt"), []byte("child\nupdated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.CommitAllWorkingFiles(ctx, sessionID, "feat: update child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Paths) != 1 || result.Paths[0] != "child.txt" {
+		t.Fatalf("unexpected committed submodule paths: %+v", result.Paths)
+	}
+	if got := headOf(t, childRoot); got == childBefore || got != result.CommitSHA {
+		t.Fatalf("submodule HEAD did not advance to commit result: before=%s after=%s result=%s", childBefore, got, result.CommitSHA)
+	}
+	if got := headOf(t, root); got != rootBefore {
+		t.Fatalf("submodule commit must not advance superproject HEAD: before=%s after=%s", rootBefore, got)
+	}
+
+	unknown, err := service.GitOverview(WithGitRepository(context.Background(), "../outside"), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown.Available || !strings.Contains(unknown.Unavailable, "unknown project repository") {
+		t.Fatalf("unknown repository selection should be rejected by measured inventory: %+v", unknown)
+	}
+}
+
 func TestGitHeadTracksCheckoutChanges(t *testing.T) {
 	requireGitForApp(t)
 	service, _ := gitSurfaceService(t)

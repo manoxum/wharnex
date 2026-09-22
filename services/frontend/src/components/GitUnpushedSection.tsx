@@ -6,8 +6,9 @@ import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
 import { GitDiffReview } from './GitDiffReview'
 
-export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled, onFullPush, onSelectedPush }: {
+export function GitUnpushedSection({ sessionId, repository, activeBranch, remotes, disabled, onFullPush, onSelectedPush }: {
   sessionId: string
+  repository: string
   activeBranch?: GitBranch
   remotes: GitRemote[]
   disabled: boolean
@@ -27,12 +28,12 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
     setError('')
     setSelected(new Set())
     setDetail(null)
-    api.gitUnpushed(sessionId)
+    api.gitUnpushed(sessionId, repository)
       .then((next) => { if (alive) setOverview({ ...next, commits: Array.isArray(next.commits) ? next.commits : [] }) })
       .catch((cause) => { if (alive) setError(messageOf(cause)) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [sessionId, activeBranch?.commit_sha, activeBranch?.ahead, activeBranch?.upstream])
+  }, [sessionId, repository, activeBranch?.commit_sha, activeBranch?.ahead, activeBranch?.upstream])
 
   const oldestFirst = useMemo(() => [...(overview?.commits || [])].reverse(), [overview?.commits])
   const defaultRemote = overview?.remote || remotes[0]?.name || ''
@@ -51,7 +52,7 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
     setError('')
     try {
       await action()
-      const next = await api.gitUnpushed(sessionId)
+      const next = await api.gitUnpushed(sessionId, repository)
       setOverview({ ...next, commits: Array.isArray(next.commits) ? next.commits : [] })
       setSelected(new Set())
       setDetail(null)
@@ -65,7 +66,7 @@ export function GitUnpushedSection({ sessionId, activeBranch, remotes, disabled,
   async function openDetail(sha: string) {
     setError('')
     try {
-      setDetail(await api.gitUnpushedCommit(sessionId, sha))
+      setDetail(await api.gitUnpushedCommit(sessionId, sha, repository))
     } catch (cause) {
       setError(messageOf(cause))
     }

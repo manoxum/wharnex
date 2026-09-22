@@ -62,7 +62,11 @@ func (s *Service) GitContributors(ctx context.Context, sessionID string) (GitCon
 	if err != nil {
 		return GitContributorsOverview{}, err
 	}
-	commits, err := hostrepo.LogRefsPage(ctx, item.ProjectPath, nil, true, gitContributorHistoryLimit+1, 0)
+	repoRoot, _, _, err := s.gitRepositoryRoot(ctx, item.ProjectPath)
+	if err != nil {
+		return GitContributorsOverview{}, err
+	}
+	commits, err := hostrepo.LogRefsPage(ctx, repoRoot, nil, true, gitContributorHistoryLimit+1, 0)
 	if err != nil {
 		return GitContributorsOverview{}, err
 	}
