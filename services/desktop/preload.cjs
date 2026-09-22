@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron')
+const { createLocalServices } = require('./preload-local-services.cjs')
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload)
 
@@ -28,6 +29,13 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       ipcRenderer.on('wharness:windows:close-project', handler)
       return () => ipcRenderer.removeListener('wharness:windows:close-project', handler)
     },
+    onCloseConfirmation: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, payload) => callback(payload)
+      ipcRenderer.on('wharness:windows:confirm-close', handler)
+      return () => ipcRenderer.removeListener('wharness:windows:confirm-close', handler)
+    },
+    resolveClose: (action) => invoke('wharness:windows:resolve-close', { action: String(action || '') }),
     open: () => invoke('wharness:windows:open'),
     openSurface: (request = {}) => invoke('wharness:windows:open-surface', request),
     moveSurface: (request = {}) => invoke('wharness:windows:move-surface', request),
@@ -188,23 +196,5 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
       return () => ipcRenderer.removeListener('wharness:agents:state', handler)
     },
   }),
-  data: Object.freeze({
-    storage: () => invoke('wharness:data:storage'),
-    exportBrowserSession: () => invoke('wharness:data:export-browser-session'),
-    importBrowserSession: () => invoke('wharness:data:import-browser-session'),
-    clearBrowserSession: () => invoke('wharness:data:clear-browser-session'),
-    clearAll: (confirm) => invoke('wharness:data:clear-all', { confirm: String(confirm || '') }),
-  }),
-  attachments: Object.freeze({
-    persist: (request) => invoke('wharness:attachments:persist', request),
-    preview: (request) => invoke('wharness:attachments:preview', request),
-    read: (request) => invoke('wharness:attachments:read', request),
-    open: (request) => invoke('wharness:attachments:open', request),
-    removeChat: (request) => invoke('wharness:attachments:remove-chat', request),
-  }),
-  clipboard: Object.freeze({
-    copyContextZip: (request) => invoke('wharness:clipboard:copy-context-zip', request),
-    readText: () => invoke('wharness:clipboard:read-text'),
-    writeText: (text) => invoke('wharness:clipboard:write-text', String(text)),
-  }),
+  ...createLocalServices(invoke),
 }))

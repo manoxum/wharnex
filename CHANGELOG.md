@@ -18,6 +18,7 @@ _(reserved — no entries yet)_
 
 - Add a persistent desktop tray lifecycle with explicit background/project/all-project close choices, per-project tray restore/close actions, recoverable multi-project shutdown state, restored window geometry, editor tabs/view positions, and best-effort terminal tab/history/workdir/scroll recovery while preserving durable chat data when a workspace session is discarded.
 - Fix the Linux tray glyph so it reuses the installed per-instance Wharnex raster icon (with installed SVG and generated SVG fallbacks) instead of relying first on an SVG data URL that can render as a generic three-dot placeholder.
+- Replace the native synchronous close confirmation with a themed Wharnex modal that keeps the main process authoritative over background, current-project, full-session exit, and cancel decisions while hiding native ChatGPT surfaces behind the modal.
 
 
 ### Chat 86aa9548-a1b2-412f-ae42-50680a6f3b92 (2026-09-22)
