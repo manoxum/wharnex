@@ -17,14 +17,14 @@ export type ExecutionTimelineEntry = {
   running: boolean
   output: string
   outputSegments: ExecutionOutputSegment[]
-  lifecycleState?: 'active' | 'success' | 'failure'
+  lifecycleState?: 'active' | 'waiting' | 'success' | 'failure'
   rationale: string
 	requestId: string
 	rootRequestId: string
 	iterationKind: 'standard' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict'
 }
 
-export type ExecutionTimelineOverview = 'active' | 'failed' | 'recovered' | 'success' | 'neutral'
+export type ExecutionTimelineOverview = 'active' | 'waiting' | 'failed' | 'recovered' | 'success' | 'neutral'
 
 export type ExecutionSubtaskGroup = {
   id: string
@@ -59,16 +59,25 @@ export function groupExecutionSubtasks(entries: ExecutionTimelineEntry[]): Execu
 }
 
 export function executionTimelineOverview(entries: ExecutionTimelineEntry[]): ExecutionTimelineOverview {
-  if (entries.some((entry) => entry.running)) return 'active'
-  let latest: ExecutionTimelineEntry['lifecycleState']
+  let latestLive: { index: number; state: 'active' | 'waiting' } | undefined
+  let latestTerminal: { index: number; state: 'success' | 'failure' } | undefined
   let hadFailure = false
-  for (const entry of entries) {
-    if (entry.lifecycleState === 'failure') hadFailure = true
-    if (entry.lifecycleState) latest = entry.lifecycleState
-  }
-  if (latest === 'active') return 'active'
-  if (latest === 'failure') return 'failed'
-  if (latest === 'success') return hadFailure ? 'recovered' : 'success'
+
+  entries.forEach((entry, index) => {
+    if (entry.running || entry.lifecycleState === 'active') latestLive = { index, state: 'active' }
+    else if (entry.lifecycleState === 'waiting') latestLive = { index, state: 'waiting' }
+    if (entry.lifecycleState === 'failure') {
+      hadFailure = true
+      latestTerminal = { index, state: 'failure' }
+    } else if (entry.lifecycleState === 'success') {
+      latestTerminal = { index, state: 'success' }
+    }
+  })
+
+  if (latestLive && latestLive.index > (latestTerminal?.index ?? -1)) return latestLive.state
+  if (latestTerminal?.state === 'failure') return 'failed'
+  if (latestTerminal?.state === 'success') return hadFailure ? 'recovered' : 'success'
+  if (latestLive) return latestLive.state
   return 'neutral'
 }
 
@@ -198,6 +207,8 @@ function statusMeta(event: HarnessEvent) {
   const target = String(event.data.target || '')
   const exit = event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : ''
   switch (event.type) {
+    case 'execution.queued': return { title: 'Execução em fila', detail: event.data.position ? `posição ${String(event.data.position)}` : '', badge: 'QUEUE', tone: 'warning' as const, lifecycleState: 'waiting' as const }
+    case 'execution.dequeued': return { title: 'Execução pronta para iniciar', detail: target, badge: 'READY', tone: 'warning' as const, lifecycleState: 'waiting' as const }
     case 'execution.started': return { title: 'Execução iniciada', detail: target || String(event.data.execution_mode || ''), badge: 'RUN', tone: 'warning' as const, lifecycleState: 'active' as const }
     case 'execution.completed': return { title: 'Execução concluída', detail: target, badge: 'OK', tone: 'ok' as const, lifecycleState: 'success' as const }
     case 'execution.failed': case 'automation.execution_failed': return { title: 'Execução falhou', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const, lifecycleState: 'failure' as const }
@@ -222,17 +233,19 @@ function statusMeta(event: HarnessEvent) {
     case 'verification.completed': return { title: 'Verificação concluída', detail: target, badge: exit, tone: event.data.baseline_failure ? 'warning' as const : 'ok' as const }
     case 'verification.baseline_unchanged': return { title: 'Falha pré-existente inalterada', detail: 'baseline unchanged', badge: exit, tone: 'warning' as const }
     case 'verification.baseline_changed': return { title: 'Baseline alterada', detail: 'verification drift', badge: 'WARN', tone: 'warning' as const }
-    case 'automation.approval_required': return { title: 'Aprovação necessária', detail: String(event.data.risk || ''), badge: 'APPROVE', tone: 'warning' as const }
+    case 'automation.approval_required': return { title: 'Aprovação necessária', detail: String(event.data.risk || ''), badge: 'APPROVE', tone: 'warning' as const, lifecycleState: 'waiting' as const }
     case 'automation.approval_auto_granted': return { title: 'Aprovação automática', detail: String(event.data.risk || ''), badge: 'AUTO', tone: 'ok' as const }
     case 'automation.policy_blocked': case 'workflow.policy_blocked': return { title: 'Policy bloqueou a execução', detail: '', badge: 'BLOCK', tone: 'fail' as const, lifecycleState: 'failure' as const }
     case 'repair.started': return { title: event.data.iteration_kind === 'revert_restore' ? 'Conciliação da reposição iniciada' : 'Correção automática iniciada', detail: '', badge: `#${String(event.data.attempt || '')}`, tone: 'warning' as const, lifecycleState: 'active' as const }
-    case 'repair.prompt_ready': return { title: event.data.iteration_kind === 'revert_restore' ? 'Pedido de reposição pronto' : 'Prompt de correção pronto', detail: '', badge: 'READY', tone: 'warning' as const }
+    case 'repair.prompt_ready': return { title: event.data.iteration_kind === 'revert_restore' ? 'Pedido de reposição pronto' : 'Prompt de correção pronto', detail: '', badge: 'READY', tone: 'warning' as const, lifecycleState: 'waiting' as const }
     case 'repair.prepare_failed': return { title: 'Falha ao preparar correção', detail: String(event.data.error || ''), badge: 'FAIL', tone: 'fail' as const, lifecycleState: 'failure' as const }
     case 'workflow.started': return { title: 'Investigação local iniciada', detail: '', badge: event.data.round ? `${String(event.data.round)}/6` : 'RUN', tone: 'warning' as const }
     case 'workflow.completed': return { title: 'Passo local concluído', detail: '', badge: 'OK', tone: 'ok' as const }
     case 'workflow.step_failed': return { title: 'Passo local produziu diagnóstico', detail: '', badge: 'WARN', tone: 'warning' as const }
     case 'workflow.continuation_started': return { title: 'Continuação com evidências iniciada', detail: '', badge: event.data.round ? `${String(event.data.round)}/6` : 'RUN', tone: 'warning' as const }
-    case 'workflow.prompt_ready': return { title: 'Continuação pronta para o ChatGPT', detail: '', badge: 'READY', tone: 'ok' as const }
+    case 'workflow.prompt_ready': return { title: 'Continuação pronta para o ChatGPT', detail: '', badge: 'READY', tone: 'warning' as const, lifecycleState: 'waiting' as const }
+    case 'conflict.prompt_ready': return { title: 'Resolução de conflito pronta', detail: '', badge: 'READY', tone: 'warning' as const, lifecycleState: 'waiting' as const }
+    case 'baseline.continuation_ready': return { title: 'Continuação pronta', detail: '', badge: 'READY', tone: 'warning' as const, lifecycleState: 'waiting' as const }
     default: return { title: event.type, detail: compactEventData(event), badge: 'EVENT', tone: genericEventTone(event) }
   }
 }

@@ -37,3 +37,24 @@ it('maps the latest continuation request back to its Main Request root', () => {
 
   expect(currentMainRequestRoot(session)).toBe('req-main')
 })
+
+it('keeps only the latest request in a Main Request eligible for live states', () => {
+  const entries = buildExecutionTimeline([
+    event('repair-1', 'repair.started', '2026-09-22T00:00:00Z', { request_id: 'req-repair-1', root_request_id: 'req-main', iteration_kind: 'repair' }),
+    event('ready-1', 'repair.prompt_ready', '2026-09-22T00:01:00Z', { request_id: 'req-repair-1', root_request_id: 'req-main', iteration_kind: 'repair' }),
+    event('repair-2', 'repair.started', '2026-09-22T00:02:00Z', { request_id: 'req-repair-2', root_request_id: 'req-main', iteration_kind: 'repair' }),
+    event('ready-2', 'repair.prompt_ready', '2026-09-22T00:03:00Z', { request_id: 'req-repair-2', root_request_id: 'req-main', iteration_kind: 'repair' }),
+  ])
+
+  expect(executionActivityOverview(entries, true, 'req-repair-2')).toBe('waiting')
+  expect(executionActivityOverview(entries.slice(0, 2), true, 'req-repair-2')).toBe('neutral')
+})
+
+it('treats a ready repair prompt as waiting rather than still executing', () => {
+  const entries = buildExecutionTimeline([
+    event('repair', 'repair.started', '2026-09-22T00:00:00Z', { request_id: 'req-repair', root_request_id: 'req-main', iteration_kind: 'repair' }),
+    event('ready', 'repair.prompt_ready', '2026-09-22T00:01:00Z', { request_id: 'req-repair', root_request_id: 'req-main', iteration_kind: 'repair' }),
+  ])
+
+  expect(executionActivityOverview(entries, true, 'req-repair')).toBe('waiting')
+})

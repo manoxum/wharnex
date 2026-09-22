@@ -161,3 +161,21 @@ it('renders auto-approval as explicit audit evidence', () => {
   expect(entries).toHaveLength(1)
   expect(entries[0]).toMatchObject({ title: 'Aprovação automática', badge: 'AUTO', tone: 'ok', detail: 'medium' })
 })
+
+it('settles repair activity to waiting when its continuation prompt is ready', () => {
+  const event = (id: string, type: string, data: Record<string, unknown>): HarnessEvent => ({ id, session_id: 's', type, timestamp: '2026-09-22T08:00:00Z', data })
+  const entries = buildExecutionTimeline([
+    event('1', 'repair.started', { request_id: 'req-repair', root_request_id: 'req-main', iteration_kind: 'repair', attempt: 1 }),
+    event('2', 'repair.prompt_ready', { request_id: 'req-repair', root_request_id: 'req-main', iteration_kind: 'repair' }),
+  ])
+
+  expect(entries[1]).toMatchObject({ badge: 'READY', lifecycleState: 'waiting' })
+  expect(executionTimelineOverview(entries)).toBe('waiting')
+})
+
+it('marks approval and queue boundaries as waiting until execution actually starts', () => {
+  const event = (id: string, type: string): HarnessEvent => ({ id, session_id: 's', type, timestamp: '2026-09-22T08:00:00Z', data: { request_id: 'req-main', root_request_id: 'req-main' } })
+  expect(executionTimelineOverview(buildExecutionTimeline([event('1', 'execution.queued')]))).toBe('waiting')
+  expect(executionTimelineOverview(buildExecutionTimeline([event('1', 'automation.approval_required')]))).toBe('waiting')
+  expect(executionTimelineOverview(buildExecutionTimeline([event('1', 'execution.dequeued'), event('2', 'execution.started')]))).toBe('active')
+})
