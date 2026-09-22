@@ -9636,6 +9636,7 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .file-library-grid {
   padding: 8px;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  grid-auto-rows: max-content;
   gap: 7px;
 }
 .file-library-card {
