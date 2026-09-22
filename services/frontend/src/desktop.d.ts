@@ -68,9 +68,11 @@ interface WharnessDesktopBridge {
   }
   windows: {
     info(): Promise<{ windowId: string; windowCount: number }>
+    recovery(): Promise<{ active: boolean; projects: string[]; activeProject: string }>
     projects(): Promise<{ currentWindowId: string; items: Array<{ windowId: string; projectPath: string; focused: boolean }> }>
     focusProject(projectPath: string): Promise<{ ok: boolean; windowId: string; projectPath: string }>
     onActivateProject(callback: (payload: { projectPath: string }) => void): () => void
+    onCloseProject(callback: (payload: { projectPath: string }) => void): () => void
     open(): Promise<{ ok: boolean; windowId: string }>
     openSurface(request: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string }): Promise<{ ok: boolean; windowId: string }>
     moveSurface(request: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string; screenX?: number; screenY?: number }): Promise<{ ok: boolean; action: 'moved' | 'opened' | 'blocked'; windowId?: string; reason?: string; message?: string }>

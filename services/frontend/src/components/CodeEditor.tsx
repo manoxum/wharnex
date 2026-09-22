@@ -12,6 +12,7 @@ type RunAction = { id: string; label: string; line?: number }
 
 type Props = {
   path: string
+  viewStateScope?: string
   value: string
   onChange: (value: string) => void
   onSave: () => void
@@ -38,7 +39,7 @@ export function CodeEditor(props: Props) {
   return <CodeEditorSurface {...props}/>
 }
 
-function CodeEditorSurface({ path, value, onChange, onSave, onCursorChange, onRunSelection, runActions = [], onRunAction, gitChanges = [], onGitChangeClick, runtimeMarkers = [], readOnly = false, revealLine, revealColumn, revealNonce = 0 }: Props) {
+function CodeEditorSurface({ path, viewStateScope = '', value, onChange, onSave, onCursorChange, onRunSelection, runActions = [], onRunAction, gitChanges = [], onGitChangeClick, runtimeMarkers = [], readOnly = false, revealLine, revealColumn, revealNonce = 0 }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const activePath = useRef(path)
@@ -201,6 +202,8 @@ function CodeEditorSurface({ path, value, onChange, onSave, onCursorChange, onRu
       run: () => instance.trigger('keyboard', 'editor.action.toggleWordWrap', null),
     })
     return () => {
+      const finalPath = activePath.current
+      if (finalPath) persistEditorViewState(viewStateScope, finalPath, instance.saveViewState())
       contentSubscription.dispose()
       cursorSubscription.dispose()
       mouseSubscription.dispose()
@@ -226,7 +229,11 @@ function CodeEditorSurface({ path, value, onChange, onSave, onCursorChange, onRu
     const instance = editor.current
     if (!instance) return
     const previous = activePath.current
-    if (previous) viewStates.current.set(previous, instance.saveViewState())
+    if (previous) {
+      const state = instance.saveViewState()
+      viewStates.current.set(previous, state)
+      persistEditorViewState(viewStateScope, previous, state)
+    }
     const uri = editorModelURI(path)
     const language = editorLanguageForPath(path)
     let model = monaco.editor.getModel(uri)
@@ -256,8 +263,8 @@ function CodeEditorSurface({ path, value, onChange, onSave, onCursorChange, onRu
     gitDecorations.current = instance.createDecorationsCollection(gitChangeDecorations(gitChangesRef.current, model.getLineCount()))
     runtimeDecorations.current?.clear()
     runtimeDecorations.current = instance.createDecorationsCollection(runtimeMarkerDecorations(runtimeMarkersRef.current, model.getLineCount()))
-    const state = viewStates.current.get(path)
-    if (state) instance.restoreViewState(state)
+    const state = viewStates.current.get(path) ?? loadEditorViewState(viewStateScope, path)
+    if (state) { viewStates.current.set(path, state); instance.restoreViewState(state) }
     instance.focus()
   }, [path])
 
@@ -305,6 +312,22 @@ function CodeEditorSurface({ path, value, onChange, onSave, onCursorChange, onRu
   }, [path, runtimeMarkers])
 
   return <div className="monaco-editor-host" ref={host} aria-label={`Editor de ${path}`} />
+}
+
+
+const EDITOR_VIEW_STATE_PREFIX = 'whx.editor.view-state.v1:'
+
+function editorViewStateKey(scope: string, path: string) { return `${EDITOR_VIEW_STATE_PREFIX}${scope}:${path}` }
+
+function persistEditorViewState(scope: string, path: string, state: Monaco.editor.ICodeEditorViewState | null) {
+  if (!scope || !state) return
+  try { localStorage.setItem(editorViewStateKey(scope, path), JSON.stringify(state)) } catch { /* storage quota is best-effort */ }
+}
+
+function loadEditorViewState(scope: string, path: string): Monaco.editor.ICodeEditorViewState | null {
+  if (!scope) return null
+  try { return JSON.parse(localStorage.getItem(editorViewStateKey(scope, path)) || 'null') as Monaco.editor.ICodeEditorViewState | null }
+  catch { return null }
 }
 
 function gitChangeAtLine(changes: EditorGitChange[], line: number, lineCount: number) {

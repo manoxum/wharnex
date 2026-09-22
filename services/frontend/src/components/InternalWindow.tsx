@@ -13,19 +13,27 @@ type InternalWindowProps = {
 }
 
 export function InternalWindow({ title, onClose, children, layerClassName = '', closeDisabled = false }: InternalWindowProps) {
-  const [minimized, setMinimized] = useState(false)
-  const dockRoot = useMemo(() => ensureInternalWindowDockRoot(), [])
-  const portalRoot = typeof document === 'undefined' ? null : document.body
   const persistence = useContext(InternalWindowPersistenceContext)
   const persistenceOwner = persistence?.owner
   const registerPersistence = persistence?.register
+  const persistenceKey = persistenceOwner ? `whx.internal-window.state.v1:${persistenceOwner}:${title}` : ''
+  const [minimized, setMinimized] = useState(() => loadMinimizedState(persistenceKey))
+  const dockRoot = useMemo(() => ensureInternalWindowDockRoot(), [])
+  const portalRoot = typeof document === 'undefined' ? null : document.body
   const restoreRef = useRef<HTMLButtonElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const dragGripRef = useRef<HTMLSpanElement>(null)
 
+  useEffect(() => { setMinimized(loadMinimizedState(persistenceKey)) }, [persistenceKey])
+
   useEffect(() => {
     if (minimized) restoreRef.current?.focus()
   }, [minimized])
+
+  useEffect(() => {
+    if (!persistenceKey) return
+    try { localStorage.setItem(persistenceKey, minimized ? 'minimized' : 'open') } catch { /* storage quota is best-effort */ }
+  }, [minimized, persistenceKey])
 
   useEffect(() => {
     if (!persistenceOwner || !registerPersistence) return
@@ -46,10 +54,15 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
     return bindInternalWindowDrag(shell, [dragGripRef.current])
   }, [])
 
+  const closeWindow = () => {
+    if (persistenceKey) { try { localStorage.removeItem(persistenceKey) } catch { /* best effort */ } }
+    onClose()
+  }
+
   const controls = <div className="internal-window-controls" role="group" aria-label={`Controlos da janela ${title}`}>
     <span ref={dragGripRef} className="internal-window-drag-grip" data-internal-window-drag-handle="true" aria-hidden="true"/>
     <button type="button" onClick={() => setMinimized(true)} aria-label={`Minimizar ${title}`} title="Minimizar"><Icon name="minus" size={12}/></button>
-    <button type="button" disabled={closeDisabled} onClick={onClose} aria-label={`Fechar ${title}`} title="Fechar"><Icon name="close" size={12}/></button>
+    <button type="button" disabled={closeDisabled} onClick={closeWindow} aria-label={`Fechar ${title}`} title="Fechar"><Icon name="close" size={12}/></button>
   </div>
   const surface = isValidElement<{ children?: ReactNode }>(children) && typeof children.type === 'string'
     ? cloneElement(children, undefined, <>{children.props.children}{controls}</>)
@@ -63,7 +76,7 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
     <div ref={shellRef} className="internal-window-shell" onKeyDown={(event) => {
       if (event.key !== 'Escape' || closeDisabled) return
       event.stopPropagation()
-      onClose()
+      closeWindow()
     }}>
       {surface}
     </div>
@@ -73,7 +86,12 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
     {portalRoot ? createPortal(layer, portalRoot) : layer}
     {minimized && dockRoot ? createPortal(<div className="internal-window-dock-item" data-internal-window-state="minimized">
       <button ref={restoreRef} type="button" className="internal-window-dock-restore" onClick={() => setMinimized(false)} title={`Restaurar ${title}`}><span aria-hidden="true">▣</span><strong>{title}</strong></button>
-      <button type="button" className="internal-window-dock-close" disabled={closeDisabled} onClick={onClose} aria-label={`Fechar ${title}`} title="Fechar"><Icon name="close" size={11}/></button>
+      <button type="button" className="internal-window-dock-close" disabled={closeDisabled} onClick={closeWindow} aria-label={`Fechar ${title}`} title="Fechar"><Icon name="close" size={11}/></button>
     </div>, dockRoot) : null}
   </>
+}
+
+function loadMinimizedState(key: string) {
+  if (!key) return false
+  try { return localStorage.getItem(key) === 'minimized' } catch { return false }
 }
