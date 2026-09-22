@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, WebContentsView, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } from 'electron'
+import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -1066,6 +1067,23 @@ async function waitForSelfEvolutionActivation() {
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
   return false
+}
+
+async function scheduleDesktopCoordinatorRelaunch() {
+  const root = String(process.env.WHARNESS_ROOT || '').trim()
+  if (!root) throw new Error('WHARNESS_ROOT is required to relaunch the Desktop coordinator')
+  const helper = path.join(root, 'scripts', 'desktop-relaunch.sh')
+  const child = spawn(helper, [root, String(process.ppid)], {
+    cwd: root,
+    env: { ...process.env, WHARNESS_ROOT: root },
+    detached: true,
+    stdio: 'ignore',
+  })
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve)
+    child.once('error', reject)
+  })
+  child.unref()
 }
 
 function canonicalBundleFilename(chatId, requestId) {
@@ -7571,7 +7589,13 @@ function registerIPC() {
       persistRestartIntent('all', windowState.id)
       for (const state of desktopWindows.values()) sendToWindowState(state, 'wharness:windows:restart-intent', { scope: 'all', currentWindowId: windowState.id, affected: true })
       setTimeout(async () => {
-        if (await waitForSelfEvolutionActivation()) { app.relaunch(); app.exit(0) }
+        if (!await waitForSelfEvolutionActivation()) return
+        try {
+          await scheduleDesktopCoordinatorRelaunch()
+          app.exit(0)
+        } catch (error) {
+          console.error('[self-evolution] failed to schedule Desktop coordinator relaunch', error)
+        }
       }, 0)
       return { ok: true, action: 'relaunch' }
     }

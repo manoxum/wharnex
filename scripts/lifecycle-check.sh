@@ -20,6 +20,7 @@ STORAGE_RECLAIM="$ROOT/scripts/storage-reclaim.sh"
 BUILD_LOCK="$ROOT/scripts/build-lock.sh"
 ELECTRON_RUNTIME="$ROOT/scripts/electron-runtime.sh"
 DESKTOP_DEV="$ROOT/services/desktop/dev.mjs"
+DESKTOP_RELAUNCH="$ROOT/scripts/desktop-relaunch.sh"
 SELF_EVOLUTION="$ROOT/services/backend/internal/selfevolution/manager.go"
 SELF_RESTART="$ROOT/scripts/self-restart.sh"
 BACKEND_DOCKERFILE="$ROOT/services/backend/Dockerfile"
@@ -118,6 +119,10 @@ if ! grep -Fq 'scheduleStackRestart' "$SELF_EVOLUTION" || ! grep -Fq '"docker", 
 fi
 if ! grep -Fq 'activate-services' "$SELF_RESTART" || ! grep -Fq 'WHARNESS_SERVICES_MODE:-}" = stack' "$SELF_RESTART"; then
   echo 'lifecycle regression: self-restart worker must activate only the transaction impact manifest' >&2
+  exit 1
+fi
+if [ ! -x "$DESKTOP_RELAUNCH" ] || ! grep -Fq 'exec env WHARNESS_ROOT="$ROOT" "$ROOT/scripts/start.sh"' "$DESKTOP_RELAUNCH"; then
+  echo 'lifecycle regression: Desktop self-evolution relaunch must restart the full coordinator through start.sh' >&2
   exit 1
 fi
 if ! grep -Fq 'RecordBuiltSourceFingerprint' "$SELF_EVOLUTION" || ! grep -Fq 'source-fingerprint.sh' "$SELF_EVOLUTION"; then
