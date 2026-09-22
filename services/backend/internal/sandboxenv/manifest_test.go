@@ -76,9 +76,11 @@ func TestRenderEmbedsValidJSONAndTheUsageContract(t *testing.T) {
 	rendered := manifest.Render()
 	for _, required := range []string{
 		"LOCAL EXECUTION ENVIRONMENT",
+		"sandbox_tools",
+		"host_tools",
+		"deterministic lockfile",
 		"denied_executables",
 		"command_timeout_seconds_max",
-		"exit code 127",
 	} {
 		if !strings.Contains(rendered, required) {
 			t.Fatalf("rendered section is missing %q", required)
@@ -188,6 +190,21 @@ func TestRenderExplainsAnEmptyMatcherInventory(t *testing.T) {
 	for _, want := range []string{"assertion_extensions", "toHaveAttribute", "Invalid Chai property"} {
 		if !strings.Contains(section, want) {
 			t.Fatalf("the section must warn about %q, got:\n%s", want, section)
+		}
+	}
+}
+
+func TestManifestPublishesHostAndSandboxToolInventoriesSeparately(t *testing.T) {
+	manifest := NewProber("", "docker").Manifest(context.Background(), t.TempDir())
+	if manifest.SandboxTools == nil {
+		t.Fatal("sandbox_tools must be present even when the runner probe degrades")
+	}
+	if manifest.HostTools == nil {
+		t.Fatal("host_tools must be present")
+	}
+	for _, tool := range manifest.HostTools {
+		if strings.TrimSpace(tool.Version) == "" || tool.Version == "present" {
+			t.Fatalf("host tool %s was published without a successful version probe: %+v", tool.Name, tool)
 		}
 	}
 }

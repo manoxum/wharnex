@@ -21,6 +21,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/wharness-backend .
 FROM golang:1.23-alpine3.21
 ARG WHARNESS_UID=1000
 ARG WHARNESS_GID=1000
+ARG PNPM_VERSION=10.17.1
+ARG YARN_VERSION=1.22.22
 #
 # `build-base` is load-bearing for the same reason: post-merge verification
 # re-runs a plan's own gates HERE, against the merged host tree, while those
@@ -36,6 +38,7 @@ RUN apk add --no-cache \
       bash bash-completion \
       build-base \
       docker-cli docker-cli-compose docker-cli-buildx \
+ && npm install --global "pnpm@${PNPM_VERSION}" "yarn@${YARN_VERSION}" \
  && addgroup -g "${WHARNESS_GID}" wharness \
  && adduser -D -u "${WHARNESS_UID}" -G wharness wharness
 COPY --from=build /out/wharness-backend /usr/local/bin/wharness-backend

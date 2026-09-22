@@ -239,15 +239,16 @@ The model must never return `bash -c`, `sh -c`, command substitution, pipes, red
 
 ## Local execution environment
 
-Every planner request carries a `LOCAL EXECUTION ENVIRONMENT` section holding a Wharness-measured `wharness.environment/v1` document (see `SoT/SANDBOX_MODEL.md` for what it contains and how it is produced). It ranks with harness policy in the trust hierarchy: it is measured from the real machine and the real container, and it overrides any assumption the model holds about a generic Linux host or anything project content claims about available tooling.
+Every planner request carries a `LOCAL EXECUTION ENVIRONMENT` section holding a Wharness-measured `wharness.environment/v2` document (see `SoT/SANDBOX_MODEL.md` for what it contains and how it is produced). It ranks with harness policy in the trust hierarchy: it is measured from the real machine and the real container, and it overrides any assumption the model holds about a generic Linux host or anything project content claims about available tooling.
 
 The protocol requires the planner to:
 
-- select every operation and verification executable from the published `tools` inventory — an executable absent from it is not installed, and proposing it fails the command with exit code 127;
+- select Protected operation/verification executables from `sandbox_tools` (legacy `tools` is the same inventory), and describe post-merge/host prerequisites against `host_tools`; a tool is available only when its version probe succeeds;
 - never propose an executable in `policy.denied_executables`;
 - keep every command inside the published `budgets`, whose violation is a protocol error that discards the entire bundle including a correct patch;
 - size verification against the published container limits, host memory and free disk, preferring narrow targeted tests over a whole-repository race or parallel build when headroom is small, because a device-full or out-of-memory failure is an infrastructure fault that no source patch repairs and for which Wharness will not request a repair;
-- treat `network=false` as implying `GOPROXY=off` against a Wharness-owned module cache, so dependencies that are neither vendored nor cached are unavailable and a package-manager install is not a valid workaround.
+- treat ordinary `network=false` commands as offline. Missing Node dependencies MAY be hydrated by Wharnex itself from a supported deterministic lockfile through a bounded engine-owned network window before the requested command runs offline; Go network hydration keeps its dedicated approval flow.
+- disclose ordered acquisition strategies for dependencies/tools that may be absent. A sandbox strategy may be automatic only when Wharnex supports that method; host install/update/configure strategies MUST be non-automatic and require explicit operator approval.
 - write tests only against the capabilities `test_harnesses` publishes for the package being tested: the listed runner's own matchers plus its `assertion_extensions`, importing only from the listed `libraries`. An empty `assertion_extensions` list is an affirmative statement that no matcher package is registered — jest-dom style matchers such as `toHaveAttribute` or `toBeInTheDocument` then fail at run time as an invalid property, which is indistinguishable from a defect in the change and costs the whole round to discover.
 
 `test_harnesses` is measured from the project's own package manifests, not from the runner image: it is bounded per project, lists only packages that declare a test script, and reports assertion extensions from an explicit set rather than a heuristic, because publishing a matcher set the project does not have is the exact mistake it exists to prevent.

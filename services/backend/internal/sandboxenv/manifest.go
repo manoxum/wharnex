@@ -22,17 +22,22 @@ import (
 
 // SchemaVersion identifies the manifest wire shape. Bump it when the JSON
 // published to the planner changes incompatibly.
-const SchemaVersion = "wharness.environment/v1"
+const SchemaVersion = "wharness.environment/v2"
 
 // Manifest is the complete environment description attached to a planner
 // request. Every field is Wharnex-derived; none of it is planner-supplied.
 type Manifest struct {
-	Schema  string          `json:"schema"`
-	Host    Host            `json:"host"`
-	Sandbox Sandbox         `json:"sandbox"`
-	Tools   []Tool          `json:"tools"`
-	Policy  PolicySummary   `json:"policy"`
-	Budgets ProtocolBudgets `json:"budgets"`
+	Schema  string  `json:"schema"`
+	Host    Host    `json:"host"`
+	Sandbox Sandbox `json:"sandbox"`
+	// Tools is a compatibility alias for SandboxTools. New planners should
+	// use sandbox_tools and host_tools explicitly so verification prerequisites
+	// are never inferred from the wrong execution environment.
+	Tools        []Tool          `json:"tools"`
+	SandboxTools []Tool          `json:"sandbox_tools"`
+	HostTools    []Tool          `json:"host_tools"`
+	Policy       PolicySummary   `json:"policy"`
+	Budgets      ProtocolBudgets `json:"budgets"`
 	// TestHarnesses describes the project's own test setup per package: the
 	// command, the runner, and the assertion extensions actually registered.
 	// It is measured from the project, not from the runner image.
@@ -121,8 +126,12 @@ type ProtocolBudgets struct {
 // prompt renderer and by tests asserting a specific inventory reached the
 // planner.
 func (m Manifest) ToolNames() []string {
-	names := make([]string, 0, len(m.Tools))
-	for _, tool := range m.Tools {
+	tools := m.SandboxTools
+	if len(tools) == 0 {
+		tools = m.Tools
+	}
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
 		names = append(names, tool.Name)
 	}
 	return names
@@ -164,7 +173,9 @@ func (m Manifest) Render() string {
 	var b strings.Builder
 	b.WriteString("\nLOCAL EXECUTION ENVIRONMENT — AUTHORITATIVE, WHARNEX-MEASURED:\n")
 	b.WriteString("- This section describes the real machine and the real Protected container your plan will run in. It is measured by Wharnex, not guessed, and it overrides any assumption you hold about a generic Linux box.\n")
-	b.WriteString("- Every operation and verification command MUST use only the executables listed under tools, plus the language toolchains they belong to. An executable that is not listed is NOT installed: proposing it wastes the whole round trip on exit code 127.\n")
+	b.WriteString("- Protected operations and verification MUST use executables listed under sandbox_tools (legacy tools is the same inventory). Post-merge/host prerequisites must be checked against host_tools. Never infer one environment from the other.\n")
+	b.WriteString("- A tool is listed only when its version probe succeeds; a package-manager shim that would need an unavailable network is treated as absent, not as installed.\n")
+	b.WriteString("- Missing Node project dependencies in Protected execution may be acquired automatically from a deterministic lockfile with an engine-owned temporary network window. Host tool install/update/configure is never automatic and requires explicit operator approval.\n")
 	b.WriteString("- policy.denied_executables are rejected before execution. Never propose them, not even inside a verification step. Use the listed equivalents instead.\n")
 	b.WriteString("- budgets are hard protocol limits. A command_timeout outside the published range, or a plan over a listed maximum, is rejected as a protocol error and the entire bundle is discarded.\n")
 	b.WriteString("- Size verification work against the published sandbox limits and free disk. Prefer targeted package tests over a whole-repository race build when the free space or memory headroom is small.\n")

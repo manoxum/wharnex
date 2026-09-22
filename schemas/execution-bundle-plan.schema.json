@@ -111,6 +111,37 @@
           "reason": {
             "type": "string",
             "minLength": 1
+          },
+          "acquisition": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "method",
+                "automatic",
+                "reason"
+              ],
+              "properties": {
+                "method": {
+                  "enum": [
+                    "preinstalled",
+                    "project_cache",
+                    "lockfile_install",
+                    "corepack",
+                    "package_manager",
+                    "runner_image",
+                    "operator"
+                  ]
+                },
+                "manager": {"type": "string"},
+                "package": {"type": "string"},
+                "version": {"type": "string"},
+                "automatic": {"type": "boolean"},
+                "reason": {"type": "string", "minLength": 1}
+              }
+            }
           }
         }
       }
@@ -149,6 +180,37 @@
           "reason": {
             "type": "string",
             "minLength": 1
+          },
+          "acquisition": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "method",
+                "automatic",
+                "reason"
+              ],
+              "properties": {
+                "method": {
+                  "enum": [
+                    "preinstalled",
+                    "project_cache",
+                    "lockfile_install",
+                    "corepack",
+                    "package_manager",
+                    "runner_image",
+                    "operator"
+                  ]
+                },
+                "manager": {"type": "string"},
+                "package": {"type": "string"},
+                "version": {"type": "string"},
+                "automatic": {"type": "boolean"},
+                "reason": {"type": "string", "minLength": 1}
+              }
+            }
           }
         }
       }

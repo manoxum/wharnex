@@ -10,6 +10,9 @@ import (
 )
 
 var ErrOfflineDependenciesUnavailable = errors.New("offline sandbox dependencies unavailable")
+var ErrNodeDependenciesUnavailable = errors.New("sandbox node dependencies unavailable")
+var ErrNodeDependencyAcquisition = errors.New("sandbox node dependency acquisition failed")
+var ErrSandboxToolUnavailable = errors.New("sandbox tool unavailable")
 var ErrCommandPreparationTimeout = errors.New("sandbox command preparation timed out")
 
 func commandPreparationError(runCtx context.Context, timeout time.Duration, phase string, cause error) error {

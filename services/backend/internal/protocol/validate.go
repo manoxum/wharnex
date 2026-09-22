@@ -102,6 +102,9 @@ func validatePlanPresentation(plan domain.ExecutionPlan) error {
 		default:
 			return fmt.Errorf("dependencies %d has invalid action %q", i, dependency.Action)
 		}
+		if err := validateAcquisitionStrategies(dependency.Acquisition, false); err != nil {
+			return fmt.Errorf("dependencies %d acquisition: %w", i, err)
+		}
 	}
 	if len(plan.SystemTools) > 64 {
 		return errors.New("system_tools exceeds 64 entries")
@@ -122,6 +125,9 @@ func validatePlanPresentation(plan domain.ExecutionPlan) error {
 		case "", domain.ToolLifetimeTemporary, domain.ToolLifetimePersistent:
 		default:
 			return fmt.Errorf("system_tools %d has invalid lifetime %q", i, tool.Lifetime)
+		}
+		if err := validateAcquisitionStrategies(tool.Acquisition, tool.Target == "host" && tool.Action != "use"); err != nil {
+			return fmt.Errorf("system_tools %d acquisition: %w", i, err)
 		}
 	}
 	if approved := plan.ApprovedChatPlan; approved != nil {
@@ -148,6 +154,26 @@ func validatePlanPresentation(plan domain.ExecutionPlan) error {
 // What it does not do is decide authority. Whether a named project may be
 // written at all is answered from the request's own grant at ingestion, with
 // the session in hand; this function only sees the plan.
+func validateAcquisitionStrategies(strategies []domain.PlanAcquisitionStrategy, hostMutation bool) error {
+	if len(strategies) > 8 {
+		return errors.New("exceeds 8 strategies")
+	}
+	for i, strategy := range strategies {
+		if strings.TrimSpace(strategy.Reason) == "" {
+			return fmt.Errorf("strategy %d requires reason", i)
+		}
+		switch strategy.Method {
+		case "preinstalled", "project_cache", "lockfile_install", "corepack", "package_manager", "runner_image", "operator":
+		default:
+			return fmt.Errorf("strategy %d has invalid method %q", i, strategy.Method)
+		}
+		if hostMutation && strategy.Automatic {
+			return fmt.Errorf("strategy %d cannot be automatic for host install/update/configure", i)
+		}
+	}
+	return nil
+}
+
 func validateCrossProjectUnits(units []domain.CrossProjectUnit) error {
 	if len(units) > MaxCrossProjectUnits {
 		return fmt.Errorf("cross_project exceeds %d projects", MaxCrossProjectUnits)

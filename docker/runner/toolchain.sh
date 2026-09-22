@@ -26,8 +26,9 @@ emit() {
   shift
   path="$(command -v "$name" 2>/dev/null || true)"
   [ -n "$path" ] || return 0
-  version="$("$@" 2>/dev/null | first_line || true)"
-  [ -n "$version" ] || version="present"
+  raw_version="$("$@" 2>/dev/null)" || return 0
+  version="$(printf '%s\n' "$raw_version" | first_line)"
+  [ -n "$version" ] || return 0
   printf '%s{"name":"%s","version":"%s","path":"%s"}' \
     "$separator" \
     "$(printf '%s' "$name" | json_escape)" \

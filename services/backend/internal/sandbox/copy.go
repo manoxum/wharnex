@@ -371,7 +371,7 @@ func prepareCommandDependenciesContext(ctx context.Context, workspace Workspace,
 	if copied {
 		return nil
 	}
-	return errors.New("sandbox node dependencies unavailable: node_modules was not found in the project; install dependencies on the host before Protected execution")
+	return fmt.Errorf("%w: node_modules was not found in the project workspace or host tree", ErrNodeDependenciesUnavailable)
 }
 
 type goModuleDownload struct {

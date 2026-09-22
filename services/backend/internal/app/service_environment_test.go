@@ -40,7 +40,9 @@ func TestManualPromptCarriesTheMeasuredExecutionEnvironment(t *testing.T) {
 	prompt := prompted.LastManualPrompt
 	for _, required := range []string{
 		"LOCAL EXECUTION ENVIRONMENT",
-		"wharness.environment/v1",
+		sandboxenv.SchemaVersion,
+		"sandbox_tools",
+		"host_tools",
 		"denied_executables",
 		"command_timeout_seconds_max",
 		"memory_total_mb",
@@ -70,7 +72,7 @@ func TestManualPromptRemainsValidWithoutAnEnvironmentProber(t *testing.T) {
 	if prompted.LastManualPrompt == "" {
 		t.Fatal("a prompt must still be produced without an environment prober")
 	}
-	if strings.Contains(prompted.LastManualPrompt, "wharness.environment/v1") {
+	if strings.Contains(prompted.LastManualPrompt, sandboxenv.SchemaVersion) {
 		t.Fatal("no environment document may appear when nothing measured one")
 	}
 }

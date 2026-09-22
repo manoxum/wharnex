@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/sandbox"
 )
 
 // A host build that failed reaching the module proxy says nothing about the
@@ -44,6 +45,24 @@ func TestDependencyNetworkDiagnosticIgnoresProjectOwnedNetworkFailures(t *testin
 	} {
 		if isDependencyNetworkDiagnostic(diagnostic) {
 			t.Fatalf("project-owned failure misread as a dependency network fault: %q", diagnostic)
+		}
+	}
+}
+
+func TestVerificationInfrastructureErrorBlocksBaselineEquivalence(t *testing.T) {
+	for _, result := range []domain.CommandResult{
+		{ExitCode: 127, Stderr: `exec: "pnpm": executable file not found in $PATH`},
+		{ExitCode: 1, Stderr: `Error when performing the request to https://registry.npmjs.org/pnpm/latest: getaddrinfo EAI_AGAIN registry.npmjs.org`},
+	} {
+		err := verificationInfrastructureError(result)
+		if err == nil {
+			t.Fatalf("infrastructure failure was eligible for baseline comparison: %+v", result)
+		}
+		if result.ExitCode == 127 && !errors.Is(err, sandbox.ErrSandboxToolUnavailable) {
+			t.Fatalf("missing executable classified as %v", err)
+		}
+		if result.ExitCode == 1 && !errors.Is(err, sandbox.ErrNodeDependencyAcquisition) {
+			t.Fatalf("registry outage classified as %v", err)
 		}
 	}
 }
