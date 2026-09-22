@@ -16,6 +16,7 @@ STOP="$ROOT/scripts/stop.sh"
 STACK="$ROOT/scripts/stack.sh"
 LOGS="$ROOT/scripts/logs.sh"
 STORAGE_PRUNE="$ROOT/scripts/storage-prune.sh"
+STORAGE_RECLAIM="$ROOT/scripts/storage-reclaim.sh"
 BUILD_LOCK="$ROOT/scripts/build-lock.sh"
 ELECTRON_RUNTIME="$ROOT/scripts/electron-runtime.sh"
 DESKTOP_DEV="$ROOT/services/desktop/dev.mjs"
@@ -59,6 +60,40 @@ if ! printf '%s\n' "$build_block" | grep -Fq 'storage-prune'; then
 fi
 if [ ! -x "$STORAGE_PRUNE" ] || ! grep -Fq '/api/storage/prune' "$STORAGE_PRUNE"; then
   echo 'lifecycle regression: storage prune helper must use the backend ownership-aware cleanup' >&2
+  exit 1
+fi
+if ! printf '%s\n' "$build_block" | grep -Fq 'storage-reclaim'; then
+  echo 'lifecycle regression: make build must reclaim the host storage the backend cannot see' >&2
+  exit 1
+fi
+if [ ! -x "$STORAGE_RECLAIM" ]; then
+  echo 'lifecycle regression: host storage reclamation helper is missing or not executable' >&2
+  exit 1
+fi
+# Reclamation is housekeeping. A build that produced healthy services and then
+# failed to delete a stale directory has still built; making the lifecycle
+# command fail on it is what previously left `make build` broken permanently.
+if ! grep -A2 '^storage-reclaim:' "$MAKEFILE" | grep -Fq 'build unaffected'; then
+  echo 'lifecycle regression: host reclamation must never fail the lifecycle command that ran it' >&2
+  exit 1
+fi
+# Only untagged layers unused for the whole retention window are eligible, so
+# the previous generation the rollout rolls back to is never the one reclaimed.
+if ! grep -Fq 'docker image prune --force --filter "until=${KEEP_HOURS}h"' "$STORAGE_RECLAIM" || \
+   grep -Eq 'docker image prune[^|]*(--all|[[:space:]]-a[[:space:]])' "$STORAGE_RECLAIM"; then
+  echo 'lifecycle regression: Docker reclamation must keep the image-level rollback generation' >&2
+  exit 1
+fi
+# A named volume holds this checkout's PostgreSQL/MinIO state. The sweep must be
+# opt-in and reach only anonymous volumes Docker reports as attached to nothing.
+if grep -Fq 'docker volume prune' "$STORAGE_RECLAIM" || ! grep -Fq 'WHARNESS_RECLAIM_VOLUMES:-0' "$STORAGE_RECLAIM"; then
+  echo 'lifecycle regression: anonymous-volume reclamation must stay opt-in and never use a blanket volume prune' >&2
+  exit 1
+fi
+# The self-evolution transaction a recovery still depends on is the one the
+# status file names; it must survive every retention window.
+if ! grep -Fq 's/^transaction=//p' "$STORAGE_RECLAIM"; then
+  echo 'lifecycle regression: reclamation must retain the self-evolution transaction still named by status' >&2
   exit 1
 fi
 if [ ! -x "$BUILD_LOCK" ] || ! printf '%s\n' "$build_stage_block" | grep -Fq 'build-lock.sh'; then

@@ -394,8 +394,29 @@ func removeTreeWithReadOnlyDirs(root string) error {
 	return os.RemoveAll(root)
 }
 
+// disposableTempPrefixes names every temporary directory Wharnex itself creates
+// under the checkout-private temporary root. Each one has an owner that removes
+// it on the normal path, so anything still present after the obsolescence grace
+// is a leak: a request-base extraction or changeset snapshot whose cleanup
+// never ran, or an attachment store left by an interrupted desktop test. Only
+// the context and workspace prefixes were swept before, which is why the other
+// three accumulated indefinitely and made the private temporary root the
+// largest consumer in a long-lived checkout.
+var disposableTempPrefixes = []string{
+	"wharness-context-",
+	"kernl-workspace-",
+	"wharness-task-base-",
+	"wharness-changeset-base-",
+	"wharness-attachments-",
+}
+
 func wharnessTempName(name string) bool {
-	return strings.HasPrefix(name, "wharness-context-") || strings.HasPrefix(name, "kernl-workspace-")
+	for _, prefix := range disposableTempPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 var errStorageClearConfirmation = errors.New("storage clear confirmation mismatch")

@@ -101,6 +101,21 @@ make build-refresh   # force recompilation, preserving dependency caches
 
 Compiled artifacts are fingerprinted independently as well. If a component's source/configuration/runtime fingerprint is unchanged and its expected output is present, `make build` skips that component's compilation. Backend-only or no-change rebuilds therefore leave the frontend untouched. When a real frontend change does require Vite, the official versioned precompiled Monaco runtime is copied into the production output instead of making Rollup transform and minify Monaco's full source module graph again.
 
+Every build reclaims obsolete storage once the replacement services are healthy, so `make build`, `make build-all`, `make build-refresh`, `make install-dev` and the `make start` path that rebuilds a stale checkout all leave the machine smaller than they found it. The backend reclaims what it has records for — leaked temporary directories, abandoned sandbox workspaces and per-project dependency caches no session reaches — and the host reclaims what the backend cannot see: settled self-evolution transaction snapshots beyond the retention window, oversized lifecycle logs, and Docker layers and build cache unused for that same window. Reclamation is obsolescence-proven and never a cache wipe: valid fingerprinted dependency and artifact caches survive, so the next build stays a cache hit, and the immediately previous image generation survives so a failed rollout keeps its image-level rollback. It is housekeeping and never fails a build — what it could not reclaim is reported.
+
+```bash
+make storage-prune     # backend ownership-aware cleanup on its own
+make storage-reclaim   # host-side reclamation on its own
+
+WHARNESS_RECLAIM_KEEP_HOURS=72   # retention window for layers, build cache and transactions
+WHARNESS_RECLAIM_DOCKER=0        # skip the Docker stage entirely
+WHARNESS_RECLAIM_VOLUMES=1       # also reclaim orphaned anonymous Docker volumes
+```
+
+Anonymous-volume reclamation is opt-in because it is machine-global and a third-party image that declares `VOLUME` without a named mapping keeps real data in one. It only ever removes volumes Docker itself reports as attached to no container, and never a named volume, so this checkout's PostgreSQL and MinIO state is out of reach by construction. Without the opt-in, `make build` just reports how much is sitting there.
+
+`make clean`, `make deps-refresh` and `make build-refresh` remain the explicit unconditional paths when you actually want caches rebuilt rather than pruned.
+
 - validates/reuses the Go module cache and frontend/desktop `node_modules`;
 - invalidates dependency stamps automatically when lockfiles or Go/Node/npm runtime versions change;
 - reuses unchanged backend/frontend/desktop successful build results independently;

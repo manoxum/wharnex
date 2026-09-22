@@ -10,7 +10,7 @@ HOST_PTY_BIN := $(DIST_DIR)/bin/wharnex-host-pty
 BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 
-.PHONY: reset-data clean-all help deps deps-unlocked deps-status deps-refresh deps-refresh-unlocked build-status build-refresh storage-prune runner-deps build build-stage build-stage-unlocked build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
+.PHONY: reset-data clean-all help deps deps-unlocked deps-status deps-refresh deps-refresh-unlocked build-status build-refresh storage-prune storage-reclaim runner-deps build build-stage build-stage-unlocked build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
 	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
 	electron-runtime-check electron-runtime-install electron-runtime-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
@@ -26,6 +26,10 @@ help:
 		'  make build-status  Show compiled-artifact fingerprint cache state' \
 		'  make build-refresh Force recompilation while preserving dependency caches' \
 		'  make storage-prune Remove obsolete temporary workspaces and dependency caches' \
+		'  make storage-reclaim Reclaim settled self-evolution snapshots, oversized logs' \
+		'                    and Docker layer/build-cache garbage (runs inside make build)' \
+		'                    WHARNESS_RECLAIM_KEEP_HOURS=72 WHARNESS_RECLAIM_DOCKER=1' \
+		'                    WHARNESS_RECLAIM_VOLUMES=1 also reclaims orphaned anonymous volumes' \
 		'  make build-runner  Directly build the Protected Docker runner (requires running Docker)' \
 		'  make build-all     Compatibility alias for the complete make build lifecycle' \
 		'  make start    Reconcile Compose services and start Desktop on the host' \
@@ -150,11 +154,19 @@ build: build-stage
 	@$(MAKE) --no-print-directory build-runner
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" ensure
 	@$(MAKE) --no-print-directory storage-prune
+	@$(MAKE) --no-print-directory storage-reclaim
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/source-fingerprint.sh" write
 	@printf '\nWharness build complete; backend/frontend reconciled and durable tunnel/database preserved.\n'
 
 storage-prune:
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/storage-prune.sh"
+
+# Host-side counterpart of storage-prune: reclaims what the backend cannot see.
+# Reclamation is housekeeping and must never fail the lifecycle command that
+# ran it, so a partial sweep is reported and the build still succeeds.
+storage-reclaim:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/storage-reclaim.sh" || \
+		printf '[reclaim] host reclamation reported problems; build unaffected\n' >&2
 
 
 build-all:

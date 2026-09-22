@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { parseStoredAttachmentRef, persistChatAttachmentFiles, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
@@ -12,8 +12,11 @@ test('stored attachment refs are narrow local identifiers', () => {
   assert.throws(() => parseStoredAttachmentRef('chat/message/nope'))
 })
 
-test('attachment files and previews survive later reads and can be removed per chat', async () => {
+test('attachment files and previews survive later reads and can be removed per chat', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-attachments-'))
+  // Every run of this suite left its store behind; the checkout-private
+  // temporary root that TMPDIR points at accumulated one per run forever.
+  t.after(() => rm(root, { recursive: true, force: true }))
   const stored = await persistChatAttachmentFiles(root, 'chat-1', 'message-1', [
     { name: 'screen.png', mime: 'image/png', bytes: Buffer.from('image-bytes') },
   ], async (_source, preview) => {
