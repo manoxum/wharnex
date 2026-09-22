@@ -7,6 +7,7 @@ import { activityExportFilename, buildMainPlanExport, buildSubplanExport, downlo
 import { formatActivityDate, shortPlanId, shortRequestId } from '../lib/activityFormat'
 import { Icon } from './Icon'
 import { HistoryExportButton } from './HistoryExportButton'
+import { ContentSkeleton } from './Skeleton'
 
 type PlanGroup = { rootRequestId: string; plans: ReturnType<typeof collectPlanActivities>; updatedAt: string }
 
@@ -22,7 +23,7 @@ export function PlanHistorySurface({ session, chat, events, loading, error, curr
   const historyChat = useMemo<WorkspaceChat>(() => chat || ({ id: session.id, title: 'Chat atual', sessionId: session.id, createdAt: session.created_at, updatedAt: session.created_at }), [chat, session.created_at, session.id])
   const items = useMemo(() => collectPlanActivities([{ chat: historyChat, session }], { [historyChat.id]: events }), [events, historyChat, session])
   const groups = useMemo(() => groupPlans(items, session), [items, session])
-  if (!groups.length) return <>{loading && <AuditHistoryNotice text="A carregar histórico durável de planos…"/>}{error && <AuditHistoryNotice text={error} danger/>}{currentPlan}</>
+  if (!groups.length) return <>{loading && <ContentSkeleton label="A carregar histórico de planos" rows={4}/>} {error && <AuditHistoryNotice text={error} danger/>}{currentPlan}</>
   return <div className="main-request-history plan-history">
     <AuditHistoryNotice text={loading ? 'A atualizar o histórico durável de planos…' : `${groups.length} Main Request(s) com plano registado.`} danger={Boolean(error)}/>
     {error && <AuditHistoryNotice text={error} danger/>}

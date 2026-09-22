@@ -1,12 +1,20 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { PanelSkeleton, SkeletonBlock, SkeletonLine, WorkspaceSkeleton } from './Skeleton'
+import { ContentSkeleton, EditorSurfaceSkeleton, PanelSkeleton, SkeletonBlock, SkeletonLine, WorkspaceSkeleton } from './Skeleton'
 
 describe('Skeleton placeholders', () => {
   it('renders a panel skeleton with an accessible busy label', () => {
     const { container } = render(<PanelSkeleton/>)
     expect(container.querySelector('[aria-busy="true"]')).toBeTruthy()
     expect(container.querySelectorAll('.skeleton-line').length).toBeGreaterThan(0)
+  })
+
+  it('renders content and editor skeletons with accessible busy labels', () => {
+    const content = render(<ContentSkeleton label="A carregar ficheiros" rows={3}/>)
+    expect(content.container.querySelector('[aria-label="A carregar ficheiros"]')).toBeTruthy()
+    expect(content.container.querySelectorAll('.async-content-skeleton-row')).toHaveLength(3)
+    const editor = render(<EditorSurfaceSkeleton/>)
+    expect(editor.container.querySelector('[aria-label="A carregar editor"]')).toBeTruthy()
   })
 
   it('renders a workspace skeleton previewing rail, chat and inspector regions', () => {

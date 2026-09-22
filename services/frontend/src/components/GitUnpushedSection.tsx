@@ -5,6 +5,7 @@ import { api, APIError } from '../lib/api'
 import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
 import { GitDiffReview } from './GitDiffReview'
+import { ContentSkeleton } from './Skeleton'
 
 export function GitUnpushedSection({ sessionId, repository, repositoryLabel, activeBranch, remotes, disabled, onFullPush, onSelectedPush }: {
   sessionId: string
@@ -91,7 +92,7 @@ export function GitUnpushedSection({ sessionId, repository, repositoryLabel, act
     </div>
 
     {error && <p className="git-notice error-card" role="alert">{error}</p>}
-    {loading && <p className="git-empty inline">A comparar a branch local com a origem…</p>}
+    {loading && <ContentSkeleton label="A comparar branch local com a origem" rows={2} compact/>}
     {!loading && overview && !overview.has_upstream && <p className="git-empty inline">{overview.commits.length > 0
       ? 'Sem upstream, estes são os commits locais que ainda não aparecem em nenhuma referência remota. O push completo publica a branch e configura a origem.'
       : 'Ainda não existe upstream e não há commits locais por publicar. O push completo publica a branch e configura a origem.'}</p>}

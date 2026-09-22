@@ -4,6 +4,7 @@ import { confirmDialog, promptDialog } from '../lib/appDialog'
 import type { FileEntry, GitFileDiff, GitWorkingFile, Session } from '../types'
 import { DirectoryGlyph, FileGlyph } from './FileGlyph'
 import { Icon } from './Icon'
+import { ContentSkeleton } from './Skeleton'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
 
 type TreeNode = { name: string; path: string; kind: 'file' | 'directory'; children: TreeNode[] }
@@ -188,7 +189,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
       if (event.key === 'Delete' && focused) { event.preventDefault(); void remove() }
     }}>
       {hiddenGitFiles.length ? <div className="agent-tree-hidden-git"><span>Fora da árvore</span>{hiddenGitFiles.map((file) => <button type="button" key={file.path} className={`agent-tree-row file git-changed git-${file.status} git-virtual`} onClick={() => void openGitDiff(file.path)} disabled={!canOpenGitDiff(file) || gitDiffLoadingPath === file.path} title={canOpenGitDiff(file) ? `Ver diff Git de ${file.path}` : `Diff inline indisponível para ${file.path}`}><FileGlyph path={file.path} size={15}/><span className="agent-tree-name">{file.path}</span><GitChangeBadge file={file}/></button>)}</div> : null}
-      {loading && !entries.length ? <div className="agent-drawer-empty">A carregar ficheiros…</div> : tree.length ? tree.map((node) => <TreeItem key={node.path} node={node} depth={0} expanded={expanded} focusedPath={focusedPath} gitByPath={gitByPath} gitDirectoryCounts={gitDirectoryCounts} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu}/>) : <div className="agent-drawer-empty">Este projeto não contém ficheiros visíveis no Explorer.</div>}
+      {loading && !entries.length ? <ContentSkeleton label="A carregar ficheiros do projeto" rows={7}/> : tree.length ? tree.map((node) => <TreeItem key={node.path} node={node} depth={0} expanded={expanded} focusedPath={focusedPath} gitByPath={gitByPath} gitDirectoryCounts={gitDirectoryCounts} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu}/>) : <div className="agent-drawer-empty">Este projeto não contém ficheiros visíveis no Explorer.</div>}
     </div>
     <footer className="agent-project-footer"><span>{entries.filter((entry) => entry.kind === 'file').length} ficheiros</span><span>{gitFiles.length ? `${gitFiles.length} com alterações Git` : 'Git limpo'}</span></footer>
     {menu && <div className="explorer-context-menu agent-explorer-context-menu" data-chatgpt-overlay-blocker="true" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()}>

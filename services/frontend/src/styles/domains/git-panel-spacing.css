@@ -1,0 +1,34 @@
+/* Compact spacing pass for the Git project drawer.
+   This remains separate from the legacy oversized git-panel sheet. */
+.git-tab-content {
+  padding: 14px;
+  gap: 12px;
+}
+
+.git-change-surface,
+.git-section {
+  padding: 14px;
+  gap: 12px;
+}
+
+.git-section-heading,
+.git-change-surface-heading,
+.git-contributor-ranking-heading,
+.git-history-scope,
+.git-history-branch-picker,
+.git-settings-field,
+.git-author-custom-grid > label,
+.git-hint {
+  margin-inline: 2px;
+}
+
+.git-section-heading,
+.git-change-surface-heading,
+.git-contributor-ranking-heading {
+  padding-inline: 2px;
+}
+
+@container semantic-panel (max-width: 430px) {
+  .git-tab-content { padding: 11px; gap: 10px; }
+  .git-change-surface, .git-section { padding: 12px; }
+}

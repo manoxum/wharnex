@@ -10,12 +10,13 @@ import { Icon } from './Icon'
 import { StatusPill } from './StatusPill'
 import { HistoryExportButton } from './HistoryExportButton'
 import { AuditHistoryNotice } from './PlanHistorySurface'
+import { ContentSkeleton } from './Skeleton'
 
 export function ExecutionHistorySurface({ session, events, loading, error }: { session: Session; events: HarnessEvent[]; loading: boolean; error: string }) {
   const groups = useMemo(() => groupMainRequestActivity(session, events).map((group) => ({ ...group, events: filterExecutionAuditEvents(group.events) })).filter((group) => group.events.length), [events, session])
   const activeRequestId = String(session.last_request_id || '').trim()
   const activeRootRequestId = currentMainRequestRoot(session)
-  if (!groups.length) return <>{loading && <AuditHistoryNotice text="A carregar histórico durável de execução…"/>}{error && <AuditHistoryNotice text={error} danger/>}<TerminalView events={[]} /></>
+  if (!groups.length) return <>{loading && <ContentSkeleton label="A carregar histórico de execução" rows={5}/>} {error && <AuditHistoryNotice text={error} danger/>}{!loading && <TerminalView events={[]} />}</>
   return <div className="main-request-history execution-history">
     <AuditHistoryNotice text={loading ? 'A atualizar o histórico durável de execução…' : `${groups.length} Main Request(s) com atividade de execução auditável.`} danger={Boolean(error)}/>
     {error && <AuditHistoryNotice text={error} danger/>}

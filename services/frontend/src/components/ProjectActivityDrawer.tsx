@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { collectExecutionActivities, collectPlanActivities, executionAuditEvents, executionEventsFromResult, filterAuditEvents, loadProjectSessions, sessionForPlan, type ProjectSessionActivity } from '../lib/projectActivity'
 import { Icon } from './Icon'
+import { ContentSkeleton } from './Skeleton'
 import { PlanView, TerminalView } from './Inspector'
 
 export type ProjectActivityKind = 'plans' | 'executions'
@@ -120,7 +121,7 @@ export function ProjectActivityDrawer({ kind, chats, currentSession, activeChatI
 
   return <section className="project-activity-drawer" aria-label={kind === 'plans' ? 'Planos do projeto' : 'Execuções do projeto'}>
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Projeto inteiro</span><strong>{kind === 'plans' ? 'Planos' : 'Execuções'}</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar drawer"><Icon name="close" size={13}/></button></header>
-    {!entries.length && loading ? <div className="agent-drawer-empty">A carregar atividade…</div> : !entries.length ? <div className="agent-drawer-empty">{error || (kind === 'plans' ? 'Nenhum plano disponível nos chats deste projeto.' : 'Nenhuma execução disponível nos chats deste projeto.')}</div> : <div className="project-activity-layout">
+    {!entries.length && loading ? <ContentSkeleton label="A carregar atividade do projeto" rows={6}/> : !entries.length ? <div className="agent-drawer-empty">{error || (kind === 'plans' ? 'Nenhum plano disponível nos chats deste projeto.' : 'Nenhuma execução disponível nos chats deste projeto.')}</div> : <div className="project-activity-layout">
       <div className="project-activity-list" role="list">
         {loading ? <div className="project-activity-status">A carregar restante atividade…</div> : null}
         {error ? <div className="project-activity-status warning">{error}</div> : null}
@@ -142,7 +143,7 @@ export function ProjectActivityDrawer({ kind, chats, currentSession, activeChatI
             <div className="project-log-scope" aria-label="Âmbito dos logs"><button type="button" className={logScope === 'execution' ? 'active' : ''} onClick={() => setLogScope('execution')}>Execução</button><button type="button" className={logScope === 'session' ? 'active' : ''} onClick={() => setLogScope('session')}>Sessão</button></div>
             <input type="search" value={logQuery} onChange={(event) => setLogQuery(event.target.value)} placeholder="Filtrar evento, comando, erro ou request…" aria-label="Filtrar logs" />
           </div>
-          {eventHistoryLoading === chosenExecution.session.id ? <div className="project-log-notice">A carregar histórico completo de auditoria…</div> : null}
+          {eventHistoryLoading === chosenExecution.session.id ? <ContentSkeleton label="A carregar histórico de auditoria" rows={4} compact/> : null}
           {eventHistory[chosenExecution.session.id]?.truncated ? <div className="project-log-notice warning">A sessão tem {eventHistory[chosenExecution.session.id].total} eventos; são mostrados os 2000 mais recentes.</div> : null}
           {eventHistoryError[chosenExecution.session.id] ? <div className="project-log-notice warning">{eventHistoryError[chosenExecution.session.id]}</div> : null}
           {logQuery && !visibleEvents.length ? <div className="agent-drawer-empty">Nenhum log corresponde ao filtro atual.</div> : <TerminalView key={`${chosenExecution.id}:${logScope}`} events={visibleEvents} />}

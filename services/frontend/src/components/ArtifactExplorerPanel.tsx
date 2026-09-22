@@ -7,6 +7,7 @@ import { ArtifactPreview } from './ArtifactPreview'
 import { ArtifactViewerModal } from './ArtifactViewerModal'
 import { BundleExplorerModal } from './BundleExplorer'
 import { Icon } from './Icon'
+import { ContentSkeleton } from './Skeleton'
 
 type SortMode = 'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'size-desc' | 'size-asc'
 type ViewMode = 'cards' | 'table'
@@ -172,8 +173,9 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
 
     <div className="artifact-explorer-summary"><div><strong>{loading ? 'A carregar…' : filteredItems.length}</strong><span>{mode === 'library' ? 'ficheiros' : 'bundles'} {mode === 'bundles' ? 'filtrados' : 'visíveis'} · {items.length} no total</span></div><div className="artifact-explorer-selection-actions">{visibleItems.length ? <button type="button" onClick={toggleVisibleSelection}>{allVisibleSelected ? (mode === 'bundles' ? 'Limpar página' : 'Limpar visíveis') : (mode === 'bundles' ? 'Selecionar página' : 'Selecionar visíveis')}</button> : null}{selectedKeys.size ? <><span className="file-library-selection-count">{selectedKeys.size} selecionado{selectedKeys.size === 1 ? '' : 's'} · {formatBytes(selectedBytes)}</span><button type="button" className="danger" disabled={deleting} onClick={() => void removeSelected()}><Icon name="trash" size={12}/>{deleting ? 'A eliminar…' : `Eliminar selecionados (${selectedKeys.size})`}</button></> : <small>{mode === 'library' ? 'Use Indexar para inserir @lib no próximo prompt.' : 'Selecione a página atual ou navegue para escolher bundles antigos.'}</small>}</div></div>
 
-    {viewMode === 'cards' ? <div className="file-library-grid">{visibleItems.map((item) => <ArtifactCard key={artifactKey(item)} item={item} canIndex={mode === 'library'} selected={selectedKeys.has(artifactKey(item))} onToggleSelected={() => toggleSelection(item)} onOpen={() => setSelected(item)} onIndex={() => requestArtifactIndex('lib', `session|${item.session_id}|${item.artifact.id}`)} onDelete={() => void remove(item)}/>)}</div>
-      : <ArtifactTable items={visibleItems} mode={mode} selectedKeys={selectedKeys} allVisibleSelected={allVisibleSelected} onToggleAll={toggleVisibleSelection} onToggle={toggleSelection} onOpen={setSelected} onDelete={(item) => void remove(item)}/>}
+    {loading && !items.length ? <ContentSkeleton label="A carregar biblioteca de ficheiros" rows={7}/>
+      : viewMode === 'cards' ? <div className="file-library-grid">{visibleItems.map((item) => <ArtifactCard key={artifactKey(item)} item={item} canIndex={mode === 'library'} selected={selectedKeys.has(artifactKey(item))} onToggleSelected={() => toggleSelection(item)} onOpen={() => setSelected(item)} onIndex={() => requestArtifactIndex('lib', `session|${item.session_id}|${item.artifact.id}`)} onDelete={() => void remove(item)}/>)}</div>
+        : <ArtifactTable items={visibleItems} mode={mode} selectedKeys={selectedKeys} allVisibleSelected={allVisibleSelected} onToggleAll={toggleVisibleSelection} onToggle={toggleSelection} onOpen={setSelected} onDelete={(item) => void remove(item)}/>}
 
     {!loading && !visibleItems.length && <div className="artifact-preview-empty"><Icon name={mode === 'library' ? 'file' : 'package'} size={28}/><strong>{mode === 'library' ? 'Nenhum ficheiro' : 'Nenhum bundle'}</strong><span>{mode === 'library' ? 'Carregue ficheiros diretamente para a biblioteca ou guarde artefactos de um chat.' : 'Ajuste os filtros ou aguarde por novos bundles trocados com os providers.'}</span></div>}
     {selected?.artifact.bundle ? <BundleExplorerModal sessionId={selected.session_id} bundle={selected.artifact} onClose={() => setSelected(undefined)}/> : selected ? <ArtifactViewerModal sessionId={selected.session_id} artifactId={selected.artifact.id} items={[{ path: selected.artifact.name, size: selected.artifact.size, content_type: selected.artifact.content_type, kind: undefined }]} initialIndex={0} onClose={() => setSelected(undefined)}/> : null}
