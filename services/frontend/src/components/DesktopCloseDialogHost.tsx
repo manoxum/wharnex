@@ -19,6 +19,9 @@ export function DesktopCloseDialogHost() {
       setPrompt(next)
       setBusy(false)
       setError('')
+      // Tell the main process the modal is up, so it stands down its native
+      // fallback prompt instead of racing the decision being read here.
+      void windows.acknowledgeClose?.()
     })
   }, [])
 

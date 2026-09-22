@@ -6,14 +6,17 @@ type Prompt = { projectPath: string; projectName: string; hasProject: boolean }
 
 let publishPrompt: (payload: Prompt) => void = () => {}
 const resolveClose = vi.fn(async (action: string) => ({ ok: true, action }))
+const acknowledgeClose = vi.fn(async () => ({ ok: true }))
 
 beforeEach(() => {
   resolveClose.mockClear()
+  acknowledgeClose.mockClear()
   Object.defineProperty(window, 'wharnessDesktop', {
     configurable: true,
     value: {
       windows: {
         onCloseConfirmation: (callback: (payload: Prompt) => void) => { publishPrompt = callback; return () => {} },
+        acknowledgeClose,
         resolveClose,
       },
     },
@@ -52,6 +55,14 @@ describe('DesktopCloseDialogHost', () => {
     fireEvent.click(screen.getByRole('button', { name: label }))
     await waitFor(() => expect(resolveClose).toHaveBeenCalledWith(action))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  })
+
+  it('reports that it is on screen so the native fallback prompt stands down', async () => {
+    await openDialog()
+    await waitFor(() => expect(acknowledgeClose).toHaveBeenCalledTimes(1))
+    // The decision stays open afterwards: acknowledging is not answering.
+    expect(resolveClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
   })
 
   it('maps Escape to cancel instead of closing outside the authoritative path', async () => {

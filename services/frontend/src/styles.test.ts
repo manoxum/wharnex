@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8')
-const operationalCss = readFileSync(resolve(process.cwd(), 'src/operational-panels.css'), 'utf8')
+const css = readFileSync(resolve(process.cwd(), 'src/styles/legacy/styles.css'), 'utf8')
+const operationalCss = readFileSync(resolve(process.cwd(), 'src/styles/domains/operational-panels.css'), 'utf8')
 const terminalSource = readFileSync(resolve(process.cwd(), 'src/components/InteractiveTerminal.tsx'), 'utf8')
 
 function lastRule(selector: string) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { api } from '../lib/api'
 import { desktopBridge } from '../lib/desktop'
@@ -15,6 +15,8 @@ import { ProjectGitBadge } from './ProjectGitBadge'
 import { SignalCore } from './SignalCore'
 import { ProjectLinkModal } from './ProjectLinkModal'
 import { DesktopCloseDialogHost } from './DesktopCloseDialogHost'
+import { DesktopRecoveryDialog } from './DesktopRecoveryDialog'
+import { WorkspaceSkeleton } from './Skeleton'
 
 type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
 type OpenProjectWindow = { windowId: string; projectPath: string; focused: boolean }
@@ -39,35 +41,51 @@ export function WorkspaceShell() {
   const [busy, setBusy] = useState(true)
   const [initialized, setInitialized] = useState(false)
   const [linkModalOpen, setLinkModalOpen] = useState(false)
+  const [pendingRecovery, setPendingRecovery] = useState<{ projects: string[]; activeProject: string }>()
+  const [readyProjects, setReadyProjects] = useState<string[]>([])
   const [error, setError] = useState<string>()
   const frames = useRef(new Map<string, HTMLIFrameElement>())
   const composerTypingTimerRef = useRef<number | undefined>(undefined)
+
+  const restore = useCallback(async (candidates: string[], preferred: string) => {
+    const bridge = desktopBridge()
+    const acquired: string[] = []
+    for (const candidate of candidates) {
+      try {
+        const lock = await bridge?.projects.acquire(candidate)
+        if (!bridge || lock?.ok) acquired.push(lock?.path || candidate)
+      } catch { /* stale saved binding is ignored */ }
+    }
+    const active = acquired.includes(preferred) ? preferred : acquired[0] || ''
+    setProjects(acquired); setActiveProject(active); saveBoundProjects(acquired); saveBoundActiveProject(active)
+    setBusy(false); setInitialized(true)
+  }, [])
 
   useEffect(() => {
     let alive = true
     async function initialize() {
       try { if (alive) setConfig(await api.config()) } catch (reason) { if (alive) setError(messageOf(reason)) }
       const bridge = desktopBridge()
-      let recovery: { active: boolean; projects: string[]; activeProject: string } | undefined
+      let recovery: { active: boolean; projects: string[]; activeProject: string; pending?: boolean } | undefined
       try { recovery = await bridge?.windows.recovery?.() } catch { /* recovery is best-effort */ }
+      if (!alive) return
+      // A pending recovery is the saved session asking to be restored. The
+      // decision used to be a native message box shown before any window
+      // existed; it is now this window's own themed modal, so nothing is
+      // acquired until the person answers it.
+      if (recovery?.active && recovery.pending && recovery.projects.length) {
+        setPendingRecovery({ projects: [...recovery.projects], activeProject: recovery.activeProject })
+        setBusy(false)
+        return
+      }
       const legacy = desktopWindowScope() === 'primary' ? loadActiveWorkspace()?.projectPath || '' : ''
       const candidates = recovery?.active ? [...recovery.projects] : loadBoundProjects()
       if (!recovery?.active && !candidates.length && legacy) candidates.push(legacy)
-      const acquired: string[] = []
-      for (const candidate of candidates) {
-        try {
-          const lock = await bridge?.projects.acquire(candidate)
-          if (!bridge || lock?.ok) acquired.push(lock?.path || candidate)
-        } catch { /* stale saved binding is ignored */ }
-      }
-      if (!alive) return
-      const preferred = recovery?.active ? recovery.activeProject : loadBoundActiveProject()
-      const active = acquired.includes(preferred) ? preferred : acquired[0] || ''
-      setProjects(acquired); setActiveProject(active); saveBoundProjects(acquired); saveBoundActiveProject(active); setBusy(false); setInitialized(true)
+      await restore(candidates, recovery?.active ? recovery.activeProject : loadBoundActiveProject())
     }
     void initialize()
     return () => { alive = false }
-  }, [])
+  }, [restore])
 
   useEffect(() => {
     if (!initialized) return
@@ -82,7 +100,11 @@ export function WorkspaceShell() {
       if (event.data?.type === 'wharness:project-ready') {
         const projectPath = String(event.data.projectPath || '')
         const frame = frames.current.get(projectPath)
-        if (frame?.contentWindow === event.source) publishActivation(frame, projectPath === activeProject, projects)
+        if (frame?.contentWindow === event.source) {
+          // The project has painted, so its skeleton can hand over.
+          setReadyProjects((current) => (current.includes(projectPath) ? current : [...current, projectPath]))
+          publishActivation(frame, projectPath === activeProject, projects)
+        }
       }
       if (event.data?.type === 'wharness:project-session') {
         const projectPath = String(event.data.projectPath || '')
@@ -244,10 +266,22 @@ export function WorkspaceShell() {
   }
 
   const chrome = <ShellChrome projects={projects} activeProject={activeProject} composerTypingProject={composerTypingProject} activeSessionID={projectSessions[activeProject] || ''} activeRuntime={projectRuntime[activeProject]} activeAttention={projectAttention[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onAttention={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-attention' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onNewWindow={() => void desktopBridge()?.windows.open()} />
+  const recoveryModal = pendingRecovery ? <DesktopRecoveryDialog
+    projects={pendingRecovery.projects}
+    busy={busy}
+    onRecover={() => {
+      const accepted = pendingRecovery
+      setPendingRecovery(undefined); setBusy(true)
+      void restore(accepted.projects, accepted.activeProject)
+    }}
+    onDiscard={() => { setPendingRecovery(undefined); setBusy(false); setInitialized(true) }}
+  /> : null
+
   const linkModal = linkModalOpen ? <ProjectLinkModal recent={recent} boundProjects={projects} busy={busy} error={error} onOpen={bindProject} onBrowse={chooseAndBind} onCreate={createProject} onClone={cloneProject} onClose={() => setLinkModalOpen(false)} /> : null
 
   if (!projects.length) return <div className="desktop-shell-root">
     {chrome}
+    {recoveryModal}
     <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={busy} onStart={async (projectPath) => { await bindProject(projectPath) }} onCreate={async (parentPath, name) => { await createProject(parentPath, name) }} onClone={async (repositoryURL, parentPath, directory) => { await cloneProject(repositoryURL, parentPath, directory) }} />
     {linkModal}
   </div>
@@ -259,13 +293,17 @@ export function WorkspaceShell() {
       {projects.map((projectPath) => <iframe
         key={projectPath}
         ref={(node) => { if (node) frames.current.set(projectPath, node); else frames.current.delete(projectPath) }}
-        className={`bound-project-frame ${projectPath === activeProject ? 'active' : ''}`}
+        className={`bound-project-frame ${projectPath === activeProject ? 'active' : ''} ${readyProjects.includes(projectPath) ? '' : 'booting'}`}
         title={`Wharnex · ${projectName(projectPath)}`}
         src={frameSources.get(projectPath)}
         onLoad={(event) => publishActivation(event.currentTarget, projectPath === activeProject, projects)}
       />)}
+      {/* The active project holds its own space with the shared skeleton while
+          its frame boots, instead of showing a blank panel. */}
+      {activeProject && !readyProjects.includes(activeProject) && <div className="bound-project-loading" aria-hidden="true"><WorkspaceSkeleton/></div>}
     </section>
     {linkModal}
+    {recoveryModal}
   </main>
 }
 

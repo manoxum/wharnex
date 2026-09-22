@@ -39,9 +39,23 @@ test('desktop tray owns background lifecycle, project actions and recoverable sh
   assert.match(source, /label: 'Restaurar janela'/)
   assert.match(source, /label: 'Fechar projeto'/)
   assert.match(source, /label: 'Sair'/)
-  assert.match(source, /buttons: \['Enviar para background', projectPath \? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'\]/)
+  // The four close choices moved into the native fallback prompt when the
+  // themed modal took over the normal path, so assert them where they now
+  // live and assert that main.mjs still reaches that fallback — otherwise the
+  // tray's background option is unreachable whenever the renderer is silent.
+  const closePrompt = await readFile(new URL('./desktop-window-close-prompt.mjs', import.meta.url), 'utf8')
+  assert.match(closePrompt, /buttons: \['Enviar para background', subject \? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'\]/)
+  assert.match(source, /fallback: \(windowState, descriptor\) => nativeWindowCloseChoice\(dialog, windowState\.window, descriptor\)/)
   assert.match(source, /persistDesktopRecoverySession\(\)/)
-  assert.match(source, /buttons: \['Recuperar sessão', 'Descartar sessão'\]/)
+  // Recovering or discarding the saved session is now the renderer's themed
+  // decision rather than a native message box shown before any window
+  // exists, so the two choices are asserted where they are presented.
+  const recoveryDialog = await readFile(new URL('../frontend/src/components/DesktopRecoveryDialog.tsx', import.meta.url), 'utf8')
+  assert.match(recoveryDialog, /Recuperar sessão/)
+  assert.match(recoveryDialog, /Descartar sessão/)
+  assert.doesNotMatch(source, /buttons: \['Recuperar sessão', 'Descartar sessão'\]/)
+  assert.match(source, /recoverableDesktopWindows\(recovery\)/)
+  assert.match(source, /pending: Boolean\(windowState\.recovery\?\.pending\)/)
   assert.match(source, /ipcMain\.handle\('wharness:windows:recovery'/)
   assert.match(source, /wharness:windows:close-project/)
   assert.match(source, /app\.on\('window-all-closed', \(\) => \{[\s\S]*ensureDesktopTray\(\)/)

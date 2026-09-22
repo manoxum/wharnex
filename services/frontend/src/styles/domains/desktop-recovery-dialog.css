@@ -1,0 +1,55 @@
+/* Startup session-recovery confirmation. Shares the close dialog's surface
+   language so the two startup/shutdown decisions read as one system, and
+   replaces the native Electron message box that used to ask this. */
+.desktop-recovery-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, #05070a 62%, transparent);
+  backdrop-filter: blur(10px) saturate(.85);
+  -webkit-app-region: no-drag;
+}
+
+.desktop-recovery-dialog {
+  box-sizing: border-box;
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 86%, var(--theme-accent));
+  border-radius: 20px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--theme-elevated) 96%, var(--theme-accent-soft)), var(--theme-elevated) 58%);
+  color: var(--theme-text);
+  box-shadow: 0 34px 90px color-mix(in srgb, var(--theme-shadow) 88%, #000);
+}
+
+.desktop-recovery-heading { display: grid; grid-template-columns: 46px minmax(0,1fr); align-items: start; gap: 13px; }
+.desktop-recovery-symbol { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--theme-accent) 40%, var(--theme-border)); border-radius: 14px; background: var(--theme-accent-soft); color: var(--theme-accent); }
+.desktop-recovery-kicker { display: block; margin: 1px 0 5px; color: var(--theme-accent); font: 700 calc(7px * var(--ui-font-scale))/1.2 var(--mono-font-family); letter-spacing: .11em; text-transform: uppercase; }
+.desktop-recovery-heading h2 { margin: 0; font-size: calc(14px * var(--ui-font-scale)); line-height: 1.25; letter-spacing: -.02em; }
+.desktop-recovery-description { margin: 15px 0 17px 59px; max-width: 520px; color: var(--theme-text-muted); font-size: calc(8.2px * var(--ui-font-scale)); line-height: 1.55; }
+
+.desktop-recovery-projects { margin: 0 0 16px; padding: 0; list-style: none; display: grid; gap: 7px; max-height: 240px; overflow: auto; }
+.desktop-recovery-project { min-height: 46px; padding: 9px 12px; display: grid; grid-template-columns: 30px minmax(0,1fr); align-items: center; gap: 11px; border: 1px solid var(--theme-border-soft); border-radius: 11px; background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg)); }
+.desktop-recovery-project-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: var(--theme-muted); color: var(--theme-text-soft); }
+.desktop-recovery-project > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.desktop-recovery-project strong { font-size: calc(8.4px * var(--ui-font-scale)); font-weight: 700; }
+.desktop-recovery-project small { overflow: hidden; color: var(--theme-text-muted); font-size: calc(7.2px * var(--ui-font-scale)); text-overflow: ellipsis; white-space: nowrap; }
+
+.desktop-recovery-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; padding-top: 14px; border-top: 1px solid var(--theme-border-soft); }
+.desktop-recovery-actions button { min-height: 34px; padding: 0 15px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--theme-border); border-radius: 10px; background: var(--theme-surface); color: var(--theme-text-soft); font-size: calc(7.8px * var(--ui-font-scale)); font-weight: 650; cursor: pointer; transition: border-color .14s ease, background .14s ease, color .14s ease; }
+.desktop-recovery-actions button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border)); background: var(--theme-hover); color: var(--theme-text); }
+.desktop-recovery-actions button.primary { border-color: color-mix(in srgb, var(--theme-accent) 46%, var(--theme-border)); background: var(--theme-accent-soft); color: var(--theme-accent); }
+.desktop-recovery-actions button:disabled { cursor: wait; opacity: .58; }
+
+@media (max-width: 620px) {
+  .desktop-recovery-backdrop { padding: 12px; align-items: end; }
+  .desktop-recovery-dialog { width: 100%; padding: 17px; border-radius: 18px; }
+  .desktop-recovery-description { margin-left: 0; }
+  .desktop-recovery-actions { flex-direction: column-reverse; align-items: stretch; }
+}
+
+@media (prefers-reduced-motion: reduce) { .desktop-recovery-actions button { transition: none; } }

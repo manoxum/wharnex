@@ -13,7 +13,7 @@ describe('async loading styling architecture', () => {
 
   it('keeps shared skeleton rules outside the frozen legacy root stylesheet', () => {
     const loading = read('styles/base/async-loading.css')
-    const legacy = read('styles.css')
+    const legacy = read('styles/legacy/styles.css')
 
     expect(loading).toContain('.async-content-skeleton')
     expect(loading).toContain('.editor-surface-skeleton')

@@ -31,7 +31,17 @@ The cap does not apply to:
 - data, fixture, schema and migration files that are not application logic
   (`schemas/*.json`, `testdata/**`, `**/fixtures/**`, SQL migrations);
 - build output (`dist/`, `build/`, `.harness/`);
-- localization/translation resource files.
+- localization/translation resource files;
+- sandboxed Electron preload entry points (`services/desktop/preload.cjs`).
+  Electron loads a preload for a `sandbox: true` window with a `require`
+  polyfill that resolves only `electron` and a few Node builtins, so a
+  relative import throws, the preload aborts, and the trusted renderer silently
+  loses its privileged bridge — losing the themed window controls and the
+  native ChatGPT surfaces with it. Splitting such a file is therefore not a
+  refactor but an outage, and it MUST stay self-contained. Its contract is
+  enforced by `services/desktop/preload-sandbox.test.mjs` instead of by the
+  line cap. Growth is still bounded: behavior belongs in main-process modules
+  the preload reaches over named IPC, never in the preload itself.
 
 When in doubt whether a file is "implementation" for this rule, prefer
 splitting it — the cost of one extra small file is far lower than the cost of
@@ -44,6 +54,12 @@ a violation to fix as a separate cleanup task. It becomes one the moment a
 change needs to touch it: that change MUST extract the concern it is
 adding/maintaining into its own new, dedicated file or module, in the same
 commit, rather than adding more lines to the oversized file.
+
+Extract-on-touch never applies to a file §1 exempts. A file whose runtime
+cannot load a second module is extracted only by breaking it, so the concern
+is moved behind the boundary that file already talks to — for a sandboxed
+preload, a main-process module reached over named IPC — never into a sibling
+the file would have to import.
 
 Concretely:
 
@@ -59,10 +75,13 @@ Concretely:
   touching. The legacy file shrinks over many such changes, never through one
   big rewrite forced into an unrelated task.
 
-This is how `services/frontend/src/styles.css` (8459 lines),
+This is how `services/frontend/src/styles/legacy/styles.css` (10119 lines),
 `services/desktop/main.mjs` (8196 lines) and
-`services/frontend/src/theme.css` (1703 lines) are expected to shrink over
-time. None of them is being rewritten as part of `adr/ADR-0066`; each next
+`services/frontend/src/styles/theme/theme.css` (1791 lines) are expected to
+shrink over time. The two stylesheets were relocated out of the root of
+`src/` by the wholesale move recorded in `SoT/FRONTEND_STYLING.md` §1; that
+changed where they live, not the fact that they shrink only through
+extract-on-touch. None of them is being rewritten as part of `adr/ADR-0066`; each next
 change that touches one of them is where the shrinking happens.
 
 ## 3. Continuous refactoring

@@ -7,20 +7,31 @@ UI must look like and how it must behave.
 
 ## 1. Current state (measured 2026-09-22)
 
-All frontend styling today is hand-written CSS, concentrated in six files
-that sit flat at the root of `src/` and are imported globally from
-`src/main.tsx`:
+All frontend styling today is hand-written CSS, concentrated in six legacy
+files. They no longer sit flat at the root of `src/`: the wholesale
+relocation §4 reserved for an explicitly requested change has been carried
+out, so `src/` now holds no stylesheet at all and every sheet is reached
+through the single `src/styles/index.css` entry point:
 
 | file | lines |
 | --- | --- |
-| `src/styles.css` | 10257 |
-| `src/theme.css` | 1791 |
-| `src/operational-panels.css` | 812 |
-| `src/plan-control.css` | 669 |
-| `src/restart-confirmation.css` | 357 |
-| `src/activity-history.css` | 193 |
+| `src/styles/legacy/styles.css` | 10119 |
+| `src/styles/theme/theme.css` | 1791 |
+| `src/styles/domains/operational-panels.css` | 812 |
+| `src/styles/domains/plan-control.css` | 669 |
+| `src/styles/domains/restart-confirmation.css` | 357 |
+| `src/styles/domains/activity-history.css` | 193 |
 
-There are zero CSS files in any subdirectory. `styles.css` grew by roughly
+The move was content-preserving and cascade-preserving: the files were
+relocated with `git mv`, and `index.css` reproduces the exact order
+`main.tsx` previously applied, which is what keeps appearance identical
+(the production CSS bundle hashes identically before and after). Relocation
+does not unfreeze them — §4's rule that no change may add rules to these six
+files still applies, and `src/styles/legacy/` exists to hold the one
+monolith that has not been decomposed into domains yet, not as a
+destination for new sheets.
+
+`styles.css` grew by roughly
 1800 lines in a single day (8459 → 10257) *after* the first version of these
 rules landed, which is the concrete evidence that a stated preference is not
 enough: §3 and §4 below are written as obligations with named exceptions,
@@ -112,11 +123,15 @@ When a CSS file *is* justified:
 - Each file is subject to the 200-line cap in `SoT/CODE_QUALITY.md` §1, like
   any other new implementation file. Splitting a domain sheet that would
   exceed it is expected, not an exception to request.
-- The six legacy files in §1 stay where they are and are **frozen**: no
-  change may add rules to them. Anything extracted from one of them under
-  the extract-on-touch rule lands in `src/styles/` in its proper domain, and
-  the legacy file shrinks accordingly. Moving them wholesale is a separate,
-  explicitly requested change — never a drive-by.
+  - `src/styles/legacy/` — the undecomposed monolith only. Nothing new is
+    ever added here; it shrinks as domains are extracted out of it.
+- The six legacy files in §1 are **frozen**: no change may add rules to
+  them. Anything extracted from one of them under the extract-on-touch rule
+  lands in `src/styles/` in its proper domain, and the legacy file shrinks
+  accordingly. Their wholesale relocation into `src/styles/` was such an
+  explicitly requested change and has now happened (§1); being frozen is
+  about their contents, not their path, so it still holds. The 200-line cap
+  applies to new sheets, not retroactively to these six.
 
 ## 5. Bootstrap requirements
 

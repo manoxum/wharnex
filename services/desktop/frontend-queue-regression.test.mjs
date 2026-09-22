@@ -27,7 +27,7 @@ test('main request queue stays serialized behind active workflow and supports qu
 test('clipboard images are uniquified before attachment de-duplication and send stays right aligned', async () => {
   const attachments = await source('lib/chatAttachments.ts')
   const panel = await source('components/ChatPanel.tsx')
-  const css = await source('styles.css')
+  const css = await source('styles/legacy/styles.css')
   assert.match(attachments, /clipboard-image/)
   assert.match(panel, /uniquifyPastedChatFiles\(attachments, files(?:,\s*nextPromptIndex)?\)/)
   assert.match(css, /composer-submit-row.*grid-template-columns: minmax\(0, 1fr\) auto/s)
@@ -75,7 +75,7 @@ test('background account lifecycle work has durable worker producers and no rend
 test('deferred Supervisor navigation exposes a local Engine cover while direct prompts queue', async () => {
   const pane = await source('components/ChatGPTDesktopPane.tsx')
   const desktopTypes = await source('desktop.d.ts')
-  const css = await source('styles.css')
+  const css = await source('styles/legacy/styles.css')
   assert.match(desktopTypes, /surfaceDeferred\?: boolean/)
   assert.match(pane, /next\.surfaceDeferred/)
   assert.match(pane, /A preparar este chat/)

@@ -26,6 +26,7 @@ import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieD
 import { ProjectWindowRegistry, canonicalProjectPath } from './project-window-registry.mjs'
 import { desktopIconSVG, desktopInstanceName, desktopWindowTitle } from './desktop-identity.mjs'
 import { createDesktopWindowCloseCoordinator } from './desktop-window-close.mjs'
+import { nativeWindowCloseChoice } from './desktop-window-close-prompt.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
@@ -874,10 +875,8 @@ async function requestFullDesktopQuit() {
 }
 
 const desktopWindowClose = createDesktopWindowCloseCoordinator({
-  publish: (windowState, payload) => {
-    const projectPath = payload.projectPath
-    sendToWindowState(windowState, 'wharness:windows:confirm-close', { ...payload, buttons: ['Enviar para background', projectPath ? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'] })
-  },
+  publish: (windowState, descriptor) => sendToWindowState(windowState, 'wharness:windows:confirm-close', descriptor),
+  fallback: (windowState, descriptor) => nativeWindowCloseChoice(dialog, windowState.window, descriptor),
   background: (windowState) => {
     hideChatAgentInteractionsForWindow(windowState)
     windowState.window.hide()
@@ -888,27 +887,17 @@ const desktopWindowClose = createDesktopWindowCloseCoordinator({
   closeAll: () => setTimeout(() => { void requestFullDesktopQuit() }, 0),
 })
 
-function promptDesktopRecoverySession(recovery) {
-  if (!recovery?.windows?.length) return []
-  const accepted = []
+// The windows a saved session can offer to restore. The decision itself is
+// the renderer's: this only shapes the records, so a session with no usable
+// project never reaches a window as an empty prompt.
+function recoverableDesktopWindows(recovery) {
+  if (!recovery?.windows?.length) return [{ id: 'primary', projects: [], activeProject: '' }]
+  const records = []
   for (const record of recovery.windows) {
-    const projects = []
-    for (const projectPath of record.projects) {
-      const response = dialog.showMessageBoxSync({
-        type: 'question',
-        title: 'Recuperar sessão do projeto',
-        message: `Recuperar a última sessão de ${path.basename(projectPath) || projectPath}?`,
-        detail: 'Recuperar repõe a janela e o estado persistido do workspace. Descartar remove apenas esta sessão de janela; os chats guardados do projeto são preservados.',
-        buttons: ['Recuperar sessão', 'Descartar sessão'],
-        defaultId: 0,
-        cancelId: 1,
-        noLink: true,
-      })
-      if (response === 0) projects.push(projectPath)
-    }
-    if (projects.length) accepted.push({ id: record.id, projects, activeProject: projects.includes(record.activeProject) ? record.activeProject : projects[0] })
+    const projects = [...record.projects]
+    if (projects.length) records.push({ id: record.id, projects, activeProject: projects.includes(record.activeProject) ? record.activeProject : projects[0] })
   }
-  return accepted
+  return records.length ? records : [{ id: 'primary', projects: [], activeProject: '' }]
 }
 
 function windowLayoutPath() { return path.join(app.getPath('userData'), 'wharness-window-layout.json') }
@@ -7314,6 +7303,8 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
     active: true,
     projects: Array.isArray(launch.recovery.projects) ? launch.recovery.projects.map(canonicalProjectPath) : [],
     activeProject: typeof launch.recovery.activeProject === 'string' && launch.recovery.activeProject.trim() ? canonicalProjectPath(launch.recovery.activeProject) : '',
+    // The renderer still owes a decision on this session.
+    pending: Boolean(launch.recovery.pending),
   } : undefined
   const initialWindowPlacement = surface ? { width: 1280, height: 820, maximized: false } : loadWindowPlacement(id)
   const win = new BrowserWindow({
@@ -7495,6 +7486,7 @@ function registerIPC() {
       active: Boolean(windowState.recovery?.active),
       projects: Array.isArray(windowState.recovery?.projects) ? [...windowState.recovery.projects] : [],
       activeProject: String(windowState.recovery?.activeProject || ''),
+      pending: Boolean(windowState.recovery?.pending),
     }
   })
   ipcMain.handle('wharness:windows:projects', (event) => {
@@ -7564,6 +7556,9 @@ function registerIPC() {
       if (!windowState.window.isDestroyed()) windowState.window.close()
     }, 0)
     return { ok: true }
+  })
+  ipcMain.handle('wharness:windows:acknowledge-close', (event) => {
+    return desktopWindowClose.acknowledge(trustedSender(event))
   })
   ipcMain.handle('wharness:windows:resolve-close', (event, request) => {
     return desktopWindowClose.resolve(trustedSender(event), request?.action)
@@ -8322,14 +8317,14 @@ app.whenReady().then(async () => {
       persistWindowLayout()
     }, 900)
   } else if (recovery) {
-    const accepted = promptDesktopRecoverySession(recovery)
-    if (accepted.length) {
-      for (const record of accepted) createWindow(record.id, false, { recovery: { projects: record.projects, activeProject: record.activeProject } })
-      persistWindowLayout(accepted.map((record) => record.id))
-    } else {
-      createWindow('primary', false, { recovery: { projects: [], activeProject: '' } })
-      persistWindowLayout(['primary'])
-    }
+    // The saved windows are recreated immediately so the topology and the
+    // startup sequence below stay synchronous, but their projects are not
+    // bound yet: each window asks for the decision in its own themed modal
+    // and restores lazily from there. Asking here instead would mean a
+    // native message box, because no renderer exists at this point.
+    const records = recoverableDesktopWindows(recovery)
+    for (const record of records) createWindow(record.id, false, { recovery: { projects: record.projects, activeProject: record.activeProject, pending: true } })
+    persistWindowLayout(records.map((record) => record.id))
   } else {
     for (const windowId of layout) createWindow(windowId, false)
     persistWindowLayout()

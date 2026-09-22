@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const theme = readFileSync(resolve(process.cwd(), 'src/theme.css'), 'utf8')
+const theme = readFileSync(resolve(process.cwd(), 'src/styles/theme/theme.css'), 'utf8')
 
 describe('complete colour themes', () => {
   it('defines explicit palettes and component coverage for both modes', () => {

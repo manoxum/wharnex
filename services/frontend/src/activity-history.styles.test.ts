@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const css = readFileSync(resolve(process.cwd(), 'src/activity-history.css'), 'utf8')
+const css = readFileSync(resolve(process.cwd(), 'src/styles/domains/activity-history.css'), 'utf8')
 const planSurface = readFileSync(resolve(process.cwd(), 'src/components/PlanHistorySurface.tsx'), 'utf8')
 const executionSurface = readFileSync(resolve(process.cwd(), 'src/components/ExecutionHistorySurface.tsx'), 'utf8')
 function rule(selector: string) {
