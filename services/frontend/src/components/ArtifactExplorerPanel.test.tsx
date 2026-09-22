@@ -79,6 +79,7 @@ describe('ArtifactExplorerPanel', () => {
     fireEvent.click(screen.getByLabelText('Eliminar manual.pdf'))
     await waitFor(() => expect(mocks.deleteManagedArtifact).toHaveBeenCalledWith('ses_a', 'artifact_a'))
     expect(mocks.confirmDialog).toHaveBeenCalledTimes(1)
+    expect(mocks.confirmDialog).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Espaço a libertar: 4 KB.') }))
   })
 
   it('selects multiple library items and deletes them with one confirmation', async () => {
@@ -88,13 +89,56 @@ describe('ArtifactExplorerPanel', () => {
 
     fireEvent.click(screen.getByLabelText('Selecionar manual.pdf'))
     fireEvent.click(screen.getByLabelText('Selecionar dados.csv'))
-    expect(screen.getByText('2 selecionados')).toBeTruthy()
+    expect(screen.getByText(/2 selecionados · 5 KB/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /Eliminar selecionados \(2\)/ }))
     await waitFor(() => expect(mocks.deleteManagedArtifact).toHaveBeenCalledTimes(2))
     expect(mocks.deleteManagedArtifact).toHaveBeenCalledWith('ses_a', 'artifact_a')
     expect(mocks.deleteManagedArtifact).toHaveBeenCalledWith('ses_b', 'artifact_b')
-    expect(mocks.confirmDialog).toHaveBeenCalledWith(expect.objectContaining({ title: 'Eliminar 2 itens?', confirmLabel: 'Eliminar 2' }))
+    expect(mocks.confirmDialog).toHaveBeenCalledWith(expect.objectContaining({ title: 'Eliminar 2 itens?', confirmLabel: 'Eliminar 2', message: expect.stringContaining('Espaço a libertar: 5 KB.') }))
+  })
+
+  it('shows selected bundle storage and the space reclaimed by bulk deletion', async () => {
+    const first = managed('ses_first', '/workspace/alpha', 'artifact_first', 'whx_bundle_req_first.zip', 2048, '2026-09-18T08:00:00Z')
+    first.artifact.bundle = true
+    first.artifact.kind = 'bundle'
+    const second = managed('ses_second', '/workspace/alpha', 'artifact_second', 'whx_bundle_res_second.zip', 4096, '2026-09-17T08:00:00Z')
+    second.artifact.bundle = true
+    second.artifact.kind = 'bundle'
+    second.artifact.direction = 'output'
+    mocks.managedArtifacts.mockImplementation(async (_query: string, bundlesOnly: boolean) => ({ artifacts: bundlesOnly ? [first, second] : artifacts }))
+    render(<ArtifactExplorerPanel sessionId="ses_current" onError={vi.fn()}/>)
+    await screen.findByText('manual.pdf')
+
+    fireEvent.click(screen.getByRole('tab', { name: /Bundles/ }))
+    await screen.findByText('whx_bundle_req_first.zip')
+    fireEvent.click(screen.getByLabelText('Selecionar whx_bundle_req_first.zip'))
+    fireEvent.click(screen.getByLabelText('Selecionar whx_bundle_res_second.zip'))
+    expect(screen.getByText(/2 selecionados · 6 KB/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Eliminar selecionados \(2\)/ }))
+    await waitFor(() => expect(mocks.confirmDialog).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Espaço a libertar: 6 KB.') })))
+  })
+
+  it('paginates bundle cards with 20, 50, 100 and all limits', async () => {
+    const bundles = Array.from({ length: 55 }, (_, index) => {
+      const bundle = managed(`ses_${index}`, '/workspace/alpha', `artifact_${index}`, `whx_bundle_req_${String(index).padStart(2, '0')}.zip`, 1024, `2026-09-${String(1 + (index % 20)).padStart(2, '0')}T08:00:00Z`)
+      bundle.artifact.bundle = true
+      bundle.artifact.kind = 'bundle'
+      return bundle
+    })
+    mocks.managedArtifacts.mockImplementation(async (_query: string, bundlesOnly: boolean) => ({ artifacts: bundlesOnly ? bundles : artifacts }))
+    render(<ArtifactExplorerPanel sessionId="ses_current" onError={vi.fn()}/>)
+    await screen.findByText('manual.pdf')
+
+    fireEvent.click(screen.getByRole('tab', { name: /Bundles/ }))
+    expect(await screen.findByText('A mostrar 1–50 de 55')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Bundles por página'), { target: { value: '20' } })
+    expect(screen.getByText('A mostrar 1–20 de 55')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Página seguinte'))
+    expect(screen.getByText('A mostrar 21–40 de 55')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Bundles por página'), { target: { value: 'all' } })
+    expect(screen.getByText('A mostrar 1–55 de 55')).toBeTruthy()
   })
 
   it('renders bundles as semantic cards and filters them by a custom date interval', async () => {
@@ -116,6 +160,7 @@ describe('ArtifactExplorerPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Bundles/ }))
     expect(await screen.findByText('Bundle de resposta')).toBeTruthy()
     expect(screen.getByText('Bundle de pedido')).toBeTruthy()
+    expect(screen.getAllByText('ZIP').length).toBe(2)
     fireEvent.change(screen.getByLabelText('Janela temporal'), { target: { value: 'custom' } })
     fireEvent.change(screen.getByLabelText('Data inicial'), { target: { value: '2026-09-15' } })
     fireEvent.change(screen.getByLabelText('Data final'), { target: { value: '2026-09-16' } })
