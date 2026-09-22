@@ -132,15 +132,22 @@ func (s *Service) promoteLegacyPatchBranches(ctx context.Context, sessionID stri
 		}
 		// Historical sessions without the retained request base preserve their
 		// established ChangeSet compatibility path. Promotion is an upgrade,
-		// not a reason to reject candidates that predate request-base refs.
-		if requestBaseCommit(item, upgraded[index].Plan.RequestID) == "" {
+		// not a reason to reject candidates that predate request-base refs. A
+		// conflict-narrowed predecessor may deliberately point at a newer base
+		// request: falling back to its original plan request would resurrect the
+		// exact stale ancestry the focused resolution already superseded.
+		baseRequestID := strings.TrimSpace(upgraded[index].IntegrationBaseRequestID)
+		if baseRequestID == "" {
+			baseRequestID = upgraded[index].Plan.RequestID
+		}
+		if requestBaseCommit(item, baseRequestID) == "" {
 			continue
 		}
 		workspace, err := s.runner.Prepare(ctx, item.ProjectPath)
 		if err != nil {
 			return pending, false, err
 		}
-		branch, _, rooted := s.prepareBaseRootedWorkspace(ctx, sessionID, item, &upgraded[index].Plan, workspace.Path)
+		branch, _, rooted := s.prepareBaseRootedWorkspaceAtRequest(ctx, sessionID, item, &upgraded[index].Plan, workspace.Path, baseRequestID)
 		if !rooted {
 			_ = s.runner.Cleanup(workspace)
 			return pending, false, fmt.Errorf("prepare immutable request base for legacy pending plan %s", upgraded[index].Plan.PlanID)

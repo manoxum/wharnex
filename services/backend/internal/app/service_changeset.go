@@ -1033,7 +1033,16 @@ func retireConflictingMutations(ctx context.Context, projectPath, replacementBas
 					clone.Mutations = append(clone.Mutations, mutation)
 				}
 			}
+			clone.BaseRevision = strings.TrimSpace(replacementBase)
 			change.ChangeSet = &clone
+		}
+		// The surviving delta has now been composed against the focused
+		// resolution's base. Preserve that provenance independently from the
+		// original plan request so any later branch promotion starts from the
+		// verified cumulative base instead of reviving stale request ancestry.
+		change.Plan.BaseContextSHA256 = strings.TrimSpace(replacementBase)
+		if conflict.RequestID != "" {
+			change.IntegrationBaseRequestID = strings.TrimSpace(conflict.RequestID)
 		}
 		if change.IntegrationBranch == "" || change.IntegrationCommit == "" {
 			if change.ChangeSet != nil {
@@ -1072,9 +1081,13 @@ func retireConflictingMutations(ctx context.Context, projectPath, replacementBas
 		}
 		change.Plan.Operations = operations
 		change.Plan.ImpactFiles = normalizedPaths(keptPaths)
-		change.Plan.BaseContextSHA256 = strings.TrimSpace(replacementBase)
 		change.IntegrationBranch = ""
 		change.IntegrationCommit = ""
+		// Once the Git commit has been narrowed into canonical patch bytes the
+		// old ChangeSet is no longer an equivalent representation. Keeping it
+		// would make legacy promotion prefer stale CAS mutations and silently
+		// ignore the exact residual patch verified by this retirement.
+		change.ChangeSet = nil
 		result = append(result, change)
 	}
 	return result, normalizedStrings(retiredBranches), nil

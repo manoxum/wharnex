@@ -181,7 +181,7 @@ refuses to act on a repository with unresolved paths — and routes into the sam
 bounded `harness.conflict/v1` resolution, replayed into that exact merge and
 committed as its merge commit. Publishing the result remains an explicit push.
 
-A true merge conflict preserves all pending candidates and creates exactly one `harness.conflict/v1` focused resolution request. That request may write only the conflicting paths. Its result replaces only the conflicted mutations; unrelated verified mutations remain queued. Repeated global baseline repair for a merge conflict is forbidden.
+A true merge conflict preserves all pending candidates and creates exactly one `harness.conflict/v1` focused resolution request. That request may write only the conflicting paths. Its result replaces only the conflicted mutations; unrelated verified mutations remain queued. Conflict ownership follows the conflict lineage, not write-set overlap: a capsule path can expose stale request-base ancestry even when the predecessor never explicitly patched that path. In that case the predecessor's surviving explicit delta is re-anchored at the focused resolution request base before it is promoted or merged again, so the retired ancestry cannot recreate the same conflict. Repeated global baseline repair for a merge conflict is forbidden.
 
 ## Request-base-rooted integration (v1.3.2)
 
