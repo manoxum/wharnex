@@ -8479,31 +8479,212 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .main-request-execution-detail .execution-timeline { margin:0; }
 .execution-history .main-request-block > summary { border-left:3px solid color-mix(in srgb,var(--theme-accent) 70%,var(--theme-border)); }
 
-/* Git repository scope: the superproject and initialized submodules share the
-   same control surface while keeping explicit per-repository targeting. */
-.git-repository-scope { flex: 0 0 auto; margin: 8px 8px 0; padding: 9px; display: grid; gap: 8px; border: 1px solid var(--theme-border-soft); border-radius: 10px; background: color-mix(in srgb,var(--theme-surface) 92%,var(--theme-accent) 8%); }
-.git-repository-active, .git-repository-targets { display: grid; gap: 5px; }
-.git-repository-active > span, .git-repository-targets > span { color: var(--theme-text-muted); font-size: 9px; font-weight: 720; letter-spacing: .055em; text-transform: uppercase; }
-.git-repository-active select, .project-git-repository-picker select { width: 100%; min-height: 32px; padding: 5px 8px; border: 1px solid var(--theme-border); border-radius: 7px; background: var(--theme-bg); color: var(--theme-text); font: inherit; }
-.git-repository-target-actions { display: flex; gap: 5px; }
-.git-repository-target-actions button { padding: 4px 8px; border: 1px solid var(--theme-border); border-radius: 6px; background: var(--theme-bg); color: var(--theme-text-muted); font-size: 9px; cursor: pointer; }
-.git-repository-target-actions button:hover:not(:disabled) { color: var(--theme-text); border-color: var(--theme-accent); }
-.git-repository-target-list { max-height: 118px; display: grid; gap: 3px; overflow: auto; }
-.git-repository-target-list label { min-width: 0; padding: 4px 6px; display: grid; grid-template-columns: 16px minmax(0,1fr) auto; align-items: center; gap: 5px; border-radius: 6px; color: var(--theme-text); font-size: 10px; }
-.git-repository-target-list label:hover { background: var(--theme-hover); }
-.git-repository-target-list label.disabled { opacity: .5; }
-.git-repository-target-list small { max-width: 150px; overflow: hidden; color: var(--theme-text-muted); font-size: 8.5px; text-overflow: ellipsis; white-space: nowrap; }
-.git-repository-target-hint { color: var(--theme-text-muted); font-size: 8.5px; line-height: 1.4; }
-.project-git-repository-picker { display: grid; gap: 5px; }
-.project-git-repository-picker > span { color: var(--theme-text-muted); font-size: 10px; font-weight: 700; }
-
-.project-git-repository-targets { display: grid; gap: 5px; padding: 7px; border: 1px solid var(--theme-border-soft); border-radius: 7px; background: var(--theme-bg); }
-.project-git-repository-target-actions { display: flex; align-items: center; gap: 5px; }
-.project-git-repository-target-actions > span { margin-right: auto; color: var(--theme-text-muted); font-size: 9px; font-weight: 700; }
-.project-git-repository-target-actions button { padding: 3px 6px; border: 1px solid var(--theme-border); border-radius: 5px; background: var(--theme-surface); color: var(--theme-text-muted); font-size: 8px; cursor: pointer; }
-.project-git-repository-target-list { max-height: 84px; display: grid; gap: 2px; overflow: auto; }
-.project-git-repository-target-list label { display: flex; align-items: center; gap: 5px; color: var(--theme-text-soft); font-size: 9px; }
-.project-git-repository-target-list label.disabled { opacity: .5; }
+/* Git repository scope: keep multi-repository controls compact, legible and
+   visually consistent between the version-control drawer and header popup. */
+.git-repository-scope {
+  flex: 0 0 auto;
+  margin: 8px 8px 0;
+  padding: 10px;
+  display: grid;
+  gap: 9px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 72%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--theme-surface) 97%, var(--theme-accent) 3%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--theme-text) 4%, transparent);
+}
+.git-repository-active,
+.project-git-repository-picker { position: relative; display: grid; gap: 5px; }
+.git-repository-active > span,
+.git-repository-targets > span,
+.project-git-repository-picker > span {
+  color: var(--theme-text-muted);
+  font-size: calc(8.6px * var(--ui-font-scale));
+  font-weight: 700;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+.git-repository-active select,
+.project-git-repository-picker select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 30px 0 10px;
+  appearance: none;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  outline: none;
+  background: color-mix(in srgb, var(--theme-bg) 82%, var(--theme-surface));
+  color: var(--theme-text);
+  font: 620 calc(10.8px * var(--ui-font-scale))/1.2 var(--ui-font-family);
+  cursor: pointer;
+  transition: border-color .14s ease, background-color .14s ease, box-shadow .14s ease;
+}
+.git-repository-active select:hover:not(:disabled),
+.project-git-repository-picker select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border));
+  background: var(--theme-hover);
+}
+.git-repository-active select:focus,
+.project-git-repository-picker select:focus {
+  border-color: color-mix(in srgb, var(--theme-accent) 62%, var(--theme-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 11%, transparent);
+}
+.git-repository-active select:disabled,
+.project-git-repository-picker select:disabled { opacity: .55; cursor: default; }
+.git-repository-active::after,
+.project-git-repository-picker::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  bottom: 13px;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--theme-text-muted);
+  border-bottom: 1.5px solid var(--theme-text-muted);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.git-repository-targets {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 8px;
+}
+.git-repository-target-actions,
+.project-git-repository-target-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--theme-bg) 84%, var(--theme-surface));
+}
+.git-repository-target-actions { justify-self: end; }
+.git-repository-target-actions button,
+.project-git-repository-target-actions button {
+  min-height: 23px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--theme-text-muted);
+  font-size: calc(8.4px * var(--ui-font-scale));
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color .14s ease, color .14s ease, box-shadow .14s ease;
+}
+.git-repository-target-actions button:hover:not(:disabled),
+.project-git-repository-target-actions button:hover:not(:disabled) { background: var(--theme-hover); color: var(--theme-text); }
+.git-repository-target-actions button.active,
+.project-git-repository-target-actions button.active {
+  background: var(--theme-accent-soft);
+  color: var(--theme-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 28%, transparent);
+}
+.git-repository-target-actions button:disabled,
+.project-git-repository-target-actions button:disabled { opacity: .5; cursor: default; }
+.git-repository-target-list {
+  grid-column: 1 / -1;
+  max-height: 120px;
+  padding: 3px;
+  display: grid;
+  gap: 2px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-bg) 72%, transparent);
+}
+.git-repository-target-list label,
+.project-git-repository-target-list label {
+  min-width: 0;
+  min-height: 29px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--theme-text-soft);
+  cursor: pointer;
+  transition: border-color .14s ease, background-color .14s ease, color .14s ease;
+}
+.git-repository-target-list label {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(9.7px * var(--ui-font-scale));
+}
+.git-repository-target-list label:hover,
+.project-git-repository-target-list label:hover { background: var(--theme-hover); color: var(--theme-text); }
+.git-repository-target-list label:has(input:checked),
+.project-git-repository-target-list label:has(input:checked) {
+  border-color: color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border-soft));
+  background: color-mix(in srgb, var(--theme-accent-soft) 58%, transparent);
+  color: var(--theme-text);
+}
+.git-repository-target-list input,
+.project-git-repository-target-list input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--theme-accent);
+  cursor: inherit;
+}
+.git-repository-target-list label > span,
+.project-git-repository-target-list label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-repository-target-list label.root > span,
+.project-git-repository-target-list label.root > span { font-weight: 680; }
+.git-repository-target-list label.submodule > span,
+.project-git-repository-target-list label.submodule > span { color: var(--theme-text-soft); }
+.git-repository-target-list small {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--theme-text-muted);
+  font-size: calc(8.3px * var(--ui-font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-repository-target-list label.disabled,
+.project-git-repository-target-list label.disabled { opacity: .45; cursor: default; }
+.git-repository-target-hint {
+  grid-column: 1 / -1;
+  color: var(--theme-text-muted);
+  font-size: calc(8px * var(--ui-font-scale));
+  line-height: 1.4;
+}
+.project-git-repository-picker { margin: 8px 11px 0; }
+.project-git-repository-targets {
+  margin: 5px 11px 0;
+  padding: 8px 0;
+  display: grid;
+  gap: 7px;
+  border-top: 1px solid var(--theme-border-soft);
+  border-bottom: 1px solid var(--theme-border-soft);
+  background: transparent;
+}
+.project-git-repository-target-actions > span {
+  margin-right: auto;
+  color: var(--theme-text-muted);
+  font-size: calc(8.7px * var(--ui-font-scale));
+  font-weight: 680;
+  letter-spacing: .02em;
+}
+.project-git-repository-target-list {
+  max-height: 96px;
+  padding: 2px;
+  display: grid;
+  gap: 2px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--theme-bg) 62%, transparent);
+}
+.project-git-repository-target-list label {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  font-size: calc(9px * var(--ui-font-scale));
+}
 
 /* v1.2.48 — visual hierarchy pass from the workbench review.
    Keep panels resident while making focus obvious, flatten repeated cards,
