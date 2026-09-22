@@ -31,7 +31,7 @@ function ExecutionHistoryBlock({ group, defaultOpen }: { group: ReturnType<typeo
     <summary className="main-request-summary">
       <span className="main-request-summary-mark"><Icon name="terminal" size={14}/></span>
       <span className="main-request-summary-copy"><span className="panel-kicker">Main Request · execução</span><strong>{status}</strong><small>{formatActivityDate(group.updatedAt)} · {subtasks.length || group.requestIds.length || 1} subtarefa(s) · {group.events.length} eventos</small></span>
-      <span className="main-request-summary-meta"><code title={group.rootRequestId}>{shortRequestId(group.rootRequestId)}</code><span className="history-count">{subtasks.length || group.requestIds.length || 1}</span><HistoryExportButton label="Exportar execução" onExport={exportGroup}/><span className="history-chevron"><Icon name="chevron-right" size={14}/></span></span>
+      <span className="main-request-summary-meta"><span className="history-summary-context"><code title={group.rootRequestId}>{shortRequestId(group.rootRequestId)}</code><span className="history-count">{subtasks.length || group.requestIds.length || 1}</span></span><span className="history-summary-actions"><HistoryExportButton label="Exportar execução" onExport={exportGroup}/><span className="history-chevron"><Icon name="chevron-right" size={14}/></span></span></span>
     </summary>
     {open && <div className="main-request-execution-detail"><TerminalView events={group.events} compact/></div>}
   </details>
@@ -67,7 +67,7 @@ function ExecutionSubtaskBlock({ group, sequence, defaultOpen, expanded, onToggl
     <summary className="execution-subtask-summary">
       <span className="execution-subtask-index">{String(sequence).padStart(2, '0')}</span>
       <span className="execution-subtask-copy"><span className="panel-kicker">Subexecução {String(sequence).padStart(2, '0')}</span><strong>{executionKindLabel(group.iterationKind)}</strong><small>{formatActivityDate(group.updatedAt)} · {group.entries.length} {group.entries.length === 1 ? 'evento' : 'eventos'}</small></span>
-      <span className="execution-subtask-meta"><code title={requestId}>{shortRequestId(requestId)}</code><span className={`history-status tone-${group.overview}`}>{executionStatus(group.overview)}</span><HistoryExportButton label={`Exportar subexecução ${sequence}`} onExport={exportGroup}/><span className="history-chevron"><Icon name="chevron-right" size={13}/></span></span>
+      <span className="execution-subtask-meta"><span className="history-summary-context"><code title={requestId}>{shortRequestId(requestId)}</code><span className={`history-status tone-${group.overview}`}>{executionStatus(group.overview)}</span></span><span className="history-summary-actions"><HistoryExportButton label={`Exportar subexecução ${sequence}`} onExport={exportGroup}/><span className="history-chevron"><Icon name="chevron-right" size={13}/></span></span></span>
     </summary>
     {open && <div className="execution-subtask-events">{group.entries.map((entry) => <ExecutionEntryCard key={entry.id} entry={entry} expanded={expanded.has(entry.id)} onToggle={() => onToggleEntry(entry.id)}/>)}</div>}
   </details>
