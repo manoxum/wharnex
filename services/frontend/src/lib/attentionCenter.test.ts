@@ -307,4 +307,21 @@ describe('attention center', () => {
     })])
   })
 
+  it('shows the exact command type and argv when execution needs informed approval', () => {
+    const approval = session('ses-chat-1')
+    approval.state = 'planned'
+    approval.policy = {
+      allowed: true, requires_approval: true, risk: 'high', reasons: ['sudo approval'],
+      approval_items: [
+        { kind: 'network', argv: ['sudo', 'systemctl', 'restart', 'example'], rationale: 'Network boundary', effect: 'May use network', host_impact: 'May contact external systems', bypass_in_full: true },
+        { kind: 'sudo', argv: ['sudo', 'systemctl', 'restart', 'example'], rationale: 'Restart service', effect: 'Restarts example', host_impact: 'Changes host service state', requires_sudo_password: true, bypass_in_full: false },
+      ],
+    }
+    approval.plan = { protocol: 'harness.execution/v1', plan_id: 'plan-sudo', request_id: 'req-sudo', status: 'ready', summary: 'Restart', risk: 'high', requires_approval: true, operations: [], verification: [] }
+
+    const item = collectAttentionItems([chat('chat-1', 'Principal')], { 'chat-1': approval }).find((entry) => entry.action === 'approve-execution')
+    expect(item?.detail).toContain('sudo + senha')
+    expect(item?.detail).toContain('["sudo","systemctl","restart","example"]')
+  })
+
 })
