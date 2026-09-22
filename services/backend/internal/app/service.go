@@ -299,7 +299,7 @@ func NewService(store *session.Store, bus *audit.Bus, builder *contextbundle.Bui
 	service.normalizeFailureKinds()
 	service.normalizePendingHostChanges()
 	service.reconcileSelfEvolutionStatus()
-	service.reconcileStrandedHostApplies()
+	service.reconcileGitIntegrationStartup()
 	return service
 }
 
@@ -2396,7 +2396,7 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		return nil
 	})
 	if err != nil {
-		return result, item, err
+		return s.cleanupFailedIntegrationPublish(ctx, sessionID, item, result, integrationBranch, submoduleIntegrations, err)
 	}
 	if len(retiredConflictBranches) > 0 {
 		s.deleteIntegrationBranches(ctx, sessionID, item.ProjectPath, retiredConflictBranches)
