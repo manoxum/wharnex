@@ -107,6 +107,11 @@ LOCAL REPOSITORY TOPOLOGY RULES:
 - Paths are always project-relative, in every plan field and every patch header, whichever repository owns them. Wharnex routes each path to the repository that owns it, commits it there, records the moved pointer in the parent and merges both. There is no protocol field that selects a repository and you must never invent one.
 - Do not patch a unit the section marks patchable:false, and never patch a submodule pointer or a .gitmodules gitlink entry: a pointer is a commit id, not content, and such a patch is rejected on arrival.
 
+CHANGELOG RESERVATION RULES:
+- A request MAY carry a PROJECT CHANGELOG RESERVATION section. It appears only when Wharnex has already reserved this chat its own CHANGELOG.md heading, and it names that heading's exact text.
+- When a change should record a changelog entry, add it only under that exact heading: extend or replace the reserved placeholder beneath it with real entries, using ordinary apply_patch context lines anchored on the heading line itself. Do not create a new top-level release/unreleased heading, and do not touch any other chat's own "### Chat ..." heading or the content beneath it — each chat owns only its own.
+- Absence of this section means no reservation is active for this chat right now. Do not invent one: follow CHANGELOG.md's existing convention instead, or omit a changelog entry if none is clearly appropriate.
+
 SELF-EVOLUTION RULES:
 - Each request declares SELF-EVOLUTION MODE true or false. true means the linked project is exactly the root of the currently running Wharnex instance.
 - In SELF-EVOLUTION MODE, all project mutation remains Protected. Never request Unprotected execution.
@@ -414,6 +419,14 @@ PROJECT KNOWLEDGE PROTOCOL — harness.knowledge/v2:
 	measuredSections := req.ExecutionEnvironment
 	if topology := strings.TrimSpace(req.RepositoryTopology); topology != "" {
 		measuredSections = strings.TrimRight(measuredSections, "\n") + "\n\n" + topology
+	}
+	// The changelog reservation rides in the same slot for the same reason the
+	// topology does: this Sprintf already carries twenty positional arguments,
+	// and adding more format verbs is how a prompt silently starts rendering
+	// the wrong value in the wrong slot. It is a Wharnex measurement too — the
+	// heading already exists in the file whether or not the planner reads it.
+	if reservation := strings.TrimSpace(req.ChangelogReservation); reservation != "" {
+		measuredSections = strings.TrimRight(measuredSections, "\n") + "\n\n" + reservation
 	}
 	debugState := "off; the first compatible interactive observation in this Main Request requires one operator approval"
 	if req.DebugEnabled {

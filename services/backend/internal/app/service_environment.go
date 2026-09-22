@@ -63,6 +63,7 @@ func (s *Service) plannerRequest(ctx context.Context, base planner.Request, snap
 			// reason knowledge is: no call site can then build a continuation
 			// prompt that silently omits what earlier rounds already proved.
 			request = s.withContinuationContext(request, item)
+			request.ChangelogReservation = s.changelogPromptSection(item.ChatID)
 		}
 	}
 	if request.EffortLevel == "" {

@@ -106,6 +106,7 @@ ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS conversation_id tex
 ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS remote_project_ref text NOT NULL DEFAULT '';
 ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS remote_title text NOT NULL DEFAULT '';
 ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS remote_state text NOT NULL DEFAULT '';
+ALTER TABLE harness_workspace_chats ADD COLUMN IF NOT EXISTS changelog_heading text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS harness_workspace_chats_project_updated_idx
     ON harness_workspace_chats (project_path, updated_at DESC, id);
 CREATE INDEX IF NOT EXISTS harness_workspace_chats_conversation_idx
@@ -248,7 +249,10 @@ func NewPostgresStore(ctx context.Context, databaseURL, legacyPath string) (*Sto
 		db.Close()
 		return nil, errors.New("connect PostgreSQL session store: database is unavailable or rejected the credentials")
 	}
-	store := &Store{db: db, path: legacyPath, items: make(map[string]domain.Session), projectTodos: make(map[string][]domain.ProjectTodo)}
+	store := &Store{
+		db: db, path: legacyPath, items: make(map[string]domain.Session), projectTodos: make(map[string][]domain.ProjectTodo),
+		workspaceChats: make(map[string][]domain.WorkspaceChat), workspaceChatItems: make(map[string][]domain.WorkspaceChatItem),
+	}
 	if _, err := db.ExecContext(ctx, postgresSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize PostgreSQL session schema: %w", err)

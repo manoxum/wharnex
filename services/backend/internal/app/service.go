@@ -29,6 +29,7 @@ import (
 	"kernl.local/harness/backend/internal/pendingcommit"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/policy"
+	"kernl.local/harness/backend/internal/projectchangelog"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/projectgit"
 	"kernl.local/harness/backend/internal/protocol"
@@ -332,6 +333,10 @@ func (s *Service) CreateProject(ctx context.Context, parentPath, name string) (s
 		_ = os.RemoveAll(root)
 		return "", fmt.Errorf("create %s: %w", projectconfig.FileName, err)
 	}
+	if _, err := projectchangelog.Ensure(root); err != nil {
+		_ = os.RemoveAll(root)
+		return "", fmt.Errorf("create %s: %w", projectchangelog.FileName, err)
+	}
 	return root, nil
 }
 
@@ -345,6 +350,9 @@ func (s *Service) CloneProject(ctx context.Context, repository, parentPath, dire
 	}
 	if _, _, err := projectconfig.Ensure(root); err != nil {
 		return "", fmt.Errorf("create %s after clone: %w", projectconfig.FileName, err)
+	}
+	if _, err := projectchangelog.Ensure(root); err != nil {
+		return "", fmt.Errorf("create %s after clone: %w", projectchangelog.FileName, err)
 	}
 	return root, nil
 }
@@ -420,6 +428,11 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 	}
 	if err := s.ensureProjectVersion(id, projectPath); err != nil {
 		return domain.Session{}, fmt.Errorf("prepare project VERSION: %w", err)
+	}
+	if created, err := projectchangelog.Ensure(projectPath); err != nil {
+		return domain.Session{}, fmt.Errorf("prepare project %s: %w", projectchangelog.FileName, err)
+	} else if created {
+		s.bus.Publish(id, "project.changelog_created", map[string]any{})
 	}
 	initialized, err := projectgit.Ensure(ctx, projectPath)
 	if err != nil {

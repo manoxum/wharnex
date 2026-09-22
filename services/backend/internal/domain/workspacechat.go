@@ -24,6 +24,14 @@ type WorkspaceChat struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 
+	// ChangelogHeading is the exact CHANGELOG.md heading Wharnex reserved for
+	// this chat (see internal/projectchangelog), backend-owned like ArchivedAt
+	// rather than renderer-owned like Extra: the archive path reads it back to
+	// find and clean up an untouched reservation, and the planner prompt reads
+	// it to tell the model exactly where its section lives. Empty when no
+	// reservation was ever attempted or committed for this chat.
+	ChangelogHeading string `json:"changelog_heading,omitempty"`
+
 	// Renderer-owned fields the backend stores but never interprets: artifact
 	// selection, transport options, conflict surfaces, naming/remote-archive
 	// bookkeeping. Keeping them opaque means the frontend can evolve its own

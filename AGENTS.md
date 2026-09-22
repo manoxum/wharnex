@@ -312,6 +312,7 @@ For changes to protocol, security model, sandbox behavior, or architecture:
 - Every opened/created/cloned project MUST contain `whaness.yml`. When absent, Wharness creates a safe default before context capture.
 - `whaness.yml` context include/exclude settings affect AI context assembly only. They MUST NOT weaken secret/path/symlink protections or silently expand Agent/terminal privileges.
 - Automatic context pruning SHOULD remove dependencies, VCS/IDE metadata, caches, generated build/test output, temporary files, archives, binary/media assets, and generated Wharness context snapshots while retaining source/configuration files by default.
+- Every opened/created/cloned project MUST contain a root `CHANGELOG.md`; Wharnex creates a minimal default when absent, exactly like the `whaness.yml`/`VERSION` self-heal above. A workspace chat that begins reserves its own uniquely anchored `CHANGELOG.md` heading through a serialized, Wharnex-authored internal commit — never through the ordinary planner `apply_patch`/merge pipeline — so concurrent chats on the same project own disjoint regions of the file instead of colliding on it every Apply; the chat's archive path removes that reservation again only while it still holds nothing but Wharnex's own placeholder. Only the content a planner writes under its own already-reserved heading is an ordinary planner-authored, Policy/sandbox/merge-governed patch. See `SoT/AI_PROTOCOL.md` and `adr/ADR-0068`.
 
 ## 11. Host-independence / containerized tooling invariant (v1.2.45)
 

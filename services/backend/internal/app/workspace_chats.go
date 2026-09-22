@@ -78,18 +78,30 @@ func (s *Service) SaveWorkspaceChat(chat domain.WorkspaceChat) (domain.Workspace
 	// Saved/archive lifecycle state is omitted by the same serializer for the
 	// same reason and is protected the same way. Those transitions have explicit
 	// endpoints; an ordinary title/transcript save must never reactivate a chat.
-	if existing, err := s.store.GetWorkspaceChat(chat.ID); err == nil {
+	//
+	// The lookup also answers a question those fields alone cannot: whether
+	// this row exists at all yet. That is the one reliable signal that this
+	// call is the chat's actual creation (the renderer generates the id
+	// client-side and always upserts, so there is no separate "create"
+	// endpoint) — which is exactly the moment a CHANGELOG.md section should be
+	// reserved for it, once, before anything else about the chat changes.
+	existing, existsErr := s.store.GetWorkspaceChat(chat.ID)
+	isNewChat := existsErr != nil
+	if !isNewChat {
 		if established := normalizeChatGPTConversationURL(existing.ChatGPTURL); established != "" {
 			chat.ChatGPTURL = established
 		}
-		if chat.SavedAt == nil || chat.ArchivedAt == nil {
-			if chat.SavedAt == nil {
-				chat.SavedAt = existing.SavedAt
-			}
-			if chat.ArchivedAt == nil {
-				chat.ArchivedAt = existing.ArchivedAt
-			}
+		if chat.SavedAt == nil {
+			chat.SavedAt = existing.SavedAt
 		}
+		if chat.ArchivedAt == nil {
+			chat.ArchivedAt = existing.ArchivedAt
+		}
+		// ChangelogHeading is likewise backend-owned: the renderer never sends
+		// it, so an omission here must read as "unchanged", not "clear it" —
+		// the same omission-as-clear defect the fields above already guard
+		// against.
+		chat.ChangelogHeading = existing.ChangelogHeading
 	}
 	chat.ConversationID = chatGPTConversationIDFromURL(chat.ChatGPTURL)
 	chat.RemoteProjectRef = boundedText(chat.RemoteProjectRef, 256)
@@ -98,6 +110,9 @@ func (s *Service) SaveWorkspaceChat(chat domain.WorkspaceChat) (domain.Workspace
 
 	if chat.CreatedAt.IsZero() {
 		chat.CreatedAt = time.Now().UTC()
+	}
+	if isNewChat && !chat.Archived() {
+		chat.ChangelogHeading = s.reserveChangelogSection(chat.SessionID, chat.ProjectPath, chat.ID)
 	}
 	if err := s.store.SaveWorkspaceChat(chat); err != nil {
 		return domain.WorkspaceChat{}, err
@@ -139,6 +154,7 @@ func (s *Service) SetWorkspaceChatArchived(chatID string, archived bool) (domain
 	if err != nil {
 		return domain.WorkspaceChat{}, err
 	}
+	wasArchived := chat.Archived()
 	now := time.Now().UTC()
 	if archived {
 		if chat.ArchivedAt == nil {
@@ -149,8 +165,25 @@ func (s *Service) SetWorkspaceChatArchived(chatID string, archived bool) (domain
 		chat.ArchivedAt = nil
 	}
 	chat.UpdatedAt = now
+	// Restoring a chat whose empty reservation was already cleaned up (or that
+	// never got one, e.g. a project without a Git repository at creation time)
+	// gets a fresh one, best effort, so it is not left permanently without a
+	// place to record further work. A chat that still owns its reservation, or
+	// that is not actually transitioning restored, is left untouched.
+	if !archived && wasArchived && chat.ChangelogHeading == "" {
+		chat.ChangelogHeading = s.reserveChangelogSection(chat.SessionID, chat.ProjectPath, chat.ID)
+	}
 	if err := s.store.SaveWorkspaceChat(chat); err != nil {
 		return domain.WorkspaceChat{}, err
+	}
+	// Cleanup runs only on the real archive transition and only against a
+	// reservation this chat still owns. It runs off this request's own
+	// goroutine and clears the row's stored heading itself once it knows the
+	// outcome: archiving is an instant, idempotent state flip (ADR-0031) and
+	// must never wait on a Git commit, which can queue behind a concurrent
+	// host Apply on the same project's shared lock.
+	if archived && !wasArchived && chat.ChangelogHeading != "" {
+		go s.cleanupEmptyChangelogSection(chat.SessionID, chat.ProjectPath, chat.ID)
 	}
 	return chat, nil
 }

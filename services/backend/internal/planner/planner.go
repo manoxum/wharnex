@@ -44,6 +44,15 @@ type Request struct {
 	//
 	// Kept as rendered text for the same reason ExecutionEnvironment is.
 	RepositoryTopology string
+	// ChangelogReservation is the pre-rendered PROJECT CHANGELOG RESERVATION
+	// section (internal/projectchangelog): the exact CHANGELOG.md heading
+	// Wharnex reserved for this chat, so a change plan that records a
+	// changelog entry anchors its patch on real text it can see instead of
+	// guessing an insertion point that collides with another chat's own
+	// entry. Empty when this chat has no active reservation (bootstrap or the
+	// reserving commit could not complete, or no workspace chat is linked at
+	// all), in which case the prompt simply omits the section.
+	ChangelogReservation string
 	// KnowledgeEntries are the v2 request snapshot. Manual/Desktop transport
 	// serializes every entry as its own knowledge/<id>.md file; the prompt only
 	// carries catalog identity and usage rules so knowledge is a real artifact,

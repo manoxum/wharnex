@@ -133,8 +133,14 @@ type Store struct {
 	// where this state belongs: it previously lived in the browser's
 	// localStorage, where a single "clear data" destroyed every chat title,
 	// ordering, conversation binding and transcript while the sessions and
-	// their artifacts survived untouched. Lazily initialized: see
-	// workspacechats.go.
+	// their artifacts survived untouched. Always initialized by every
+	// constructor below, like items/projectTodos: a lazy nil-check-and-make
+	// inside chatFallback/chatItemFallback ran under whichever lock the caller
+	// happened to hold, including a shared RLock for a plain read, so two
+	// concurrent first accesses could race assigning the map pointer. Chat
+	// creation is exactly the path that starts issuing genuinely concurrent
+	// Store calls (see internal/app's changelog-reservation tests), so this is
+	// no longer a theoretical race.
 	workspaceChats     map[string][]domain.WorkspaceChat
 	workspaceChatItems map[string][]domain.WorkspaceChatItem
 	// projectTodos is the non-Postgres fallback for the durable project TODO
@@ -158,7 +164,10 @@ type Store struct {
 }
 
 func NewStore() *Store {
-	return &Store{items: make(map[string]domain.Session), projectTodos: make(map[string][]domain.ProjectTodo)}
+	return &Store{
+		items: make(map[string]domain.Session), projectTodos: make(map[string][]domain.ProjectTodo),
+		workspaceChats: make(map[string][]domain.WorkspaceChat), workspaceChatItems: make(map[string][]domain.WorkspaceChatItem),
+	}
 }
 
 func NewPersistentStore(path string) (*Store, error) {
@@ -166,7 +175,10 @@ func NewPersistentStore(path string) (*Store, error) {
 	if path != "" {
 		cleaned = filepath.Clean(path)
 	}
-	store := &Store{items: make(map[string]domain.Session), projectTodos: make(map[string][]domain.ProjectTodo), path: cleaned}
+	store := &Store{
+		items: make(map[string]domain.Session), projectTodos: make(map[string][]domain.ProjectTodo), path: cleaned,
+		workspaceChats: make(map[string][]domain.WorkspaceChat), workspaceChatItems: make(map[string][]domain.WorkspaceChatItem),
+	}
 	if err := store.load(); err != nil {
 		return nil, err
 	}

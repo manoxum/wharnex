@@ -217,6 +217,14 @@ These rules are enforced, not advisory. A `change` bundle is rejected when `comm
 
 Wharness sanitizes the accepted message before it becomes a commit: control characters are stripped and the subject is collapsed to a single line, while the body's own line and paragraph structure is preserved. Wharness MUST NOT flatten a body into its subject, and its own degraded fallback — reachable only when a plan carries neither message nor summary — MUST NOT emit any subject this section forbids.
 
+## Changelog reservation (see `adr/ADR-0068`)
+
+A project root's `CHANGELOG.md` is a chronic hot file: many chats tend to add their entry at the same top-of-file location, which is exactly the shape that collides during Wharnex's real Git merge. Wharnex reduces that by reserving each chat its own uniquely anchored heading — `### Chat <chat id> (<date>)`, with a placeholder body until something real is written beneath it — as a serialized, Wharnex-authored internal commit at chat creation, never as a planner-authored patch. Only the *content* under an already-reserved heading is planner-authored, Policy/sandbox/merge-governed work like any other source change.
+
+When a reservation is active for the current chat, the request carries a `PROJECT CHANGELOG RESERVATION` section naming that exact heading text. A `change` plan that should record a changelog entry MUST add it only under that exact heading — extending or replacing the reserved placeholder with real entries, with `apply_patch` context lines anchored on the heading line itself — and MUST NOT create a new top-level release/unreleased heading or touch any other chat's own `### Chat ...` heading or the content beneath it. Absence of the section means no reservation is currently active for this chat; the planner MUST NOT invent one and instead follows `CHANGELOG.md`'s existing convention, or omits a changelog entry entirely when none is clearly appropriate.
+
+This is advisory prompt guidance, not an ingestion-time enforcement rule: a bundle that violates it is not rejected by the protocol validator. It reduces the collision surface identified above; it does not make an out-of-scope changelog edit structurally impossible. Archiving a chat whose reserved heading still holds only the unedited placeholder removes that empty reservation; a heading carrying any real content is never removed automatically.
+
 ## Plan summary
 
 `summary` is mandatory on every plan-bearing response bundle — change, workflow, blocked, and every round of a Main Request — and is human-facing prose, not transport metadata. Wharness shows it in the chat transcript and, for a self-evolution, inside the dialog that asks whether to activate the rebuilt runtime, where it is the only text explaining what a restart would activate. An operator MUST NOT be asked to reconstruct that intent from a diff.

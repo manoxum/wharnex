@@ -24,19 +24,14 @@ import (
 
 const maxChatItemsPerChat = 2000
 
-func (s *Store) chatFallback() map[string][]domain.WorkspaceChat {
-	if s.workspaceChats == nil {
-		s.workspaceChats = make(map[string][]domain.WorkspaceChat)
-	}
-	return s.workspaceChats
-}
+// chatFallback/chatItemFallback return the in-memory fallback maps every
+// Store constructor initializes eagerly (see store.go). They used to
+// lazy-init on first access, but that init ran under whichever lock the
+// caller already held — including a shared RLock for a plain read — so two
+// concurrent first accesses could race assigning the map pointer itself.
+func (s *Store) chatFallback() map[string][]domain.WorkspaceChat { return s.workspaceChats }
 
-func (s *Store) chatItemFallback() map[string][]domain.WorkspaceChatItem {
-	if s.workspaceChatItems == nil {
-		s.workspaceChatItems = make(map[string][]domain.WorkspaceChatItem)
-	}
-	return s.workspaceChatItems
-}
+func (s *Store) chatItemFallback() map[string][]domain.WorkspaceChatItem { return s.workspaceChatItems }
 
 // ListWorkspaceChats returns every chat of a project, newest first. Archived
 // chats are included; the caller decides how to present them.
@@ -54,7 +49,7 @@ func (s *Store) ListWorkspaceChats(projectPath string) ([]domain.WorkspaceChat, 
 	}
 
 	rows, err := s.db.Query(`SELECT id, project_path, session_id, title, chatgpt_url, conversation_id, remote_project_ref,
-		remote_title, remote_state, saved_at, archived_at, created_at, updated_at, payload
+		remote_title, remote_state, saved_at, archived_at, created_at, updated_at, payload, changelog_heading
 		FROM harness_workspace_chats WHERE project_path=$1 ORDER BY updated_at DESC, id`, project)
 	if err != nil {
 		return nil, fmt.Errorf("list workspace chats: %w", err)
@@ -68,7 +63,7 @@ func (s *Store) ListWorkspaceChats(projectPath string) ([]domain.WorkspaceChat, 
 		var payload []byte
 		if err := rows.Scan(&chat.ID, &chat.ProjectPath, &chat.SessionID, &chat.Title, &chat.ChatGPTURL,
 			&chat.ConversationID, &chat.RemoteProjectRef, &chat.RemoteTitle, &chat.RemoteState,
-			&savedAt, &archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload); err != nil {
+			&savedAt, &archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload, &chat.ChangelogHeading); err != nil {
 			return nil, fmt.Errorf("scan workspace chat: %w", err)
 		}
 		if savedAt.Valid {
@@ -111,10 +106,10 @@ func (s *Store) GetWorkspaceChat(chatID string) (domain.WorkspaceChat, error) {
 	var savedAt, archivedAt sql.NullTime
 	var payload []byte
 	err := s.db.QueryRow(`SELECT id, project_path, session_id, title, chatgpt_url, conversation_id, remote_project_ref,
-		remote_title, remote_state, saved_at, archived_at, created_at, updated_at, payload
+		remote_title, remote_state, saved_at, archived_at, created_at, updated_at, payload, changelog_heading
 		FROM harness_workspace_chats WHERE id=$1`, id).Scan(&chat.ID, &chat.ProjectPath, &chat.SessionID, &chat.Title,
 		&chat.ChatGPTURL, &chat.ConversationID, &chat.RemoteProjectRef, &chat.RemoteTitle, &chat.RemoteState,
-		&savedAt, &archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload)
+		&savedAt, &archivedAt, &chat.CreatedAt, &chat.UpdatedAt, &payload, &chat.ChangelogHeading)
 	if err != nil {
 		return domain.WorkspaceChat{}, err
 	}
@@ -197,8 +192,8 @@ func (s *Store) SaveWorkspaceChat(chat domain.WorkspaceChat) error {
 	}
 	_, err = s.db.Exec(`INSERT INTO harness_workspace_chats
 			(id, project_path, session_id, title, chatgpt_url, conversation_id, remote_project_ref,
-			 remote_title, remote_state, saved_at, archived_at, created_at, updated_at, payload)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			 remote_title, remote_state, saved_at, archived_at, created_at, updated_at, payload, changelog_heading)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (id) DO UPDATE SET
 			project_path=EXCLUDED.project_path,
 			session_id=EXCLUDED.session_id,
@@ -211,9 +206,10 @@ func (s *Store) SaveWorkspaceChat(chat domain.WorkspaceChat) error {
 			saved_at=EXCLUDED.saved_at,
 			archived_at=EXCLUDED.archived_at,
 			updated_at=EXCLUDED.updated_at,
-			payload=EXCLUDED.payload`,
+			payload=EXCLUDED.payload,
+			changelog_heading=EXCLUDED.changelog_heading`,
 		chat.ID, chat.ProjectPath, chat.SessionID, chat.Title, chat.ChatGPTURL, chat.ConversationID,
-		chat.RemoteProjectRef, chat.RemoteTitle, chat.RemoteState, savedAt, archivedAt, chat.CreatedAt, chat.UpdatedAt, payload)
+		chat.RemoteProjectRef, chat.RemoteTitle, chat.RemoteState, savedAt, archivedAt, chat.CreatedAt, chat.UpdatedAt, payload, chat.ChangelogHeading)
 	if err != nil {
 		return fmt.Errorf("persist workspace chat: %w", err)
 	}
