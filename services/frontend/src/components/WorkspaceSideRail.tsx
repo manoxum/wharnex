@@ -47,6 +47,10 @@ const WORKSPACE_RAIL_PX = 44
 // pixel width that means a different share on every screen.
 const WORKSPACE_RIGHT_DRAWER_DEFAULT_PX = 460
 const TOOL_DRAG_TYPE = 'application/x-wharnex-workspace-tool'
+const PANEL_FONT_SCALE_KEY = 'whx.workspace.panel-font-scales.v1'
+const PANEL_FONT_SCALE_MIN = 0.8
+const PANEL_FONT_SCALE_MAX = 1.4
+const PANEL_FONT_SCALE_STEP = 0.1
 const EMPTY_WORKSPACE_RAIL_TOOLS: WorkspaceTool[] = []
 const DEFAULT_STANDALONE_RAIL_TOOLS: WorkspaceTool[] = (() => {
   const base = [...DEFAULT_WORKSPACE_RAIL_LAYOUT.left, ...DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.left]
@@ -116,6 +120,8 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const [localDrawerWidth, setLocalDrawerWidth] = useState(() => loadWorkspaceDrawerWidth(side))
   const drawerWidth = props.drawerWidth || localDrawerWidth
   const [pendingCommitCount, setPendingCommitCount] = useState(0)
+  const [panelFontScales, setPanelFontScales] = useState<Partial<Record<Exclude<Drawer, ''>, number>>>(loadPanelFontScales)
+  const [panelReloads, setPanelReloads] = useState<Partial<Record<Exclude<Drawer, ''>, number>>>({})
   const visibleTools = useMemo(() => tools.filter((tool) => tool !== 'evolution' || session.self_evolution), [session.self_evolution, tools])
   const visiblePinnedTools = useMemo(() => pinnedTools.filter((tool) => tool !== 'evolution' || session.self_evolution), [pinnedTools, session.self_evolution])
 
@@ -133,6 +139,16 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const { mountedOwners: mountedDrawers, ownerFor: drawerOwner, register: registerPersistentWindow } = usePersistentInternalWindowOwners(persistenceScope, DRAWERS, drawer)
   const toggle = (next: Exclude<Drawer, ''>) => onDrawer(drawer === next ? '' : next)
   const closeDrawer = (candidate: Exclude<Drawer, ''>) => { if (drawer === candidate) onDrawer('') }
+  const adjustPanelFontScale = (candidate: Exclude<Drawer, ''>, delta: number) => {
+    setPanelFontScales((current) => {
+      const value = current[candidate] || 1
+      const nextValue = Math.min(PANEL_FONT_SCALE_MAX, Math.max(PANEL_FONT_SCALE_MIN, Math.round((value + delta) * 10) / 10))
+      const next = { ...current, [candidate]: nextValue }
+      savePanelFontScales(next)
+      return next
+    })
+  }
+  const reloadPanel = (candidate: Exclude<Drawer, ''>) => setPanelReloads((current) => ({ ...current, [candidate]: (current[candidate] || 0) + 1 }))
 
   function toolMeta(tool: WorkspaceTool): ToolMeta {
     if (tool === 'todo') return { label: 'TODO do projeto', title: 'Ideias, necessidades, erros e melhorias', icon: 'check', drawer: 'todo' }
@@ -205,12 +221,22 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     const close = () => closeDrawer(candidate)
     const active = candidate === drawer
     const owner = drawerOwner(candidate)
+    const panelFontScale = panelFontScales[candidate] || 1
     const drawerStyle = {
       ...(drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } : {}),
+      ['--workspace-panel-font-scale' as string]: String(panelFontScale),
+      ['--ui-font-scale' as string]: String(rootUIFontScale() * panelFontScale),
       ...(!active ? { display: 'none' } : {}),
     } as React.CSSProperties
+    const panelLabel = drawerPanelLabel(candidate)
     return <aside key={candidate} hidden={!active} className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerStyle}>
-      <InternalWindowPersistenceContext.Provider value={{ owner, register: registerPersistentWindow }}>
+      <div className="workspace-panel-toolbar" role="toolbar" aria-label={`Ferramentas do painel ${panelLabel}`}>
+        <button type="button" className="workspace-panel-font-control" onClick={() => adjustPanelFontScale(candidate, -PANEL_FONT_SCALE_STEP)} disabled={panelFontScale <= PANEL_FONT_SCALE_MIN} aria-label={`Diminuir texto do painel ${panelLabel}`} title="Diminuir texto">A−</button>
+        <button type="button" className="workspace-panel-font-control" onClick={() => adjustPanelFontScale(candidate, PANEL_FONT_SCALE_STEP)} disabled={panelFontScale >= PANEL_FONT_SCALE_MAX} aria-label={`Aumentar texto do painel ${panelLabel}`} title="Aumentar texto">A+</button>
+        <button type="button" onClick={() => reloadPanel(candidate)} aria-label={`Recarregar painel ${panelLabel}`} title="Recarregar painel"><Icon name="refresh" size={15}/></button>
+        <button type="button" onClick={close} aria-label={`Fechar painel ${panelLabel}`} title="Fechar painel"><Icon name="close" size={15}/></button>
+      </div>
+      <InternalWindowPersistenceContext.Provider key={`${owner}:${panelReloads[candidate] || 0}`} value={{ owner, register: registerPersistentWindow }}>
         <Suspense fallback={<DrawerFallback/>}>
         {candidate === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
         {candidate === 'todo' && props.chatProps ? <ProjectTodoPanel session={session} chatProps={props.chatProps} onClose={close} onPromoteToChat={props.onPromoteTodoToChat} onPromoteToCurrentChat={props.onPromoteTodoToCurrentChat} onLocateChat={props.onLocateTodoChat} onGoToOrchestrator={props.onGoToOrchestrator} onError={onError}/> : null}
@@ -233,6 +259,43 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const splitter = drawer ? <button type="button" className={`agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`} aria-label={`Redimensionar painel lateral ${side === 'left' ? 'esquerdo' : 'direito'}`} title="Arraste para redimensionar" onPointerDown={beginDrawerResize}/> : null
 
   return <>{side === 'left' ? <>{rail}{drawerPanels}{splitter}</> : <>{splitter}{drawerPanels}{rail}</>}</>
+}
+
+function panelFontScaleKey() { return `${PANEL_FONT_SCALE_KEY}:${desktopWindowScope()}` }
+function loadPanelFontScales(): Partial<Record<Exclude<Drawer, ''>, number>> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(panelFontScaleKey()) || '{}') as Record<string, unknown>
+    const scales: Partial<Record<Exclude<Drawer, ''>, number>> = {}
+    for (const candidate of DRAWERS) {
+      const value = Number(parsed[candidate])
+      if (Number.isFinite(value)) scales[candidate] = Math.min(PANEL_FONT_SCALE_MAX, Math.max(PANEL_FONT_SCALE_MIN, value))
+    }
+    return scales
+  } catch { return {} }
+}
+function savePanelFontScales(scales: Partial<Record<Exclude<Drawer, ''>, number>>) {
+  try { localStorage.setItem(panelFontScaleKey(), JSON.stringify(scales)) } catch { /* best effort */ }
+}
+function rootUIFontScale() {
+  if (typeof document === 'undefined') return 1
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-font-scale'))
+  return Number.isFinite(value) && value > 0 ? value : 1
+}
+function drawerPanelLabel(drawer: Exclude<Drawer, ''>) {
+  if (drawer === 'attention') return 'Centro de Alertas'
+  if (drawer === 'archive') return 'Gestão de chats'
+  if (drawer === 'todo') return 'TODO do projeto'
+  if (drawer === 'project') return 'Explorador do projeto'
+  if (drawer === 'library') return 'Biblioteca de ficheiros'
+  if (drawer === 'knowledge') return 'Conhecimento do projeto'
+  if (drawer === 'git') return 'Git do projeto'
+  if (drawer === 'agents') return 'Gestão de agentes'
+  if (drawer === 'tasks') return 'Tarefas do projeto'
+  if (drawer === 'errors') return 'Erros de execução'
+  if (drawer === 'fifo') return 'Fila FIFO de execução'
+  if (drawer === 'evolution') return 'Logs de auto-evolução'
+  if (drawer === 'database') return 'Database Studio'
+  return 'Docker'
 }
 
 function isWorkspaceTool(value: string): value is WorkspaceTool {

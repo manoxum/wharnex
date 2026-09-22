@@ -1,7 +1,7 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 ### Chat 1e7615d9-fa36-43eb-b015-e20dbb1907a5 (2026-09-22)
 
-_(reserved — no entries yet)_
+- Padroniza a toolbar dos painéis laterais com controles de fechar, A−, A+ e recarregar no canto superior direito, incluindo escala de texto persistente por painel.
 
 
 ### Chat d2a78190-5e16-4fa9-80d8-819ef846003e (2026-09-22)

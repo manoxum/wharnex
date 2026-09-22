@@ -905,6 +905,31 @@ describe('AgentWorkspace', () => {
     expect(localStorage.getItem('whx.workspace.drawer-width:left:primary')).toBe('160')
   })
 
+  it('keeps required panel controls in one shared upper-right toolbar', async () => {
+    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
+    vi.spyOn(api, 'gitOverview').mockResolvedValue({ available: false, pending: [] } as never)
+    const { container } = render(props().element)
+
+    fireEvent.click(screen.getByTitle('Explorador do projeto'))
+    const toolbar = await screen.findByRole('toolbar', { name: 'Ferramentas do painel Explorador do projeto' })
+    expect(within(toolbar).getByRole('button', { name: 'Diminuir texto do painel Explorador do projeto' })).toBeTruthy()
+    expect(within(toolbar).getByRole('button', { name: 'Aumentar texto do painel Explorador do projeto' })).toBeTruthy()
+    expect(within(toolbar).getByRole('button', { name: 'Recarregar painel Explorador do projeto' })).toBeTruthy()
+    expect(within(toolbar).getByRole('button', { name: 'Fechar painel Explorador do projeto' })).toBeTruthy()
+
+    const drawer = container.querySelector('.workspace-side-drawer') as HTMLElement
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Aumentar texto do painel Explorador do projeto' }))
+    expect(drawer.style.getPropertyValue('--workspace-panel-font-scale')).toBe('1.1')
+    expect(JSON.parse(localStorage.getItem('whx.workspace.panel-font-scales.v1:primary') || '{}').project).toBe(1.1)
+
+    await waitFor(() => expect(api.listFiles).toHaveBeenCalledTimes(1))
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Recarregar painel Explorador do projeto' }))
+    await waitFor(() => expect(api.listFiles).toHaveBeenCalledTimes(2))
+
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Fechar painel Explorador do projeto' }))
+    await waitFor(() => expect(container.querySelector('.agent-drawer')).toBeNull())
+  })
+
   it('keeps the left panel open across attention routing and offers every drawer a close control', async () => {
     // Attention used to dismiss the drawer, so an alert arriving while the
     // operator read the runtime or Git view pulled it out from under them.

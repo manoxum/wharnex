@@ -123,13 +123,12 @@ describe('DockerServicesPanel', () => {
     expect(screen.queryByText('WARN retrying connection after timeout')).toBeNull()
   })
 
-  it('lets the operator increase Docker text independently', async () => {
+  it('leaves text scaling to the shared workspace panel toolbar', async () => {
     vi.spyOn(api, 'dockerOverview').mockResolvedValue(overview)
     render(<DockerServicesPanel session={session} onClose={vi.fn()} onError={vi.fn()}/>)
-    const panel = await screen.findByLabelText('Serviços Docker')
-    fireEvent.click(screen.getByRole('button', { name: 'Aumentar texto' }))
-    expect(panel.getAttribute('style') || '').toContain('--docker-user-scale: 1.25')
-    expect(window.localStorage.getItem('whx.docker.font-scale')).toBe('1.25')
+    await screen.findByLabelText('Serviços Docker')
+    expect(screen.queryByRole('button', { name: 'Aumentar texto' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Diminuir texto' })).toBeNull()
   })
 
   it('filters all Docker resource groups and opens detailed resource views', async () => {

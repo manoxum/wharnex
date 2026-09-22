@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { DockerComposeProject, DockerComposeService, DockerContainer, DockerContainerAction, DockerImage, DockerNetwork, DockerOverview, DockerResourceKind, DockerVolume, Session, TerminalRunInput } from '../types'
 import { api } from '../lib/api'
 import { confirmDialog } from '../lib/appDialog'
@@ -7,9 +7,7 @@ import { ContentSkeleton } from './Skeleton'
 
 const EMPTY_OVERVIEW: DockerOverview = { compose_projects: [], containers: [], images: [], volumes: [], networks: [], refreshed_at: '' }
 const REFRESH_INTERVAL_MS = 15_000
-const DOCKER_FONT_SCALE_KEY = 'whx.docker.font-scale'
 const DOCKER_EXPANSION_STATE_KEY = 'whx.docker.expansion-state'
-const DEFAULT_DOCKER_FONT_SCALE = 1.15
 const DOCKER_ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g')
 const DEFAULT_DOCKER_SECTIONS: Record<DockerSectionKey, boolean> = { compose: false, containers: false, images: false, volumes: false, networks: false }
 
@@ -37,7 +35,6 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
   const [actionBusy, setActionBusy] = useState<DockerContainerAction | ''>('')
   const [composeBusy, setComposeBusy] = useState('')
   const [resourceBusy, setResourceBusy] = useState('')
-  const [fontScale, setFontScale] = useState(readDockerFontScale)
   const [expansion, setExpansion] = useState<DockerExpansionState>(readDockerExpansionState)
   const expanded = expansion.sections
   const expandedProjects = expansion.projects
@@ -212,20 +209,10 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
     setExpansion((current) => ({ ...current, projects: { ...current.projects, [name]: !(current.projects[name] ?? false) } }))
   }
 
-  function changeFontScale(delta: number) {
-    setFontScale((current) => {
-      const next = Math.min(1.6, Math.max(0.95, Math.round((current + delta) * 100) / 100))
-      window.localStorage.setItem(DOCKER_FONT_SCALE_KEY, String(next))
-      return next
-    })
-  }
-
-  return <section className="docker-services-panel" aria-label="Serviços Docker" style={{ '--docker-user-scale': fontScale } as CSSProperties}>
+  return <section className="docker-services-panel" aria-label="Serviços Docker">
     <header className="docker-services-header">
       <div><span className="panel-kicker">Services</span><strong>Docker</strong><small>Host local · Compose, containers, imagens, volumes e redes</small></div>
       <div className="docker-services-header-actions">
-        <button type="button" className="docker-font-control" onClick={() => changeFontScale(-0.1)} title="Diminuir texto" aria-label="Diminuir texto">A−</button>
-        <button type="button" className="docker-font-control" onClick={() => changeFontScale(0.1)} title="Aumentar texto" aria-label="Aumentar texto">A+</button>
         <button type="button" onClick={() => void refresh(true)} disabled={loading} title="Atualizar Docker" aria-label="Atualizar Docker"><Icon name="refresh" size={16}/></button>
         <button type="button" onClick={onClose} title="Fechar Docker" aria-label="Fechar Docker"><Icon name="close" size={16}/></button>
       </div>
@@ -566,6 +553,5 @@ function dockerComposeServiceStatus(service: DockerComposeService): { tone: 'run
   if (service.container_count > 0) return { tone: 'stopped', label: 'Parado', detail: `${service.container_count} container${service.container_count === 1 ? '' : 's'} parado${service.container_count === 1 ? '' : 's'}` }
   return { tone: 'stopped', label: 'Sem container', detail: 'Definido no YAML, sem container criado' }
 }
-function readDockerFontScale() { const value = Number(window.localStorage.getItem(DOCKER_FONT_SCALE_KEY)); return Number.isFinite(value) && value >= 0.95 && value <= 1.6 ? value : DEFAULT_DOCKER_FONT_SCALE }
 function shellQuote(value: string) { return `'${value.replace(/'/g, `'"'"'`)}'` }
 function formatRefreshTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) }
