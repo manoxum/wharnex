@@ -225,6 +225,7 @@ func configureArtifactStore(cfg config.Config, service *app.Service) func() {
 	cancel()
 	service.SetArtifactStore(store, settings.RetentionDays)
 	service.SetBundleWindowLimit(settings.BundleWindowLimit)
+	service.SetChatInputLimits(settings.AttachmentCountLimit, settings.RequestBundleTotalBytes, settings.RequestBundlePartBytes, settings.RequestBundlePartLimit)
 	cleanup := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()

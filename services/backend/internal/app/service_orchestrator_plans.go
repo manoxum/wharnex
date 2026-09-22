@@ -73,7 +73,7 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 	if len(composer) > 0 {
 		input = composer[0]
 	}
-	if err := validateOrchestratorComposerContext(input); err != nil {
+	if err := s.validateOrchestratorComposerContext(input); err != nil {
 		return OrchestratorProposalResult{}, err
 	}
 	item, err := s.refreshContext(sessionID)
@@ -158,12 +158,13 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 	return proposal, nil
 }
 
-func validateOrchestratorComposerContext(input OrchestratorComposerContext) error {
+func (s *Service) validateOrchestratorComposerContext(input OrchestratorComposerContext) error {
 	if len(input.ProjectFiles) > 128 {
 		return errors.New("orchestrator project file references exceed the limit")
 	}
-	if len(input.Attachments) > 12 {
-		return errors.New("orchestrator attachments exceed the limit")
+	limits := s.ArtifactSettings()
+	if limits.AttachmentCountLimit > 0 && len(input.Attachments) > limits.AttachmentCountLimit {
+		return errors.New("orchestrator attachments exceed the configured chat attachment limit")
 	}
 	if len(input.TodoIDs) > 128 {
 		return errors.New("orchestrator TODO references exceed the limit")
@@ -190,7 +191,7 @@ func validateOrchestratorComposerContext(input OrchestratorComposerContext) erro
 	var total int64
 	prefix := input.AttachmentCacheKey + "/"
 	for _, attachment := range input.Attachments {
-		if strings.TrimSpace(attachment.Name) == "" || attachment.Size <= 0 || attachment.Size > 25*1024*1024 {
+		if strings.TrimSpace(attachment.Name) == "" || attachment.Size <= 0 || attachment.Size > limits.RequestBundleTotalBytes {
 			return errors.New("orchestrator attachment metadata is invalid")
 		}
 		if !strings.HasPrefix(attachment.StorageRef, prefix) || len(strings.Split(attachment.StorageRef, "/")) != 3 {
@@ -198,8 +199,8 @@ func validateOrchestratorComposerContext(input OrchestratorComposerContext) erro
 		}
 		total += attachment.Size
 	}
-	if total > 100*1024*1024 {
-		return errors.New("orchestrator attachments exceed the total size limit")
+	if total > limits.RequestBundleTotalBytes {
+		return errors.New("orchestrator attachments exceed the configured request bundle total limit")
 	}
 	return nil
 }

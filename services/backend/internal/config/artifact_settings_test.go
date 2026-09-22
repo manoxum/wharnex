@@ -15,7 +15,8 @@ func TestReadArtifactSettingsUpgradesLegacyDocumentWithBundleLimit(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.RetentionDays != 30 || document.BundleWindowLimit != 80 {
+	if document.RetentionDays != 30 || document.BundleWindowLimit != 80 || document.AttachmentCountLimit != 0 ||
+		document.RequestBundleTotalBytes != 100<<20 || document.RequestBundlePartBytes != 30<<20 || document.RequestBundlePartLimit != 10 {
 		t.Fatalf("unexpected upgraded settings: %#v", document)
 	}
 }
@@ -23,7 +24,10 @@ func TestReadArtifactSettingsUpgradesLegacyDocumentWithBundleLimit(t *testing.T)
 func TestSaveArtifactSettingsPersistsBundleLimit(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "state", "artifact-storage.json")
 	cfg := ArtifactStorageConfig{SettingsFile: file}
-	want := ArtifactSettingsDocument{Version: 1, RetentionDays: 45, BundleWindowLimit: 96}
+	want := ArtifactSettingsDocument{
+		Version: 1, RetentionDays: 45, BundleWindowLimit: 96, AttachmentCountLimit: 25,
+		RequestBundleTotalBytes: 180 << 20, RequestBundlePartBytes: 40 << 20, RequestBundlePartLimit: 7,
+	}
 	if err := SaveArtifactSettings(cfg, want); err != nil {
 		t.Fatal(err)
 	}

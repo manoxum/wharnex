@@ -125,6 +125,10 @@ type Service struct {
 	environment             *sandboxenv.Prober
 	artifactRetentionDays   atomic.Int64
 	bundleWindowLimit       atomic.Int64
+	attachmentCountLimit    atomic.Int64
+	requestBundleTotalBytes atomic.Int64
+	requestBundlePartBytes  atomic.Int64
+	requestBundlePartLimit  atomic.Int64
 	runtimeInstanceID       string
 	gitSettingsFile         string
 	gitSettingsMu           sync.Mutex

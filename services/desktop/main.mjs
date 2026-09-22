@@ -24,7 +24,7 @@ import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieD
 import { ProjectWindowRegistry, canonicalProjectPath } from './project-window-registry.mjs'
 import { desktopIconSVG, desktopInstanceName, desktopWindowTitle } from './desktop-identity.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
-import { chatInputArchiveFilename, localChatInputBootstrap, writeChatInputArchive } from './chat-input-archive.mjs'
+import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, DEFAULT_SUSPENDED_WORKER_TASK_TYPES, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes } from './chat-agent-policies.mjs'
 import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
@@ -67,9 +67,10 @@ const ORCHESTRATOR_PLAN_GENERATING_GRACE_MS = 60_000
 const ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS = 30_000
 // Re-claim spacing after a worker slot was rebound before the task started.
 const CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS = 5_000
-const MAX_CHAT_ATTACHMENT_BYTES = 25 * 1024 * 1024
-const MAX_CHAT_ATTACHMENTS_BYTES = 100 * 1024 * 1024
-const MAX_CHAT_ATTACHMENTS = 10
+const DEFAULT_CHAT_ATTACHMENT_COUNT_LIMIT = 0
+const DEFAULT_REQUEST_BUNDLE_TOTAL_BYTES = 100 * 1024 * 1024
+const DEFAULT_REQUEST_BUNDLE_PART_BYTES = 30 * 1024 * 1024
+const DEFAULT_REQUEST_BUNDLE_PART_LIMIT = 10
 const MAX_CHAT_ARTIFACTS = 4
 const MAX_CHAT_ARTIFACT_BYTES = 2 * 1024 * 1024
 const MAX_CHAT_ARTIFACTS_BYTES = 6 * 1024 * 1024
@@ -3565,9 +3566,25 @@ async function requireAutoSession(sessionId, signal) {
   if (!['auto', 'auto_approve'].includes(sessionState?.automation_mode)) throw new Error('Automatic ChatGPT submission requires a project automatic mode')
 }
 
-function decodeChatAttachmentSet(values) {
-  if (!Array.isArray(values) || values.length > MAX_CHAT_ATTACHMENTS) throw new Error(`At most ${MAX_CHAT_ATTACHMENTS} chat attachments are allowed`)
-  const decoded = values.map((value) => decodeUserAttachment(value, MAX_CHAT_ATTACHMENT_BYTES))
+async function fetchChatTransportLimits(signal) {
+  const target = new URL('/api/artifact-settings', BACKEND_URL)
+  const response = await fetch(target, { redirect: 'error', signal })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body?.error?.message || `Artifact settings HTTP ${response.status}`)
+  const attachmentCountLimit = Math.max(0, Math.trunc(Number(body?.attachment_count_limit ?? DEFAULT_CHAT_ATTACHMENT_COUNT_LIMIT)))
+  const totalBytes = Math.max(1 << 20, Math.trunc(Number(body?.request_bundle_total_bytes || DEFAULT_REQUEST_BUNDLE_TOTAL_BYTES)))
+  const partBytes = Math.max(1 << 20, Math.trunc(Number(body?.request_bundle_part_bytes || DEFAULT_REQUEST_BUNDLE_PART_BYTES)))
+  const partLimit = Math.max(1, Math.min(20, Math.trunc(Number(body?.request_bundle_part_limit || DEFAULT_REQUEST_BUNDLE_PART_LIMIT))))
+  return { attachmentCountLimit, totalBytes, partBytes, partLimit }
+}
+
+function decodeChatAttachmentSet(values, limits) {
+  if (!Array.isArray(values)) throw new Error('Chat attachments must be an array')
+  if (limits.attachmentCountLimit > 0 && values.length > limits.attachmentCountLimit) throw new Error(`At most ${limits.attachmentCountLimit} chat attachments are allowed by the configured limit`)
+  // There is deliberately no fixed per-file attachment cap. An individual
+  // file can consume the whole logical request budget; the final archive size
+  // is checked after prompt, context and attachments have been assembled.
+  const decoded = values.map((value) => decodeUserAttachment(value, limits.totalBytes))
   const names = new Set()
   let total = 0
   for (const attachment of decoded) {
@@ -3576,7 +3593,7 @@ function decodeChatAttachmentSet(values) {
     names.add(portableName)
     total += attachment.bytes.byteLength
   }
-  if (total > MAX_CHAT_ATTACHMENTS_BYTES) throw new Error('Chat attachments exceed the 100 MiB total limit')
+  if (total > limits.totalBytes) throw new Error('Chat attachments alone exceed the configured request bundle total limit')
   return { decoded, total }
 }
 
@@ -3617,7 +3634,8 @@ function chatAttachmentRoot() {
 
 async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], liveTunnels = [], requestMetadata = {}, signal) {
   throwIfChatGPTTransportAborted(signal)
-  const { decoded } = decodeChatAttachmentSet(values)
+  const limits = await fetchChatTransportLimits(signal)
+  const { decoded } = decodeChatAttachmentSet(values, limits)
   const artifacts = decodeChatArtifactSet(artifactValues)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', cacheKey)
   await rm(dir, { recursive: true, force: true })
@@ -3630,57 +3648,48 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   // conversation forgot or truncated an earlier snapshot. The delta remains
   // useful for focus, while the current full context is authoritative.
   const context = includeContext || continuation.length ? await fetchContextZip(sessionId, signal) : undefined
-  const archiveName = chatInputArchiveFilename(cacheKey, requestId)
-  const archivePath = path.join(dir, archiveName)
-  const archive = await writeChatInputArchive(archivePath, {
-    requestId,
-    requestMetadata,
-    prompt: promptText,
-    context,
-    knowledge,
-    gitContext,
-    continuation,
-    attachments: decoded,
-    artifacts: artifacts.decoded,
-    projectFiles,
-    liveTunnels,
-    signal,
+  const transport = await writeChatInputTransportArchives(dir, {
+    chatId: cacheKey, requestId, maxTotalBytes: limits.totalBytes, maxPartBytes: limits.partBytes, maxParts: limits.partLimit,
+    requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded,
+    artifacts: artifacts.decoded, projectFiles, liveTunnels, signal,
   })
   throwIfChatGPTTransportAborted(signal)
-  await persistChatArtifact(sessionId, requestId, 'input', 'bundle', archiveName, 'application/zip', await readFile(archivePath), signal)
+  for (const part of transport.parts) await persistChatArtifact(sessionId, requestId, 'input', 'bundle', part.name, 'application/zip', await readFile(part.path), signal)
   if (context) await persistChatArtifact(sessionId, requestId, 'input', 'context', `context-${requestId}.zip`, 'application/zip', context.bytes, signal)
-  for (const attachment of decoded) await persistChatArtifact(sessionId, requestId, 'input', 'attachment', attachment.name, attachment.mime, attachment.bytes, signal)
+  for (const attachment of decoded) await persistChatArtifact(sessionId, requestId, 'input', 'attachment', attachment.name, attachment.mime, attachment.bytes, signal).catch((error) => console.warn(`[chat-input] attachment artifact persistence skipped for ${attachment.name}: ${error instanceof Error ? error.message : String(error)}`))
   for (const artifact of artifacts.decoded) await persistChatArtifact(sessionId, requestId, 'input', 'system-artifact', artifact.name, artifact.mime, artifact.bytes, signal)
-  return { archivePath, archiveName, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes, requestMetadata: archive.requestMetadata }
+  return { ...transport, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, archiveEntryCount: transport.fileCount }
 }
 
 async function materializeProtocolChatInput(cacheKey, sessionId, requestId, promptText, values = [], liveTunnels = [], requestMetadata = {}, signal) {
   throwIfChatGPTTransportAborted(signal)
-  const { decoded } = decodeChatAttachmentSet(values)
+  const limits = await fetchChatTransportLimits(signal)
+  const { decoded } = decodeChatAttachmentSet(values, limits)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-protocol', cacheKey, `${Date.now()}-${randomUUID()}`)
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const archiveName = chatInputArchiveFilename(cacheKey, requestId)
-  const archivePath = path.join(dir, archiveName)
   const context = await fetchContextZip(sessionId, signal)
   const knowledge = await fetchRequestKnowledge(sessionId, requestId, signal)
   const gitContext = await fetchRequestGitContext(sessionId, signal)
   const continuation = await fetchRequestContinuation(sessionId, requestId, signal)
-  const archive = await writeChatInputArchive(archivePath, { requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels, signal })
+  const transport = await writeChatInputTransportArchives(dir, {
+    chatId: cacheKey, requestId, maxTotalBytes: limits.totalBytes, maxPartBytes: limits.partBytes, maxParts: limits.partLimit,
+    requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels, signal,
+  })
   throwIfChatGPTTransportAborted(signal)
-  await persistChatArtifact(sessionId, requestId, 'input', 'bundle', archiveName, 'application/zip', await readFile(archivePath), signal)
-  return { archivePath, archiveName, attachmentCount: decoded.length, archiveEntryCount: archive.fileCount, bytes: archive.bytes, requestMetadata: archive.requestMetadata }
+  for (const part of transport.parts) await persistChatArtifact(sessionId, requestId, 'input', 'bundle', part.name, 'application/zip', await readFile(part.path), signal)
+  return { ...transport, attachmentCount: decoded.length, archiveEntryCount: transport.fileCount }
 }
 
 async function fillBundledChatGPTComposer(key, entry, sessionId, requestId, promptText, expectedFilename, attachments = [], liveTunnels = [], requestMetadata = {}) {
   const signal = entry?.transportAbortSignal
   const input = await materializeProtocolChatInput(key, sessionId, requestId, promptText, attachments, liveTunnels, requestMetadata, signal)
-  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, liveTunnels, input.requestMetadata)
+  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, liveTunnels, input.requestMetadata, input.multipart)
   try {
     throwIfChatGPTTransportAborted(signal)
     const filled = await entry.view.webContents.executeJavaScript(chatGPTFillComposerScript(bootstrap), true)
     if (!filled) throw new Error('ChatGPT composer DOM could not be populated with bundled protocol input')
-    await pasteChatGPTFile(entry, input.archivePath, 1, 1)
-    await wait(chatInputSettleDelay(input.bytes, 1))
+    for (let index = 0; index < input.uploadPaths.length; index += 1) await pasteChatGPTFile(entry, input.uploadPaths[index], index + 1, input.uploadPaths.length)
+    await wait(chatInputSettleDelay(input.bytes, input.uploadPaths.length))
     throwIfChatGPTTransportAborted(signal)
     return { ...input, bootstrap }
   } finally {
@@ -4607,12 +4616,13 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
     }
   }
 
-  // Every planner request is transported as exactly one request ZIP. Selected
-  // tunnels are optional live mirrors and never replace that authoritative ZIP.
+  // Every planner request is one logical request ZIP. It is uploaded directly
+  // when it fits or wrapped into ordered multipart ZIPs when the configured
+  // per-bundle limit is smaller than the logical request.
   const directPrompt = remoteInput?.fallbackPrompt ? `${text}\n\n${remoteInput.fallbackPrompt}` : text
   const input = await materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], remoteInput?.tunnels || [], requestMetadata, signal)
   throwIfChatGPTTransportAborted(signal)
-  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, remoteInput?.tunnels || [], input.requestMetadata)
+  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, remoteInput?.tunnels || [], input.requestMetadata, input.multipart)
   const target = await targetChatGPTComposer(key, linkedConversation || CHATGPT_URL, linkedConversation ? request?.preferCurrentConversation === true : false, entryOverride)
   throwIfChatGPTTransportAborted(signal)
   target.reasoningEffort = reasoningEffort
@@ -4621,11 +4631,11 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
   const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-composer', chatGPTFillComposerScript(bootstrap))
   throwIfChatGPTTransportAborted(signal)
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated with local input bootstrap')
-  await pasteChatGPTFile(target.entry, input.archivePath, 1, 1, { pacedWorker })
+  for (let index = 0; index < input.uploadPaths.length; index += 1) await pasteChatGPTFile(target.entry, input.uploadPaths[index], index + 1, input.uploadPaths.length, { pacedWorker })
   throwIfChatGPTTransportAborted(signal)
   let conversationUrl = target.conversationUrl
   if (autoSubmit) {
-    await wait(chatInputSettleDelay(input.bytes, 1))
+    await wait(chatInputSettleDelay(input.bytes, input.uploadPaths.length))
     throwIfChatGPTTransportAborted(signal)
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
     throwIfChatGPTTransportAborted(signal)
@@ -4660,17 +4670,17 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
     }
     preparedChatGPTDrafts.delete(key)
   } else {
-    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: 1, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, projectPath: request?.projectPath || '', chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId, requestMetadata: input.requestMetadata, reasoningEffort })
+    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: input.uploadPaths.length, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, projectPath: request?.projectPath || '', chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId, requestMetadata: input.requestMetadata, reasoningEffort })
   }
   touchChatGPTEntry(target.entry)
-  console.log(`[chatgpt-draft] prepared key=${key} attachments=1 archiveEntries=${input.archiveEntryCount} userAttachments=${input.userAttachmentCount} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
+  console.log(`[chatgpt-draft] prepared key=${key} attachments=${input.uploadPaths.length} archiveEntries=${input.archiveEntryCount} userAttachments=${input.userAttachmentCount} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
   // Do not clear retryableChatGPTPrompts here: observing this submit only
   // confirms transport (a conversation POST was seen), never that ChatGPT
   // actually received the composed prompt/attachment. The entry stays
   // available for a manual "Reenviar request" until the request reaches a
   // real terminal outcome (validated bundle downloaded, or explicitly
   // superseded/cancelled) — see registerChatGPTPlanDownloads and pick-bundle.
-  return { ok: true, cacheKey: key, attachmentCount: 1, submitted: autoSubmit, expectedFilename, includedContext: includeContext, conversationUrl }
+  return { ok: true, cacheKey: key, attachmentCount: input.uploadPaths.length, submitted: autoSubmit, expectedFilename, includedContext: includeContext, conversationUrl }
 }
 
 async function queuePreparedPromptForWorker(request) {
@@ -4738,36 +4748,84 @@ async function retryPersistedChatGPTPrompt(request, entryOverride = undefined) {
   const listingResponse = await fetch(listingURL, { redirect: 'error' })
   if (!listingResponse.ok) throw new Error(`Não foi possível consultar a entrada persistida (HTTP ${listingResponse.status}).`)
   const listing = await listingResponse.json()
-  const artifact = [...(listing?.artifacts || [])].reverse().find((item) => item?.request_id === requestId && item?.direction === 'input' && item?.kind === 'bundle')
-  if (!artifact?.id) throw new Error('A entrada completa deste pedido não está persistida; recrie o pedido para obter uma nova base segura.')
-  const artifactURL = new URL(`/api/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifact.id)}`, BACKEND_URL)
-  const artifactResponse = await fetch(artifactURL, { redirect: 'error' })
-  if (!artifactResponse.ok) throw new Error(`Não foi possível recuperar a entrada persistida (HTTP ${artifactResponse.status}).`)
-  const bytes = Buffer.from(await artifactResponse.arrayBuffer())
-  if (!bytes.length || bytes.length > MAX_CONTEXT_BYTES) throw new Error('A entrada persistida tem tamanho inválido.')
+  const canonicalName = chatInputArchiveFilename(key, requestId)
+  const stem = canonicalName.replace(/\.zip$/i, '')
+  const partPattern = new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_part-(\\d+)-of-(\\d+)\\.zip$`, 'i')
+  const rank = (name) => {
+    if (name === canonicalName) return 1
+    const match = partPattern.exec(name)
+    return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER
+  }
+  const latestByName = new Map()
+  for (const item of listing?.artifacts || []) {
+    const name = String(item?.name || '')
+    if (item?.request_id !== requestId || item?.direction !== 'input' || item?.kind !== 'bundle' || (name !== canonicalName && !partPattern.test(name))) continue
+    // Artifact listings are newest-first. Keep only the newest persisted copy
+    // of each transport filename so a previous failed preparation cannot make
+    // a durable retry upload the same part twice.
+    if (!latestByName.has(name)) latestByName.set(name, item)
+  }
+  const artifacts = [...latestByName.values()].sort((a, b) => rank(String(a.name || '')) - rank(String(b.name || '')))
+  if (!artifacts.length || artifacts[0]?.name !== canonicalName) throw new Error('A entrada completa deste pedido não está persistida; recrie o pedido para obter uma nova base segura.')
   const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
   const targetURL = canonicalChatGPTConversationURL(request?.url || '')
   if (!targetURL) throw new Error('O pedido pendente não possui uma conversa ChatGPT vinculada para reenvio seguro.')
   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', key, 'durable-retry')
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const archiveName = path.basename(String(artifact.name || `whx-input-${requestId}.zip`))
-  const archivePath = path.join(dir, archiveName)
-  await writeFile(archivePath, bytes, { mode: 0o600 })
+  const files = []
+  let totalBytes = 0
+  let multipartManifest
+  const partManifests = []
+  for (const artifact of artifacts) {
+    const artifactURL = new URL(`/api/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifact.id)}`, BACKEND_URL)
+    const artifactResponse = await fetch(artifactURL, { redirect: 'error' })
+    if (!artifactResponse.ok) throw new Error(`Não foi possível recuperar a entrada persistida (HTTP ${artifactResponse.status}).`)
+    const bytes = Buffer.from(await artifactResponse.arrayBuffer())
+    if (!bytes.length || bytes.length > MAX_CONTEXT_BYTES) throw new Error('Uma parte da entrada persistida tem tamanho inválido.')
+    const name = path.basename(String(artifact.name || ''))
+    const filePath = path.join(dir, name)
+    await writeFile(filePath, bytes, { mode: 0o600 })
+    const partManifest = chatInputPartManifest(bytes)
+    files.push({ name, path: filePath, bytes: bytes.byteLength })
+    partManifests.push(partManifest)
+    totalBytes += bytes.byteLength
+    if (name === canonicalName) multipartManifest = partManifest
+  }
+  if (multipartManifest) {
+    const expectedParts = Number(multipartManifest.part_count || 0)
+    const payloadName = String(multipartManifest.payload_name || '')
+    const payloadSha256 = String(multipartManifest.payload_sha256 || '')
+    const payloadBytes = Number(multipartManifest.payload_bytes || 0)
+    if (expectedParts !== files.length) throw new Error('O conjunto multipart persistido está incompleto; recrie o pedido para obter uma nova base segura.')
+    for (let index = 0; index < files.length; index += 1) {
+      const manifest = partManifests[index]
+      if (!manifest || Number(manifest.part_index || 0) !== index + 1 || Number(manifest.part_count || 0) !== expectedParts || String(manifest.payload_name || '') !== payloadName || String(manifest.payload_sha256 || '') !== payloadSha256 || Number(manifest.payload_bytes || 0) !== payloadBytes) {
+        throw new Error('O conjunto multipart persistido não é consistente; recrie o pedido para obter uma nova base segura.')
+      }
+    }
+  } else if (files.length !== 1 || partManifests.some(Boolean)) {
+    throw new Error('O conjunto persistido mistura transportes incompatíveis; recrie o pedido para obter uma nova base segura.')
+  }
+  const multipart = multipartManifest ? {
+    protocol: 'wharness.chat-input-part/v1', payload_name: multipartManifest.payload_name,
+    payload_bytes: multipartManifest.payload_bytes, payload_sha256: multipartManifest.payload_sha256,
+    parts: files.map((file, index) => ({ name: file.name, index: index + 1, count: files.length })),
+  } : undefined
   const target = await targetChatGPTComposer(key, targetURL, false, entryOverride)
   target.reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
   target.entry.reasoningEffort = target.reasoningEffort
-  const bootstrap = localChatInputBootstrap(requestId, archiveName, expectedFilename, [])
+  const bootstrap = localChatInputBootstrap(requestId, canonicalName, expectedFilename, [], undefined, multipart)
   const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-durable-retry', chatGPTFillComposerScript(bootstrap))
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated with the persisted request')
-  await pasteChatGPTFile(target.entry, archivePath, 1, 1)
-  await wait(chatInputSettleDelay(bytes.byteLength, 1))
+  for (let index = 0; index < files.length; index += 1) await pasteChatGPTFile(target.entry, files[index].path, index + 1, files.length)
+  await wait(chatInputSettleDelay(totalBytes, files.length))
   const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
   armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, [], String(request?.recoveryPrompt || ''), sessionId, expectedFilename)
   try { await submitChatGPTDraft(key, target.entry, target.conversationUrl, target) }
   catch (error) { disarmExpectedChatGPTBundle(key, requestId); throw error }
   clearChatGPTHumanAction(key, 'entrada persistida reenviada')
-  return { ok: true, cacheKey: key, requestId, attachmentCount: 1, submitted: true, expectedFilename, includedContext: true, conversationUrl: targetURL, durable: true }
+  return { ok: true, cacheKey: key, requestId, attachmentCount: files.length, submitted: true, expectedFilename, includedContext: true, conversationUrl: targetURL, durable: true }
 }
 
 async function retryPreparedChatGPTPrompt(request, entryOverride = undefined) {
@@ -7864,7 +7922,8 @@ function registerIPC() {
     trustedSender(event)
     const cacheKey = sanitizeChatCacheKey(request?.cacheKey)
     const messageId = sanitizeChatCacheKey(request?.messageId)
-    const { decoded } = decodeChatAttachmentSet(request?.attachments || [])
+    const limits = await fetchChatTransportLimits()
+    const { decoded } = decodeChatAttachmentSet(request?.attachments || [], limits)
     const attachments = await persistChatAttachmentFiles(chatAttachmentRoot(), cacheKey, messageId, decoded, createPersistentAttachmentPreview)
     return { ok: true, attachments }
   })

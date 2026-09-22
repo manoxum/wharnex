@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { bytesToMiB, formatPatternLines, miBToBytes, parsePatternLines } from '../lib/projectConfig'
-import type { BackendStorageUsage, ContextInspection, ProjectConfig, Session, TunnelProviderDocument } from '../types'
+import type { ArtifactSettings, BackendStorageUsage, ContextInspection, ProjectConfig, Session, TunnelProviderDocument } from '../types'
 import { ContextInspector, type ContextSelection } from './ContextInspector'
 import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
@@ -13,7 +13,7 @@ import { RemoteStorageSettings } from './RemoteStorageSettings'
 import { TunnelProviderSettings } from './TunnelProviderSettings'
 import { LanguageSettingsPanel } from './LanguageSettingsPanel'
 
-type SettingsSection = 'appearance' | 'composer' | 'language' | 'context' | 'tunnel-provider' | 'remote-storage' | 'data'
+type SettingsSection = 'appearance' | 'composer' | 'language' | 'context' | 'tunnel-provider' | 'remote-storage' | 'limits' | 'data'
 
 export function ProjectSettings({ session, onClose, onSession, onError, onTunnelConfigSaved }: {
   session: Session
@@ -39,6 +39,10 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
   const [resetConfirm, setResetConfirm] = useState('')
   const [artifactRetentionDays, setArtifactRetentionDays] = useState(30)
   const [bundleWindowLimit, setBundleWindowLimit] = useState(80)
+  const [attachmentCountLimit, setAttachmentCountLimit] = useState(0)
+  const [requestBundleTotalMiB, setRequestBundleTotalMiB] = useState(100)
+  const [requestBundlePartMiB, setRequestBundlePartMiB] = useState(30)
+  const [requestBundlePartLimit, setRequestBundlePartLimit] = useState(10)
   const [uiPreferences, setUIPreferences] = useState<UIPreferences>(() => loadUIPreferences())
   const [activeSection, setActiveSection] = useState<SettingsSection>('appearance')
 
@@ -63,11 +67,37 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
       setInspectionError(messageOf(error, 'Não foi possível inspecionar o contexto'))
     })
     api.storage().then((value) => { if (alive) setBackendStorage(value) }).catch(() => {})
-    api.artifactSettings().then((value) => { if (alive) { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) } }).catch(() => {})
+    api.artifactSettings().then((value) => { if (alive) { applyArtifactSettings(value) } }).catch(() => {})
     const bridge = desktopBridge()
     if (bridge) bridge.data.storage().then((value) => { if (alive) setDesktopStorage(value) }).catch(() => {})
     return () => { alive = false }
   }, [session.id, onError, reloadNonce])
+
+  function applyArtifactSettings(value: ArtifactSettings) {
+    setArtifactRetentionDays(value.retention_days)
+    setBundleWindowLimit(value.bundle_window_limit)
+    setAttachmentCountLimit(value.attachment_count_limit || 0)
+    setRequestBundleTotalMiB(Math.max(1, Math.round((value.request_bundle_total_bytes || 100 * 1024 * 1024) / (1024 * 1024))))
+    setRequestBundlePartMiB(Math.max(1, Math.round((value.request_bundle_part_bytes || 30 * 1024 * 1024) / (1024 * 1024))))
+    setRequestBundlePartLimit(value.request_bundle_part_limit || 10)
+  }
+
+  async function saveArtifactSettings(failureMessage: string) {
+    if (storageBusy) return
+    setStorageBusy(true)
+    try {
+      const value = await api.updateArtifactSettings({
+        retention_days: artifactRetentionDays,
+        bundle_window_limit: bundleWindowLimit,
+        attachment_count_limit: attachmentCountLimit,
+        request_bundle_total_bytes: Math.round(requestBundleTotalMiB * 1024 * 1024),
+        request_bundle_part_bytes: Math.round(requestBundlePartMiB * 1024 * 1024),
+        request_bundle_part_limit: requestBundlePartLimit,
+      })
+      applyArtifactSettings(value)
+    } catch (error) { onError(messageOf(error, failureMessage)) }
+    finally { setStorageBusy(false) }
+  }
 
   async function save() {
     if (!config || saving) return
@@ -219,6 +249,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
             <SettingsNavButton active={activeSection === 'remote-storage'} icon="database" label="Storage remoto" detail="Contas e limites" onClick={() => setActiveSection('remote-storage')}/>
           </SettingsNavGroup>
           <SettingsNavGroup label="Sistema">
+            <SettingsNavButton active={activeSection === 'limits'} icon="shield" label="Limites" detail="Anexos e bundles por request" onClick={() => setActiveSection('limits')}/>
             <SettingsNavButton active={activeSection === 'data'} icon="shield" label="Dados locais" detail="Uso, retenção e limpeza" onClick={() => setActiveSection('data')}/>
           </SettingsNavGroup>
         </nav>
@@ -279,6 +310,23 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
         </section></>) : null}
         {activeSection === 'tunnel-provider' ? <TunnelProviderSettings onError={onError} onSaved={onTunnelConfigSaved}/> : null}
         {activeSection === 'remote-storage' ? <RemoteStorageSettings onError={onError}/> : null}
+        {activeSection === 'limits' ? <section className="appearance-settings-section">
+          <div className="context-section-title"><div><strong>Limites</strong><span>Configura a montagem e o transporte dos request bundles enviados ao ChatGPT.</span></div></div>
+          <section className="settings-premium-card">
+            <div className="settings-card-heading"><span><strong>Anexos do chat</strong><small>Zero desativa o limite de quantidade; o tamanho é governado pelo bundle completo.</small></span><Icon name="file" size={16}/></div>
+            <label className="settings-size"><span>Número máximo de anexos por chat</span><div><input aria-label="Número máximo de anexos por chat" type="number" min={0} max={65500} value={attachmentCountLimit} onChange={(event) => setAttachmentCountLimit(Math.max(0, Math.min(65500, Number(event.target.value) || 0)))}/><span>{attachmentCountLimit === 0 ? 'sem limite' : 'ficheiros'}</span></div><small>Valor padrão: sem limite. A validação final ocorre no Desktop antes de montar o request.</small></label>
+          </section>
+          <section className="settings-premium-card">
+            <div className="settings-card-heading"><span><strong>Bundles por request</strong><small>O Wharnex monta um bundle lógico e só o particiona quando ele ultrapassa o limite por bundle.</small></span><Icon name="shield" size={16}/></div>
+            <div className="settings-grid">
+              <label><span>Tamanho total do bundle</span><div><input aria-label="Tamanho total do bundle" type="number" min={1} max={4095} value={requestBundleTotalMiB} onChange={(event) => setRequestBundleTotalMiB(Math.max(1, Math.min(4095, Number(event.target.value) || 100)))}/><span> MiB</span></div><small>Padrão: 100 MiB. Limite do request lógico completo.</small></label>
+              <label><span>Tamanho máximo por bundle</span><div><input aria-label="Tamanho máximo por bundle" type="number" min={1} max={256} value={requestBundlePartMiB} onChange={(event) => setRequestBundlePartMiB(Math.max(1, Math.min(256, Number(event.target.value) || 30)))}/><span> MiB</span></div><small>Padrão: 30 MiB. Acima disso, o request é dividido em partes remontáveis.</small></label>
+              <label><span>Quantidade máxima de bundles por request</span><div><input aria-label="Quantidade máxima de bundles por request" type="number" min={1} max={20} value={requestBundlePartLimit} onChange={(event) => setRequestBundlePartLimit(Math.max(1, Math.min(20, Number(event.target.value) || 10)))}/><span>partes</span></div><small>Padrão: 10. Intervalo permitido: 1–20.</small></label>
+            </div>
+            <div className="settings-security-note"><Icon name="shield" size={16}/><span>Se o bundle lógico couber no tamanho máximo por bundle, o Wharnex envia exatamente um ZIP. Caso contrário, envia um ZIP principal e as partes seguintes com metadados de ordem, tamanho e SHA-256 para remontagem byte a byte.</span></div>
+            <div className="context-config-actions"><button className="primary-button" disabled={storageBusy} onClick={() => void saveArtifactSettings('Falha ao guardar limites')}><Icon name="save" size={15}/>{storageBusy ? 'A guardar…' : 'Guardar limites'}</button></div>
+          </section>
+        </section> : null}
         {activeSection === 'data' ? <section className="wharness-data-section">
           <div className="context-section-title"><div><strong>Dados e armazenamento</strong><span>Sessão do navegador, métricas de disco e operações de limpeza do Wharnex.</span></div><button className="icon-button" disabled={storageBusy} onClick={() => void refreshStorage()} title="Atualizar métricas"><Icon name="refresh" size={15}/></button></div>
           <div className="storage-metrics">
@@ -296,11 +344,11 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
           </div>
           <div className="browser-session-actions">
             <div><strong>Retenção de artefactos no MinIO</strong><span>Bundles e ficheiros trocados são removidos automaticamente depois deste período. O padrão é 30 dias.</span></div>
-            <div><input type="number" min={1} max={3650} value={artifactRetentionDays} onChange={(event) => setArtifactRetentionDays(Math.max(1, Math.min(3650, Number(event.target.value) || 30)))} style={{ width: 92 }}/><span> dias </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays, bundleWindowLimit).then((value) => { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) }).catch((error) => onError(messageOf(error, 'Falha ao guardar retenção')))}>Guardar</button></div>
+            <div><input type="number" min={1} max={3650} value={artifactRetentionDays} onChange={(event) => setArtifactRetentionDays(Math.max(1, Math.min(3650, Number(event.target.value) || 30)))} style={{ width: 92 }}/><span> dias </span><button className="secondary-button" disabled={storageBusy} onClick={() => void saveArtifactSettings('Falha ao guardar retenção')}>Guardar</button></div>
           </div>
           <div className="browser-session-actions">
             <div><strong>Quota de bundles do ChatGPT</strong><span>Janela móvel de 3 horas. Esta é uma estimativa local do Wharnex: mede bundles enviados e recebidos em todos os chats conhecidos pela instância; o limite configurável aplica-se aos enviados e gera apenas alerta, sem bloquear novos pedidos.</span></div>
-            <div><input aria-label="Máximo de bundles enviados em 3 horas" type="number" min={1} max={10000} value={bundleWindowLimit} onChange={(event) => setBundleWindowLimit(Math.max(1, Math.min(10000, Number(event.target.value) || 80)))} style={{ width: 92 }}/><span> envios / 3 h </span><button className="secondary-button" disabled={storageBusy} onClick={() => void api.updateArtifactSettings(artifactRetentionDays, bundleWindowLimit).then((value) => { setArtifactRetentionDays(value.retention_days); setBundleWindowLimit(value.bundle_window_limit) }).catch((error) => onError(messageOf(error, 'Falha ao guardar quota de bundles')))}>Guardar</button></div>
+            <div><input aria-label="Máximo de bundles enviados em 3 horas" type="number" min={1} max={10000} value={bundleWindowLimit} onChange={(event) => setBundleWindowLimit(Math.max(1, Math.min(10000, Number(event.target.value) || 80)))} style={{ width: 92 }}/><span> envios / 3 h </span><button className="secondary-button" disabled={storageBusy} onClick={() => void saveArtifactSettings('Falha ao guardar quota de bundles')}>Guardar</button></div>
           </div>
           <div className="browser-session-actions">
             <div><strong>Sessão do navegador interno</strong><span>O ficheiro exportado pode conter uma sessão autenticada. Trate-o como segredo.</span></div>
@@ -332,6 +380,7 @@ function SettingsNavButton({ active, icon, label, detail, onClick }: { active: b
 function footerHint(section: SettingsSection) {
   if (section === 'remote-storage') return 'A configuração de storage é global e aplica-se a todos os projetos após reiniciar.'
   if (section === 'data') return 'Os ficheiros dos projetos reais não são removidos pelas operações desta secção.'
+  if (section === 'limits') return 'Os limites são globais e passam a valer na preparação do próximo request bundle.'
   if (section === 'appearance') return 'Preferências visuais ficam apenas neste dispositivo.'
   if (section === 'composer') return 'Preferências do composer ficam apenas neste dispositivo.'
   if (section === 'language') return 'Idioma é global; traduções Markdown são temporárias e nunca reescrevem o ficheiro original.'

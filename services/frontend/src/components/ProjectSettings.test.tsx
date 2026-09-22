@@ -13,7 +13,7 @@ vi.mock('../lib/api', () => ({
     updateProjectConfig: vi.fn(),
     storage: vi.fn(),
     clearStorage: vi.fn(),
-    artifactSettings: vi.fn().mockResolvedValue({ retention_days: 30, bundle_window_limit: 80 }),
+    artifactSettings: vi.fn().mockResolvedValue({ retention_days: 30, bundle_window_limit: 80, attachment_count_limit: 0, request_bundle_total_bytes: 100 * 1024 * 1024, request_bundle_part_bytes: 30 * 1024 * 1024, request_bundle_part_limit: 10 }),
     updateArtifactSettings: vi.fn(),
     remoteStorageConfig: vi.fn(),
     updateRemoteStorageConfig: vi.fn(),
@@ -109,7 +109,7 @@ describe('ProjectSettings loading', () => {
       project: { name: 'demo' },
       context: { auto_exclude: true, max_file_bytes: 2097152, include: [], exclude: [] },
     })
-    vi.mocked(api.updateArtifactSettings).mockResolvedValue({ retention_days: 30, bundle_window_limit: 96 })
+    vi.mocked(api.updateArtifactSettings).mockResolvedValue({ retention_days: 30, bundle_window_limit: 96, attachment_count_limit: 0, request_bundle_total_bytes: 100 * 1024 * 1024, request_bundle_part_bytes: 30 * 1024 * 1024, request_bundle_part_limit: 10 })
     render(<ProjectSettings session={session} onClose={() => undefined} onSession={() => undefined} onError={() => undefined} />)
 
     fireEvent.click(screen.getByRole('button', { name: /Dados locais/i }))
@@ -117,8 +117,35 @@ describe('ProjectSettings loading', () => {
     fireEvent.change(input, { target: { value: '96' } })
     const quotaSection = screen.getByText('Quota de bundles do ChatGPT').closest('.browser-session-actions')
     fireEvent.click(quotaSection!.querySelector('button')!)
-    await waitFor(() => expect(api.updateArtifactSettings).toHaveBeenCalledWith(30, 96))
+    await waitFor(() => expect(api.updateArtifactSettings).toHaveBeenCalledWith(expect.objectContaining({ retention_days: 30, bundle_window_limit: 96, attachment_count_limit: 0, request_bundle_total_bytes: 100 * 1024 * 1024, request_bundle_part_bytes: 30 * 1024 * 1024, request_bundle_part_limit: 10 })))
     expect(screen.getByText(/gera apenas alerta, sem bloquear novos pedidos/i)).toBeTruthy()
+  })
+
+
+  it('configures chat attachment and multipart request limits globally', async () => {
+    vi.mocked(api.projectConfig).mockResolvedValue({
+      version: 1,
+      project: { name: 'demo' },
+      context: { auto_exclude: true, max_file_bytes: 2097152, include: [], exclude: [] },
+    })
+    vi.mocked(api.updateArtifactSettings).mockResolvedValue({
+      retention_days: 30, bundle_window_limit: 80, attachment_count_limit: 12,
+      request_bundle_total_bytes: 160 * 1024 * 1024, request_bundle_part_bytes: 32 * 1024 * 1024, request_bundle_part_limit: 6,
+    })
+    render(<ProjectSettings session={session} onClose={() => undefined} onSession={() => undefined} onError={() => undefined} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /^Limites/i }))
+    fireEvent.change(await screen.findByRole('spinbutton', { name: /Número máximo de anexos por chat/i }), { target: { value: '12' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Tamanho total do bundle/i }), { target: { value: '160' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Tamanho máximo por bundle/i }), { target: { value: '32' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Quantidade máxima de bundles por request/i }), { target: { value: '6' } })
+    fireEvent.click(screen.getByRole('button', { name: /Guardar limites/i }))
+    await waitFor(() => expect(api.updateArtifactSettings).toHaveBeenCalledWith(expect.objectContaining({
+      attachment_count_limit: 12,
+      request_bundle_total_bytes: 160 * 1024 * 1024,
+      request_bundle_part_bytes: 32 * 1024 * 1024,
+      request_bundle_part_limit: 6,
+    })))
   })
 
   it('excludes an inventory file directly and rebuilds the context', async () => {

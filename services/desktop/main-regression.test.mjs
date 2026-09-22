@@ -417,42 +417,37 @@ test('desktop owns the new-chat affinity handshake and renderer only confirms or
   assert.match(prepare, /syncChatGPTAffinityURL\(key, target\.entry\)/)
 })
 
-test('Desktop always sends one request ZIP and selected tunnels only augment the direct bootstrap', async () => {
+test('Desktop sends one logical request and uses configured multipart transport only when needed', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /function normalizeTunnelInstanceIDs\(value\)/)
+  assert.match(source, /async function fetchChatTransportLimits\(signal\)/)
   const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function attachContextToChatGPT', start)
   const prepare = source.slice(start, end)
   assert.match(prepare, /const tunnelInstanceIds = normalizeTunnelInstanceIDs\(request\?\.tunnelInstanceIds\)/)
-  assert.match(prepare, /if \(tunnelInstanceIds\.length\) \{/)
-  assert.match(prepare, /publishRemoteChatInput\([^\n]+tunnelInstanceIds, requestMetadata, signal\)/)
   assert.match(prepare, /materializeChatInput\([^\n]+directPrompt/)
-  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, remoteInput\?\.tunnels \|\| \[\], input\.requestMetadata\)/)
-  assert.doesNotMatch(prepare, /if \(!transportOptions\.requestArchive\)/)
-  assert.doesNotMatch(prepare, /attachmentCount: 0/)
+  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, remoteInput\?\.tunnels \|\| \[\], input\.requestMetadata, input\.multipart\)/)
+  assert.match(prepare, /for \(let index = 0; index < input\.uploadPaths\.length; index \+= 1\) await pasteChatGPTFile/)
+  assert.match(prepare, /attachmentCount: input\.uploadPaths\.length/)
 })
 
-test('Desktop direct transport collapses prompt, context and attachments into one request ZIP', async () => {
+test('Desktop direct transport assembles one logical ZIP and persists every configured transport part', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  assert.match(source, /writeChatInputArchive/)
+  assert.match(source, /writeChatInputTransportArchives/)
   const materializeStart = source.indexOf('async function materializeChatInput')
   const materializeEnd = source.indexOf('\nasync function materializeProtocolChatInput', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
-  assert.match(materialize, /chatInputArchiveFilename\(cacheKey, requestId\)/)
-  assert.match(materialize, /writeChatInputArchive\(archivePath/)
-  assert.doesNotMatch(materialize, /paths\.push/)
+  assert.match(materialize, /const limits = await fetchChatTransportLimits\(signal\)/)
+  assert.match(materialize, /writeChatInputTransportArchives\(dir, \{/)
+  assert.match(materialize, /maxTotalBytes: limits\.totalBytes, maxPartBytes: limits\.partBytes, maxParts: limits\.partLimit/)
+  assert.match(materialize, /for \(const part of transport\.parts\) await persistChatArtifact/)
 
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
   const prepare = source.slice(prepareStart, prepareEnd)
-  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, remoteInput\?\.tunnels \|\| \[\], input\.requestMetadata\)/)
-  assert.match(prepare, /await pasteChatGPTFile\(target\.entry, input\.archivePath, 1, 1, \{ pacedWorker \}\)/)
-  assert.match(prepare, /attachmentCount: 1/)
-  assert.doesNotMatch(prepare, /transport=remote[^\n]+tunnels=/)
-  assert.match(prepare, /return \{ ok: true, cacheKey: key, attachmentCount: 1/)
-  assert.doesNotMatch(prepare, /for \(let index = 0; index < transportPaths\.length/)
+  assert.match(prepare, /input\.uploadPaths\.length/)
+  assert.doesNotMatch(prepare, /await pasteChatGPTFile\(target\.entry, input\.archivePath, 1, 1/)
 })
-
 
 test('automatic ChatGPT transport accepts auto-approve projects', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
@@ -1357,14 +1352,14 @@ test('every ChatGPT upload attempt, not only the first, is paced against the sha
   assert.match(beforeAttempt, /if \(pacedWorker\) await paceChatGPTWorkerSubmission\(\{ translation \}\)/)
 })
 
-test('task comments are sent as a single protocol ZIP containing the guidance and attachments', async () => {
+test('task comments are sent as one logical protocol ZIP with optional multipart transport', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const materializeStart = source.indexOf('async function materializeProtocolChatInput')
   const materializeEnd = source.indexOf('\nasync function fillBundledChatGPTComposer', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
   assert.match(materialize, /const context = await fetchContextZip\(sessionId, signal\)/)
-  assert.match(materialize, /writeChatInputArchive\(archivePath, \{ requestId, requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels, signal \}\)/)
+  assert.match(materialize, /writeChatInputTransportArchives\(dir, \{/)
   // The attempt ledger and divergence report must ride in the same single
   // protocol ZIP; fetching them separately at send time would let a comment
   // reach ChatGPT without the evidence the prompt says is attached.
@@ -1373,7 +1368,7 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   // Comment/continuation protocol ZIPs are real outbound transport artifacts,
   // so persist the archive before the transient local copy is removed. This
   // keeps them visible in the same sent-bundle surfaces as the initial request.
-  assert.match(materialize, /persistChatArtifact\(sessionId, requestId, 'input', 'bundle', archiveName, 'application\/zip', await readFile\(archivePath\), signal\)/)
+  assert.match(materialize, /for \(const part of transport\.parts\) await persistChatArtifact/)
 
   const fillStart = source.indexOf('async function fillBundledChatGPTComposer')
   const fillEnd = source.indexOf('\nasync function executeChatGPTDOMScript', fillStart)
@@ -1381,6 +1376,7 @@ test('task comments are sent as a single protocol ZIP containing the guidance an
   assert.match(fill, /const signal = entry\?\.transportAbortSignal/)
   assert.match(fill, /materializeProtocolChatInput\([^\n]+requestMetadata, signal\)/)
   assert.match(fill, /throwIfChatGPTTransportAborted\(signal\)/)
+  assert.match(fill, /for \(let index = 0; index < input\.uploadPaths\.length; index \+= 1\) await pasteChatGPTFile/)
 
   const flushStart = source.indexOf('async function flushQueuedChatGPTComments')
   const flushEnd = source.indexOf('\nasync function publishRemoteChannelComment', flushStart)
