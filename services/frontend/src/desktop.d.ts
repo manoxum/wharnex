@@ -16,6 +16,12 @@ type DesktopChatGPTActivity = { cacheKey?: string; requestId?: string; state: 'i
 type DesktopChatGPTHumanAction = { cacheKey: string; requestId?: string; active: boolean; kind: 'verification' | 'authentication' | 'access' | 'surface' | 'transport' | string; source?: string; message: string; detectedAt: string; open?: boolean }
 type DesktopChatGPTCommentStatus = { cacheKey?: string; requestId: string }
 type DesktopCompletionNotification = { id: string; projectPath: string; chatId: string; kind: 'task-completed' | 'restart-pending'; title: string; body: string; occurredAt: string; read?: boolean }
+type DesktopTrayAction = 'open-notifications' | 'open-plan' | 'open-execution' | 'approve-execution' | 'pause-execution' | 'resume-execution' | 'suspend-execution' | 'continue-request' | 'open-workers' | 'open-tunnels'
+type DesktopTrayProjectState = {
+  projectPath: string; activeChatId?: string; status?: string; attentionTotal?: number; actionable?: number; tunnelCount?: number; taskInFlight?: boolean
+  canApproveExecution?: boolean; canContinueRequest?: boolean; canControlExecution?: boolean; planControl?: 'active' | 'paused' | 'suspended'
+}
+type DesktopTrayActionEvent = { projectPath: string; action: DesktopTrayAction }
 type DesktopChatGPTAccountAction = { cacheKey: string; action: 'organize' | 'archive' | string; ok: boolean; state: string; provider: 'official-api' | 'typed-browser' | string }
 type DesktopUserAttachment = { name: string; mime?: string; contentBase64: string }
 type DesktopStoredAttachment = { name: string; size: number; mime: string; storageRef: string; previewKind: 'thumbnail' | 'icon' | 'none' }
@@ -91,6 +97,10 @@ interface WharnessDesktopBridge {
   notifications: {
     publish(request: DesktopCompletionNotification): Promise<{ ok: boolean; duplicate: boolean; id: string }>
     onOpen(callback: (notification: DesktopCompletionNotification) => void): () => void
+  }
+  tray: {
+    updateProjectState(request: DesktopTrayProjectState): Promise<{ ok: boolean }>
+    onAction(callback: (event: DesktopTrayActionEvent) => void): () => void
   }
   spellcheck: {
     showSuggestions(point: { x: number; y: number }): Promise<{ ok: boolean }>

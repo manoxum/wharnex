@@ -1,7 +1,7 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 ### Chat ca38be4e-f983-46fa-890e-df7d488ba348 (2026-09-22)
 
-_(reserved — no entries yet)_
+- Evolui o tray Desktop para um mini painel de controlo com cor por projeto, ícones de ação, notificações, estado/pausa de Workers, controlos rápidos de plano/execução e acesso ao painel de túneis.
 
 
 ### Chat 1e7615d9-fa36-43eb-b015-e20dbb1907a5 (2026-09-22)

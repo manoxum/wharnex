@@ -1,0 +1,60 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+
+const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+const tray = await readFile(new URL('./desktop-tray-control.mjs', import.meta.url), 'utf8')
+const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
+
+test('desktop tray owns background lifecycle, project controls and recoverable shutdown', async () => {
+  assert.match(source, /createDesktopTrayControl/)
+  assert.match(tray, /new deps\.Tray\(deps\.icon\.resize/)
+  assert.match(tray, /label: 'Abrir projeto'/)
+  assert.match(tray, /label: 'Fechar projeto'/)
+  assert.match(tray, /label: 'Sair'/)
+  assert.match(tray, /label: 'Gerir Workers'/)
+  assert.match(tray, /label: `Túneis/)
+
+  const closePrompt = await readFile(new URL('./desktop-window-close-prompt.mjs', import.meta.url), 'utf8')
+  assert.match(closePrompt, /buttons: \['Enviar para background', subject \? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'\]/)
+  assert.match(source, /fallback: \(windowState, descriptor\) => nativeWindowCloseChoice\(dialog, windowState\.window, descriptor\)/)
+  assert.match(source, /persistDesktopRecoverySession\(\)/)
+
+  const recoveryDialog = await readFile(new URL('../frontend/src/components/DesktopRecoveryDialog.tsx', import.meta.url), 'utf8')
+  assert.match(recoveryDialog, /Recuperar sessão/)
+  assert.match(recoveryDialog, /Descartar sessão/)
+  assert.doesNotMatch(source, /buttons: \['Recuperar sessão', 'Descartar sessão'\]/)
+  assert.match(source, /recoverableDesktopWindows\(recovery\)/)
+  assert.match(source, /pending: Boolean\(windowState\.recovery\?\.pending\)/)
+  assert.match(source, /ipcMain\.handle\('wharness:windows:recovery'/)
+  assert.match(source, /wharness:windows:close-project/)
+  assert.match(source, /app\.on\('window-all-closed', \(\) => \{[\s\S]*ensureDesktopTray\(\)/)
+})
+
+test('Worker suspension stays durable when tray and Agents panel share the control path', () => {
+  const pauseStart = source.indexOf('function pauseChatAgentWorkers(request = {})')
+  const pauseEnd = source.indexOf('// Captures an agent', pauseStart)
+  const controls = source.slice(pauseStart, pauseEnd)
+  const ipcStart = source.indexOf("ipcMain.handle('wharness:agents:pause-workers'")
+  const ipcEnd = source.indexOf("ipcMain.handle('wharness:agents:pause-provider'", ipcStart)
+  const ipc = source.slice(ipcStart, ipcEnd)
+  const workerSchedulerStart = source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient(')
+  const workerSchedulerEnd = source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient(', workerSchedulerStart)
+  const workerScheduler = source.slice(workerSchedulerStart, workerSchedulerEnd)
+  const supervisorScheduler = source.slice(workerSchedulerEnd, source.indexOf("app.on('before-quit'", workerSchedulerEnd))
+  const scaleStart = source.indexOf('async function reconcileChatAgentAutoScale()')
+  const scaleEnd = source.indexOf('function reconcileChatAgentSupervisorAutoScale', scaleStart)
+  const scale = source.slice(scaleStart, scaleEnd)
+
+  assert.match(controls, /workers_suspended_types: Array\.isArray\(request\?\.taskTypes\)/)
+  assert.match(controls, /workers_suspended: false, workers_suspended_until: '', workers_suspended_types: \[\]/)
+  assert.match(controls, /persistChatAgentPolicies\(\)/)
+  assert.match(ipc, /pauseChatAgentWorkers\(request\)/)
+  assert.match(ipc, /resumeChatAgentWorkers\(\)/)
+  assert.match(preload, /pauseWorkers: \(pausedUntil, taskTypes = \[\]\) => invoke\('wharness:agents:pause-workers'/)
+  assert.match(preload, /resumeWorkers: \(\) => invoke\('wharness:agents:resume-workers'/)
+  assert.match(workerScheduler, /workerSuspendsAllTaskTypes\(chatAgentPolicies\)\) return \{ skip: true \}/)
+  assert.match(workerScheduler, /excluded_types: manualSuspension\.paused \? manualSuspension\.task_types : \[\]/)
+  assert.doesNotMatch(supervisorScheduler, /workerSuspensionState\(chatAgentPolicies\)/)
+  assert.ok(scale.indexOf('reconcileChatAgentSupervisorAutoScale(queue)') < scale.indexOf('workerSuspensionState(chatAgentPolicies).paused'))
+})

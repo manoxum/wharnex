@@ -33,34 +33,6 @@ test('desktop windows restore normal bounds and maximized state per window id', 
   assert.doesNotMatch(create, /windowStatePersistence/)
 })
 
-test('desktop tray owns background lifecycle, project actions and recoverable shutdown', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  assert.match(source, /new Tray\(icon\)/)
-  assert.match(source, /label: 'Restaurar janela'/)
-  assert.match(source, /label: 'Fechar projeto'/)
-  assert.match(source, /label: 'Sair'/)
-  // The four close choices moved into the native fallback prompt when the
-  // themed modal took over the normal path, so assert them where they now
-  // live and assert that main.mjs still reaches that fallback — otherwise the
-  // tray's background option is unreachable whenever the renderer is silent.
-  const closePrompt = await readFile(new URL('./desktop-window-close-prompt.mjs', import.meta.url), 'utf8')
-  assert.match(closePrompt, /buttons: \['Enviar para background', subject \? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'\]/)
-  assert.match(source, /fallback: \(windowState, descriptor\) => nativeWindowCloseChoice\(dialog, windowState\.window, descriptor\)/)
-  assert.match(source, /persistDesktopRecoverySession\(\)/)
-  // Recovering or discarding the saved session is now the renderer's themed
-  // decision rather than a native message box shown before any window
-  // exists, so the two choices are asserted where they are presented.
-  const recoveryDialog = await readFile(new URL('../frontend/src/components/DesktopRecoveryDialog.tsx', import.meta.url), 'utf8')
-  assert.match(recoveryDialog, /Recuperar sessão/)
-  assert.match(recoveryDialog, /Descartar sessão/)
-  assert.doesNotMatch(source, /buttons: \['Recuperar sessão', 'Descartar sessão'\]/)
-  assert.match(source, /recoverableDesktopWindows\(recovery\)/)
-  assert.match(source, /pending: Boolean\(windowState\.recovery\?\.pending\)/)
-  assert.match(source, /ipcMain\.handle\('wharness:windows:recovery'/)
-  assert.match(source, /wharness:windows:close-project/)
-  assert.match(source, /app\.on\('window-all-closed', \(\) => \{[\s\S]*ensureDesktopTray\(\)/)
-})
-
 test('desktop tray resolves the installed Wharnex raster icon before SVG fallback', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const resolveStart = source.indexOf('function resolveDesktopIcon()')
@@ -1217,32 +1189,6 @@ test('Agents panel suspension uses the durable provider pause with optional dead
   assert.match(preload, /pauseProvider: \(pausedUntil\) => invoke\('wharness:agents:pause-provider'/)
 })
 
-
-test('Agents tab Worker suspension is persisted locally and blocks only Worker claims', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
-  const pauseStart = source.indexOf("ipcMain.handle('wharness:agents:pause-workers'")
-  const pauseEnd = source.indexOf("ipcMain.handle('wharness:agents:pause-provider'", pauseStart)
-  const pauseHandlers = source.slice(pauseStart, pauseEnd)
-  const workerSchedulerStart = source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient(')
-  const workerSchedulerEnd = source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient(', workerSchedulerStart)
-  const workerScheduler = source.slice(workerSchedulerStart, workerSchedulerEnd)
-  const supervisorScheduler = source.slice(workerSchedulerEnd, source.indexOf("app.on('before-quit'", workerSchedulerEnd))
-  const scaleStart = source.indexOf('async function reconcileChatAgentAutoScale()')
-  const scaleEnd = source.indexOf('function reconcileChatAgentSupervisorAutoScale', scaleStart)
-  const scale = source.slice(scaleStart, scaleEnd)
-
-  assert.ok(pauseStart >= 0, 'worker pause IPC handler must exist')
-  assert.match(pauseHandlers, /workers_suspended_types: Array\.isArray\(request\?\.taskTypes\)/)
-  assert.match(pauseHandlers, /workers_suspended: false, workers_suspended_until: '', workers_suspended_types: \[\]/)
-  assert.match(pauseHandlers, /persistChatAgentPolicies\(\)/)
-  assert.match(preload, /pauseWorkers: \(pausedUntil, taskTypes = \[\]\) => invoke\('wharness:agents:pause-workers'/)
-  assert.match(preload, /resumeWorkers: \(\) => invoke\('wharness:agents:resume-workers'/)
-  assert.match(workerScheduler, /workerSuspendsAllTaskTypes\(chatAgentPolicies\)\) return \{ skip: true \}/)
-  assert.match(workerScheduler, /excluded_types: manualSuspension\.paused \? manualSuspension\.task_types : \[\]/)
-  assert.doesNotMatch(supervisorScheduler, /workerSuspensionState\(chatAgentPolicies\)/)
-  assert.ok(scale.indexOf('reconcileChatAgentSupervisorAutoScale(queue)') < scale.indexOf('workerSuspensionState(chatAgentPolicies).paused'), 'Supervisor scaling must reconcile before Worker suspension returns')
-})
 
 test('switching chats reuses a released Supervisor slot and preserves visible intent when recycling', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
