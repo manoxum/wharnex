@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 
 const CONTRIBUTION_CALENDAR_WEEKS = 53
 
-export function GitContributorsSection({ sessionId, repository }: { sessionId: string; repository: string }) {
+export function GitContributorsSection({ sessionId, repository, repositoryLabel }: { sessionId: string; repository: string; repositoryLabel?: string }) {
   const [overview, setOverview] = useState<GitContributorsOverview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -27,7 +27,7 @@ export function GitContributorsSection({ sessionId, repository }: { sessionId: s
   const chartWeeks = overview.weeks.slice(-52)
   const activeWeeks = overview.weeks.filter((week) => week.commits > 0).length
   return <section className="git-section git-contributors-section">
-    <div className="git-section-heading"><div><span>Insights</span><strong>Contribuidores</strong></div><span className="git-section-count">{overview.contributors.length}</span></div>
+    <div className="git-section-heading"><div><span>Insights{repositoryLabel ? ` · ${repositoryLabel}` : ''}</span><strong>Contribuidores</strong></div><span className="git-section-count">{overview.contributors.length}</span></div>
     <div className="git-contributor-summary" aria-label="Resumo de contribuições">
       <div><strong>{overview.contributors.length}</strong><span>contribuidores</span></div>
       <div><strong>{overview.total_commits}</strong><span>commits</span></div>

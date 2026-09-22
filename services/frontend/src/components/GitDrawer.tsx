@@ -9,8 +9,12 @@ import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
-import { GitOperationModal, type GitOperation } from './GitOperationModal'
+import { GitOperationModal, type GitOperation, type GitOperationTarget } from './GitOperationModal'
 import { GitContributorsSection } from './GitContributorsSection'
+import { GitRepositorySummary } from './GitRepositorySummary'
+import { GitProjectWorktree } from './GitProjectWorktree'
+import { currentBranch, loadGitProjectOverviews, repositoryLabel, repositoryRemote, type GitRepositoryOverviewEntry } from '../lib/gitProjectOverview'
+import { splitWorktreeKey, worktreeKey } from '../lib/gitWorktreeKey'
 
 type GitTab = 'changes' | 'history' | 'contributors' | 'branches' | 'settings'
 type GitChangesTab = 'working' | 'pending'
@@ -24,8 +28,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   onResolveConflictWithGPT?: (session: Session) => Promise<void>
 }) {
   const [overview, setOverview] = useState<GitOverview | null>(null)
-  const [repository, setRepository] = useState('')
-  const [targetRepositories, setTargetRepositories] = useState<Set<string>>(new Set(['']))
+  const [repositoryEntries, setRepositoryEntries] = useState<GitRepositoryOverviewEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [working, setWorking] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -50,10 +53,11 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   }, [onError])
 
   const loadOverview = useCallback(async () => {
-    const next = await api.gitOverview(session.id, repository)
-    setOverview(next)
-    return next
-  }, [session.id, repository])
+    const next = await loadGitProjectOverviews(session.id)
+    setOverview(next.root)
+    setRepositoryEntries(next.entries)
+    return next.root
+  }, [session.id])
 
   const refresh = useCallback(async () => {
     try {
@@ -67,29 +71,45 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { void refresh() }, [session.last_host_applied_at, session.state, refresh])
-  useEffect(() => subscribeGitLiveSync(session.id, repository, () => { void refresh() }), [session.id, repository, refresh])
+  const repositoryPathsKey = useMemo(() => repositoryEntries.map((entry) => entry.repository.path).join('\u0000'), [repositoryEntries])
   useEffect(() => {
-    if (!overview) return
-    const committable = new Set(overview.working.files.filter((file) => file.kind === 'change' || file.kind === 'gitlink').map((file) => file.path))
-    setSelectedWorktree((currentSelection) => new Set(Array.from(currentSelection).filter((path) => committable.has(path))))
-  }, [overview])
+    const paths = repositoryEntries.length ? repositoryEntries.map((entry) => entry.repository.path) : ['']
+    const cleanups = paths.map((path) => subscribeGitLiveSync(session.id, path, () => { void refresh() }))
+    return () => cleanups.forEach((cleanup) => cleanup())
+  }, [session.id, repositoryEntries, repositoryPathsKey, refresh])
+  useEffect(() => {
+    const committable = new Set(repositoryEntries.flatMap((entry) => (entry.overview?.working.files || [])
+      .filter((file) => file.kind === 'change' || file.kind === 'gitlink')
+      .map((file) => worktreeKey(entry.repository.path, file.path))))
+    setSelectedWorktree((currentSelection) => new Set(Array.from(currentSelection).filter((key) => committable.has(key))))
+  }, [repositoryEntries])
 
   const localBranches = useMemo(() => (overview?.branches || []).filter((branch) => !branch.remote), [overview])
   const remoteBranches = useMemo(() => (overview?.branches || []).filter((branch) => branch.remote), [overview])
   const current = useMemo(() => localBranches.find((branch) => branch.current), [localBranches])
   const pending = overview?.pending || []
-  const availableRepositories = useMemo(() => (overview?.repositories || []).filter((item) => item.available), [overview])
-  const operationRepositories = useMemo(() => {
-    const valid = availableRepositories.filter((item) => targetRepositories.has(item.path)).map((item) => item.path)
-    return valid.length ? valid : [repository]
-  }, [availableRepositories, targetRepositories, repository])
+  const availableEntries = useMemo(() => repositoryEntries.filter((entry) => entry.repository.available && entry.overview), [repositoryEntries])
+  const repositoryTargets = useMemo<GitOperationTarget[]>(() => repositoryEntries.map((entry) => {
+    const branch = currentBranch(entry.overview)
+    return {
+      path: entry.repository.path,
+      label: repositoryLabel(entry),
+      branch: entry.overview?.detached ? 'HEAD destacado' : branch?.name || entry.repository.current_branch || 'sem branch',
+      detail: branch?.has_upstream && !branch.gone ? branch.upstream : 'branch apenas local',
+      ahead: branch?.ahead || 0,
+      behind: branch?.behind || 0,
+      available: entry.repository.available && Boolean(entry.overview),
+    }
+  }), [repositoryEntries])
 
-  async function runForRepositories(action: (target: string) => Promise<string>) {
+  async function runForRepositories(targets: string[], action: (entry: GitRepositoryOverviewEntry) => Promise<string>) {
     const successes: string[] = []
     const failures: string[] = []
-    for (const target of operationRepositories) {
-      const label = overview?.repositories.find((item) => item.path === target)?.label || 'superprojeto'
-      try { successes.push(`${label}: ${await action(target)}`) }
+    for (const target of targets) {
+      const entry = availableEntries.find((item) => item.repository.path === target)
+      if (!entry) continue
+      const label = repositoryLabel(entry)
+      try { successes.push(`${label}: ${await action(entry)}`) }
       catch (error) { failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`) }
     }
     if (failures.length) throw new Error(`${successes.length ? `${successes.length} repositório(s) concluído(s). ` : ''}Falhou em ${failures.join(' | ')}`)
@@ -141,6 +161,12 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     }
   }
 
+  function selectRepositories(title: string, detail: string, action: (targets: string[]) => Promise<string>, syncSession = false, allowedTargets = repositoryTargets) {
+    const eligible = allowedTargets.filter((target) => target.available !== false)
+    if (eligible.length <= 1) { void runGitOperation(title, detail, () => action(eligible.map((target) => target.path)), syncSession); return }
+    setOperation({ title, detail, phase: 'selecting', targets: allowedTargets, onConfirmTargets: (targets) => { void runGitOperation(title, detail, () => action(targets), syncSession) } })
+  }
+
   const disabled = busy || working || loading
 
   async function copyGitText(value: string, success: string) {
@@ -190,27 +216,27 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   }
 
   async function commitWorktree() {
-    const paths = Array.from(selectedWorktree)
-    await runGitOperation(
+    const grouped = new Map<string, string[]>()
+    for (const key of selectedWorktree) {
+      const item = splitWorktreeKey(key)
+      grouped.set(item.repository, [...(grouped.get(item.repository) || []), item.path])
+    }
+    const targets = repositoryTargets.filter((target) => grouped.has(target.path))
+    selectRepositories(
       'A criar commit manual',
-      operationRepositories.length === 1 && operationRepositories[0] === repository
-        ? `${paths.length} ficheiro(s) selecionado(s) serão adicionados ao histórico local.`
-        : `As alterações de ${operationRepositories.length} repositório(s) alvo serão registadas separadamente.`,
-      async () => {
-        let message: string
-        if (operationRepositories.length !== 1 || operationRepositories[0] !== repository) {
-          message = await runForRepositories(async (target) => {
-            const result = await api.commitGitWorktree(session.id, worktreeCommitMessage, [], target, true)
-            return `Commit ${result.commit_sha.slice(0, 8)} criado com ${result.paths.length} ficheiro(s).`
-          })
-        } else {
-          const result = await api.commitGitWorktree(session.id, worktreeCommitMessage, paths, repository)
-          message = `Commit criado com ${result.paths.length} ficheiro(s): ${result.commit_sha.slice(0, 8)}.`
-        }
+      'Escolha em quais repositórios os ficheiros selecionados serão commitados.',
+      async (paths) => {
+        const message = await runForRepositories(paths, async (entry) => {
+          const files = grouped.get(entry.repository.path) || []
+          const result = await api.commitGitWorktree(session.id, worktreeCommitMessage, files, entry.repository.path)
+          return `Commit ${result.commit_sha.slice(0, 8)} criado com ${result.paths.length} ficheiro(s).`
+        })
         setSelectedWorktree(new Set())
         setWorktreeCommitMessage('')
         return message
       },
+      false,
+      targets,
     )
   }
 
@@ -233,18 +259,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     {!loading && overview && !overview.available && <p className="git-empty warning-card">Não foi possível inspecionar o repositório: {overview.unavailable}</p>}
 
     {overview?.available && <>
-      {overview.repositories.length > 1 && <div className="git-repository-scope">
-        <label className="git-repository-active"><span>Repositório ativo</span><select value={repository} disabled={disabled} onChange={(event) => {
-          const next = event.target.value
-          setRepository(next); setTargetRepositories(new Set([next])); setSelectedWorktree(new Set()); setSelected(new Set()); setMergeRef(''); setRemoteMergeSources([]); setNotice('')
-        }}>{overview.repositories.map((item) => <option key={item.path || '__root__'} value={item.path} disabled={!item.available}>{item.root ? 'Superprojeto' : item.label}{item.available ? '' : ' · indisponível'}</option>)}</select></label>
-        <div className="git-repository-targets">
-          <span>Executar operações em</span>
-          <div className="git-repository-target-actions"><button type="button" className={operationRepositories.length === 1 && operationRepositories[0] === repository ? 'active' : ''} aria-pressed={operationRepositories.length === 1 && operationRepositories[0] === repository} disabled={disabled} onClick={() => setTargetRepositories(new Set([repository]))}>Só ativo</button><button type="button" className={availableRepositories.length > 0 && operationRepositories.length === availableRepositories.length ? 'active' : ''} aria-pressed={availableRepositories.length > 0 && operationRepositories.length === availableRepositories.length} disabled={disabled} onClick={() => setTargetRepositories(new Set(availableRepositories.map((item) => item.path)))}>Todos</button></div>
-          <div className="git-repository-target-list">{overview.repositories.map((item) => <label key={item.path || '__root__'} className={`${!item.available ? 'disabled ' : ''}${item.root ? 'root' : 'submodule'}`.trim()}><input type="checkbox" disabled={disabled || !item.available} checked={targetRepositories.has(item.path)} onChange={() => setTargetRepositories((currentSelection) => { const next = new Set(currentSelection); if (next.has(item.path)) next.delete(item.path); else next.add(item.path); return next })}/><span title={item.root ? 'Superprojeto' : item.label}>{item.root ? 'Superprojeto' : item.label}</span><small>{item.current_branch || (item.detached ? 'HEAD destacado' : item.unavailable || 'sem branch')}</small></label>)}</div>
-          <small className="git-repository-target-hint">Operações coletivas são executadas sequencialmente e cada repositório mantém o seu próprio estado Git.</small>
-        </div>
-      </div>}
+      <GitRepositorySummary entries={repositoryEntries}/>
       <GitTabs active={activeTab} onChange={setActiveTab} overview={overview}/>
       {notice && <p className={`git-notice ${noticeError ? 'error-card' : ''}`} role={noticeError ? 'alert' : 'status'}>{notice}</p>}
       {overview.conflict && <div className="git-conflict-card warning-card">
@@ -257,69 +272,78 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
         {activeTab === 'changes' && <>
           <ChangesTabs
             active={activeChangesTab}
-            workingCount={overview.working.files.length}
-            pendingCount={unpushedCount(overview)}
+            workingCount={repositoryEntries.reduce((sum, entry) => sum + (entry.overview?.working.files.length || 0), 0)}
+            pendingCount={repositoryEntries.reduce((sum, entry) => sum + (entry.overview ? unpushedCount(entry.overview) : 0), 0)}
             onChange={setActiveChangesTab}
           />
-          {activeChangesTab === 'working' && <WorktreeFiles
-            overview={overview} disabled={disabled} hasIdentity={overview.has_identity}
+          {activeChangesTab === 'working' && <GitProjectWorktree
+            entries={repositoryEntries} disabled={disabled}
             selected={selectedWorktree} message={worktreeCommitMessage}
             onMessageChange={setWorktreeCommitMessage}
-            onToggle={(path) => setSelectedWorktree((currentSelection) => {
+            onToggle={(key) => setSelectedWorktree((currentSelection) => {
               const next = new Set(currentSelection)
-              if (next.has(path)) next.delete(path)
-              else next.add(path)
+              if (next.has(key)) next.delete(key)
+              else next.add(key)
               return next
             })}
             onCommit={() => void commitWorktree()}
-            onOpenDiff={(path) => void (async () => {
-              try { setWorktreeDiff(await api.gitFileDiff(session.id, path, repository)) } catch (error) { report(error) }
+            onOpenDiff={(repositoryPath, path) => void (async () => {
+              try { setWorktreeDiff(await api.gitFileDiff(session.id, path, repositoryPath)) } catch (error) { report(error) }
             })()}
           />}
-          {activeChangesTab === 'pending' && <GitUnpushedSection
-            sessionId={session.id} repository={repository} activeBranch={current} remotes={overview.remotes} disabled={disabled}
-            onFullPush={async (remote, branch, setUpstream) => {
-              await runGitOperation(
-                'A publicar alterações',
-                `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
-                async () => {
-                  return runForRepositories(async (target) => {
-                    const result = await api.gitPush(session.id, remote, branch, setUpstream, target)
+          {activeChangesTab === 'pending' && availableEntries.map((entry) => {
+            const entryOverview = entry.overview!
+            const entryBranch = currentBranch(entryOverview)
+            return <GitUnpushedSection key={entry.repository.path || '__root__'}
+              sessionId={session.id} repository={entry.repository.path} repositoryLabel={repositoryEntries.length > 1 ? repositoryLabel(entry) : undefined}
+              activeBranch={entryBranch} remotes={entryOverview.remotes} disabled={disabled}
+              onFullPush={async (remote, branch, setUpstream) => {
+                const target = repositoryTargets.filter((item) => item.path === entry.repository.path)
+                selectRepositories(
+                  'A publicar alterações',
+                  `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
+                  async (paths) => runForRepositories(paths, async (selectedEntry) => {
+                    const selectedOverview = selectedEntry.overview!
+                    const selectedBranch = currentBranch(selectedOverview)
+                    const selectedRemote = repositoryRemote(selectedEntry, remote)
+                    if (!selectedRemote || !selectedBranch) throw new Error('Este repositório não tem branch/remoto disponível para push.')
+                    const result = await api.gitPush(session.id, selectedRemote, selectedBranch.name, !selectedBranch.has_upstream, selectedEntry.repository.path)
                     if (result.conflict_id) return conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id))
                     return result.detail || pushMessage(result.outcome, result.integrated, result.conflict_id)
-                  })
-                },
-                true,
-              )
-            }}
-            onSelectedPush={async (commitSHAs) => {
-              await runGitOperation(
-                'A publicar commits selecionados',
-                `A enviar ${commitSHAs.length} commit(s) para o upstream da branch atual.`,
-                async () => {
-                  const result = await api.gitPushSelected(session.id, commitSHAs, repository)
-                  return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
-                },
-              )
-            }}
-          />}
+                  }),
+                  true,
+                  target,
+                )
+              }}
+              onSelectedPush={async (commitSHAs) => {
+                await runGitOperation(
+                  'A publicar commits selecionados',
+                  `A enviar ${commitSHAs.length} commit(s) para o upstream de ${repositoryLabel(entry)}.`,
+                  async () => {
+                    const result = await api.gitPushSelected(session.id, commitSHAs, entry.repository.path)
+                    return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
+                  },
+                )
+              }}
+            />
+          })}
         </>}
-        {activeTab === 'history' && <HistorySection sessionId={session.id} repository={repository} branches={overview.branches}/>}
-        {activeTab === 'contributors' && <GitContributorsSection sessionId={session.id} repository={repository}/>}
+        {activeTab === 'history' && availableEntries.map((entry) => <HistorySection key={entry.repository.path || '__root__'} sessionId={session.id} repository={entry.repository.path} repositoryLabel={repositoryEntries.length > 1 ? repositoryLabel(entry) : undefined} branches={entry.overview!.branches}/>)}
+        {activeTab === 'contributors' && availableEntries.map((entry) => <GitContributorsSection key={entry.repository.path || '__root__'} sessionId={session.id} repository={entry.repository.path} repositoryLabel={repositoryEntries.length > 1 ? repositoryLabel(entry) : undefined}/>)}
         {activeTab === 'branches' && <BranchSection
-          sessionId={session.id} repository={repository} allowCurrentSwitch={operationRepositories.length > 1}
+          sessionId={session.id} repository="" allowCurrentSwitch={availableEntries.length > 1}
           current={current?.name || overview.current_branch} detached={overview.detached}
           localBranches={localBranches} remoteBranches={remoteBranches} remotes={overview.remotes}
           projectVersion={overview.project_version || ''} tags={overview.tags || []}
           disabled={disabled} mergeRef={mergeRef} onMergeRefChange={setMergeRef}
           remoteMergeTarget={remoteMergeTarget} remoteMergeSources={remoteMergeSources}
           onRemoteMergeTargetChange={setRemoteMergeTarget} onRemoteMergeSourcesChange={setRemoteMergeSources}
-          onRemoteMerge={() => runGitOperation(
+          onRemoteMerge={() => selectRepositories(
             'A integrar branches remotas',
             `A integrar ${remoteMergeSources.join(', ')} em ${remoteMergeTarget} sem alterar a branch local.`,
-            async () => {
-              const message = await runForRepositories(async (target) => {
-                const result = await api.gitRemoteMerge(session.id, remoteMergeTarget, remoteMergeSources, target)
+            async (paths) => {
+              const message = await runForRepositories(paths, async (entry) => {
+                const result = await api.gitRemoteMerge(session.id, remoteMergeTarget, remoteMergeSources, entry.repository.path)
                 if (result.outcome === 'conflict') return result.conflict_id ? conflictMessage(result.conflict_id, `Merge remoto encontrou conflito em ${result.conflict_ref}; nenhuma branch local ou remota foi alterada.`) : (result.detail || `Merge remoto encontrou conflito em ${result.conflict_ref}.`)
                 return `Merge remoto em ${result.target_ref}: ${result.outcome}${result.push_outcome ? ` · push ${result.push_outcome}` : ''}.`
               })
@@ -328,12 +352,12 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             },
             true,
           )}
-          onMerge={() => runGitOperation(
+          onMerge={() => selectRepositories(
             'A integrar branch',
             `A fazer merge de ${mergeRef} na branch atual.`,
-            async () => {
-              const message = await runForRepositories(async (target) => {
-                const result = await api.gitMerge(session.id, mergeRef, target)
+            async (paths) => {
+              const message = await runForRepositories(paths, async (entry) => {
+                const result = await api.gitMerge(session.id, mergeRef, entry.repository.path)
                 return result.conflict_id ? conflictMessage(result.conflict_id, `Merge de ${result.ref} entrou em conflito.`) : (result.detail || `Merge de ${result.ref}: ${result.outcome}.`)
               })
               setMergeRef('')
@@ -341,56 +365,66 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             },
             true,
           )}
-          onFetch={(remote) => runGitOperation(
+          onFetch={(remote) => selectRepositories(
             'A procurar alterações na origem',
-            `A atualizar as referências remotas a partir de ${remote}.`,
-            async () => {
-              return runForRepositories(async (target) => { await api.gitFetch(session.id, remote, target); return `Fetch de ${remote} concluído.` })
-            },
+            `Escolha os repositórios cujas referências remotas serão atualizadas.`,
+            async (paths) => runForRepositories(paths, async (entry) => {
+              const selectedRemote = repositoryRemote(entry, remote)
+              if (!selectedRemote) throw new Error('Este repositório não tem remoto configurado.')
+              await api.gitFetch(session.id, selectedRemote, entry.repository.path)
+              return `Fetch de ${selectedRemote} concluído.`
+            }),
           )}
-          onPull={(remote, branch) => runGitOperation(
+          onPull={(remote) => selectRepositories(
             'A integrar alterações da origem',
-            `A trazer ${remote}/${branch} para a branch local.`,
-            async () => {
-              return runForRepositories(async (target) => {
-                const result = await api.gitPull(session.id, remote, branch, target)
-                return result.conflict_id ? conflictMessage(result.conflict_id, `Pull de ${result.ref} encontrou conflito.`) : (result.detail || `Pull de ${result.ref}: ${result.outcome}.`)
-              })
-            },
+            'Escolha os repositórios que devem receber alterações da respetiva branch remota.',
+            async (paths) => runForRepositories(paths, async (entry) => {
+              const selectedBranch = currentBranch(entry.overview)
+              const selectedRemote = repositoryRemote(entry, remote)
+              if (!selectedBranch || !selectedRemote) throw new Error('Este repositório não tem branch/remoto disponível para pull.')
+              const result = await api.gitPull(session.id, selectedRemote, selectedBranch.name, entry.repository.path)
+              return result.conflict_id ? conflictMessage(result.conflict_id, `Pull de ${result.ref} encontrou conflito.`) : (result.detail || `Pull de ${result.ref}: ${result.outcome}.`)
+            }),
             true,
           )}
-          onSwitch={(branch) => run(async () => {
-            setNotice(await runForRepositories(async (target) => { await api.gitSwitch(session.id, branch, target); return `Branch alterada para ${branch}.` }))
-          }, true)}
-          onCreateBranch={(branch, startPoint) => run(async () => {
-            setNotice(await runForRepositories(async (target) => { await api.gitCreateBranch(session.id, branch, startPoint, target); return `Branch ${branch} criada a partir de ${startPoint || 'HEAD'}.` }))
-          })}
+          onSwitch={(branch) => selectRepositories(
+            'A alternar branch',
+            `Escolha os repositórios onde pretende alternar para ${branch}.`,
+            async (paths) => runForRepositories(paths, async (entry) => { await api.gitSwitch(session.id, branch, entry.repository.path); return `Branch alterada para ${branch}.` }),
+            true,
+          )}
+          onCreateBranch={(branch, startPoint) => selectRepositories(
+            'A criar branch',
+            `Escolha os repositórios onde ${branch} será criada.`,
+            async (paths) => runForRepositories(paths, async (entry) => { await api.gitCreateBranch(session.id, branch, startPoint, entry.repository.path); return `Branch ${branch} criada a partir de ${startPoint || 'HEAD'}.` }),
+          )}
           onDeleteBranch={(branch) => void (async () => {
             const confirmed = await confirmDialog({ title: `Remover branch ${branch}?`, message: 'Branches locais usam remoção segura sem força; branches remotas são removidas do remoto selecionado sem force push.', tone: 'danger', confirmLabel: 'Remover branch' })
             if (!confirmed) return
-            await run(async () => { setNotice(await runForRepositories(async (target) => { await api.gitDeleteBranch(session.id, branch, target); return `Branch ${branch} removida.` })) })
+            selectRepositories('A remover branch', `Escolha os repositórios onde ${branch} será removida.`, async (paths) => runForRepositories(paths, async (entry) => { await api.gitDeleteBranch(session.id, branch, entry.repository.path); return `Branch ${branch} removida.` }))
           })()}
           onCopyBranch={(branch) => void copyGitText(branch, `Nome da branch ${branch} copiado.`)}
           onCopyTag={(tag) => void copyGitText(tag, `Tag ${tag} copiada.`)}
-          onGenerateReleaseNotes={async (branch) => (await api.gitGenerateReleaseNotes(session.id, branch, repository)).body}
+          onGenerateReleaseNotes={async (branch) => (await api.gitGenerateReleaseNotes(session.id, branch, '')).body}
           onCreateRelease={(input) => runGitOperation(
             'A publicar release',
             `A criar ${releaseTagName(overview.project_version || '', input.tag_suffix)} a partir de ${input.branch} e a publicar a release no remoto dessa branch.`,
             async () => {
-              const result = await api.gitCreateRelease(session.id, input, repository)
+              const result = await api.gitCreateRelease(session.id, input, '')
               return `Release ${result.tag} publicada${result.release_url ? ` · ${result.release_url}` : ''}.`
             },
           )}
-          onPush={(remote, branch, setUpstream) => runGitOperation(
+          onPush={(remote) => selectRepositories(
             'A publicar alterações',
-            `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
-            async () => {
-              return runForRepositories(async (target) => {
-                const result = await api.gitPush(session.id, remote, branch, setUpstream, target)
-                if (result.conflict_id) return conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id))
-                return result.detail || pushMessage(result.outcome, result.integrated, result.conflict_id)
-              })
-            },
+            'Escolha os repositórios cujas branches locais serão publicadas.',
+            async (paths) => runForRepositories(paths, async (entry) => {
+              const selectedBranch = currentBranch(entry.overview)
+              const selectedRemote = repositoryRemote(entry, remote)
+              if (!selectedBranch || !selectedRemote) throw new Error('Este repositório não tem branch/remoto disponível para push.')
+              const result = await api.gitPush(session.id, selectedRemote, selectedBranch.name, !selectedBranch.has_upstream, entry.repository.path)
+              if (result.conflict_id) return conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id))
+              return result.detail || pushMessage(result.outcome, result.integrated, result.conflict_id)
+            }),
             true,
           )}
         />}
@@ -456,45 +490,6 @@ function ChangesTabs({ active, workingCount, pendingCount, onChange }: {
       <Icon name="clipboard" size={12}/><span className="semantic-tab-label">Commits pendentes</span><span className="git-tab-count">{pendingCount}</span>
     </button>
   </nav>
-}
-
-function WorktreeFiles({ overview, disabled, hasIdentity, selected, message, onMessageChange, onToggle, onCommit, onOpenDiff }: {
-  overview: GitOverview; disabled: boolean; hasIdentity: boolean; selected: Set<string>; message: string
-  onMessageChange: (value: string) => void; onToggle: (path: string) => void; onCommit: () => void; onOpenDiff: (path: string) => void
-}) {
-  const files = overview.working.files || []
-  const canCommit = (kind: GitOverview['working']['files'][number]['kind']) => kind === 'change' || kind === 'gitlink'
-  const committableCount = files.filter((file) => canCommit(file.kind)).length
-  return <section className="git-change-surface git-worktree-files-section">
-    <div className="git-change-surface-heading">
-      <div><span>Worktree</span><strong>{files.length ? 'Alterações locais' : 'Worktree limpo'}</strong></div>
-      <span className="git-section-count">{files.length}</span>
-    </div>
-    {files.length === 0 ? <div className="git-clean-state"><span><Icon name="check" size={13}/></span><div><strong>Sem alterações por commitar</strong><small>O worktree está sincronizado com o último commit local.</small></div></div> : <>
-      <ul className="git-worktree-files">{files.map((file) => {
-        const diffable = file.kind !== 'submodule' && file.kind !== 'embedded_repository'
-        const committable = canCommit(file.kind)
-        return <li key={`${file.kind}:${file.path}`}>
-          <label className="git-worktree-file-select" title={committable ? 'Selecionar ficheiro para commit' : 'Este tipo de entrada não pode ser commitado daqui'}>
-            <input type="checkbox" checked={selected.has(file.path)} disabled={disabled || !committable} aria-label={`Selecionar ${file.path}`} onChange={() => onToggle(file.path)}/>
-          </label>
-          <span className="git-worktree-file-icon"><Icon name={file.kind === 'unmerged' ? 'alert' : 'file'} size={12}/></span>
-          <span className="git-worktree-file-copy"><strong title={file.path}>{file.path}</strong><small>{worktreeKind(file.kind)}</small></span>
-          <button type="button" className="git-file-diff-action git-line-stats" disabled={disabled || !diffable} title={diffable ? 'Ver alterações deste ficheiro' : 'Este tipo de entrada não tem diff inline'} aria-label={`Abrir diff de ${file.path}`} onClick={() => onOpenDiff(file.path)}><b>+{file.additions || 0}</b><i>−{file.deletions || 0}</i></button>
-        </li>
-      })}</ul>
-      {committableCount > 0 && <div className="git-worktree-commit">
-        <label><span>Mensagem do commit</span><input type="text" value={message} disabled={disabled || !hasIdentity} onChange={(event) => onMessageChange(event.target.value)} placeholder="ex.: fix(ui): ajustar painel Git"/></label>
-        <button type="button" className="git-action primary" disabled={disabled || !hasIdentity || selected.size === 0 || !message.trim()} onClick={onCommit}><Icon name="check" size={13}/> Commitar ({selected.size})</button>
-      </div>}
-      {!hasIdentity && committableCount > 0 && <p className="git-hint warning-card">Configure <code>user.name</code> e <code>user.email</code> para criar commits manuais.</p>}
-    </>}
-  </section>
-}
-
-
-function worktreeKind(kind: GitOverview['working']['files'][number]['kind']) {
-  return ({ change: 'alterado', gitlink: 'gitlink alterado', submodule: 'submódulo com alterações', embedded_repository: 'repositório embebido', unmerged: 'conflito não resolvido' } as const)[kind]
 }
 
 function unpushedCount(overview: GitOverview) {
@@ -936,7 +931,7 @@ function PendingSection({ pending, selected, disabled, hasIdentity, commitMode, 
   </section>
 }
 
-function HistorySection({ sessionId, repository, branches }: { sessionId: string; repository: string; branches: GitOverview['branches'] }) {
+function HistorySection({ sessionId, repository, repositoryLabel: scopeLabel, branches }: { sessionId: string; repository: string; repositoryLabel?: string; branches: GitOverview['branches'] }) {
   const [mode, setMode] = useState<'current' | 'selected' | 'all'>('current')
   const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set())
   const [history, setHistory] = useState<GitOverview['commits']>([])
@@ -983,7 +978,7 @@ function HistorySection({ sessionId, repository, branches }: { sessionId: string
   const refsBySHA = new Map<string, GitBranch[]>()
   for (const branch of branches) refsBySHA.set(branch.commit_sha, [...(refsBySHA.get(branch.commit_sha) || []), branch])
   return <section className="git-section git-history-section">
-    <div className="git-section-heading"><div><span>Timeline</span><strong>Histórico de commits</strong></div><span className="git-section-count">{history.length}{hasMore ? '+' : ''}</span></div>
+    <div className="git-section-heading"><div><span>Timeline{scopeLabel ? ` · ${scopeLabel}` : ''}</span><strong>Histórico de commits</strong></div><span className="git-section-count">{history.length}{hasMore ? '+' : ''}</span></div>
     <div className="git-history-scope" role="group" aria-label="Âmbito do histórico">
       <button type="button" className={mode === 'current' ? 'active' : ''} onClick={() => setMode('current')}>Branch atual</button>
       <button type="button" className={mode === 'selected' ? 'active' : ''} onClick={() => setMode('selected')}>Selecionadas {selectedRefs.size ? `(${selectedRefs.size})` : ''}</button>

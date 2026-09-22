@@ -79,48 +79,29 @@ describe('ProjectGitBadge', () => {
     }
   })
 
-  it('switches the branch popup to an initialized submodule repository', async () => {
+  it('shows every repository and chooses operation targets in the execution modal', async () => {
     const repositories = [
       { path: '', label: 'superproject', depth: 0, root: true, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'a1' },
       { path: 'packages/api', label: 'packages/api', depth: 1, root: false, initialized: true, available: true, current_branch: 'develop', detached: false, commit_sha: 'b1' },
     ]
-    vi.mocked(api.gitOverview).mockImplementation(async (_id, repository = '') => {
-      if (repository === 'packages/api') {
-        return overviewWith({ repository, repositories, current_branch: 'develop', branches: [
-          { name: 'develop', current: true, commit_sha: 'b1', subject: 'feat: api', upstream: 'origin/develop', ahead: 0, behind: 0, has_upstream: true, gone: false, counterpart: 'origin/develop', has_counterpart: true },
-          { name: 'origin/develop', remote: 'origin', current: false, commit_sha: 'b1', subject: 'feat: api', ahead: 0, behind: 0, has_upstream: false, gone: false, counterpart: 'develop', has_counterpart: true },
-        ] })
-      }
-      return overviewWith({ repository, repositories })
-    })
-
-    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
-    await openBadge()
-    const selector = screen.getByLabelText('Repositório')
-    fireEvent.change(selector, { target: { value: 'packages/api' } })
-    await waitFor(() => expect(api.gitOverview).toHaveBeenCalledWith('ses_1', 'packages/api'))
-    await waitFor(() => expect(document.querySelector('.project-git-menu-header strong')?.textContent).toBe('develop'))
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch' }))
-    await waitFor(() => expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', 'packages/api'))
-  })
-
-  it('can run branch-popup operations across the superproject and submodules', async () => {
-    const repositories = [
-      { path: '', label: 'superproject', depth: 0, root: true, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'a1' },
-      { path: 'packages/api', label: 'packages/api', depth: 1, root: false, initialized: true, available: true, current_branch: 'main', detached: false, commit_sha: 'b1' },
-    ]
-    vi.mocked(api.gitOverview).mockResolvedValue(overviewWith({ repositories }))
+    vi.mocked(api.gitOverview).mockImplementation(async (_id, repository = '') => repository === 'packages/api'
+      ? overviewWith({ repository, repositories, current_branch: 'develop', branches: [{ name: 'develop', current: true, commit_sha: 'b1', upstream: 'origin/develop', ahead: 2, behind: 1, has_upstream: true, gone: false }] })
+      : overviewWith({ repository, repositories }))
     vi.mocked(api.gitFetch).mockResolvedValue({ outcome: 'fetched', remote: 'origin' })
 
     render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
     await openBadge()
-    fireEvent.click(screen.getByRole('button', { name: 'Todos' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Fetch' }))
+    expect(screen.queryByLabelText('Repositório')).toBeNull()
+    expect(screen.getByText('Superprojeto')).toBeTruthy()
+    expect(screen.getByText('packages/api')).toBeTruthy()
+    expect(screen.getByText('origin/develop')).toBeTruthy()
 
-    await waitFor(() => {
-      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', '')
-      expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', 'packages/api')
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch' }))
+    const rootTarget = await screen.findByRole('checkbox', { name: 'Executar em Superprojeto' })
+    fireEvent.click(rootTarget)
+    fireEvent.click(screen.getByRole('button', { name: /Continuar/ }))
+    await waitFor(() => expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', 'packages/api'))
+    expect(api.gitFetch).not.toHaveBeenCalledWith('ses_1', 'origin', '')
   })
 
   it('dismisses the branch popup on outside interaction even when bubbling is stopped', async () => {

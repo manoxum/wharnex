@@ -6,9 +6,10 @@ import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
 import { GitDiffReview } from './GitDiffReview'
 
-export function GitUnpushedSection({ sessionId, repository, activeBranch, remotes, disabled, onFullPush, onSelectedPush }: {
+export function GitUnpushedSection({ sessionId, repository, repositoryLabel, activeBranch, remotes, disabled, onFullPush, onSelectedPush }: {
   sessionId: string
   repository: string
+  repositoryLabel?: string
   activeBranch?: GitBranch
   remotes: GitRemote[]
   disabled: boolean
@@ -75,7 +76,7 @@ export function GitUnpushedSection({ sessionId, repository, activeBranch, remote
   const blocked = disabled || loading || actionBusy
   return <section className="git-change-surface git-unpushed-section">
     <div className="git-change-surface-heading">
-      <div><span>Branch local</span><strong>Commits por publicar</strong></div>
+      <div><span>Branch local{repositoryLabel ? ` · ${repositoryLabel}` : ''}</span><strong>Commits por publicar</strong></div>
       <span className="git-section-count">{overview?.commits.length || 0}</span>
     </div>
 
