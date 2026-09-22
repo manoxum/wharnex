@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 
 const CONTRIBUTION_CALENDAR_WEEKS = 53
 
-export function GitContributorsSection({ sessionId }: { sessionId: string }) {
+export function GitContributorsSection({ sessionId, repository }: { sessionId: string; repository: string }) {
   const [overview, setOverview] = useState<GitContributorsOverview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -13,12 +13,12 @@ export function GitContributorsSection({ sessionId }: { sessionId: string }) {
     let cancelled = false
     setLoading(true)
     setError('')
-    void api.gitContributors(sessionId)
+    void api.gitContributors(sessionId, repository)
       .then((next) => { if (!cancelled) setOverview(next) })
       .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [sessionId])
+  }, [sessionId, repository])
 
   if (loading) return <section className="git-section git-contributors-section"><p className="git-empty inline">A calcular contribuições do repositório…</p></section>
   if (error) return <section className="git-section git-contributors-section"><p className="git-notice warning-card">{error}</p></section>
