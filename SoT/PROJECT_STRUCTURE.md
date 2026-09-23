@@ -2,7 +2,8 @@
 
 Production code stays under domain-aligned service roots:
 
-- `/services/frontend` — React workspace UI.
+- `/services/frontend` — React Desktop/local workspace UI.
+- `/services/webapp` — independent React + Tailwind paired remote-management UI.
 - `/services/backend` — Go orchestration/API core.
 - `/services/desktop` — Electron native composition shell and narrow desktop bridge.
 
@@ -13,7 +14,7 @@ continuous-refactoring expectations are defined in `SoT/CODE_QUALITY.md`.
 Frontend styling direction (incremental Tailwind CSS migration) is defined in
 `SoT/FRONTEND_STYLING.md`. See `adr/ADR-0066`.
 
-Project-owned CSS has one home, `/services/frontend/src/styles`, organized by
+Desktop frontend project-owned CSS has one home, `/services/frontend/src/styles`, organized by
 domain rather than dropped at the root of `src`:
 
 - `/services/frontend/src/styles/index.css` — single entry point imported by `main.tsx`; new sheets register here.

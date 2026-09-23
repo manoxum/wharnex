@@ -581,7 +581,7 @@ func (m *Manager) transactionFromStatus(status Status) (Transaction, error) {
 
 func recoveredActivationImpacts(persisted []string) []string {
 	if persisted == nil {
-		return []string{"backend", "desktop", "frontend", "tunnel"}
+		return []string{"backend", "desktop", "frontend", "gateway", "tunnel", "webapp"}
 	}
 	return append([]string{}, persisted...)
 }

@@ -8,3 +8,9 @@ if [ -d services/frontend/node_modules ]; then
 else
   echo "frontend dependencies not installed; skipping frontend gates" >&2
 fi
+
+if [ -d services/webapp/node_modules ]; then
+  make webapp-check
+else
+  echo "webapp dependencies not installed; skipping webapp gates" >&2
+fi

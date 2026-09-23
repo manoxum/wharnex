@@ -151,6 +151,7 @@ make start
 
 - project-owned PostgreSQL and MinIO on the private Compose network;
 - backend, local frontend and paired remote webapp on the private Compose network;
+  `services/frontend` is the Desktop/local workbench, while `services/webapp` is an independent React + Tailwind build for paired remote access;
 - a single Nginx application gateway on `127.0.0.1:6969` by default (override with `WHARNESS_GATEWAY_PORT`);
 - the dedicated tunnel daemon, which can route an explicitly configured public tunnel to the gateway's private remote listener;
 - Wharnex Electron desktop shell.

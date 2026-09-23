@@ -48,7 +48,7 @@ There is no direct `AI -> shell` path. MCP, when introduced, is an adapter behin
 ## Services
 
 - `services/frontend`: React local user experience, served only on the private Compose network.
-- `services/frontend` remote build (`webapp` service): the same React application compiled for paired remote management, limited to Agent and Orchestrator top-level modes and served only on the private Compose network.
+- `services/webapp`: independent React + Tailwind paired remote-management application, with its own dependency graph/build and served only on the private Compose network; it does not compile or import the Desktop frontend.
 - `services/gateway`: Nginx ingress for Wharnex application traffic. It is the only application service that publishes a host port in the canonical stack (`127.0.0.1:6969` by default).
 - `services/backend`: Go API/orchestrator, executed in Compose and connected to the host Docker daemon only as the trusted owner of Protected runner creation. It is not host-published in stack mode.
 - `services/backend/cmd/tunnel` + `services/tunnel`: dedicated Go tunnel daemon/runtime. It owns all tunnel-provider processes and persisted public-channel resources independently from backend lifetime.
@@ -76,7 +76,7 @@ Backend-created context/sandbox temporary files used by the host Docker daemon o
 
 The canonical stack has one host-facing application ingress: `services/gateway`. Its local listener routes same-origin `/api/` requests to the backend and all other routes to the local frontend. Backend, local frontend and remote webapp have no host-published application ports. Desktop therefore targets only the gateway origin in stack mode. Internal database, object-store and tunnel-daemon control endpoints remain on their existing private boundaries and are not made browser-facing by the gateway.
 
-The tunnel daemon may expose a second, private gateway listener through an already-configured public tunnel. That listener serves the remote frontend and same-origin backend API, but it is not itself host-published. Browser/Supervisor `WebContentsView` instances remain owned and executed only by Desktop; the remote webapp is a control surface over the existing backend/Desktop orchestration and MUST NOT create a second browser runtime. The public tunnel continues to own exact request-channel and stored-object routes before proxying ordinary application paths, so remote management cannot shadow or enumerate those capability URLs.
+The tunnel daemon may expose a second, private gateway listener through an already-configured public tunnel. That listener serves the independent remote webapp and same-origin backend API, but it is not itself host-published. Browser/Supervisor `WebContentsView` instances remain owned and executed only by Desktop; the remote webapp is a control surface over the existing backend/Desktop orchestration and MUST NOT create a second browser runtime. The public tunnel continues to own exact request-channel and stored-object routes before proxying ordinary application paths, so remote management cannot shadow or enumerate those capability URLs.
 
 Remote-management authorization is an explicit pairing seam described in `SoT/SECURITY_MODEL.md` and `adr/ADR-0071`. A gateway-added remote marker distinguishes the public ingress from local same-origin traffic; the local listener clears that marker rather than trusting browser-supplied values. The backend alone creates and validates pairing/session credentials.
 ## Desktop multi-window and multi-project composition

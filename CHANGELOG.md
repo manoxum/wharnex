@@ -2,6 +2,7 @@
 ### Chat 7f25311c-c6e7-4b18-920e-5c53191c38fd (2026-09-23)
 
 - Added a single Nginx gateway on port 6969 plus a paired Wharnex Remote webapp, keeping AI browser automation on the Desktop through the durable supervisor queue.
+- Split the paired remote UI into its own `services/webapp` React + Tailwind project and independent build/activation lifecycle; `services/frontend` is now Desktop-only.
 - Added secure one-time pairing with hashed session tokens and remote-ingress authorization, documented in the architecture/security SoT and ADR-0071.
 - Added pause, stop, resume, copy, open, pair and connectivity actions for tunnel instances, including durable stopped state and publication eligibility enforcement.
 - Migrated the touched tunnel/pairing UI to Tailwind utilities and added focused backend/frontend coverage for pairing, remote proxying, tunnel control and remote dispatch.

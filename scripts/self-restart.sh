@@ -5,7 +5,7 @@ ROOT=${1:?Wharnex root is required}
 TXN=${2:?transaction directory is required}
 SESSION_ID=${3:-unknown}
 PLAN_ID=${4:-unknown}
-IMPACTS=${5:-backend,frontend,desktop}
+IMPACTS=${5:-backend,frontend,webapp,gateway,desktop}
 BASE="$ROOT/.harness/self-evolution"
 STATUS="$BASE/status"
 LOG="$ROOT/.harness/logs/self-evolution.log"
@@ -116,14 +116,14 @@ recover_stack_runtime() {
 
 if [ "${WHARNESS_SERVICES_MODE:-}" = stack ]; then
   # This worker runs in a detached Docker supervisor container, so replacing
-  # backend/frontend cannot terminate it. Database and tunnel are explicitly
+  # backend/frontend/webapp cannot terminate it. Database and tunnel are explicitly
   # outside the rollout and keep their containers/public URLs unchanged.
   sleep 2
   stack_services=''
   old_ifs=$IFS
   IFS=,
   for impact in $IMPACTS; do
-    case "$impact" in backend|frontend|tunnel) stack_services="$stack_services $impact";; desktop|'') ;; *) status restart_failed "invalid activation impact $impact"; release_stage_lock; exit 1;; esac
+    case "$impact" in backend|frontend|webapp|gateway|tunnel) stack_services="$stack_services $impact";; desktop|'') ;; *) status restart_failed "invalid activation impact $impact"; release_stage_lock; exit 1;; esac
   done
   IFS=$old_ifs
   status restarting "host build passed; activating only affected components: ${IMPACTS:-none}"

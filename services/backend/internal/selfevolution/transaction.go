@@ -41,6 +41,8 @@ var buildGuardPaths = []string{
 	"services/backend/go.sum",
 	"services/frontend/package.json",
 	"services/frontend/package-lock.json",
+	"services/webapp/package.json",
+	"services/webapp/package-lock.json",
 	"services/desktop/package.json",
 	"services/desktop/package-lock.json",
 }
@@ -132,6 +134,7 @@ func (tx Transaction) captureRuntime() error {
 	for _, item := range []struct{ source, destination string }{
 		{filepath.Join(tx.Root, "dist"), filepath.Join(runtimeDir, "root-dist")},
 		{filepath.Join(tx.Root, "services", "frontend", "dist"), filepath.Join(runtimeDir, "frontend-dist")},
+		{filepath.Join(tx.Root, "services", "webapp", "dist"), filepath.Join(runtimeDir, "webapp-dist")},
 	} {
 		if stat, err := os.Stat(item.source); err == nil && stat.IsDir() {
 			if output, err := exec.Command("cp", "-a", item.source, item.destination).CombinedOutput(); err != nil {
@@ -213,8 +216,10 @@ func activationImpacts(patches []string) []string {
 				impacts["backend"] = struct{}{}
 			case strings.HasPrefix(path, "services/frontend/"):
 				impacts["frontend"] = struct{}{}
+			case strings.HasPrefix(path, "services/webapp/"):
+				impacts["webapp"] = struct{}{}
 			case strings.HasPrefix(path, "services/gateway/"):
-				impacts["frontend"] = struct{}{}
+				impacts["gateway"] = struct{}{}
 			case strings.HasPrefix(path, "services/desktop/"):
 				impacts["desktop"] = struct{}{}
 			case strings.HasPrefix(path, "services/tunnel/"):
@@ -222,6 +227,8 @@ func activationImpacts(patches []string) []string {
 			case path == "compose.yml", strings.HasPrefix(path, "docker/"):
 				impacts["backend"] = struct{}{}
 				impacts["frontend"] = struct{}{}
+				impacts["webapp"] = struct{}{}
+				impacts["gateway"] = struct{}{}
 				impacts["tunnel"] = struct{}{}
 			}
 		}
@@ -346,9 +353,10 @@ func (tx Transaction) writeRollback(backups []sourceBackup) error {
 			script.WriteString("\n")
 		}
 	}
-	script.WriteString("rm -rf \"$ROOT/dist\" \"$ROOT/services/frontend/dist\"\n")
+	script.WriteString("rm -rf \"$ROOT/dist\" \"$ROOT/services/frontend/dist\" \"$ROOT/services/webapp/dist\"\n")
 	script.WriteString("[ ! -d \"$TXN/runtime/root-dist\" ] || cp -a \"$TXN/runtime/root-dist\" \"$ROOT/dist\"\n")
 	script.WriteString("[ ! -d \"$TXN/runtime/frontend-dist\" ] || cp -a \"$TXN/runtime/frontend-dist\" \"$ROOT/services/frontend/dist\"\n")
+	script.WriteString("[ ! -d \"$TXN/runtime/webapp-dist\" ] || cp -a \"$TXN/runtime/webapp-dist\" \"$ROOT/services/webapp/dist\"\n")
 	script.WriteString("if [ -f \"$TXN/runtime/build-success\" ]; then mkdir -p \"$ROOT/.harness\"; cp -p \"$TXN/runtime/build-success\" \"$ROOT/.harness/build-success\"; touch \"$ROOT/.harness/build-success\"; else rm -f \"$ROOT/.harness/build-success\"; fi\n")
 	script.WriteString("if [ -f \"$TXN/runtime/source-success.sha256\" ]; then cp -p \"$TXN/runtime/source-success.sha256\" \"$ROOT/.harness/source-success.sha256\"; else rm -f \"$ROOT/.harness/source-success.sha256\"; fi\n")
 	if err := os.WriteFile(tx.RollbackScript, []byte(script.String()), 0o700); err != nil {

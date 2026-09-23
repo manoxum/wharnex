@@ -137,7 +137,7 @@ node_ready() {
   hidden="$service/node_modules/.package-lock.json"
   [ -f "$hidden" ] || return 1
   case "$name" in
-    frontend)
+    frontend|webapp)
       [ -x "$service/node_modules/.bin/tsc" ] &&
         [ -x "$service/node_modules/.bin/vite" ]
       ;;
@@ -257,7 +257,7 @@ sync_node() {
 }
 
 show_status() {
-  for name in backend frontend desktop; do
+  for name in backend frontend webapp desktop; do
     case "$name" in
       backend) current=$(go_fingerprint) ;;
       *) current=$(node_fingerprint "$ROOT/services/$name") ;;
@@ -280,6 +280,7 @@ case "$ACTION" in
   sync)
     sync_go
     sync_node frontend
+    sync_node webapp
     sync_node desktop
     ;;
   status)
@@ -290,6 +291,7 @@ case "$ACTION" in
     export WHARNESS_DEPS_FORCE
     sync_go
     sync_node frontend
+    sync_node webapp
     sync_node desktop
     ;;
   *)
