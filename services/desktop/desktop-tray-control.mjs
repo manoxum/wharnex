@@ -1,32 +1,32 @@
-import { projectAccentHSL, sanitizeTrayProjectState, summarizeTrayWorkers, trayStatusLabel } from './desktop-tray-model.mjs'
+import { createTrayGlyphs } from './desktop-tray-glyphs.mjs'
+import { projectAccentColor, sanitizeTrayProjectState, summarizeTrayWorkers, trayStatusLabel } from './desktop-tray-model.mjs'
 
 const MAX_NOTIFICATIONS = 24
-const GLYPHS = {
-  project: '<circle cx="8" cy="8" r="5"/>', bell: '<path d="M5 11h6M6 11V7a2 2 0 0 1 4 0v4M7 13h2"/>',
-  plan: '<path d="M4 3h8v10H4zM6 6h4M6 9h4"/>', play: '<path d="M6 4l6 4-6 4z"/>',
-  pause: '<path d="M5 4h2v8H5zM9 4h2v8H9z"/>', resume: '<path d="M5 4l6 4-6 4z"/>',
-  workers: '<circle cx="5" cy="6" r="2"/><circle cx="11" cy="6" r="2"/><path d="M2 13c0-2 1-3 3-3s3 1 3 3M8 13c0-2 1-3 3-3s3 1 3 3"/>',
-  network: '<circle cx="8" cy="8" r="2"/><path d="M3 8h3M10 8h3M8 3v3M8 10v3"/>', close: '<path d="M4 4l8 8M12 4l-8 8"/>',
-}
-
-function svgIcon(nativeImage, name, color = '#9ca3af') {
-  const body = GLYPHS[name] || GLYPHS.project
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${body}</g></svg>`
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`)
-}
+// Session polling and the agent-runtime broadcast both reach the tray, so a
+// busy project rebuilt the whole menu several times a second. On Linux that
+// re-exports the complete DBus menu and can close one the operator has open,
+// so rebuilds are coalesced and skipped entirely when nothing rendered changed.
+const REFRESH_COALESCE_MS = 150
+const LINUX_TRAY_ICON_SIZE = 22
+const TRAY_ICON_SIZE = 16
 
 export function createDesktopTrayControl(deps) {
   let tray
+  let refreshTimer
+  let signature = ''
   const notifications = new Map()
   const projectStates = new Map()
-  const icon = (name, color) => svgIcon(deps.nativeImage, name, color)
+  const icon = createTrayGlyphs(deps.nativeImage)
   const action = (projectPath, name) => { deps.restoreProject(projectPath); deps.sendProjectAction(projectPath, name) }
 
   function openNotification(record) {
     if (!record) return false
+    // Marking it read before the window answers loses the notification whenever
+    // no window owns that project any more: it stops counting as unread, so the
+    // tray click handler never offers it again.
+    if (!deps.restoreProject(record.projectPath)) return false
     record.read = true
     refresh()
-    if (!deps.restoreProject(record.projectPath)) return false
     deps.sendNotificationOpen(record.projectPath, { ...record })
     return true
   }
@@ -48,7 +48,7 @@ export function createDesktopTrayControl(deps) {
 
   function projectMenu(projectPath) {
     const state = projectStates.get(projectPath)
-    const accent = projectAccentHSL(projectPath)
+    const accent = projectAccentColor(projectPath)
     const items = [
       { label: trayStatusLabel(state), enabled: false },
       { type: 'separator' },
@@ -72,8 +72,7 @@ export function createDesktopTrayControl(deps) {
     return { label: deps.projectLabel(projectPath), icon: icon('project', accent), submenu: items }
   }
 
-  function workerMenu() {
-    const summary = summarizeTrayWorkers(deps.workerState())
+  function workerMenu(summary) {
     const items = [{ label: `${summary.busy}/${summary.total} Workers em trabalho${summary.errors ? ` · ${summary.errors} erro(s)` : ''}`, enabled: false }]
     items.push({ type: 'separator' }, summary.paused
       ? { label: 'Retomar Workers', icon: icon('resume'), click: () => { void deps.resumeWorkers() } }
@@ -82,26 +81,84 @@ export function createDesktopTrayControl(deps) {
     return { label: `Workers${summary.busy ? ` (${summary.busy})` : ''}`, icon: icon('workers'), submenu: items }
   }
 
-  function refresh() {
+  // A rebuild runs on a timer, so an exception here reaches the main process as
+  // an unhandled one. It is reported and the signature reset, so the next state
+  // change rebuilds rather than being skipped as already rendered.
+  function render() {
     if (!tray || tray.isDestroyed()) return
-    const projects = deps.listProjects()
-    const recent = [...notifications.values()].reverse()
-    const unread = recent.filter((record) => !record.read).length
-    const template = []
-    if (recent.length) template.push({ label: `Notificações${unread ? ` (${unread})` : ''}`, icon: icon('bell'), submenu: recent.slice(0, 12).map((record) => ({ label: `${record.read ? '' : '• '}${record.title} · ${deps.projectLabel(record.projectPath)}`, click: () => openNotification(record) })) }, { type: 'separator' })
-    template.push(...projects.map(projectMenu))
-    if (!projects.length) template.push({ label: 'Nenhum projeto aberto', enabled: false })
-    template.push({ type: 'separator' }, workerMenu(), { label: 'Mostrar Wharnex', icon: icon('project'), click: () => deps.showFallback() }, { type: 'separator' }, { label: 'Sair', icon: icon('close'), click: () => { void deps.quit() } })
-    const workers = summarizeTrayWorkers(deps.workerState())
-    tray.setToolTip(`Wharnex · ${deps.instanceName}${unread ? ` · ${unread} notificação${unread === 1 ? '' : 'ões'}` : ''}${workers.busy ? ` · ${workers.busy} Worker${workers.busy === 1 ? '' : 's'}` : ''}`)
-    tray.setContextMenu(deps.Menu.buildFromTemplate(template))
+    try {
+      const projects = deps.listProjects()
+      const recent = [...notifications.values()].reverse()
+      const unread = recent.filter((record) => !record.read).length
+      const workers = summarizeTrayWorkers(deps.workerState())
+      const next = JSON.stringify([projects.map((projectPath) => [deps.projectLabel(projectPath), projectStates.get(projectPath) || null]), recent.map((record) => [record.id, record.read, record.title, record.projectPath]), workers])
+      if (next === signature) return
+      signature = next
+      const template = []
+      if (recent.length) template.push({ label: `Notificações${unread ? ` (${unread})` : ''}`, icon: icon('bell'), submenu: recent.slice(0, 12).map((record) => ({ label: `${record.read ? '' : '• '}${record.title} · ${deps.projectLabel(record.projectPath)}`, click: () => openNotification(record) })) }, { type: 'separator' })
+      template.push(...projects.map(projectMenu))
+      if (!projects.length) template.push({ label: 'Nenhum projeto aberto', enabled: false })
+      template.push({ type: 'separator' }, workerMenu(workers), { label: 'Mostrar Wharnex', icon: icon('project'), click: () => deps.showFallback() }, { type: 'separator' }, { label: 'Sair', icon: icon('close'), click: () => { void deps.quit() } })
+      tray.setToolTip(`Wharnex · ${deps.instanceName}${unread ? ` · ${unread} notificação${unread === 1 ? '' : 'ões'}` : ''}${workers.busy ? ` · ${workers.busy} Worker${workers.busy === 1 ? '' : 's'}` : ''}`)
+      tray.setContextMenu(deps.Menu.buildFromTemplate(template))
+    } catch (error) {
+      signature = ''
+      deps.warn?.('[tray] menu refresh failed', error)
+    }
+  }
+
+  function refresh() {
+    if (!tray || tray.isDestroyed() || refreshTimer) return
+    refreshTimer = setTimeout(() => { refreshTimer = undefined; render() }, Math.max(0, deps.refreshDelayMs ?? REFRESH_COALESCE_MS))
+    refreshTimer.unref?.()
+  }
+
+  function onTrayClick() {
+    const unread = [...notifications.values()].reverse().find((record) => !record.read)
+    if (unread && openNotification(unread)) return
+    const first = deps.listProjects()[0]
+    if (first && deps.restoreProject(first)) return
+    deps.showFallback()
   }
 
   return {
-    ensure() { if (tray && !tray.isDestroyed()) { refresh(); return tray }; tray = new deps.Tray(deps.icon.resize({ width: 18, height: 18 })); tray.on('click', () => { const unread = [...notifications.values()].reverse().find((record) => !record.read); if (unread && openNotification(unread)) return; const first = deps.listProjects()[0]; if (first && deps.restoreProject(first)) return; deps.showFallback() }); refresh(); return tray },
+    // The tray is ensured from the close-to-background path and from
+    // `window-all-closed`. A throw here (no system tray host yet, a rejected
+    // image) would leave a window that refuses to hide, so failure is reported
+    // and retried on the next ensure instead of propagating.
+    ensure() {
+      if (tray && !tray.isDestroyed()) { render(); return tray }
+      const size = deps.platform === 'linux' ? LINUX_TRAY_ICON_SIZE : TRAY_ICON_SIZE
+      try {
+        tray = new deps.Tray(deps.icon.resize({ width: size, height: size, quality: 'best' }))
+      } catch (error) {
+        tray = undefined
+        deps.warn?.('[tray] tray creation failed', error)
+        return undefined
+      }
+      tray.on('click', onTrayClick)
+      signature = ''
+      render()
+      return tray
+    },
     refresh,
     publishNotification,
-    updateProjectState(projectPath, request) { projectStates.set(projectPath, sanitizeTrayProjectState(projectPath, request)); refresh() },
-    forgetProject(projectPath) { projectStates.delete(projectPath); refresh() },
+    updateProjectState(projectPath, request) {
+      projectStates.set(projectPath, sanitizeTrayProjectState(projectPath, request))
+      refresh()
+    },
+    forgetProject(projectPath) {
+      if (!projectStates.delete(projectPath)) return
+      refresh()
+    },
+    destroy() {
+      if (refreshTimer) clearTimeout(refreshTimer)
+      refreshTimer = undefined
+      signature = ''
+      if (tray && !tray.isDestroyed()) {
+        try { tray.destroy() } catch (error) { deps.warn?.('[tray] tray destruction failed', error) }
+      }
+      tray = undefined
+    },
   }
 }

@@ -4,12 +4,19 @@ function boundedText(value, limit) {
   return String(value || '').trim().slice(0, limit)
 }
 
-export function projectAccentHSL(projectPath) {
+// Hex rather than `hsl()`: the accent is consumed by the icon rasterizer, and
+// a CSS colour function is not something a pixel buffer can be filled with.
+export function projectAccentColor(projectPath) {
   let hash = 2166136261
   const value = String(projectPath || '')
   for (let index = 0; index < value.length; index += 1) hash = Math.imul(hash ^ value.charCodeAt(index), 16777619)
-  const hue = ((hash >>> 0) % 360 + 360) % 360
-  return `hsl(${hue} 72% 55%)`
+  const hue = (((hash >>> 0) % 360) + 360) % 360
+  const chroma = 0.72 * (1 - Math.abs(2 * 0.55 - 1))
+  const second = chroma * (1 - Math.abs(((hue / 60) % 2) - 1))
+  const sector = Math.floor(hue / 60) % 6
+  const [red, green, blue] = [[chroma, second, 0], [second, chroma, 0], [0, chroma, second], [0, second, chroma], [second, 0, chroma], [chroma, 0, second]][sector]
+  const offset = 0.55 - chroma / 2
+  return `#${[red, green, blue].map((channel) => Math.round((channel + offset) * 255).toString(16).padStart(2, '0')).join('')}`
 }
 
 export function sanitizeTrayProjectState(projectPath, request = {}) {

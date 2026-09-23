@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
 
 const DEFAULT_INSTANCE = 'WHX'
-const ACCENTS = ['#b9ff56', '#55d6ff', '#c792ff', '#ffb454', '#ff6b9a', '#53e3a6']
+// The brand accent, and the one `services/frontend/public/favicon.svg` carries.
+export const BRAND_ACCENT = '#b9ff56'
+const ACCENTS = [BRAND_ACCENT, '#55d6ff', '#c792ff', '#ffb454', '#ff6b9a', '#53e3a6']
 
 export function desktopInstanceName(value = process.env.WHARNESS_INSTANCE_ID) {
   const normalized = String(value || '').replace(/\s+/g, ' ').trim().slice(0, 80)

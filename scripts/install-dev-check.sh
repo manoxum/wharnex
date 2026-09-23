@@ -28,12 +28,11 @@ test -f "$icon"
 test ! -e "$fixture_snap_data/applications/wharnex-snap-test.desktop"
 grep -Fqx 'Name=Wharnex - snap-test' "$desktop"
 grep -Fqx "Exec=$launcher" "$desktop"
-if command -v convert >/dev/null 2>&1; then
-  test -s "$icon_raster"
-  grep -Fqx "Icon=$icon_raster" "$desktop"
-else
-  grep -Fqx "Icon=$icon" "$desktop"
-fi
+# The raster is generated in-process now, so it is no longer conditional on a
+# host ImageMagick: it must always exist, and always be what the entry points at.
+test -s "$icon_raster"
+grep -Fqx "Icon=$icon_raster" "$desktop"
+head -c 8 "$icon_raster" | od -An -c | grep -q 'P   N   G'
 grep -Fqx 'StartupWMClass=wharness-desktop' "$desktop"
 grep -Fqx "export WHARNESS_DESKTOP_USER_DATA_DIR='$fixture_home/.config/wharnex-snap-test'" "$launcher"
 grep -Fqx "exec '$fixture_root/scripts/launcher.sh'" "$launcher"
