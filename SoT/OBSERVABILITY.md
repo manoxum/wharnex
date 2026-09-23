@@ -24,6 +24,12 @@ Every escalation decision MUST publish `integration.escalation_decided` with `au
 
 Field names carrying merge evidence avoid the substring `token`, which the audit redactor treats as a credential name. The key that says `subline_resolved_hunks` would otherwise publish `[REDACTED]` in place of the evidence it exists to carry.
 
+## Canonical execution-failure evidence (v1.3.6+)
+
+A failed execution has one engine-owned `failure_kind` for the round. The attribution is result-aware: structured failed-command evidence outranks generic outer cancellation, specific runner/self-evolution sentinels outrank `context.Canceled`, and cancellation is used only as a fallback. Every durable or live surface for that same round — `execution.error_recorded`, `execution.failed`, `automation.infrastructure_blocked`, and the attempt ledger — MUST expose the same classification rather than re-deriving it from event-local prose.
+
+`execution.errors_resolved` is host-integration evidence, not sandbox-verification evidence. For Protected corrections it MUST be emitted only after `host.applied`; self-evolution emits it only after the host build has succeeded and the durable state is `restart_pending`. A restart may replay the durable `LastAppliedChanges` proof to finish this bookkeeping, but already-solved rows MUST NOT produce duplicate resolution events.
+
 ## Self-evolution observability (v1.2.22)
 
 Self-evolution publishes dedicated `self_evolution.*` events for transaction start, host build, rollback and restart scheduling. The detached supervisor persists its last lifecycle phase in `.harness/self-evolution/status` and appends restart/recovery output to `.harness/logs/self-evolution.log`. `make status` surfaces the latest self-evolution phase and plan id even across a process restart.

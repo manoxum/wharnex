@@ -1,7 +1,9 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 ### Chat 8d218342-4904-40ab-821a-6fae7a2b667d (2026-09-23)
 
-_(reserved — no entries yet)_
+- Made execution failure attribution result-aware and canonical across the error ledger, terminal/infrastructure events, and attempt history, so structured resource exhaustion is not downgraded to generic cancellation.
+- Delayed GPT execution-error resolution until the correction is integrated on the host, with idempotent restart recovery from durable applied evidence.
+- Added a Protected npm manifest/lockfile completeness gate that blocks dependency-map changes which do not retain the matching `package-lock.json`, while leaving scripts-only edits unaffected.
 
 
 ### Chat 7f25311c-c6e7-4b18-920e-5c53191c38fd (2026-09-23)

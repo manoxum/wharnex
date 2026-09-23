@@ -79,13 +79,15 @@ Failed executions routed through the canonical execution failure path are persis
 
 The ledger is an operational error-history surface, not a replacement for `harness_events`. Before database persistence, error text, command arguments, working directories, stdout/stderr, and interactive output are passed through the same bounded secret-redaction rule used by the audit bus. Raw credentials or unbounded command output MUST NOT be written to this table.
 
-When a successful execution belongs to a GPT correction lineage (`repair`, `revert_restore`, `improvement`, or `conflict`), all still-open error rows for the same `root_request_id` are marked `resolved`. The resolution stores the correction request ID, plan ID, sanitized plan summary, and sanitized commit message as the structured GPT solution, together with `resolved_at`. This root-request correlation preserves the complete failure chain when more than one repair attempt failed before the final correction succeeded.
+When a GPT correction lineage (`repair`, `revert_restore`, `improvement`, or `conflict`) succeeds, its still-open rows for the same `root_request_id` are marked `resolved` only after the correction is integrated into the real host. Protected sandbox verification alone is not resolution: a later merge, host build, or self-evolution stage can still fail. Host-direct execution may resolve on its successful host run; normal Protected execution resolves after `host.applied`; self-evolution resolves only after `make build-stage` succeeds and durable state reaches `restart_pending`. Recovery may replay that durable applied evidence, and resolution MUST remain idempotent. The resolution stores the correction request ID, plan ID, sanitized plan summary, and sanitized commit message as the structured GPT solution, together with `resolved_at`. This root-request correlation preserves the complete failure chain when more than one repair attempt failed before the final correction succeeded.
 
 Archive compaction may remove archived rows from `harness_events`; it does not remove structured execution-error rows. A full session-store clear truncates the error ledger with the other durable session data.
 
 ## Session failure classification (`FailureKind`)
 
 A terminal session failure MAY carry `failure_kind`: Wharness's own closed-set classification (`domain.FailureKind*`), always derived by Wharness itself from a local/sandbox error or a structured planner outcome — never copied verbatim from planner-supplied text. Frontend recovery affordances MUST key off this field, never off error-message substrings.
+
+For execution failures, `failure_kind` is one canonical attribution for the round, not a fresh classification made independently by each event. Structured `ExecutionResult` evidence has highest precedence (for example a failed command proving resource exhaustion), then specific runner/self-evolution sentinels and diagnostics, with `context.Canceled` only as the fallback when nothing more specific exists. `execution.error_recorded`, `execution.failed`, `automation.infrastructure_blocked`, and the attempt ledger MUST carry that same attribution whenever they represent the same failed round.
 
 | `failure_kind` | Meaning | Recovery |
 | --- | --- | --- |

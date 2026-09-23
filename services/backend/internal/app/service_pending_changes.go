@@ -110,6 +110,10 @@ func hostApplicablePendingChanges(changes []domain.PendingHostChange) []domain.P
 func (s *Service) reconcileStrandedHostApplies() {
 	for _, item := range s.store.List() {
 		s.repairAppliedEvidence(item)
+		if refreshed, err := s.store.Get(item.ID); err == nil {
+			s.resolveRecoveredAppliedExecutionFailures(refreshed)
+			item = refreshed
+		}
 		if !strandedHostApply(item) {
 			continue
 		}

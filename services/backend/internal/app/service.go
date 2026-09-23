@@ -2260,9 +2260,14 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 			return s.failExecution(ctx, sessionID, result, fmt.Errorf("compose focused conflict candidate: %w", err))
 		}
 	}
+	var nodeDependencyBaseline protectedNodeDependencySnapshot
 	if !hostDirect {
 		if replayErr := s.replayPendingChangeSets(ctx, sessionID, item.ProjectPath, runner, workspace, pendingForExecution, item.Plan.PlanID, !reconcileFromArchive, &result); replayErr != nil {
 			return s.failExecution(ctx, sessionID, result, replayErr)
+		}
+		nodeDependencyBaseline, err = snapshotProtectedNodeDependencyState(workspace.Path)
+		if err != nil {
+			return s.failExecution(ctx, sessionID, result, fmt.Errorf("snapshot protected node dependencies: %w", err))
 		}
 	}
 	var changeBaseRoot string
@@ -2385,6 +2390,12 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		}
 		s.bus.Publish(sessionID, "verification.completed", map[string]any{"exit_code": commandResult.ExitCode, "target": executionTarget, "baseline_failure": commandResult.BaselineFailure})
 	}
+	if !hostDirect {
+		if lockstepErr := validateProtectedNodeDependencyLockstep(nodeDependencyBaseline, workspace.Path, item.Plan); lockstepErr != nil {
+			s.bus.Publish(sessionID, "candidate.dependency_lockstep_failed", map[string]any{"plan_id": item.Plan.PlanID, "error": lockstepErr.Error()})
+			return s.failExecution(ctx, sessionID, result, fmt.Errorf("protected candidate dependency lockstep: %w", lockstepErr))
+		}
+	}
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
 	var integrationBranch, integrationCommit string
@@ -2483,7 +2494,12 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 		}
 	}
 	s.recordExecutionActivity(sessionID, item.Plan.RequestID, result)
-	s.resolveExecutionFailuresWithGPT(sessionID, item, *item.Plan)
+	// A Protected success proves only the sandbox candidate. Error rows are
+	// resolved after host integration below; host-direct execution already is
+	// the real host mutation, so it can resolve here.
+	if hostDirect {
+		s.resolveExecutionFailuresWithGPT(sessionID, item, *item.Plan)
+	}
 	s.bus.Publish(sessionID, "execution.completed", map[string]any{"success": true, "execution_mode": item.ExecutionMode, "target": executionTarget})
 	return result, updated, nil
 }
@@ -2611,44 +2627,51 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 	result.Success = false
 	result.Error = cause.Error()
 	result.CompletedAt = time.Now().UTC()
+	failureKind := executionFailureKind(result, cause)
 	// Recorded before the session state moves, because every branch below
 	// rewrites LastExecution or clears it, and the failed run is the evidence
-	// that explains why the next round exists.
+	// that explains why the next round exists. The same canonical attribution
+	// is recomputed from this exact result/cause pair by the structured ledger.
 	s.recordExecutionFailure(sessionID, result, cause)
 	s.recordExecutionActivity(sessionID, "", result)
 	updated, _ := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastExecution = &result
 		current.State = "failed"
 		current.LastRepairError = cause.Error()
-		current.FailureKind = classifyExecutionFailure(cause)
+		current.FailureKind = failureKind
 		return nil
 	})
 	s.setProjectTodosByRequestLineage(updated, updated.LastRequestID, domain.ProjectTodoExecutionFailed, cause.Error())
 	if domain.ExecutionModeTargetsHost(updated.ExecutionMode) {
 		s.resetDevspace(sessionID)
 	}
-	if errors.Is(cause, sandbox.ErrOfflineDependenciesUnavailable) {
+	if failureKind == domain.FailureKindOfflineGoModuleCache {
 		s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": result.PlanID, "error": cause.Error(), "scope": "go_dependency_commands"})
-		s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": false, "dependency_network_approval": true})
+		s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": false, "dependency_network_approval": true, "failure_kind": failureKind})
 		return result, updated, cause
 	}
 
-	// The sandbox ran out of disk, memory or file descriptors. The generated
-	// source is not implicated and a repair round provably cannot help (the
-	// retry fails identically), so classify it, keep the verified-so-far
-	// candidate, and hand the operator a host-side remedy instead.
-	if evidence, exhausted := detectResourceExhaustion(result); exhausted {
+	// The sandbox ran out of disk, memory or file descriptors. Structured
+	// ExecutionResult evidence wins even when the outer error is context.Canceled.
+	// Publish the focused infrastructure event here, then continue through the
+	// shared repair classifier below: it records the attempt ledger plus
+	// automation.infrastructure_blocked without asking GPT to rewrite source.
+	if failureKind == domain.FailureKindSandboxResourceExhausted {
+		resourceMessage := cause.Error()
+		event := map[string]any{"plan_id": result.PlanID, "diagnostic": truncateRepairText(cause.Error(), 4000), "failure_kind": failureKind}
+		if evidence, exhausted := detectResourceExhaustion(result); exhausted {
+			resourceMessage = "sandbox resource exhausted while running " + evidence.commandLine() + ": " + evidence.Diagnostic
+			event["argv"] = evidence.Argv
+			event["cwd"] = evidence.Cwd
+			event["exit_code"] = evidence.ExitCode
+			event["diagnostic"] = evidence.Diagnostic
+		}
 		updated, _ = s.store.Update(sessionID, func(current *domain.Session) error {
-			current.FailureKind = domain.FailureKindSandboxResourceExhausted
-			current.LastRepairError = "sandbox resource exhausted while running " + evidence.commandLine() + ": " + evidence.Diagnostic
+			current.FailureKind = failureKind
+			current.LastRepairError = resourceMessage
 			return nil
 		})
-		s.bus.Publish(sessionID, "sandbox.resource_exhausted", map[string]any{
-			"plan_id": result.PlanID, "argv": evidence.Argv, "cwd": evidence.Cwd,
-			"exit_code": evidence.ExitCode, "diagnostic": evidence.Diagnostic,
-		})
-		s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": false, "failure_kind": domain.FailureKindSandboxResourceExhausted})
-		return result, updated, cause
+		s.bus.Publish(sessionID, "sandbox.resource_exhausted", event)
 	}
 
 	var replayConflict *pendingChangeSetReplayConflict
@@ -2735,7 +2758,11 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 		s.bus.Publish(sessionID, "repair.prepare_failed", map[string]any{"error": repairErr.Error()})
 	}
 
-	s.bus.Publish(sessionID, "execution.failed", map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": updated.State == "repair_pending", "repair_attempt": updated.RepairAttempt})
+	failedEvent := map[string]any{"error": cause.Error(), "execution_mode": updated.ExecutionMode, "repair_pending": updated.State == "repair_pending", "repair_attempt": updated.RepairAttempt}
+	if failureKind != "" {
+		failedEvent["failure_kind"] = failureKind
+	}
+	s.bus.Publish(sessionID, "execution.failed", failedEvent)
 	return result, updated, cause
 }
 
@@ -2903,7 +2930,7 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 	// attempt-count bookkeeping: this must block the very first repair
 	// round, not just the ones after RepairAttempt is exhausted.
 	if lineageKind != requestKindRevertRestore {
-		if kind := classifyExecutionFailure(cause); kind != "" {
+		if kind := executionFailureKind(result, cause); kind != "" {
 			updated, updateErr := s.store.Update(sessionID, func(item *domain.Session) error {
 				item.FailureKind = kind
 				item.LastRepairError = cause.Error()
@@ -2917,7 +2944,7 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 			if updateErr != nil {
 				return current, updateErr
 			}
-			s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": cause.Error(), "kind": kind, "plan_id": result.PlanID})
+			s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": cause.Error(), "kind": kind, "failure_kind": kind, "plan_id": result.PlanID})
 			return updated, nil
 		}
 	}
@@ -3726,6 +3753,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		transaction.ReleaseStage()
 		s.resetDevspace(sessionID)
 		s.bus.Publish(sessionID, "host.applied", map[string]any{"plan_id": latestPlanID, "self_evolution": true, "restart_required": true})
+		s.resolveAppliedExecutionFailuresWithGPT(sessionID, updated, pending)
 		s.bus.Publish(sessionID, "self_evolution.restart_pending", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
 		if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
 			updated = refreshed
@@ -3761,6 +3789,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		appliedEvent["submodule_units_unpushed"] = true
 	}
 	s.bus.Publish(sessionID, "host.applied", appliedEvent)
+	s.resolveAppliedExecutionFailuresWithGPT(sessionID, updated, pending)
 	if refreshed, refreshErr := s.refreshContext(sessionID); refreshErr == nil {
 		updated = refreshed
 		s.publishBaselineUpdate(ctx, updated, currentBaseline, refreshed.Context.Manifest.SHA256, latestPlanID, changedFiles)

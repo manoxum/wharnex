@@ -31,7 +31,7 @@ func (s *Service) recordExecutionFailure(sessionID string, result domain.Executi
 	}
 	rootRequestID := requestRootFor(item, requestID)
 	logs, statusCode := executionErrorLogs(result)
-	failureKind := classifyExecutionFailure(cause)
+	failureKind := executionFailureKind(result, cause)
 	now := time.Now().UTC()
 	record := domain.ExecutionErrorRecord{
 		ID: ids.New("err"), SessionID: sessionID, ChatID: item.ChatID,
@@ -83,6 +83,42 @@ func (s *Service) resolveExecutionFailuresWithGPT(sessionID string, item domain.
 			"solution_plan_id": plan.PlanID, "resolved_count": count,
 		})
 	}
+}
+
+// resolveAppliedExecutionFailuresWithGPT resolves failures only for correction
+// candidates that are proven to be on the host. Iterate newest-first so a later
+// correction for the same Main Request is the recorded solution, and resolve
+// each root at most once. ResolveExecutionErrors itself is idempotent, so this
+// remains safe when recovery replays the same durable applied evidence.
+func (s *Service) resolveAppliedExecutionFailuresWithGPT(sessionID string, item domain.Session, changes []domain.PendingHostChange) {
+	resolvedRoots := map[string]bool{}
+	for index := len(changes) - 1; index >= 0; index-- {
+		plan := changes[index].Plan
+		lineage, ok := item.RequestLineages[plan.RequestID]
+		if !ok || !gptCorrectionLineage(lineage.Kind) {
+			continue
+		}
+		rootRequestID := requestRootFor(item, plan.RequestID)
+		if strings.TrimSpace(rootRequestID) == "" || resolvedRoots[rootRequestID] {
+			continue
+		}
+		resolvedRoots[rootRequestID] = true
+		s.resolveExecutionFailuresWithGPT(sessionID, item, plan)
+	}
+}
+
+// resolveRecoveredAppliedExecutionFailures closes the narrow crash window
+// between persisting applied/restart_pending state and publishing the terminal
+// host event. LastAppliedChanges is durable proof that the candidate reached the
+// host; calling the resolver again is harmless when the rows are already solved.
+func (s *Service) resolveRecoveredAppliedExecutionFailures(item domain.Session) {
+	if item.State != "applied" && item.State != "restart_pending" && item.SelfEvolutionActivation != "restart_pending" {
+		return
+	}
+	if len(item.LastAppliedChanges) == 0 {
+		return
+	}
+	s.resolveAppliedExecutionFailuresWithGPT(item.ID, item, item.LastAppliedChanges)
 }
 
 func gptCorrectionLineage(kind string) bool {
