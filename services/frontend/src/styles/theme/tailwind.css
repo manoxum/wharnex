@@ -1,0 +1,29 @@
+@layer theme, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme inline {
+  --color-whx-bg: var(--theme-bg);
+  --color-whx-surface: var(--theme-surface);
+  --color-whx-elevated: var(--theme-elevated);
+  --color-whx-muted: var(--theme-muted);
+  --color-whx-hover: var(--theme-hover);
+  --color-whx-text: var(--theme-text);
+  --color-whx-soft: var(--theme-text-soft);
+  --color-whx-faint: var(--theme-text-muted);
+  --color-whx-border: var(--theme-border);
+  --color-whx-border-soft: var(--theme-border-soft);
+  --color-whx-accent: var(--theme-accent);
+  --color-whx-accent-soft: var(--theme-accent-soft);
+  --color-whx-danger: var(--theme-danger);
+  --color-whx-warning: var(--theme-warning);
+  --color-whx-success: var(--theme-success);
+  --font-sans: var(--ui-font-family);
+  --font-mono: var(--mono-font-family);
+  --text-xs: calc(7.5px * var(--ui-font-scale));
+  --text-sm: calc(9px * var(--ui-font-scale));
+  --text-base: calc(11px * var(--ui-font-scale));
+  --text-lg: calc(14px * var(--ui-font-scale));
+  --text-xl: calc(17px * var(--ui-font-scale));
+  --text-2xl: calc(22px * var(--ui-font-scale));
+}

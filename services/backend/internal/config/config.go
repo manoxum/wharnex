@@ -183,6 +183,7 @@ func Load() Config {
 		},
 		RemoteStorage: remoteStorage,
 		Tunnel: TunnelConfig{
+			RemoteAppOrigin:   env("HARNESS_REMOTE_APP_ORIGIN", ""),
 			DaemonURL:         env("HARNESS_TUNNEL_DAEMON_URL", ""),
 			DaemonToken:       os.Getenv("HARNESS_TUNNEL_DAEMON_TOKEN"),
 			ConfigFile:        env("HARNESS_TUNNEL_CONFIG_FILE", tunnelConfigFile(stateFile)),

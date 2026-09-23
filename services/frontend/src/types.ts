@@ -622,6 +622,7 @@ export type AppConfig = {
       provider: string
       priority: number
       available: boolean
+      state?: 'active' | 'paused' | 'stopped' | 'unavailable'
       public_url?: string
       error?: string
       limits: { max_requests: number; window_seconds: number; max_files_per_input: number; max_file_bytes: number; max_input_bytes: number; max_stored_objects: number; max_storage_bytes: number }

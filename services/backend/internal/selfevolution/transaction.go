@@ -213,6 +213,8 @@ func activationImpacts(patches []string) []string {
 				impacts["backend"] = struct{}{}
 			case strings.HasPrefix(path, "services/frontend/"):
 				impacts["frontend"] = struct{}{}
+			case strings.HasPrefix(path, "services/gateway/"):
+				impacts["frontend"] = struct{}{}
 			case strings.HasPrefix(path, "services/desktop/"):
 				impacts["desktop"] = struct{}{}
 			case strings.HasPrefix(path, "services/tunnel/"):

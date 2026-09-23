@@ -7,21 +7,22 @@ import (
 )
 
 const (
-	APIPathHealth       = "/health"
-	APIPathStatus       = "/v1/status"
-	APIPathProviders    = "/v1/providers"
-	APIPathEnroll       = "/v1/providers/enroll"
-	APIPathDisconnect   = "/v1/providers/disconnect"
-	APIPathPublish      = "/v1/objects"
-	APIPathRetain       = "/v1/objects/retain"
-	APIPathRelease      = "/v1/objects/release"
-	APIPathChannels     = "/v1/channels"
-	APIPathChannelSet   = "/v1/channels/set"
-	APIPathChannel      = "/v1/channels/item"
-	APIPathReload       = "/v1/config/reload"
-	APIPathSessionStart = "/v1/session/start"
-	APIPathSessionClear = "/v1/session/clear"
-	APIPathCleanup      = "/v1/cleanup"
+	APIPathHealth          = "/health"
+	APIPathStatus          = "/v1/status"
+	APIPathProviders       = "/v1/providers"
+	APIPathEnroll          = "/v1/providers/enroll"
+	APIPathDisconnect      = "/v1/providers/disconnect"
+	APIPathPublish         = "/v1/objects"
+	APIPathRetain          = "/v1/objects/retain"
+	APIPathRelease         = "/v1/objects/release"
+	APIPathChannels        = "/v1/channels"
+	APIPathChannelSet      = "/v1/channels/set"
+	APIPathChannel         = "/v1/channels/item"
+	APIPathReload          = "/v1/config/reload"
+	APIPathSessionStart    = "/v1/session/start"
+	APIPathInstanceControl = "/v1/instances/control"
+	APIPathSessionClear    = "/v1/session/clear"
+	APIPathCleanup         = "/v1/cleanup"
 )
 
 type instanceObjectRequest struct {
@@ -41,6 +42,11 @@ type closeChannelSetRequest struct {
 
 type cleanupRequest struct {
 	Cutoff string `json:"cutoff"`
+}
+
+type instanceControlRequest struct {
+	InstanceID string `json:"instance_id"`
+	Action     string `json:"action"`
 }
 
 func authorize(token string, next http.Handler) http.Handler {

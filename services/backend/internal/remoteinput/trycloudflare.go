@@ -50,6 +50,7 @@ type TryCloudflareProvider struct {
 	leases           map[string]struct{}
 	channels         map[string]*tryCloudflareChannel
 	landingPage      string
+	remoteAppOrigin  string
 }
 
 func NewTryCloudflareProvider(cfg TryCloudflareConfig) (*TryCloudflareProvider, error) {
@@ -79,7 +80,7 @@ func newTunnelProvider(dir, providerName, listenAddr string, persistentDNS bool,
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create tunnel storage directory: %w", err)
 	}
-	provider := &TryCloudflareProvider{dir: dir, providerName: providerName, listenAddr: listenAddr, persistentDNS: persistentDNS, starter: starter, ready: waitQuickTunnelReachable, validatePublic: validatePublic, objects: make(map[string]string), leases: make(map[string]struct{}), channels: make(map[string]*tryCloudflareChannel), landingPage: landing.HTML()}
+	provider := &TryCloudflareProvider{dir: dir, providerName: providerName, listenAddr: listenAddr, persistentDNS: persistentDNS, starter: starter, ready: waitQuickTunnelReachable, validatePublic: validatePublic, objects: make(map[string]string), leases: make(map[string]struct{}), channels: make(map[string]*tryCloudflareChannel), landingPage: landing.HTML(), remoteAppOrigin: strings.TrimSpace(landing.RemoteAppOrigin)}
 	if err := provider.loadChannels(); err != nil {
 		return nil, err
 	}
@@ -294,24 +295,11 @@ func (p *TryCloudflareProvider) closeTunnelLocked() {
 }
 
 func (p *TryCloudflareProvider) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	name := strings.TrimPrefix(r.URL.Path, "/")
-	if name == "" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-		w.WriteHeader(http.StatusOK)
-		if r.Method == http.MethodGet {
-			_, _ = w.Write([]byte(p.landingPage))
-		}
-		return
-	}
 	if name == "status" {
+		if !allowTunnelRead(w, r) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -322,41 +310,39 @@ func (p *TryCloudflareProvider) serveHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if name == tryCloudflareReadinessPath {
-		// Tunnel creation holds p.mu while it verifies the public round trip.
-		// This deliberately absent route must therefore answer without reading
-		// provider state or it would deadlock the readiness check.
+		if !allowTunnelRead(w, r) {
+			return
+		}
 		w.Header().Set("X-Wharness-Tunnel", "ready")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if strings.Contains(name, "/") {
+	if firstTunnelSegment(name) != "" && tryCloudflareChannelPattern.MatchString(firstTunnelSegment(name)) && strings.Contains(name, "/") {
+		if !allowTunnelRead(w, r) {
+			return
+		}
 		p.serveChannelHTTP(w, r, name)
 		return
 	}
-	if strings.Contains(name, "/") || validateObjectName(name) != nil {
-		http.NotFound(w, r)
+	if !strings.Contains(name, "/") && name != "" && validateObjectName(name) == nil && p.serveStoredObject(w, r, name) {
 		return
 	}
-	p.mu.Lock()
-	path, ok := p.objects[name]
-	p.mu.Unlock()
-	if !ok {
-		http.NotFound(w, r)
+	if p.serveRemoteApp(w, r) {
 		return
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		http.NotFound(w, r)
+	if name == "" {
+		if !allowTunnelRead(w, r) {
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(p.landingPage))
+		}
 		return
 	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, name, info.ModTime(), file)
+	http.NotFound(w, r)
 }

@@ -15,6 +15,7 @@
 @import './domains/desktop-recovery-dialog.css';
 @import './domains/execution-approval.css';
 @import './theme/theme.css';
+@import './theme/tailwind.css';
 @import './domains/plan-control.css';
 @import './domains/activity-history.css';
 @import './domains/operational-panels.css';

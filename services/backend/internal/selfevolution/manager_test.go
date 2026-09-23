@@ -119,6 +119,19 @@ func TestTransactionPersistsSelectiveActivationImpactsAcrossExtensions(t *testin
 	}
 }
 
+func TestGatewayChangesActivateFrontendSurface(t *testing.T) {
+	impacts := activationImpacts([]string{`diff --git a/services/gateway/nginx.conf b/services/gateway/nginx.conf
+--- a/services/gateway/nginx.conf
++++ b/services/gateway/nginx.conf
+@@ -1 +1 @@
+-old
++new
+`})
+	if strings.Join(impacts, ",") != "frontend" {
+		t.Fatalf("gateway patch impacts = %#v", impacts)
+	}
+}
+
 func TestTransactionLockRejectsConcurrentSelfEvolution(t *testing.T) {
 	root := fakeRoot(t)
 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)

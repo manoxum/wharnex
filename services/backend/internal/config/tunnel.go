@@ -16,6 +16,7 @@ import (
 )
 
 type TunnelConfig struct {
+	RemoteAppOrigin   string
 	DaemonURL         string
 	DaemonToken       string
 	ConfigFile        string

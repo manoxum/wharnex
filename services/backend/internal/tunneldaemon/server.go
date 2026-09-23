@@ -51,6 +51,7 @@ func (s *Server) Handler(token string) http.Handler {
 	mux.HandleFunc("DELETE "+APIPathChannelSet, s.closeChannelSet)
 	mux.HandleFunc("POST "+APIPathReload, s.reloadConfig)
 	mux.HandleFunc("POST "+APIPathSessionStart, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("POST "+APIPathInstanceControl, s.controlInstance)
 	mux.HandleFunc("POST "+APIPathSessionClear, s.clearSession)
 	mux.HandleFunc("POST "+APIPathCleanup, s.cleanup)
 	return authorize(token, mux)
@@ -155,6 +156,14 @@ func (s *Server) closeChannelSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondEmpty(w, s.manager.CloseRemoteInputChannelSet(r.Context(), request.InstanceIDs, request.ChannelID))
+}
+
+func (s *Server) controlInstance(w http.ResponseWriter, r *http.Request) {
+	var request instanceControlRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	respondEmpty(w, s.manager.ControlRemoteInput(r.Context(), request.InstanceID, request.Action))
 }
 
 func (s *Server) clearSession(w http.ResponseWriter, r *http.Request) {

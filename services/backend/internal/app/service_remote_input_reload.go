@@ -22,3 +22,15 @@ func (s *Service) ReloadRemoteInput(ctx context.Context) (bool, error) {
 	}
 	return true, nil
 }
+
+// ControlRemoteInput delegates a single tunnel pause/stop/resume action to transports that support it.
+func (s *Service) ControlRemoteInput(ctx context.Context, instanceID, action string) error {
+	if s == nil || s.remoteInputs == nil {
+		return ErrTunnelProviderConnectorUnavailable
+	}
+	controller, ok := s.remoteInputs.(RemoteInputController)
+	if !ok {
+		return ErrTunnelProviderConnectorUnavailable
+	}
+	return controller.ControlRemoteInput(ctx, instanceID, action)
+}

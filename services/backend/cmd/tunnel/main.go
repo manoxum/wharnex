@@ -28,6 +28,7 @@ func main() {
 		log.Fatalf("tunnel state: %v", err)
 	}
 	cfg := config.TunnelConfig{
+		RemoteAppOrigin:   os.Getenv("WHARNESS_REMOTE_APP_ORIGIN"),
 		ConfigFile:        env("HARNESS_TUNNEL_CONFIG_FILE", "/control/tunnel-providers.json"),
 		IndexFile:         filepath.Join(stateDir, "usage.json"),
 		SecretsDir:        filepath.Join(stateDir, "credentials"),
