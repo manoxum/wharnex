@@ -54,9 +54,21 @@ var nonRepairablePlannerReasonCodes = map[string]string{
 	"conflict_capsule_missing":                     domain.FailureKindConflictCapsuleStale,
 }
 
+// executionFailureKind is the single attribution point for a finished execution.
+// Structured evidence carried by ExecutionResult wins over the generic cause
+// because the outer error may be context.Canceled even when the runner already
+// recorded a more specific resource-exhaustion diagnostic for this same round.
+func executionFailureKind(result domain.ExecutionResult, cause error) string {
+	if _, exhausted := detectResourceExhaustion(result); exhausted {
+		return domain.FailureKindSandboxResourceExhausted
+	}
+	return classifyExecutionFailure(cause)
+}
+
 // classifyExecutionFailure derives a domain.FailureKind from a Wharnex
-// sandbox-raised execution error. It is the authoritative classifier: the
-// error originates entirely inside Wharnex, never from planner text.
+// sandbox-raised execution error when no richer ExecutionResult evidence is
+// available. Specific runner/self-evolution sentinels and diagnostics must win
+// over context cancellation, which is deliberately the fallback.
 func classifyExecutionFailure(cause error) string {
 	if errors.Is(cause, sandbox.ErrOfflineDependenciesUnavailable) {
 		return domain.FailureKindOfflineGoModuleCache
@@ -91,9 +103,6 @@ func classifyExecutionFailure(cause error) string {
 	if errors.Is(cause, sandbox.ErrCommandPreparationTimeout) {
 		return domain.FailureKindSandboxPreparationTimeout
 	}
-	if errors.Is(cause, context.Canceled) {
-		return domain.FailureKindExecutionCanceled
-	}
 	// A resource fault can also reach us as a plain wrapped error (e.g. the
 	// runner failing to create the workspace build cache) rather than through
 	// a recorded command result, so the textual check backs up
@@ -106,6 +115,9 @@ func classifyExecutionFailure(cause error) string {
 	}
 	if isDependencyNetworkDiagnostic(cause.Error()) {
 		return domain.FailureKindHostBuildDependencyNetwork
+	}
+	if errors.Is(cause, context.Canceled) {
+		return domain.FailureKindExecutionCanceled
 	}
 	return ""
 }
