@@ -43,10 +43,13 @@ RUN set -eux; \
 
 RUN groupadd --gid "${WHARNESS_GID}" wharness \
  && useradd --uid "${WHARNESS_UID}" --gid "${WHARNESS_GID}" --create-home --home-dir /var/lib/wharness-tunnel/home --shell /usr/sbin/nologin wharness \
- && mkdir -p /var/lib/wharness-tunnel \
+ && mkdir -p /var/lib/wharness-tunnel/home /var/lib/wharness-tunnel/config /var/lib/wharness-tunnel/data /var/lib/wharness-tunnel/cache \
  && chown -R wharness:wharness /var/lib/wharness-tunnel
 
 USER wharness
-ENV HOME=/var/lib/wharness-tunnel/home
+ENV HOME=/var/lib/wharness-tunnel/home \
+    XDG_CONFIG_HOME=/var/lib/wharness-tunnel/config \
+    XDG_DATA_HOME=/var/lib/wharness-tunnel/data \
+    XDG_CACHE_HOME=/var/lib/wharness-tunnel/cache
 EXPOSE 8090
 ENTRYPOINT ["/usr/local/bin/wharness-tunnel"]

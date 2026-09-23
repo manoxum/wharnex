@@ -25,6 +25,13 @@ frontend are independent activation targets.
 
 The first stack initialization performs a one-time offline physical migration of the legacy PostgreSQL PGDATA only when its major version is PostgreSQL 17. Any incompatible version fails closed. Existing tunnel credentials/state are copied once into the tunnel named volume.
 
+The tunnel image roots `HOME` and all XDG configuration, data and cache
+directories below `/var/lib/wharness-tunnel`, the named-volume mount. Provider
+credentials, WireGuard documents, SSH host pins and supported client profiles
+therefore survive a tunnel-container replacement. This persistence does not
+make a provider-issued temporary URL stable; stable names require a provider
+reserved domain or named-tunnel capability.
+
 The backend alone may access the host Docker socket so it can create Protected runner containers. Runner containers never receive that socket. Host-visible temporary work required across the backend/container/host-daemon boundary is rooted below `.harness/bridge` and mounted at the same absolute path.
 
 ## Consequences

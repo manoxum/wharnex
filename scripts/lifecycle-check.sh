@@ -24,6 +24,7 @@ DESKTOP_RELAUNCH="$ROOT/scripts/desktop-relaunch.sh"
 SELF_EVOLUTION="$ROOT/services/backend/internal/selfevolution/manager.go"
 SELF_RESTART="$ROOT/scripts/self-restart.sh"
 BACKEND_DOCKERFILE="$ROOT/services/backend/Dockerfile"
+TUNNEL_DOCKERFILE="$ROOT/services/tunnel/Dockerfile"
 COMPOSE="$ROOT/compose.yml"
 FRONTEND_NGINX="$ROOT/services/frontend/nginx.conf"
 
