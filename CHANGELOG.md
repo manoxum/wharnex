@@ -1,4 +1,9 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat 8ac0176d-cf4d-4d5c-a785-8ae2d4d3d78c (2026-09-23)
+
+_(reserved — no entries yet)_
+
+
 ### Chat f95a949e-f4eb-469b-b6a8-227fd2e546da (2026-09-23)
 
 - Melhora o layout responsivo do contrato de execução em painéis estreitos, eliminando o grande espaço vertical causado por `flex-basis` desktop, incluindo o override específico do plano atual aninhado no histórico, e reorganizando ações/fallbacks em grelhas compactas.
