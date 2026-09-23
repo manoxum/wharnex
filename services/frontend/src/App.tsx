@@ -81,6 +81,7 @@ const EXECUTION_TERMINAL_EVENT_TYPES = new Set(['execution.completed', 'executio
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
+import { persistOperationalEvidence } from './lib/evolutionEvidenceImport'
 import { storedAttachmentFile, withProjectTodoPrePlan } from './lib/projectTodoForwarding'
 import { appliedChangePresentationItems, buildChangeSummary, mergeAppliedChangePresentationItems } from './lib/changeSummary'
 import { confirmDialog } from './lib/appDialog'
@@ -3225,7 +3226,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		} finally { setBusy(false) }
 	}
 
-  async function analyzeEvolutionEvidence(evidenceIds: string[]) {
+  async function analyzeEvolutionEvidence(evidenceIds: string[], evidenceFiles: File[] = []) {
     if (!session?.self_evolution || busy || requestChainActive(session)) return
     setBusy(true); setError(undefined)
     try {
@@ -3239,7 +3240,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         targetChat = { ...newWorkspaceChat(targetSession.id, 'Autoevolução · evidência operacional', chatId), purpose: 'self-evolution' }
         persistChats(session.project_path, [targetChat, ...chats])
       }
-      const result = await api.analyzeEvolutionEvidence(targetSession.id, evidenceIds)
+      const artifactIds = await persistOperationalEvidence(targetSession.id, evidenceFiles)
+      const result = await api.analyzeEvolutionEvidence(targetSession.id, evidenceIds, artifactIds)
       sourceRef.current?.close(); sourceRef.current = null
       activeChatIdRef.current = targetChat.id; setActiveChatId(targetChat.id); setSession(result.session); setEvents([])
       const existingItems = loadChat(result.session.project_path, targetChat.id)
