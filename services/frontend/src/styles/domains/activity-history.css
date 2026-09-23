@@ -169,7 +169,7 @@
   gap: 10px;
   border-radius: 8px;
 }
-.history-current-plan .plan-control-copy { flex-basis: 320px; align-items: center; gap: 8px; }
+.history-current-plan .plan-control-copy { flex-basis: auto; align-items: center; gap: 8px; }
 .history-current-plan .plan-control-mark { width: 28px; height: 28px; flex-basis: 28px; border-radius: 8px; }
 .history-current-plan .plan-control-copy .panel-kicker,
 .history-current-plan .plan-control-copy > div > span:last-child { display: none; }

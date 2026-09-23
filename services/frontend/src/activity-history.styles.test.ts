@@ -56,10 +56,13 @@ describe('durable activity history styling', () => {
     expect(css).toContain('display: none')
   })
 
-  it('drops the desktop flex basis when the nested plan control stacks', () => {
+  it('keeps the nested copy intrinsic before the history breakpoint catches up', () => {
+    const copy = rule('.history-current-plan .plan-control-copy')
     const narrow = css.indexOf('@container request-history (max-width: 660px)')
     const reset = css.indexOf('.history-current-plan .plan-control-copy { width: 100%; flex: 0 1 auto; }')
     const tighter = css.indexOf('@container request-history (max-width: 460px)')
+    expect(copy).toContain('flex-basis: auto')
+    expect(copy).not.toContain('flex-basis: 320px')
     expect(narrow).toBeGreaterThan(-1)
     expect(reset).toBeGreaterThan(narrow)
     expect(reset).toBeLessThan(tighter)
