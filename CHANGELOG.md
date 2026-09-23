@@ -1,4 +1,9 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat 860e671a-a2b8-4d9b-9fed-07edd0545d56 (2026-09-23)
+
+_(reserved — no entries yet)_
+
+
 ### Chat 7f25311c-c6e7-4b18-920e-5c53191c38fd (2026-09-23)
 
 - Added a single Nginx gateway on port 6969 plus a paired Wharnex Remote webapp, keeping AI browser automation on the Desktop through the durable supervisor queue.
