@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { bytesToMiB, formatPatternLines, miBToBytes, parsePatternLines } from '../lib/projectConfig'
-import type { ArtifactSettings, BackendStorageUsage, ContextInspection, ProjectConfig, Session, TunnelProviderDocument } from '../types'
+import type { AppConfig, ArtifactSettings, BackendStorageUsage, ContextInspection, ProjectConfig, Session, TunnelProviderDocument } from '../types'
 import { ContextInspector, type ContextSelection } from './ContextInspector'
 import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
@@ -20,7 +20,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
   onClose: () => void
   onSession: (session: Session) => void
   onError: (message: string) => void
-  onTunnelConfigSaved?: (config: TunnelProviderDocument) => void
+  onTunnelConfigSaved?: (config: TunnelProviderDocument, runtime?: AppConfig) => void
 }) {
   const [config, setConfig] = useState<ProjectConfig>()
   const [inspection, setInspection] = useState<ContextInspection>()

@@ -1,9 +1,8 @@
 import type { AppConfig, TunnelProviderDocument } from '../types'
 
-// The daemon intentionally keeps its process pool stable until restart, while
-// the saved document is authoritative for what new requests may discover and
-// publish. Reconcile the already-loaded App config immediately after a save so
-// a removed runtime tunnel cannot remain selectable in the open workspace.
+// A runtime refresh normally supplies the newly adopted pool after a save.
+// This fallback reconciles an already-loaded App config when that refresh is
+// unavailable, so a removed tunnel cannot remain selectable in the workspace.
 export function reconcileTunnelConfig(current: AppConfig | undefined, document: TunnelProviderDocument): AppConfig | undefined {
   if (!current?.remote_input) return current
   const configured = new Set(document.instances.map((instance) => instance.id))

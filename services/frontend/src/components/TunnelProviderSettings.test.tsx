@@ -87,6 +87,9 @@ describe('TunnelProviderSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: /Guardar configuração/i }))
 
     await waitFor(() => expect(api.updateTunnelConfig).toHaveBeenCalledWith({ version: 1, instance_name: 'Oficina', instances: [] }))
-    expect(onSaved).toHaveBeenCalledWith({ version: 1, instance_name: 'Oficina', instances: [] })
+    expect(onSaved).toHaveBeenCalledWith(
+      { version: 1, instance_name: 'Oficina', instances: [] },
+      expect.any(Object),
+    )
   })
 })

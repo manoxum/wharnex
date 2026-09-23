@@ -49,6 +49,7 @@ func (s *Server) Handler(token string) http.Handler {
 	mux.HandleFunc("PUT "+APIPathChannelSet, s.updateChannelSet)
 	mux.HandleFunc("DELETE "+APIPathChannel, s.closeChannel)
 	mux.HandleFunc("DELETE "+APIPathChannelSet, s.closeChannelSet)
+	mux.HandleFunc("POST "+APIPathReload, s.reloadConfig)
 	mux.HandleFunc("POST "+APIPathSessionStart, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("POST "+APIPathSessionClear, s.clearSession)
 	mux.HandleFunc("POST "+APIPathCleanup, s.cleanup)

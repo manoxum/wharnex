@@ -3696,7 +3696,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       onOpenAll={() => { setAttentionPreviewOpen(false); setMode('agent'); openLeftDrawer('attention') }}
       onClose={() => setAttentionPreviewOpen(false)}
     />}
-    {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} onTunnelConfigSaved={(document) => setConfig((current) => reconcileTunnelConfig(current, document))} />}
+    {projectSettingsOpen && <ProjectSettings session={session} onClose={() => setProjectSettingsOpen(false)} onSession={setSession} onError={setError} onTunnelConfigSaved={(document, runtime) => setConfig((current) => runtime || reconcileTunnelConfig(current, document))} />}
     {restartModalOpen && restartReports.length > 0 && <RestartConfirmation reports={restartReports} busy={busy} onLater={dismissRestartConfirmation} onActivate={(impacts) => void confirmSelfRestart(impacts)} />}
     {interruptedExecutions.length > 0 && <InterruptedExecutionRecovery
       items={interruptedExecutions.map((target) => ({ ...target, queue: executionFIFO.find((item) => item.chatId === target.chat.id && item.planId === target.session.interrupted_execution?.plan_id), humanAction: recoveryHumanAction(target.chat, chatgptHumanActions) }))}

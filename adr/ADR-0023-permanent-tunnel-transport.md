@@ -49,3 +49,9 @@ response without the expected bundle.
 
 This ADR supersedes ADR-0020 only where that ADR assigns ChatGPT transport to
 remote storage providers.
+
+`adr/ADR-0070` later amends how a saved pool reaches the runtime: the
+configuration is reconciled into the live pool on save instead of at the next
+process start. The resource and rehydration rules above are unchanged, and an
+instance that stays configured keeps its connector and its channel resources
+across that reconciliation.

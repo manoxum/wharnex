@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"kernl.local/harness/backend/internal/app"
+	"kernl.local/harness/backend/internal/config"
 )
 
 type Instance struct {
@@ -17,6 +18,10 @@ type Instance struct {
 	Priority int
 	Limits   app.RemoteInputLimits
 	Provider Provider
+	// Config records what this instance was built from so a reload can tell an
+	// unchanged instance, whose provider must keep running, from one that has
+	// to be rebuilt. Reconciliation itself lives in tunnel_reload.go.
+	Config config.TunnelInstanceConfig
 }
 
 type Manager struct {
@@ -24,7 +29,10 @@ type Manager struct {
 	indexPath string
 	now       func() time.Time
 	disabled  map[string]error
-	mu        sync.Mutex
+	// source is the tunnel configuration this pool was built from, so Reload
+	// can re-read it instead of requiring a process restart.
+	source config.TunnelConfig
+	mu     sync.Mutex
 }
 
 func NewManager(provider Provider, indexPath string) *Manager {

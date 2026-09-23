@@ -388,7 +388,16 @@ func (a *API) updateTunnelConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "tunnel_config_read_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"config": saved, "restart_required": true})
+	// Adopt the saved pool immediately instead of making the operator restart.
+	// A transport that cannot reload, or one that fails to, still reports a
+	// required restart rather than pretending the change is already live.
+	reloaded, reloadErr := a.service.ReloadRemoteInput(r.Context())
+	restartRequired := !reloaded || reloadErr != nil || tunnelRuntimeDiffers(saved, a.service.RemoteInputStatus())
+	response := map[string]any{"config": saved, "restart_required": restartRequired}
+	if reloadErr != nil {
+		response["reload_error"] = reloadErr.Error()
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (a *API) tunnelProviders(w http.ResponseWriter, _ *http.Request) {

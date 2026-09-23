@@ -10,6 +10,16 @@ import (
 	"kernl.local/harness/backend/internal/config"
 )
 
+// NewDegradedTunnelManager returns an empty pool still bound to cfg. A daemon
+// whose saved configuration could not be built uses it to keep serving, so the
+// operator can correct the document and have it adopted through
+// ReloadRemoteInput instead of being left with a dead tunnel service.
+func NewDegradedTunnelManager(cfg config.TunnelConfig) *Manager {
+	manager := NewPool(nil, cfg.IndexFile)
+	manager.source = cfg
+	return manager
+}
+
 func NewTunnelManager(cfg config.TunnelConfig) (*Manager, error) {
 	document, err := config.ReadTunnelDocument(cfg)
 	if err != nil {
@@ -27,9 +37,11 @@ func NewTunnelManager(cfg config.TunnelConfig) (*Manager, error) {
 		if err != nil {
 			return nil, fmt.Errorf("tunnel instance %s: %w", instanceConfig.ID, err)
 		}
-		instances = append(instances, Instance{ID: instanceConfig.ID, Priority: instanceConfig.Priority, Provider: provider})
+		instances = append(instances, Instance{ID: instanceConfig.ID, Priority: instanceConfig.Priority, Provider: provider, Config: instanceConfig})
 	}
-	return NewPool(instances, cfg.IndexFile), nil
+	manager := NewPool(instances, cfg.IndexFile)
+	manager.source = cfg
+	return manager, nil
 }
 
 func configuredTunnelOrigins(configs []config.TunnelInstanceConfig) []string {

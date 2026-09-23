@@ -73,6 +73,13 @@ type RemoteInputStore interface {
 	Status() RemoteInputStatus
 }
 
+// RemoteInputReloader is implemented by transports whose instance pool is
+// built from saved configuration, so a configuration change can be adopted
+// without restarting the process. Durable object stores do not implement it.
+type RemoteInputReloader interface {
+	ReloadRemoteInput(context.Context) error
+}
+
 // RemoteInputLeaseStore is optional because durable object stores do not need
 // a request-scoped transport lifetime. Quick Tunnel providers use it to keep
 // their endpoint alive until the matching request is terminal.

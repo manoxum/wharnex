@@ -101,6 +101,13 @@ func (c *Client) ReleaseRemoteInput(instanceID, objectName string) error {
 	return c.request(context.Background(), http.MethodPost, APIPathRelease, instanceObjectRequest{instanceID, objectName}, nil)
 }
 
+// ReloadRemoteInput asks the daemon to adopt the saved tunnel configuration.
+// The backend never sends provider definitions: the daemon re-reads the shared
+// document itself, keeping provider lifetime on its side of the boundary.
+func (c *Client) ReloadRemoteInput(ctx context.Context) error {
+	return c.request(ctx, http.MethodPost, APIPathReload, struct{}{}, nil)
+}
+
 func (c *Client) SupportsRemoteInputChannels() bool { return true }
 
 func (c *Client) PublishRemoteInputChannel(ctx context.Context, channel app.RemoteInputChannel) (app.RemoteInputPublication, error) {

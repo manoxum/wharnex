@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type {
+  AppConfig,
   TunnelProvider,
   TunnelProviderDocument,
   TunnelProviderInstance,
@@ -14,7 +15,7 @@ export function TunnelProviderSettings({
   onSaved,
 }: {
   onError: (message: string) => void;
-  onSaved?: (config: TunnelProviderDocument) => void;
+  onSaved?: (config: TunnelProviderDocument, runtime?: AppConfig) => void;
 }) {
   const [instances, setInstances] = useState<TunnelProviderInstance[]>();
   const [instanceName, setInstanceName] = useState("");
@@ -25,6 +26,9 @@ export function TunnelProviderSettings({
   const [showCatalog, setShowCatalog] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // The pool is normally adopted on save, so the banner has to distinguish
+  // "already serving" from the cases a restart genuinely remains necessary.
+  const [restartRequired, setRestartRequired] = useState(false);
   const [connecting, setConnecting] = useState<number>();
   const [draftFields, setDraftFields] = useState<
     Record<number, Record<string, string>>
@@ -39,6 +43,7 @@ export function TunnelProviderSettings({
         setInstanceName(stored.config.instance_name || "");
         setProviders(catalog.providers || []);
         setSaved(stored.restart_required);
+        setRestartRequired(stored.restart_required);
         setRuntime(
           Object.fromEntries(
             (appConfig.remote_input?.instances || []).map((item) => [
@@ -151,8 +156,23 @@ export function TunnelProviderSettings({
       });
       setInstanceName(result.config.instance_name || "");
       setInstances(result.config.instances);
-      onSaved?.(result.config);
-      setSaved(result.restart_required);
+      // The response confirms the document was adopted, but the application
+      // snapshot still represents the pool from before this save. Refresh it
+      // so the active-tunnels modal gains newly created instances immediately.
+      const runtime = await api.config().catch(() => undefined);
+      onSaved?.(result.config, runtime);
+      if (runtime) {
+        setRuntime(
+          Object.fromEntries(
+            (runtime.remote_input?.instances || []).map((item) => [
+              item.id,
+              { available: item.available, error: item.error },
+            ]),
+          ),
+        );
+      }
+      setSaved(true);
+      setRestartRequired(result.restart_required);
     } catch (error) {
       onError(
         messageOf(error, "Não foi possível guardar os providers de túnel"),
@@ -262,7 +282,9 @@ export function TunnelProviderSettings({
           <div>
             <strong>Configuração guardada</strong>
             <small>
-              Reinicie o Wharnex para ativar o novo provider de túnel.
+              {restartRequired
+                ? "Reinicie o Wharnex para ativar o novo provider de túnel."
+                : "O provider de túnel já está ativo."}
             </small>
           </div>
         </div>

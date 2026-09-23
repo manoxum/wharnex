@@ -34,19 +34,27 @@ func main() {
 		LegacyStorageFile: env("HARNESS_REMOTE_STORAGE_CONFIG_FILE", "/control/remote-storage.json"),
 		LegacyProvider:    os.Getenv("HARNESS_REMOTE_STORAGE_PROVIDER"),
 	}
+	// A configuration that cannot be built must not take the daemon down with
+	// it: correcting it is done by saving again, which needs this daemon alive
+	// to receive the reload. Serve an empty pool and report why.
 	manager, err := remoteinput.NewTunnelManager(cfg)
 	if err != nil {
-		log.Fatalf("tunnel configuration: %v", err)
+		log.Printf("tunnel configuration rejected, serving no tunnels until it is corrected: %v", err)
+		manager = remoteinput.NewDegradedTunnelManager(cfg)
 	}
 	connector := remoteinput.NewTunnelConnector(cfg.SecretsDir)
 	api, err := tunneldaemon.NewServer(manager, connector, remoteinput.TunnelProviders(), bridgeDir)
 	if err != nil {
 		log.Fatalf("tunnel daemon: %v", err)
 	}
+	// A provider failing to connect is an operational condition, not a reason
+	// to kill the daemon. Exiting here would crash-loop the container under
+	// `restart: unless-stopped` and take the whole tunnel service down —
+	// including the endpoints the UI needs to show *why* it is unavailable.
+	// Each failed instance is already recorded as unavailable with its reason.
 	startCtx, startCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	if err := manager.StartRemoteInputSession(startCtx); err != nil {
-		startCancel()
-		log.Fatalf("tunnel session start: %v", err)
+		log.Printf("tunnel session start: %v", err)
 	}
 	startCancel()
 	defer func() {

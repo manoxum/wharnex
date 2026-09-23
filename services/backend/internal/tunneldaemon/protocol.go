@@ -18,6 +18,7 @@ const (
 	APIPathChannels     = "/v1/channels"
 	APIPathChannelSet   = "/v1/channels/set"
 	APIPathChannel      = "/v1/channels/item"
+	APIPathReload       = "/v1/config/reload"
 	APIPathSessionStart = "/v1/session/start"
 	APIPathSessionClear = "/v1/session/clear"
 	APIPathCleanup      = "/v1/cleanup"
