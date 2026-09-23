@@ -287,7 +287,7 @@ export const api = {
   restoreReverted: (id: string) => request<Session>(`/api/sessions/${id}/restore-reverted`, { method: 'POST', body: '{}' }),
   restartSelfEvolution: (id: string) => request<Session>(`/api/sessions/${id}/self-restart`, { method: 'POST', body: '{}' }),
   evolutionEvidence: (id: string) => request<EvolutionEvidence>(`/api/sessions/${id}/self-evolution/evidence`),
-  analyzeEvolutionEvidence: (id: string, evidenceIds: string[]) => request<{ session: Session; evidence_total: number }>(`/api/sessions/${id}/self-evolution/analyze`, { method: 'POST', body: JSON.stringify({ evidence_ids: evidenceIds }) }),
+  analyzeEvolutionEvidence: (id: string, evidenceIds: string[], artifactIds: string[] = []) => request<{ session: Session; evidence_total: number }>(`/api/sessions/${id}/self-evolution/analyze`, { method: 'POST', body: JSON.stringify({ evidence_ids: evidenceIds, artifact_ids: artifactIds }) }),
   resolveEvolutionEvidence: (id: string, evidenceIds: string[]) => request<EvolutionEvidence>(`/api/sessions/${id}/self-evolution/evidence/resolve`, { method: 'POST', body: JSON.stringify({ evidence_ids: evidenceIds }) }),
   listFiles: (id: string) => request<{ files: FileEntry[] }>(`/api/sessions/${id}/files`),
   createWorkspacePath: (id: string, path: string, kind: 'file' | 'directory') => request<{ status: string; file?: WorkspaceFile }>(`/api/sessions/${id}/files`, { method: 'POST', body: JSON.stringify({ path, kind }) }),

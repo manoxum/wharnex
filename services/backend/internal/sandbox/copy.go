@@ -326,52 +326,7 @@ func prepareCommandDependenciesContext(ctx context.Context, workspace Workspace,
 			return err
 		}
 	}
-	if !requiresLocalNodeDependencies(command.Argv) {
-		return nil
-	}
-	if _, err := os.Stat(filepath.Join(workspace.Path, ".pnp.cjs")); err == nil {
-		return nil
-	}
-
-	relCwd := command.Cwd
-	if relCwd == "" || relCwd == "." {
-		relCwd = "."
-	}
-	if _, err := safeRelativePath(workspace.SourcePath, relCwd); err != nil {
-		return err
-	}
-	if _, err := safeRelativePath(workspace.Path, relCwd); err != nil {
-		return err
-	}
-
-	candidates := [][2]string{{workspace.SourcePath, workspace.Path}}
-	if relCwd != "." {
-		candidates = append(candidates, [2]string{
-			filepath.Join(workspace.SourcePath, filepath.Clean(relCwd)),
-			filepath.Join(workspace.Path, filepath.Clean(relCwd)),
-		})
-	}
-	copied := false
-	for _, candidate := range candidates {
-		sourceModules := filepath.Join(candidate[0], "node_modules")
-		destModules := filepath.Join(candidate[1], "node_modules")
-		if info, err := os.Stat(destModules); err == nil && info.IsDir() {
-			copied = true
-			continue
-		}
-		info, err := os.Stat(sourceModules)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		if err := copyDependencyTreeContext(ctx, sourceModules, destModules, workspace.SourcePath, workspace.Path); err != nil {
-			return fmt.Errorf("prepare sandbox node dependencies: %w", err)
-		}
-		copied = true
-	}
-	if copied {
-		return nil
-	}
-	return fmt.Errorf("%w: node_modules was not found in the project workspace or host tree", ErrNodeDependenciesUnavailable)
+	return prepareNodeDependenciesContext(ctx, workspace, command)
 }
 
 type goModuleDownload struct {
@@ -684,36 +639,6 @@ func hydratesGoDependencies(argv []string) bool {
 		return true
 	}
 	return len(argv) >= 3 && filepath.Base(argv[0]) == "go" && argv[1] == "mod" && argv[2] == "download"
-}
-
-func requiresLocalNodeDependencies(argv []string) bool {
-	if len(argv) == 0 {
-		return false
-	}
-	tool := filepath.Base(argv[0])
-	switch tool {
-	case "npx":
-		return true
-	case "npm":
-		if len(argv) < 2 {
-			return false
-		}
-		switch argv[1] {
-		case "run", "run-script", "test", "start", "exec":
-			return true
-		}
-	case "pnpm", "yarn", "bun":
-		if len(argv) < 2 {
-			return false
-		}
-		switch argv[1] {
-		case "install", "add", "remove", "update", "config", "cache", "--version", "-v":
-			return false
-		default:
-			return true
-		}
-	}
-	return false
 }
 
 func copyDependencyTree(source, dest, sourceRoot, destRoot string) error {

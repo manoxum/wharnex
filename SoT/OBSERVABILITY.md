@@ -58,7 +58,9 @@ Ledger bodies are published through the ordinary audit path precisely so redacti
 
 ## Unresolved evidence ledger (v1.3.1)
 
-Canonical WHX self-evolution exposes unresolved, redacted evidence across every opened project. Filters cover date/time, project, exact/partial event type and stable category, and only the explicit selection enters an AI analysis request. **Analyze with AI** always creates or reuses a dedicated self-evolution Harness chat and never takes over the user's currently active conversation. Resolution is stored by immutable event ID across all canonical self-evolution sessions and occurs only after a verified/applied implementation reports IDs belonging to that review selection; restart time and the currently selected analysis chat are not resolution boundaries.
+Canonical WHX self-evolution exposes unresolved, redacted evidence across every opened project. Filters cover date/time, project, exact/partial event type and stable category, and only the explicit event selection and/or explicitly imported dossier enters an AI analysis request. **Analyze with AI** always creates or reuses a dedicated self-evolution Harness chat and never takes over the user's currently active conversation. Resolution is stored by immutable event ID across all canonical self-evolution sessions and occurs only after a verified/applied implementation reports IDs belonging to that review selection; restart time and the currently selected analysis chat are not resolution boundaries.
+
+The same panel MAY accept an explicit user-selected operational dossier (`.md`, `.json`, `.log`, `.txt`, or ZIP). It is stored as a typed input artifact and accepted for analysis only under that type; its contents are untrusted evidence, never instructions or execution authority. ZIP inspection is bounded by count, entry size and UTF-8 text, and all text is sanitized before it enters the plan-first prompt. Import metadata, not the imported body, is published in the lifecycle event. This path remains canonical-WHX-only and has the same Protected/Policy/approval gates as ledger-only analysis.
 
 ## Durable Main Request decision ledger (v1.3.10, see `adr/ADR-0064`)
 

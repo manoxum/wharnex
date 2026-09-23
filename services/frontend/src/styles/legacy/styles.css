@@ -1891,32 +1891,8 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .topbar-indicator.actionable:hover:not(:disabled) { background: #242821; color: #eef2e9; }
 .topbar-indicator .indicator-dot { width: 6px; height: 6px; position: absolute; right: 3px; top: 3px; border-radius: 50%; background: #e0a33c; box-shadow: 0 0 0 2px #191c17; }
 .self-evolution-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid #66552f; border-radius: 999px; color: #d3a64a; background: #221f16; font: 700 10px/1 ui-monospace, monospace; letter-spacing: .05em; white-space: nowrap; }
-.evolution-evidence { height: 100%; display: flex; flex-direction: column; min-height: 0; }
-.evolution-evidence-summary { display: grid; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }
-.evolution-evidence-summary .apply-button { justify-self: start; }
-.evolution-evidence-summary > div { display:flex; flex-wrap:wrap; gap:7px; }
-.evolution-filters { padding:10px 12px; display:grid; grid-template-columns:repeat(2,minmax(150px,1fr)); gap:7px; border-bottom:1px solid var(--line); }
-.evolution-filters select, .evolution-filters input { min-width:0; height:30px; padding:0 7px; border:1px solid var(--line); border-radius:6px; background:var(--paper); color:inherit; font-size:10px; }
-.evolution-filters label { display:grid; grid-template-columns:auto 1fr; align-items:center; gap:6px; color:var(--muted); font-size:9px; }
 .evolution-counts { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .evolution-counts span { display: inline-flex; gap: 6px; align-items: center; padding: 4px 7px; border-radius: 6px; background: var(--paper-2); font-size: 10px; }
-.evolution-event-list { min-height: 0; overflow: auto; padding: 10px 12px 24px; display: grid; gap: 7px; }
-.evolution-event-list article { border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; background: var(--paper); transition: border-color .1s ease, background-color .1s ease; }
-.evolution-event-list article:hover { border-color: var(--theme-border); background: var(--paper-2); }
-.evolution-event-list article.selected { border-color: var(--acid); background: var(--theme-accent-soft); box-shadow: inset 3px 0 var(--acid); }
-.evolution-event-list article > label { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: start; gap: 9px; cursor: pointer; }
-.evolution-event-list article > label > span { min-width: 0; display: grid; gap: 4px; }
-.evolution-event-list .evidence-event-copy > span { display: flex; align-items: center; gap: 6px; }
-.evolution-event-list .evidence-event-copy i { padding: 1px 6px; border-radius: 999px; background: var(--theme-muted); color: var(--theme-text-soft); font-size: 8px; font-style: normal; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
-.evolution-event-list .evidence-event-copy code { color: var(--theme-text); font-size: 9.5px; }
-.evolution-event-list article > label small { overflow:hidden; color:var(--muted); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
-.evolution-event-list article time { text-align: right; color: var(--theme-text-muted); font-size: 8.5px; line-height: 1.5; white-space: nowrap; }
-.evolution-event-list article time b { display: block; color: var(--theme-text-soft); font-weight: 600; }
-.evolution-event-list article details { margin: 7px 0 0 24px; color: var(--muted); font-size: 9px; }
-.evolution-event-list article details summary { cursor: pointer; color: var(--theme-text-muted); }
-.evolution-event-list article details summary:hover { color: var(--theme-text); }
-.evolution-event-list article > div { display: flex; justify-content: space-between; gap: 12px; font-size: 10px; }
-.evolution-event-list pre { margin: 7px 0 0; max-height: 150px; overflow: auto; padding: 8px; border-radius: 6px; background: var(--theme-muted); white-space: pre-wrap; font-size: 10px; color: var(--muted); }
 
 /* Drawer closed: the chat takes 60% of the usable width and the inspector the
    remaining 40%. The share is of the area actually available — the rail and the
@@ -2249,30 +2225,13 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .archived-preview-message.user { justify-self: end; background: var(--theme-accent-soft); }
 .archived-preview-message small { color: var(--theme-text-muted); font-size: 8px; }
 
-.evolution-evidence { background: var(--theme-surface); color: var(--theme-text); }
-.evolution-evidence-summary { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; padding: 12px; background: var(--theme-surface); }
-.evidence-metric { min-width: 0; padding: 10px; display: grid; gap: 2px; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: var(--theme-elevated); }
-.evidence-metric b { color: var(--theme-text); font: 650 calc(18px * var(--ui-font-scale))/1 var(--ui-font-family); }
-.evidence-metric span { color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); text-transform: uppercase; letter-spacing: .06em; }
-.evidence-metric.accent { border-color: color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border)); background: var(--theme-accent-soft); }
-.evolution-evidence-summary > small, .evidence-actions { grid-column: 1 / -1; }
-.evidence-actions { display: flex; gap: 6px; }
-.evolution-filters { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; padding: 11px 12px; background: var(--theme-muted); }
 .filter-heading { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: var(--theme-text-muted); font: 700 8px var(--mono-font-family); text-transform: uppercase; letter-spacing: .07em; }
-.evolution-filters select, .evolution-filters input { width: 100%; height: 32px; border-color: var(--theme-border); background: var(--theme-elevated); color: var(--theme-text); }
-.evolution-filters label { grid-template-columns: 1fr; gap: 3px; }
-.evolution-filters label span { font-size: 7px; text-transform: uppercase; letter-spacing: .06em; }
 .evidence-select-visible { justify-content: center; }
 .evolution-counts { padding: 8px 12px; background: var(--theme-surface); }
-.evolution-event-list { padding: 8px; gap: 6px; background: var(--theme-surface); }
-.evolution-event-list article { padding: 10px; border-color: var(--theme-border-soft); border-radius: 9px; background: var(--theme-elevated); }
-.evolution-event-list article > label { align-items: center; }
 .evidence-event-copy { overflow: hidden; }
 .evidence-event-copy > span { min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .evidence-event-copy i { flex: 0 0 auto; padding: 3px 5px; border-radius: 5px; background: var(--theme-muted); color: var(--theme-accent); font: 700 7px var(--mono-font-family); text-transform: uppercase; }
 .evidence-event-copy code { min-width: 0; overflow: hidden; color: var(--theme-text); font: 600 calc(8px * var(--ui-font-scale)) var(--mono-font-family); text-overflow: ellipsis; white-space: nowrap; }
-.evolution-event-list time { min-width: 70px; display: grid; gap: 2px; color: var(--theme-text-muted); font-size: 7px; text-align: right; }
-.evolution-event-list time b { color: var(--theme-text-soft); font-weight: 600; }
 
 .project-activity-drawer { height: 100%; min-height: 0; display: flex; flex-direction: column; }
 .project-activity-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(190px, 31%) minmax(0, 1fr); }
@@ -9785,48 +9744,11 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .execution-error-solution pre { border-radius: 3px; font-size: calc(9px * var(--ui-font-scale)); }
 .execution-error-solution { border-radius: 4px; }
 
-.evolution-evidence { background: var(--theme-bg); }
-.evolution-evidence-summary { gap: 0; padding: 0 10px; background: var(--theme-surface); }
-.evidence-metric {
-  min-height: 58px;
-  padding: 9px 10px;
-  align-content: center;
-  border: 0;
-  border-right: 1px solid var(--theme-border-soft);
-  border-radius: 0;
-  background: transparent;
-}
-.evidence-metric:last-of-type { border-right: 0; }
-.evidence-metric b { font-size: calc(17px * var(--ui-font-scale)); font-weight: 600; }
-.evidence-metric span { font-size: calc(8.5px * var(--ui-font-scale)); }
-.evidence-metric.accent { border-color: var(--theme-border-soft); background: transparent; }
-.evidence-metric.accent b { color: var(--theme-accent); }
-.evolution-evidence-summary > small { padding: 7px 0; font-size: calc(9px * var(--ui-font-scale)); }
-.evidence-actions { padding: 8px 0 9px; border-top: 1px solid var(--theme-border-soft); }
-.evolution-filters { gap: 6px; padding: 9px 10px; background: var(--theme-surface); }
 .filter-heading { font-size: calc(9px * var(--ui-font-scale)); }
-.evolution-filters select,
-.evolution-filters input { height: 32px; border-radius: 4px; background: var(--theme-bg); font-size: calc(10.5px * var(--ui-font-scale)); }
-.evolution-filters label span { font-size: calc(8px * var(--ui-font-scale)); }
 .evolution-counts { gap: 0; padding: 0 10px; background: var(--theme-surface); }
 .evolution-counts span { padding: 7px 9px; border-right: 1px solid var(--theme-border-soft); border-radius: 0; background: transparent; font-size: calc(9px * var(--ui-font-scale)); }
-.evolution-event-list { padding: 0 10px 12px; gap: 0; background: var(--theme-bg); }
-.evolution-event-list article {
-  padding: 10px 8px;
-  border: 0;
-  border-bottom: 1px solid var(--theme-border-soft);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: inset 2px 0 transparent;
-}
-.evolution-event-list article:hover { border-color: var(--theme-border-soft); background: var(--theme-hover); }
-.evolution-event-list article.selected { border-color: var(--theme-border-soft); background: color-mix(in srgb, var(--theme-accent) 5%, var(--theme-bg)); box-shadow: inset 2px 0 var(--theme-accent); }
 .evidence-event-copy i { border-radius: 3px; background: transparent; color: var(--theme-text-muted); font-size: calc(8px * var(--ui-font-scale)); }
 .evidence-event-copy code { font-size: calc(10px * var(--ui-font-scale)); }
-.evolution-event-list article > label small,
-.evolution-event-list time { font-size: calc(9px * var(--ui-font-scale)); }
-.evolution-event-list article details { font-size: calc(9.5px * var(--ui-font-scale)); }
-.evolution-event-list pre { border-radius: 3px; font-size: calc(9.5px * var(--ui-font-scale)); }
 
 
 /* v1.2.53 — premium optical refinement: one icon scale, quieter chrome and
