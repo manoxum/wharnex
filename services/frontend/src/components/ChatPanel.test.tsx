@@ -519,6 +519,27 @@ describe('ChatPanel', () => {
     expect(screen.getByText('FULL_MARKDOWN_TAIL')).toBeTruthy()
   })
 
+  it('renders submitted composer directives as read-only chips in the user timeline', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const prompt = 'Revê @{[file]src/App.tsx} e destaca @{[see]file|src/App.tsx}; mantém @file:rascunho como texto.'
+    const view = render(
+      <ChatPanel session={session} items={[{ id: 'directive-timeline', role: 'user', text: prompt }]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} {...chatActions} />,
+    )
+
+    const chips = view.container.querySelectorAll('.chat-prompt-directive')
+    expect(chips.length).toBe(2)
+    expect(chips[0].getAttribute('data-chat-prompt-directive')).toBe('file')
+    expect(chips[0].getAttribute('title')).toBe('@{[file]src/App.tsx}')
+    expect(chips[0].textContent).toContain('App.tsx')
+    expect(chips[1].getAttribute('data-chat-prompt-directive')).toBe('see')
+    expect(chips[1].getAttribute('title')).toBe('@{[see]file|src/App.tsx}')
+    expect(view.container.querySelector('.chat-prompt-window')?.textContent).toContain('@file:rascunho como texto.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar mensagem' }))
+    expect(writeText).toHaveBeenCalledWith(prompt)
+  })
+
   it('truncates very large user prompts until the operator expands them', () => {
     const longPrompt = `Primeira linha do prompt\n${'contexto muito grande '.repeat(90)}\nFULL_PROMPT_TAIL`
     render(
