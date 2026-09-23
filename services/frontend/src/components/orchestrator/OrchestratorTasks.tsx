@@ -100,7 +100,7 @@ function NewTaskDrawer({ session, overview, busy, onClose, onRun }: { session: S
     const value = await onRun(() => api.createOrchestratorTask(session.id, { plan_id: planID || undefined, title: title.trim(), description: description.trim(), priority, depends_on: dependencies }))
     if (value) onClose()
   }
-  return <div className="orchestrator-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer">
+  return <div className="orchestrator-drawer-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer">
     <header><div><span>Task manual</span><strong>Nova Task</strong></div><button onClick={onClose} aria-label="Fechar"><Icon name="close" size={16}/></button></header>
     <div className="orchestrator-form">
       <label>Título<input value={title} onChange={(event) => setTitle(event.target.value)} autoFocus /></label>
@@ -115,7 +115,7 @@ function NewTaskDrawer({ session, overview, busy, onClose, onRun }: { session: S
 function TaskDrawer({ session, task, busy, onClose, onMove }: { session: Session; task: OrchestratorTask; busy: boolean; onClose: () => void; onMove: (task: OrchestratorTask, target: OrchestratorTaskStatus) => Promise<void> }) {
   const [runs, setRuns] = useState<OrchestratorTaskRun[]>([])
   useEffect(() => { let alive = true; void api.orchestratorTaskRuns(session.id, task.id).then((value) => { if (alive) setRuns(value.runs) }).catch(() => undefined); return () => { alive = false } }, [session.id, task.id, task.updated_at])
-  return <div className="orchestrator-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer task-detail">
+  return <div className="orchestrator-drawer-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer task-detail">
     <header><div><span>{task.id}</span><strong>{task.title}</strong></div><button onClick={onClose} aria-label="Fechar"><Icon name="close" size={16}/></button></header>
     <div className="orchestrator-task-detail-body">
       <div className="orchestrator-task-detail-badges"><Status status={task.status}/><span className={`priority priority-${task.priority}`}>{task.priority}</span>{task.condition !== 'none' && <span className="condition">{task.condition.replaceAll('_', ' ')}</span>}</div>

@@ -7,6 +7,7 @@
 ### Chat 1d2632d2-0ac5-4ac9-ab03-1eee0b547ec2 (2026-09-23)
 
 - Corrigida a precedência visual das superfícies nativas ChatGPT: janelas internas e diálogos suspendem Supervisor/Workers enquanto estão abertos, interações de Worker respeitam blockers e a vista é restaurada ao fechar ou minimizar a camada.
+- Fechado o gap de recarga do renderer: Ctrl+Shift+R, navegação main-frame e crash suspendem as superfícies nativas antes da troca do documento, e a deteção central cobre menus, popovers e backdrops visíveis que antes podiam ficar sob o Engine.
 
 
 ### Chat 30e2e96e-2ca0-44c5-a747-03d9020ba265 (2026-09-23)
