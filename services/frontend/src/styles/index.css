@@ -9,6 +9,7 @@
 @import './domains/git-operations.css';
 @import './domains/git-panel.css';
 @import './domains/git-panel-spacing.css';
+@import './domains/chat-prompt-directives.css';
 @import './domains/desktop-close-dialog.css';
 @import './domains/workspace-shell-stage.css';
 @import './domains/desktop-recovery-dialog.css';

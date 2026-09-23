@@ -15,10 +15,13 @@ import {
   applyDirectiveKindSuggestion,
   applyDirectiveSuggestion,
   canonicalDirective,
+  directiveChipLabel,
   directiveKindQuery,
   directiveKindSuggestions,
   directiveQuery,
+  directiveSegments,
   directiveSuggestions,
+  isCanonicalDirective,
   parseDirectives,
   removeDirective,
   seeDirectiveAvailable,
@@ -29,6 +32,7 @@ import {
 } from '../lib/composerDirectives'
 import { ComposerDirectiveConfigPopover, type DirectivePopoverAnchor } from './ComposerDirectiveConfigPopover'
 import { ComposerRichEditor, type CaretRequest, type ComposerRichEditorHandle } from './ComposerRichEditor'
+import { directiveChipBadge } from '../lib/composerRichText'
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel'
 import { ComposerDirectiveMenuLayer } from './ComposerDirectiveMenuLayer'
 import { ComposerReferenceThumbnail } from './ComposerReferenceThumbnail'
@@ -1283,11 +1287,23 @@ function ExpandableUserPrompt({ text }: { text: string }) {
   const collapsible = text.length > LONG_USER_PROMPT_CHARS || text.split('\n', LONG_USER_PROMPT_LINES + 1).length > LONG_USER_PROMPT_LINES
   const visibleText = collapsible && !expanded ? collapsedUserPromptPreview(text) : text
   return <div className={`chat-prompt-disclosure${collapsible ? ' collapsible' : ''}${expanded ? ' expanded' : ''}`}>
-    <div className="chat-prompt-window">{visibleText}</div>
+    <div className="chat-prompt-window"><UserPromptContent text={visibleText}/></div>
     {collapsible && <button type="button" className="chat-markdown-toggle chat-prompt-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
       <span aria-hidden="true">{expanded ? '−' : '···'}</span>{expanded ? 'Mostrar menos' : 'Expandir prompt'}
     </button>}
   </div>
+}
+
+function UserPromptContent({ text }: { text: string }) {
+  return <>{directiveSegments(text).map((segment, index) => {
+    const directive = segment.directive
+    if (!directive || !isCanonicalDirective(text, directive)) return <Fragment key={index}>{segment.text}</Fragment>
+    const marker = canonicalDirective(directive)
+    return <span key={index} className={`chat-prompt-directive ${directive.kind}`} title={marker} data-chat-prompt-directive={directive.kind}>
+      <span className="chat-prompt-directive-badge">{directiveChipBadge(directive.kind)}</span>
+      <span className="chat-prompt-directive-label">{directiveChipLabel(directive)}</span>
+    </span>
+  })}</>
 }
 
 function collapsedUserPromptPreview(text: string) {

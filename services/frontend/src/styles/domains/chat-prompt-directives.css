@@ -1,0 +1,42 @@
+/* Read-only projection of canonical ChatComposer directives inside user messages.
+   ChatItem.text remains canonical; this surface only replaces the visible marker. */
+.chat-prompt-directive {
+  display: inline-flex;
+  max-width: min(34ch, calc(100% - 8px));
+  min-height: 24px;
+  margin: 0 3px;
+  padding: 2px 6px 2px 4px;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--theme-accent-soft) 74%, transparent);
+  color: inherit;
+  white-space: nowrap;
+}
+
+.chat-prompt-directive-badge {
+  flex: 0 0 auto;
+  min-width: 26px;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 46%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--theme-accent) 15%, transparent);
+  color: var(--theme-accent);
+  font: 800 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family);
+  letter-spacing: .055em;
+  text-align: center;
+}
+
+.chat-prompt-directive-label {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: calc(10px * var(--ui-font-scale));
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
