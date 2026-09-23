@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TextDecoder } from 'node:util'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, dispatchChatGPTPointerPress, submitWithoutReplay } from './chatgpt-input.mjs'
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
+import { installNativeSurfaceLifecycleGuard } from './native-surface-lifecycle.mjs'
 import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
@@ -7411,7 +7412,7 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
     try { if (new URL(url).origin !== FRONTEND_ORIGIN) event.preventDefault() }
     catch { event.preventDefault() }
   })
-  installLocalEditorContextMenu(win)
+  installNativeSurfaceLifecycleGuard(win.webContents, { frontendOrigin: FRONTEND_ORIGIN, suspend: () => suspendNativeSurfacesForWindow(state) }); installLocalEditorContextMenu(win)
   // The trusted local frontend renderer previously had no crash recovery at
   // all: a GPU/OOM-triggered renderer death left a permanently blank window
   // with no diagnostic trace, indistinguishable from the whole app crashing.
@@ -7426,7 +7427,6 @@ function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true,
   state.rendererRestarts = 0
   state.rendererRestartTimer = undefined
   win.webContents.on('render-process-gone', (_event, details) => {
-    hideChatAgentInteractionsForWindow(state)
     console.error(`[frontend-renderer] window=${id} gone reason=${details.reason} exitCode=${details.exitCode} restarts=${state.rendererRestarts}`)
     if (quitting || details.reason === 'clean-exit') return
     if (state.rendererRestarts >= FRONTEND_RENDERER_RESTART_LIMIT) {
