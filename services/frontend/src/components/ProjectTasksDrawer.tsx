@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { ChatAgentTask, HarnessEvent, Session } from '../types'
+import type { ChatAgentTask, HarnessEvent, OrchestratorTaskRun, Session } from '../types'
 import { api } from '../lib/api'
+import type { ExecutionFIFOItem } from '../lib/executionQueueView'
 import type { WorkspaceChat } from '../lib/workspaceMemory'
 import {
   collectExecutionActivities,
@@ -18,13 +19,18 @@ import { ContentSkeleton } from './Skeleton'
 import { PlanView, TerminalView } from './Inspector'
 import { ChatAgentTaskTimeline } from './ChatAgentTaskTimeline'
 
-const ACTIVE = new Set(['PENDING', 'LEASED', 'RUNNING', 'WAITING'])
+const ACTIVE = new Set(['PENDING', 'LEASED', 'RUNNING', 'WAITING', 'READY', 'DOING', 'REVIEW'])
 const FAILED = new Set(['FAILED', 'ATTENTION'])
 const REQUEST_TASK_TYPES = new Set(['AWAIT_RESPONSE', 'BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN'])
 type ProjectTaskTab = 'queue' | 'completed' | 'archived'
+type ProjectTaskSource = 'chat' | 'worker' | 'translation' | 'release' | 'todo' | 'orchestrator' | 'system'
 
 type ProjectTask = {
   key: string
+  kind: 'request' | 'standalone'
+  source: ProjectTaskSource
+  title: string
+  taskType: string
   rootRequestId: string
   chatId: string
   sessionId: string
@@ -39,7 +45,7 @@ type ProjectTask = {
   session?: Session
 }
 
-export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedChats, currentSession, activeChatId, activeEvents, onClose, onError, onGoToChat }: {
+export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedChats, currentSession, activeChatId, activeEvents, executionFIFO = [], onClose, onError, onGoToChat }: {
   projectPath: string
   chats: WorkspaceChat[]
   savedChats: WorkspaceChat[]
@@ -47,6 +53,7 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
   currentSession: Session
   activeChatId: string
   activeEvents: HarnessEvent[]
+  executionFIFO?: ExecutionFIFOItem[]
   onClose: () => void
   onError?: (message: string) => void
   onGoToChat?: (chatId?: string, sessionId?: string) => void
@@ -55,6 +62,8 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
   const [sessions, setSessions] = useState<Record<string, Session>>({ [currentSession.id]: currentSession })
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<ProjectTaskTab>('queue')
+  const [query, setQuery] = useState('')
+  const [sourceFilter, setSourceFilter] = useState<'all' | ProjectTaskSource>('all')
   const allChats = useMemo(() => [...chats, ...savedChats, ...archivedChats], [archivedChats, chats, savedChats])
   const chatKey = JSON.stringify([...new Set(allChats.map((chat) => chat.sessionId).filter(Boolean))].sort())
 
@@ -64,7 +73,7 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
     let cancelled = false
     setLoading(true)
     void Promise.all([
-      api.chatAgentTasks(false, projectPath, 500),
+      api.projectTasks(projectPath, 500),
       loadProjectSessions(JSON.parse(chatKey) as string[], api.getSession),
     ]).then(([taskResult, sessionResult]) => {
       if (cancelled) return
@@ -80,7 +89,7 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
   useEffect(() => {
     let cancelled = false
     const refresh = () => {
-      void api.chatAgentTasks(false, projectPath, 500).then((result) => {
+      void api.projectTasks(projectPath, 500).then((result) => {
         if (!cancelled) setRuntimeTasks(Array.isArray(result.tasks) ? result.tasks : [])
       }).catch(() => undefined)
     }
@@ -94,7 +103,15 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
     completed: tasks.filter((item) => item.disposition === 'completed').length,
     archived: tasks.filter((item) => item.disposition === 'archived').length,
   }), [tasks])
-  const visible = useMemo(() => tasks.filter((item) => item.disposition === tab), [tab, tasks])
+  const attentionCount = useMemo(() => tasks.filter((item) => item.failed).length, [tasks])
+  const runningCount = useMemo(() => executionFIFO.filter((item) => item.status === 'running' || item.status === 'submitting').length, [executionFIFO])
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visible = useMemo(() => tasks.filter((item) => {
+    if (item.disposition !== tab) return false
+    if (sourceFilter !== 'all' && item.source !== sourceFilter) return false
+    if (!normalizedQuery) return true
+    return [item.title, item.prompt, item.rootRequestId, item.taskType, sourceLabel(item.source)].some((value) => value.toLocaleLowerCase().includes(normalizedQuery))
+  }), [normalizedQuery, sourceFilter, tab, tasks])
 
   useEffect(() => {
     if (loading || counts[tab] > 0) return
@@ -103,36 +120,102 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
   }, [counts, loading, tab])
 
   return <section className="project-tasks-drawer" aria-label="Tarefas do projeto">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Projeto inteiro</span><strong>Tarefas</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar tarefas"><Icon name="close" size={13}/></button></header>
-    <p className="project-task-intro">Cada Main Request do chat é uma tarefa. As continuações e reparações aparecem como subtarefas GPT, e o plano, execuções e logs ficam juntos no mesmo cartão.</p>
+    <header className="agent-drawer-heading project-task-heading"><div><span className="panel-kicker">Centro operacional</span><strong>Tarefas do projeto</strong><small>Uma visão única de chats, workers, traduções, releases, orquestração e execuções.</small></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar tarefas"><Icon name="close" size={13}/></button></header>
+    <div className="project-task-dashboard" aria-label="Resumo operacional">
+      <TaskMetric label="Ativas" value={counts.queue} icon="list"/>
+      <TaskMetric label="Em execução" value={runningCount} icon="play"/>
+      <TaskMetric label="Atenção" value={attentionCount} icon="alert" danger={attentionCount > 0}/>
+      <TaskMetric label="Concluídas" value={counts.completed} icon="check"/>
+    </div>
+    <div className="project-task-toolbar">
+      <label className="project-task-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar tarefas, IDs e conteúdo" aria-label="Pesquisar tarefas"/></label>
+      <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as 'all' | ProjectTaskSource)} aria-label="Filtrar tarefas por origem">
+        <option value="all">Todas as origens</option>
+        <option value="chat">Chats</option><option value="worker">Workers</option><option value="orchestrator">Orquestração</option><option value="translation">Traduções</option><option value="release">Releases</option><option value="todo">TODO</option><option value="system">Sistema</option>
+      </select>
+    </div>
     <nav className="project-task-tabs" role="tablist" aria-label="Estados das tarefas">
-      <TaskTab id="queue" label="Fila" icon="list" count={counts.queue} active={tab === 'queue'} onClick={() => setTab('queue')}/>
+      <TaskTab id="queue" label="Em curso" icon="list" count={counts.queue} active={tab === 'queue'} onClick={() => setTab('queue')}/>
       <TaskTab id="completed" label="Concluídas" icon="check" count={counts.completed} active={tab === 'completed'} onClick={() => setTab('completed')}/>
       <TaskTab id="archived" label="Arquivadas" icon="archive" count={counts.archived} active={tab === 'archived'} onClick={() => setTab('archived')}/>
     </nav>
     <div id="project-task-panel" className="project-task-list" role="tabpanel">
-      {loading && !tasks.length ? <ContentSkeleton label="A carregar tarefas, planos e histórico" rows={6}/> : visible.length ? visible.map((item) => <ProjectTaskCard key={item.key} item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents} onGoToChat={onGoToChat}/>) : <div className="agent-drawer-empty"><strong>{emptyTitle(tab)}</strong><span>{emptyDetail(tab)}</span></div>}
+      {tab === 'queue' ? <IntegratedExecutionQueue items={executionFIFO} onError={onError}/> : null}
+      {loading && !tasks.length ? <ContentSkeleton label="A carregar tarefas, planos e histórico" rows={6}/> : visible.length ? visible.map((item) => <ProjectTaskCard key={item.key} item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents} onGoToChat={onGoToChat}/>) : <div className="agent-drawer-empty"><strong>{query || sourceFilter !== 'all' ? 'Nenhuma tarefa corresponde ao filtro.' : emptyTitle(tab)}</strong><span>{query || sourceFilter !== 'all' ? 'Altere a pesquisa ou a origem para ampliar os resultados.' : emptyDetail(tab)}</span></div>}
     </div>
   </section>
+}
+
+function TaskMetric({ label, value, icon, danger = false }: { label: string; value: number; icon: 'list' | 'play' | 'alert' | 'check'; danger?: boolean }) {
+  return <div className={`project-task-metric ${danger ? 'danger' : ''}`}><span><Icon name={icon} size={12}/>{label}</span><b>{value}</b></div>
 }
 
 function TaskTab({ id, label, icon, count, active, onClick }: { id: ProjectTaskTab; label: string; icon: 'list' | 'check' | 'archive'; count: number; active: boolean; onClick: () => void }) {
   return <button type="button" role="tab" aria-selected={active} aria-controls="project-task-panel" onClick={onClick} data-task-tab={id}><Icon name={icon} size={13}/><span className="semantic-tab-label">{label}</span><b>{count}</b></button>
 }
 
+function IntegratedExecutionQueue({ items, onError }: { items: ExecutionFIFOItem[]; onError?: (message: string) => void }) {
+  const [concurrency, setConcurrency] = useState<number>()
+  const [max, setMax] = useState(1)
+  const [busy, setBusy] = useState(false)
+  const running = items.filter((item) => item.status === 'running' || item.status === 'submitting')
+  const waiting = items.filter((item) => item.status === 'queued')
+  const recent = items.filter((item) => item.status === 'completed' || item.status === 'failed')
+
+  useEffect(() => {
+    let active = true
+    api.executionConcurrency().then((value) => { if (active) { setConcurrency(value.concurrency); setMax(value.max) } }).catch(() => undefined)
+    return () => { active = false }
+  }, [])
+
+  const apply = async (next: number) => {
+    setBusy(true)
+    try {
+      const value = await api.updateExecutionConcurrency(next)
+      setConcurrency(value.concurrency); setMax(value.max)
+    } catch (error) {
+      onError?.(error instanceof Error ? error.message : 'Não foi possível alterar a concorrência')
+    } finally { setBusy(false) }
+  }
+
+  return <section className="project-task-fifo" aria-label="Execução FIFO integrada">
+    <header><div><span className="project-task-source source-system"><Icon name="terminal" size={11}/> Motor de execução</span><strong>Execução FIFO</strong><small>A ordem de execução e o limite de concorrência agora vivem junto das tarefas.</small></div><div className="project-task-fifo-summary"><span><b>{running.length}</b> ativas</span><span><b>{waiting.length}</b> à espera</span><span><b>{recent.length}</b> recentes</span></div></header>
+    {concurrency !== undefined ? <div className="project-task-concurrency"><span><strong>Execuções simultâneas</strong><small>Limite por projeto; cada slot reserva um clone.</small></span><label><span className="sr-only">Execuções simultâneas por projeto</span><select aria-label="Execuções simultâneas por projeto" value={concurrency} disabled={busy} onChange={(event) => void apply(Number(event.target.value))}>{Array.from({ length: max }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}</select><b>/ {max}</b></label></div> : null}
+    <div className="project-task-fifo-list">{items.length ? items.map((item) => <ExecutionQueueCard key={item.key} item={item}/>) : <p>Sem execuções ativas ou recentes. A próxima entrada FIFO aparecerá aqui.</p>}</div>
+  </section>
+}
+
+function ExecutionQueueCard({ item }: { item: ExecutionFIFOItem }) {
+  const state = executionQueueState(item)
+  const timestamp = item.completedAt || item.addedAt
+  return <article className={`project-task-fifo-card ${item.status}`}><span className="project-task-fifo-icon"><Icon name={state.icon} size={12}/></span><div><strong>{item.chatTitle}</strong><span><code>{item.planId}</code>{item.status === 'queued' ? <i>#{String(item.position || 1).padStart(2, '0')}</i> : null}</span><small><b>{state.label}</b> · {state.detail}</small></div><time dateTime={new Date(timestamp).toISOString()}>{new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></article>
+}
+
+function executionQueueState(item: ExecutionFIFOItem): { label: string; detail: string; icon: 'play' | 'check' | 'close' | 'terminal' } {
+  if (item.status === 'running') return { label: 'Em execução', detail: 'Processamento ativo neste momento', icon: 'play' }
+  if (item.status === 'submitting') return { label: 'A iniciar', detail: 'A reservar o próximo slot de execução', icon: 'terminal' }
+  if (item.status === 'queued') return { label: 'Na fila', detail: 'Em espera, com a ordem FIFO preservada', icon: 'terminal' }
+  if (item.status === 'completed') return { label: 'Concluída', detail: 'Execução terminada com sucesso', icon: 'check' }
+  return { label: 'Com erro', detail: 'Execução terminada com falha', icon: 'close' }
+}
+
 function ProjectTaskCard({ item, currentSession, activeChatId, activeEvents, onGoToChat }: { item: ProjectTask; currentSession: Session; activeChatId: string; activeEvents: HarnessEvent[]; onGoToChat?: (chatId?: string, sessionId?: string) => void }) {
   const [opened, setOpened] = useState(false)
   const state = projectTaskState(item)
   return <article className={`project-task-card ${item.disposition} ${item.failed ? 'failed' : ''}`}>
-    <div className="project-task-card-heading"><div><span className="project-task-state"><i aria-hidden="true"/>{state}</span><strong>{item.chat?.title || 'Main Request'}</strong></div><time dateTime={item.updatedAt}>{formatDate(item.updatedAt)}</time></div>
-    <p className="project-task-prompt">{item.prompt || 'Main Request registada sem texto de prompt disponível no payload durável.'}</p>
-    <div className="project-task-card-meta"><code>{item.rootRequestId}</code><span>{item.requests.length} {item.requests.length === 1 ? 'requisição GPT' : 'requisições GPT'}</span>{item.failed ? <span className="danger">Requer atenção</span> : null}</div>
+    <div className="project-task-card-heading"><div><div className="project-task-card-eyebrow"><span className={`project-task-source source-${item.source}`}>{sourceIcon(item.source)}{sourceLabel(item.source)}</span><span className="project-task-state"><i aria-hidden="true"/>{state}</span></div><strong>{item.title}</strong></div><time dateTime={item.updatedAt}>{formatDate(item.updatedAt)}</time></div>
+    <p className="project-task-prompt">{presentationPrompt(item.prompt) || standaloneFallback(item)}</p>
+    <div className="project-task-card-meta"><code>{item.rootRequestId}</code>{item.kind === 'request' ? <span>{item.requests.length} {item.requests.length === 1 ? 'requisição GPT' : 'requisições GPT'}</span> : <span>{taskTypeLabel(item.taskType)}</span>}{item.tasks[0]?.assigned_worker ? <span>Worker: {item.tasks[0].assigned_worker}</span> : null}{item.failed ? <span className="danger">Requer atenção</span> : null}</div>
     {onGoToChat && item.chatId ? <div className="project-task-actions"><button type="button" onClick={() => onGoToChat(item.chatId, item.sessionId)}><Icon name="bridge" size={12}/> Ver chat</button></div> : null}
-    <details className="project-task-details" onToggle={(event) => setOpened(event.currentTarget.open)}><summary><span>Plano, subtarefas, execuções e logs</span></summary>{opened ? <ProjectTaskDetail item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents}/> : null}</details>
+    <details className="project-task-details" onToggle={(event) => setOpened(event.currentTarget.open)}><summary><span>Detalhes, planos, execuções, logs e metadados</span></summary>{opened ? <ProjectTaskDetail item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents}/> : null}</details>
   </article>
 }
 
 function ProjectTaskDetail({ item, currentSession, activeChatId, activeEvents }: { item: ProjectTask; currentSession: Session; activeChatId: string; activeEvents: HarnessEvent[] }) {
+  return item.kind === 'standalone' ? <StandaloneTaskDetail item={item} currentSession={currentSession}/> : <RequestTaskDetail item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents}/>
+}
+
+function RequestTaskDetail({ item, currentSession, activeChatId, activeEvents }: { item: ProjectTask; currentSession: Session; activeChatId: string; activeEvents: HarnessEvent[] }) {
   const [history, setHistory] = useState<HarnessEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [historyError, setHistoryError] = useState('')
@@ -154,20 +237,42 @@ function ProjectTaskDetail({ item, currentSession, activeChatId, activeEvents }:
   const chat = item.chat || syntheticChat(item)
   const plans = useMemo(() => !session ? [] : collectPlanActivities([{ chat, session }], { [chat.id]: history }).filter((candidate) => rootForRequest(session, candidate.plan.request_id) === item.rootRequestId), [chat, history, item.rootRequestId, session])
   const executions = useMemo(() => !session ? [] : collectExecutionActivities([{ chat, session }], { [chat.id]: history }).filter((candidate) => rootForRequest(session, candidate.requestId) === item.rootRequestId || eventMatchesRoot(history, candidate.execution.plan_id, item.rootRequestId, session)), [chat, history, item.rootRequestId, session])
-  const rootEvents = useMemo(() => {
-    if (!session) return []
-    return groupMainRequestActivity(session, history).find((group) => group.rootRequestId === item.rootRequestId)?.events || []
-  }, [history, item.rootRequestId, session])
+  const rootEvents = useMemo(() => !session ? [] : groupMainRequestActivity(session, history).find((group) => group.rootRequestId === item.rootRequestId)?.events || [], [history, item.rootRequestId, session])
   const anchorTask = item.tasks.find((task) => task.type === 'AWAIT_RESPONSE' && (task.root_request_id || task.request_id) === item.rootRequestId) || item.tasks.find((task) => task.type === 'AWAIT_RESPONSE')
 
   return <div className="project-task-detail-grid">
     <section><header><Icon name="chatgpt" size={12}/><strong>Subtarefas GPT</strong><span>{item.requests.length}</span></header><div className="project-task-request-list">{item.requests.map((request) => <div key={request.requestId}><div><b>{request.requestId === item.rootRequestId ? 'Principal' : requestKindLabel(request.kind)}</b><code>{request.requestId}</code></div><span className={`request-state ${request.status.toLowerCase()}`}>{requestStatusLabel(request.status)}</span><small>{request.tasks.length} {request.tasks.length === 1 ? 'etapa de transporte' : 'etapas de transporte'} · {formatDate(request.createdAt)}</small></div>)}</div></section>
-    <section><header><Icon name="plan" size={12}/><strong>Planos de execução</strong><span>{plans.length}</span></header>{plans.length ? <div className="project-task-plan-list">{plans.map((plan) => <PlanHistory key={plan.id} item={plan}/>)}</div> : <p className="project-task-empty-detail">Nenhum plano foi registado para esta Main Request.</p>}</section>
-    <section><header><Icon name="history" size={12}/><strong>Execuções</strong><span>{executions.length}</span></header>{executions.length ? <div className="project-task-execution-list">{executions.map((execution) => <ExecutionHistory key={execution.id} item={execution} events={history}/>)}</div> : <p className="project-task-empty-detail">Nenhuma execução foi registada para esta Main Request.</p>}</section>
-    <section><header><Icon name="history" size={12}/><strong>Log completo da tarefa</strong><span>{rootEvents.length}</span></header>{loading ? <ContentSkeleton label="A carregar audit log" rows={4} compact/> : historyError ? <p className="project-task-empty-detail danger">{historyError}</p> : rootEvents.length ? <div className="project-task-terminal"><TerminalView events={rootEvents}/></div> : <p className="project-task-empty-detail">Sem eventos de auditoria correlacionados.</p>}</section>
+    <section><header><Icon name="plan" size={12}/><strong>Planos e subplanos</strong><span>{plans.length}</span></header>{plans.length ? <div className="project-task-plan-list">{plans.map((plan) => <PlanHistory key={plan.id} item={plan}/>)}</div> : <p className="project-task-empty-detail">Nenhum plano foi registado para esta Main Request.</p>}</section>
+    <section><header><Icon name="history" size={12}/><strong>Execuções e subexecuções</strong><span>{executions.length}</span></header>{executions.length ? <div className="project-task-execution-list">{executions.map((execution) => <ExecutionHistory key={execution.id} item={execution} events={history}/>)}</div> : <p className="project-task-empty-detail">Nenhuma execução foi registada para esta Main Request.</p>}</section>
+    <section><header><Icon name="history" size={12}/><strong>Processamento e logs</strong><span>{rootEvents.length}</span></header>{loading ? <ContentSkeleton label="A carregar audit log" rows={4} compact/> : historyError ? <p className="project-task-empty-detail danger">{historyError}</p> : rootEvents.length ? <div className="project-task-terminal"><TerminalView events={rootEvents}/></div> : <p className="project-task-empty-detail">Sem eventos de auditoria correlacionados.</p>}</section>
     {anchorTask ? <section><header><Icon name="agent" size={12}/><strong>Transporte ChatGPT</strong></header><ChatAgentTaskTimeline taskId={anchorTask.task_id} enabled/></section> : null}
   </div>
 }
+
+function StandaloneTaskDetail({ item, currentSession }: { item: ProjectTask; currentSession: Session }) {
+  const task = item.tasks[0]
+  const payload = objectValue(task?.payload)
+  const [runs, setRuns] = useState<OrchestratorTaskRun[]>([])
+  const isOrchestrator = item.source === 'orchestrator'
+  useEffect(() => {
+    let active = true
+    if (!isOrchestrator || !task?.task_id) return () => { active = false }
+    void api.orchestratorTaskRuns(currentSession.id, task.task_id).then((value) => { if (active) setRuns(value.runs || []) }).catch(() => undefined)
+    return () => { active = false }
+  }, [currentSession.id, isOrchestrator, task?.task_id, task?.updated_at])
+  const dependencies = stringList(payload.depends_on)
+  const criteria = stringList(payload.acceptance_criteria)
+  return <div className="project-task-detail-grid">
+    <section><header><Icon name="info" size={12}/><strong>Metadados</strong></header><dl className="project-task-metadata"><Meta label="Origem" value={sourceLabel(item.source)}/><Meta label="Tipo" value={taskTypeLabel(item.taskType)}/><Meta label="Estado" value={task?.status}/><Meta label="Prioridade" value={String(task?.priority ?? '—')}/><Meta label="Tentativa" value={`${task?.attempt ?? 0}/${task?.max_attempts ?? 0}`}/><Meta label="Worker" value={task?.assigned_worker || '—'}/><Meta label="Plano" value={task?.plan_id || String(payload.plan_id || '—')}/><Meta label="Condição" value={task?.condition || String(payload.condition || '—')}/></dl></section>
+    {dependencies.length || criteria.length ? <section><header><Icon name="plan" size={12}/><strong>Plano e dependências</strong></header>{dependencies.length ? <div className="project-task-detail-copy"><b>Dependências</b><p>{dependencies.join(', ')}</p></div> : null}{criteria.length ? <div className="project-task-detail-copy"><b>Critérios de conclusão</b><ul>{criteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul></div> : null}</section> : null}
+    {isOrchestrator ? <section><header><Icon name="history" size={12}/><strong>Execuções e subexecuções</strong><span>{runs.length}</span></header>{runs.length ? <div className="project-task-run-list">{runs.map((run) => <div key={run.id} className={run.error ? 'failed' : ''}><span>#{run.attempt}</span><div><strong>{run.status}</strong><small>{formatDate(run.started_at)}{run.execution_plan_id ? ` · ${run.execution_plan_id}` : ''}</small>{run.error ? <p>{run.error}</p> : null}</div></div>)}</div> : <p className="project-task-empty-detail">Nenhuma execução registada.</p>}</section> : null}
+    {task?.last_error ? <section className="project-task-error-detail"><header><Icon name="alert" size={12}/><strong>Último erro</strong></header><p>{task.last_error}</p></section> : null}
+    <section><header><Icon name="code" size={12}/><strong>Payload durável</strong></header><pre className="project-task-payload">{JSON.stringify(task?.payload ?? {}, null, 2)}</pre></section>
+    {task?.task_id && item.source !== 'orchestrator' ? <section><header><Icon name="agent" size={12}/><strong>Eventos da tarefa</strong></header><ChatAgentTaskTimeline taskId={task.task_id} enabled/></section> : null}
+  </div>
+}
+
+function Meta({ label, value }: { label: string; value: string | undefined }) { return <div><dt>{label}</dt><dd>{value || '—'}</dd></div> }
 
 function PlanHistory({ item }: { item: PlanActivityItem }) {
   return <details><summary><span><b>{item.plan.summary || item.plan.plan_id}</b><small>{item.label} · {formatDate(item.timestamp)}</small></span><code>{item.plan.plan_id}</code></summary><div className="project-task-plan-view"><PlanView session={sessionForPlan(item)} readOnly/></div></details>
@@ -183,13 +288,14 @@ function buildProjectTasks(tasks: ChatAgentTask[], chats: WorkspaceChat[], sessi
   const chatByID = new Map(chats.map((chat) => [chat.id, chat]))
   const archived = new Set(chats.filter((chat) => Boolean(chat.archivedAt)).map((chat) => chat.id))
   const groups = new Map<string, ChatAgentTask[]>()
+  const consumed = new Set<string>()
   for (const task of tasks) {
     if (!REQUEST_TASK_TYPES.has(task.type) || !task.request_id) continue
     const session = sessions[task.session_id]
     const root = session?.request_lineages?.[task.request_id]?.root_request_id || task.root_request_id || task.request_id
     const key = `${task.chat_id || task.session_id}:${root}`
     const bucket = groups.get(key) || []
-    bucket.push(task); groups.set(key, bucket)
+    bucket.push(task); groups.set(key, bucket); consumed.add(task.task_id)
   }
   const result: ProjectTask[] = []
   for (const [key, bucket] of groups) {
@@ -202,9 +308,23 @@ function buildProjectTasks(tasks: ChatAgentTask[], chats: WorkspaceChat[], sessi
     const failed = bucket.some((task) => FAILED.has(task.status))
     const disposition: ProjectTaskTab = archived.has(first.chat_id) ? 'archived' : active || failed ? 'queue' : 'completed'
     result.push({
-      key, rootRequestId, chatId: first.chat_id, sessionId: first.session_id,
+      key, kind: 'request', source: 'chat', title: chatByID.get(first.chat_id)?.title || first.title || 'Main Request', taskType: 'MAIN_REQUEST', rootRequestId, chatId: first.chat_id, sessionId: first.session_id,
       prompt: mainPrompt(bucket), createdAt: first.created_at, updatedAt: bucket.reduce((latest, task) => task.updated_at > latest ? task.updated_at : latest, first.updated_at),
       tasks: bucket, requests, disposition, failed, chat: chatByID.get(first.chat_id), session,
+    })
+  }
+  for (const task of tasks) {
+    if (consumed.has(task.task_id)) continue
+    const source = normalizeTaskSource(task)
+    const failed = FAILED.has(task.status) || task.condition === 'failed_run'
+    const disposition: ProjectTaskTab = task.status === 'ARCHIVED' || archived.has(task.chat_id) ? 'archived' : ACTIVE.has(task.status) || failed ? 'queue' : 'completed'
+    const payload = objectValue(task.payload)
+    result.push({
+      key: `task:${task.task_id}`, kind: 'standalone', source, title: task.title || taskTypeLabel(task.type), taskType: task.type,
+      rootRequestId: task.root_request_id || task.request_id || task.task_id, chatId: task.chat_id, sessionId: task.session_id,
+      prompt: task.description || firstText(payload.description, payload.objective, payload.prompt, payload.original_prompt), createdAt: task.created_at, updatedAt: task.updated_at,
+      tasks: [task], requests: task.request_id ? groupRequests([task], sessions[task.session_id], task.root_request_id || task.request_id) : [], disposition, failed,
+      chat: chatByID.get(task.chat_id), session: sessions[task.session_id],
     })
   }
   return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -213,87 +333,69 @@ function buildProjectTasks(tasks: ChatAgentTask[], chats: WorkspaceChat[], sessi
 function groupRequests(tasks: ChatAgentTask[], session: Session | undefined, rootRequestId: string): ProjectTask['requests'] {
   const groups = new Map<string, ChatAgentTask[]>()
   for (const task of tasks) {
+    if (!task.request_id) continue
     const bucket = groups.get(task.request_id) || []
     bucket.push(task); groups.set(task.request_id, bucket)
   }
-  return [...groups].map(([requestId, bucket]) => ({
-    requestId,
-    kind: requestId === rootRequestId ? 'standard' : session?.request_lineages?.[requestId]?.kind || 'continuation',
-    status: requestAggregateStatus(bucket),
-    createdAt: bucket.reduce((earliest, task) => task.created_at < earliest ? task.created_at : earliest, bucket[0].created_at),
-    tasks: bucket,
-  })).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  return [...groups].map(([requestId, bucket]) => ({ requestId, kind: requestId === rootRequestId ? 'standard' : session?.request_lineages?.[requestId]?.kind || 'continuation', status: requestAggregateStatus(bucket), createdAt: bucket.reduce((earliest, task) => task.created_at < earliest ? task.created_at : earliest, bucket[0].created_at), tasks: bucket })).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 }
 
 function requestAggregateStatus(tasks: ChatAgentTask[]) {
-  if (tasks.some((task) => task.status === 'RUNNING' || task.status === 'LEASED')) return 'RUNNING'
-  if (tasks.some((task) => task.status === 'PENDING' || task.status === 'WAITING')) return 'WAITING'
+  if (tasks.some((task) => task.status === 'RUNNING' || task.status === 'LEASED' || task.status === 'DOING')) return 'RUNNING'
+  if (tasks.some((task) => task.status === 'PENDING' || task.status === 'WAITING' || task.status === 'READY' || task.status === 'REVIEW')) return 'WAITING'
   if (tasks.some((task) => task.status === 'ATTENTION')) return 'ATTENTION'
   if (tasks.some((task) => task.status === 'FAILED')) return 'FAILED'
-  if (tasks.some((task) => task.status === 'DONE')) return 'DONE'
+  if (tasks.some((task) => task.status === 'DONE' || task.status === 'COMPLETE')) return 'DONE'
   return tasks[0]?.status || 'DONE'
 }
 
 function mainPrompt(tasks: ChatAgentTask[]) {
   for (const task of tasks) {
-    const payload = objectValue(task.payload)
-    const request = objectValue(payload.request)
+    const payload = objectValue(task.payload); const request = objectValue(payload.request)
     const value = firstText(payload.original_prompt, payload.prompt, request.text, request.prompt)
     if (value) return value
   }
   return ''
 }
 
-function objectValue(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  return value as Record<string, unknown>
+function normalizeTaskSource(task: ChatAgentTask): ProjectTaskSource {
+  const source = String(task.source || '').toLowerCase()
+  if (source.includes('orchestrat')) return 'orchestrator'
+  if (source.includes('translat') || task.type === 'TRANSLATE_MARKDOWN') return 'translation'
+  if (source.includes('release') || task.type === 'RELEASE_NOTES') return 'release'
+  if (source.includes('todo') || task.type === 'TODO_CLASSIFY') return 'todo'
+  if (source.includes('worker') || task.assigned_worker) return 'worker'
+  if (source.includes('chat') || REQUEST_TASK_TYPES.has(task.type)) return 'chat'
+  return 'system'
 }
+
+function sourceLabel(source: ProjectTaskSource) { return ({ chat: 'Chat', worker: 'Worker', translation: 'Tradução', release: 'Release', todo: 'TODO', orchestrator: 'Orquestração', system: 'Sistema' })[source] }
+function sourceIcon(source: ProjectTaskSource) {
+  if (source === 'chat') return <Icon name="chatgpt" size={11}/>
+  if (source === 'worker') return <Icon name="agent" size={11}/>
+  if (source === 'orchestrator') return <Icon name="plan" size={11}/>
+  if (source === 'translation') return <Icon name="file" size={11}/>
+  if (source === 'release') return <Icon name="package" size={11}/>
+  if (source === 'todo') return <Icon name="check" size={11}/>
+  return <Icon name="terminal" size={11}/>
+}
+function taskTypeLabel(type: string) { const labels: Record<string, string> = { TRANSLATE_MARKDOWN: 'Tradução Markdown', RELEASE_NOTES: 'Notas de release', TODO_CLASSIFY: 'Classificação TODO', ORCHESTRATOR_TASK: 'Tarefa orquestrada', ORCHESTRATOR_PLAN: 'Planeamento do orquestrador', BOT_WRITE: 'Resposta do chat', RECOVERY_WRITE: 'Recuperação do chat', AWAIT_RESPONSE: 'Aguardar resposta' }; return labels[type] || type.replaceAll('_', ' ').toLocaleLowerCase().replace(/^./, (value) => value.toLocaleUpperCase()) }
+function standaloneFallback(item: ProjectTask) { return item.kind === 'standalone' ? `${taskTypeLabel(item.taskType)} sem descrição adicional.` : 'Main Request registada sem texto de prompt disponível no payload durável.' }
+function presentationPrompt(value: string) {
+  const lines = value.split(/\r?\n/).filter((line) => !/^(WHARNEX (REQUEST METADATA|OUTPUT MODE)|EXPECTED_FILE:|Chat(Id|Hash|Title):|RequestedAt:|Do not answer this request|Build the required ZIP)/i.test(line.trim()))
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+function stringList(value: unknown) { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())) : [] }
+function objectValue(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) return {}; return value as Record<string, unknown> }
 function firstText(...values: unknown[]) { for (const value of values) if (typeof value === 'string' && value.trim()) return value.trim(); return '' }
-
-function rootForRequest(session: Session | undefined, requestId: string) {
-  if (!requestId) return ''
-  return session?.request_lineages?.[requestId]?.root_request_id || requestId
-}
-
-function eventBelongsToRoot(event: HarnessEvent, root: string, session: Session) {
-  const requestId = String(event.data?.request_id || '')
-  const eventRoot = String(event.data?.root_request_id || '')
-  return eventRoot === root || rootForRequest(session, requestId) === root
-}
-
-function eventMatchesRoot(events: HarnessEvent[], planId: string, root: string, session: Session) {
-  return events.some((event) => String(event.data?.plan_id || '') === planId && eventBelongsToRoot(event, root, session))
-}
-
-function mergeEvents(history: HarnessEvent[], live: HarnessEvent[]) {
-  const merged = new Map<string, HarnessEvent>()
-  for (const event of history) merged.set(event.id, event)
-  for (const event of live) merged.set(event.id, event)
-  return [...merged.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-}
-
-function syntheticChat(item: ProjectTask): WorkspaceChat {
-  return { id: item.chatId || item.key, title: item.chat?.title || 'Main Request', sessionId: item.sessionId, createdAt: item.createdAt, updatedAt: item.updatedAt }
-}
-
-function projectTaskState(item: ProjectTask) {
-  if (item.disposition === 'archived') return 'Arquivada'
-  if (item.failed) return 'Atenção'
-  if (item.disposition === 'queue') return 'Na fila'
-  return 'Concluída'
-}
-function requestStatusLabel(status: string) {
-  if (status === 'RUNNING' || status === 'LEASED') return 'Em execução'
-  if (status === 'WAITING' || status === 'PENDING') return 'Na fila'
-  if (status === 'ATTENTION') return 'Atenção'
-  if (status === 'FAILED') return 'Falhou'
-  if (status === 'CANCELLED') return 'Cancelada'
-  return 'Concluída'
-}
-function requestKindLabel(kind: string) {
-  const labels: Record<string, string> = { repair: 'Reparação', plan_approval: 'Aprovação', plan_correction: 'Correção do plano', execution_plan_adjustment: 'Ajuste de execução', revert_restore: 'Reversão', plan_reversal: 'Reversão do plano', improvement: 'Melhoria', evidence: 'Evidência', conflict: 'Conflito', knowledge_review: 'Conhecimento', knowledge_consolidation: 'Consolidação' }
-  return labels[kind] || 'Subtarefa'
-}
-function emptyTitle(tab: ProjectTaskTab) { return tab === 'queue' ? 'Fila vazia.' : tab === 'completed' ? 'Nenhuma tarefa concluída.' : 'Nenhuma tarefa arquivada.' }
-function emptyDetail(tab: ProjectTaskTab) { return tab === 'queue' ? 'As próximas Main Requests e continuações GPT aparecerão aqui.' : tab === 'completed' ? 'Tarefas finalizadas permanecem consultáveis com plano, execução e logs.' : 'As tarefas dos chats arquivados aparecerão aqui enquanto o histórico durável estiver disponível.' }
+function rootForRequest(session: Session | undefined, requestId: string) { if (!requestId) return ''; return session?.request_lineages?.[requestId]?.root_request_id || requestId }
+function eventBelongsToRoot(event: HarnessEvent, root: string, session: Session) { const requestId = String(event.data?.request_id || ''); const eventRoot = String(event.data?.root_request_id || ''); return eventRoot === root || rootForRequest(session, requestId) === root }
+function eventMatchesRoot(events: HarnessEvent[], planId: string, root: string, session: Session) { return events.some((event) => String(event.data?.plan_id || '') === planId && eventBelongsToRoot(event, root, session)) }
+function mergeEvents(history: HarnessEvent[], live: HarnessEvent[]) { const merged = new Map<string, HarnessEvent>(); for (const event of history) merged.set(event.id, event); for (const event of live) merged.set(event.id, event); return [...merged.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp)) }
+function syntheticChat(item: ProjectTask): WorkspaceChat { return { id: item.chatId || item.key, title: item.title, sessionId: item.sessionId, createdAt: item.createdAt, updatedAt: item.updatedAt } }
+function projectTaskState(item: ProjectTask) { if (item.disposition === 'archived') return 'Arquivada'; if (item.failed) return 'Atenção'; if (item.disposition === 'queue') return ACTIVE.has(item.tasks[0]?.status || '') ? requestStatusLabel(item.tasks[0]?.status || '') : 'Na fila'; return 'Concluída' }
+function requestStatusLabel(status: string) { if (status === 'RUNNING' || status === 'LEASED' || status === 'DOING') return 'Em execução'; if (status === 'WAITING' || status === 'PENDING' || status === 'READY' || status === 'REVIEW') return 'Na fila'; if (status === 'ATTENTION') return 'Atenção'; if (status === 'FAILED') return 'Falhou'; if (status === 'CANCELLED') return 'Cancelada'; return 'Concluída' }
+function requestKindLabel(kind: string) { const labels: Record<string, string> = { repair: 'Reparação', plan_approval: 'Aprovação', plan_correction: 'Correção do plano', execution_plan_adjustment: 'Ajuste de execução', revert_restore: 'Reversão', plan_reversal: 'Reversão do plano', improvement: 'Melhoria', evidence: 'Evidência', conflict: 'Conflito', knowledge_review: 'Conhecimento', knowledge_consolidation: 'Consolidação' }; return labels[kind] || 'Subtarefa' }
+function emptyTitle(tab: ProjectTaskTab) { return tab === 'queue' ? 'Nenhuma tarefa em curso.' : tab === 'completed' ? 'Nenhuma tarefa concluída.' : 'Nenhuma tarefa arquivada.' }
+function emptyDetail(tab: ProjectTaskTab) { return tab === 'queue' ? 'Chats, workers, traduções, releases e orquestrações aparecerão aqui quando tiverem trabalho.' : tab === 'completed' ? 'Tarefas finalizadas permanecem consultáveis com metadados e histórico.' : 'As tarefas arquivadas permanecem disponíveis para auditoria.' }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date) }

@@ -122,6 +122,13 @@ export const api = {
   // exists to answer whether *this* project is stuck (see adr/ADR-0044).
   chatAgentTasks: (activeOnly = false, projectPath = '', limit = 0) =>
     request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks${chatAgentQuery(activeOnly, projectPath, limit)}`),
+  projectTasks: (projectPath = '', limit = 500) => {
+    const query = new URLSearchParams()
+    if (projectPath) query.set('project_id', projectPath)
+    if (limit > 0) query.set('limit', String(limit))
+    const encoded = query.toString()
+    return request<{ tasks: ChatAgentTask[] }>(`/api/tasks${encoded ? `?${encoded}` : ''}`)
+  },
   chatAgentTasksForRequest: (requestID: string) => request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks?request_id=${encodeURIComponent(requestID)}&limit=50`),
   chatAgentTaskSummary: (projectPath = '') =>
     request<ChatAgentQueueSummary>(`/api/chat-agent/tasks/summary${projectPath ? `?project_id=${encodeURIComponent(projectPath)}` : ''}`),

@@ -514,6 +514,7 @@ export type ExecutionConcurrency = {
 export type ChatAgentTask = {
   task_id: string
   type: string
+  source?: string
   project_id: string
   chat_id: string
   session_id: string
@@ -521,6 +522,10 @@ export type ChatAgentTask = {
   root_request_id: string
   conversation_id: string
   parent_task_id: string
+  plan_id?: string
+  title?: string
+  description?: string
+  condition?: string
   priority: number
   status: 'PENDING' | 'LEASED' | 'RUNNING' | 'WAITING' | 'DONE' | 'FAILED' | 'ATTENTION' | 'CANCELLED' | string
   not_before: string

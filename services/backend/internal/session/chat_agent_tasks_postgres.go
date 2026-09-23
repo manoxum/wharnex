@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const chatAgentTaskColumns = `task_id,type,project_id,chat_id,session_id,request_id,root_request_id,conversation_id,parent_task_id,
+const chatAgentTaskColumns = `task_id,type,source,project_id,chat_id,session_id,request_id,root_request_id,conversation_id,parent_task_id,plan_id,title,description,condition,
 	priority,status,not_before,attempt,max_attempts,dedupe_key,assigned_worker,keep_flowing,lease_owner,lease_expires_at,payload,last_error,created_at,updated_at`
 
 func qualifiedChatAgentTaskColumns(alias string) string {
@@ -22,8 +22,8 @@ func scanChatAgentTask(scanner interface{ Scan(...any) error }) (ChatAgentTask, 
 	var task ChatAgentTask
 	var lease sql.NullTime
 	err := scanner.Scan(
-		&task.TaskID, &task.Type, &task.ProjectID, &task.ChatID, &task.SessionID, &task.RequestID,
-		&task.RootRequestID, &task.ConversationID, &task.ParentTaskID, &task.Priority, &task.Status,
+		&task.TaskID, &task.Type, &task.Source, &task.ProjectID, &task.ChatID, &task.SessionID, &task.RequestID,
+		&task.RootRequestID, &task.ConversationID, &task.ParentTaskID, &task.PlanID, &task.Title, &task.Description, &task.Condition, &task.Priority, &task.Status,
 		&task.NotBefore, &task.Attempt, &task.MaxAttempts, &task.DedupeKey, &task.AssignedWorker,
 		&task.KeepFlowing, &task.LeaseOwner, &lease, &task.Payload, &task.LastError, &task.CreatedAt, &task.UpdatedAt,
 	)
@@ -51,11 +51,11 @@ func (s *Store) postgresEnqueueChatAgentTask(task ChatAgentTask) (ChatAgentTask,
 		}
 	}
 	result, err := tx.Exec(`INSERT INTO harness_chat_agent_tasks (`+chatAgentTaskColumns+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'',false,'',NULL,$16,'',$17,$17)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'',false,'',NULL,$21,'',$22,$22)
 		ON CONFLICT DO NOTHING`,
-		task.TaskID, task.Type, task.ProjectID, task.ChatID, task.SessionID, task.RequestID,
-		task.RootRequestID, task.ConversationID, task.ParentTaskID, task.Priority, task.Status,
-		task.NotBefore, task.Attempt, task.MaxAttempts, task.DedupeKey, task.Payload, task.CreatedAt)
+		task.TaskID, task.Type, task.Source, task.ProjectID, task.ChatID, task.SessionID, task.RequestID,
+		task.RootRequestID, task.ConversationID, task.ParentTaskID, task.PlanID, task.Title, task.Description, task.Condition,
+		task.Priority, task.Status, task.NotBefore, task.Attempt, task.MaxAttempts, task.DedupeKey, task.Payload, task.CreatedAt)
 	if err != nil {
 		return ChatAgentTask{}, fmt.Errorf("persist chat agent task: %w", err)
 	}
@@ -329,4 +329,43 @@ func (s *Store) postgresCancelChatAgentLineage(rootRequestID string) (int, error
 	}
 	count, _ := result.RowsAffected()
 	return int(count), nil
+}
+
+func (s *Store) postgresListUnifiedTasks(filter ChatAgentTaskFilter) ([]ChatAgentTask, error) {
+	where := []string{"TRUE"}
+	args := make([]any, 0, 5)
+	add := func(column, value string) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		args = append(args, value)
+		where = append(where, fmt.Sprintf("%s=$%d", column, len(args)))
+	}
+	add("project_id", filter.ProjectID)
+	add("status", filter.Status)
+	if filter.ActiveOnly {
+		where = append(where, "status IN ('PENDING','LEASED','RUNNING','WAITING','READY','DOING','REVIEW')")
+	}
+	query := `SELECT ` + chatAgentTaskColumns + ` FROM harness_tasks WHERE ` +
+		strings.Join(where, " AND ") + ` ORDER BY updated_at DESC, task_id`
+	limit := filter.Limit
+	if limit <= 0 || limit > 1000 {
+		limit = 500
+	}
+	args = append(args, limit)
+	query += fmt.Sprintf(` LIMIT $%d`, len(args))
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list unified tasks: %w", err)
+	}
+	defer rows.Close()
+	items := make([]ChatAgentTask, 0, limit)
+	for rows.Next() {
+		task, scanErr := scanChatAgentTask(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan unified task: %w", scanErr)
+		}
+		items = append(items, task)
+	}
+	return items, rows.Err()
 }

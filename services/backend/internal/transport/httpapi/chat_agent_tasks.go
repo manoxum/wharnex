@@ -42,6 +42,25 @@ func (a *API) enqueueChatAgentTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, saved)
 }
 
+func (a *API) listUnifiedTasks(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	active := strings.TrimSpace(r.URL.Query().Get("active"))
+	items, err := a.store.ListUnifiedTasks(session.ChatAgentTaskFilter{
+		ProjectID:  r.URL.Query().Get("project_id"),
+		Status:     r.URL.Query().Get("status"),
+		ActiveOnly: active == "1" || strings.EqualFold(active, "true"),
+		Limit:      limit,
+	})
+	if err != nil {
+		writeChatAgentTaskError(w, err)
+		return
+	}
+	if items == nil {
+		items = []session.ChatAgentTask{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": items})
+}
+
 func (a *API) listChatAgentTasks(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	active := strings.TrimSpace(r.URL.Query().Get("active"))

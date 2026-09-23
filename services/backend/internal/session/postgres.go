@@ -156,9 +156,20 @@ CREATE TABLE IF NOT EXISTS harness_chat_agent_processing_samples (
 );
 CREATE INDEX IF NOT EXISTS harness_chat_agent_processing_samples_recent_idx
     ON harness_chat_agent_processing_samples (provider, created_at DESC);
-CREATE TABLE IF NOT EXISTS harness_chat_agent_tasks (
+DO $$
+BEGIN
+    IF to_regclass('public.harness_tasks') IS NULL
+       AND EXISTS (
+           SELECT 1 FROM pg_class
+           WHERE oid=to_regclass('public.harness_chat_agent_tasks') AND relkind='r'
+       ) THEN
+        ALTER TABLE harness_chat_agent_tasks RENAME TO harness_tasks;
+    END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS harness_tasks (
     task_id text PRIMARY KEY,
     type text NOT NULL,
+    source text NOT NULL DEFAULT 'chat',
     project_id text NOT NULL DEFAULT '',
     chat_id text NOT NULL DEFAULT '',
     session_id text NOT NULL DEFAULT '',
@@ -166,7 +177,11 @@ CREATE TABLE IF NOT EXISTS harness_chat_agent_tasks (
     root_request_id text NOT NULL DEFAULT '',
     conversation_id text NOT NULL DEFAULT '',
     parent_task_id text NOT NULL DEFAULT '',
-    priority integer NOT NULL,
+    plan_id text NOT NULL DEFAULT '',
+    title text NOT NULL DEFAULT '',
+    description text NOT NULL DEFAULT '',
+    condition text NOT NULL DEFAULT '',
+    priority integer NOT NULL DEFAULT 0,
     status text NOT NULL,
     not_before timestamptz NOT NULL DEFAULT now(),
     attempt integer NOT NULL DEFAULT 0,
@@ -181,32 +196,65 @@ CREATE TABLE IF NOT EXISTS harness_chat_agent_tasks (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE harness_chat_agent_tasks ADD COLUMN IF NOT EXISTS assigned_worker text NOT NULL DEFAULT '';
-ALTER TABLE harness_chat_agent_tasks ADD COLUMN IF NOT EXISTS keep_flowing boolean NOT NULL DEFAULT false;
-CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_ready_idx
-    ON harness_chat_agent_tasks (status, not_before, priority, created_at);
-CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_conversation_idx
-    ON harness_chat_agent_tasks (conversation_id, status);
-CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_request_idx
-    ON harness_chat_agent_tasks (root_request_id, request_id, status);
-CREATE INDEX IF NOT EXISTS harness_chat_agent_tasks_terminal_idx
-    ON harness_chat_agent_tasks (updated_at)
-    WHERE status IN ('DONE','FAILED','CANCELLED');
+ALTER TABLE harness_tasks ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'chat';
+ALTER TABLE harness_tasks ADD COLUMN IF NOT EXISTS plan_id text NOT NULL DEFAULT '';
+ALTER TABLE harness_tasks ADD COLUMN IF NOT EXISTS title text NOT NULL DEFAULT '';
+ALTER TABLE harness_tasks ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '';
+ALTER TABLE harness_tasks ADD COLUMN IF NOT EXISTS condition text NOT NULL DEFAULT '';
+ALTER TABLE harness_tasks ADD COLUMN IF NOT EXISTS assigned_worker text NOT NULL DEFAULT '';
+ALTER TABLE harness_tasks ADD COLUMN IF NOT EXISTS keep_flowing boolean NOT NULL DEFAULT false;
+UPDATE harness_tasks SET source=CASE
+    WHEN type='TRANSLATE_MARKDOWN' THEN 'translation'
+    WHEN type='RELEASE_NOTES' THEN 'release'
+    WHEN type='TODO_CLASSIFY' THEN 'todo'
+    WHEN type='ORCHESTRATOR_PLAN' THEN 'orchestration'
+    ELSE 'chat'
+END
+WHERE (source='' OR source='chat') AND source<>CASE
+    WHEN type='TRANSLATE_MARKDOWN' THEN 'translation'
+    WHEN type='RELEASE_NOTES' THEN 'release'
+    WHEN type='TODO_CLASSIFY' THEN 'todo'
+    WHEN type='ORCHESTRATOR_PLAN' THEN 'orchestration'
+    ELSE 'chat'
+END;
+DROP INDEX IF EXISTS harness_chat_agent_tasks_ready_idx;
+DROP INDEX IF EXISTS harness_chat_agent_tasks_conversation_idx;
+DROP INDEX IF EXISTS harness_chat_agent_tasks_request_idx;
+DROP INDEX IF EXISTS harness_chat_agent_tasks_terminal_idx;
+CREATE INDEX IF NOT EXISTS harness_tasks_ready_idx
+    ON harness_tasks (status, not_before, priority, created_at);
+CREATE INDEX IF NOT EXISTS harness_tasks_project_idx
+    ON harness_tasks (project_id, source, updated_at DESC, task_id);
+CREATE INDEX IF NOT EXISTS harness_tasks_conversation_idx
+    ON harness_tasks (conversation_id, status);
+CREATE INDEX IF NOT EXISTS harness_tasks_request_idx
+    ON harness_tasks (root_request_id, request_id, status);
+CREATE INDEX IF NOT EXISTS harness_tasks_terminal_idx
+    ON harness_tasks (updated_at)
+    WHERE status IN ('DONE','FAILED','CANCELLED','COMPLETE','ARCHIVED');
 DROP INDEX IF EXISTS harness_chat_agent_tasks_dedupe_active_idx;
+DROP INDEX IF EXISTS harness_chat_agent_tasks_dedupe_active_v2_idx;
 WITH ranked_active_tasks AS (
     SELECT task_id, row_number() OVER (PARTITION BY dedupe_key ORDER BY created_at, task_id) AS duplicate_rank
-    FROM harness_chat_agent_tasks
-    WHERE dedupe_key <> '' AND status IN ('PENDING','LEASED','RUNNING','WAITING')
+    FROM harness_tasks
+    WHERE source<>'orchestrator' AND dedupe_key <> '' AND status IN ('PENDING','LEASED','RUNNING','WAITING')
 )
-UPDATE harness_chat_agent_tasks AS task
+UPDATE harness_tasks AS task
 SET status='CANCELLED', lease_owner='', lease_expires_at=NULL,
     last_error='superseded duplicate active task during semantic-dedupe migration', updated_at=now()
 FROM ranked_active_tasks AS ranked
 WHERE task.task_id=ranked.task_id AND ranked.duplicate_rank > 1;
-CREATE UNIQUE INDEX IF NOT EXISTS harness_chat_agent_tasks_dedupe_active_v2_idx
-    ON harness_chat_agent_tasks (dedupe_key)
-    WHERE dedupe_key <> ''
+CREATE UNIQUE INDEX IF NOT EXISTS harness_tasks_dedupe_active_idx
+    ON harness_tasks (dedupe_key)
+    WHERE source<>'orchestrator' AND dedupe_key <> ''
       AND status IN ('PENDING','LEASED','RUNNING','WAITING');
+CREATE OR REPLACE VIEW harness_chat_agent_tasks AS
+SELECT task_id,type,source,project_id,chat_id,session_id,request_id,root_request_id,
+       conversation_id,parent_task_id,plan_id,title,description,condition,priority,
+       status,not_before,attempt,max_attempts,dedupe_key,assigned_worker,keep_flowing,
+       lease_owner,lease_expires_at,payload,last_error,created_at,updated_at
+FROM harness_tasks
+WHERE source<>'orchestrator';
 CREATE TABLE IF NOT EXISTS harness_chat_agent_task_events (
     id text PRIMARY KEY,
     task_id text NOT NULL,
@@ -377,7 +425,7 @@ func (s *Store) postgresList() ([]domain.Session, error) {
 }
 
 func (s *Store) postgresClear() error {
-	_, err := s.db.Exec(`TRUNCATE harness_chat_agent_tasks, harness_execution_errors, harness_events, harness_sessions`)
+	_, err := s.db.Exec(`TRUNCATE harness_tasks, harness_execution_errors, harness_events, harness_sessions CASCADE`)
 	return wrapPostgresError("clear sessions", err)
 }
 

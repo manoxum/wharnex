@@ -36,9 +36,9 @@ function DrawerFallback() {
   return <PanelSkeleton/>
 }
 
-export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'fifo' | 'evolution' | 'database' | 'docker' | 'errors' | ''
+export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'evolution' | 'database' | 'docker' | 'errors' | ''
 
-const DRAWERS: Exclude<Drawer, ''>[] = ['attention', 'archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'database', 'docker']
+const DRAWERS: Exclude<Drawer, ''>[] = ['attention', 'archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'evolution', 'database', 'docker']
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 44
@@ -113,7 +113,7 @@ export type WorkspaceSideRailProps = {
 type ToolMeta = { label: string; title: string; icon: ComponentProps<typeof Icon>['name']; drawer?: Exclude<Drawer, ''>; badge?: number }
 
 export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
-  const { session, busy, drawer, onDrawer, archivedChats, attentionItems, executionFIFO, activeExecutionCount, onError } = props
+  const { session, busy, drawer, onDrawer, archivedChats, attentionItems, executionFIFO, onError } = props
   const attentionHistoryItems = props.attentionHistoryItems || []
   const savedChats = props.savedChats || []
   const side = props.side || 'left'
@@ -160,9 +160,8 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     if (tool === 'knowledge') return { label: 'Conhecimento do projeto', title: 'Conhecimento adquirido', icon: 'knowledge', drawer: 'knowledge' }
     if (tool === 'git') return { label: 'Git do projeto', title: 'Git do projeto', icon: 'git', drawer: 'git', badge: pendingCommitCount }
     if (tool === 'agents') return { label: 'Gestão de agentes', title: 'Supervisor e Workers', icon: 'agent', drawer: 'agents' }
-    if (tool === 'tasks') return { label: 'Tarefas do projeto', title: 'Main Requests, subtarefas GPT, planos e execuções', icon: 'list', drawer: 'tasks' }
+    if (tool === 'tasks') return { label: 'Tarefas do projeto', title: 'Chats, workers, traduções, orquestração e execuções', icon: 'list', drawer: 'tasks' }
     if (tool === 'errors') return { label: 'Erros de execução', title: 'Ocorrências, causas, logs e soluções', icon: 'alert', drawer: 'errors' }
-    if (tool === 'fifo') return { label: 'Fila FIFO de execução', title: 'Fila FIFO de execução', icon: 'play', drawer: 'fifo', badge: activeExecutionCount }
     if (tool === 'evolution') return { label: 'Logs de auto-evolução', title: 'Logs e análise de auto-evolução', icon: 'refresh', drawer: 'evolution' }
     if (tool === 'database') return { label: 'Database connection', title: 'Database connection', icon: 'database', drawer: 'database' }
     if (tool === 'docker') return { label: 'Docker', title: 'Containers, imagens, volumes e redes', icon: 'container', drawer: 'docker' }
@@ -248,9 +247,8 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
         {candidate === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
         {candidate === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession} onResolveConflictWithGPT={props.onResolveConflictWithGPT}/> : null}
         {candidate === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
-        {candidate === 'tasks' ? <ProjectTasksDrawer projectPath={session.project_path} currentSession={session} chats={props.chats} savedChats={savedChats} archivedChats={archivedChats} activeChatId={props.activeChatId} activeEvents={props.activeEvents} onClose={close} onError={onError} onGoToChat={props.onGoToChat}/> : null}
+        {candidate === 'tasks' ? <ProjectTasksDrawer projectPath={session.project_path} currentSession={session} chats={props.chats} savedChats={savedChats} archivedChats={archivedChats} activeChatId={props.activeChatId} activeEvents={props.activeEvents} executionFIFO={executionFIFO} onClose={close} onError={onError} onGoToChat={props.onGoToChat}/> : null}
         {candidate === 'errors' ? <ExecutionErrorsDrawer chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} onClose={close}/> : null}
-        {candidate === 'fifo' ? <ExecutionQueueDrawer items={executionFIFO} onClose={close} onError={onError}/> : null}
         {candidate === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
         {candidate === 'database' ? <div className="workspace-database-drawer"><DatabaseExplorerPanel onError={onError}/><button type="button" className="workspace-right-close" onClick={close} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button></div> : null}
         {candidate === 'docker' ? <DockerServicesPanel session={session} onError={onError} onClose={close} onRunInTerminal={props.onRunInTerminal}/> : null}
@@ -294,14 +292,13 @@ function drawerPanelLabel(drawer: Exclude<Drawer, ''>) {
   if (drawer === 'agents') return 'Gestão de agentes'
   if (drawer === 'tasks') return 'Tarefas do projeto'
   if (drawer === 'errors') return 'Erros de execução'
-  if (drawer === 'fifo') return 'Fila FIFO de execução'
   if (drawer === 'evolution') return 'Logs de auto-evolução'
   if (drawer === 'database') return 'Database Studio'
   return 'Docker'
 }
 
 function isWorkspaceTool(value: string): value is WorkspaceTool {
-  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'terminal', 'database', 'docker'].includes(value)
+  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'evolution', 'terminal', 'database', 'docker'].includes(value)
 }
 function AttentionCenterDrawer({ items, historyItems, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; historyItems: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
   const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable' | 'history'>('all')
@@ -332,90 +329,4 @@ function AttentionCenterDrawer({ items, historyItems, activeChatId, busy, onOpen
       {filteredItems.length ? <AttentionList items={filteredItems} activeChatId={activeChatId} busy={busy} density="full" onOpen={onOpen} onAction={onAction}/> : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>{showingHistory ? 'Histórico vazio' : items.length ? 'Nenhum alerta neste filtro' : 'Nada requer atenção'}</strong><span>{showingHistory ? 'As tarefas concluídas que abrir ficam guardadas aqui.' : items.length ? 'Escolha outro filtro para rever os alertas ativos.' : 'Alertas de todos os chats abertos deste projeto aparecerão aqui.'}</span></div>}
     </div>
   </section>
-}
-
-// ExecutionConcurrencyControl exposes how many plans one project may verify at
-// the same time. It is deliberately presented next to the queue it governs, so
-// the ordered list and the limit that produces it are read together.
-//
-// Raising it is not free: each concurrent runner claims a full container
-// memory allowance plus a complete project clone, so the cost is stated rather
-// than left for the operator to discover through an out-of-disk failure.
-function ExecutionConcurrencyControl({ onError }: { onError?: (message: string) => void }) {
-  const [concurrency, setConcurrency] = useState<number>()
-  const [max, setMax] = useState(1)
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    api.executionConcurrency()
-      .then((value) => { if (active) { setConcurrency(value.concurrency); setMax(value.max) } })
-      .catch(() => { /* the queue itself stays usable without the knob */ })
-    return () => { active = false }
-  }, [])
-
-  const apply = async (next: number) => {
-    setBusy(true)
-    try {
-      const value = await api.updateExecutionConcurrency(next)
-      setConcurrency(value.concurrency)
-      setMax(value.max)
-    } catch (error) {
-      onError?.(error instanceof Error ? error.message : 'Não foi possível alterar a concorrência')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (concurrency === undefined) return null
-  return <div className="execution-queue-concurrency">
-    <div className="execution-queue-concurrency-copy">
-      <label htmlFor="execution-concurrency">Execuções simultâneas</label>
-      <small>Limite por projeto · cada execução reserva um clone</small>
-    </div>
-    <div className="execution-queue-concurrency-control">
-      <select id="execution-concurrency" aria-label="Execuções simultâneas por projeto" value={concurrency} disabled={busy}
-        onChange={(event) => void apply(Number(event.target.value))}>
-        {Array.from({ length: max }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}
-      </select>
-      <span>/ {max}</span>
-    </div>
-  </div>
-}
-
-function ExecutionQueueDrawer({ items, onClose, onError }: { items: ExecutionFIFOItem[]; onClose: () => void; onError?: (message: string) => void }) {
-  const running = items.filter((item) => item.status === 'running' || item.status === 'submitting')
-  const waiting = items.filter((item) => item.status === 'queued')
-  const recent = items.filter((item) => item.status === 'completed' || item.status === 'failed')
-  return <section className="execution-queue-drawer" aria-label="Fila FIFO de execução">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Execução do projeto</span><strong>Fila FIFO</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar fila"><Icon name="close" size={13}/></button></header>
-    <div className="execution-queue-overview" aria-label="Resumo da fila"><QueueMetric label="Em execução" value={running.length} tone="running"/><QueueMetric label="A aguardar" value={waiting.length} tone="queued"/><QueueMetric label="Recentes" value={recent.length} tone="completed"/></div>
-    <p className="execution-queue-hint">Mostra apenas chats ativos: trabalho em curso, pendente e as 5 últimas execuções terminadas.</p>
-    <ExecutionConcurrencyControl onError={onError}/>
-    <div className="execution-queue-list">{items.length ? items.map((item) => <ExecutionQueueCard key={item.key} item={item}/>) : <div className="agent-drawer-empty">Sem trabalho ativo ou recente. A próxima execução aparecerá aqui assim que entrar na fila.</div>}</div>
-  </section>
-}
-
-function QueueMetric({ label, value, tone }: { label: string; value: number; tone: 'running' | 'queued' | 'completed' }) {
-  return <div className={`execution-queue-metric ${tone}`}><i aria-hidden="true"/><span>{label}</span><b>{value}</b></div>
-}
-
-function ExecutionQueueCard({ item }: { item: ExecutionFIFOItem }) {
-  const state = executionQueueState(item)
-  const timestamp = item.completedAt || item.addedAt
-  return <article className={`execution-queue-card ${item.status}`}>
-    <div className="execution-queue-copy">
-      <div className="execution-queue-card-heading"><strong>{item.chatTitle}</strong><span className="execution-queue-state" aria-label={state.label}><Icon name={state.icon} size={11}/><b>{state.label}</b></span></div>
-      <span><code>{item.planId}</code><time dateTime={new Date(timestamp).toISOString()}>{new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>{item.status === 'queued' && <i className="execution-queue-order" aria-label={`Posição ${item.position || 1} na fila`}>#{String(item.position || 1).padStart(2, '0')}</i>}</span>
-      <small>{state.detail}</small>
-    </div>
-  </article>
-}
-
-function executionQueueState(item: ExecutionFIFOItem): { label: string; detail: string; icon: 'play' | 'check' | 'close' | 'terminal' } {
-  if (item.status === 'running') return { label: 'Em execução', detail: 'Processamento ativo neste momento', icon: 'play' }
-  if (item.status === 'submitting') return { label: 'A iniciar', detail: 'A reservar o próximo slot de execução', icon: 'terminal' }
-  if (item.status === 'queued') return { label: 'Na fila', detail: 'Em espera, com a ordem FIFO preservada', icon: 'terminal' }
-  if (item.status === 'completed') return { label: 'Concluída', detail: 'Execução terminada com sucesso', icon: 'check' }
-  return { label: 'Com erro', detail: 'Execução terminada com falha', icon: 'close' }
 }

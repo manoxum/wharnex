@@ -28,13 +28,13 @@ func (s *Store) postgresCreatePlan(ctx context.Context, plan Plan, tasks []Task)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO harness_orchestrator_tasks (id,project_path,plan_id,status,created_at,updated_at,payload) VALUES ($1,$2,$3,$4,$5,$6,$7)`, task.ID, task.ProjectPath, task.PlanID, task.Status, task.CreatedAt, task.UpdatedAt, payload); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO harness_tasks (task_id,type,source,project_id,plan_id,title,description,condition,priority,status,not_before,payload,created_at,updated_at) VALUES ($1,'ORCHESTRATOR_TASK','orchestrator',$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,$11)`, task.ID, task.ProjectPath, task.PlanID, task.Title, task.Description, task.Condition, orchestratorPriorityRank(task.Priority), task.Status, task.CreatedAt, payload, task.UpdatedAt); err != nil {
 			return fmt.Errorf("persist orchestrator task %s: %w", task.ID, err)
 		}
 	}
 	for _, task := range tasks {
 		for _, dependency := range task.DependsOn {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO harness_orchestrator_task_dependencies (task_id,depends_on_task_id) VALUES ($1,$2)`, task.ID, dependency); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO harness_task_dependencies (task_id,depends_on_task_id) VALUES ($1,$2)`, task.ID, dependency); err != nil {
 				return fmt.Errorf("persist dependency %s -> %s: %w", task.ID, dependency, err)
 			}
 		}

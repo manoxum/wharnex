@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Store) postgresListTasks(ctx context.Context, projectPath string) ([]Task, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT payload FROM harness_orchestrator_tasks WHERE project_path=$1 ORDER BY created_at,id`, projectPath)
+	rows, err := s.db.QueryContext(ctx, `SELECT payload FROM harness_tasks WHERE source='orchestrator' AND project_id=$1 ORDER BY created_at,task_id`, projectPath)
 	if err != nil {
 		return nil, fmt.Errorf("list orchestrator tasks: %w", err)
 	}
@@ -38,7 +38,7 @@ func (s *Store) postgresListTasks(ctx context.Context, projectPath string) ([]Ta
 
 func (s *Store) postgresGetTask(ctx context.Context, id string) (Task, error) {
 	var payload []byte
-	if err := s.db.QueryRowContext(ctx, `SELECT payload FROM harness_orchestrator_tasks WHERE id=$1`, id).Scan(&payload); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT payload FROM harness_tasks WHERE source='orchestrator' AND task_id=$1`, id).Scan(&payload); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, ErrNotFound
 		}
@@ -68,18 +68,18 @@ func (s *Store) postgresPutTask(ctx context.Context, task Task) error {
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `INSERT INTO harness_orchestrator_tasks (id,project_path,plan_id,status,created_at,updated_at,payload) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET project_path=EXCLUDED.project_path,plan_id=EXCLUDED.plan_id,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at,payload=EXCLUDED.payload`, task.ID, task.ProjectPath, task.PlanID, task.Status, task.CreatedAt, task.UpdatedAt, payload)
+	result, err := tx.ExecContext(ctx, `INSERT INTO harness_tasks (task_id,type,source,project_id,plan_id,title,description,condition,priority,status,not_before,payload,created_at,updated_at) VALUES ($1,'ORCHESTRATOR_TASK','orchestrator',$2,$3,$4,$5,$6,$7,$8,$9,$10,$9,$11) ON CONFLICT (task_id) DO UPDATE SET project_id=EXCLUDED.project_id,plan_id=EXCLUDED.plan_id,title=EXCLUDED.title,description=EXCLUDED.description,condition=EXCLUDED.condition,priority=EXCLUDED.priority,status=EXCLUDED.status,payload=EXCLUDED.payload,updated_at=EXCLUDED.updated_at`, task.ID, task.ProjectPath, task.PlanID, task.Title, task.Description, task.Condition, orchestratorPriorityRank(task.Priority), task.Status, task.CreatedAt, payload, task.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert orchestrator task: %w", err)
 	}
 	if count, _ := result.RowsAffected(); count == 0 {
 		return ErrNotFound
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM harness_orchestrator_task_dependencies WHERE task_id=$1`, task.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM harness_task_dependencies WHERE task_id=$1`, task.ID); err != nil {
 		return err
 	}
 	for _, dependency := range task.DependsOn {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO harness_orchestrator_task_dependencies (task_id,depends_on_task_id) VALUES ($1,$2)`, task.ID, dependency); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO harness_task_dependencies (task_id,depends_on_task_id) VALUES ($1,$2)`, task.ID, dependency); err != nil {
 			return fmt.Errorf("replace orchestrator dependency: %w", err)
 		}
 	}
@@ -87,7 +87,7 @@ func (s *Store) postgresPutTask(ctx context.Context, task Task) error {
 }
 
 func (s *Store) postgresDependencies(ctx context.Context, taskID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT depends_on_task_id FROM harness_orchestrator_task_dependencies WHERE task_id=$1 ORDER BY depends_on_task_id`, taskID)
+	rows, err := s.db.QueryContext(ctx, `SELECT depends_on_task_id FROM harness_task_dependencies WHERE task_id=$1 ORDER BY depends_on_task_id`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("read orchestrator dependencies: %w", err)
 	}

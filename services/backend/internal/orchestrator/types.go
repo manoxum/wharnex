@@ -136,3 +136,16 @@ type PlanningRequest struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+func orchestratorPriorityRank(priority Priority) int {
+	switch priority {
+	case PriorityUrgent:
+		return 0
+	case PriorityHigh:
+		return 10
+	case PriorityLow:
+		return 30
+	default:
+		return 20
+	}
+}

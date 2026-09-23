@@ -82,6 +82,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/chat-agent/provider", a.updateChatAgentProviderState)
 	mux.HandleFunc("POST /api/chat-agent/provider/rate-limit", a.recordChatAgentRateLimit)
 	mux.HandleFunc("POST /api/chat-agent/provider/valid-bundle", a.recordChatAgentValidBundle)
+	mux.HandleFunc("GET /api/tasks", a.listUnifiedTasks)
 	mux.HandleFunc("POST /api/chat-agent/tasks", a.enqueueChatAgentTask)
 	mux.HandleFunc("GET /api/chat-agent/tasks", a.listChatAgentTasks)
 	mux.HandleFunc("GET /api/chat-agent/tasks/summary", a.chatAgentTaskSummary)

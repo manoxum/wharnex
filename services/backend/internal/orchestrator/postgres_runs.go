@@ -11,7 +11,7 @@ func (s *Store) postgresAppendRun(ctx context.Context, run TaskRun) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO harness_orchestrator_task_runs (id,task_id,project_path,attempt,status,started_at,completed_at,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status,completed_at=EXCLUDED.completed_at,payload=EXCLUDED.payload`, run.ID, run.TaskID, run.ProjectPath, run.Attempt, run.Status, run.StartedAt, run.CompletedAt, payload)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO harness_task_runs (id,task_id,project_path,attempt,status,started_at,completed_at,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status,completed_at=EXCLUDED.completed_at,payload=EXCLUDED.payload`, run.ID, run.TaskID, run.ProjectPath, run.Attempt, run.Status, run.StartedAt, run.CompletedAt, payload)
 	if err != nil {
 		return fmt.Errorf("persist orchestrator task run: %w", err)
 	}
@@ -19,7 +19,7 @@ func (s *Store) postgresAppendRun(ctx context.Context, run TaskRun) error {
 }
 
 func (s *Store) postgresListRuns(ctx context.Context, taskID string) ([]TaskRun, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT payload FROM harness_orchestrator_task_runs WHERE task_id=$1 ORDER BY attempt,started_at,id`, taskID)
+	rows, err := s.db.QueryContext(ctx, `SELECT payload FROM harness_task_runs WHERE task_id=$1 ORDER BY attempt,started_at,id`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list orchestrator task runs: %w", err)
 	}
