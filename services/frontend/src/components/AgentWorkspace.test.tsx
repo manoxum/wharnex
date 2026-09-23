@@ -417,11 +417,12 @@ describe('AgentWorkspace', () => {
     expect(stream.scrollTop).toBe(140)
   }, 10_000)
 
-  it('keeps the FIFO discoverable even while it is empty and renders queued work in order', () => {
+  it('keeps the FIFO discoverable even while it is empty and renders queued work in order', async () => {
     const empty = props()
     const rendered = render(empty.element)
-    fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
-    expect(screen.getByText(/Sem trabalho ativo ou recente/)).toBeTruthy()
+    vi.spyOn(api, 'projectTasks').mockResolvedValue({ tasks: [] })
+    fireEvent.click(screen.getByRole('button', { name: 'Tarefas do projeto' }))
+    expect(await screen.findByText(/Sem execuções ativas ou recentes/)).toBeTruthy()
     rendered.rerender(<empty.Harness executionFIFO={[
       { key: 'one', chatId: 'chat-1', chatTitle: 'Principal', planId: 'plan-one', status: 'running', addedAt: 1 },
       { key: 'two', chatId: 'chat-2', chatTitle: 'Paralelo', planId: 'plan-two', status: 'queued', position: 2, addedAt: 2 },
@@ -436,8 +437,9 @@ describe('AgentWorkspace', () => {
   it('exposes the per-project execution concurrency next to the queue it governs', async () => {
     vi.spyOn(api, 'executionConcurrency').mockResolvedValue({ concurrency: 1, max: 8 })
     const update = vi.spyOn(api, 'updateExecutionConcurrency').mockResolvedValue({ concurrency: 3, max: 8 })
+    vi.spyOn(api, 'projectTasks').mockResolvedValue({ tasks: [] })
     render(props().element)
-    fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tarefas do projeto' }))
     const input = await screen.findByLabelText('Execuções simultâneas por projeto')
     expect(input.tagName).toBe('SELECT')
     expect((input as HTMLSelectElement).value).toBe('1')
@@ -448,9 +450,10 @@ describe('AgentWorkspace', () => {
 
   it('keeps the execution queue usable when the concurrency limit cannot be read', async () => {
     vi.spyOn(api, 'executionConcurrency').mockRejectedValue(new Error('backend unavailable'))
+    vi.spyOn(api, 'projectTasks').mockResolvedValue({ tasks: [] })
     render(props().element)
-    fireEvent.click(screen.getByRole('button', { name: 'Fila FIFO de execução' }))
-    expect(screen.getByText(/Sem trabalho ativo ou recente/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Tarefas do projeto' }))
+    expect(await screen.findByText(/Sem execuções ativas ou recentes/)).toBeTruthy()
     await waitFor(() => expect(screen.queryByLabelText('Execuções simultâneas por projeto')).toBeNull())
   })
 

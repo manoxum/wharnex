@@ -4,7 +4,7 @@ const WORKBENCH_STATE_VERSION = 1
 const STORAGE_PREFIX = 'whx.workbench.layout.v1'
 const LEGACY_DRAWER_WIDTH_PREFIX = 'whx.workspace.drawer-width'
 
-export type WorkbenchSideTool = '' | 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'errors' | 'fifo' | 'evolution' | 'database' | 'docker'
+export type WorkbenchSideTool = '' | 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'errors' | 'evolution' | 'database' | 'docker'
 export type WorkbenchPanelState = { open: boolean; collapsed: boolean; size: number; tool?: WorkbenchSideTool }
 export type WorkbenchState = {
   version: 1
@@ -92,6 +92,6 @@ function legacyDrawerWidth(side: 'left' | 'right') {
   } catch { return 0 }
 }
 function clamp(value: number, min: number, max: number) { return Math.max(min, Math.min(max, Math.round(value))) }
-function isWorkbenchSideTool(value: unknown): value is WorkbenchSideTool { return typeof value === 'string' && ['', 'attention', 'archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'database', 'docker'].includes(value) }
+function isWorkbenchSideTool(value: unknown): value is WorkbenchSideTool { return typeof value === 'string' && ['', 'attention', 'archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'evolution', 'database', 'docker'].includes(value) }
 function storageKey(projectPath: string) { return `${STORAGE_PREFIX}:${projectPath}` }
 function cloneDefault(): WorkbenchState { return JSON.parse(JSON.stringify(DEFAULT_WORKBENCH_STATE)) as WorkbenchState }

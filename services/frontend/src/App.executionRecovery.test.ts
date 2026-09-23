@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import source from './App.tsx?raw'
 import apiSource from './lib/api.ts?raw'
 import railSource from './components/WorkspaceSideRail.tsx?raw'
+import taskSource from './components/ProjectTasksDrawer.tsx?raw'
 import recoverySource from './components/InterruptedExecutionRecovery.tsx?raw'
 
 describe('interrupted execution recovery', () => {
@@ -27,8 +28,10 @@ describe('interrupted execution recovery', () => {
     expect(source).toMatch(/execution\.queued/)
     expect(source).toMatch(/execution\.dequeued/)
     expect(source).toMatch(/executionFIFO=\{visibleExecutionFIFO\}/)
-    // The FIFO drawer lives in the shared side rail, beside every mode.
-    expect(railSource).toMatch(/Fila FIFO de execução/)
+    expect(railSource).toMatch(/executionFIFO=\{executionFIFO\}/)
+    expect(railSource).not.toMatch(/Fila FIFO de execução/)
+    expect(taskSource).toMatch(/Execução FIFO/)
+    expect(taskSource).toMatch(/projectTasks\(projectPath, 500\)/)
   })
 
   it('routes evidence analysis through a dedicated self-evolution chat', () => {

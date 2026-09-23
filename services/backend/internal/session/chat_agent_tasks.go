@@ -30,6 +30,7 @@ var (
 type ChatAgentTask struct {
 	TaskID         string          `json:"task_id"`
 	Type           string          `json:"type"`
+	Source         string          `json:"source"`
 	ProjectID      string          `json:"project_id"`
 	ChatID         string          `json:"chat_id"`
 	SessionID      string          `json:"session_id"`
@@ -37,6 +38,10 @@ type ChatAgentTask struct {
 	RootRequestID  string          `json:"root_request_id"`
 	ConversationID string          `json:"conversation_id"`
 	ParentTaskID   string          `json:"parent_task_id"`
+	PlanID         string          `json:"plan_id"`
+	Title          string          `json:"title"`
+	Description    string          `json:"description"`
+	Condition      string          `json:"condition"`
 	Priority       int             `json:"priority"`
 	Status         string          `json:"status"`
 	NotBefore      time.Time       `json:"not_before"`
@@ -62,6 +67,21 @@ type ChatAgentTaskFilter struct {
 	Status     string
 	ActiveOnly bool
 	Limit      int
+}
+
+func chatAgentTaskSource(taskType string) string {
+	switch taskType {
+	case "TRANSLATE_MARKDOWN":
+		return "translation"
+	case "RELEASE_NOTES":
+		return "release"
+	case "TODO_CLASSIFY":
+		return "todo"
+	case "ORCHESTRATOR_PLAN":
+		return "orchestration"
+	default:
+		return "chat"
+	}
 }
 
 var chatAgentPriorities = map[string]int{
@@ -102,6 +122,7 @@ func normalizeChatAgentTask(task ChatAgentTask, now time.Time) (ChatAgentTask, e
 	if task.TaskID == "" {
 		task.TaskID = newChatAgentTaskID()
 	}
+	task.Source = chatAgentTaskSource(task.Type)
 	task.ProjectID = normalizeChatAgentProjectID(task.ProjectID)
 	task.ChatID = strings.TrimSpace(task.ChatID)
 	task.SessionID = strings.TrimSpace(task.SessionID)
@@ -109,6 +130,10 @@ func normalizeChatAgentTask(task ChatAgentTask, now time.Time) (ChatAgentTask, e
 	task.RootRequestID = strings.TrimSpace(task.RootRequestID)
 	task.ConversationID = strings.TrimSpace(task.ConversationID)
 	task.ParentTaskID = strings.TrimSpace(task.ParentTaskID)
+	task.PlanID = strings.TrimSpace(task.PlanID)
+	task.Title = strings.TrimSpace(task.Title)
+	task.Description = strings.TrimSpace(task.Description)
+	task.Condition = strings.TrimSpace(task.Condition)
 	task.DedupeKey = strings.TrimSpace(task.DedupeKey)
 	// Routing is an operator action applied after enqueue. Never trust task
 	// producers to smuggle a Worker pin or temporary Keep flowing policy in the
@@ -372,4 +397,20 @@ func (s *Store) ListChatAgentTasks(filter ChatAgentTaskFilter) ([]ChatAgentTask,
 		items = items[:filter.Limit]
 	}
 	return items, nil
+}
+
+// ListUnifiedTasks exposes the project-wide task ledger. The normal chat-agent
+// queue APIs intentionally keep their historical queue semantics, while this
+// reader also includes orchestrator tasks stored in the same canonical table.
+func (s *Store) ListUnifiedTasks(filter ChatAgentTaskFilter) ([]ChatAgentTask, error) {
+	if strings.TrimSpace(filter.ProjectID) != "" {
+		filter.ProjectID = normalizeChatAgentProjectID(filter.ProjectID)
+		if filter.ProjectID == "" {
+			return []ChatAgentTask{}, nil
+		}
+	}
+	if s.db != nil {
+		return s.postgresListUnifiedTasks(filter)
+	}
+	return s.ListChatAgentTasks(filter)
 }
