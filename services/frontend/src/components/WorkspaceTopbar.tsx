@@ -4,7 +4,6 @@ import { Icon } from './Icon'
 import { QuickSwitcher } from './QuickSwitcher'
 import { ProjectGitBadge } from './ProjectGitBadge'
 import { SignalCore } from './SignalCore'
-import { isRemoteApp } from '../lib/remoteApp'
 
 export function WorkspaceTopbar({ config, session, mode, executionMode, automationMode, attention, restartPending = false, restartBlocked = false, busy, onMode, onAttention, onRestartPending, onSettings, onClose, onSession }: {
   config?: AppConfig
@@ -34,7 +33,7 @@ export function WorkspaceTopbar({ config, session, mode, executionMode, automati
     <div className="workspace-switches">
       <ProjectGitBadge session={session} busy={busy} onSession={onSession} />
       <div className="mode-switch" role="group" aria-label="Modo do workspace">
-        {!isRemoteApp && <button className={mode === 'editor' ? 'active' : ''} aria-label="Editor" title="Editor" onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={15}/></button>}
+        <button className={mode === 'editor' ? 'active' : ''} aria-label="Editor" title="Editor" onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={15}/></button>
         <button className={mode === 'agent' ? 'active' : ''} aria-label="Agent" title="Agent" onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={15}/></button>
         <button className={mode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" title="Orchestrator" onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={15}/></button>
       </div>

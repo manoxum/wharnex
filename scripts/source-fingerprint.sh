@@ -23,7 +23,7 @@ hash_inputs() {
     do
       [ -f "$file" ] && sha256sum "$file"
     done
-    for directory in "$ROOT/schemas" "$ROOT/scripts" "$ROOT/docker" "$ROOT/services/backend" "$ROOT/services/tunnel" "$ROOT/services/frontend" "$ROOT/services/desktop"; do
+    for directory in "$ROOT/schemas" "$ROOT/scripts" "$ROOT/docker" "$ROOT/services/backend" "$ROOT/services/tunnel" "$ROOT/services/frontend" "$ROOT/services/webapp" "$ROOT/services/desktop"; do
       [ -d "$directory" ] || continue
       find "$directory" -type f \
         ! -path '*/node_modules/*' \

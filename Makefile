@@ -10,16 +10,16 @@ HOST_PTY_BIN := $(DIST_DIR)/bin/wharnex-host-pty
 BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 
-.PHONY: reset-data clean-all help deps deps-unlocked deps-status deps-refresh deps-refresh-unlocked build-status build-refresh storage-prune storage-reclaim runner-deps build build-stage build-stage-unlocked build-all build-backend build-frontend build-desktop build-runner build-plan stack-build \
-	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check desktop-check lifecycle-check check test start stop restart status logs \
+.PHONY: reset-data clean-all help deps deps-unlocked deps-status deps-refresh deps-refresh-unlocked build-status build-refresh storage-prune storage-reclaim runner-deps build build-stage build-stage-unlocked build-all build-backend build-frontend build-webapp build-desktop build-runner build-plan stack-build \
+	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check webapp-check desktop-check lifecycle-check check test start stop restart status logs \
 	electron-runtime-check electron-runtime-install electron-runtime-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
-	run-backend run-frontend run-desktop install-dev clean export export-check
+	run-backend run-frontend run-webapp run-desktop install-dev clean export export-check
 
 help:
 	@printf '%s\n' \
 		'Wharnex lifecycle:' \
-		'  make build    Build application/stack/runner images and reconcile backend/frontend services' \
+		'  make build    Build application/stack/runner images and reconcile backend/frontend/webapp services' \
 		'  make build-stage  Build artifacts/images without replacing running services (self-evolution)' \
 		'  make deps-status   Show dependency fingerprint cache state' \
 		'  make deps-refresh  Force deterministic dependency re-hydration' \
@@ -44,7 +44,7 @@ help:
 		'  make status   Show Desktop + Compose service status' \
 		'  make logs     Show categorized frontend, Electron, ChatGPT and self-evolution logs' \
 		'                SOURCE=chatgpt FILTER=error FOLLOW=1 TAIL=200' \
-		'  make check    Run backend/frontend/desktop quality checks' \
+		'  make check    Run backend/frontend/webapp/desktop quality checks' \
 		'' \
 		'Data reset (destructive):' \
 		'  make reset-data   Drop every Wharnex table, empty the artifact bucket and reset' \
@@ -124,6 +124,12 @@ build-frontend:
 		"$(ROOT_DIR)/scripts/build-cache.sh" run frontend sh -c \
 		'cd "$(ROOT_DIR)/services/frontend" && npm run build'
 
+build-webapp:
+	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_BUILD_CACHE_DIR="$(BUILD_CACHE_DIR)" \
+		WHARNESS_BUILD_BASELINE_STAMP="$(BUILD_BASELINE_STAMP)" WHARNESS_BUILD_FORCE="$(WHARNESS_BUILD_FORCE)" \
+		"$(ROOT_DIR)/scripts/build-cache.sh" run webapp sh -c \
+		'cd "$(ROOT_DIR)/services/webapp" && npm run build'
+
 build-desktop:
 	@WHARNESS_ROOT="$(ROOT_DIR)" WHARNESS_BUILD_CACHE_DIR="$(BUILD_CACHE_DIR)" \
 		WHARNESS_BUILD_BASELINE_STAMP="$(BUILD_BASELINE_STAMP)" WHARNESS_BUILD_FORCE="$(WHARNESS_BUILD_FORCE)" \
@@ -144,7 +150,7 @@ build-stage-unlocked:
 	@if [ -f "$(BUILD_STAMP)" ]; then cp -p "$(BUILD_STAMP)" "$(BUILD_BASELINE_STAMP)"; fi
 	@rm -f "$(BUILD_STAMP)"
 	@$(MAKE) --no-print-directory deps-unlocked
-	@$(MAKE) --no-print-directory -j"$(BUILD_JOBS)" build-backend build-frontend build-desktop
+	@$(MAKE) --no-print-directory -j"$(BUILD_JOBS)" build-backend build-frontend build-webapp build-desktop
 	@$(MAKE) --no-print-directory stack-build
 	@touch "$(BUILD_STAMP)"
 	@rm -f "$(BUILD_BASELINE_STAMP)"
@@ -156,7 +162,7 @@ build: build-stage
 	@$(MAKE) --no-print-directory storage-prune
 	@$(MAKE) --no-print-directory storage-reclaim
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/source-fingerprint.sh" write
-	@printf '\nWharness build complete; backend/frontend reconciled and durable tunnel/database preserved.\n'
+	@printf '\nWharness build complete; backend/frontend/webapp reconciled and durable tunnel/database preserved.\n'
 
 storage-prune:
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/storage-prune.sh"
@@ -174,7 +180,7 @@ build-all:
 	@printf '\nWharness complete build lifecycle finished.\n'
 
 build-plan:
-	@printf '%s\n' deps build-backend build-frontend build-desktop stack-build build-runner
+	@printf '%s\n' deps build-backend build-frontend build-webapp build-desktop stack-build build-runner
 
 stack-build:
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" build
@@ -200,6 +206,9 @@ backend-check:
 frontend-check:
 	cd "$(ROOT_DIR)/services/frontend" && npm run typecheck && npm run lint && npm test -- --run && npm run build
 
+webapp-check:
+	cd "$(ROOT_DIR)/services/webapp" && npm run typecheck && npm test && npm run build
+
 desktop-check:
 	cd "$(ROOT_DIR)/services/desktop" && npm run check
 
@@ -213,6 +222,7 @@ file-size-check:
 check:
 	@$(MAKE) --no-print-directory backend-check
 	@$(MAKE) --no-print-directory frontend-check
+	@$(MAKE) --no-print-directory webapp-check
 	@$(MAKE) --no-print-directory desktop-check
 	@$(MAKE) --no-print-directory lifecycle-check
 	@$(MAKE) --no-print-directory export-check
@@ -264,6 +274,9 @@ run-backend:
 run-frontend:
 	cd "$(ROOT_DIR)/services/frontend" && npm run dev
 
+run-webapp:
+	cd "$(ROOT_DIR)/services/webapp" && npm run dev
+
 run-desktop:
 	cd "$(ROOT_DIR)/services/desktop" && npm run dev
 
@@ -272,7 +285,7 @@ run-desktop:
 # explicitly confirmed target, so rebuilding never costs anyone their sessions.
 clean:
 	@$(MAKE) --no-print-directory stop || true
-	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs" \
+	rm -rf "$(DIST_DIR)" "$(ROOT_DIR)/services/frontend/dist" "$(ROOT_DIR)/services/webapp/dist" "$(ROOT_DIR)/.harness/run" "$(ROOT_DIR)/.harness/logs" \
 		"$(BUILD_CACHE_DIR)" "$(BUILD_STAMP)" "$(BUILD_BASELINE_STAMP)"
 
 # Destroys this checkout's runtime data: every Wharnex table, every artifact

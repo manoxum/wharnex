@@ -119,7 +119,7 @@ func TestTransactionPersistsSelectiveActivationImpactsAcrossExtensions(t *testin
 	}
 }
 
-func TestGatewayChangesActivateFrontendSurface(t *testing.T) {
+func TestGatewayChangesActivateGatewaySurface(t *testing.T) {
 	impacts := activationImpacts([]string{`diff --git a/services/gateway/nginx.conf b/services/gateway/nginx.conf
 --- a/services/gateway/nginx.conf
 +++ b/services/gateway/nginx.conf
@@ -127,8 +127,28 @@ func TestGatewayChangesActivateFrontendSurface(t *testing.T) {
 -old
 +new
 `})
-	if strings.Join(impacts, ",") != "frontend" {
+	if strings.Join(impacts, ",") != "gateway" {
 		t.Fatalf("gateway patch impacts = %#v", impacts)
+	}
+}
+
+func TestWebappChangesActivateOnlyWebappSurface(t *testing.T) {
+	impacts := activationImpacts([]string{`diff --git a/services/webapp/src/App.tsx b/services/webapp/src/App.tsx
+--- a/services/webapp/src/App.tsx
++++ b/services/webapp/src/App.tsx
+@@ -1 +1 @@
+-old
++new
+`})
+	if strings.Join(impacts, ",") != "webapp" {
+		t.Fatalf("webapp patch impacts = %#v", impacts)
+	}
+}
+
+func TestRecoveredActivationImpactsCoverIndependentWebappAndGateway(t *testing.T) {
+	impacts := recoveredActivationImpacts(nil)
+	if strings.Join(impacts, ",") != "backend,desktop,frontend,gateway,tunnel,webapp" {
+		t.Fatalf("recovered default impacts = %#v", impacts)
 	}
 }
 

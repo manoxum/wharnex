@@ -469,7 +469,9 @@ activate_selected_services() {
   for service in "$@"; do
     case "$service" in
       backend|tunnel) expanded="$expanded $service" ;;
-      frontend) expanded="$expanded frontend webapp gateway" ;;
+      frontend) expanded="$expanded frontend gateway" ;;
+      webapp) expanded="$expanded webapp gateway" ;;
+      gateway) expanded="$expanded gateway" ;;
       *) echo "Invalid Wharnex activation service: $service" >&2; return 2 ;;
     esac
   done
@@ -542,7 +544,7 @@ case ${1:-} in
     fi
     ;;
   *)
-    echo 'usage: stack.sh prepare|build|ensure|up|activate-app|activate-services [backend|frontend|tunnel]...|stop|down|status|logs' >&2
+    echo 'usage: stack.sh prepare|build|ensure|up|activate-app|activate-services [backend|frontend|webapp|gateway|tunnel]...|stop|down|status|logs' >&2
     exit 2
     ;;
 esac

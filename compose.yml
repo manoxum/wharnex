@@ -142,7 +142,6 @@ services:
       context: ./services/frontend
       args:
         VITE_API_URL: ""
-        VITE_REMOTE_APP: "false"
         VITE_WHARNESS_INSTANCE_ID: "${WHARNESS_INSTANCE_ID:-}"
     restart: unless-stopped
     depends_on:
@@ -162,11 +161,7 @@ services:
   webapp:
     image: "wharness-webapp:${WHARNESS_STACK_ID}"
     build:
-      context: ./services/frontend
-      args:
-        VITE_API_URL: ""
-        VITE_REMOTE_APP: "true"
-        VITE_WHARNESS_INSTANCE_ID: "${WHARNESS_INSTANCE_ID:-}"
+      context: ./services/webapp
     restart: unless-stopped
     depends_on:
       backend:

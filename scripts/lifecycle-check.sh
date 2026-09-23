@@ -27,6 +27,7 @@ BACKEND_DOCKERFILE="$ROOT/services/backend/Dockerfile"
 TUNNEL_DOCKERFILE="$ROOT/services/tunnel/Dockerfile"
 COMPOSE="$ROOT/compose.yml"
 FRONTEND_NGINX="$ROOT/services/frontend/nginx.conf"
+WEBAPP_NGINX="$ROOT/services/webapp/nginx.conf"
 
 section() {
   target=$1
@@ -221,24 +222,29 @@ if grep -Eq 'flock[[:space:]]+-w' "$STACK" || ! grep -Fq 'flock -n 9' "$STACK" |
   echo 'lifecycle regression: mutating Compose operations must use a portable bounded lock per checkout' >&2
   exit 1
 fi
-if ! grep -Fq -- '--no-deps backend frontend' "$STACK"; then
-  echo 'lifecycle regression: backend/frontend rollout must not recreate durable dependencies' >&2
+if ! grep -Fq -- '--no-deps backend frontend webapp gateway' "$STACK"; then
+  echo 'lifecycle regression: application rollout must not recreate durable dependencies' >&2
   exit 1
 fi
 if ! grep -Fq -- '--force-recreate' "$STACK"; then
-  echo 'lifecycle regression: application activation must force backend/frontend onto the freshly tagged images' >&2
+  echo 'lifecycle regression: application activation must force backend/frontend/webapp onto the freshly tagged images' >&2
   exit 1
 fi
-if ! grep -Fq 'desired_frontend=$(docker image inspect' "$STACK" || ! grep -Fq 'running_frontend=$(docker inspect' "$STACK"; then
-  echo 'lifecycle regression: application activation must verify the running frontend image id' >&2
+if ! grep -Fq 'desired_frontend=$(docker image inspect' "$STACK" || ! grep -Fq 'running_frontend=$(docker inspect' "$STACK" || \
+   ! grep -Fq 'desired_webapp=$(docker image inspect' "$STACK" || ! grep -Fq 'running_webapp=$(docker inspect' "$STACK"; then
+  echo 'lifecycle regression: application activation must verify frontend and webapp image ids' >&2
   exit 1
 fi
-if ! grep -Fq 'service_ready backend 1 && service_ready frontend 1' "$STACK"; then
+if ! grep -Fq 'service_ready backend 1 && service_ready frontend 1 && service_ready webapp 1 && service_ready gateway 1' "$STACK"; then
   echo 'lifecycle regression: a healthy stack on requested images must skip an unnecessary application rollout' >&2
   exit 1
 fi
 if ! grep -Fq 'Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always' "$FRONTEND_NGINX"; then
   echo 'lifecycle regression: frontend index.html must not be served from a stale HTTP cache' >&2
+  exit 1
+fi
+if ! grep -Fq 'try_files $uri $uri/ /index.html' "$WEBAPP_NGINX"; then
+  echo 'lifecycle regression: remote webapp must retain SPA fallback routing' >&2
   exit 1
 fi
 if ! grep -Fq 'activate_application' "$STACK" || ! grep -Fq 'docker image tag "$old_backend" "$BACKEND_IMAGE"' "$STACK"; then
@@ -253,7 +259,7 @@ if ! grep -Fq 'stack-postgres-reconciled-v2' "$STACK" || ! grep -Fq -- '--on-con
   echo 'lifecycle regression: PostgreSQL logical reconciliation fence is missing' >&2
   exit 1
 fi
-for service in database tunnel backend frontend; do
+for service in database tunnel backend frontend webapp gateway; do
   grep -Eq "^[[:space:]]{2}${service}:" "$COMPOSE" || { echo "lifecycle regression: Compose service $service is missing" >&2; exit 1; }
 done
 if grep -Eq '^[[:space:]]{2}desktop:' "$COMPOSE"; then
@@ -390,6 +396,14 @@ if ! grep -Fq 'services/frontend/dist/index.html' "$BUILD_CACHE"; then
 fi
 if ! grep -Fq 'services/frontend/dist/monaco/vs/loader.js' "$BUILD_CACHE"; then
   echo 'lifecycle regression: frontend cache hit must require the precompiled Monaco runtime' >&2
+  exit 1
+fi
+if ! grep -Fq 'build-cache.sh" run webapp' "$MAKEFILE"; then
+  echo 'lifecycle regression: webapp production build must use the artifact fingerprint cache' >&2
+  exit 1
+fi
+if ! grep -Fq 'services/webapp/dist/index.html' "$BUILD_CACHE"; then
+  echo 'lifecycle regression: webapp cache hit must require the production artifact' >&2
   exit 1
 fi
 if ! grep -Fq 'build-previous-success' "$MAKEFILE"; then

@@ -87,6 +87,18 @@ frontend_fingerprint() {
   } | hash_stream
 }
 
+webapp_fingerprint() {
+  service="$ROOT/services/webapp"
+  {
+    node --version
+    npm --version
+    printf 'NODE_ENV=%s\n' "${NODE_ENV:-}"
+    hash_named_files "$service" package.json package-lock.json index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json
+    printf '[src]\n'
+    hash_tree "$service/src"
+  } | hash_stream
+}
+
 desktop_fingerprint() {
   service="$ROOT/services/desktop"
   {
@@ -105,6 +117,7 @@ fingerprint() {
   case "$1" in
     backend) backend_fingerprint ;;
     frontend) frontend_fingerprint ;;
+    webapp) webapp_fingerprint ;;
     desktop) desktop_fingerprint ;;
     *) echo "unknown build component: $1" >&2; exit 2 ;;
   esac
@@ -120,6 +133,9 @@ output_ready() {
       [ -s "$ROOT/services/frontend/dist/index.html" ] &&
         [ -s "$ROOT/services/frontend/dist/monaco/vs/loader.js" ] &&
         [ -s "$ROOT/services/frontend/dist/monaco/vs/editor/editor.main.js" ]
+      ;;
+    webapp)
+      [ -s "$ROOT/services/webapp/dist/index.html" ]
       ;;
     desktop)
       electron_root="$ROOT/services/desktop/node_modules/electron"
@@ -151,6 +167,14 @@ has_newer_inputs() {
       for dir in src public; do
         if [ -d "$service/$dir" ] && find "$service/$dir" -type f -newer "$baseline" -print -quit | grep -q .; then return 0; fi
       done
+      return 1
+      ;;
+    webapp)
+      service="$ROOT/services/webapp"
+      for file in package.json package-lock.json index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json; do
+        if [ -f "$service/$file" ] && [ "$service/$file" -nt "$baseline" ]; then return 0; fi
+      done
+      if [ -d "$service/src" ] && find "$service/src" -type f -newer "$baseline" -print -quit | grep -q .; then return 0; fi
       return 1
       ;;
     desktop)
@@ -201,7 +225,7 @@ build_component() {
 }
 
 show_status() {
-  for component in backend frontend desktop; do
+  for component in backend frontend webapp desktop; do
     current=$(fingerprint "$component")
     stamp="$CACHE_DIR/$component.sha256"
     if stamp_matches "$stamp" "$current" && output_ready "$component"; then
@@ -222,10 +246,10 @@ require grep
 
 case "$ACTION" in
   run)
-    [ -n "$COMPONENT" ] || { echo "usage: $0 run <backend|frontend|desktop> command..." >&2; exit 2; }
+    [ -n "$COMPONENT" ] || { echo "usage: $0 run <backend|frontend|webapp|desktop> command..." >&2; exit 2; }
     case "$COMPONENT" in
       backend) require go ;;
-      frontend|desktop) require node; require npm ;;
+      frontend|webapp|desktop) require node; require npm ;;
       *) echo "unknown build component: $COMPONENT" >&2; exit 2 ;;
     esac
     shift 2

@@ -3,7 +3,9 @@
 This document is the authoritative detail behind `AGENTS.md` §4's styling
 rules (see `adr/ADR-0066`). It governs how `services/frontend` styling is
 built and where it lives; `SoT/UI_UX.md` remains authoritative for what the
-UI must look like and how it must behave.
+UI must look like and how it must behave. The independent `services/webapp`
+remote application is Tailwind-first and owns its own styling entry point;
+these legacy Desktop stylesheet-location rules do not make it a frontend build mode.
 
 ## 1. Current state (measured 2026-09-22)
 

@@ -13,7 +13,7 @@ The requested remote surface also needs privileged product actions such as sendi
 Wharnex adopts one gateway plus an explicit pairing session.
 
 - `services/gateway` is the only host-published application ingress in the canonical stack, on loopback port 6969 by default. The backend and frontend are internal-only. Desktop uses this same-origin gateway.
-- The same frontend source produces a dedicated `webapp` build. Remote mode exposes only Agent and Orchestrator as top-level workspace modes; browser automation still executes exclusively in Desktop.
+- `services/frontend` remains the Desktop/local workbench. `services/webapp` is a separate React + Tailwind application with its own package, lockfile, build and container image; browser automation still executes exclusively in Desktop.
 - Nginx has a local listener and an internal-only remote listener. The local listener clears `X-Wharnex-Remote`; the remote listener sets it. The tunnel daemon proxies ordinary public application paths only to that trusted internal remote listener.
 - Exact request-channel paths, exact stored objects, tunnel readiness and `/status` remain tunnel-owned and take precedence over the remote app proxy.
 - Pairing begins only from the trusted local UI. The backend mints a short-lived single-use random code and returns a remote pairing URL/QR. Claim exchanges that code for a random session cookie; only token digests are persisted in private state.
@@ -24,6 +24,6 @@ Wharnex adopts one gateway plus an explicit pairing session.
 
 There is one local application origin instead of separately published frontend/backend origins, and public remote management reuses the existing tunnel rather than opening another host port. The public tunnel becomes both the request-bundle transport and, when configured, the paired remote application ingress, while its unguessable request resources retain route precedence.
 
-The remote webapp can reuse existing backend capabilities and durable task scheduling without owning any ChatGPT renderer. Security-sensitive behavior remains centralized in the backend/Desktop boundaries already covered by Policy. A copied public URL alone is insufficient for remote API use; a local pairing action is additionally required.
+The remote webapp can reuse the paired backend capabilities without importing or compiling the Desktop frontend and without owning any ChatGPT renderer. Security-sensitive behavior remains centralized in the backend/Desktop boundaries already covered by Policy. A copied public URL alone is insufficient for remote API use; a local pairing action is additionally required.
 
-The frontend Tailwind bootstrap lands with this surface because the new/modified remote UI is required to use the incremental Tailwind path. Preflight remains disabled, utilities resolve through existing theme/scale tokens, and untouched legacy UI remains governed by its existing unlayered CSS.
+The remote surface owns its Tailwind bootstrap inside `services/webapp`; the Desktop frontend keeps its own incremental migration rules and is not compiled as part of the remote image. This preserves independent dependency/build boundaries while leaving untouched legacy Desktop UI governed by its existing styling stack.
