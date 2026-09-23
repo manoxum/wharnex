@@ -17,7 +17,10 @@ export function WorkerFollowViewer({ agentId, onStop, onError }: { agentId: stri
   onErrorRef.current = onError
   const [overlayBlocked, setOverlayBlocked] = useState(false)
 
-  useEffect(() => observeChatGPTOverlayBlockers(window, setOverlayBlocked), [])
+  useEffect(() => observeChatGPTOverlayBlockers(window, (blocked) => {
+    if (blocked) void bridge?.closeInteraction(agentId).catch(() => {})
+    setOverlayBlocked(blocked)
+  }), [bridge, agentId])
 
   useEffect(() => {
     const host = hostRef.current

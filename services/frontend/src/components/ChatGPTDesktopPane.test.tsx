@@ -155,6 +155,14 @@ describe('ChatGPTDesktopPane', () => {
     await waitFor(() => expect(desktop.agents.openInteraction).toHaveBeenCalledWith('worker-1', expect.objectContaining({ width: expect.any(Number), height: expect.any(Number) })))
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalledWith('chat-1'))
 
+    const blocker = document.createElement('div')
+    blocker.setAttribute('data-chatgpt-overlay-blocker', 'true')
+    document.body.appendChild(blocker)
+    await waitFor(() => expect(desktop.agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
+    const openCalls = vi.mocked(desktop.agents.openInteraction).mock.calls.length
+    blocker.remove()
+    await waitFor(() => expect(vi.mocked(desktop.agents.openInteraction).mock.calls.length).toBeGreaterThan(openCalls))
+
     screen.getByRole('button', { name: 'Parar de seguir' }).click()
     await waitFor(() => expect(desktop.agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())

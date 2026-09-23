@@ -33,7 +33,10 @@ export function DirectChatGPTPane({ projectPath, suspended = false }: { projectP
     return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', sync); unsubscribe(); void bridge.chatgpt.hide(key) }
   }, [acceptState, bridge, key])
 
-  useEffect(() => observeChatGPTOverlayBlockers(window, setOverlayBlocked), [])
+  useEffect(() => observeChatGPTOverlayBlockers(window, (blocked) => {
+    if (blocked) void bridge?.chatgpt.hide(key)
+    setOverlayBlocked(blocked)
+  }), [bridge, key])
 
   useEffect(() => {
     if (!bridge || !hostRef.current) return

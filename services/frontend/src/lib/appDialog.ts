@@ -68,6 +68,7 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
     const backdrop = document.createElement('div')
     backdrop.className = 'app-dialog-backdrop internal-window-layer'
     backdrop.dataset.internalWindowState = 'open'
+    backdrop.dataset.chatgptOverlayBlocker = 'true'
 
     const shell = document.createElement('div')
     shell.className = 'internal-window-shell'
@@ -205,6 +206,7 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
     minimizeButton.addEventListener('click', () => {
       backdrop.classList.add('is-minimized')
       backdrop.dataset.internalWindowState = 'minimized'
+      delete backdrop.dataset.chatgptOverlayBlocker
       backdrop.setAttribute('aria-hidden', 'true')
       if (!dockRoot || dockItem) return
       dockItem = document.createElement('div')
@@ -223,6 +225,7 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
         dockItem = undefined
         backdrop.classList.remove('is-minimized')
         backdrop.dataset.internalWindowState = 'open'
+        backdrop.dataset.chatgptOverlayBlocker = 'true'
         backdrop.removeAttribute('aria-hidden')
       })
       const dockClose = document.createElement('button')

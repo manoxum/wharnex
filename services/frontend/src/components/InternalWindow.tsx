@@ -71,6 +71,7 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
   const layer = <div
     className={`internal-window-layer ${layerClassName} ${minimized ? 'is-minimized' : ''}`.trim()}
     data-internal-window-state={minimized ? 'minimized' : 'open'}
+    data-chatgpt-overlay-blocker={minimized ? undefined : 'true'}
     aria-hidden={minimized || undefined}
   >
     <div ref={shellRef} className="internal-window-shell" onKeyDown={(event) => {
