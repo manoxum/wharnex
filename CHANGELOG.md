@@ -1,4 +1,21 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat 30e2e96e-2ca0-44c5-a747-03d9020ba265 (2026-09-23)
+
+_(reserved — no entries yet)_
+
+
+### Estabilização do tray Desktop (2026-09-22)
+
+- Corrige o ícone do tray e todos os glifos do menu, que eram imagens vazias. `nativeImage` só descodifica PNG e JPEG, por isso o candidato `.svg` instalado, o *data URL* `image/svg+xml` de recurso em `resolveDesktopIcon()` e cada `icon:` do menu do painel de controlo produziam uma imagem vazia: os ícones do menu nunca chegaram a aparecer, e num host sem o raster instalado o próprio ícone do tray desaparecia. O símbolo Wharnex e os glifos passam a ser rasterizados em processo para PNG real (`icon-png.mjs` codifica, `icon-canvas.mjs` desenha por *signed distance fields*), sem qualquer dependência nova. Comparado com a renderização do SVG pelo Chrome, o resultado é ~3× mais fiel do que o do ImageMagick (RMSE 0,050 contra 0,144).
+- Deixa `scripts/install-dev.sh` de depender do `convert` do ImageMagick para produzir o raster 256×256 que o tray e a entrada `.desktop` preferem: sem ImageMagick no host, esse PNG simplesmente não existia e a entrada caía para o SVG. Passa a ser gerado pelo mesmo rasterizador através de `services/desktop/write-desktop-icon.mjs`, como `AGENTS.md` §11 exige de uma tarefa de ciclo de vida. `scripts/install-dev-check.sh` deixa de tornar essa verificação condicional.
+- Impede que uma falha a criar o tray derrube quem a pediu. `ensure()` é chamado a partir do fecho-para-background e de `window-all-closed`; uma exceção aí deixava uma janela que se recusa a esconder. Passa a ser reportada e retentada no `ensure()` seguinte.
+- Reconstrói o menu no máximo uma vez por janela de 150 ms e ignora a reconstrução quando nada do que é desenhado mudou. O *polling* da sessão e a difusão do estado dos agentes chegam ambos ao tray, pelo que um projeto ocupado reconstruía o menu várias vezes por segundo — no Linux isso reexporta o menu DBus inteiro e pode fechar um menu que o operador tem aberto. Os glifos passam também a ser criados uma só vez por nome/cor em vez de um `NativeImage` por item por reconstrução.
+- Liberta o estado de um projeto fechado (`forgetProject` existia mas nunca era chamado, pelo que o menu mantinha o estado de projetos mortos e o mapa crescia durante toda a vida do processo) e destrói o tray em `before-quit`, para o ícone não sobreviver ao processo no painel do Linux.
+- Mantém por ler uma notificação que não conseguiu chegar ao seu projeto. Era marcada como lida antes de a janela responder, por isso deixava de contar como não lida e o clique no tray nunca mais a oferecia.
+- O ícone do tray passa a ser pedido a 22 px no Linux (o tamanho de painel do `hicolor`) e a 16 px nas outras plataformas, com `quality: 'best'`, em vez de um redimensionamento fixo para 18 px a partir de 256 px.
+- Aplica a mesma correção ao ícone do *splash* do lançador, que tinha exatamente o mesmo recurso SVG vazio.
+
+
 ### Chat ca38be4e-f983-46fa-890e-df7d488ba348 (2026-09-22)
 
 - Evolui o tray Desktop para um mini painel de controlo com cor por projeto, ícones de ação, notificações, estado/pausa de Workers, controlos rápidos de plano/execução e acesso ao painel de túneis.
