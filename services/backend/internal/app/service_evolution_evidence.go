@@ -1,10 +1,7 @@
 package app
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -84,56 +81,6 @@ func (s *Service) EvolutionEvidence(sessionID string) (EvolutionEvidence, error)
 		counts[event.Category]++
 	}
 	return EvolutionEvidence{Events: events, Counts: counts, Projects: sortedKeys(projects), Categories: sortedKeys(categories), Total: total, Truncated: truncated}, nil
-}
-
-func (s *Service) PrepareEvolutionAnalysis(ctx context.Context, sessionID string, selectedIDs ...string) (domain.Session, EvolutionEvidence, error) {
-	evidence, err := s.EvolutionEvidence(sessionID)
-	if err != nil {
-		return domain.Session{}, evidence, err
-	}
-	selected := make(map[string]struct{}, len(selectedIDs))
-	for _, id := range selectedIDs {
-		selected[strings.TrimSpace(id)] = struct{}{}
-	}
-	reviewEvents := make([]EvolutionEvidenceEvent, 0, len(evidence.Events))
-	for _, event := range evidence.Events {
-		if len(selected) == 0 {
-			reviewEvents = append(reviewEvents, event)
-			continue
-		}
-		if _, ok := selected[event.ID]; ok {
-			reviewEvents = append(reviewEvents, event)
-		}
-	}
-	if len(reviewEvents) == 0 {
-		return domain.Session{}, evidence, errors.New("no unresolved operational evidence was selected")
-	}
-	if len(reviewEvents) > 500 {
-		reviewEvents = reviewEvents[len(reviewEvents)-500:]
-	}
-	raw, err := json.Marshal(reviewEvents)
-	if err != nil {
-		return domain.Session{}, evidence, fmt.Errorf("encode operational evidence: %w", err)
-	}
-	message := strings.Join([]string{
-		"WHX OPERATIONAL SELF-EVOLUTION REVIEW",
-		"Analyze only the selected unresolved evidence below, across all projects. Correlate every claim to evidence ids. Propose a focused plan-first change without weakening Policy or isolation. After the implementation is verified, return the exact evidence ids actually resolved under a `resolved_evidence_ids` list; never claim unrelated or merely observed events as resolved.",
-		fmt.Sprintf("Unresolved total: %d; selected and included: %d; truncated: %t", evidence.Total, len(reviewEvents), evidence.Truncated), string(raw),
-	}, "\n\n")
-	_, updated, err := s.SubmitMessageWithMode(ctx, sessionID, message, "plan_first")
-	if err != nil {
-		return updated, evidence, err
-	}
-	ids := make([]string, 0, len(reviewEvents))
-	for _, event := range reviewEvents {
-		ids = append(ids, event.ID)
-	}
-	updated, err = s.store.Update(sessionID, func(item *domain.Session) error { item.EvidenceReviewIDs = append([]string(nil), ids...); return nil })
-	if err != nil {
-		return updated, evidence, err
-	}
-	s.bus.Publish(sessionID, "self_evolution.analysis_prepared", map[string]any{"request_id": updated.LastRequestID, "evidence_total": evidence.Total, "evidence_included": len(reviewEvents), "evidence_ids": ids, "truncated": evidence.Truncated})
-	return updated, evidence, nil
 }
 
 func (s *Service) ResolveEvolutionEvidence(sessionID string, ids []string) (EvolutionEvidence, error) {

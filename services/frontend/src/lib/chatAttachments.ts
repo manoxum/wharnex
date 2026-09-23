@@ -68,7 +68,7 @@ function fileKey(file: File) {
   return `${file.name}\u0000${file.size}\u0000${file.lastModified}`
 }
 
-function fileBase64(file: File) {
+export function fileBase64(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(new Error(`Não foi possível ler “${file.name}”.`))
