@@ -97,39 +97,6 @@ func startProcessTerminal(cmd *exec.Cmd, options TerminalOptions, cleanup func()
 	return terminal, nil
 }
 
-func terminalShell() string {
-	if shell := strings.TrimSpace(os.Getenv("SHELL")); filepath.IsAbs(shell) {
-		if info, err := os.Stat(shell); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-			return shell
-		}
-	}
-	for _, shell := range []string{"/bin/bash", "/bin/sh"} {
-		if _, err := os.Stat(shell); err == nil {
-			return shell
-		}
-	}
-	return "/bin/sh"
-}
-
-func localTerminalCommand(workspace Workspace, options TerminalOptions) (*exec.Cmd, error) {
-	cwd, err := safeWorkspaceCwd(workspace.Path, options.Cwd)
-	if err != nil {
-		return nil, err
-	}
-	shell := terminalShell()
-	cmd := exec.Command(shell, interactiveShellArgs(shell)...)
-	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
-	return cmd, nil
-}
-
-func interactiveShellArgs(shell string) []string {
-	if filepath.Base(shell) == "bash" {
-		return []string{"--login", "-i"}
-	}
-	return []string{"-l"}
-}
-
 func (r *HostRunner) StartInteractive(workspace Workspace, options TerminalOptions, onOutput func([]byte), onExit func(int, error)) (InteractiveTerminal, error) {
 	if socketPath := strings.TrimSpace(os.Getenv("HARNESS_HOST_PTY_SOCKET")); socketPath != "" {
 		return startBridgedHostTerminal(socketPath, workspace, options, onOutput, onExit)
