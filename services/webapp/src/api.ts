@@ -1,7 +1,7 @@
 import type {
   AgentProviderState, AgentQueueSummary, AppConfig, Artifact, AttentionRecord, ChatItem, ChatItemWire, EvolutionEvidence, ExecutionError, FileEntry, KnowledgeCatalog, OrchestratorOverview, OrchestratorProposalResult,
   OrchestratorRunResult, PostgresCatalog, PostgresConnection, PostgresQueryResult, ProjectConfig, ProjectTodo, QueueTask, RemoteDispatchInput, RemoteInputConfig, RequestMode, Session, StorageUsage,
-  TunnelTestResult, WorkspaceChat,
+  TunnelTestResult, UIPreferences, WorkspaceChat,
 } from './types'
 
 export class APIError extends Error { constructor(public readonly status: number, message: string) { super(message) } }
@@ -16,6 +16,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   config: () => request<AppConfig>('/api/config'),
+  uiPreferences: () => request<UIPreferences>('/api/ui-preferences'),
   pairingStatus: () => request<{ paired: boolean; remote: boolean }>('/api/pairing/status'),
   claimPairing: (code: string) => request('/api/pairing/claim', { method: 'POST', body: JSON.stringify({ code }) }),
   endPairing: () => request<void>('/api/pairing/session', { method: 'DELETE' }),
