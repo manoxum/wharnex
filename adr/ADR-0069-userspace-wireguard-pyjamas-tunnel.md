@@ -53,9 +53,14 @@ Wharnex cannot adopt the documented procedure:
   `*.tunnel.pyjam.as` HTTPS origin. A widened `AllowedIPs`, a routable address,
   a foreign endpoint or a foreign origin is rejected rather than tolerated.
 - The provisioning request refuses redirects and reads a bounded response.
-- The provider is temporary, never permanent-DNS. The service allocates a new
-  address, peer and slug per run and keeps no state across its own restarts, so
-  the pool document MUST NOT carry a `public_url` or any account field for it.
+- The provider is temporary, never permanent-DNS. The pool document MUST NOT
+  carry a `public_url` or any account field for it. After the first allocation,
+  the validated WireGuard document is retained as private provider state in
+  `tunnel.conf` (mode `0600`), including its originally requested local port.
+  A backend restart reuses that document and port, preserving the allocated
+  slug without another provisioning request. A missing document is the only
+  condition that allocates a new tunnel; an invalid saved document fails closed
+  rather than silently replacing the URL.
 
 The service generates the client private key itself, so it can decrypt the
 tunnel. That is the same trust position as every other TLS-terminating provider
@@ -84,5 +89,6 @@ already in the pool, and the bearer-capability namespace rules in
   that satisfies both constraints requires it. The backend and tunnel images
   move to the matching `golang:1.26` base. The runner image keeps its own Go
   toolchain, which serves user projects and is unrelated to this module.
-- A restart changes the public URL, exactly as for the other temporary
-  providers.
+- A backend restart preserves the public URL while its private `tunnel.conf`
+  remains valid. Removing that private state deliberately allocates a new URL
+  on the next start.

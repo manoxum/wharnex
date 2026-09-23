@@ -380,9 +380,19 @@ ensure_durable_services() {
   migrate_legacy_tunnel_state_if_needed
   images_ready || build_images
 
-  # Durable infrastructure is explicitly kept on its current container/image.
-  # This is the URL-stability boundary: normal build/start may never recreate it.
-  compose up -d --no-recreate database minio tunnel
+  # Database and MinIO retain their containers. The tunnel daemon also retains
+  # its named state volume, but must adopt a newly built tunnel image so changes
+  # to its adapters are actually deployed by the normal build/start cycle.
+  compose up -d --no-recreate database minio
+  desired_tunnel=$(docker image inspect -f '{{.Id}}' "$TUNNEL_IMAGE")
+  tunnel_container=$(compose ps -q tunnel 2>/dev/null || true)
+  running_tunnel=''
+  [ -z "$tunnel_container" ] || running_tunnel=$(docker inspect -f '{{.Image}}' "$tunnel_container" 2>/dev/null || true)
+  if [ "$running_tunnel" != "$desired_tunnel" ]; then
+    compose up -d --force-recreate --no-deps tunnel
+  else
+    compose up -d --no-recreate tunnel
+  fi
   wait_service database 120
   wait_service minio 120
   reconcile_legacy_postgres_if_needed

@@ -10,7 +10,18 @@ Wharness previously ran backend/frontend on the host and started tunnel provider
 
 Desktop remains a host Electron process. Backend, frontend, PostgreSQL and a new Go tunnel daemon run in one project-owned Docker Compose stack. The tunnel daemon is the sole owner of cloudflared/ngrok/zrok/localxpose/SSH-based tunnel processes and persisted request-channel resources. Backend stack mode uses a bearer-authenticated private HTTP adapter to the daemon and its session stop is deliberately a no-op.
 
-Normal build/start reconciliation preserves database and tunnel container identity and rolls backend/frontend independently. Explicit `make stack-stop` and `make stack-down` are the only normal commands allowed to terminate the durable stack. Transactional self-evolution uses `make build-stage`, which may build new images but may not activate them; the detached activation path recreates only the services named by the transaction's persisted impact manifest. Database is never part of this automatic rollout. Tunnel is preserved unless tunnel source/config itself changed; backend and frontend are independent activation targets.
+Normal build/start reconciliation preserves database identity and rolls
+backend/frontend independently. It compares the running tunnel image ID with
+the newly built one: when they differ, it recreates only the `tunnel` container
+and retains its named volume; otherwise it preserves the container too. This
+ensures adapter changes are deployed without losing private tunnel state.
+Explicit `make stack-stop` and `make stack-down` are the only normal commands
+allowed to terminate the durable stack. Transactional self-evolution uses
+`make build-stage`, which may build new images but may not activate them; the
+detached activation path recreates only the services named by the transaction's
+persisted impact manifest. Database is never part of this automatic rollout.
+Tunnel is preserved unless tunnel source/config itself changed; backend and
+frontend are independent activation targets.
 
 The first stack initialization performs a one-time offline physical migration of the legacy PostgreSQL PGDATA only when its major version is PostgreSQL 17. Any incompatible version fails closed. Existing tunnel credentials/state are copied once into the tunnel named volume.
 

@@ -208,8 +208,8 @@ if ! grep -Fq 'WHARNESS_LAUNCHER_SPLASH_ACTIVE=1' "$LAUNCHER"; then
   echo 'lifecycle regression: launcher.sh must tell make start a splash is already owned' >&2
   exit 1
 fi
-if ! grep -Fq -- '--no-recreate database minio tunnel' "$STACK"; then
-  echo 'lifecycle regression: normal stack reconciliation must preserve tunnel/database/MinIO containers' >&2
+if ! grep -Fq -- '--no-recreate database minio' "$STACK"; then
+  echo 'lifecycle regression: normal stack reconciliation must preserve database and MinIO containers' >&2
   exit 1
 fi
 if ! grep -Fq 'mktemp "$STATE_DIR/stack.env.tmp.XXXXXX"' "$STACK"; then
@@ -261,6 +261,10 @@ if grep -Eq '^[[:space:]]{2}desktop:' "$COMPOSE"; then
 fi
 if ! grep -Fq 'HARNESS_TUNNEL_DAEMON_URL: "http://tunnel:8090"' "$COMPOSE"; then
   echo 'lifecycle regression: backend must use the dedicated tunnel daemon inside Compose' >&2
+  exit 1
+fi
+if ! grep -Fq 'desired_tunnel=$(docker image inspect' "$STACK" || ! grep -Fq 'compose up -d --force-recreate --no-deps tunnel' "$STACK"; then
+  echo 'lifecycle regression: an updated tunnel image must replace only its container while retaining the named state volume' >&2
   exit 1
 fi
 if ! grep -Fq '/var/run/docker.sock:/var/run/docker.sock' "$COMPOSE"; then

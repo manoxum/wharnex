@@ -123,6 +123,10 @@ unknown namespaces/resources, writes and all other methods are denied. The
 namespace secret is a bearer capability and MUST NOT enter logs, audit events,
 project context, or provider config. Permanent provider account tokens MUST live
 only in private application credential files addressed by opaque references.
+When a provider's validated provisioning document contains a private key, any
+retained copy is private provider state: it MUST be a regular non-symlink file
+with mode `0600`, must be parsed and revalidated before reuse, and corruption
+must fail closed rather than trigger an unrequested replacement allocation.
 One origin MAY be shared by all chats for the running backend session,
 but every main request MUST retain an independent unguessable namespace and no
 route may enumerate channels. Normal backend shutdown MUST preserve active

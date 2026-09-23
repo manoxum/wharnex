@@ -2,13 +2,56 @@ package remoteinput
 
 import (
 	"context"
+	"errors"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// A tunnel document is a credential-bearing lease: restarting the backend must
+// reconnect with that lease, rather than allocating a different public slug.
+func TestPyjamasProviderReusesPersistedTunnelConfigAfterRestart(t *testing.T) {
+	storage := t.TempDir()
+	if err := os.WriteFile(filepath.Join(storage, pyjamasConfigFileName), []byte(pyjamasSampleConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	starts := 0
+	provisions := 0
+	starter := pyjamasStarter{configPath: filepath.Join(storage, pyjamasConfigFileName), forward: func(context.Context, pyjamasConfig, uint16, string) (pyjamasStopper, error) {
+		starts++
+		return func() {}, nil
+	}, provision: func(context.Context, *http.Client, int) (pyjamasConfig, string, error) {
+		provisions++
+		return pyjamasConfig{}, "", errors.New("unexpected tunnel provisioning")
+	}}
+	provider, err := newPyjamasTunnelProvider(storage, TunnelLanding{InstanceName: "wharnex"}, starter)
+	if err != nil {
+		t.Fatalf("restore provider: %v", err)
+	}
+	if provider.listenAddr != "127.0.0.1:43127" {
+		t.Fatalf("restarted provider did not restore its tunnel port: %s", provider.listenAddr)
+	}
+	provider.ready = func(context.Context, *url.URL) error { return nil }
+	if err := provider.StartSession(context.Background()); err != nil {
+		t.Fatalf("restart provider: %v", err)
+	}
+	defer provider.StopSession(context.Background())
+	if starts != 1 {
+		t.Fatalf("expected persisted WireGuard config to start once, got %d starts", starts)
+	}
+	if provisions != 0 {
+		t.Fatalf("restart provisioned a new tunnel %d times", provisions)
+	}
+	if got := provider.PublicURL(); got != "https://a1b2c3.tunnel.pyjam.as" {
+		t.Fatalf("restart changed the public URL: %s", got)
+	}
+}
 
 func TestPyjamasProviderAcceptsOnlyItsOwnOrigins(t *testing.T) {
 	provider, err := NewPyjamasTunnelProvider(t.TempDir(), TunnelLanding{InstanceName: "wharnex"})

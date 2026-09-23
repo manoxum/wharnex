@@ -1,14 +1,11 @@
 package remoteinput
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -27,6 +24,7 @@ const (
 var pyjamasNetwork = netip.MustParsePrefix("10.101.0.0/16")
 
 var pyjamasPublicURLPattern = regexp.MustCompile(`https://[a-z0-9-]{1,63}\.tunnel\.pyjam\.as/`)
+var pyjamasLocalPortPattern = regexp.MustCompile(`http://0\.0\.0\.0:([0-9]{1,5})`)
 
 // pyjamasConfig is the parsed subset of the WireGuard document served by
 // tunnel.pyjam.as. The document also carries script hooks (PostUp, PostDown,
@@ -42,37 +40,8 @@ type pyjamasConfig struct {
 	endpointHost  string
 	endpointPort  int
 	keepalive     int
+	localPort     int
 	public        *url.URL
-}
-
-// fetchPyjamasConfig asks tunnel.pyjam.as to publish localPort and returns the
-// parsed provisioning document. Redirects are refused so the request cannot be
-// steered to another origin.
-func fetchPyjamasConfig(ctx context.Context, client *http.Client, localPort int) (pyjamasConfig, error) {
-	if localPort < 1024 || localPort > 65535 {
-		return pyjamasConfig{}, errors.New("pyjam.as local port must be between 1024 and 65535")
-	}
-	endpoint := "https://" + pyjamasHost + "/" + strconv.Itoa(localPort)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return pyjamasConfig{}, err
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return pyjamasConfig{}, fmt.Errorf("request pyjam.as tunnel: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return pyjamasConfig{}, fmt.Errorf("pyjam.as returned status %d", response.StatusCode)
-	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, pyjamasMaxConfigBytes+1))
-	if err != nil {
-		return pyjamasConfig{}, fmt.Errorf("read pyjam.as tunnel config: %w", err)
-	}
-	if len(raw) > pyjamasMaxConfigBytes {
-		return pyjamasConfig{}, errors.New("pyjam.as tunnel config is too large")
-	}
-	return parsePyjamasConfig(string(raw))
 }
 
 func parsePyjamasConfig(raw string) (pyjamasConfig, error) {
@@ -126,6 +95,10 @@ func buildPyjamasConfig(values map[string]string) (pyjamasConfig, error) {
 	if err != nil {
 		return pyjamasConfig{}, err
 	}
+	localPort, err := parsePyjamasLocalPort(values["interface.postup"])
+	if err != nil {
+		return pyjamasConfig{}, err
+	}
 	keepalive := 21
 	if raw := values["peer.persistentkeepalive"]; raw != "" {
 		parsed, convErr := strconv.Atoi(raw)
@@ -134,7 +107,7 @@ func buildPyjamasConfig(values map[string]string) (pyjamasConfig, error) {
 		}
 		keepalive = parsed
 	}
-	return pyjamasConfig{address: address, privateKey: privateKey, peerPublicKey: peerPublicKey, allowedIP: allowedIP, endpointHost: host, endpointPort: port, keepalive: keepalive, public: public}, nil
+	return pyjamasConfig{address: address, privateKey: privateKey, peerPublicKey: peerPublicKey, allowedIP: allowedIP, endpointHost: host, endpointPort: port, keepalive: keepalive, localPort: localPort, public: public}, nil
 }
 
 func parsePyjamasAddress(raw string) (netip.Addr, error) {
@@ -188,6 +161,18 @@ func parsePyjamasPublicURL(raw string) (*url.URL, error) {
 		return nil, errors.New("pyjam.as public origin is invalid")
 	}
 	return parsed, nil
+}
+
+func parsePyjamasLocalPort(raw string) (int, error) {
+	match := pyjamasLocalPortPattern.FindStringSubmatch(raw)
+	if len(match) != 2 {
+		return 0, errors.New("pyjam.as response did not announce a local port")
+	}
+	port, err := strconv.Atoi(match[1])
+	if err != nil || port < 1024 || port > 65535 {
+		return 0, errors.New("pyjam.as announced an invalid local port")
+	}
+	return port, nil
 }
 
 func decodePyjamasKey(raw string) (string, error) {

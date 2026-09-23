@@ -3,19 +3,12 @@ package remoteinput
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
-	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
-
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
 )
 
 // NewPyjamasTunnelProvider publishes the loopback object server through
@@ -25,17 +18,49 @@ import (
 // data plane runs unprivileged in this process instead, and the document is
 // only ever parsed as data.
 func NewPyjamasTunnelProvider(storageDir string, landing TunnelLanding) (*TryCloudflareProvider, error) {
-	return newTunnelProvider(storageDir, "pyjamas", "127.0.0.1:0", false, pyjamasStarter{}, landing, func(public *url.URL) bool {
+	return newPyjamasTunnelProvider(storageDir, landing, pyjamasStarter{configPath: filepath.Join(storageDir, pyjamasConfigFileName)})
+}
+
+func newPyjamasTunnelProvider(storageDir string, landing TunnelLanding, starter pyjamasStarter) (*TryCloudflareProvider, error) {
+	if starter.configPath == "" {
+		starter.configPath = filepath.Join(storageDir, pyjamasConfigFileName)
+	}
+	if err := starter.load(); err != nil {
+		return nil, err
+	}
+	listenAddr := "127.0.0.1:0"
+	if starter.cached != nil {
+		listenAddr = "127.0.0.1:" + strconv.Itoa(starter.cached.localPort)
+	}
+	return newTunnelProvider(storageDir, "pyjamas", listenAddr, false, starter, landing, func(public *url.URL) bool {
 		return public != nil && public.Scheme == "https" && public.User == nil &&
 			strings.HasSuffix(strings.ToLower(public.Hostname()), "."+pyjamasHost)
 	})
 }
 
-type pyjamasStarter struct{}
+type pyjamasStopper func()
+type pyjamasForward func(context.Context, pyjamasConfig, uint16, string) (pyjamasStopper, error)
+type pyjamasProvision func(context.Context, *http.Client, int) (pyjamasConfig, string, error)
+
+type pyjamasStarter struct {
+	configPath string
+	cached     *pyjamasConfig
+	forward    pyjamasForward
+	provision  pyjamasProvision
+}
+
+func (s *pyjamasStarter) load() error {
+	parsed, found, err := loadPyjamasConfig(s.configPath)
+	if err != nil || !found {
+		return err
+	}
+	s.cached = &parsed
+	return nil
+}
 
 // Start publishes origin and returns the public HTTPS URL plus a stop function
 // that tears the userspace tunnel down.
-func (pyjamasStarter) Start(ctx context.Context, origin string) (*url.URL, func(), error) {
+func (s pyjamasStarter) Start(ctx context.Context, origin string) (*url.URL, func(), error) {
 	target, err := url.Parse(origin)
 	if err != nil || target.Host == "" {
 		return nil, nil, errors.New("pyjam.as requires a local origin to publish")
@@ -52,102 +77,39 @@ func (pyjamasStarter) Start(ctx context.Context, origin string) (*url.URL, func(
 	}
 	// The stack is private to this process, so the published port number can
 	// simply mirror the loopback listener it fronts.
-	parsed, err := fetchPyjamasConfig(ctx, client, port)
-	if err != nil {
-		return nil, nil, err
-	}
-	forwarder, err := startPyjamasForwarder(ctx, parsed, uint16(port), target.Host)
-	if err != nil {
-		return nil, nil, err
-	}
-	return parsed.public, forwarder.stop, nil
-}
-
-type pyjamasForwarder struct {
-	net      *userspaceNet
-	device   *device.Device
-	closeAll sync.Once
-}
-
-func startPyjamasForwarder(ctx context.Context, parsed pyjamasConfig, port uint16, loopback string) (*pyjamasForwarder, error) {
-	endpoint, err := resolvePyjamasEndpoint(ctx, parsed)
-	if err != nil {
-		return nil, err
-	}
-	userspace, err := newUserspaceNet(parsed.address)
-	if err != nil {
-		return nil, err
-	}
-	wireguard := device.NewDevice(userspace, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, ""))
-	forwarder := &pyjamasForwarder{net: userspace, device: wireguard}
-	settings := fmt.Sprintf("private_key=%s\npublic_key=%s\nendpoint=%s\nallowed_ip=%s\npersistent_keepalive_interval=%d\n",
-		parsed.privateKey, parsed.peerPublicKey, endpoint, parsed.allowedIP, parsed.keepalive)
-	if err := wireguard.IpcSet(settings); err != nil {
-		forwarder.stop()
-		return nil, fmt.Errorf("configure pyjam.as tunnel: %w", err)
-	}
-	if err := wireguard.Up(); err != nil {
-		forwarder.stop()
-		return nil, fmt.Errorf("start pyjam.as tunnel: %w", err)
-	}
-	listener, err := userspace.ListenTCP(port)
-	if err != nil {
-		forwarder.stop()
-		return nil, err
-	}
-	go forwarder.accept(listener, loopback)
-	return forwarder, nil
-}
-
-// resolvePyjamasEndpoint resolves the validated service hostname itself because
-// the WireGuard bind accepts only a literal address and port.
-func resolvePyjamasEndpoint(ctx context.Context, parsed pyjamasConfig) (netip.AddrPort, error) {
-	resolveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	addresses, err := net.DefaultResolver.LookupNetIP(resolveCtx, "ip4", parsed.endpointHost)
-	if err != nil || len(addresses) == 0 {
-		return netip.AddrPort{}, fmt.Errorf("resolve %s: %w", parsed.endpointHost, err)
-	}
-	return netip.AddrPortFrom(addresses[0].Unmap(), uint16(parsed.endpointPort)), nil
-}
-
-func (f *pyjamasForwarder) accept(listener net.Listener, loopback string) {
-	defer listener.Close()
-	for {
-		remote, err := listener.Accept()
+	parsed := s.cached
+	if parsed == nil {
+		provision := s.provision
+		if provision == nil {
+			provision = fetchPyjamasConfigDocument
+		}
+		fetched, raw, err := provision(ctx, client, port)
 		if err != nil {
-			return
+			return nil, nil, err
 		}
-		go f.proxy(remote, loopback)
+		if err := savePyjamasConfig(s.configPath, raw); err != nil {
+			return nil, nil, err
+		}
+		parsed = &fetched
 	}
-}
-
-// proxy joins one tunnelled connection to the loopback object server. The
-// object server keeps owning every routing and authorization decision; this
-// only moves bytes.
-func (f *pyjamasForwarder) proxy(remote net.Conn, loopback string) {
-	defer remote.Close()
-	local, err := net.DialTimeout("tcp", loopback, 10*time.Second)
+	if parsed.localPort != port {
+		return nil, nil, errors.New("pyjam.as saved tunnel config is for a different local port")
+	}
+	forward := s.forward
+	if forward == nil {
+		forward = defaultPyjamasForward
+	}
+	stop, err := forward(ctx, *parsed, uint16(port), target.Host)
 	if err != nil {
-		return
+		return nil, nil, err
 	}
-	defer local.Close()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = io.Copy(local, remote)
-	}()
-	_, _ = io.Copy(remote, local)
-	<-done
+	return parsed.public, stop, nil
 }
 
-func (f *pyjamasForwarder) stop() {
-	f.closeAll.Do(func() {
-		if f.device != nil {
-			f.device.Close()
-		}
-		if f.net != nil {
-			f.net.Close()
-		}
-	})
+func defaultPyjamasForward(ctx context.Context, parsed pyjamasConfig, port uint16, loopback string) (pyjamasStopper, error) {
+	forwarder, err := startPyjamasForwarder(ctx, parsed, port, loopback)
+	if err != nil {
+		return nil, err
+	}
+	return forwarder.stop, nil
 }
