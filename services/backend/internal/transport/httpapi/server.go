@@ -21,6 +21,7 @@ import (
 	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/documentpreview"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/pairing"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/utility"
@@ -28,14 +29,15 @@ import (
 )
 
 type API struct {
-	service *app.Service
-	store   *session.Store
-	bus     *audit.Bus
-	cfg     config.Config
+	service      *app.Service
+	store        *session.Store
+	bus          *audit.Bus
+	cfg          config.Config
+	pairingStore *pairing.Store
 }
 
 func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.Config) http.Handler {
-	a := &API{service: service, store: store, bus: bus, cfg: cfg}
+	a := &API{service: service, store: store, bus: bus, cfg: cfg, pairingStore: pairing.NewStore(filepath.Join(filepath.Dir(cfg.StateFile), "remote-pairing.json"))}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
@@ -47,6 +49,11 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/tunnel/test", a.testTunnel)
 	mux.HandleFunc("POST /api/tunnel/connections", a.connectTunnelProvider)
 	mux.HandleFunc("DELETE /api/tunnel/connections/{credential_ref}", a.disconnectTunnelProvider)
+	mux.HandleFunc("POST /api/tunnel/control", a.controlTunnel)
+	mux.HandleFunc("POST /api/pairing/start", a.startPairing)
+	mux.HandleFunc("POST /api/pairing/claim", a.claimPairing)
+	mux.HandleFunc("GET /api/pairing/status", a.pairingStatus)
+	mux.HandleFunc("DELETE /api/pairing/session", a.endPairingSession)
 	mux.HandleFunc("GET /api/remote-storage-config", a.remoteStorageConfig)
 	mux.HandleFunc("PUT /api/remote-storage-config", a.updateRemoteStorageConfig)
 	mux.HandleFunc("GET /api/remote-storage/providers", a.remoteStorageProviders)
@@ -227,7 +234,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/terminal/reset", a.resetTerminal)
 	a.registerGitRoutes(mux)
 	a.registerConflictRoutes(mux)
-	return cors(mux, allowedOrigins(cfg.FrontendOrigin))
+	return cors(a.remotePairingAuth(mux), allowedOrigins(cfg.FrontendOrigin))
 }
 
 // allowedOrigins is the fixed localhost/127.0.0.1:5173 pair every checkout

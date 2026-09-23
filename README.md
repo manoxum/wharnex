@@ -149,17 +149,18 @@ make start
 
 `make start` first reconciles the persistent Compose services and then starts the host Desktop lifecycle coordinator. The Compose services are:
 
-- project-owned PostgreSQL on a dynamically allocated loopback port;
-- backend: `127.0.0.1:8888` by default (override with `WHARNESS_HTTP_PORT`);
-- built frontend through Vite preview: `127.0.0.1:5173` by default (override with `WHARNESS_WEB_PORT`);
-- Wharness Electron desktop shell.
+- project-owned PostgreSQL and MinIO on the private Compose network;
+- backend, local frontend and paired remote webapp on the private Compose network;
+- a single Nginx application gateway on `127.0.0.1:6969` by default (override with `WHARNESS_GATEWAY_PORT`);
+- the dedicated tunnel daemon, which can route an explicitly configured public tunnel to the gateway's private remote listener;
+- Wharnex Electron desktop shell.
 
 Running more than one checkout of this repository concurrently: each checkout's
 Compose project name defaults to its own folder name (override with
-`WHARNESS_COMPOSE_PROJECT_NAME`), and its ports default to 8888/5173 (override with
-`WHARNESS_HTTP_PORT`/`WHARNESS_WEB_PORT`) so the stacks don't collide. Persist these
-in a gitignored `.harness/env` file at the repo root instead of exporting them every
-session.
+`WHARNESS_COMPOSE_PROJECT_NAME`), and its gateway port defaults to 6969 (override with
+`WHARNESS_GATEWAY_PORT`) so the stacks don't collide. Persist these in a gitignored
+`.harness/env` file at the repo root instead of exporting them every session. Bare
+frontend/backend development outside stack mode may still use 5173/8888 directly.
 
 Runtime PID files live under `.harness/run/` and combined logs under `.harness/logs/desktop.log`.
 

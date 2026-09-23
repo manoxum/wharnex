@@ -148,6 +148,10 @@ func (c *Client) CloseRemoteInputChannelSet(ctx context.Context, instanceIDs []s
 	return c.request(ctx, http.MethodDelete, APIPathChannelSet, closeChannelSetRequest{instanceIDs, channelID}, nil)
 }
 
+func (c *Client) ControlRemoteInput(ctx context.Context, instanceID, action string) error {
+	return c.request(ctx, http.MethodPost, APIPathInstanceControl, instanceControlRequest{InstanceID: instanceID, Action: action}, nil)
+}
+
 func (c *Client) StartRemoteInputSession(ctx context.Context) error {
 	return c.request(ctx, http.MethodPost, APIPathSessionStart, nil, nil)
 }

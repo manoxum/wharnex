@@ -54,6 +54,7 @@ type RemoteInputInstanceStatus struct {
 	Provider  string            `json:"provider"`
 	Priority  int               `json:"priority"`
 	Available bool              `json:"available"`
+	State     string            `json:"state"`
 	PublicURL string            `json:"public_url,omitempty"`
 	Error     string            `json:"error,omitempty"`
 	Limits    RemoteInputLimits `json:"limits"`
@@ -78,6 +79,11 @@ type RemoteInputStore interface {
 // without restarting the process. Durable object stores do not implement it.
 type RemoteInputReloader interface {
 	ReloadRemoteInput(context.Context) error
+}
+
+// RemoteInputController exposes operator lifecycle control for one configured tunnel.
+type RemoteInputController interface {
+	ControlRemoteInput(context.Context, string, string) error
 }
 
 // RemoteInputLeaseStore is optional because durable object stores do not need

@@ -2,7 +2,7 @@ import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, Known
 import type { DurableWorkspaceChatRecord } from './workspaceMemory'
 import type { ReasoningEffort } from '../types'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8888'
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8888'
 
 export class APIError extends Error {
   constructor(message: string, public status: number, public data?: unknown) {
@@ -10,7 +10,7 @@ export class APIError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },

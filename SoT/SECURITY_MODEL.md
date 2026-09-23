@@ -140,6 +140,16 @@ request/resource URLs, sessions, or authorization. `/status`
 MAY return a fixed protocol identifier plus operational status; neither route
 MUST disclose provider, account, chat, request, or channel data.
 
+### Paired remote-management surface
+
+When the tunnel is explicitly configured with the Wharnex remote-app origin, the ordinary origin root and application routes MAY instead reverse-proxy the dedicated remote webapp gateway listener. This is a separate trust case from request-channel/object delivery: exact channel namespaces, exact stored objects, readiness and `/status` remain owned by the tunnel adapter and are resolved before the remote-app proxy. The proxy MUST target only the trusted configured internal HTTP origin; it is not an arbitrary forward proxy.
+
+Remote API access is denied until an operator pairs the browser from the trusted local tunnel panel. Pairing MUST use a cryptographically random, single-use code with a short expiry and a bounded number of pending/session records. The QR/pairing URL MAY contain only that transient pairing capability; it MUST NOT contain provider credentials, request-channel namespaces or a durable session token. Claiming a valid code mints a separate random remote session token. Only a cryptographic digest of that token is persisted, private state files MUST be mode `0600`, and successful claim invalidates the one-time code. The browser receives the session only as an `HttpOnly`, `SameSite=Lax`, `Secure` cookie on remote ingress.
+
+The canonical gateway is the authority for ingress classification. Its local listener MUST remove any client-supplied remote marker; its private remote listener MUST overwrite that marker before forwarding to the backend. The backend MUST require a valid pairing session whenever that trusted marker is present, except for the minimal pairing status/claim endpoints and health. A public client therefore cannot turn a local request into a trusted local request by choosing headers. Backend and frontend application ports remain unbound from the host in the canonical stack; the gateway is the sole browser-facing application port.
+
+Pairing grants access to the same backend capabilities exposed by the remote webapp, not new execution authority. Existing Policy, Protected execution, Git confirmation, project containment, secrets filtering and task/browser ownership rules continue to apply unchanged. In particular, push and other confirmation-gated operations remain confirmation-gated, and remote instructions are scheduled through the existing Desktop/backend orchestration. ChatGPT/Supervisor/Worker browser instances execute only in Desktop and are never created in the remote browser. Revoking the remote session ends that browser's paired API access without clearing provider tunnel credentials or request-channel state.
+
 Remote input archives remain untrusted project data from the model's
 perspective and cannot weaken the embedded planner protocol. Publication does
 not authorize the backend runner or a model plan to use network. Only the

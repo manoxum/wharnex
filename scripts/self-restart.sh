@@ -15,6 +15,9 @@ KNOWN_STOP="$TXN/stop-known-good.sh"
 KNOWN_START="$TXN/start-known-good.sh"
 ROLLBACK="$TXN/rollback.sh"
 KNOWN_STACK="$TXN/stack-known-good.sh"
+STACK_ENV="$ROOT/.harness/state/stack.env"
+GATEWAY_PORT=$(sed -n 's/^WHARNESS_GATEWAY_PORT=//p' "$STACK_ENV" 2>/dev/null | head -n 1)
+[ -n "$GATEWAY_PORT" ] || GATEWAY_PORT=6969
 
 case "$TXN" in
   "$BASE"/txn-*) ;;
@@ -49,8 +52,8 @@ cleanup_lock() {
 }
 
 runtime_healthy() {
-  curl -fsS http://127.0.0.1:8888/api/health >/dev/null 2>&1 || return 1
-  curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1 || return 1
+  curl -fsS "http://127.0.0.1:$GATEWAY_PORT/api/health" >/dev/null 2>&1 || return 1
+  curl -fsS "http://127.0.0.1:$GATEWAY_PORT/" >/dev/null 2>&1 || return 1
   [ -f "$ROOT/.harness/run/electron.pid" ] || return 1
   ep=$(cat "$ROOT/.harness/run/electron.pid" 2>/dev/null || true)
   [ -n "$ep" ] && kill -0 "$ep" 2>/dev/null
@@ -85,8 +88,8 @@ recover_old_runtime() {
 }
 
 stack_runtime_healthy() {
-  curl -fsS http://127.0.0.1:8888/api/health >/dev/null 2>&1 || return 1
-  curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1
+  curl -fsS "http://127.0.0.1:$GATEWAY_PORT/api/health" >/dev/null 2>&1 || return 1
+  curl -fsS "http://127.0.0.1:$GATEWAY_PORT/" >/dev/null 2>&1
 }
 
 recover_stack_runtime() {
@@ -97,7 +100,8 @@ recover_stack_runtime() {
     return 1
   fi
   status rollback_restored "previous source/artifacts restored; rebuilding previous application images"
-  # shellcheck disable=SC2086 -- values come from the validated impact enum.
+  # Values come from the validated impact enum.
+  # shellcheck disable=SC2086
   if (cd "$ROOT" && make build-stage) >>"$LOG" 2>&1 && \
      WHARNESS_ROOT="$ROOT" "$KNOWN_STACK" activate-services $stack_services >>"$LOG" 2>&1 && \
      stack_runtime_healthy; then
@@ -123,7 +127,8 @@ if [ "${WHARNESS_SERVICES_MODE:-}" = stack ]; then
   done
   IFS=$old_ifs
   status restarting "host build passed; activating only affected components: ${IMPACTS:-none}"
-  # shellcheck disable=SC2086 -- values are validated by the closed case above.
+  # Values are validated by the closed case above.
+  # shellcheck disable=SC2086
   if WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" activate-services $stack_services >>"$LOG" 2>&1 && stack_runtime_healthy; then
     status restarted "affected components are healthy: ${IMPACTS:-none}"
     cleanup_lock

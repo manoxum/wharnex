@@ -29,6 +29,7 @@ type Manager struct {
 	indexPath string
 	now       func() time.Time
 	disabled  map[string]error
+	paused    map[string]bool
 	// source is the tunnel configuration this pool was built from, so Reload
 	// can re-read it instead of requiring a process restart.
 	source config.TunnelConfig
@@ -45,7 +46,7 @@ func NewManager(provider Provider, indexPath string) *Manager {
 func NewPool(instances []Instance, indexPath string) *Manager {
 	ordered := append([]Instance(nil), instances...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Priority < ordered[j].Priority })
-	return &Manager{instances: ordered, indexPath: indexPath, now: time.Now, disabled: make(map[string]error)}
+	return &Manager{instances: ordered, indexPath: indexPath, now: time.Now, disabled: make(map[string]error), paused: make(map[string]bool)}
 }
 
 func (m *Manager) Status() app.RemoteInputStatus {
@@ -59,7 +60,15 @@ func (m *Manager) Status() app.RemoteInputStatus {
 	for _, instance := range m.instances {
 		usage := m.usage(instance, state, m.now().UTC())
 		disabledErr := m.disabled[instance.ID]
-		status := app.RemoteInputInstanceStatus{ID: instance.ID, Provider: instance.Provider.Name(), Priority: instance.Priority, Available: disabledErr == nil, Limits: instance.Limits, Usage: usage}
+		stateName := "active"
+		if state.Stopped[instance.ID] {
+			stateName = "stopped"
+		} else if m.paused[instance.ID] {
+			stateName = "paused"
+		} else if disabledErr != nil {
+			stateName = "unavailable"
+		}
+		status := app.RemoteInputInstanceStatus{ID: instance.ID, Provider: instance.Provider.Name(), Priority: instance.Priority, Available: stateName == "active", State: stateName, Limits: instance.Limits, Usage: usage}
 		if located, ok := instance.Provider.(interface{ PublicURL() string }); ok {
 			status.PublicURL = located.PublicURL()
 		}
@@ -323,9 +332,17 @@ func (m *Manager) StartRemoteInputSession(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	clear(m.disabled)
+	clear(m.paused)
+	state, loadErr := m.load()
+	if loadErr != nil {
+		return loadErr
+	}
 	var failures error
 	available := 0
 	for _, instance := range m.instances {
+		if state.Stopped[instance.ID] {
+			continue
+		}
 		provider, ok := instance.Provider.(SessionProvider)
 		if !ok {
 			available++
@@ -421,6 +438,12 @@ func (m *Manager) updateRequestLease(instanceID, objectName string, retain bool)
 }
 
 func (m *Manager) ineligible(instance Instance, state managerState, object app.RemoteInputObject, now time.Time) string {
+	if state.Stopped[instance.ID] {
+		return "instance is stopped"
+	}
+	if m.paused[instance.ID] {
+		return "instance is paused"
+	}
 	limits := instance.Limits
 	usage := m.usage(instance, state, now)
 	existingBytes, replacing := existingObject(state.Records, instance.ID, object.ObjectName)

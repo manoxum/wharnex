@@ -55,6 +55,7 @@ services:
       HARNESS_TUNNEL_CONFIG_FILE: "/control/tunnel-providers.json"
       HARNESS_REMOTE_STORAGE_CONFIG_FILE: "/control/remote-storage.json"
       HARNESS_REMOTE_STORAGE_PROVIDER: "${HARNESS_REMOTE_STORAGE_PROVIDER:-}"
+      WHARNESS_REMOTE_APP_ORIGIN: "http://gateway:8081"
     volumes:
       - wharness-tunnel:/var/lib/wharness-tunnel
       - "${WHARNESS_STATE_DIR}:/control:ro"
@@ -85,7 +86,7 @@ services:
       SHELL: "/bin/bash"
       TMPDIR: "${WHARNESS_BRIDGE_DIR}/tmp"
       HARNESS_ADDR: ":8080"
-      HARNESS_FRONTEND_ORIGIN: "http://127.0.0.1:${WHARNESS_WEB_PORT:-5173}"
+      HARNESS_FRONTEND_ORIGIN: "http://127.0.0.1:${WHARNESS_GATEWAY_PORT:-6969}"
       HARNESS_INSTANCE_ID: "${WHARNESS_INSTANCE_ID:-}"
       HARNESS_PLANNER: "${HARNESS_PLANNER:-manual}"
       HARNESS_SANDBOX: "docker"
@@ -113,8 +114,6 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.6-sol}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
-    ports:
-      - "127.0.0.1:${WHARNESS_HTTP_PORT:-8888}:8080"
     volumes:
       - "${WHARNESS_HOME}:${WHARNESS_HOME}"
       - "${WHARNESS_STATE_DIR}:${WHARNESS_STATE_DIR}"
@@ -142,11 +141,10 @@ services:
     build:
       context: ./services/frontend
       args:
-        VITE_API_URL: "http://127.0.0.1:${WHARNESS_HTTP_PORT:-8888}"
+        VITE_API_URL: ""
+        VITE_REMOTE_APP: "false"
         VITE_WHARNESS_INSTANCE_ID: "${WHARNESS_INSTANCE_ID:-}"
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:${WHARNESS_WEB_PORT:-5173}:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -159,6 +157,53 @@ services:
     labels:
       wharness.root: "${WHARNESS_ROOT}"
       wharness.role: "frontend"
+
+
+  webapp:
+    image: "wharness-webapp:${WHARNESS_STACK_ID}"
+    build:
+      context: ./services/frontend
+      args:
+        VITE_API_URL: ""
+        VITE_REMOTE_APP: "true"
+        VITE_WHARNESS_INSTANCE_ID: "${WHARNESS_INSTANCE_ID:-}"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 3s
+    labels:
+      wharness.root: "${WHARNESS_ROOT}"
+      wharness.role: "webapp"
+
+  gateway:
+    image: "nginx:1.27-alpine"
+    restart: unless-stopped
+    volumes:
+      - "./services/gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+    ports:
+      - "127.0.0.1:${WHARNESS_GATEWAY_PORT:-6969}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      webapp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/health || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 3s
+    labels:
+      wharness.root: "${WHARNESS_ROOT}"
+      wharness.role: "gateway"
 
 volumes:
   wharness-postgres:

@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"kernl.local/harness/backend/internal/config"
 )
 
 type reloadStubProvider struct {
 	name    string
+	started int
 	stopped int
 	landing string
 }
@@ -21,7 +23,7 @@ func (p *reloadStubProvider) Put(context.Context, string, string) (Publication, 
 	return Publication{}, nil
 }
 func (p *reloadStubProvider) Delete(context.Context, string) error { return nil }
-func (p *reloadStubProvider) StartSession(context.Context) error   { return nil }
+func (p *reloadStubProvider) StartSession(context.Context) error   { p.started++; return nil }
 func (p *reloadStubProvider) StopSession(context.Context) error    { p.stopped++; return nil }
 func (p *reloadStubProvider) ClearSession(context.Context) error   { return nil }
 func (p *reloadStubProvider) UpdateLanding(landing TunnelLanding)  { p.landing = landing.InstanceName }
@@ -170,6 +172,24 @@ func TestReloadKeepsServingWhenAnAddedInstanceCannotConnect(t *testing.T) {
 	}
 	if reason := manager.disabled["pyjamas-1"]; reason == nil && manager.instances[0].Provider == nil {
 		t.Fatal("a failed connection was neither recorded nor started")
+	}
+}
+
+func TestReloadDoesNotRestartStoppedOrPausedInstances(t *testing.T) {
+	stoppedProvider := &reloadStubProvider{name: "trycloudflare"}
+	pausedProvider := &reloadStubProvider{name: "trycloudflare"}
+	manager, _ := newReloadManager(t)
+	state := managerState{Version: 1, Records: []record{}, Requests: map[string][]time.Time{}, Stopped: map[string]bool{"stopped": true}}
+	if err := manager.save(state); err != nil {
+		t.Fatal(err)
+	}
+	manager.paused["paused"] = true
+	manager.startReloadedInstances(context.Background(), []Instance{
+		{ID: "stopped", Provider: stoppedProvider},
+		{ID: "paused", Provider: pausedProvider},
+	})
+	if stoppedProvider.started != 0 || pausedProvider.started != 0 {
+		t.Fatalf("reload restarted controlled tunnels: stopped=%d paused=%d", stoppedProvider.started, pausedProvider.started)
 	}
 }
 
