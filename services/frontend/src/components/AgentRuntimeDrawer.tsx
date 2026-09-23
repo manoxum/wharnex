@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../lib/desktop'
 import { api } from '../lib/api'
+import { observeChatGPTOverlayBlockers } from '../lib/chatGPTOverlay'
 import type { ChatAgentTask } from '../types'
 import { Icon } from './Icon'
 import { ContentSkeleton } from './Skeleton'
@@ -177,6 +178,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
   const [runtime, setRuntime] = useState<Runtime>()
   const [selectedId, setSelectedId] = useState('supervisor-1')
   const [interactionId, setInteractionId] = useState<string>()
+  const [overlayBlocked, setOverlayBlocked] = useState(false)
   const [busy, setBusy] = useState(false)
   const [workerPauseMode, setWorkerPauseMode] = useState<'timed' | 'manual'>('timed')
   const [workerPauseMinutes, setWorkerPauseMinutes] = useState('60')
@@ -223,8 +225,17 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
     setTaskAssignmentMode('standard')
   }, [selected?.id])
 
+  useEffect(() => observeChatGPTOverlayBlockers(window, (blocked) => {
+    if (blocked && interactionId) void bridge?.closeInteraction(interactionId).catch(() => {})
+    setOverlayBlocked(blocked)
+  }), [bridge, interactionId])
+
   useEffect(() => {
     if (!bridge || !interactionId || selected?.id !== interactionId || selected.role !== 'worker') return
+    if (overlayBlocked) {
+      void bridge.closeInteraction(interactionId).catch(() => {})
+      return
+    }
     const host = interactionHostRef.current
     if (!host) return
     let active = true
@@ -252,7 +263,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       window.removeEventListener('scroll', sync, true)
       void bridge.closeInteraction(interactionId).catch(() => {})
     }
-  }, [bridge, interactionId, selected?.id, selected?.role])
+  }, [bridge, interactionId, selected?.id, selected?.role, overlayBlocked])
 
   const scaleSupervisors = async (delta: number) => {
     if (!bridge || !runtime) return

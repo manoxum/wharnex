@@ -260,6 +260,15 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.openInteraction).toHaveBeenCalledWith('worker-1', expect.objectContaining({ width: 1, height: 1 })))
     expect(screen.getByLabelText('Navegador interativo de Worker 1')).toBeTruthy()
 
+    const blocker = document.createElement('div')
+    blocker.setAttribute('data-chatgpt-overlay-blocker', 'true')
+    document.body.appendChild(blocker)
+    await waitFor(() => expect(agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
+
+    const openedBeforeRestore = agents.openInteraction.mock.calls.length
+    blocker.remove()
+    await waitFor(() => expect(agents.openInteraction.mock.calls.length).toBeGreaterThan(openedBeforeRestore))
+
     fireEvent.click(screen.getByRole('button', { name: /Terminar interação/ }))
     await waitFor(() => expect(agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
   })

@@ -146,9 +146,12 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     // observer callback itself; waiting for React to commit state and run the
     // visibility effect leaves a visible frame in which the native surface can
     // cover a modal or even the next selected workspace surface.
-    if (blocked) void bridge?.chatgpt.hide(chatIdRef.current)
+    if (blocked) {
+      void bridge?.chatgpt.hide(chatIdRef.current)
+      if (followedAgentId) void bridge?.agents.closeInteraction(followedAgentId).catch(() => {})
+    }
     setOverlayBlocked(blocked)
-  }), [bridge])
+  }), [bridge, followedAgentId])
 
   useEffect(() => {
     const agents = bridge?.agents

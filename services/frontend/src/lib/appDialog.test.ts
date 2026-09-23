@@ -43,7 +43,7 @@ describe('appDialog', () => {
     const card = document.querySelector<HTMLElement>('.app-dialog-card')
     expect(card?.getAttribute('role')).toBe('alertdialog')
     expect(card?.getAttribute('aria-modal')).toBe('false')
-    expect(document.querySelector('.app-dialog-backdrop')?.hasAttribute('data-chatgpt-overlay-blocker')).toBe(false)
+    expect(document.querySelector('.app-dialog-backdrop')?.getAttribute('data-chatgpt-overlay-blocker')).toBe('true')
     expect(card?.textContent).toContain('Aplicar alterações?')
     const apply = [...document.querySelectorAll<HTMLButtonElement>('.app-dialog-button')].find((button) => button.textContent === 'Aplicar')
     apply?.click()
@@ -120,10 +120,12 @@ describe('appDialog', () => {
     minimize.click()
 
     expect(document.querySelector('.app-dialog-backdrop')?.classList.contains('is-minimized')).toBe(true)
+    expect(document.querySelector('.app-dialog-backdrop')?.hasAttribute('data-chatgpt-overlay-blocker')).toBe(false)
     expect(document.getElementById(INTERNAL_WINDOW_DOCK_ID)?.textContent).toContain('Revisão')
 
     document.querySelector<HTMLButtonElement>('[title="Restaurar Revisão"]')?.click()
     expect(document.querySelector('.app-dialog-backdrop')?.classList.contains('is-minimized')).toBe(false)
+    expect(document.querySelector('.app-dialog-backdrop')?.getAttribute('data-chatgpt-overlay-blocker')).toBe('true')
 
     const cancel = [...document.querySelectorAll<HTMLButtonElement>('.app-dialog-button')].find((button) => button.textContent === 'Cancelar')!
     cancel.click()
