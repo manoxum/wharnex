@@ -16,6 +16,8 @@ Sandbox remains the default. Its shell runs inside the hardened runner container
 
 PTY bytes are bounded and ephemeral. They are never persisted to the audit ledger because shell input, output and editor buffers can contain secrets. Lifecycle events may record terminal id, target and exit status without input or output. Closing or replacing the surface closes the PTY and its sandbox container.
 
+Shell command history is runtime state owned by the project, not by the workstation account. Before starting an interactive shell, Wharnex creates a private history file below `.harness/terminal/history/` in the canonical project root and overrides `HISTFILE` for that PTY. The shell still inherits the logged-in user's normal `HOME`, `SHELL`, `PATH` and startup configuration; only the history file is redirected. Separate projects therefore never read or append the user's global host history, while reopening a terminal for the same project retains that project's commands.
+
 The AI execution protocol is unchanged. Model plans, workflows, verification and the compatibility one-shot terminal endpoint remain structured argv operations behind Policy.
 
 ## Consequences
