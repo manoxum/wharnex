@@ -11,6 +11,7 @@ import { WorkspaceSideRail, type Drawer } from './components/WorkspaceSideRail'
 import { TerminalWorkspace } from './components/TerminalWorkspace'
 import { executionQueueActiveCount, executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, visibleExecutionQueueItems, type ExecutionFIFOItem } from './lib/executionQueueView'
 import { collectAttentionItems, summarizeAttention, type AttentionItem, type AttentionTarget } from './lib/attentionCenter'
+import { acknowledgeCompletedAttention, filterActiveAttentionItems, loadCompletedAttentionHistory } from './lib/attentionHistory'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
 import { DeferredEditorWorkspace } from './components/DeferredEditorWorkspace'
 import { OrchestratorWorkspace } from './components/orchestrator/OrchestratorWorkspace'
@@ -155,6 +156,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [chatgptAttentionNonce, setChatgptAttentionNonce] = useState(0)
   const [inspectorAttention, setInspectorAttention] = useState<{ tab: AttentionTarget; nonce: number }>({ tab: 'terminal', nonce: 0 })
   const [attentionPreviewOpen, setAttentionPreviewOpen] = useState(false)
+  const [attentionHistoryState, setAttentionHistoryState] = useState<{ projectPath: string; items: AttentionItem[] }>({ projectPath: '', items: [] })
   // Bumped whenever a runtime task's "Ver orquestração" action lands the
   // operator in Orchestrator, so it always opens on the planning queue that
   // sent them there instead of whichever section was last left open.
@@ -249,6 +251,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [terminalHeight])
 
   useEffect(() => { setTerminalRunRequest(undefined) }, [session?.id])
+
+  useEffect(() => {
+    const projectPath = session?.project_path || ''
+    setAttentionHistoryState({ projectPath, items: projectPath ? loadCompletedAttentionHistory(projectPath) : [] })
+  }, [session?.project_path])
 
   useEffect(() => {
     if (!session || surfaceRequest) return
@@ -3342,7 +3349,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   submitBundleFileRef.current = submitBundleFile
 
-  const attentionItems = collectAttentionItems(chats, attentionSessions, chatgptHumanActions)
+  const allAttentionItems = collectAttentionItems(chats, attentionSessions, chatgptHumanActions)
+  const attentionHistory = attentionHistoryState.projectPath === session?.project_path ? attentionHistoryState.items : []
+  const attentionItems = filterActiveAttentionItems(allAttentionItems, attentionHistory)
   const attentionSummary = summarizeAttention(attentionItems)
   useEffect(() => {
     const notifications = desktopBridge()?.notifications
@@ -3441,13 +3450,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const visibleExecutionFIFO = visibleExecutionQueueItems(executionFIFO, chats.map((chat) => chat.id))
   const activeExecutionCount = executionQueueActiveCount(visibleExecutionFIFO)
 
+  function acknowledgeAttentionItem(item: AttentionItem) {
+    if (item.kind !== 'task-completed' || !session) return
+    setAttentionHistoryState((current) => {
+      const history = current.projectPath === session.project_path ? current.items : []
+      return { projectPath: session.project_path, items: acknowledgeCompletedAttention(session.project_path, item, history) }
+    })
+  }
+
   async function openAttentionItem(item: AttentionItem) {
+    acknowledgeAttentionItem(item)
     if (item.id.endsWith(':chatgpt-human-action') && item.chatId === activeChatId && chatgptHumanAction?.active) {
       await openChatGPTHumanAction()
       return
     }
     setMode('agent')
-    if (item.chatId !== activeChatId) await selectChat(item.chatId)
+    if (item.chatId !== activeChatId && chats.some((chat) => chat.id === item.chatId)) await selectChat(item.chatId)
     if (item.kind === 'restart-pending') {
       await openRestartConfirmation(item.chatId)
       return
@@ -3456,6 +3474,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   async function openDesktopNotification(notice: DesktopCompletionNotification) {
+    if (notice.kind === 'task-completed') {
+      const completed = allAttentionItems.find((item) => item.id === notice.id && item.kind === 'task-completed')
+      if (completed) acknowledgeAttentionItem(completed)
+    }
     setMode('agent')
     if (notice.chatId && notice.chatId !== activeChatId && chats.some((chat) => chat.id === notice.chatId)) await selectChat(notice.chatId)
     if (notice.kind === 'restart-pending') await openRestartConfirmation(notice.chatId)
@@ -3738,6 +3760,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         activeChatId={activeChatId}
         activeEvents={events}
         attentionItems={attentionItems}
+        attentionHistoryItems={attentionHistory}
         executionFIFO={visibleExecutionFIFO}
         activeExecutionCount={activeExecutionCount}
         onOpenAttention={openAttentionItem}
@@ -3839,6 +3862,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         activeChatId={activeChatId}
         activeEvents={events}
         attentionItems={attentionItems}
+        attentionHistoryItems={attentionHistory}
         executionFIFO={visibleExecutionFIFO}
         activeExecutionCount={activeExecutionCount}
         onOpenAttention={openAttentionItem}

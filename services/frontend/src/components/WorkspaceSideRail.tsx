@@ -74,6 +74,7 @@ export type WorkspaceSideRailProps = {
   activeChatId: string
   activeEvents: HarnessEvent[]
   attentionItems: AttentionItem[]
+  attentionHistoryItems?: AttentionItem[]
   executionFIFO: ExecutionFIFOItem[]
   activeExecutionCount: number
   onOpenAttention: (item: AttentionItem) => Promise<void>
@@ -113,6 +114,7 @@ type ToolMeta = { label: string; title: string; icon: ComponentProps<typeof Icon
 
 export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const { session, busy, drawer, onDrawer, archivedChats, attentionItems, executionFIFO, activeExecutionCount, onError } = props
+  const attentionHistoryItems = props.attentionHistoryItems || []
   const savedChats = props.savedChats || []
   const side = props.side || 'left'
   const tools = props.tools || DEFAULT_STANDALONE_RAIL_TOOLS
@@ -238,7 +240,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       </div>
       <InternalWindowPersistenceContext.Provider key={`${owner}:${panelReloads[candidate] || 0}`} value={{ owner, register: registerPersistentWindow }}>
         <Suspense fallback={<DrawerFallback/>}>
-        {candidate === 'attention' ? <AttentionCenterDrawer items={attentionItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
+        {candidate === 'attention' ? <AttentionCenterDrawer items={attentionItems} historyItems={attentionHistoryItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
         {candidate === 'todo' && props.chatProps ? <ProjectTodoPanel session={session} chatProps={props.chatProps} onClose={close} onPromoteToChat={props.onPromoteTodoToChat} onPromoteToCurrentChat={props.onPromoteTodoToCurrentChat} onLocateChat={props.onLocateTodoChat} onGoToOrchestrator={props.onGoToOrchestrator} onError={onError}/> : null}
         {candidate === 'archive' ? <ChatManagementDrawer projectPath={session.project_path} savedChats={savedChats} archivedChats={archivedChats} busy={busy} onRestoreSaved={props.onRestoreSavedChat} onArchiveSaved={props.onArchiveSavedChat} onRestoreArchived={props.onRestoreChat} onDeleteArchived={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
         {candidate === 'project' ? <AgentProjectExplorer session={session} onOpen={props.onOpenFile} onError={onError} onClose={close} revealPath={props.explorerRevealPath} revealNonce={props.explorerRevealNonce}/> : null}
@@ -301,10 +303,11 @@ function drawerPanelLabel(drawer: Exclude<Drawer, ''>) {
 function isWorkspaceTool(value: string): value is WorkspaceTool {
   return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'fifo', 'evolution', 'terminal', 'database', 'docker'].includes(value)
 }
-function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
-  const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable'>('all')
+function AttentionCenterDrawer({ items, historyItems, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; historyItems: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
+  const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable' | 'history'>('all')
   const summary = summarizeAttention(items)
-  const filteredItems = filter === 'urgent' ? items.filter((item) => item.tone === 'danger') : filter === 'actionable' ? items.filter((item) => Boolean(item.action)) : items
+  const showingHistory = filter === 'history'
+  const filteredItems = showingHistory ? historyItems : filter === 'urgent' ? items.filter((item) => item.tone === 'danger') : filter === 'actionable' ? items.filter((item) => Boolean(item.action)) : items
   return <section className="attention-center-drawer" aria-label="Centro de notificações">
     <header className="agent-drawer-heading">
       <div className="attention-center-heading">
@@ -323,9 +326,10 @@ function AttentionCenterDrawer({ items, activeChatId, busy, onOpen, onAction, on
       <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>Todos <b>{summary.total}</b></button>
       <button type="button" aria-pressed={filter === 'urgent'} onClick={() => setFilter('urgent')}>Urgentes <b>{summary.urgent}</b></button>
       <button type="button" aria-pressed={filter === 'actionable'} onClick={() => setFilter('actionable')}>Com Ação <b>{summary.actionable}</b></button>
+      <button type="button" aria-pressed={filter === 'history'} onClick={() => setFilter('history')}>Histórico <b>{historyItems.length}</b></button>
     </nav>
     <div className="attention-center-list">
-      {filteredItems.length ? <AttentionList items={filteredItems} activeChatId={activeChatId} busy={busy} density="full" onOpen={onOpen} onAction={onAction}/> : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>{items.length ? 'Nenhum alerta neste filtro' : 'Nada requer atenção'}</strong><span>{items.length ? 'Escolha outro filtro para rever os alertas ativos.' : 'Alertas de todos os chats abertos deste projeto aparecerão aqui.'}</span></div>}
+      {filteredItems.length ? <AttentionList items={filteredItems} activeChatId={activeChatId} busy={busy} density="full" onOpen={onOpen} onAction={onAction}/> : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>{showingHistory ? 'Histórico vazio' : items.length ? 'Nenhum alerta neste filtro' : 'Nada requer atenção'}</strong><span>{showingHistory ? 'As tarefas concluídas que abrir ficam guardadas aqui.' : items.length ? 'Escolha outro filtro para rever os alertas ativos.' : 'Alertas de todos os chats abertos deste projeto aparecerão aqui.'}</span></div>}
     </div>
   </section>
 }

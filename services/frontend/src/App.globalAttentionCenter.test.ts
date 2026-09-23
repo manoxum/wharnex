@@ -19,6 +19,13 @@ describe('App global attention session refresh', () => {
     expect(source).toMatch(/collectAttentionItems\(chats, attentionSessions, chatgptHumanActions\)/)
   })
 
+  it('acknowledges clicked task completions and keeps them outside the active alert count', () => {
+    expect(source).toMatch(/filterActiveAttentionItems\(allAttentionItems, attentionHistory\)/)
+    expect(source).toContain("if (item.kind !== 'task-completed' || !session) return")
+    expect(source).toContain('acknowledgeCompletedAttention(session.project_path, item, history)')
+    expect(source).toContain('attentionHistoryItems={attentionHistory}')
+  })
+
 
   it('routes the top-chrome bell through the compact preview before the full drawer', () => {
     expect(source).toContain("const [attentionPreviewOpen, setAttentionPreviewOpen] = useState(false)")

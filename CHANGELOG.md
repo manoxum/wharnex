@@ -22,7 +22,7 @@ _(reserved — no entries yet)_
 
 ### Chat 30e2e96e-2ca0-44c5-a747-03d9020ba265 (2026-09-23)
 
-_(reserved — no entries yet)_
+- Centro de Alertas: notificações de tarefas concluídas passam a ser reconhecidas ao abrir, saem dos alertas ativos e ficam num histórico persistente por projeto.
 
 
 ### Estabilização do tray Desktop (2026-09-22)
