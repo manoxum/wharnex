@@ -16,6 +16,7 @@ import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from '.
 import { DeferredEditorWorkspace } from './components/DeferredEditorWorkspace'
 import { OrchestratorWorkspace } from './components/orchestrator/OrchestratorWorkspace'
 import { WorkspaceTopbar } from './components/WorkspaceTopbar'
+import { RemotePairingGate } from './components/RemotePairingGate'
 import { AttentionPopover } from './components/AttentionPopover'
 import { WorkbenchStatusBar } from './components/WorkbenchStatusBar'
 import { WorkspaceShell } from './components/WorkspaceShell'
@@ -79,6 +80,8 @@ const EXECUTION_ACTIVE_EVENT_TYPES = new Set(['execution.queued', 'execution.deq
 const EXECUTION_TERMINAL_EVENT_TYPES = new Set(['execution.completed', 'execution.failed', 'execution.duplicate_blocked'])
 
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
+import { isRemoteApp, remoteWorkspaceMode } from './lib/remoteApp'
+import { queueRemotePrompt } from './lib/remoteDispatch'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
 import { storedAttachmentFile, withProjectTodoPrePlan } from './lib/projectTodoForwarding'
@@ -116,6 +119,7 @@ function requestAlreadyRecorded(projectPath: string, chatId: string, requestId: 
 export default function App() {
   const embeddedProject = embeddedProjectPath()
   if (embeddedProject) return <ProjectApp embeddedProject={embeddedProject} />
+  if (isRemoteApp) return <RemotePairingGate><ProjectApp /></RemotePairingGate>
   if (isDesktop()) return <WorkspaceShell />
   return <ProjectApp />
 }
@@ -133,7 +137,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [items, setItems] = useState<ChatItem[]>([])
   const [events, setEvents] = useState<HarnessEvent[]>([])
   const [manualPrompt, setManualPrompt] = useState('')
-  const [mode, setMode] = useState<WorkspaceMode>(surfaceRequest?.kind === 'editor' ? 'editor' : 'agent')
+  const [mode, setMode] = useState<WorkspaceMode>(remoteWorkspaceMode(surfaceRequest?.kind === 'editor' ? 'editor' : 'agent'))
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('protected')
   const [automationMode, setAutomationMode] = useState<AutomationMode>('auto')
   const [effortLevel, setEffortLevel] = useState<EffortLevel>('medium')
@@ -787,7 +791,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       persistChats(created.project_path, nextChats)
       setSavedChats(hydrated.saved); setArchivedChats(hydrated.archived); setSession(selectedSession); activeChatIdRef.current = selected.id; setActiveChatId(selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
-      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode(surfaceRequest?.kind === 'editor' ? 'editor' : 'agent'); setTerminalOpen(surfaceRequest?.kind === 'terminal' ? true : initialWorkbench.bottom.open); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(projectEffortLevel); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
+      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode(remoteWorkspaceMode(surfaceRequest?.kind === 'editor' ? 'editor' : 'agent')); setTerminalOpen(surfaceRequest?.kind === 'terminal' ? true : initialWorkbench.bottom.open); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(projectEffortLevel); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
       connectEvents(selectedSession.id, selectedSession.project_path, selected.id)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
   }
@@ -1789,6 +1793,35 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       let draftCount = 0
       let autoSubmitted = false
       let transportFailure = ''
+      if (prompt && isRemoteApp && response.session.chat_transport_mode !== 'manual') {
+        try {
+          if (!requestId) throw new Error('O pedido remoto não recebeu request_id.')
+          if (activeChatIdRef.current === targetChat.id) setTransportProgress('A encaminhar o pedido para os Supervisores do Desktop…')
+          const prepared = await queueRemotePrompt({
+            chatId: targetChat.id, sessionId: response.session.id, requestId, projectPath, conversationUrl: targetChat.chatgptUrl,
+            prompt: {
+              cacheKey: targetChat.id, workspaceChatId: targetChat.id, text: prompt, transport, tunnelInstanceIds, bootstrapText: message,
+              url: targetChat.chatgptUrl, sessionId: response.session.id, requestId, attachments: encoded, artifacts: systemArtifacts, autoSubmit: true,
+              expectedFilename: expectedResponseBundleName(prompt, requestId), projectFiles, contextSha256: sessionContextSHA(response.session),
+              lastContextSha256: targetChat.lastContextSha256, lastContextChatgptUrl: targetChat.lastContextChatgptUrl,
+              includeContext: artifacts.context || projectFiles.length > 0 || requiresProjectContextTransport(message), preferCurrentConversation: false,
+              firstRequest, chatTitle: generatedChatTitle, requestedAt: userItem.createdAt, projectName: chatGPTProjectName(projectPath), projectPath,
+              reasoningEffort: response.session.reasoning_effort || 'high',
+            },
+          })
+          draftCount = prepared.attachmentCount
+          autoSubmitted = true
+          if (requestId) mutateChatItems(targetChat, response.session.project_path, (current) => current.map((item) => item.id === messageId ? { ...item, iteration: iterationRef(requestId, 'submitted', selectedArtifactKinds({ ...artifacts, context: prepared.includedContext, prompt: true }), targetChat.chatgptUrl) } : item))
+          setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[targetChat.id]; return next })
+          failedPromptDeliveryKeysRef.current.delete(deliveryKey)
+        } catch (prepareError) {
+          transportFailure = messageOf(prepareError)
+          setFailedPromptDeliveries((current) => ({ ...current, [targetChat.id]: { kind: promptDeliveryFailureKind(transportFailure), requestId } }))
+          failedPromptDeliveryKeysRef.current.add(deliveryKey)
+        } finally {
+          if (activeChatIdRef.current === targetChat.id) setTransportProgress('')
+        }
+      }
       if (prompt && isDesktop() && response.session.chat_transport_mode !== 'manual') {
         try {
           const bridge = desktopBridge()
@@ -2418,13 +2451,29 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const text = promptSession.last_manual_prompt || ''
     if (!text) throw new Error('Continuação do planner vazia.')
     if (promptSession.chat_transport_mode === 'manual') throw new Error('Este chat está em modo Manual: copie o prompt e submeta o bundle de resposta manualmente.')
+    const continuationArtifacts = continuationArtifactSelection(promptSession)
+    const transport = targetChat.transport || globalTransport
+    const continuationRequestId = activePendingRequestId(promptSession)
+    if (isRemoteApp) {
+      if (!continuationRequestId) throw new Error('A continuação remota não recebeu request_id.')
+      return queueRemotePrompt({
+        chatId: targetChat.id, sessionId: promptSession.id, requestId: continuationRequestId, projectPath: promptSession.project_path, conversationUrl: targetChat.chatgptUrl,
+        prompt: {
+          cacheKey: targetChat.id, workspaceChatId: targetChat.id, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []),
+          url: targetChat.chatgptUrl, sessionId: promptSession.id, requestId: continuationRequestId, attachments: [],
+          artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
+          expectedFilename: expectedResponseBundleName(text, continuationRequestId), projectFiles: [], contextSha256: sessionContextSHA(promptSession),
+          lastContextSha256: targetChat.lastContextSha256, lastContextChatgptUrl: targetChat.lastContextChatgptUrl,
+          includeContext: options?.forceContext ?? continuationArtifacts.context, preferCurrentConversation: false, chatTitle: targetChat.title,
+          requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
+          projectPath: promptSession.project_path, reasoningEffort: promptSession.reasoning_effort || 'high',
+        },
+      })
+    }
     if (!isDesktop()) throw new Error('O loop automático com ChatGPT requer Wharnex Desktop.')
     await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
     const bridge = desktopBridge()
     if (!bridge) throw new Error('Desktop bridge indisponível')
-	const continuationArtifacts = continuationArtifactSelection(promptSession)
-    const transport = targetChat.transport || globalTransport
-    const continuationRequestId = activePendingRequestId(promptSession)
 	const prepared = await bridge.chatgpt.preparePrompt({
 	  cacheKey: targetChat.id, background: true, workspaceChatId: targetChat.id, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetChat.chatgptUrl, sessionId: promptSession.id,
       requestId: continuationRequestId, attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
@@ -2803,7 +2852,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   function openFileFromChat(path: string) {
     setEditorOpenPath(path)
     setEditorOpenNonce((value) => value + 1)
-    setMode('editor')
+    setMode(remoteWorkspaceMode('editor'))
   }
 
   async function revertChange(item: ChatItem) {
@@ -3574,7 +3623,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       return
     }
     if (target.kind === 'editor') {
-      setMode('editor')
+      setMode(remoteWorkspaceMode('editor'))
       if (target.path) { setEditorOpenPath(target.path); setEditorOpenNonce((nonce) => nonce + 1) }
       return
     }
@@ -3707,7 +3756,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   return <main className="workspace-root">
-    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} attention={attentionSummary} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onAttention={() => setAttentionPreviewOpen((open) => !open)} onRestartPending={() => void openRestartConfirmation(activeChatId)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
+    {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} attention={attentionSummary} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={(nextMode) => setMode(remoteWorkspaceMode(nextMode))} onAttention={() => setAttentionPreviewOpen((open) => !open)} onRestartPending={() => void openRestartConfirmation(activeChatId)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
     {attentionPreviewOpen && <AttentionPopover
       items={attentionItems}
       activeChatId={activeChatId}

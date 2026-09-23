@@ -99,17 +99,13 @@ if [ "$(uname -s 2>/dev/null || printf unknown)" = "Linux" ]; then
   unset CHROME_DEVEL_SANDBOX 2>/dev/null || true
 fi
 
-# Backend/frontend/PostgreSQL/tunnel are persistent Compose services. Normal
-# start updates only the application containers while preserving tunnel/DB.
+# Gateway/backend/frontend/webapp/PostgreSQL/tunnel are persistent Compose services.
+# The Desktop reaches backend and frontend exclusively through the gateway.
 WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" ensure
 
-# stack.sh ensure just (re)wrote these; read back the ports actually applied
-# for this checkout instead of assuming the 8888/5173 defaults, so two
-# checkouts on different ports each wait on and report their own.
-HTTP_PORT=$(sed -n 's/^WHARNESS_HTTP_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)
-WEB_PORT=$(sed -n 's/^WHARNESS_WEB_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)
-[ -n "$HTTP_PORT" ] || HTTP_PORT=8888
-[ -n "$WEB_PORT" ] || WEB_PORT=5173
+# stack.sh ensure just (re)wrote the only published application port.
+GATEWAY_PORT=$(sed -n 's/^WHARNESS_GATEWAY_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)
+[ -n "$GATEWAY_PORT" ] || GATEWAY_PORT=6969
 
 : > "$LOG_FILE"
 (
@@ -120,8 +116,8 @@ WEB_PORT=$(sed -n 's/^WHARNESS_WEB_PORT=//p' "$ROOT/.harness/state/stack.env" 2>
     WHARNESS_ROOT="$ROOT" \
     WHARNESS_RUNTIME_DIR="$RUN_DIR" \
     WHARNESS_SERVICES_MODE=stack \
-    WHARNESS_API_URL="http://127.0.0.1:$HTTP_PORT" \
-    WHARNESS_FRONTEND_URL="http://127.0.0.1:$WEB_PORT" \
+    WHARNESS_API_URL="http://127.0.0.1:$GATEWAY_PORT" \
+    WHARNESS_FRONTEND_URL="http://127.0.0.1:$GATEWAY_PORT" \
     WHARNESS_DESKTOP_USER_DATA_DIR="${WHARNESS_DESKTOP_USER_DATA_DIR:-}" \
     WHARNESS_INSTANCE_ID="${WHARNESS_INSTANCE_ID:-}" \
     WHARNESS_RUNNER_IMAGE="${WHARNESS_RUNNER_IMAGE:-kernl-runner:local}" \
@@ -148,12 +144,11 @@ while [ "$i" -lt 120 ]; do
     alive "$ep" && electron_ok=1 || true
   fi
   if [ "$electron_ok" -eq 1 ] && \
-     curl -fsS "http://127.0.0.1:$HTTP_PORT/api/health" >/dev/null 2>&1 && \
-     curl -fsS "http://127.0.0.1:$WEB_PORT/" >/dev/null 2>&1; then
+     curl -fsS "http://127.0.0.1:$GATEWAY_PORT/api/health" >/dev/null 2>&1 && \
+     curl -fsS "http://127.0.0.1:$GATEWAY_PORT/" >/dev/null 2>&1; then
     printf 'Wharnex Desktop started.\n'
     printf '  coordinator: %s\n' "$pid"
-    printf '  backend:     http://127.0.0.1:%s (Compose)\n' "$HTTP_PORT"
-    printf '  frontend:    http://127.0.0.1:%s (Compose)\n' "$WEB_PORT"
+    printf '  gateway:     http://127.0.0.1:%s (Compose)\n' "$GATEWAY_PORT"
     printf '  logs:        %s\n' "$LOG_FILE"
     exit 0
   fi

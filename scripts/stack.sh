@@ -30,11 +30,11 @@ LEGACY_RECOVERY_CONTAINER="wharness-postgres-recovery-$PROJECT"
 TUNNEL_MIGRATION_MARKER="$STATE_DIR/stack-tunnel-state-migrated-v1"
 BACKEND_IMAGE="wharness-backend:$PROJECT"
 FRONTEND_IMAGE="wharness-frontend:$PROJECT"
+WEBAPP_IMAGE="wharness-webapp:$PROJECT"
 TUNNEL_IMAGE="wharness-tunnel:$PROJECT"
-# Host ports are also per-checkout: two checkouts running concurrently must
-# not both try to bind 127.0.0.1:8888/5173.
-HTTP_PORT=${WHARNESS_HTTP_PORT:-8888}
-WEB_PORT=${WHARNESS_WEB_PORT:-5173}
+# The gateway is the only published application port. It remains per-checkout
+# so multiple Wharnex worktrees can run concurrently without collisions.
+GATEWAY_PORT=${WHARNESS_GATEWAY_PORT:-6969}
 INSTANCE_ID=${WHARNESS_INSTANCE_ID:-}
 STACK_OPERATION_LOCK="$STATE_DIR/stack-operation.lock"
 
@@ -124,8 +124,7 @@ ensure_credentials() {
     printf 'WHARNESS_TUNNEL_API_TOKEN=%s\n' "$token"
     printf 'WHARNESS_MINIO_ROOT_USER=%s\n' "$minio_user"
     printf 'WHARNESS_MINIO_ROOT_PASSWORD=%s\n' "$minio_password"
-    printf 'WHARNESS_HTTP_PORT=%s\n' "$HTTP_PORT"
-    printf 'WHARNESS_WEB_PORT=%s\n' "$WEB_PORT"
+    printf 'WHARNESS_GATEWAY_PORT=%s\n' "$GATEWAY_PORT"
     printf 'WHARNESS_INSTANCE_ID=%s\n' "$INSTANCE_ID"
   } >"$stack_env_tmp"
   mv -f "$stack_env_tmp" "$STACK_ENV"
@@ -367,12 +366,12 @@ wait_service() {
 }
 
 images_ready() {
-  docker image inspect "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$TUNNEL_IMAGE" >/dev/null 2>&1
+  docker image inspect "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$WEBAPP_IMAGE" "$TUNNEL_IMAGE" >/dev/null 2>&1
 }
 
 build_images() {
-  printf 'Building Wharnex backend/frontend/tunnel images...\n'
-  compose build backend frontend tunnel
+  printf 'Building Wharnex backend/frontend/webapp/tunnel images...\n'
+  compose build backend frontend webapp tunnel
 }
 
 ensure_durable_services() {
@@ -404,51 +403,58 @@ activate_application() {
   require_docker
   ensure_credentials
   ensure_durable_services
-  docker image inspect "$BACKEND_IMAGE" "$FRONTEND_IMAGE" >/dev/null 2>&1 || {
+  docker image inspect "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$WEBAPP_IMAGE" >/dev/null 2>&1 || {
     echo 'Wharnex application images are missing; run make build-stage first.' >&2
     return 1
   }
 
   old_backend=''
   old_frontend=''
+  old_webapp=''
   backend_container=$(compose ps -q backend 2>/dev/null || true)
   frontend_container=$(compose ps -q frontend 2>/dev/null || true)
+  webapp_container=$(compose ps -q webapp 2>/dev/null || true)
   [ -z "$backend_container" ] || old_backend=$(docker inspect -f '{{.Image}}' "$backend_container" 2>/dev/null || true)
   [ -z "$frontend_container" ] || old_frontend=$(docker inspect -f '{{.Image}}' "$frontend_container" 2>/dev/null || true)
+  [ -z "$webapp_container" ] || old_webapp=$(docker inspect -f '{{.Image}}' "$webapp_container" 2>/dev/null || true)
   desired_backend=$(docker image inspect -f '{{.Id}}' "$BACKEND_IMAGE")
   desired_frontend=$(docker image inspect -f '{{.Id}}' "$FRONTEND_IMAGE")
+  desired_webapp=$(docker image inspect -f '{{.Id}}' "$WEBAPP_IMAGE")
 
   # Starting the Desktop should be quick when the persistent application
   # services are already healthy and run the requested images. `make build`
   # still reaches this function after new images are produced, and image-ID
   # mismatch below keeps its normal force-recreate rollout intact.
-  if [ "$old_backend" = "$desired_backend" ] && [ "$old_frontend" = "$desired_frontend" ] \
-    && service_ready backend 1 && service_ready frontend 1; then
+  if [ "$old_backend" = "$desired_backend" ] && [ "$old_frontend" = "$desired_frontend" ] && [ "$old_webapp" = "$desired_webapp" ] \
+    && service_ready backend 1 && service_ready frontend 1 && service_ready webapp 1 && service_ready gateway 1; then
     return 0
   fi
 
-  if compose up -d --force-recreate --no-deps backend frontend && service_ready backend 120 && service_ready frontend 120; then
+  if compose up -d --force-recreate --no-deps backend frontend webapp gateway && service_ready backend 120 && service_ready frontend 120 && service_ready webapp 120 && service_ready gateway 120; then
     backend_container=$(compose ps -q backend 2>/dev/null || true)
     frontend_container=$(compose ps -q frontend 2>/dev/null || true)
+    webapp_container=$(compose ps -q webapp 2>/dev/null || true)
     running_backend=$(docker inspect -f '{{.Image}}' "$backend_container" 2>/dev/null || true)
     running_frontend=$(docker inspect -f '{{.Image}}' "$frontend_container" 2>/dev/null || true)
-    if [ "$running_backend" = "$desired_backend" ] && [ "$running_frontend" = "$desired_frontend" ]; then
+    running_webapp=$(docker inspect -f '{{.Image}}' "$webapp_container" 2>/dev/null || true)
+    if [ "$running_backend" = "$desired_backend" ] && [ "$running_frontend" = "$desired_frontend" ] && [ "$running_webapp" = "$desired_webapp" ]; then
       return 0
     fi
-    printf 'Wharnex application rollout selected stale image IDs: backend=%s/%s frontend=%s/%s.\n' \
-      "$running_backend" "$desired_backend" "$running_frontend" "$desired_frontend" >&2
+    printf 'Wharnex application rollout selected stale image IDs: backend=%s/%s frontend=%s/%s webapp=%s/%s.\n' \
+      "$running_backend" "$desired_backend" "$running_frontend" "$desired_frontend" "$running_webapp" "$desired_webapp" >&2
   fi
 
-  echo 'Wharnex application rollout failed; restoring previous backend/frontend images when available.' >&2
-  compose logs --tail=80 backend frontend >&2 || true
-  if [ -n "$old_backend" ] && [ -n "$old_frontend" ]; then
+  echo 'Wharnex application rollout failed; restoring previous application images when available.' >&2
+  compose logs --tail=80 backend frontend webapp gateway >&2 || true
+  if [ -n "$old_backend" ] && [ -n "$old_frontend" ] && [ -n "$old_webapp" ]; then
     docker image tag "$old_backend" "$BACKEND_IMAGE"
     docker image tag "$old_frontend" "$FRONTEND_IMAGE"
-    if compose up -d --force-recreate --no-deps backend frontend && service_ready backend 120 && service_ready frontend 120; then
+    docker image tag "$old_webapp" "$WEBAPP_IMAGE"
+    if compose up -d --force-recreate --no-deps backend frontend webapp gateway && service_ready backend 120 && service_ready frontend 120 && service_ready webapp 120 && service_ready gateway 120; then
       echo 'Previous Wharnex application containers restored after failed rollout.' >&2
     else
       echo 'Previous Wharnex application containers could not be restored automatically.' >&2
-      compose logs --tail=80 backend frontend >&2 || true
+      compose logs --tail=80 backend frontend webapp gateway >&2 || true
     fi
   fi
   return 1
@@ -459,14 +465,22 @@ activate_selected_services() {
   ensure_credentials
   ensure_durable_services
   [ "$#" -gt 0 ] || return 0
+  expanded=''
   for service in "$@"; do
-    case "$service" in backend|frontend|tunnel) ;; *) echo "Invalid Wharnex activation service: $service" >&2; return 2;; esac
+    case "$service" in
+      backend|tunnel) expanded="$expanded $service" ;;
+      frontend) expanded="$expanded frontend webapp gateway" ;;
+      *) echo "Invalid Wharnex activation service: $service" >&2; return 2 ;;
+    esac
   done
-  if ! compose up -d --force-recreate --no-deps "$@"; then
-    compose logs --tail=80 "$@" >&2 || true
+  # expanded is derived from the closed enum above.
+  # shellcheck disable=SC2086
+  if ! compose up -d --force-recreate --no-deps $expanded; then
+    # shellcheck disable=SC2086
+    compose logs --tail=80 $expanded >&2 || true
     return 1
   fi
-  for service in "$@"; do wait_service "$service" 180; done
+  for service in $expanded; do wait_service "$service" 180; done
 }
 
 ensure_stack() {

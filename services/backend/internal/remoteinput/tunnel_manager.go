@@ -26,7 +26,7 @@ func NewTunnelManager(cfg config.TunnelConfig) (*Manager, error) {
 		return nil, err
 	}
 	configs := append([]config.TunnelInstanceConfig(nil), document.Instances...)
-	landing := TunnelLanding{InstanceName: document.InstanceName, Origins: configuredTunnelOrigins(configs)}
+	landing := TunnelLanding{InstanceName: document.InstanceName, Origins: configuredTunnelOrigins(configs), RemoteAppOrigin: cfg.RemoteAppOrigin}
 	sort.SliceStable(configs, func(i, j int) bool { return configs[i].Priority < configs[j].Priority })
 	instances := make([]Instance, 0, len(configs))
 	for _, instanceConfig := range configs {

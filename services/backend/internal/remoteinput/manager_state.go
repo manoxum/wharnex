@@ -20,10 +20,11 @@ type managerState struct {
 	Version  int                    `json:"version"`
 	Records  []record               `json:"records"`
 	Requests map[string][]time.Time `json:"requests"`
+	Stopped  map[string]bool        `json:"stopped,omitempty"`
 }
 
 func (m *Manager) load() (managerState, error) {
-	state := managerState{Version: 1, Records: []record{}, Requests: map[string][]time.Time{}}
+	state := managerState{Version: 1, Records: []record{}, Requests: map[string][]time.Time{}, Stopped: map[string]bool{}}
 	if m.indexPath == "" {
 		return state, nil
 	}
@@ -42,6 +43,9 @@ func (m *Manager) load() (managerState, error) {
 	}
 	if state.Requests == nil {
 		state.Requests = map[string][]time.Time{}
+	}
+	if state.Stopped == nil {
+		state.Stopped = map[string]bool{}
 	}
 	return state, nil
 }

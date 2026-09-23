@@ -14,8 +14,9 @@ import (
 // TunnelLanding is deliberately public discovery metadata. It is never a
 // credential, grant, channel URL, or request identifier.
 type TunnelLanding struct {
-	InstanceName string
-	Origins      []string
+	InstanceName    string
+	Origins         []string
+	RemoteAppOrigin string
 }
 
 type tunnelLandingView struct {

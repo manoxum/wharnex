@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert' | 'edit' | 'info' | 'package' | 'database' | 'archive' | 'history' | 'minus' | 'pause' | 'camera' | 'cursor' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema' | 'more-horizontal'
+type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert' | 'edit' | 'info' | 'package' | 'database' | 'archive' | 'history' | 'minus' | 'pause' | 'stop' | 'camera' | 'cursor' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema' | 'more-horizontal'
 
 export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
   const paths: Record<Name, ReactNode> = {
@@ -59,6 +59,7 @@ export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
     history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></>,
     minus: <path d="M5 12h14" />,
     pause: <><path d="M8 5v14"/><path d="M16 5v14"/></>,
+    stop: <rect x="6" y="6" width="12" height="12" rx="1"/>,
     camera: <><rect x="3" y="6" width="18" height="14" rx="2"/><path d="m8 6 1.5-2h5L16 6"/><circle cx="12" cy="13" r="4"/></>,
     cursor: <><path d="m5 3 13 8-6 2-2 6L5 3Z"/><path d="m13 13 5 5"/></>,
     server: <><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01M12 7h5M12 17h5"/></>,

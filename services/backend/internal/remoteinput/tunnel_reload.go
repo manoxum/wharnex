@@ -28,7 +28,7 @@ func (m *Manager) ReloadRemoteInput(ctx context.Context) error {
 		return err
 	}
 	desired := reloadableTunnelInstances(document)
-	landing := TunnelLanding{InstanceName: document.InstanceName, Origins: configuredTunnelOrigins(desired)}
+	landing := TunnelLanding{InstanceName: document.InstanceName, Origins: configuredTunnelOrigins(desired), RemoteAppOrigin: m.source.RemoteAppOrigin}
 
 	m.mu.Lock()
 	existing := make(map[string]Instance, len(m.instances))
@@ -49,6 +49,11 @@ func (m *Manager) ReloadRemoteInput(ctx context.Context) error {
 			delete(m.disabled, id)
 		}
 	}
+	for id := range m.paused {
+		if _, kept := instanceIndexByID(reconciled.next, id); !kept {
+			delete(m.paused, id)
+		}
+	}
 	m.mu.Unlock()
 
 	stopRetiredTunnelInstances(ctx, reconciled.retired)
@@ -63,7 +68,23 @@ func (m *Manager) ReloadRemoteInput(ctx context.Context) error {
 // remaining pool is still serving and the operator needs the daemon alive to
 // correct the configuration.
 func (m *Manager) startReloadedInstances(ctx context.Context, created []Instance) {
+	m.mu.Lock()
+	state, stateErr := m.load()
+	paused := make(map[string]bool, len(m.paused))
+	for id, value := range m.paused {
+		paused[id] = value
+	}
+	m.mu.Unlock()
 	for _, instance := range created {
+		if stateErr != nil {
+			m.mu.Lock()
+			m.disabled[instance.ID] = stateErr
+			m.mu.Unlock()
+			continue
+		}
+		if state.Stopped[instance.ID] || paused[instance.ID] {
+			continue
+		}
 		session, ok := instance.Provider.(SessionProvider)
 		if !ok {
 			continue
@@ -178,4 +199,5 @@ func (p *TryCloudflareProvider) UpdateLanding(landing TunnelLanding) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.landingPage = page
+	p.remoteAppOrigin = strings.TrimSpace(landing.RemoteAppOrigin)
 }
