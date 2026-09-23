@@ -184,6 +184,7 @@
   .execution-subtask-meta code { display: none; }
   .main-request-plan-meta .history-summary-context { display: none; }
   .history-current-plan .plan-control-primary { align-items: stretch; flex-direction: column; }
+  .history-current-plan .plan-control-copy { width: 100%; flex: 0 1 auto; }
 }
 @container request-history (max-width: 460px) {
   .history-summary-context { display: none; }
