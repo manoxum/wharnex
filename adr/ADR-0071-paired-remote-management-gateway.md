@@ -19,11 +19,15 @@ Wharnex adopts one gateway plus an explicit pairing session.
 - Pairing begins only from the trusted local UI. The backend mints a short-lived single-use random code and returns a remote pairing URL/QR. Claim exchanges that code for a random session cookie; only token digests are persisted in private state.
 - Remote-marked backend requests require a valid paired session, except health and pairing claim/status. Pairing does not bypass Policy, Protected execution, Git confirmation or project/security boundaries.
 - Tunnel lifecycle control is an authenticated backend-to-daemon operation. Pause is process-lifetime/ephemeral; stop is persisted; resume starts the provider again. A paused or stopped instance is ineligible for new publications.
+- The paired webapp is an Agent/Orchestrator cockpit over durable backend state: it may select indexed projects, manage durable chats and operational side panels, and follow requests, but it never receives a browser-control primitive. When a manual planner prompt must reach ChatGPT, the backend validates it against the active Session and enqueues a request-bound `BOT_WRITE/PREPARE_PROMPT`; an existing Desktop Supervisor performs the actual browser submission and supervision.
+- Web pairing supports scanning the Desktop-generated QR directly in the webapp. The scanner extracts only a same-origin one-time pairing code; the camera stream stays browser-local and the existing claim endpoint remains the authentication boundary.
 
 ## Consequences
 
 There is one local application origin instead of separately published frontend/backend origins, and public remote management reuses the existing tunnel rather than opening another host port. The public tunnel becomes both the request-bundle transport and, when configured, the paired remote application ingress, while its unguessable request resources retain route precedence.
 
 The remote webapp can reuse the paired backend capabilities without importing or compiling the Desktop frontend and without owning any ChatGPT renderer. Security-sensitive behavior remains centralized in the backend/Desktop boundaries already covered by Policy. A copied public URL alone is insufficient for remote API use; a local pairing action is additionally required.
+
+Remote requests therefore survive webapp refreshes and are visible in the same durable queue as Desktop work. A paired browser can compose, archive/save and reopen chats or operate project panels, while Supervisor/Worker capacity, provider affinity, rate limits, bundle collection and every ChatGPT renderer stay exclusively Desktop-owned.
 
 The remote surface owns its Tailwind bootstrap inside `services/webapp`; the Desktop frontend keeps its own incremental migration rules and is not compiled as part of the remote image. This preserves independent dependency/build boundaries while leaving untouched legacy Desktop UI governed by its existing styling stack.
