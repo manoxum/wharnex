@@ -160,19 +160,29 @@
 }
 
 @container plan-view (max-width: 760px) {
-  .plan-control-primary { align-items: stretch; flex-direction: column; gap: 12px; }
-  .plan-decision-actions { align-self: flex-start; flex-wrap: wrap; }
+  .plan-control-surface { margin-bottom: 16px; box-shadow: 0 7px 20px color-mix(in srgb, var(--theme-shadow) 22%, transparent); }
+  .plan-control-primary { min-height: 0; align-items: stretch; flex-direction: column; gap: 10px; }
+  .plan-control-copy { width: 100%; flex: 0 1 auto; align-items: center; }
+  .plan-control-copy > div > span:last-child { max-width: none; }
+  .plan-decision-actions { align-self: stretch; flex-wrap: wrap; justify-content: flex-end; }
   .plan-manual-tools { align-items: stretch; flex-direction: column; }
   .plan-manual-actions { justify-content: flex-start; }
 }
 
 @container plan-view (max-width: 480px) {
-  .plan-control-surface { padding: 8px; }
-  .plan-control-primary { padding: 12px; }
-  .plan-control-copy { gap: 10px; }
-  .plan-decision-actions { width: 100%; }
-  .plan-decision-actions > button { flex: 1 1 132px; }
-  .plan-manual-actions > button { flex: 1 1 160px; }
+  .plan-control-surface { margin-top: -4px; padding: 7px; border-radius: 13px; }
+  .plan-control-primary { padding: 10px; gap: 9px; }
+  .plan-control-copy { gap: 9px; }
+  .plan-control-mark { width: 32px; height: 32px; flex-basis: 32px; border-radius: 9px; }
+  .plan-control-copy strong { font-size: calc(11.5px * var(--ui-font-scale)); }
+  .plan-control-copy > div > span:last-child { font-size: calc(8.8px * var(--ui-font-scale)); line-height: 1.42; }
+  .plan-decision-actions { width: 100%; padding: 3px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plan-decision-actions > button { width: 100%; min-width: 0; flex: none; }
+  .plan-decision-actions > button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .plan-manual-tools { padding: 10px; gap: 9px; }
+  .plan-manual-copy { align-items: flex-start; }
+  .plan-manual-actions { display: grid; grid-template-columns: 1fr; }
+  .plan-manual-actions > button { width: 100%; min-width: 0; flex: none; }
 }
 
 /* Plan hierarchy and durable history: calm cards with clear nesting. */

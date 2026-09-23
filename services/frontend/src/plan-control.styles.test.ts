@@ -35,11 +35,15 @@ describe('plan control surface CSS', () => {
     expect(mark).toContain('border-radius: 9px')
   })
 
-  it('reflows from the inspector width instead of the viewport', () => {
+  it('reflows from the inspector width without turning desktop flex basis into vertical whitespace', () => {
     expect(rule('.plan-view')).toContain('container-type: inline-size')
     expect(css).toContain('@container plan-view (max-width: 760px)')
     expect(css).toContain('@container plan-view (max-width: 480px)')
-    expect(css).toContain('.plan-decision-actions > button { flex: 1 1 132px; }')
+    expect(css).toContain('.plan-control-primary { min-height: 0; align-items: stretch; flex-direction: column; gap: 10px; }')
+    expect(css).toContain('.plan-control-copy { width: 100%; flex: 0 1 auto; align-items: center; }')
+    expect(css).toContain('.plan-decision-actions { width: 100%; padding: 3px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }')
+    expect(css).toContain('.plan-decision-actions > button:last-child:nth-child(odd) { grid-column: 1 / -1; }')
+    expect(css).toContain('.plan-manual-actions { display: grid; grid-template-columns: 1fr; }')
   })
 
 
