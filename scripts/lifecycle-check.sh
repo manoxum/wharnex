@@ -263,6 +263,10 @@ if ! grep -Fq 'HARNESS_TUNNEL_DAEMON_URL: "http://tunnel:8090"' "$COMPOSE"; then
   echo 'lifecycle regression: backend must use the dedicated tunnel daemon inside Compose' >&2
   exit 1
 fi
+if ! grep -Fq 'XDG_CONFIG_HOME=/var/lib/wharness-tunnel/config' "$TUNNEL_DOCKERFILE" || ! grep -Fq 'XDG_DATA_HOME=/var/lib/wharness-tunnel/data' "$TUNNEL_DOCKERFILE" || ! grep -Fq 'XDG_CACHE_HOME=/var/lib/wharness-tunnel/cache' "$TUNNEL_DOCKERFILE"; then
+  echo 'lifecycle regression: tunnel-client configuration directories must live on the persistent tunnel volume' >&2
+  exit 1
+fi
 if ! grep -Fq 'desired_tunnel=$(docker image inspect' "$STACK" || ! grep -Fq 'compose up -d --force-recreate --no-deps tunnel' "$STACK"; then
   echo 'lifecycle regression: an updated tunnel image must replace only its container while retaining the named state volume' >&2
   exit 1
