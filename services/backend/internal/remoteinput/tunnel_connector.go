@@ -47,6 +47,9 @@ func TunnelProviders() []app.TunnelProviderDescriptor {
 		{ID: "localhost_run", Name: "localhost.run", Description: "Túnel HTTPS temporário via SSH, sem comando livre ou encaminhamento arbitrário.", AuthMode: "none", Permanent: false, Available: sshErr == nil, Fields: []app.RemoteStorageField{}},
 		{ID: "pinggy", Name: "Pinggy", Description: "Túnel HTTPS temporário via SSH; o limite da conta gratuita é imposto pelo provider.", AuthMode: "none", Permanent: false, Available: sshErr == nil, Fields: []app.RemoteStorageField{}},
 		{ID: "serveo", Name: "Serveo", Description: "Túnel HTTPS comunitário via SSH; disponibilidade e subdomínio são do provider.", AuthMode: "none", Permanent: false, Available: sshErr == nil, Fields: []app.RemoteStorageField{}},
+		// The WireGuard data plane runs inside this process, so there is no
+		// client executable to look up and no host network interface.
+		{ID: "pyjamas", Name: "tunnel.pyjam.as", Description: "Túnel HTTPS temporário por WireGuard em espaço de utilizador; sem conta, sem executável e sem privilégios de rede.", AuthMode: "none", Permanent: false, Available: true, Fields: []app.RemoteStorageField{}},
 	}
 }
 

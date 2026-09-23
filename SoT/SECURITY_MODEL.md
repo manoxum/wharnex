@@ -107,7 +107,14 @@ values remain direct-upload names. `@see` changes reading priority only and
 MUST NOT grant write authority or introduce another attachment transport.
 
 Every tunnel adapter MUST bind only to loopback and expose a dedicated
-object server, never the main backend listener. Its routes accept only GET/HEAD
+object server, never the main backend listener. An adapter whose provider
+cannot reach loopback MUST run its data plane in userspace and proxy into that
+same loopback listener; it MUST NOT bind another host interface, create a host
+network interface, or require elevated privileges. A provider-supplied
+provisioning document is untrusted data: script hooks such as WireGuard's
+`PostUp` MUST NEVER be executed, addresses and peer scopes MUST be validated
+against the provider's documented private range, and any announced origin MUST
+match that provider's own hostname suffix (see `adr/ADR-0069`). Its routes accept only GET/HEAD
 for exact validated Wharness objects or resources below an unguessable
 request-channel namespace. Resources are privately copied snapshots with fixed
 allowlisted content types; prompt, state, hash, context, attachments, bundle

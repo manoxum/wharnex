@@ -55,6 +55,8 @@ func tunnelProvider(cfg config.TunnelInstanceConfig, stateDir, secretsDir string
 		return NewTryCloudflareProvider(TryCloudflareConfig{StorageDir: storageDir, Landing: landing})
 	case "zrok", "localxpose", "localhost_run", "pinggy", "serveo":
 		return NewEphemeralTunnelProvider(strings.ToLower(strings.TrimSpace(cfg.Provider)), storageDir, landing)
+	case "pyjamas":
+		return NewPyjamasTunnelProvider(storageDir, landing)
 	case "tailscale_funnel":
 		return NewTailscaleFunnelProvider(AccountTunnelConfig{StorageDir: storageDir, PublicURL: cfg.PublicURL, LocalPort: cfg.LocalPort, Landing: landing})
 	case "cloudflare_named", "ngrok":

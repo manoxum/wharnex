@@ -655,7 +655,7 @@ export type RemoteStorageConnection = { provider: RemoteStorageProviderID; remot
 export type RemoteStorageDocument = { version: 1; instances: RemoteStorageInstance[] }
 export type RemoteStorageConfigResponse = { config: RemoteStorageDocument; restart_required: boolean; credential_cleanup_warning?: boolean }
 
-export type TunnelProviderID = 'cloudflare_named' | 'ngrok' | 'trycloudflare' | 'zrok' | 'tailscale_funnel' | 'localxpose' | 'localhost_run' | 'pinggy' | 'serveo'
+export type TunnelProviderID = 'cloudflare_named' | 'ngrok' | 'trycloudflare' | 'zrok' | 'tailscale_funnel' | 'localxpose' | 'localhost_run' | 'pinggy' | 'serveo' | 'pyjamas'
 export type TunnelProvider = { id: TunnelProviderID; name: string; description: string; auth_mode: 'token' | 'none' | 'local'; auth_url?: string; permanent_dns: boolean; available: boolean; fields: RemoteStorageProviderField[] }
 export type TunnelProviderInstance = { id: string; provider: TunnelProviderID; priority: number; public_url?: string; credential_ref?: string; local_port?: number }
 export type TunnelProviderDocument = { version: 1; instance_name?: string; instances: TunnelProviderInstance[] }

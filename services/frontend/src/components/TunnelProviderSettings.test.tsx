@@ -34,6 +34,16 @@ describe('TunnelProviderSettings', () => {
     await waitFor(() => expect(api.updateTunnelConfig).toHaveBeenCalledWith({ version: 1, instance_name: 'Oficina', instances: [{ id: 'trycloudflare-1', provider: 'trycloudflare', priority: 10 }] }))
   })
 
+  it('saves tunnel.pyjam.as without an account or a pinned origin', async () => {
+    vi.mocked(api.tunnelProviders).mockResolvedValue({ providers: [{ id: 'pyjamas', name: 'tunnel.pyjam.as', description: 'WireGuard em espaço de utilizador', auth_mode: 'none', permanent_dns: false, available: true, fields: [] }] })
+    render(<TunnelProviderSettings onError={vi.fn()}/>)
+    expect(await screen.findByText('Transporte direto por ficheiros')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Adicionar provider/i }))
+    fireEvent.click(screen.getByRole('button', { name: /tunnel\.pyjam\.as/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Guardar configuração/i }))
+    await waitFor(() => expect(api.updateTunnelConfig).toHaveBeenCalledWith({ version: 1, instance_name: 'Oficina', instances: [{ id: 'pyjamas-1', provider: 'pyjamas', priority: 10 }] }))
+  })
+
   it('enrolls a permanent provider without persisting the account token', async () => {
     vi.mocked(api.tunnelProviders).mockResolvedValue({ providers: [{ id: 'cloudflare_named', name: 'Cloudflare Named Tunnel', description: 'DNS permanente', auth_mode: 'token', permanent_dns: true, available: true, fields: [{ id: 'token', label: 'Tunnel token', secret: true, required: true }, { id: 'public_url', label: 'Hostname público', required: true }, { id: 'local_port', label: 'Porta local', required: true }] }] })
     vi.mocked(api.connectTunnelProvider).mockResolvedValue({ provider: 'cloudflare_named', credential_ref: 'cloudflare_named-1', public_url: 'https://agent.example.com', local_port: 43127 })

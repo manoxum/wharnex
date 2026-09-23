@@ -125,6 +125,7 @@ export function TunnelProviderSettings({
           "localhost_run",
           "pinggy",
           "serveo",
+          "pyjamas",
           "tailscale_funnel",
         ].includes(instance.provider) &&
         !instance.credential_ref
@@ -542,6 +543,7 @@ function providerMark(provider: string) {
         localhost_run: "SSH",
         pinggy: "PG",
         serveo: "SV",
+        pyjamas: "PJ",
       } as Record<string, string>
     )[provider] || "TN"
   );

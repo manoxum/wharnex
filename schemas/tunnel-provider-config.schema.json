@@ -16,7 +16,7 @@
         "required": ["id", "provider", "priority"],
         "properties": {
           "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
-          "provider": { "enum": ["trycloudflare", "cloudflare_named", "ngrok", "zrok", "tailscale_funnel", "localxpose", "localhost_run", "pinggy", "serveo"] },
+          "provider": { "enum": ["trycloudflare", "cloudflare_named", "ngrok", "zrok", "tailscale_funnel", "localxpose", "localhost_run", "pinggy", "serveo", "pyjamas"] },
           "priority": { "type": "integer", "minimum": 0 },
           "public_url": { "type": "string", "pattern": "^https://[^/?#]+$" },
           "credential_ref": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },

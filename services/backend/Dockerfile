@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine3.21 AS build
+FROM golang:1.26-alpine3.23 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -16,9 +16,14 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/wharness-backend .
 # pinned Electron's postinstall requires, so every self-evolution apply died
 # with ERR_REQUIRE_ESM while the operator's own `make build` (on a newer host
 # Node) succeeded — an inconsistency that is invisible from the outside and
-# that no source patch can fix. Alpine 3.21 ships Node 22.23. Keep this base
+# that no source patch can fix. Alpine 3.23 ships Node 24.18. Keep this base
 # at or above whatever the desktop's pinned Electron requires.
-FROM golang:1.23-alpine3.21
+#
+# The Alpine release is also bounded from below by the Go tag: the official
+# `golang` images publish Alpine variants only for the releases they still
+# track, so `golang:1.26` has no `alpine3.21` build at all. Moving the Go
+# baseline means re-checking which Alpine variants that tag actually ships.
+FROM golang:1.26-alpine3.23
 ARG WHARNESS_UID=1000
 ARG WHARNESS_GID=1000
 ARG PNPM_VERSION=10.17.1

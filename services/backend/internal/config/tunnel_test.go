@@ -60,6 +60,19 @@ func TestTunnelConfigRequiresSafeInstanceNameWhenSaved(t *testing.T) {
 	}
 }
 
+// pyjam.as allocates its own address, peer and slug on every run, so the
+// document may never carry an origin or account field a restart would falsify.
+func TestTunnelConfigTreatsPyjamasAsTemporary(t *testing.T) {
+	valid := []byte(`{"version":1,"instances":[{"id":"pyjamas","provider":"pyjamas","priority":40}]}`)
+	if _, err := DecodeTunnelDocument(valid); err != nil {
+		t.Fatalf("valid pyjam.as config rejected: %v", err)
+	}
+	invalid := []byte(`{"version":1,"instances":[{"id":"pyjamas","provider":"pyjamas","priority":40,"public_url":"https://a1b2c3.tunnel.pyjam.as"}]}`)
+	if _, err := DecodeTunnelDocument(invalid); err == nil {
+		t.Fatal("pyjam.as instance accepted a pinned public origin")
+	}
+}
+
 func TestTunnelConfigAcceptsOnlyConfiguredTailscaleFunnelOrigin(t *testing.T) {
 	valid := []byte(`{"version":1,"instances":[{"id":"tailnet","provider":"tailscale_funnel","priority":1,"public_url":"https://node.example.ts.net","local_port":43127}]}`)
 	if _, err := DecodeTunnelDocument(valid); err != nil {

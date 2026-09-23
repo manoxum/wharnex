@@ -254,24 +254,6 @@ func validateTunnelInstances(instances []TunnelInstanceConfig) error {
 	return nil
 }
 
-func supportedTunnelProvider(provider string) bool {
-	switch provider {
-	case "trycloudflare", "cloudflare_named", "ngrok", "zrok", "tailscale_funnel", "localxpose", "localhost_run", "pinggy", "serveo":
-		return true
-	default:
-		return false
-	}
-}
-
-func ephemeralTunnelProvider(provider string) bool {
-	switch provider {
-	case "trycloudflare", "zrok", "localxpose", "localhost_run", "pinggy", "serveo":
-		return true
-	default:
-		return false
-	}
-}
-
 func validateTunnelPublicURL(raw string) error {
 	value, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || value.Scheme != "https" || value.Hostname() == "" || value.User != nil || value.RawQuery != "" || value.Fragment != "" || value.Path != "" {

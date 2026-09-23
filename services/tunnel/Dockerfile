@@ -1,4 +1,4 @@
-ARG GO_VERSION=1.23
+ARG GO_VERSION=1.26
 FROM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
 COPY services/backend/go.mod services/backend/go.sum ./
