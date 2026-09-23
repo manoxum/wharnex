@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -33,7 +35,7 @@ func NewEphemeralTunnelProvider(provider, storageDir string, landing TunnelLandi
 	if _, err := exec.LookPath(profile.executable); err != nil {
 		return nil, fmt.Errorf("%s executable was not found", profile.executable)
 	}
-	starter := commandTunnelStarter{profile: profile}
+	starter := commandTunnelStarter{profile: profile, knownHostsPath: filepath.Join(storageDir, "known_hosts")}
 	return newTunnelProvider(storageDir, provider, "127.0.0.1:0", false, starter, landing, func(public *url.URL) bool {
 		return public != nil && public.Scheme == "https" && public.User == nil && profile.validHost(strings.ToLower(public.Hostname()))
 	})
@@ -60,15 +62,29 @@ func ephemeralTunnelProfiles() map[string]ephemeralTunnelProfile {
 		"pinggy": {"pinggy", "ssh", func(origin string) []string {
 			parsed, _ := url.Parse(origin)
 			return []string{"-p", "443", "-T", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-R", "0:" + parsed.Host, "a.pinggy.io"}
-		}, regexp.MustCompile(`https://[a-z0-9-]+\.pinggy\.link`), endsWith(".pinggy.link")},
+		}, regexp.MustCompile(`https://[a-z0-9-]+\.(?:free\.pinggy\.net|run\.pinggy-free\.link)`), func(host string) bool {
+			return strings.HasSuffix(host, ".free.pinggy.net") || strings.HasSuffix(host, ".run.pinggy-free.link")
+		}},
 		"serveo": {"serveo", "ssh", sshArgs("serveo.net"), regexp.MustCompile(`https://[a-z0-9-]+\.serveo\.net`), endsWith(".serveo.net")},
 	}
 }
 
-type commandTunnelStarter struct{ profile ephemeralTunnelProfile }
+type commandTunnelStarter struct {
+	profile        ephemeralTunnelProfile
+	knownHostsPath string
+}
 
 func (starter commandTunnelStarter) Start(ctx context.Context, origin string) (*url.URL, func(), error) {
-	command := exec.Command(starter.profile.executable, starter.profile.args(origin)...)
+	args := starter.profile.args(origin)
+	if starter.profile.executable == "ssh" && starter.knownHostsPath != "" {
+		if err := os.MkdirAll(filepath.Dir(starter.knownHostsPath), 0o700); err != nil {
+			return nil, nil, fmt.Errorf("create SSH known_hosts directory: %w", err)
+		}
+		// Trust only the first key observed for this allowlisted provider; a later
+		// key change remains a hard SSH failure instead of being silently accepted.
+		args = append([]string{"-o", "StrictHostKeyChecking=accept-new", "-o", "UserKnownHostsFile=" + starter.knownHostsPath}, args...)
+	}
+	command := exec.Command(starter.profile.executable, args...)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return nil, nil, err

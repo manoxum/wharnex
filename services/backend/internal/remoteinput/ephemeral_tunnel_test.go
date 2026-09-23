@@ -10,7 +10,7 @@ func TestEphemeralTunnelProfilesOnlyAcceptTheirOwnHTTPSOrigins(t *testing.T) {
 		{"zrok", "https://demo.share.zrok.io", "https://demo.example.com"},
 		{"localxpose", "https://demo.loclx.io", "https://demo.example.com"},
 		{"localhost_run", "https://demo.lhr.life", "https://demo.example.com"},
-		{"pinggy", "https://demo.pinggy.link", "https://demo.example.com"},
+		{"pinggy", "https://demo.free.pinggy.net", "https://demo.example.com"},
 		{"serveo", "https://demo.serveo.net", "https://demo.example.com"},
 	}
 	for _, test := range tests {
@@ -22,5 +22,15 @@ func TestEphemeralTunnelProfilesOnlyAcceptTheirOwnHTTPSOrigins(t *testing.T) {
 				t.Fatalf("unexpected hostname policy for %s", test.provider)
 			}
 		})
+	}
+}
+
+func TestPinggyAcceptsBothCurrentPublicDomains(t *testing.T) {
+	profile := ephemeralTunnelProfiles()["pinggy"]
+	for _, candidate := range []string{"https://demo.free.pinggy.net", "https://demo.run.pinggy-free.link"} {
+		parsed, _ := url.Parse(candidate)
+		if !profile.validHost(parsed.Hostname()) {
+			t.Fatalf("Pinggy public host was rejected: %s", candidate)
+		}
 	}
 }
