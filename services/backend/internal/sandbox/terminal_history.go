@@ -35,17 +35,27 @@ func localTerminalCommand(workspace Workspace, options TerminalOptions) (*exec.C
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(shell, interactiveShellArgs(shell)...)
-	cmd.Dir = cwd
-	cmd.Env = terminalEnvironment(os.Environ(), shell, historyFile)
-	return cmd, nil
-}
-
-func interactiveShellArgs(shell string) []string {
-	if filepath.Base(shell) == "bash" {
-		return []string{"-O", "histappend", "--login", "-i"}
+	terminalDir := filepath.Dir(filepath.Dir(historyFile))
+	args := []string{"-l"}
+	env := terminalEnvironment(os.Environ(), historyFile)
+	switch {
+	case isBashShell(shell):
+		initFile, err := prepareBashTerminalInit(terminalDir)
+		if err != nil {
+			return nil, err
+		}
+		args = bashTerminalArgs(initFile)
+	case isZshShell(shell):
+		zdotdir, err := prepareZshTerminalInit(terminalDir)
+		if err != nil {
+			return nil, err
+		}
+		env = zshTerminalEnvironment(env, zdotdir)
 	}
-	return []string{"-l"}
+	cmd := exec.Command(shell, args...)
+	cmd.Dir = cwd
+	cmd.Env = env
+	return cmd, nil
 }
 
 func prepareTerminalHistory(workspace Workspace, shell string) (string, error) {
@@ -134,7 +144,10 @@ func terminalHistoryShellName(shell string) string {
 	return safe.String()
 }
 
-func terminalEnvironment(base []string, shell, historyFile string) []string {
+// terminalEnvironment points every shell at the project history file. Bash
+// additionally re-pins it after the user's startup files through the
+// Wharnex-owned rcfile, because those files may reassign HISTFILE.
+func terminalEnvironment(base []string, historyFile string) []string {
 	env := append([]string(nil), base...)
 	for key, value := range map[string]string{
 		"TERM":                     "xterm-256color",
@@ -143,13 +156,6 @@ func terminalEnvironment(base []string, shell, historyFile string) []string {
 		"WHARNEX_PROJECT_HISTFILE": historyFile,
 	} {
 		env = replaceEnvironmentValue(env, key, value)
-	}
-	if filepath.Base(shell) == "bash" {
-		syncHistory := `HISTFILE="$WHARNEX_PROJECT_HISTFILE"; history -a; history -c; history -r "$HISTFILE"`
-		if existing := environmentValue(env, "PROMPT_COMMAND"); existing != "" {
-			syncHistory += "; " + existing
-		}
-		env = replaceEnvironmentValue(env, "PROMPT_COMMAND", syncHistory)
 	}
 	return env
 }

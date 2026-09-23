@@ -113,15 +113,6 @@ func TestHostInteractiveTerminalDoesNotFallBackWhenConfiguredBridgeIsUnavailable
 	}
 }
 
-func TestInteractiveBashUsesAnExplicitLoginShell(t *testing.T) {
-	if got := interactiveShellArgs("/bin/bash"); !strings.EqualFold(strings.Join(got, " "), "-O histappend --login -i") {
-		t.Fatalf("bash must start as an append-history interactive login shell: %q", got)
-	}
-	if got := interactiveShellArgs("/bin/zsh"); !strings.EqualFold(strings.Join(got, " "), "-l") {
-		t.Fatalf("non-bash user shell must retain its login semantics: %q", got)
-	}
-}
-
 func TestOwnedInteractiveTerminalContainerUsesLabelsAndScopedLegacyMounts(t *testing.T) {
 	root := t.TempDir()
 	privateTemp := filepath.Join(root, ".harness", "bridge", "tmp")

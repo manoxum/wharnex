@@ -33,8 +33,12 @@ func TestLocalTerminalCommandUsesProjectScopedHistoryInsteadOfHostHistory(t *tes
 	if got := environmentValue(cmd.Env, "WHARNEX_PROJECT_HISTFILE"); got != want {
 		t.Fatalf("WHARNEX_PROJECT_HISTFILE = %q, want %q", got, want)
 	}
-	if got := environmentValue(cmd.Env, "PROMPT_COMMAND"); !strings.Contains(got, `HISTFILE="$WHARNEX_PROJECT_HISTFILE"`) || !strings.Contains(got, "history -a") {
-		t.Fatalf("PROMPT_COMMAND does not keep bash history on the project file: %q", got)
+	initFile := filepath.Join(project, ".harness", "terminal", bashTerminalInitName)
+	if got := strings.Join(cmd.Args[1:], " "); got != "--rcfile "+initFile+" -i" {
+		t.Fatalf("bash must start through the project terminal init: %q", got)
+	}
+	if data, err := os.ReadFile(initFile); err != nil || !strings.Contains(string(data), `HISTFILE="$WHARNEX_PROJECT_HISTFILE"`) {
+		t.Fatalf("project terminal init does not pin the project history: %v %q", err, data)
 	}
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("project history file was not prepared: %v", err)
