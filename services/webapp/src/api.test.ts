@@ -18,6 +18,14 @@ describe('remote api', () => {
     await expect(api.endPairing()).resolves.toBeUndefined()
   })
 
+  it('queues a request for a Desktop-owned Supervisor', async () => {
+    const payload = { request_id: 'req_remote123', workspace_chat_id: 'chat-1', bootstrap_text: 'Ship it', chat_title: 'Remote chat', attachments: [], project_files: [], tunnel_instance_ids: [], include_context: true }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ queued: true, task: { task_id: 'cat-1', type: 'BOT_WRITE', status: 'PENDING' } }), { status: 202, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    await api.remoteDispatch('ses-1', payload)
+    expect(fetchMock).toHaveBeenCalledWith('/api/sessions/ses-1/remote-dispatch', expect.objectContaining({ method: 'POST', body: JSON.stringify(payload) }))
+  })
+
   it('controls a tunnel without any Desktop bridge dependency', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ remote_input: { enabled: true, mode: 'tunnel', instances: [] } }), { status: 200, headers: { 'content-type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)
