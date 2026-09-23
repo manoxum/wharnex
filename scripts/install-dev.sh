@@ -40,9 +40,13 @@ desktop_icon="$icon_path"
 mkdir -p "$bin_dir" "$icon_dir" "$icon_raster_dir" "$application_dir"
 install -m 0644 "$ROOT/services/frontend/public/favicon.svg" "$icon_path"
 # GNOME's application overview is more reliable with a concrete raster icon
-# than with a newly-installed SVG name whose theme cache may be stale. Keep the
-# SVG as the scalable source, and use the PNG directly in the desktop entry.
-if command -v convert >/dev/null 2>&1 && convert -background none "$icon_path" -resize 256x256 "$icon_raster_path"; then
+# than with a newly-installed SVG name whose theme cache may be stale, and the
+# Desktop tray prefers that same raster over anything it can generate. It used
+# to be produced by ImageMagick `convert`, so on a host without it the PNG was
+# simply absent; this rasterizes the same mark with the Node standard library.
+# Resolved from this script's own location, not $ROOT, for the same reason
+# desktop-profile.sh is.
+if node "$SCRIPT_DIR/../services/desktop/write-desktop-icon.mjs" "$icon_raster_path" 256; then
   desktop_icon="$icon_raster_path"
 fi
 

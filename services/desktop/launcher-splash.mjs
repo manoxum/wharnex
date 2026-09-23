@@ -1,16 +1,17 @@
 import { app, BrowserWindow, nativeImage } from 'electron'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { desktopIconSVG } from './desktop-identity.mjs'
+import { desktopIconDataURL } from './desktop-icon-mark.mjs'
 import { readProjectVersion } from './splash-version.mjs'
 
 // install-dev.sh installs a raster icon per instance slug at this exact path
-// (and the scalable SVG source next to it). Reusing that installed asset,
-// rather than rasterizing our own SVG data URL, is what actually renders on
-// Linux window switchers/taskbars: `nativeImage` SVG-from-data-URL support is
-// unreliable there, and the app's WM class (unset here on purpose, so it
-// stays the `wharness-desktop` package default) is what desktop environments
-// match against the installed `.desktop` entry's `Icon=` for the real icon.
+// (and the scalable SVG source next to it). Reusing that installed asset is
+// what actually renders on Linux window switchers/taskbars, and the app's WM
+// class (unset here on purpose, so it stays the `wharness-desktop` package
+// default) is what desktop environments match against the installed `.desktop`
+// entry's `Icon=` for the real icon. The last resort is a rasterized PNG of
+// the same mark: `nativeImage` decodes PNG and JPEG only, so both the scalable
+// candidate below and the SVG data URL this used to end on are empty images.
 function resolveSplashIcon() {
   const slug = String(process.env.WHARNESS_INSTANCE_ID || 'wharnex').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'wharnex'
   const dataHome = process.env.XDG_DATA_HOME || `${homedir()}/.local/share`
@@ -23,7 +24,7 @@ function resolveSplashIcon() {
       if (!image.isEmpty()) return image
     }
   }
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(desktopIconSVG(process.env.WHARNESS_INSTANCE_ID)).toString('base64')}`)
+  return nativeImage.createFromDataURL(desktopIconDataURL(256, process.env.WHARNESS_INSTANCE_ID))
 }
 
 const SPLASH_ICON = resolveSplashIcon()

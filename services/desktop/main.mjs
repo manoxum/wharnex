@@ -24,9 +24,11 @@ import { chatGPTDeliveryContinuationPrompt, chatGPTStalledRecoveryPrompt, choose
 import { RATE_LIMIT_GATE, classifyChatGPTRateLimit, isChatGPTBackendAPIURL } from './chatgpt-rate-limit.mjs'
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry, canonicalProjectPath } from './project-window-registry.mjs'
-import { desktopIconSVG, desktopInstanceName, desktopWindowTitle } from './desktop-identity.mjs'
+import { desktopInstanceName, desktopWindowTitle } from './desktop-identity.mjs'
+import { desktopIconDataURL } from './desktop-icon-mark.mjs'
 import { createDesktopWindowCloseCoordinator } from './desktop-window-close.mjs'
 import { createDesktopTrayControl } from './desktop-tray-control.mjs'
+import { completionNotificationRecord } from './desktop-notification-request.mjs'
 import { nativeWindowCloseChoice } from './desktop-window-close-prompt.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
 import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
@@ -54,7 +56,7 @@ function resolveDesktopIcon() {
     const image = nativeImage.createFromPath(candidate)
     if (!image.isEmpty()) return image
   }
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(desktopIconSVG(DESKTOP_INSTANCE)).toString('base64')}`)
+  return nativeImage.createFromDataURL(desktopIconDataURL(256, DESKTOP_INSTANCE))
 }
 
 const DESKTOP_ICON = resolveDesktopIcon()
@@ -735,6 +737,7 @@ function releaseProjectForWindow(windowState, value) {
   const result = projectWindowRegistry.release(windowState.id, value)
   if (result.released) {
     windowState.projects.delete(result.path)
+    desktopTrayControl?.forgetProject(result.path)
     if (windowState.activeProject === result.path) {
       windowState.activeProject = [...windowState.projects][0] || ''
       windowState.window.setTitle(desktopWindowTitle(windowState.activeProject, DESKTOP_INSTANCE))
@@ -746,6 +749,8 @@ function releaseProjectForWindow(windowState, value) {
 
 function releaseWindowProjects(windowState) {
   projectWindowRegistry.releaseWindow(windowState.id)
+  // A closed project's tray state is stale the moment its window goes.
+  for (const projectPath of windowState.projects) desktopTrayControl?.forgetProject(projectPath)
   windowState.projects.clear()
   windowState.activeProject = ''
   refreshDesktopTray()
@@ -856,7 +861,7 @@ function sendDesktopTrayProjectAction(projectPath, action) {
 function desktopTrayController() {
   if (desktopTrayControl) return desktopTrayControl
   desktopTrayControl = createDesktopTrayControl({
-    Menu, Notification, Tray, nativeImage, icon: DESKTOP_ICON, instanceName: desktopInstanceName(DESKTOP_INSTANCE),
+    Menu, Notification, Tray, nativeImage, icon: DESKTOP_ICON, instanceName: desktopInstanceName(DESKTOP_INSTANCE), platform: process.platform,
     listProjects: activeDesktopProjects, projectLabel: projectMenuLabel, restoreProject: restoreProjectWindow,
     closeProject: requestProjectClose, showFallback: showDesktopFallbackWindow, quit: requestFullDesktopQuit,
     sendProjectAction: sendDesktopTrayProjectAction,
@@ -873,16 +878,7 @@ function desktopTrayController() {
 function publishDesktopNotification(windowState, request) {
   const projectPath = canonicalProjectPath(request?.projectPath)
   if (!windowState.projects.has(projectPath)) throw new Error('Notification project does not belong to this window')
-  const id = String(request?.id || '').trim().slice(0, 512)
-  const chatId = String(request?.chatId || '').trim().slice(0, 256)
-  const kind = request?.kind === 'restart-pending' ? 'restart-pending' : request?.kind === 'task-completed' ? 'task-completed' : ''
-  if (!id || !chatId || !kind) throw new Error('Invalid completion notification')
-  return desktopTrayController().publishNotification({
-    id, projectPath, chatId, kind,
-    title: String(request?.title || (kind === 'restart-pending' ? 'Auto-evolução concluída' : 'Tarefa concluída')).trim().slice(0, 160),
-    body: String(request?.body || '').trim().slice(0, 600),
-    occurredAt: String(request?.occurredAt || new Date().toISOString()).slice(0, 64),
-  })
+  return desktopTrayController().publishNotification(completionNotificationRecord(projectPath, request))
 }
 
 function refreshDesktopTray() {
@@ -8555,6 +8551,7 @@ app.on('before-quit', () => {
   quitting = true
   persistWindowLayout()
   if (chatGPTDownloadPoller) clearInterval(chatGPTDownloadPoller)
+  desktopTrayControl?.destroy() // Or the icon outlives the process in the Linux panel.
   if (chatAgentScheduler) void chatAgentScheduler.stop()
   if (chatTranslatorScheduler) void chatTranslatorScheduler.stop()
   if (chatSupervisorScheduler) void chatSupervisorScheduler.stop()
