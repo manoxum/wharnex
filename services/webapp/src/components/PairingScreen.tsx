@@ -21,9 +21,7 @@ export function PairingScreen({ checking, error, onCode }: { checking: boolean; 
       stream.current?.getTracks().forEach((track) => track.stop())
       stream.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
       if (!video.current) return
-      video.current.srcObject = stream.current
-      await video.current.play()
-      setScanning(true)
+      video.current.srcObject = stream.current; await video.current.play(); setScanning(true)
       const detector = new BarcodeDetector({ formats: ['qr_code'] })
       const scan = async () => {
         if (!video.current || !stream.current) return
@@ -35,35 +33,32 @@ export function PairingScreen({ checking, error, onCode }: { checking: boolean; 
         window.setTimeout(() => void scan(), 350)
       }
       void scan()
-    } catch (cause) {
-      setCameraError(cause instanceof Error ? cause.message : String(cause))
-      setScanning(false)
-    }
+    } catch (cause) { setCameraError(cause instanceof Error ? cause.message : String(cause)); setScanning(false) }
   }
 
-  async function submitManual() {
-    const code = pairingCodeFromScan(manual) || manual.trim()
-    if (code) await onCode(code)
-  }
+  async function submitManual() { const code = pairingCodeFromScan(manual) || manual.trim(); if (code) await onCode(code) }
 
-  return <main className="grid min-h-dvh place-items-center bg-slate-950 px-4 py-8 text-slate-100 [color-scheme:dark]">
-    <section className="w-full max-w-2xl overflow-hidden rounded-[2rem] border border-slate-800 bg-slate-900 shadow-2xl shadow-black/30">
-      <div className="border-b border-slate-800 px-6 py-7 sm:px-8">
-        <p className="text-xs font-bold uppercase tracking-[0.22em] text-cyan-400">Wharnex Remote</p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">Emparelhe este dispositivo</h1>
-        <p className="mt-3 max-w-xl text-sm leading-6 text-slate-400">Leia o QR apresentado pelo Wharnex Desktop. O código é temporário, de uso único e não transfere credenciais dos browsers de IA.</p>
-      </div>
-      <div className="grid gap-6 p-6 sm:p-8 md:grid-cols-[1.2fr_.8fr]">
-        <div className="relative aspect-video overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
-          <video ref={video} muted playsInline className={`h-full w-full object-cover ${scanning ? 'block' : 'hidden'}`} />
-          {!scanning && <div className="grid h-full place-items-center p-6 text-center"><div><div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-cyan-400/10 text-2xl text-cyan-300">⌗</div><p className="font-medium">Scanner QR seguro</p><p className="mt-2 text-sm text-slate-500">A câmara é usada apenas localmente pelo navegador.</p></div></div>}
+  return <main className="relative grid min-h-dvh place-items-center overflow-hidden bg-canvas px-4 py-8 text-ink">
+    <div className="pointer-events-none absolute -left-24 -top-24 size-80 rounded-full bg-accent/10 blur-3xl"/><div className="pointer-events-none absolute -bottom-32 -right-16 size-96 rounded-full bg-accent/5 blur-3xl"/>
+    <section className="relative w-full max-w-3xl overflow-hidden rounded-[28px] border border-line bg-surface shadow-[0_28px_90px_var(--theme-shadow)]">
+      <div className="grid gap-0 md:grid-cols-[1.05fr_.95fr]">
+        <div className="border-b border-line p-6 sm:p-8 md:border-b-0 md:border-r">
+          <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-accent text-sm font-black text-accent-ink">W</div><div><p className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-accent">Wharnex Remote</p><p className="text-xs text-faint">Ligação segura ao Desktop</p></div></div>
+          <h1 className="mt-8 max-w-sm text-3xl font-semibold tracking-[-0.035em] sm:text-4xl">Continue o seu workspace em qualquer ecrã.</h1>
+          <p className="mt-4 max-w-md text-sm leading-6 text-soft">Leia o QR apresentado pelo Wharnex Desktop. O código é temporário e de uso único; as credenciais dos browsers de IA continuam no Desktop.</p>
+          <div className="mt-7 relative aspect-video overflow-hidden rounded-2xl border border-line bg-muted">
+            <video ref={video} muted playsInline className={`h-full w-full object-cover ${scanning ? 'block' : 'hidden'}`}/>
+            {!scanning && <div className="grid h-full place-items-center p-6 text-center"><div><div className="mx-auto mb-3 grid size-12 place-items-center rounded-2xl border border-line-soft bg-elevated text-xl text-accent">⌗</div><p className="text-sm font-semibold">Scanner QR local</p><p className="mt-1 text-xs text-faint">A imagem da câmara não é enviada ao servidor.</p></div></div>}
+          </div>
         </div>
-        <div className="flex flex-col justify-center gap-3">
-          <button type="button" disabled={checking} onClick={() => void startScanner()} className="rounded-xl bg-cyan-400 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-cyan-300 disabled:opacity-50">{scanning ? 'Scanner ativo' : 'Abrir câmara'}</button>
-          <div className="flex items-center gap-3 py-1 text-xs text-slate-600"><span className="h-px flex-1 bg-slate-800"/>ou<span className="h-px flex-1 bg-slate-800"/></div>
-          <input value={manual} onChange={(event) => setManual(event.target.value)} placeholder="Cole o link ou código" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm outline-none focus:border-cyan-400" />
-          <button type="button" disabled={checking || !manual.trim()} onClick={() => void submitManual()} className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-semibold hover:border-slate-500 disabled:opacity-40">Emparelhar</button>
-          {(error || cameraError) && <p role="alert" className="rounded-xl border border-rose-900/70 bg-rose-950/40 p-3 text-xs leading-5 text-rose-200">{error || cameraError}</p>}
+        <div className="flex flex-col justify-center p-6 sm:p-8">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-faint">Emparelhar dispositivo</p><p className="mt-2 text-sm leading-6 text-soft">Use a câmara ou cole o link/código que aparece no Desktop.</p>
+          <button type="button" disabled={checking} onClick={() => void startScanner()} className="mt-6 rounded-xl bg-accent px-4 py-3 text-sm font-bold text-accent-ink shadow-sm transition hover:brightness-105 disabled:opacity-50">{scanning ? 'Scanner ativo' : 'Abrir câmara'}</button>
+          <div className="flex items-center gap-3 py-4 text-[10px] font-bold uppercase tracking-[0.15em] text-faint"><span className="h-px flex-1 bg-line-soft"/>ou<span className="h-px flex-1 bg-line-soft"/></div>
+          <input value={manual} onChange={(event) => setManual(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void submitManual() }} placeholder="Cole o link ou código" className="rounded-xl border border-line bg-elevated px-3 py-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent"/>
+          <button type="button" disabled={checking || !manual.trim()} onClick={() => void submitManual()} className="mt-2 rounded-xl border border-line bg-surface px-4 py-3 text-sm font-semibold text-soft transition hover:bg-hover hover:text-ink disabled:opacity-40">{checking ? 'A verificar…' : 'Emparelhar'}</button>
+          {(error || cameraError) && <p role="alert" className="mt-3 rounded-xl border border-danger/25 bg-danger/10 p-3 text-xs leading-5 text-danger">{error || cameraError}</p>}
+          <p className="mt-6 text-[10px] leading-5 text-faint">O emparelhamento associa apenas este navegador ao backend Wharnex autorizado.</p>
         </div>
       </div>
     </section>

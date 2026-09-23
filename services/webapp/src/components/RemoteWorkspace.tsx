@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { encodeFiles } from '../lib/attachments'
+import { applyUIPreferences } from '../lib/theme'
 import type { AppConfig, ChatItem, PanelName, ProjectStorage, Session, WorkspaceChat } from '../types'
 import { ChatPane } from './ChatPane'
 import type { ComposerValue } from './Composer'
@@ -58,10 +59,16 @@ export function RemoteWorkspace({ onDisconnect }: { onDisconnect: () => Promise<
   }, [fail, loadChats])
 
   useEffect(() => {
+    let active = true
+    const syncTheme = () => { void api.uiPreferences().then((value) => { if (active) applyUIPreferences(value) }).catch(() => undefined) }
+    syncTheme()
+    const timer = window.setInterval(syncTheme, 4000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
+
+  useEffect(() => {
     if (!session) return
-    const timer = window.setInterval(() => {
-      void api.getSession(session.id).then(setSession).catch(() => undefined)
-    }, terminalStates.has(session.state) ? 7000 : 2500)
+    const timer = window.setInterval(() => { void api.getSession(session.id).then(setSession).catch(() => undefined) }, terminalStates.has(session.state) ? 7000 : 2500)
     return () => window.clearInterval(timer)
   }, [session?.id, session?.state])
 
@@ -74,10 +81,7 @@ export function RemoteWorkspace({ onDisconnect }: { onDisconnect: () => Promise<
     setItems(next); void api.replaceWorkspaceChatItems(chat.id, next).catch(() => undefined)
   }, [chat, items, session])
 
-  async function chooseProject(path: string) {
-    setProject(path); localStorage.setItem('wharnex.remote.project', path); await loadChats(path)
-  }
-
+  async function chooseProject(path: string) { setProject(path); localStorage.setItem('wharnex.remote.project', path); await loadChats(path) }
   async function newChat() {
     if (!project) return
     const id = crypto.randomUUID(); const active = await api.createSession(project, id); const now = new Date().toISOString()
@@ -112,11 +116,19 @@ export function RemoteWorkspace({ onDisconnect }: { onDisconnect: () => Promise<
   async function sessionSettings(next: Session) { if (!session) return; try { let saved = session; if (next.effort_level !== session.effort_level) saved = await api.setEffort(session.id, next.effort_level); if (next.reasoning_effort !== session.reasoning_effort) saved = await api.setReasoning(session.id, next.reasoning_effort); setSession(saved) } catch (cause) { fail(cause instanceof Error ? cause.message : String(cause)) } }
 
   const busy = sending || Boolean(session && !terminalStates.has(session.state) && session.last_request_id)
-  return <div className="flex min-h-dvh flex-col bg-slate-950 text-slate-100 [color-scheme:dark]">
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-950 px-3 sm:px-4"><button onClick={() => setMobileNav(true)} className="grid size-9 place-items-center rounded-xl border border-slate-800 md:hidden" aria-label="Projetos">☰</button><div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-400">Wharnex Remote</p><p className="truncate text-xs text-slate-500">{project ? projectName(project) : 'Sem projeto indexado'}</p></div><div className="ml-auto flex items-center gap-1 rounded-xl bg-slate-900 p-1"><button onClick={() => setMode('agent')} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${mode === 'agent' ? 'bg-slate-700 text-white' : 'text-slate-500'}`}>Agent</button><button disabled={!session} onClick={() => setMode('orchestrator')} className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${mode === 'orchestrator' ? 'bg-violet-400/20 text-violet-200' : 'text-slate-500'}`}>Orquestrador</button></div><button onClick={() => setPanelOpen(true)} className="rounded-xl border border-slate-800 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-900">Painéis</button><button onClick={() => void onDisconnect()} className="hidden rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-500 hover:text-rose-300 sm:block">Sair</button></header>
-    {error && <div role="alert" className="border-b border-rose-900/60 bg-rose-950/50 px-4 py-2 text-xs text-rose-200">{error}<button onClick={() => setError('')} className="ml-3 underline">fechar</button></div>}
-    <div className="min-h-0 flex flex-1"><div className="hidden w-60 shrink-0 md:block"><ProjectSidebar projects={projects} project={project} chats={chats} activeChatID={chat?.id || ''} onProject={(path) => void chooseProject(path)} onChat={(next) => void openChat(next)} onNewChat={() => void newChat()}/></div>{session && chat ? (mode === 'agent' ? <ChatPane chat={chat} session={session} config={config} items={items} busy={busy} onSend={send} onSave={() => void saveChat()} onArchive={() => void archiveChat()} onSessionChange={(next) => void sessionSettings(next)}/> : <OrchestratorPane session={session} project={project} config={config} onChatCreated={(next) => { setChats((all) => [next, ...all]); void openChat(next) }} onError={fail}/>) : <main className="grid flex-1 place-items-center p-6 text-center"><div><div className="mx-auto grid size-14 place-items-center rounded-2xl bg-cyan-400/10 text-2xl text-cyan-300">⌂</div><h2 className="mt-4 text-xl font-semibold">Escolha ou inicie um chat</h2><p className="mt-2 text-sm text-slate-500">Projetos indexados no Desktop aparecem aqui automaticamente.</p>{project && <button onClick={() => void newChat()} className="mt-5 rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-bold text-slate-950">Iniciar Agent</button>}</div></main>}</div>
-    {mobileNav && <div className="fixed inset-0 z-50 bg-black/60 md:hidden" onClick={() => setMobileNav(false)}><div className="h-full w-[86%] max-w-xs" onClick={(event) => event.stopPropagation()}><ProjectSidebar projects={projects} project={project} chats={chats} activeChatID={chat?.id || ''} onProject={(path) => void chooseProject(path)} onChat={(next) => void openChat(next)} onNewChat={() => void newChat()}/></div></div>}
+  const sidebar = <ProjectSidebar projects={projects} project={project} chats={chats} activeChatID={chat?.id || ''} onProject={(path) => void chooseProject(path)} onChat={(next) => void openChat(next)} onNewChat={() => void newChat()}/>
+  return <div className="flex min-h-dvh flex-col bg-canvas text-ink">
+    <header className="flex h-16 shrink-0 items-center gap-3 border-b border-line bg-surface/95 px-3 shadow-[0_1px_0_var(--theme-border-soft)] backdrop-blur-xl sm:px-4">
+      <button onClick={() => setMobileNav(true)} className="grid size-9 place-items-center rounded-lg border border-line bg-elevated text-soft hover:bg-hover md:hidden" aria-label="Projetos">☰</button>
+      <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent text-sm font-black text-accent-ink shadow-[0_8px_24px_var(--theme-shadow)]">W</div>
+      <div className="hidden min-w-0 sm:block"><p className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-accent">Wharnex Remote</p><p className="truncate text-xs text-faint">{project ? projectName(project) : 'Sem projeto indexado'}</p></div>
+      <div className="ml-auto flex items-center gap-1 rounded-lg border border-line-soft bg-muted p-1"><button onClick={() => setMode('agent')} className={`rounded-md px-2 py-1.5 text-xs font-semibold transition sm:px-3 ${mode === 'agent' ? 'bg-elevated text-ink shadow-sm' : 'text-faint hover:text-soft'}`}>Agent</button><button disabled={!session} onClick={() => setMode('orchestrator')} className={`rounded-md px-2 py-1.5 text-xs font-semibold transition disabled:opacity-40 sm:px-3 ${mode === 'orchestrator' ? 'bg-accent-soft text-accent' : 'text-faint hover:text-soft'}`}><span className="sm:hidden">Orq.</span><span className="hidden sm:inline">Orquestrador</span></button></div>
+      <button onClick={() => setPanelOpen(true)} className="rounded-lg border border-line bg-elevated px-2.5 py-2 text-xs font-semibold text-soft hover:bg-hover hover:text-ink" aria-label="Abrir painéis"><span aria-hidden className="sm:hidden">◫</span><span className="hidden sm:inline">Painéis</span></button>
+      <button onClick={() => void onDisconnect()} className="hidden rounded-lg px-3 py-2 text-xs text-faint hover:bg-hover hover:text-danger sm:block">Sair</button>
+    </header>
+    {error && <div role="alert" className="flex items-center border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger"><span className="mr-2 size-1.5 rounded-full bg-danger"/>{error}<button onClick={() => setError('')} className="ml-auto rounded px-2 py-1 font-semibold hover:bg-danger/10">Fechar</button></div>}
+    <div className="min-h-0 flex flex-1"><div className="hidden w-64 shrink-0 md:block">{sidebar}</div>{session && chat ? (mode === 'agent' ? <ChatPane chat={chat} session={session} config={config} items={items} busy={busy} onSend={send} onSave={() => void saveChat()} onArchive={() => void archiveChat()} onSessionChange={(next) => void sessionSettings(next)}/> : <OrchestratorPane session={session} project={project} config={config} onChatCreated={(next) => { setChats((all) => [next, ...all]); void openChat(next) }} onError={fail}/>) : <main className="grid flex-1 place-items-center bg-canvas p-6 text-center"><div className="max-w-md"><div className="mx-auto grid size-14 place-items-center rounded-2xl border border-line bg-elevated text-2xl text-accent shadow-[0_18px_60px_var(--theme-shadow)]">✦</div><h2 className="mt-5 text-xl font-semibold tracking-tight">Abra um espaço de trabalho</h2><p className="mt-2 text-sm leading-6 text-faint">Escolha um chat existente ou inicie um novo Agent. O estado permanece sincronizado com o Desktop.</p>{project && <button onClick={() => void newChat()} className="mt-5 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-accent-ink shadow-[0_10px_28px_var(--theme-shadow)] hover:brightness-105">Iniciar Agent</button>}</div></main>}</div>
+    {mobileNav && <div className="fixed inset-0 z-50 bg-[var(--theme-overlay)] backdrop-blur-sm md:hidden" onClick={() => setMobileNav(false)}><div className="h-full w-[86%] max-w-xs shadow-2xl" onClick={(event) => event.stopPropagation()}>{sidebar}</div></div>}
     {panelOpen && <PanelDrawer panel={panel} project={project} session={session} chats={chats} config={config} onPanel={setPanel} onClose={() => setPanelOpen(false)} onConfig={setConfig} onOpenChat={(next) => void openChat(next)} onError={fail}/>}
   </div>
 }

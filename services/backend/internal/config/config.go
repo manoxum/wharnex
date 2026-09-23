@@ -33,6 +33,7 @@ type Config struct {
 	Version               string
 	StateFile             string
 	LanguageSettingsFile  string
+	UIPreferencesFile     string
 	ExecutionSettingsFile string
 	// GitSettingsFile holds per-project Git surface configuration (auto vs
 	// manual commit mode). GitPendingCommitsFile holds the queue of changes
@@ -161,6 +162,7 @@ func Load() Config {
 		AllowLocalSandbox:     envBool("HARNESS_ALLOW_LOCAL_SANDBOX", false),
 		StateFile:             stateFile,
 		LanguageSettingsFile:  filepath.Join(filepath.Dir(stateFile), "language-settings.json"),
+		UIPreferencesFile:     filepath.Join(filepath.Dir(stateFile), "ui-preferences.json"),
 		ExecutionSettingsFile: filepath.Join(filepath.Dir(stateFile), "execution-settings.json"),
 		GitSettingsFile:       filepath.Join(filepath.Dir(stateFile), "git-settings.json"),
 		GitPendingCommitsFile: filepath.Join(filepath.Dir(stateFile), "git-pending-commits.json"),

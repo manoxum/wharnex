@@ -64,6 +64,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/database/postgres/query", a.postgresQuery)
 	mux.HandleFunc("GET /api/language-settings", a.languageSettings)
 	mux.HandleFunc("PUT /api/language-settings", a.updateLanguageSettings)
+	mux.HandleFunc("GET /api/ui-preferences", a.uiPreferences)
+	mux.HandleFunc("PUT /api/ui-preferences", a.updateUIPreferences)
 	mux.HandleFunc("GET /api/bundle-quota", a.bundleQuota)
 	// One compact response for every chat of a project. The attention center
 	// previously fetched each chat's whole Session (1-2 MB each), which a
@@ -631,6 +633,27 @@ func (a *API) updateLanguageSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := config.SaveLanguageSettings(a.cfg.LanguageSettingsFile, document); err != nil {
 		writeError(w, http.StatusBadRequest, "language_settings_invalid", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
+func (a *API) uiPreferences(w http.ResponseWriter, _ *http.Request) {
+	document, err := config.ReadUIPreferences(a.cfg.UIPreferencesFile)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ui_preferences_read_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
+func (a *API) updateUIPreferences(w http.ResponseWriter, r *http.Request) {
+	var document config.UIPreferencesDocument
+	if !decodeJSON(w, r, &document) {
+		return
+	}
+	if err := config.SaveUIPreferences(a.cfg.UIPreferencesFile, document); err != nil {
+		writeError(w, http.StatusBadRequest, "ui_preferences_invalid", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, document)

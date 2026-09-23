@@ -1,5 +1,72 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: var(--ui-font-family);
+  --color-canvas: var(--theme-bg);
+  --color-surface: var(--theme-surface);
+  --color-elevated: var(--theme-elevated);
+  --color-muted: var(--theme-muted);
+  --color-subtle: var(--theme-subtle);
+  --color-hover: var(--theme-hover);
+  --color-ink: var(--theme-text);
+  --color-soft: var(--theme-text-soft);
+  --color-faint: var(--theme-text-muted);
+  --color-line: var(--theme-border);
+  --color-line-soft: var(--theme-border-soft);
+  --color-accent: var(--theme-accent);
+  --color-accent-soft: var(--theme-accent-soft);
+  --color-accent-ink: var(--theme-accent-ink);
+  --color-danger: var(--theme-danger);
+  --color-success: var(--theme-success);
+  --color-warning: var(--theme-warning);
 }
+
+:root,
+:root[data-theme='light'] {
+  --ui-font-family: Inter, Manrope, 'Segoe UI Variable', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+  --ui-scale: 1;
+  --theme-bg: #f1f3ed; --theme-surface: #f8faf5; --theme-elevated: #fdfefb; --theme-muted: #ebefe7; --theme-subtle: #e2e7de; --theme-hover: #e5eadf;
+  --theme-text: #20241d; --theme-text-soft: #555e52; --theme-text-muted: #687166; --theme-border: #c9d0c4; --theme-border-soft: #dce2d8;
+  --theme-accent: #557d24; --theme-accent-soft: #e3efd7; --theme-accent-ink: #fff; --theme-danger: #a54038; --theme-warning: #996117; --theme-success: #39734b;
+  --theme-shadow: rgba(23,29,19,.12); --theme-overlay: rgba(18,22,16,.46);
+}
+:root[data-theme='dark'] {
+  --theme-bg: #111311; --theme-surface: #151715; --theme-elevated: #181a18; --theme-muted: #1c1f1c; --theme-subtle: #202320; --theme-hover: #252825;
+  --theme-text: rgba(255,255,255,.9); --theme-text-soft: rgba(255,255,255,.64); --theme-text-muted: rgba(255,255,255,.42); --theme-border: rgba(255,255,255,.08); --theme-border-soft: rgba(255,255,255,.045);
+  --theme-accent: #9acd54; --theme-accent-soft: rgba(154,205,84,.09); --theme-accent-ink: #11150d; --theme-danger: #e27676; --theme-warning: #d8bb70; --theme-success: #9fcb73;
+  --theme-shadow: rgba(0,0,0,.34); --theme-overlay: rgba(3,5,3,.72);
+}
+:root[data-ui-theme='jetbrains-darcula'] {
+  --theme-bg:#1e1f22; --theme-surface:#2b2d30; --theme-elevated:#303033; --theme-muted:#25262a; --theme-subtle:#323438; --theme-hover:#393b40;
+  --theme-text:#d7d8da; --theme-text-soft:#bcbec4; --theme-text-muted:#8b8d92; --theme-border:#393b40; --theme-border-soft:#323438; --theme-accent:#3574f0; --theme-accent-soft:#25324a; --theme-accent-ink:#fff;
+}
+:root[data-ui-theme='jetbrains-light'] {
+  --theme-bg:#f7f8fa; --theme-surface:#fff; --theme-elevated:#fff; --theme-muted:#f2f3f5; --theme-subtle:#eceef1; --theme-hover:#e8eaed;
+  --theme-text:#1f2329; --theme-text-soft:#4f545d; --theme-text-muted:#7a7f87; --theme-border:#d8dbe0; --theme-border-soft:#e6e8eb; --theme-accent:#3574f0; --theme-accent-soft:#e8f0fe; --theme-accent-ink:#fff;
+}
+:root[data-ui-theme='vscode-dark'] {
+  --theme-bg:#1e1e1e; --theme-surface:#252526; --theme-elevated:#2d2d30; --theme-muted:#252526; --theme-subtle:#2a2d2e; --theme-hover:#2f3334;
+  --theme-text:#e7e7e7; --theme-text-soft:#cccccc; --theme-text-muted:#969696; --theme-border:#3c3c3c; --theme-border-soft:#333; --theme-accent:#007acc; --theme-accent-soft:#07395a; --theme-accent-ink:#fff;
+}
+:root[data-ui-theme='vscode-light'] {
+  --theme-bg:#f3f3f3; --theme-surface:#fff; --theme-elevated:#fff; --theme-muted:#f3f3f3; --theme-subtle:#ebebeb; --theme-hover:#e8e8e8;
+  --theme-text:#333; --theme-text-soft:#515151; --theme-text-muted:#717171; --theme-border:#d4d4d4; --theme-border-soft:#e5e5e5; --theme-accent:#007acc; --theme-accent-soft:#e5f3ff; --theme-accent-ink:#fff;
+}
+:root[data-ui-theme='high-contrast'] {
+  --theme-bg:#000; --theme-surface:#050505; --theme-elevated:#0d0d0d; --theme-muted:#111; --theme-subtle:#181818; --theme-hover:#262626;
+  --theme-text:#fff; --theme-text-soft:#f0f0f0; --theme-text-muted:#d3d3d3; --theme-border:#fff; --theme-border-soft:#9b9b9b; --theme-accent:#d7ff76; --theme-accent-soft:#253300; --theme-accent-ink:#000;
+  --theme-danger:#ff8d86; --theme-warning:#ffe07a; --theme-success:#9dffab;
+}
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='blue'] { --theme-accent:#3574f0; --theme-accent-soft:color-mix(in srgb,#3574f0 15%,var(--theme-surface)); --theme-accent-ink:#fff; }
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='violet'] { --theme-accent:#8b5cf6; --theme-accent-soft:color-mix(in srgb,#8b5cf6 15%,var(--theme-surface)); --theme-accent-ink:#fff; }
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='orange'] { --theme-accent:#d97706; --theme-accent-soft:color-mix(in srgb,#d97706 15%,var(--theme-surface)); --theme-accent-ink:#fff; }
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='rose'] { --theme-accent:#e05278; --theme-accent-soft:color-mix(in srgb,#e05278 15%,var(--theme-surface)); --theme-accent-ink:#fff; }
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='cyan'] { --theme-accent:#169ab5; --theme-accent-soft:color-mix(in srgb,#169ab5 15%,var(--theme-surface)); --theme-accent-ink:#fff; }
+
+html { font-size: calc(16px * var(--ui-scale)); background: var(--theme-bg); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--theme-bg); color: var(--theme-text); font-family: var(--ui-font-family); }
+button, input, textarea, select { font: inherit; }
+input, textarea, select { color-scheme: inherit; }
+::selection { background: color-mix(in srgb, var(--theme-accent) 28%, transparent); }
+* { scrollbar-color: color-mix(in srgb,var(--theme-text-muted) 28%,transparent) transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 2px; }

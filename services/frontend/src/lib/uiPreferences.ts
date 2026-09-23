@@ -1,3 +1,5 @@
+import { request } from './api'
+
 const UI_PREFERENCES_KEY = 'kernl.ui.preferences.v1'
 const UI_FONT_BASELINE = 1.32
 export const UI_PREFERENCES_EVENT = 'wharness:ui-preferences'
@@ -94,6 +96,16 @@ export function saveUIPreferences(value: UIPreferencesInput) {
   try { localStorage.setItem(UI_PREFERENCES_KEY, JSON.stringify(normalized)) } catch { /* best effort */ }
   applyUIPreferences(normalized)
   window.dispatchEvent(new CustomEvent(UI_PREFERENCES_EVENT, { detail: normalized }))
+  void syncUIPreferences(normalized).catch(() => undefined)
+  return normalized
+}
+
+export async function syncUIPreferences(value: UIPreferencesInput) {
+  const normalized = normalizeUIPreferences(value)
+  await request('/api/ui-preferences', {
+    method: 'PUT',
+    body: JSON.stringify({ ...normalized, resolvedTheme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light' }),
+  })
   return normalized
 }
 

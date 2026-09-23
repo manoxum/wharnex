@@ -1,3 +1,10 @@
+export type UIPreferences = {
+  uiFont: 'elegant' | 'system' | 'humanist'; monoFont: 'jetbrains' | 'system' | 'fira'; scale: number
+  theme: 'original' | 'jetbrains-darcula' | 'jetbrains-light' | 'vscode-dark' | 'vscode-light' | 'high-contrast'; resolvedTheme?: 'light' | 'dark'
+  accent: 'brand' | 'blue' | 'violet' | 'orange' | 'rose' | 'cyan'; contentScheme: 'follow-ui' | 'original' | 'light' | 'dark' | 'high-contrast'
+  density: 'default' | 'compact'; toolRailPlacement: 'sides' | 'bottom'; errorPopups: boolean; largePasteThresholdChars: number
+}
+
 export type PairingStatus = { paired: boolean; remote: boolean }
 export type TunnelState = 'active' | 'paused' | 'stopped' | 'unavailable'
 export type TunnelInstance = {
