@@ -15,6 +15,7 @@ describe('Git preflight review', () => {
     expect(drawer).toContain("operation: 'pull'")
     expect(drawer).toContain("operation: 'merge'")
     expect(flow).toContain("phase: 'reviewing'")
+    expect(flow).toMatch(/const previews = await preview\(\)\s+[\s\S]*?setWorking\(false\)\s+[\s\S]*?phase: 'reviewing'/)
   })
 
   it('presents per-file side-by-side diffs and requires confirmation', () => {

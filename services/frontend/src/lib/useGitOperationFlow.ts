@@ -44,6 +44,10 @@ export function useGitOperationFlow(params: Params) {
     setWorking(true); setNotice(''); setNoticeError(false); setOperation({ title, detail, phase: 'preparing' })
     try {
       const previews = await preview()
+      // Preparing is automated work, but reviewing waits for an explicit user
+      // decision. Release the drawer-wide busy state before that interactive
+      // phase so the Git surface does not look permanently blocked.
+      setWorking(false)
       setOperation({ title, detail, phase: 'reviewing', previews, onConfirmReview: () => { void runGitOperation(title, detail, action, syncSession) } })
     } catch (error) {
       report(error)
