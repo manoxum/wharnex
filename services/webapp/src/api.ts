@@ -1,6 +1,6 @@
 import type {
   AgentProviderState, AgentQueueSummary, AppConfig, Artifact, AttentionRecord, ChatItem, ChatItemWire, EvolutionEvidence, ExecutionError, FileEntry, KnowledgeCatalog, OrchestratorOverview, OrchestratorProposalResult,
-  OrchestratorRunResult, PostgresCatalog, PostgresConnection, PostgresQueryResult, ProjectConfig, ProjectTodo, QueueTask, RemoteDispatchInput, RemoteInputConfig, RequestMode, Session, StorageUsage,
+  OrchestratorRunResult, PostgresCatalog, PostgresConnection, PostgresQueryResult, ProjectConfig, ProjectHistoryEntry, ProjectTodo, QueueTask, RemoteDispatchInput, RemoteInputConfig, RequestMode, Session, StorageUsage,
   TunnelTestResult, UIPreferences, WorkspaceChat,
 } from './types'
 
@@ -21,6 +21,7 @@ export const api = {
   claimPairing: (code: string) => request('/api/pairing/claim', { method: 'POST', body: JSON.stringify({ code }) }),
   endPairing: () => request<void>('/api/pairing/session', { method: 'DELETE' }),
   storage: () => request<StorageUsage>('/api/storage'),
+  projectHistory: () => request<{ projects: ProjectHistoryEntry[] }>('/api/projects/history'),
   workspaceChats: (project: string) => request<{ chats: WorkspaceChat[] }>(`/api/workspace-chats?project_path=${encodeURIComponent(project)}`),
   saveWorkspaceChat: (chat: WorkspaceChat) => request<WorkspaceChat>(`/api/workspace-chats/${encodeURIComponent(chat.id)}`, { method: 'PUT', body: JSON.stringify(chat) }),
   workspaceChatItems: (chatID: string) => request<{ items: ChatItemWire[] }>(`/api/workspace-chats/${encodeURIComponent(chatID)}/items`),
