@@ -1,4 +1,9 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat f83f50af-eff8-46fb-9271-c784361deedf (2026-09-24)
+
+_(reserved — no entries yet)_
+
+
 ### Chat 003b2f47-7bed-4de8-aeb6-4b626cac3205 (2026-09-24)
 
 - Refinado o visual dos cartões de Tarefas do projeto com hierarquia mais clara, estados destacados, resumo legível e metadados compactos, migrando essa superfície para Tailwind.
