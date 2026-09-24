@@ -14,6 +14,8 @@ _(reserved — no entries yet)_
 - Alinha o Wharnex Remote com as preferências visuais do Desktop através de um perfil de UI persistido no backend, incluindo tema, accent, escala, tipografia e densidade.
 - Renova o webapp com tokens semânticos compatíveis com os temas Desktop e melhora sobretudo o ChatComposer, a leitura das mensagens, a navegação de chats, o emparelhamento e os painéis remotos.
 - Mantém o Desktop como fonte da preferência visual e faz o webapp acompanhar alterações de tema durante a sessão remota.
+- Evolui o cockpit remoto com hub de projetos responsivo, composer compacto com bandeja, directivas em chips, auto-hide e navegação rápida entre chat, ficheiros, plano e execução.
+- Enriquece mensagens e anexos no chat, substitui a navegação horizontal dos painéis por um seletor acessível e adiciona atenção/notificações do navegador sem duplicar o runtime de browser do Desktop.
 
 
 ### Chat 8d218342-4904-40ab-821a-6fae7a2b667d (2026-09-23)
