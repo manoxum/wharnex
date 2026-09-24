@@ -1,3 +1,4 @@
+export { rememberOpenedProject, syncOpenedProjectHistory } from './projectHistory'
 const BOUND_PREFIX = 'kernl.workspace.bound-projects.v1:'
 const ACTIVE_PREFIX = 'kernl.workspace.bound-active.v1:'
 

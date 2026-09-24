@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import { desktopBridge } from '../lib/desktop'
 import { isDesktopTrayTunnelAction } from '../lib/desktopTray'
 import { announceHeaderPopover, subscribeHeaderPopover, subscribeOtherHeaderPopover } from '../lib/headerPopover'
-import { desktopWindowScope, loadBoundActiveProject, loadBoundProjects, saveBoundActiveProject, saveBoundProjects } from '../lib/projectBindings'
+import { desktopWindowScope, loadBoundActiveProject, loadBoundProjects, rememberOpenedProject, saveBoundActiveProject, saveBoundProjects, syncOpenedProjectHistory } from '../lib/projectBindings'
 import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent } from '../lib/workspaceMemory'
 import type { AppConfig, WorkspaceMode } from '../types'
 import { Bootstrap } from './Bootstrap'
@@ -58,12 +58,12 @@ export function WorkspaceShell() {
       } catch { /* stale saved binding is ignored */ }
     }
     const active = acquired.includes(preferred) ? preferred : acquired[0] || ''
-    setProjects(acquired); setActiveProject(active); saveBoundProjects(acquired); saveBoundActiveProject(active)
+    setProjects(acquired); setActiveProject(active); saveBoundProjects(acquired); saveBoundActiveProject(active); void syncOpenedProjectHistory(acquired)
     setBusy(false); setInitialized(true)
   }, [])
 
   useEffect(() => {
-    let alive = true
+    let alive = true; void syncOpenedProjectHistory(loadRecentWorkspaces())
     async function initialize() {
       try { if (alive) setConfig(await api.config()) } catch (reason) { if (alive) setError(messageOf(reason)) }
       const bridge = desktopBridge()
@@ -207,7 +207,7 @@ export function WorkspaceShell() {
         throw new Error(`Esta janela já atingiu o limite de ${MAX_BOUND_PROJECTS} projetos vinculados.`)
       }
       if (!projects.includes(canonical)) setProjects((current) => [...current, canonical])
-      rememberRecent(canonical); setRecent(loadRecentWorkspaces()); setActiveProject(canonical)
+      rememberRecent(canonical); setRecent(loadRecentWorkspaces()); setActiveProject(canonical); void rememberOpenedProject(canonical).catch(() => undefined)
       return true
     } catch (reason) { setError(messageOf(reason)); return false } finally { setBusy(false) }
   }

@@ -19,8 +19,9 @@ var ErrNotFound = errors.New("session not found")
 const persistenceVersion = 1
 
 type persistenceEnvelope struct {
-	Version  int                `json:"version"`
-	Sessions []persistedSession `json:"sessions"`
+	Version       int                `json:"version"`
+	Sessions      []persistedSession `json:"sessions"`
+	KnownProjects []KnownProject     `json:"known_projects,omitempty"`
 }
 
 // persistedSession keeps server-only artifact locations durable without ever
@@ -161,6 +162,9 @@ type Store struct {
 	// error ledger. Production persists the same records in
 	// harness_execution_errors.
 	executionErrors map[string]domain.ExecutionErrorRecord
+	// knownProjects is the non-Postgres fallback for Desktop-open project
+	// history. Production persists the same rows in harness_known_projects.
+	knownProjects map[string]KnownProject
 }
 
 func NewStore() *Store {
@@ -309,11 +313,14 @@ func (s *Store) Clear() error {
 	}
 	original := s.items
 	originalExecutionErrors := s.executionErrors
+	originalKnownProjects := s.knownProjects
 	s.items = make(map[string]domain.Session)
 	s.executionErrors = make(map[string]domain.ExecutionErrorRecord)
+	s.knownProjects = make(map[string]KnownProject)
 	if err := s.persistLocked(); err != nil {
 		s.items = original
 		s.executionErrors = originalExecutionErrors
+		s.knownProjects = originalKnownProjects
 		return err
 	}
 	return nil
@@ -352,6 +359,12 @@ func (s *Store) load() error {
 		normalizeRestoredSession(&item)
 		s.items[item.ID] = item
 	}
+	for _, project := range envelope.KnownProjects {
+		if strings.TrimSpace(project.ProjectPath) == "" {
+			continue
+		}
+		s.knownProjectFallback()[project.ProjectPath] = project
+	}
 	return nil
 }
 
@@ -364,7 +377,12 @@ func (s *Store) persistLocked() error {
 		items = append(items, persistSession(item))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Session.CreatedAt.Before(items[j].Session.CreatedAt) })
-	data, err := json.MarshalIndent(persistenceEnvelope{Version: persistenceVersion, Sessions: items}, "", "  ")
+	known := make([]KnownProject, 0, len(s.knownProjectFallback()))
+	for _, project := range s.knownProjectFallback() {
+		known = append(known, project)
+	}
+	sort.Slice(known, func(i, j int) bool { return known[i].ProjectPath < known[j].ProjectPath })
+	data, err := json.MarshalIndent(persistenceEnvelope{Version: persistenceVersion, Sessions: items, KnownProjects: known}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode session state: %w", err)
 	}
