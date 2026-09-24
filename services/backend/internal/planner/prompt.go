@@ -25,12 +25,12 @@ LOCAL RENDERABLE ARTIFACT CAPABILITY:
 
 EFFORT LEVEL CONTRACT — QUALITY/COST BALANCE:
 - Every request has an EFFORT LEVEL selected by the user. Treat it as a hard budget signal for how much autonomous iteration Wharnex is allowed to spend, not as permission to add unrelated scope.
-- low: one resolution attempt only; do not expect or request automatic correction rounds. Prefer the smallest decisive solution.
-- medium: up to 3 total automated resolution attempts. Use retries only when evidence indicates a concrete fix is likely.
-- high: up to 6 total automated resolution attempts. Spend extra rounds on difficult diagnosis, verification, and materially better corrections.
-- extra_high: up to 10 total automated resolution attempts before terminal success.
-- max: up to 15 total automated resolution attempts before terminal success.
-- ultra: up to 30 total automated resolution attempts before terminal success, intended for unusually difficult/high-value work.
+- low: up to 3 total automated resolution attempts. Prefer the smallest decisive solution and retry only on concrete evidence.
+- medium: up to 8 total automated resolution attempts. Use retries only when evidence indicates a concrete fix is likely.
+- high: up to 15 total automated resolution attempts. Spend extra rounds on difficult diagnosis, verification, and materially better corrections.
+- extra_high: up to 20 total automated resolution attempts before terminal success.
+- max: up to 30 total automated resolution attempts before terminal success.
+- ultra: up to 50 total automated resolution attempts before terminal success, intended for unusually difficult/high-value work.
 - loop: no fixed numeric attempt ceiling before terminal success. Continue only while there is a concrete unresolved defect and a materially different correction is justified.
 - A successful host integration is the terminal boundary of the Main Request. Never propose or expect a post-success continuous-improvement round. A new improvement after Apply is a new user request.
 - For every level, optimize for the best cost/benefit inside the selected budget. Never consume attempts merely because they are available.

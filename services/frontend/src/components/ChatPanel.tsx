@@ -262,7 +262,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const selectedArtifacts: ChatArtifactSelection = artifactSelection || { context: false, prompt: true, result: false, error: false }
   const currentExecutionMode = executionMode || session.execution_mode || 'protected'
   const currentAutomationMode = automationMode || session.automation_mode || 'manual'
-  const currentEffortLevel = effortLevel || session.effort_level || 'medium'
+  const currentEffortLevel = effortLevel || session.effort_level || 'high'
   const currentReasoningEffort = reasoningEffort || session.reasoning_effort || 'high'
   const currentChatTransportMode = chatTransportMode || session.chat_transport_mode || 'scraper'
   const knowledgeSharingEnabled = session.knowledge_sharing_enabled !== false
@@ -1187,12 +1187,12 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           <label className="composer-effort-picker" title="Nível de esforço · limita tentativas automáticas de resolução; após aplicar com sucesso no host, a Main Request termina">
             <span>Esforço</span>
             <select aria-label="Nível de esforço" value={currentEffortLevel} disabled={busy || !onEffortLevel} onChange={(event) => onEffortLevel?.(event.target.value as EffortLevel)}>
-              <option value="low">Low · 1</option>
-              <option value="medium">Medium · 3</option>
-              <option value="high">High · 6</option>
-              <option value="extra_high">Extra High · 10</option>
-              <option value="max">Max · 15</option>
-              <option value="ultra">Ultra · 30</option>
+              <option value="low">Low · 3</option>
+              <option value="medium">Medium · 8</option>
+              <option value="high">High · 15</option>
+              <option value="extra_high">Extra High · 20</option>
+              <option value="max">Max · 30</option>
+              <option value="ultra">Ultra · 50</option>
               <option value="loop">Loop · ∞</option>
             </select>
           </label>

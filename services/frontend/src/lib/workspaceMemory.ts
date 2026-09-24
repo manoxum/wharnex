@@ -195,8 +195,8 @@ export function saveAutomationMode(projectPath: string, mode: AutomationMode) {
 export function loadEffortLevel(projectPath: string): EffortLevel {
   try {
     const value = localStorage.getItem(EFFORT_LEVEL_PREFIX + projectPath) as EffortLevel | null
-    return value && ['low', 'medium', 'high', 'extra_high', 'max', 'ultra', 'loop'].includes(value) ? value : 'medium'
-  } catch { return 'medium' }
+    return value && ['low', 'medium', 'high', 'extra_high', 'max', 'ultra', 'loop'].includes(value) ? value : 'high'
+  } catch { return 'high' }
 }
 
 export function saveEffortLevel(projectPath: string, level: EffortLevel) {

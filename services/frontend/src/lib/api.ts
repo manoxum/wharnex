@@ -174,7 +174,7 @@ export const api = {
   clearStorage: (confirm: string) => request<{ status: string }>('/api/storage', { method: 'DELETE', body: JSON.stringify({ confirm }) }),
   createProject: (parentPath: string, name: string) => request<ProjectProvision>('/api/projects/create', { method: 'POST', body: JSON.stringify({ parent_path: parentPath, name }) }),
   cloneProject: (repositoryURL: string, parentPath: string, directory = '') => request<ProjectProvision>('/api/projects/clone', { method: 'POST', body: JSON.stringify({ repository_url: repositoryURL, parent_path: parentPath, directory }) }),
-  createSession: (projectPath: string, executionMode: ExecutionMode = 'protected', automationMode: AutomationMode = 'auto', chatId?: string, effortLevel: EffortLevel = 'medium', reasoningEffort: ReasoningEffort = 'high') =>
+  createSession: (projectPath: string, executionMode: ExecutionMode = 'protected', automationMode: AutomationMode = 'auto', chatId?: string, effortLevel: EffortLevel = 'high', reasoningEffort: ReasoningEffort = 'high') =>
     request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ project_path: projectPath, execution_mode: executionMode, automation_mode: automationMode, effort_level: effortLevel, reasoning_effort: reasoningEffort, chat_id: chatId }) }),
   getSession: (id: string) => request<Session>(`/api/sessions/${id}`),
   setRelatedProjects: (id: string, projectPaths: string[]) =>

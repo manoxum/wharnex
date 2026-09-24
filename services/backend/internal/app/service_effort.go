@@ -9,7 +9,7 @@ import (
 // maxAutoRepairAttempts is retained as the historical Medium default for
 // compatibility tests and bounded diagnostic history only. Runtime retry
 // gating is always derived from EffortLevel.
-const maxAutoRepairAttempts = 3
+const maxAutoRepairAttempts = 8
 
 type effortPolicy struct {
 	MaxAttempts int
@@ -25,17 +25,17 @@ func normalizeEffortLevel(level domain.EffortLevel) domain.EffortLevel {
 func policyForEffort(level domain.EffortLevel) effortPolicy {
 	switch normalizeEffortLevel(level) {
 	case domain.EffortLevelLow:
-		return effortPolicy{MaxAttempts: 1}
-	case domain.EffortLevelMedium:
 		return effortPolicy{MaxAttempts: 3}
+	case domain.EffortLevelMedium:
+		return effortPolicy{MaxAttempts: 8}
 	case domain.EffortLevelHigh:
-		return effortPolicy{MaxAttempts: 6}
-	case domain.EffortLevelExtraHigh:
-		return effortPolicy{MaxAttempts: 10}
-	case domain.EffortLevelMax:
 		return effortPolicy{MaxAttempts: 15}
-	case domain.EffortLevelUltra:
+	case domain.EffortLevelExtraHigh:
+		return effortPolicy{MaxAttempts: 20}
+	case domain.EffortLevelMax:
 		return effortPolicy{MaxAttempts: 30}
+	case domain.EffortLevelUltra:
+		return effortPolicy{MaxAttempts: 50}
 	case domain.EffortLevelLoop:
 		return effortPolicy{}
 	default:

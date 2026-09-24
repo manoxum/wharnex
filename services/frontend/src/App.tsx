@@ -138,7 +138,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [mode, setMode] = useState<WorkspaceMode>(surfaceRequest?.kind === 'editor' ? 'editor' : 'agent')
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('protected')
   const [automationMode, setAutomationMode] = useState<AutomationMode>('auto')
-  const [effortLevel, setEffortLevel] = useState<EffortLevel>('medium')
+  const [effortLevel, setEffortLevel] = useState<EffortLevel>('high')
   const [chatTransportMode, setChatTransportMode] = useState<ChatTransportMode>('scraper')
   const [globalTransport, setGlobalTransport] = useState<TransportOptions>(() => loadTransportOptions())
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
@@ -3967,7 +3967,7 @@ function selectedArtifactKinds(selection: ChatArtifactSelection): ChatArtifactKi
 }
 
 function effortAttemptLimit(level: EffortLevel): number | undefined {
-  return ({ low: 1, medium: 3, high: 6, extra_high: 10, max: 15, ultra: 30 } as Partial<Record<EffortLevel, number>>)[level]
+  return ({ low: 3, medium: 8, high: 15, extra_high: 20, max: 30, ultra: 50 } as Partial<Record<EffortLevel, number>>)[level]
 }
 
 function continuationArtifactSelection(session: Session): ChatArtifactSelection {

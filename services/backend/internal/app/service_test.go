@@ -32,6 +32,18 @@ func appCommand(argv ...string) domain.CommandSpec {
 	return domain.CommandSpec{Argv: argv, Cwd: ".", TimeoutSeconds: 30, ExpectedExitCodes: []int{0}}
 }
 
+func TestNewSessionDefaultsToHighEffort(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), fakeRunner{})
+	started, err := service.StartSession(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.EffortLevel != domain.EffortLevelHigh {
+		t.Fatalf("default effort=%q, want high", started.EffortLevel)
+	}
+}
+
 type fakePlanner struct{ plan domain.ExecutionPlan }
 
 func (f fakePlanner) Plan(_ context.Context, request planner.Request) (planner.Result, error) {
@@ -666,7 +678,7 @@ func TestRetainedChangeSetReplayConflictCreatesDedicatedConflictResolutionReques
 // automatic conflict-resolution prompt prepared.
 func TestConflictResolutionStopsAfterBoundedAttempts(t *testing.T) {
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{}, policy.NewEngine(), sandbox.NewLocalRunner())
-	started, err := service.StartSessionWithModes(context.Background(), t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	started, err := service.StartSessionWithModes(context.Background(), t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto, domain.EffortLevelMedium)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1480,7 +1492,7 @@ func TestExecutionFailurePreparesFreshManualRepairRequest(t *testing.T) {
 func TestRequestFailureRepairStartsManualGPTRepairWithOptionalGuidanceAfterAutomationStops(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
-	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto, domain.EffortLevelMedium)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1732,7 +1744,7 @@ func TestSuccessfulRetainedPlanRetryRetiresObsoleteRepairRequest(t *testing.T) {
 func TestRepairLoopStopsAfterBoundedAttempts(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), fakeRunner{})
-	started, err := service.StartSession(context.Background(), root)
+	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto, domain.EffortLevelMedium)
 	if err != nil {
 		t.Fatal(err)
 	}
