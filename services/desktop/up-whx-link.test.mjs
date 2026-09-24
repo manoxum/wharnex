@@ -88,6 +88,8 @@ test('auto mode falls back to the ordinary launch and keeps the sandbox untouche
   assert.equal(attempts, 2)
   assert.equal(retryEnv.WHARNESS_LINUX_SANDBOX_MODE, 'userns', 'successful retry keeps the sandbox mode switch')
   assert.equal(env.WHARNESS_LINUX_SANDBOX_MODE, 'runtime')
+  // Inject an absent dedicated helper so the assertion stays deterministic
+  // even when the execution host has the production helper installed in /opt.
   assert.equal(prepareUpLink(gatewayEnv({ WHARNESS_UP_LINK: 'auto', PATH: '/nonexistent' }), { runtimeDir: runtimeDir(), platform: 'linux', unsharePath: '/nonexistent/wharnex-up-link-unshare' }).reason, 'missing pasta, ip, mount, unshare')
   assert.equal(prepareUpLink(gatewayEnv(), { runtimeDir: runtimeDir(), platform: 'darwin' }).reason, 'unsupported-platform')
   assert.equal(prepareUpLink(gatewayEnv({ WHARNESS_UP_LINK: 'off' }), { runtimeDir: runtimeDir(), platform: 'linux' }).reason, 'disabled')
