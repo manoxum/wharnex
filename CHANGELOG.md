@@ -6,7 +6,8 @@ _(reserved — no entries yet)_
 
 ### Chat 009887b6-568e-497d-a8ec-e77b436ff105 (2026-09-24)
 
-_(reserved — no entries yet)_
+- Move a recuperação de vínculo da conversa para um controlo por ícone no cabeçalho do Engine, evitando que o painel apareça automaticamente após o envio de um prompt.
+- Permite abrir o painel tanto para chats vinculados como por vincular, preservando a recuperação automática apenas quando falta um vínculo.
 
 
 ### Chat 6853076c-ece2-4584-a677-23f692150136 (2026-09-24)

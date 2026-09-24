@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { chatgptConversationURL, desktopBridge, elementBounds, formatBytes, sameChatGPTConversation } from '../lib/desktop'
 import { Icon } from './Icon'
-import { ChatBindingRecovery } from './ChatBindingRecovery'
-import { StatusPill } from './StatusPill'
+import { ChatBindingControl } from './ChatBindingControl'
 import { confirmDialog } from '../lib/appDialog'
 import { expectedResponseBundleName } from '../lib/bundlename'
 import { errorMessage } from '../lib/errorMessage'
@@ -420,7 +419,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       <div className="desktop-browser-address" title={visibleBrowserURL}><span className={state.loading ? 'browser-lamp loading' : 'browser-lamp'} /><strong>{chatTitle}</strong><span>{safeHost(visibleBrowserURL)}</span></div>
       <div className="desktop-chatgpt-toolbar-status">
         <EngineInstanceSelector supervisorId={state.supervisorId} followedAgentId={followedAgentId} followedWorker={followedWorker} workers={workerAgents} onSelect={selectEngineAgent} />
-        <StatusPill tone={!externalAuth && linkedConversation && (!currentConversation || sameConversation) ? 'success' : 'neutral'}>{externalAuth ? 'Login externo' : linkedConversation ? (mismatch ? 'Outra conversa' : 'Vinculado') : 'A vincular'}</StatusPill>
+        <ChatBindingControl chatId={chatId} linkedUrl={linkedConversation || undefined} mismatch={mismatch} onBind={onChatGPTURL} />
         <button className={`chatgpt-auth-indicator ${authenticated ? 'authenticated' : 'attention'}`} type="button" aria-label={authenticated ? 'Sessão ChatGPT autenticada' : 'Autenticação ChatGPT necessária'} title={authenticated ? 'Sessão ChatGPT autenticada · clique para opções' : 'Autenticar ChatGPT'} onClick={toggleControls}><Icon name={authenticated ? 'check' : 'shield'} size={15}/></button>
       </div>
     </div>
@@ -440,11 +439,6 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     </div>}
 
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa; a vinculação permanente não será alterada.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button></div>}
-    {/* An unbound chat opens the ChatGPT home surface and looks indistinguishable
-        from a brand-new one, so the way back has to be offered here rather than
-        left to the operator's memory of which conversation it was. Only show
-        recovery if the chat had messages (state.url !== home page). */}
-    {!linkedConversation && !externalAuth && state.url !== CHATGPT_HOME && <ChatBindingRecovery chatId={chatId} onBind={onChatGPTURL} />}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
     {followedAgentId && <div className="desktop-chatgpt-follow"><div><Icon name="monitor" size={13}/><strong>Seguindo {followedAgentId.replace('worker-', 'Worker ')}</strong><small>Instância real do Worker em tempo real; o scheduler continua proprietário.</small></div><button type="button" className="text-button" onClick={() => setFollowedAgentId('')}>Parar de seguir</button></div>}
     <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharnex retomará esta vista automaticamente.</span></div> : overlayBlocked ? <div className="desktop-chatgpt-suspended"><Icon name="chatgpt" size={24}/><strong>ChatGPT preservado</strong><span>A vista regressa ao fechar esta camada, na mesma conversa e posição.</span></div> : state.loading ? <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div> : null}</div>
