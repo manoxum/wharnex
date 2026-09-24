@@ -29,7 +29,7 @@ func TestPyjamasProviderReusesPersistedTunnelConfigAfterRestart(t *testing.T) {
 	}, provision: func(context.Context, *http.Client, int) (pyjamasConfig, string, error) {
 		provisions++
 		return pyjamasConfig{}, "", errors.New("unexpected tunnel provisioning")
-	}}
+	}, ready: func(context.Context, *url.URL) error { return nil }}
 	provider, err := newPyjamasTunnelProvider(storage, TunnelLanding{InstanceName: "wharnex"}, starter)
 	if err != nil {
 		t.Fatalf("restore provider: %v", err)
@@ -86,6 +86,48 @@ func TestPyjamasStarterRequiresABoundedLocalPort(t *testing.T) {
 		if _, _, err := (pyjamasStarter{}).Start(context.Background(), origin); err == nil {
 			t.Fatalf("accepted unusable origin %q", origin)
 		}
+	}
+}
+
+func TestPyjamasStarterRefreshesAnUnreachableSavedLease(t *testing.T) {
+	storage := t.TempDir()
+	configPath := filepath.Join(storage, pyjamasConfigFileName)
+	if err := os.WriteFile(configPath, []byte(pyjamasSampleConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parsePyjamasConfig(pyjamasSampleConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts, provisions, probes := 0, 0, 0
+	starter := pyjamasStarter{
+		configPath: configPath,
+		forward: func(context.Context, pyjamasConfig, uint16, string) (pyjamasStopper, error) {
+			starts++
+			return func() {}, nil
+		},
+		provision: func(context.Context, *http.Client, int) (pyjamasConfig, string, error) {
+			provisions++
+			return parsed, pyjamasSampleConfig, nil
+		},
+		ready: func(context.Context, *url.URL) error {
+			probes++
+			if probes == 1 {
+				return errors.New("saved lease is unreachable")
+			}
+			return nil
+		},
+	}
+	if err := starter.load(); err != nil {
+		t.Fatal(err)
+	}
+	if _, stop, err := starter.Start(context.Background(), "http://127.0.0.1:43127"); err != nil {
+		t.Fatalf("refresh saved lease: %v", err)
+	} else {
+		stop()
+	}
+	if starts != 2 || provisions != 1 || probes != 2 {
+		t.Fatalf("starts=%d provisions=%d probes=%d, want 2, 1, 2", starts, provisions, probes)
 	}
 }
 

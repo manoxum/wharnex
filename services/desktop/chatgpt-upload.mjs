@@ -1,4 +1,5 @@
 import path from 'node:path'
+export { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript } from './chatgpt-upload-observation.mjs'
 
 const composerUploadInputExpression = `(() => {
   const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"][data-testid*="composer"], div[contenteditable="true"][role="textbox"], textarea[placeholder]');
@@ -9,37 +10,6 @@ const composerUploadInputExpression = `(() => {
   return null;
 })()`
 
-function uploadRequestStage(details) {
-  try {
-    const url = new URL(String(details?.url || ''))
-    const method = String(details?.method || 'POST').toUpperCase()
-    if (url.protocol !== 'https:' || !(url.hostname === 'chatgpt.com' || url.hostname.endsWith('.chatgpt.com'))) return ''
-    if (!['POST', 'PUT', 'PATCH'].includes(method)) return ''
-
-    // ChatGPT has changed the concrete file-upload route over time. Observe a
-    // deliberately narrow family rather than one literal endpoint so a route
-    // revision cannot be mistaken for "the browser never started upload".
-    // Keep the match under /backend-api and require upload semantics so normal
-    // file metadata requests do not satisfy the delivery confirmation gate.
-    const pathname = url.pathname.toLowerCase()
-    if (method === 'POST' && pathname === '/backend-api/files') return 'metadata'
-    if (method === 'POST' && /^\/backend-api\/files\/[^/]+\/uploaded\/?$/.test(pathname)) return 'complete'
-    if (pathname === '/backend-api/files/process_upload_stream'
-      || /^\/backend-api\/files\/[^/]*(?:upload|process_upload)[^/]*(?:\/|$)/.test(pathname)
-      || /^\/backend-api\/uploads?(?:\/|$)/.test(pathname)) return 'complete'
-    return ''
-  } catch {
-    return ''
-  }
-}
-
-function isUploadRequest(details) { return uploadRequestStage(details) !== '' }
-
-function ambiguousUploadFailure(message) {
-  const error = new Error(message)
-  error.retryFileSelection = false
-  return error
-}
 
 export function plannerPromptMarkdown(value) {
   const text = String(value || '').trimEnd()
@@ -149,97 +119,6 @@ export async function selectChatGPTUploadFile(webContents, filePath) {
     return { selected: true, name: path.basename(resolvedPath) }
   } finally {
     if (attachedHere && client.isAttached()) client.detach()
-  }
-}
-
-export class ChatGPTUploadCoordinator {
-  constructor() {
-    this.pendingByWebContents = new Map()
-    this.pendingByRequest = new Map()
-  }
-
-  // 8s was measured live against two concurrent hidden Worker uploads: the
-  // provider consistently confirmed the request, just not inside that window
-  // under contention, so every retry spent its whole budget on a false
-  // "did not start" instead of the slower real completion. 20s keeps the same
-  // shape while giving a backgrounded, contended renderer room to actually
-  // reach the network before the coordinator gives up on it.
-  expect(webContentsId, { startTimeoutMs = 20_000, completionTimeoutMs = 90_000 } = {}) {
-    if (!Number.isInteger(webContentsId) || webContentsId < 1) throw new Error('Invalid ChatGPT webContents id')
-    const previous = this.pendingByWebContents.get(webContentsId)
-    if (previous) previous.finish(new Error('ChatGPT upload observation was superseded'))
-
-    return new Promise((resolve, reject) => {
-      const state = {
-        webContentsId,
-        requestId: '',
-        requestIds: new Set(),
-        timer: undefined,
-        finish: (error, result = { observed: true }) => {
-          if (!this.pendingByWebContents.has(webContentsId)) return
-          clearTimeout(state.timer)
-          this.pendingByWebContents.delete(webContentsId)
-          for (const requestId of state.requestIds) this.pendingByRequest.delete(requestId)
-          if (error) reject(error)
-          else resolve(result)
-        },
-      }
-      state.timer = setTimeout(() => {
-        state.finish(new Error('ChatGPT did not start the file upload before timeout'))
-      }, startTimeoutMs)
-      this.pendingByWebContents.set(webContentsId, state)
-      state.completionTimeoutMs = completionTimeoutMs
-    })
-  }
-
-  cancel(webContentsId, reason = 'ChatGPT upload observation cancelled') {
-    const state = this.pendingByWebContents.get(webContentsId)
-    if (!state) return false
-    state.finish(new Error(reason))
-    return true
-  }
-
-  stateFor(details) {
-    const requestState = this.pendingByRequest.get(String(details?.id ?? ''))
-    if (requestState) return requestState
-    const direct = this.pendingByWebContents.get(details?.webContentsId)
-    if (direct) return direct
-    if (details?.webContentsId == null && this.pendingByWebContents.size === 1) return this.pendingByWebContents.values().next().value
-    return undefined
-  }
-
-  onBeforeRequest(details) {
-    const stage = uploadRequestStage(details)
-    if (!stage) return false
-    const state = this.stateFor(details)
-    if (!state) return false
-    clearTimeout(state.timer)
-    state.requestId = String(details.id)
-    state.requestIds.add(state.requestId)
-    this.pendingByRequest.set(state.requestId, state)
-    state.timer = setTimeout(() => state.finish(ambiguousUploadFailure('ChatGPT file upload did not complete before timeout')), state.completionTimeoutMs)
-    return true
-  }
-
-  onCompleted(details) {
-    const stage = uploadRequestStage(details)
-    if (!stage) return false
-    const state = this.stateFor(details)
-    if (!state) return false
-    if (details.statusCode < 200 || details.statusCode >= 300) {
-      state.finish(new Error(`ChatGPT file upload HTTP ${details.statusCode}`))
-    } else if (stage === 'complete') {
-      state.finish()
-    }
-    return true
-  }
-
-  onErrorOccurred(details) {
-    if (!isUploadRequest(details)) return false
-    const state = this.stateFor(details)
-    if (!state) return false
-    state.finish(ambiguousUploadFailure(`ChatGPT file upload failed: ${details.error || 'network error'}`))
-    return true
   }
 }
 

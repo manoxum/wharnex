@@ -1464,9 +1464,12 @@ test('reasoning effort is stepped through the composer slider, not a keyboard sh
   assert.equal(adjustStart, -1, 'reasoningEffortAdjustScript belongs in chat-agent-scripts.mjs, not main.mjs')
 
   const scripts = await readFile(new URL('./chat-agent-scripts.mjs', import.meta.url), 'utf8')
-  const scriptStart = scripts.indexOf('export function reasoningEffortAdjustScript(')
+  assert.match(scripts, /export \{ reasoningEffortAdjustScript, reasoningEffortStateScript \} from '\.\/chat-agent-reasoning-effort-scripts\.mjs'/)
+
+  const effortScripts = await readFile(new URL('./chat-agent-reasoning-effort-scripts.mjs', import.meta.url), 'utf8')
+  const scriptStart = effortScripts.indexOf('export function reasoningEffortAdjustScript(')
   assert.notEqual(scriptStart, -1)
-  const script = scripts.slice(scriptStart, scripts.indexOf('\nexport function', scriptStart + 1))
+  const script = effortScripts.slice(scriptStart, effortScripts.indexOf('\nexport function', scriptStart + 1))
   // Scripts observe and stage; they never click (ADR-0037). Focusing the
   // slider is staging - it cannot itself change the value - not a bypass of
   // that rule.
@@ -1477,8 +1480,8 @@ test('reasoning effort is stepped through the composer slider, not a keyboard sh
   assert.ok(script.indexOf('const slider = pick(__whx.optionalSelectors.effortSlider)') < script.indexOf('const target = rect(button[0])'))
   assert.doesNotMatch(script, /getAttribute\('aria-expanded'\)/)
 
-  const behavior = await readFile(new URL('./chat-agent-behavior.mjs', import.meta.url), 'utf8')
-  assert.match(behavior, /effortSlider: \[.*role="slider".*\]/)
+  const domMap = await readFile(new URL('./chatgpt-behavior-dom-map.mjs', import.meta.url), 'utf8')
+  assert.match(domMap, /effortSlider: \[.*role="slider".*\]/)
 })
 
 // Live testing against the real ChatGPT account has already found the
@@ -2115,22 +2118,28 @@ test('the layout viewport guard does not read native bounds as renderer evidence
 })
 
 test('an offscreen account control reports the viewport that measured it', async () => {
-  const [account, agent] = await Promise.all([
+  const [account, agent, effort, builder] = await Promise.all([
     readFile(new URL('./chatgpt-account.mjs', import.meta.url), 'utf8'),
     readFile(new URL('./chat-agent-scripts.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./chat-agent-reasoning-effort-scripts.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./chat-agent-script-builder.mjs', import.meta.url), 'utf8'),
   ])
 
   // Without this, "the slot has no layout viewport" and "the control is
   // genuinely scrolled out of view" are the same opaque string in the task's
   // last_error, which is what let the 0x0 fault stay invisible across dozens of
   // identical failures. The viewport is control geometry, never page content.
-  for (const source of [account, agent]) {
+  for (const source of [account, agent, effort]) {
     for (const [, state] of source.matchAll(/state: '([a-z-]*offscreen)'/g)) {
       const occurrence = new RegExp(`state: '${state}', viewport: viewport\\(\\)`)
       assert.match(source, occurrence, `${state} must report the measuring viewport`)
     }
-    assert.match(source, /const viewport = \(\) => \(\{ w: innerWidth, h: innerHeight \}\)/)
   }
+  // chatgpt-account.mjs still inlines its own copy of the shared runtime;
+  // chat-agent-scripts.mjs and the script families built with `script()` share
+  // one definition from chat-agent-script-builder.mjs.
+  assert.match(account, /const viewport = \(\) => \(\{ w: innerWidth, h: innerHeight \}\)/)
+  assert.match(builder, /const viewport = \(\) => \(\{ w: innerWidth, h: innerHeight \}\)/)
 })
 
 test('AWAIT_RESPONSE confirms a completion before concluding the bundle is missing', async () => {

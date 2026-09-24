@@ -21,6 +21,35 @@ Wharness permits a **narrow, allowlisted DOM transport bridge** inside the isola
 
 Those operations may run while the ChatGPT view is hidden when the project is explicitly in Auto mode. The fallback may inspect only narrow control metadata, file-like href shape, icon-only download labels, visibility/disabled state, and assistant-turn ancestry. Wharness does not scrape response prose, enumerate arbitrary page content for semantic analysis, read cookies/local storage, inspect authentication state from DOM content, or use response text to infer model completion. A separate main-process same-origin `/api/auth/session` probe may reduce the result to one boolean used only to suppress redundant login UI; it does not expose the returned session object or weaken the DOM transport boundary. The existing `will-download` boundary and backend bundle validator remain authoritative; a DOM click never makes downloaded bytes trusted.
 
+### Upload-thumbnail observation
+
+For a file that Wharnex itself has just selected, the bridge may passively poll
+the composer-owned upload thumbnail. When file metadata exists, the probe is
+correlated by the exact local basename. When the current preview exposes no
+filename metadata, it instead compares a bounded structural marker count taken
+immediately before and after native file selection. It may return only
+`visible`, that count, a bounded numeric progress value, an active bit and a
+completed bit derived from structural attributes (`data-*`, `aria-valuenow`,
+`role=progressbar`, or a composer-local spinner class). It must not read text
+content, assistant turns, cookies or storage. A 100%/completed thumbnail
+confirms completion. Existing narrow network confirmation remains a fallback
+for UI revisions that expose no progress attributes.
+
+When the provider uses its current ZIP-preview shape — an indeterminate
+composer-local spinner without a numeric value — observing that spinner starts
+the upload and its disappearance confirms completion. The bridge reports no
+invented percentage in that state.
+
+The visible-reasoning probe first selects only visible provider containers whose
+`data-testid` identifies reasoning, thinking, or analysis, or whose semantic
+class token is the provider's `group/activity-header`. It may read bounded leaf
+rows only inside the newest such container, including when the provider now
+nests the reasoning card inside an assistant turn. If no such container exists,
+the legacy current-turn path remains available and excludes every assistant turn.
+Both paths exclude code, Markdown, screen-reader-only regions and controls; a
+collapsed disclosure is never opened. This preserves the visible-reasoning
+exception without turning it into response-prose scraping.
+
 A Policy-blocked Auto bundle now emits an explicit non-execution event containing the denial reason and enters the existing bounded repair loop. The repair prompt must request a Policy-compatible alternative and must not ask the model to weaken, bypass or reconfigure Policy.
 
 Wharness also adds explicit local-data lifecycle controls:

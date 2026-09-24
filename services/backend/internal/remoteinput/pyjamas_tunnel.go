@@ -3,6 +3,7 @@ package remoteinput
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -47,6 +48,7 @@ type pyjamasStarter struct {
 	cached     *pyjamasConfig
 	forward    pyjamasForward
 	provision  pyjamasProvision
+	ready      func(context.Context, *url.URL) error
 }
 
 func (s *pyjamasStarter) load() error {
@@ -75,35 +77,53 @@ func (s pyjamasStarter) Start(ctx context.Context, origin string) (*url.URL, fun
 			return errors.New("pyjam.as redirected the provisioning request")
 		},
 	}
-	// The stack is private to this process, so the published port number can
-	// simply mirror the loopback listener it fronts.
-	parsed := s.cached
-	if parsed == nil {
-		provision := s.provision
-		if provision == nil {
-			provision = fetchPyjamasConfigDocument
-		}
-		fetched, raw, err := provision(ctx, client, port)
-		if err != nil {
-			return nil, nil, err
-		}
-		if err := savePyjamasConfig(s.configPath, raw); err != nil {
-			return nil, nil, err
-		}
-		parsed = &fetched
-	}
-	if parsed.localPort != port {
-		return nil, nil, errors.New("pyjam.as saved tunnel config is for a different local port")
-	}
 	forward := s.forward
 	if forward == nil {
 		forward = defaultPyjamasForward
 	}
-	stop, err := forward(ctx, *parsed, uint16(port), target.Host)
-	if err != nil {
-		return nil, nil, err
+	ready := s.ready
+	if ready == nil {
+		ready = waitQuickTunnelReachable
 	}
-	return parsed.public, stop, nil
+	parsed := s.cached
+	for attempt := 0; attempt < 2; attempt++ {
+		if parsed == nil {
+			provision := s.provision
+			if provision == nil {
+				provision = fetchPyjamasConfigDocument
+			}
+			fetched, raw, err := provision(ctx, client, port)
+			if err != nil {
+				return nil, nil, err
+			}
+			if err := savePyjamasConfig(s.configPath, raw); err != nil {
+				return nil, nil, err
+			}
+			parsed = &fetched
+		}
+		if parsed.localPort != port {
+			return nil, nil, errors.New("pyjam.as saved tunnel config is for a different local port")
+		}
+		stop, err := forward(ctx, *parsed, uint16(port), target.Host)
+		if err != nil {
+			return nil, nil, err
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+		err = ready(probeCtx, parsed.public)
+		cancel()
+		if err == nil {
+			return parsed.public, stop, nil
+		}
+		stop()
+		if attempt == 1 {
+			return nil, nil, fmt.Errorf("verify pyjam.as tunnel: %w", err)
+		}
+		if err := removePyjamasConfig(s.configPath); err != nil {
+			return nil, nil, err
+		}
+		parsed = nil
+	}
+	return nil, nil, errors.New("pyjam.as tunnel could not be started")
 }
 
 func defaultPyjamasForward(ctx context.Context, parsed pyjamasConfig, port uint16, loopback string) (pyjamasStopper, error) {

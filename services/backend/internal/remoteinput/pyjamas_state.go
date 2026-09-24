@@ -58,3 +58,23 @@ func savePyjamasConfig(path, raw string) error {
 	}
 	return nil
 }
+
+// removePyjamasConfig discards a saved lease only after its userspace data
+// plane has failed readiness. Removal does not follow symlinks, and a malformed
+// saved document is still rejected by loadPyjamasConfig before reaching here.
+func removePyjamasConfig(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect saved pyjam.as tunnel config for refresh: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("saved pyjam.as tunnel config must be a regular file before refresh")
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("remove expired pyjam.as tunnel config: %w", err)
+	}
+	return nil
+}

@@ -8,7 +8,7 @@ test('the builtin behavior is valid and self-describing', () => {
   assert.equal(BASE.schema, BEHAVIOR_SCHEMA)
   assert.equal(BASE.provider, 'chatgpt')
   assert.equal(BASE.origin, 'builtin')
-  assert.ok(BASE.revision)
+  assert.equal(BASE.revision, '2026-09-24.4')
   assert.throws(() => baseBehavior('some-other-ai'), /No builtin chat-agent behavior/)
 })
 
@@ -17,8 +17,10 @@ test('the builtin selectors match what the live ChatGPT DOM actually exposes', (
   assert.ok(BASE.selectors.titleEditor.includes('input[name="title-editor"]'))
   assert.ok(BASE.selectors.projectAnchor.includes('a[role="menuitem"][href^="/g/g-p-"]'))
   assert.ok(BASE.selectors.composer.includes('#prompt-textarea'))
+  assert.ok(BASE.selectors.stopButton.includes('button:has(svg.icon-primary-action path[d^="M4.5 5.75"])'))
   assert.deepEqual(BASE.effortLevels.map((level) => level.id), ['instant', 'medium', 'high'])
   assert.ok(BASE.optionalSelectors.effortPicker.includes('[data-composer-surface] button[aria-haspopup="menu"]:not([data-testid])'))
+  assert.ok(BASE.optionalSelectors.effortPicker.includes('form[data-chatgpt-composer] button[aria-haspopup="menu"]:not([data-testid])'))
 })
 
 test('validation refuses a document that is not this schema', () => {

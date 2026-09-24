@@ -1,4 +1,5 @@
 import { RATE_LIMIT_GATE_SELECTORS } from './chatgpt-rate-limit.mjs'
+export { chatGPTVisibleActivityScript } from './chatgpt-visible-activity.mjs'
 
 function encode(value) {
   return JSON.stringify(String(value ?? ''))
@@ -222,75 +223,12 @@ export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
     // ChatGPT's own longstanding marker on the assistant message while its
     // text/reasoning is still being produced, independent of the button's
     // current testid/label.
-    const stop = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button[aria-label*="stop generating" i], button[aria-label*="parar de gerar" i]')
+    const stop = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button:has(svg.icon-primary-action path[d^="M4.5 5.75"])')
       || document.querySelector('.result-streaming, [class*="result-streaming" i]');
     const failed = document.querySelector('[data-testid="conversation-turn-error"] button,button[data-testid="retry-button"],[data-testid="message-error"] button');
     ${composerLookupSource()}
     const composerReady = Boolean(composer);
     return { assistantCount, thinking: Boolean(stop), failed: Boolean(failed), composerReady, complete: Boolean(assistantCount > baseline && !stop && !failed && composerReady) };
-  })()`
-}
-
-// Reasoning-row extraction bounds. Deliberately small: this runs on every
-// health-probe tick for every supervised chat.
-const VISIBLE_REASONING_MAX_ROWS = 8
-const VISIBLE_REASONING_MIN_CHARS = 8
-const VISIBLE_REASONING_MAX_CHARS = 200
-
-/**
- * Structural liveness plus the reasoning steps ChatGPT is currently showing.
- *
- * While the model works, its steps stream directly into the newest turn
- * ("Validou estilos e temas da interface"); once it finishes they collapse
- * behind a disclosure. Only the live form is read here, because this is a
- * passive probe — expanding a disclosure would be a mutation, and a probe must
- * never click.
- *
- * "Useful" is decided structurally, never by reading what a row says: a row is
- * a short leaf line that neither sits inside nor contains a code or markdown
- * region, and is not screen-reader-only chrome. That is what separates a
- * reasoning step from the tool/code block beside it and from the answer itself.
- */
-export function chatGPTVisibleActivityScript() {
-  return `(() => {
-    const stop = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i]')
-      || document.querySelector('.result-streaming, [class*="result-streaming" i]');
-    const state = stop ? 'thinking' : 'idle';
-
-    let text = '';
-    try {
-      // Anchored on the newest conversation turn, not on an assistant message:
-      // while the model is still working there is no assistant message element
-      // at all (measured: data-message-author-role="assistant" count is 0 mid
-      // generation), so anchoring there captured nothing for the entire period
-      // the reasoning is actually interesting.
-      const turns = [...document.querySelectorAll('[data-turn-id]')];
-      const panel = turns[turns.length - 1] || null;
-      if (panel) {
-        const banned = ['pre', 'code', '.markdown', '.sr-only', '[data-message-author-role]'];
-        const rows = [];
-        const seen = new Set();
-        for (const node of panel.querySelectorAll('span, div')) {
-          if (rows.length >= ${VISIBLE_REASONING_MAX_ROWS}) break;
-          if (node.children.length) continue;
-          let excluded = false;
-          for (const selector of banned) { try { if (node.closest(selector)) { excluded = true; break } } catch { /* ignore */ } }
-          if (excluded) continue;
-          const value = String(node.textContent || '').replace(/\\s+/g, ' ').trim();
-          if (value.length < ${VISIBLE_REASONING_MIN_CHARS} || value.length > ${VISIBLE_REASONING_MAX_CHARS}) continue;
-          const key = value.toLocaleLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          rows.push(value);
-        }
-        // A wrapper reports the concatenation of the rows beneath it; anything
-        // that strictly contains another candidate is that wrapper, not a step.
-        const steps = rows.filter((row) => !rows.some((other) => other !== row && row.includes(other)));
-        text = steps.map((row) => '- ' + row).join('\\n');
-      }
-    } catch { /* reasoning is optional; liveness is not */ }
-
-    return { state, text, capturedAt: new Date().toISOString() };
   })()`
 }
 
