@@ -6,6 +6,7 @@ describe('workspaceRailLayout', () => {
 
   it('keeps the project explorer on the right and pins the terminal at the lower left by default', () => {
     expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.right).toEqual(['project', 'docker', 'database'])
+    expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.left).toContain('external-agents')
     expect(DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.left).toEqual(['terminal'])
     const moved = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'library', 'right', 'database')
     const reordered = moveWorkspaceTool(moved, 'git', 'left', 'todo')
@@ -34,6 +35,14 @@ describe('workspaceRailLayout', () => {
     expect(updates).toEqual([['project', 'docker', 'knowledge', 'database']])
   })
 
+
+  it('migrates the shared v7 layout and adds the external agents hub without losing placement', () => {
+    localStorage.setItem('whx.workspace.rail-layout.v7', JSON.stringify({ left: ['archive', 'agents', 'tasks'], right: ['project', 'docker', 'database'], pinned: { left: ['terminal'], right: ['git'] } }))
+    const migrated = loadWorkspaceRailLayout()
+    expect(migrated.left).toContain('external-agents')
+    expect(migrated.left.indexOf('external-agents')).toBeGreaterThan(migrated.left.indexOf('agents'))
+    expect(migrated.pinned.right).toEqual(['git'])
+  })
 
   it('migrates the shared v5 layout without losing pinned tools and adds Docker', () => {
     localStorage.setItem('whx.workspace.rail-layout.v5', JSON.stringify({ left: ['archive'], right: ['project', 'database'], pinned: { left: ['terminal'], right: ['git'] } }))
@@ -78,7 +87,7 @@ describe('workspaceRailLayout', () => {
     expect(layout.right).toContain('project')
     expect(layout.right).toContain('database')
     expect(layout.pinned.left).toContain('terminal')
-    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(13)
+    expect(new Set([...layout.left, ...layout.right, ...layout.pinned.left, ...layout.pinned.right]).size).toBe(14)
   })
 
 

@@ -6,7 +6,7 @@ _(reserved — no entries yet)_
 
 ### Chat f83f50af-eff8-46fb-9271-c784361deedf (2026-09-24)
 
-_(reserved — no entries yet)_
+- Adicionado um Hub de agentes IA para enviar prompts do Wharnex ao Codex, Claude Code e Cline pelo terminal integrado, com gestão e atualização dos respetivos plugins oficiais do VS Code.
 
 
 ### Chat 003b2f47-7bed-4de8-aeb6-4b626cac3205 (2026-09-24)

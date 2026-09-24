@@ -10,9 +10,12 @@ import { AttentionList } from './AttentionList'
 import { PanelSkeleton } from './Skeleton'
 import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../lib/workspaceRailLayout'
 import { defaultSidePanelWidth } from '../lib/workbenchPreferences'
+import { WORKSPACE_DRAWERS, workspaceDrawerLabel, type Drawer } from '../lib/workspaceDrawer'
 import { drawerResizeCeiling, WORKBENCH_SIDE_PANEL_MIN_PX } from '../lib/workbenchResize'
 import { InternalWindowPersistenceContext, usePersistentInternalWindowOwners } from '../lib/internalWindowPersistence'
 import { ChatManagementDrawer } from './ChatManagementDrawer'
+
+export type { Drawer } from '../lib/workspaceDrawer'
 
 // Every drawer below is only ever rendered once the operator opens it, and
 // most (Git graph, Postgres browser, artifact/knowledge explorers, runtime
@@ -26,6 +29,7 @@ const EvolutionEvidenceDrawer = lazy(() => import('./EvolutionEvidenceDrawer').t
 const ProjectKnowledgeDrawer = lazy(() => import('./ProjectKnowledgeDrawer').then((m) => ({ default: m.ProjectKnowledgeDrawer })))
 const GitDrawer = lazy(() => import('./GitDrawer').then((m) => ({ default: m.GitDrawer })))
 const AgentRuntimeDrawer = lazy(() => import('./AgentRuntimeDrawer').then((m) => ({ default: m.AgentRuntimeDrawer })))
+const ExternalAgentsPanel = lazy(() => import('./ExternalAgentsPanel').then((m) => ({ default: m.ExternalAgentsPanel })))
 const ProjectTasksDrawer = lazy(() => import('./ProjectTasksDrawer').then((m) => ({ default: m.ProjectTasksDrawer })))
 const ArtifactExplorerPanel = lazy(() => import('./ArtifactExplorerPanel').then((m) => ({ default: m.ArtifactExplorerPanel })))
 const DatabaseExplorerPanel = lazy(() => import('./DatabaseExplorerPanel').then((m) => ({ default: m.DatabaseExplorerPanel })))
@@ -35,10 +39,6 @@ const DockerServicesPanel = lazy(() => import('./DockerServicesPanel').then((m) 
 function DrawerFallback() {
   return <PanelSkeleton/>
 }
-
-export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'tasks' | 'evolution' | 'database' | 'docker' | 'errors' | ''
-
-const DRAWERS: Exclude<Drawer, ''>[] = ['attention', 'archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'evolution', 'database', 'docker']
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
 const WORKSPACE_RAIL_PX = 44
@@ -140,7 +140,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   }, [session.id, session.last_host_applied_at, drawer, pinnedTools, tools])
 
   const persistenceScope = `${session.project_path}\n${side}`
-  const { mountedOwners: mountedDrawers, ownerFor: drawerOwner, register: registerPersistentWindow } = usePersistentInternalWindowOwners(persistenceScope, DRAWERS, drawer)
+  const { mountedOwners: mountedDrawers, ownerFor: drawerOwner, register: registerPersistentWindow } = usePersistentInternalWindowOwners(persistenceScope, WORKSPACE_DRAWERS, drawer)
   const toggle = (next: Exclude<Drawer, ''>) => onDrawer(drawer === next ? '' : next)
   const closeDrawer = (candidate: Exclude<Drawer, ''>) => { if (drawer === candidate) onDrawer('') }
   const adjustPanelFontScale = (candidate: Exclude<Drawer, ''>, delta: number) => {
@@ -162,6 +162,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     if (tool === 'knowledge') return { label: 'Conhecimento do projeto', title: 'Conhecimento adquirido', icon: 'knowledge', drawer: 'knowledge' }
     if (tool === 'git') return { label: 'Git do projeto', title: 'Git do projeto', icon: 'git', drawer: 'git', badge: pendingCommitCount }
     if (tool === 'agents') return { label: 'Gestão de agentes', title: 'Supervisor e Workers', icon: 'agent', drawer: 'agents' }
+    if (tool === 'external-agents') return { label: 'Hub de agentes IA', title: 'Codex, Claude Code e Cline', icon: 'sparkles', drawer: 'external-agents' }
     if (tool === 'tasks') return { label: 'Tarefas do projeto', title: 'Chats, workers, traduções, orquestração e execuções', icon: 'list', drawer: 'tasks' }
     if (tool === 'errors') return { label: 'Erros de execução', title: 'Ocorrências, causas, logs e soluções', icon: 'alert', drawer: 'errors' }
     if (tool === 'evolution') return { label: 'Logs de auto-evolução', title: 'Logs e análise de auto-evolução', icon: 'refresh', drawer: 'evolution' }
@@ -231,7 +232,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
       ['--ui-font-scale' as string]: String(rootUIFontScale() * panelFontScale),
       ...(!active ? { display: 'none' } : {}),
     } as React.CSSProperties
-    const panelLabel = drawerPanelLabel(candidate)
+    const panelLabel = workspaceDrawerLabel(candidate)
     return <aside key={candidate} hidden={!active} className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerStyle}>
       <div className="workspace-panel-toolbar" role="toolbar" aria-label={`Ferramentas do painel ${panelLabel}`}>
         <button type="button" className="workspace-panel-font-control" onClick={() => adjustPanelFontScale(candidate, -PANEL_FONT_SCALE_STEP)} disabled={panelFontScale <= PANEL_FONT_SCALE_MIN} aria-label={`Diminuir texto do painel ${panelLabel}`} title="Diminuir texto">A−</button>
@@ -249,6 +250,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
         {candidate === 'knowledge' ? <ProjectKnowledgeDrawer session={session} busy={busy} onConsolidate={props.onConsolidateKnowledge} onClose={close}/> : null}
         {candidate === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession} onResolveConflictWithGPT={props.onResolveConflictWithGPT} onOpenGitConflictChat={props.onOpenGitConflictChat}/> : null}
         {candidate === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
+        {candidate === 'external-agents' ? <ExternalAgentsPanel projectPath={session.project_path} onRunInTerminal={props.onRunInTerminal}/> : null}
         {candidate === 'tasks' ? <ProjectTasksDrawer projectPath={session.project_path} currentSession={session} chats={props.chats} savedChats={savedChats} archivedChats={archivedChats} activeChatId={props.activeChatId} activeEvents={props.activeEvents} executionFIFO={executionFIFO} onClose={close} onError={onError} onGoToChat={props.onGoToChat}/> : null}
         {candidate === 'errors' ? <ExecutionErrorsDrawer chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} onClose={close}/> : null}
         {candidate === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
@@ -268,7 +270,7 @@ function loadPanelFontScales(): Partial<Record<Exclude<Drawer, ''>, number>> {
   try {
     const parsed = JSON.parse(localStorage.getItem(panelFontScaleKey()) || '{}') as Record<string, unknown>
     const scales: Partial<Record<Exclude<Drawer, ''>, number>> = {}
-    for (const candidate of DRAWERS) {
+    for (const candidate of WORKSPACE_DRAWERS) {
       const value = Number(parsed[candidate])
       if (Number.isFinite(value)) scales[candidate] = Math.min(PANEL_FONT_SCALE_MAX, Math.max(PANEL_FONT_SCALE_MIN, value))
     }
@@ -283,24 +285,8 @@ function rootUIFontScale() {
   const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-font-scale'))
   return Number.isFinite(value) && value > 0 ? value : 1
 }
-function drawerPanelLabel(drawer: Exclude<Drawer, ''>) {
-  if (drawer === 'attention') return 'Centro de Alertas'
-  if (drawer === 'archive') return 'Gestão de chats'
-  if (drawer === 'todo') return 'TODO do projeto'
-  if (drawer === 'project') return 'Explorador do projeto'
-  if (drawer === 'library') return 'Biblioteca de ficheiros'
-  if (drawer === 'knowledge') return 'Conhecimento do projeto'
-  if (drawer === 'git') return 'Git do projeto'
-  if (drawer === 'agents') return 'Gestão de agentes'
-  if (drawer === 'tasks') return 'Tarefas do projeto'
-  if (drawer === 'errors') return 'Erros de execução'
-  if (drawer === 'evolution') return 'Logs de auto-evolução'
-  if (drawer === 'database') return 'Database Studio'
-  return 'Docker'
-}
-
 function isWorkspaceTool(value: string): value is WorkspaceTool {
-  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'tasks', 'errors', 'evolution', 'terminal', 'database', 'docker'].includes(value)
+  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'external-agents', 'tasks', 'errors', 'evolution', 'terminal', 'database', 'docker'].includes(value)
 }
 function AttentionCenterDrawer({ items, historyItems, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; historyItems: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
   const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable' | 'history'>('all')
