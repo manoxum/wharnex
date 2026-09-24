@@ -54,13 +54,24 @@ The implementation is `services/desktop/up-whx-link.mjs`, called by
    inside a user namespace, to Chromium's namespace sandbox
    (`WHARNESS_LINUX_SANDBOX_MODE=userns`, `--disable-setuid-sandbox`). The
    renderer sandbox stays enabled. `--no-sandbox` is never used.
+7. Ubuntu's AppArmor user-namespace restriction denies the namespace root the
+   capabilities needed to create the network and mount namespaces when an
+   unprofiled Desktop is launched by GNOME. `make build` therefore runs
+   `scripts/up-whx-link-host.sh install`. On affected Linux hosts it installs a
+   root-owned copy of `unshare` at
+   `/opt/wharness/libexec/wharnex-up-link-unshare`, grants execute access only
+   to the installing uid, and loads an AppArmor profile attached to that exact
+   immutable path with the `userns,` permission. It does not disable the
+   system-wide restriction or weaken the profile of `/usr/bin/unshare`.
 
 `WHARNESS_UP_LINK` selects the mode:
 
-- `auto` (default): use the up-link when `pasta`, `unshare`, `ip` and `mount`
-  exist and a preflight run of the same chain succeeds. Otherwise launch
-  unisolated and record the reason.
-- `required`: refuse to start without the up-link.
+- `required` (default on Linux): refuse to start without the up-link. An
+  embedded automated ChatGPT pool must not silently run in the host network
+  namespace because that recreates the failure this ADR exists to prevent.
+- `auto`: compatibility mode for an explicitly selected unisolated fallback.
+  It uses the up-link when its dependencies and preflight are ready; otherwise
+  it records the reason and launches without it.
 - `off`: never use it.
 
 The decision is logged (`[up-whx-link] active|inactive …`), recorded in
@@ -101,3 +112,6 @@ turned a flap into a request burst that ChatGPT answered with HTTP 429.
   `xdg-open`) inherit the namespace. `xdg-open` normally hands the URL to an
   already-running browser outside it.
 - Hosts without `pasta` keep the previous behaviour in `auto` mode.
+- A normal operator `make build` may request privilege once when the scoped
+  AppArmor profile/helper is absent or stale. Subsequent builds verify the
+  installed bytes and live namespace probe without privilege or mutation.

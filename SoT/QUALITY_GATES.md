@@ -42,6 +42,9 @@ Canonical operator build command: `make build`. It must:
 - build the compatibility Go/frontend artifacts and validate the Electron desktop runtime;
 - build backend, frontend and tunnel Compose images;
 - build the configured local Protected runner image;
+- install or byte-verify the Linux `up-whx-link` dedicated namespace helper
+  and exact-path AppArmor profile when the host enables AppArmor's
+  unprivileged-user-namespace restriction; never disable that restriction;
 - reconcile backend/frontend containers while preserving existing PostgreSQL/tunnel containers.
 - after the replacement backend is healthy, reclaim only ownership-proven obsolete
   temporary workspaces, context directories and unreachable project dependency
