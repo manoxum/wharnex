@@ -37,7 +37,7 @@ The model may be wrong or manipulated by repository prompt injection. Security t
 
 ## Wharness Desktop
 
-The embedded ChatGPT renderer is remote and untrusted. Never add a preload to it, enable Node integration, disable `contextIsolation`, disable the Chromium sandbox, disable `webSecurity`, or expose generic Electron IPC.
+The embedded ChatGPT renderer is remote and untrusted. Never add a preload to it, enable Node integration, disable `contextIsolation`, disable the Chromium sandbox, disable `webSecurity`, or expose generic Electron IPC. Inside the up-whx-link network namespace (`adr/ADR-0072`) the sandbox uses Chromium's user-namespace mode instead of the setuid helper, which cannot work in a user namespace; this switches the sandbox mechanism and never disables it (`--no-sandbox` is forbidden).
 
 The ChatGPT persistent partition contains normal web-session state and may include sensitive authentication cookies managed by Chromium. Wharness code must not enumerate, log, export, inspect, or synchronize those cookies.
 

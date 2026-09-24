@@ -5,6 +5,7 @@ import { createConnection } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { electronChildEnvironment, electronLaunchArguments, resolveElectronBinary } from './electron-launch.mjs'
+import { startUpLink, upLinkTarget } from './up-whx-link.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(here, '../..')
@@ -163,6 +164,7 @@ async function main() {
   }
 
   const desktopEnv = desktopRuntimeEnvironment()
+  const upLink = startUpLink(desktopEnv, runtimeDir)
   const launch = electronLaunchArguments(process.platform, desktopEnv)
   // Electron's default userData directory is derived only from package.json's
   // `name`, so two checkouts of this repo collide on the same profile unless
@@ -174,7 +176,8 @@ async function main() {
     console.log(`Electron Linux runtime: ${desktopBinary}`)
   }
   if (launch.ozone) console.log(`Electron Linux graphics: ozone=${launch.ozone}`)
-  const desktop = run('electron', desktopBinary, launch.args, here, desktopEnv)
+  const target = upLinkTarget(upLink, desktopBinary, launch.args)
+  const desktop = run('electron', target.command, target.args, here, desktopEnv)
   desktop.on('exit', (code) => {
     if (!shuttingDown) shutdown(code || 0)
   })

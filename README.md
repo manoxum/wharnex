@@ -165,6 +165,14 @@ frontend/backend development outside stack mode may still use 5173/8888 directly
 
 Runtime PID files live under `.harness/run/` and combined logs under `.harness/logs/desktop.log`.
 
+On Linux the Desktop's Electron process runs inside the **up-whx-link**: its own
+network namespace, connected to the host by `pasta` (package `passt`). Host
+interface churn, such as container restarts, NIC/Wi-Fi switches or IPv6 address
+renewals, then no longer fails the embedded ChatGPT with
+`net::ERR_NETWORK_CHANGED`. Set `WHARNESS_UP_LINK=auto|required|off` (default
+`auto`: used when `pasta` is installed and its preflight passes) in `.harness/env`.
+`make status` shows whether it is active. See `adr/ADR-0072`.
+
 Useful lifecycle commands:
 
 ```bash

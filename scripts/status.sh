@@ -22,6 +22,12 @@ pid_status() {
 printf 'Wharnex status\n'
 pid_status coordinator "$RUN_DIR/coordinator.pid"
 pid_status electron "$RUN_DIR/electron.pid"
+if [ -f "$RUN_DIR/up-whx-link.state" ]; then
+  up_link=$(sed -n 's/.*"active":\(true\|false\).*/\1/p' "$RUN_DIR/up-whx-link.state")
+  up_reason=$(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "$RUN_DIR/up-whx-link.state")
+  if [ "$up_link" = true ]; then printf '  %-12s active (network namespace via pasta)\n' 'up-whx-link'
+  else printf '  %-12s inactive (%s)\n' 'up-whx-link' "${up_reason:-unknown}"; fi
+fi
 pid_status host-pty "$RUN_DIR/hostpty.pid"
 
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
