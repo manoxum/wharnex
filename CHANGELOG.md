@@ -11,7 +11,8 @@ _(reserved — no entries yet)_
 
 ### Chat 6853076c-ece2-4584-a677-23f692150136 (2026-09-24)
 
-_(reserved — no entries yet)_
+- Corrige a consolidação do conhecimento quando o chat atual ainda tem um pedido ativo, isolando a manutenção num novo chat/sessão persistido do mesmo projeto sem substituir a identidade do pedido em curso.
+- Impede consolidações duplicadas enquanto a própria manutenção de conhecimento está pendente e cobre a regressão no frontend.
 
 
 ### Chat ef6a2604-cc58-4090-83b8-ebff6acc176a (2026-09-24)

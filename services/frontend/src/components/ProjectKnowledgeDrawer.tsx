@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
+import { knowledgeConsolidationPending } from '../lib/requestActivity'
 import type { KnowledgeCategory, ProjectKnowledgeCatalog, Session } from '../types'
 import { Icon } from './Icon'
 import { ContentSkeleton } from './Skeleton'
@@ -50,9 +51,10 @@ export function ProjectKnowledgeDrawer({ session, busy = false, onConsolidate, o
   }, [catalog, category, query])
   const selectedEntry = visible.find((entry) => entry.id === selected) || visible[0]
   const operationalCount = (catalog?.entries || []).filter((entry) => selfEvolutionCategories.has(entry.category || 'general')).length
+  const consolidationInFlight = knowledgeConsolidationPending(session)
 
   async function consolidate() {
-    if (!onConsolidate || consolidating || busy || (catalog?.entries.length || 0) < 2) return
+    if (!onConsolidate || consolidating || busy || consolidationInFlight || (catalog?.entries.length || 0) < 2) return
     setConsolidating(true); setError('')
     try { await onConsolidate() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível iniciar a consolidação.') } finally { setConsolidating(false) }
   }
@@ -70,7 +72,7 @@ export function ProjectKnowledgeDrawer({ session, busy = false, onConsolidate, o
       <div className="flex flex-wrap gap-2">
         <label className="panel-search-field project-knowledge-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar conhecimentos" aria-label="Pesquisar conhecimentos"/>{query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={11}/></button>}</label>
         <select aria-label="Filtrar categoria de conhecimento" className="rounded border border-whx-border bg-whx-elevated px-2 text-xs" value={category} onChange={(event) => setCategory(event.target.value as KnowledgeCategory | '')}><option value="">Todas as categorias</option>{categories.map((value) => <option key={value} value={value}>{categoryLabel[value as KnowledgeCategory] || value}</option>)}</select>
-        <button type="button" className="inline-flex items-center gap-1.5 rounded border border-whx-border bg-whx-elevated px-2 py-1.5 text-xs font-semibold hover:bg-whx-hover disabled:opacity-50" disabled={busy || consolidating || catalog.entries.length < 2 || !onConsolidate} onClick={() => void consolidate()} title="Enviar o catálogo completo ao GPT para deduplicar, reconciliar e reorganizar"><Icon name="sparkles" size={12}/> {consolidating ? 'A preparar…' : 'Consolidar com GPT'}</button>
+        <button type="button" className="inline-flex items-center gap-1.5 rounded border border-whx-border bg-whx-elevated px-2 py-1.5 text-xs font-semibold hover:bg-whx-hover disabled:opacity-50" disabled={busy || consolidating || consolidationInFlight || catalog.entries.length < 2 || !onConsolidate} onClick={() => void consolidate()} title={consolidationInFlight ? 'A consolidação deste catálogo já está em curso neste chat' : 'Enviar o catálogo completo ao GPT para deduplicar, reconciliar e reorganizar'}><Icon name="sparkles" size={12}/> {consolidationInFlight ? 'Consolidação em curso' : consolidating ? 'A preparar…' : 'Consolidar com GPT'}</button>
       </div>
       <p className="m-0 text-[10px] leading-5 text-whx-faint">A consolidação envia o catálogo completo num pedido de manutenção, remove vazios/duplicados, reconcilia contradições pela evidência e recência e grava o catálogo resultante no banco de dados. Conhecimento de domínio permanece fora da auto-evolução.</p>
     </div>}
