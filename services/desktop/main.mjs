@@ -44,6 +44,7 @@ import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
 import { reasoningEffortAdjustScript, reasoningEffortStateScript } from './chat-agent-scripts.mjs'
 import { CHATGPT_REASONING_EFFORTS, ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort } from './chatgpt-effort.mjs'
 import { spellcheckContextMenuTemplate } from './spellcheck-menu.mjs'
+import { publicSupervisorId, supervisorSurfaceRoute } from './supervisor-surface-routing.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
@@ -1513,6 +1514,7 @@ function currentChatGPTState(cacheKey = '', windowState) {
   return {
     cacheKey: key,
     surfaceDeferred,
+    supervisorId: publicSupervisorId(entry),
     url: wc?.getURL() || CHATGPT_URL,
     title: wc?.getTitle() || 'ChatGPT',
     loading: entry?.loading ?? true,
@@ -3662,22 +3664,36 @@ function differentSupervisorTransport(cacheKey) {
   ))
 }
 
+function currentSupervisorSurfaceRoute(cacheKey, windowState, activeTransport = differentSupervisorTransport(cacheKey)) {
+  const key = sanitizeChatCacheKey(cacheKey)
+  const reusable = reusableSupervisor(key, windowState)
+  return supervisorSurfaceRoute({
+    targetKey: key,
+    supervisors: [...chatgptViews.entries()].map(([candidateKey, entry]) => ({ key: candidateKey, slotId: entry.slotId })),
+    capacity: desiredChatAgentSupervisorSlots,
+    reusableKey: reusable?.[0] || '',
+    activeTransportKey: activeTransport?.[0] || '',
+    activeTransportSlotId: activeTransport?.[1]?.slotId || '',
+  })
+}
+
 function deferSupervisorNavigationIfBusy(cacheKey, windowState, request = {}) {
   const key = sanitizeChatCacheKey(cacheKey)
-  // Every ChatGPT WebContents uses the authenticated account partition. While
-  // one Supervisor is changing its composer, exposing a different Supervisor
-  // can therefore surface the provider's shared/cross-tab draft state in the
-  // newly selected chat even though the physical write still targets the
-  // correct WebContents. Keep the local chat switch immediate, but defer the
-  // remote surface until the captured write transaction has completed.
+  // Composer mutation is a physical-renderer lease. A resident target, a free
+  // slot, or a proven-releasable slot is independent and may become visible
+  // immediately; only a target that needs held physical capacity is covered
+  // until a slot can be assigned safely.
   const activeTransport = differentSupervisorTransport(key)
+  const route = currentSupervisorSurfaceRoute(key, windowState, activeTransport)
   if (activeTransport) {
-    const current = supervisorEntry(windowState)
-    setDeferredSupervisorNavigation(key, windowState, request, current)
-    console.log(`[chatgpt-supervisor] deferred-switch from=${activeTransport[0]} to=${key} request=${activeTransport[1].transportRequestId || '-'}`)
-    return true
+    if (route.deferred) {
+      const current = supervisorEntry(windowState)
+      setDeferredSupervisorNavigation(key, windowState, request, current)
+      console.log(`[chatgpt-supervisor] deferred-switch from=${activeTransport[0]} to=${key} request=${activeTransport[1].transportRequestId || '-'}`)
+      return true
+    }
   }
-  if (chatgptViews.has(key) || chatgptViews.size < desiredChatAgentSupervisorSlots || reusableSupervisor(key, windowState)) {
+  if (!route.deferred) {
     clearDeferredSupervisorNavigation()
     return false
   }
@@ -3696,11 +3712,15 @@ async function applyDeferredSupervisorNavigation() {
     clearDeferredSupervisorNavigation()
     return
   }
+  const activeTransport = differentSupervisorTransport(pending.key)
+  const route = currentSupervisorSurfaceRoute(pending.key, state, activeTransport)
   if (differentSupervisorTransport(pending.key)) {
-    scheduleDeferredSupervisorNavigation()
-    return
+    if (route.deferred) {
+      scheduleDeferredSupervisorNavigation()
+      return
+    }
   }
-  if (!chatgptViews.has(pending.key) && chatgptViews.size >= desiredChatAgentSupervisorSlots && !reusableSupervisor(pending.key, state)) {
+  if (route.deferred && !chatgptViews.has(pending.key) && chatgptViews.size >= desiredChatAgentSupervisorSlots && !reusableSupervisor(pending.key, state)) {
     scheduleDeferredSupervisorNavigation()
     return
   }

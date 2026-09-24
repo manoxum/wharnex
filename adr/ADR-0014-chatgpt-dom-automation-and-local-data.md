@@ -42,13 +42,17 @@ invented percentage in that state.
 
 The visible-reasoning probe first selects only visible provider containers whose
 `data-testid` identifies reasoning, thinking, or analysis, or whose semantic
-class token is the provider's `group/activity-header`. It may read bounded leaf
-rows only inside the newest such container, including when the provider now
-nests the reasoning card inside an assistant turn. If no such container exists,
-the legacy current-turn path remains available and excludes every assistant turn.
-Both paths exclude code, Markdown, screen-reader-only regions and controls; a
-collapsed disclosure is never opened. This preserves the visible-reasoning
-exception without turning it into response-prose scraping.
+class token is the provider's `group/activity-header`. The latest
+`data-chatgpt-agent-turn-start` marker bounds the active turn: all activity
+headers inside that turn and only leaf `data-markdown-text-style` row boundaries
+inside a visibly expanded header's sibling body may be read, including nested
+activity summaries. A row is captured at that boundary because provider
+animation may split one visible line across several otherwise meaningless spans.
+If no such turn-scoped container exists, the legacy current-turn path remains
+available and excludes every assistant turn. Both paths exclude code, Markdown,
+tool/output regions, screen-reader-only regions and controls; a collapsed
+disclosure is never opened. This preserves the visible-reasoning exception
+without turning it into response-prose scraping.
 
 A Policy-blocked Auto bundle now emits an explicit non-execution event containing the denial reason and enters the existing bounded repair loop. The repair prompt must request a Policy-compatible alternative and must not ask the model to weaken, bypass or reconfigure Policy.
 

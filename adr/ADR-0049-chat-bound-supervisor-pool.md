@@ -54,6 +54,13 @@ therefore no idle reaper: eviction happens only on demand, at the moment a new c
 When every slot is held, the new chat waits. A Supervisor task that finds no slot returns a free
 observation — nothing reached ChatGPT, so it charges no attempt.
 
+Engine visibility follows the same physical boundary. A composer/upload transaction in one Supervisor
+MUST NOT cover or defer a chat already resident in another Supervisor, a chat that can take an unused
+slot, or a chat that can take a proven-releasable slot. Only a target that actually needs one of the
+currently held physical slots waits behind that holder. The trusted renderer may receive the target's
+canonical `supervisor-N` slot id as narrow runtime metadata so the Engine names the real browser instance;
+it receives no additional remote-page content or authority.
+
 ### 3. Supervision no longer depends on visibility
 
 `ADR-0038` gave the *visible* Supervisor a temporary handoff for passive observation, and required hidden
@@ -124,6 +131,8 @@ the attempt budget — and therefore needs bounds that are not a counter. Two ap
 
 - Alternating between up to six chats performs **no** provider navigation at all. That is the 429 source
   this ADR removes.
+- A long upload or response in one resident Supervisor no longer prevents the operator from viewing chats
+  resident in independent Supervisor browser instances.
 - Memory cost rises: up to six Supervisor renderers plus three Workers, against two plus six before. The
   slot count is the explicit control the earlier one-renderer-per-chat design lacked.
 - A seventh chat with all six slots held waits rather than interrupting a live request. This is deliberate:

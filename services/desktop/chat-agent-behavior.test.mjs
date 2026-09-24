@@ -8,7 +8,7 @@ test('the builtin behavior is valid and self-describing', () => {
   assert.equal(BASE.schema, BEHAVIOR_SCHEMA)
   assert.equal(BASE.provider, 'chatgpt')
   assert.equal(BASE.origin, 'builtin')
-  assert.equal(BASE.revision, '2026-09-24.4')
+  assert.equal(BASE.revision, '2026-09-24.5')
   assert.throws(() => baseBehavior('some-other-ai'), /No builtin chat-agent behavior/)
 })
 

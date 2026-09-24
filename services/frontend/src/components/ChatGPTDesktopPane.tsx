@@ -6,7 +6,9 @@ import { StatusPill } from './StatusPill'
 import { confirmDialog } from '../lib/appDialog'
 import { expectedResponseBundleName } from '../lib/bundlename'
 import { errorMessage } from '../lib/errorMessage'
+import { supervisorInstanceLabel } from '../lib/engineInstanceLabel'
 import { observeChatGPTOverlayBlockers } from '../lib/chatGPTOverlay'
+import { EngineInstanceSelector } from './EngineInstanceSelector'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
@@ -412,19 +414,12 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
         <button className="icon-button light" title="Abrir no navegador do sistema" onClick={() => void bridge?.chatgpt.openExternal(linkedConversation || CHATGPT_HOME)}><Icon name="external" size={15}/></button>
         <button className="icon-button light" title="Abrir no navegador interno" onClick={() => void bridge?.chatgpt.openInternal(linkedConversation || CHATGPT_HOME)}><Icon name="monitor" size={15}/></button>
         <button className="icon-button light" title="Colar clipboard no campo focado" onClick={() => void bridge?.chatgpt.paste(chatId)}><Icon name="clipboard" size={15}/></button>
-        <button className="icon-button light desktop-engine-devtools" type="button" aria-label="Abrir DevTools da instância atual" title={`Abrir DevTools · ${followedAgentId ? followedAgentId.replace('worker-', 'Worker ') : 'Supervisor'}`} onClick={() => void openCurrentDevTools()}><Icon name="code" size={15}/></button>
+        <button className="icon-button light desktop-engine-devtools" type="button" aria-label="Abrir DevTools da instância atual" title={`Abrir DevTools · ${followedAgentId ? followedAgentId.replace('worker-', 'Worker ') : supervisorInstanceLabel(state.supervisorId)}`} onClick={() => void openCurrentDevTools()}><Icon name="code" size={15}/></button>
         <button className="icon-button light" type="button" aria-label="Copiar link da conversa visível" title={visibleConversation ? 'Copiar link da conversa visível' : 'Nenhuma conversa ChatGPT visível para copiar'} disabled={!visibleConversation} onClick={() => void copyVisibleConversationLink()}><Icon name="link" size={15}/></button>
       </div>
       <div className="desktop-browser-address" title={visibleBrowserURL}><span className={state.loading ? 'browser-lamp loading' : 'browser-lamp'} /><strong>{chatTitle}</strong><span>{safeHost(visibleBrowserURL)}</span></div>
       <div className="desktop-chatgpt-toolbar-status">
-        <label className="desktop-engine-instance" title="Escolher a instância mostrada no Engine">
-          <span>Instância</span>
-          <select aria-label="Instância do Engine" value={followedAgentId} onChange={(event) => selectEngineAgent(event.target.value)}>
-            <option value="">Supervisor</option>
-            {followedAgentId && !followedWorker && <option value={followedAgentId}>{followedAgentId.replace('worker-', 'Worker ')}</option>}
-            {workerAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
-          </select>
-        </label>
+        <EngineInstanceSelector supervisorId={state.supervisorId} followedAgentId={followedAgentId} followedWorker={followedWorker} workers={workerAgents} onSelect={selectEngineAgent} />
         <StatusPill tone={!externalAuth && linkedConversation && (!currentConversation || sameConversation) ? 'success' : 'neutral'}>{externalAuth ? 'Login externo' : linkedConversation ? (mismatch ? 'Outra conversa' : 'Vinculado') : 'A vincular'}</StatusPill>
         <button className={`chatgpt-auth-indicator ${authenticated ? 'authenticated' : 'attention'}`} type="button" aria-label={authenticated ? 'Sessão ChatGPT autenticada' : 'Autenticação ChatGPT necessária'} title={authenticated ? 'Sessão ChatGPT autenticada · clique para opções' : 'Autenticar ChatGPT'} onClick={toggleControls}><Icon name={authenticated ? 'check' : 'shield'} size={15}/></button>
       </div>
