@@ -1,9 +1,4 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
-### Chat 1e93d0b3-2d13-4114-8684-aa5f4ac33f85 (2026-09-24)
-
-_(reserved — no entries yet)_
-
-
 ### Chat b16fd893-2527-4d48-9062-dd9df85fdf65 (2026-09-24)
 
 _(reserved — no entries yet)_
