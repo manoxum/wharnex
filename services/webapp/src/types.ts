@@ -20,6 +20,7 @@ export type StorageUsage = { projects: ProjectStorage[]; total_bytes: number }
 export type ProjectHistoryEntry = { project_path: string; name: string; open: boolean }
 export type Session = {
   id: string; chat_id?: string; project_path: string; state: string; automation_mode: 'manual' | 'auto' | 'auto_approve'
+  execution_mode?: 'protected' | 'unprotected' | 'full'; debug_enabled?: boolean; chat_transport_mode?: 'scraper' | 'manual'; knowledge_sharing_enabled?: boolean
   effort_level: string; reasoning_effort: 'instant' | 'medium' | 'high'; last_request_id?: string; last_manual_prompt?: string
   last_turn?: { kind?: string; message?: string; outcome?: { status?: string } }; last_execution?: { status?: string }
 }
