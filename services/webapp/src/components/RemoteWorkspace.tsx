@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { encodeFiles } from '../lib/attachments'
 import { applyUIPreferences } from '../lib/theme'
-import type { AppConfig, ChatItem, PanelName, ProjectStorage, Session, WorkspaceChat } from '../types'
+import type { AppConfig, ChatItem, PanelName, ProjectHistoryEntry, Session, WorkspaceChat } from '../types'
 import { ChatPane } from './ChatPane'
 import type { ComposerValue } from './Composer'
 import { OrchestratorPane } from './OrchestratorPane'
@@ -13,7 +13,7 @@ const terminalStates = new Set(['ready', 'applied', 'verified', 'failed', 'block
 const projectName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path
 
 export function RemoteWorkspace({ onDisconnect }: { onDisconnect: () => Promise<void> }) {
-  const [projects, setProjects] = useState<ProjectStorage[]>([])
+  const [projects, setProjects] = useState<ProjectHistoryEntry[]>([])
   const [project, setProject] = useState('')
   const [chats, setChats] = useState<WorkspaceChat[]>([])
   const [chat, setChat] = useState<WorkspaceChat>()
@@ -50,10 +50,10 @@ export function RemoteWorkspace({ onDisconnect }: { onDisconnect: () => Promise<
   }, [openChat])
 
   useEffect(() => {
-    void Promise.all([api.storage(), api.config()]).then(async ([storage, nextConfig]) => {
-      setConfig(nextConfig); setProjects(storage.projects || [])
+    void Promise.all([api.projectHistory(), api.config()]).then(async ([history, nextConfig]) => {
+      setConfig(nextConfig); setProjects(history.projects || [])
       const remembered = localStorage.getItem('wharnex.remote.project') || ''
-      const path = storage.projects.some((item) => item.project_path === remembered) ? remembered : storage.projects[0]?.project_path || ''
+      const path = history.projects.some((item) => item.project_path === remembered) ? remembered : history.projects[0]?.project_path || ''
       setProject(path); if (path) await loadChats(path)
     }).catch((cause) => fail(cause instanceof Error ? cause.message : String(cause)))
   }, [fail, loadChats])
