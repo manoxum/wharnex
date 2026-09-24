@@ -25,8 +25,8 @@ const PREFLIGHT_ATTEMPTS = 2
 // until they really exist, attaches pasta to them and returns Electron's exit
 // status. Every value is positional, never interpolated into a script.
 export const UP_LINK_OUTER_SCRIPT = [
-  'inner=$1; r=$2; u=$3; g=$4; p=$5; d=$6; h=$7; shift 7',
-  '"$h" --user --map-root-user --net --mount --propagation slave -- sh -c "$inner" up-whx-link-ns "$r" "$u" "$g" "$h" "$@" &',
+  'inner=$1; r=$2; u=$3; g=$4; p=$5; d=$6; h=$7; gw=$8; shift 8',
+  '"$h" --user --map-root-user --net --mount --propagation slave -- sh -c "$inner" up-whx-link-ns "$r" "$u" "$g" "$h" "$gw" "$@" &',
   'ns=$!; host=$(readlink /proc/self/ns/net); i=0',
   'while [ "$(readlink /proc/$ns/ns/net 2>/dev/null)" = "$host" ] && [ "$i" -lt 100 ]; do sleep 0.02; i=$((i+1)); done',
   'if [ "$(readlink /proc/$ns/ns/net 2>/dev/null)" = "$host" ]; then kill -KILL "$ns" 2>/dev/null; exit 96; fi',
@@ -39,9 +39,20 @@ export const UP_LINK_OUTER_SCRIPT = [
 // change that would fail the first page load), points DNS at pasta, then drops
 // back to the real uid/gid because Chromium refuses to run as root with its
 // sandbox enabled.
+//
+// pasta assigns the namespace address with IFA_F_NOPREFIXROUTE (mirroring the
+// host, which also carries no visible connected route for that gateway under
+// NetworkManager) and then tries to add the default route itself. Without a
+// matching on-link route, that route add fails with ENETUNREACH, and pasta
+// swallows the failure outside --debug. The loop below repairs it from
+// inside the namespace with an explicit onlink route to the same gateway the
+// host was using, until pasta's own route appears or the repair succeeds.
 export const UP_LINK_ENTER_SCRIPT = [
-  'r=$1; u=$2; g=$3; h=$4; shift 4; i=0',
-  'while [ -z "$(ip route show default 2>/dev/null)" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i+1)); done',
+  'r=$1; u=$2; g=$3; h=$4; gw=$5; shift 5; i=0',
+  'while [ -z "$(ip route show default 2>/dev/null)" ] && [ "$i" -lt 100 ]; do',
+  '  if [ -n "$gw" ]; then iface=$(ip -4 -o addr show scope global | awk \'{print $2; exit}\'); [ -n "$iface" ] && ip route add default via "$gw" dev "$iface" onlink 2>/dev/null; fi',
+  '  sleep 0.05; i=$((i+1))',
+  'done',
   '[ -n "$(ip route show default 2>/dev/null)" ] || exit 95',
   'i=0; while [ -n "$(ip -6 addr show tentative 2>/dev/null)" ] && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i+1)); done',
   'mount --bind "$r" "$(readlink -f /etc/resolv.conf)" || exit 97',
@@ -71,11 +82,28 @@ export function upLinkPorts(env = process.env) {
   return [...ports].sort((a, b) => a - b)
 }
 
-export function upLinkCommand({ command, args = [], ports = [], resolvPath, uid, gid, unshareCommand = 'unshare' }) {
+export function upLinkCommand({ command, args = [], ports = [], resolvPath, uid, gid, unshareCommand = 'unshare', gateway = '' }) {
   return {
     command: 'sh',
-    args: ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, resolvPath, String(uid), String(gid), ports.join(','), UP_LINK_DNS, unshareCommand, command, ...args],
+    args: ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, resolvPath, String(uid), String(gid), ports.join(','), UP_LINK_DNS, unshareCommand, gateway, command, ...args],
   }
+}
+
+// Mirrors pasta's own default-interface heuristic (lowest-metric default
+// route) so the onlink repair route in UP_LINK_ENTER_SCRIPT targets the same
+// gateway pasta assigned to the namespace.
+function defaultGateway(env) {
+  try {
+    const out = execFileSync('ip', ['-4', 'route', 'show', 'default'], { env, stdio: ['ignore', 'pipe', 'ignore'] }).toString()
+    let best = null
+    for (const line of out.split('\n')) {
+      const via = line.match(/via (\S+)/)
+      if (!via) continue
+      const metric = Number(line.match(/metric (\d+)/)?.[1] ?? 0)
+      if (!best || metric < best.metric) best = { gateway: via[1], metric }
+    }
+    return best?.gateway || ''
+  } catch { return '' }
 }
 
 function onPath(tool, env) {
@@ -101,7 +129,7 @@ function executable(command, env) {
 }
 
 function defaultPreflight(plan, env) {
-  const probe = upLinkCommand({ command: 'true', ports: plan.ports, resolvPath: plan.resolvPath, uid: plan.uid, gid: plan.gid, unshareCommand: plan.unshareCommand })
+  const probe = upLinkCommand({ command: 'true', ports: plan.ports, resolvPath: plan.resolvPath, uid: plan.uid, gid: plan.gid, unshareCommand: plan.unshareCommand, gateway: plan.gateway })
   try {
     execFileSync(probe.command, probe.args, { env, stdio: ['ignore', 'ignore', 'pipe'], timeout: PREFLIGHT_TIMEOUT_MS })
   } catch (error) {
@@ -130,7 +158,8 @@ export function prepareUpLink(env, { runtimeDir, platform = process.platform, pr
   mkdirSync(runtimeDir, { recursive: true })
   const resolvPath = path.join(runtimeDir, 'up-whx-link.resolv.conf')
   writeFileSync(resolvPath, `nameserver ${UP_LINK_DNS}\noptions edns0 trust-ad\n`, { mode: 0o644 })
-  const plan = { active: true, mode, reason: '', ports, resolvPath, uid, gid, unshareCommand }
+  const gateway = defaultGateway(env)
+  const plan = { active: true, mode, reason: '', ports, resolvPath, uid, gid, unshareCommand, gateway }
   // The launch often follows a stack (re)start whose host network is still
   // settling, so one transient failure is retried before giving up.
   for (let attempt = 1; attempt <= PREFLIGHT_ATTEMPTS; attempt++) {

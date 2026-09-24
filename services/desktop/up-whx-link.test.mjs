@@ -36,12 +36,24 @@ test('only loopback Desktop endpoints are forwarded, once each', () => {
 })
 
 test('the launch chain uses the dedicated unshare helper for both namespace layers', () => {
-  const launch = upLinkCommand({ command: '/opt/electron', args: ['.', '--ozone-platform=x11'], ports: [5173, 6969], resolvPath: '/run/r.conf', uid: 1000, gid: 1000, unshareCommand: UP_LINK_UNSHARE })
+  const launch = upLinkCommand({ command: '/opt/electron', args: ['.', '--ozone-platform=x11'], ports: [5173, 6969], resolvPath: '/run/r.conf', uid: 1000, gid: 1000, unshareCommand: UP_LINK_UNSHARE, gateway: '192.168.1.1' })
   assert.equal(launch.command, 'sh')
-  assert.deepEqual(launch.args, ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, '/run/r.conf', '1000', '1000', '5173,6969', UP_LINK_DNS, UP_LINK_UNSHARE, '/opt/electron', '.', '--ozone-platform=x11'])
-  for (const script of [UP_LINK_OUTER_SCRIPT, UP_LINK_ENTER_SCRIPT]) assert.doesNotMatch(script, /\/opt\/electron|6969|1000|169\.254/)
+  assert.deepEqual(launch.args, ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, '/run/r.conf', '1000', '1000', '5173,6969', UP_LINK_DNS, UP_LINK_UNSHARE, '192.168.1.1', '/opt/electron', '.', '--ozone-platform=x11'])
+  for (const script of [UP_LINK_OUTER_SCRIPT, UP_LINK_ENTER_SCRIPT]) assert.doesNotMatch(script, /\/opt\/electron|6969|1000|169\.254|192\.168\.1\.1/)
   assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" --user --map-root-user/)
   assert.match(UP_LINK_ENTER_SCRIPT, /"\$h" --user --map-user="\$u"/)
+})
+
+test('a missing on-link route to the gateway is repaired from inside the namespace', () => {
+  // pasta's own route copy can fail silently (ENETUNREACH) when the host
+  // gateway has no visible connected route (e.g. NetworkManager noprefixroute
+  // addresses). The namespace must repair it itself, onlink, using the same
+  // gateway the host was using — never by mutating host routing.
+  assert.match(UP_LINK_ENTER_SCRIPT, /ip route add default via "\$gw" dev "\$iface" onlink/)
+  const wait = UP_LINK_ENTER_SCRIPT.indexOf('while [ -z "$(ip route show default')
+  const repair = UP_LINK_ENTER_SCRIPT.indexOf('ip route add default via')
+  const check = UP_LINK_ENTER_SCRIPT.indexOf('|| exit 95')
+  assert.ok(wait > -1 && wait < repair && repair < check, 'the repair runs inside the wait loop, before the hard failure')
 })
 
 test('Electron keeps the host PID namespace and process group', () => {
