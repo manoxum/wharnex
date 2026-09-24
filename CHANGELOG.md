@@ -28,7 +28,8 @@ _(reserved — no entries yet)_
 
 ### Chat 45c978a2-3e83-4f70-aaac-8e99cb010787 (2026-09-24)
 
-_(reserved — no entries yet)_
+- feat(git): add preflight per-file diff review before commit, push, pull and merge actions.
+- feat(git): always open a JetBrains-inspired three-way conflict workbench, with GPT Only kept informational and manual/hybrid strategies editable.
 
 
 ### Chat 9bad6c3f-3e14-4eb3-b9ae-200469082173 (2026-09-24)

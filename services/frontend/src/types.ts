@@ -995,6 +995,7 @@ export type GitConflictContext = {
 }
 
 export type GitFileDiff = { path: string; diff: string; truncated?: boolean }
+export type GitOperationPreview = { operation: 'commit' | 'push' | 'pull' | 'merge'; repository: string; from_label: string; to_label: string; from_sha?: string; to_sha?: string; diff: string; truncated?: boolean }
 
 export type GitUnpushedOverview = {
   branch: string

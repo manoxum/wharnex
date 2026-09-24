@@ -4,7 +4,7 @@ import type { ChatChangeFile } from '../types'
 import { Icon } from './Icon'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
 
-export function GitDiffReview({ sessionId, diff, files: providedFiles, emptyText }: { sessionId: string; diff?: string; files?: ChatChangeFile[]; emptyText: string }) {
+export function GitDiffReview({ sessionId, diff, files: providedFiles, emptyText, fragmentOnly = false }: { sessionId: string; diff?: string; files?: ChatChangeFile[]; emptyText: string; fragmentOnly?: boolean }) {
   const parsedFiles = useMemo(() => splitPatchByFile(diff || ''), [diff])
   const files = providedFiles ?? parsedFiles
   const [selectedPath, setSelectedPath] = useState('')
@@ -28,7 +28,7 @@ export function GitDiffReview({ sessionId, diff, files: providedFiles, emptyText
     </aside>}
     <section className="git-diff-review-main">
       <header className="git-diff-review-file-heading"><strong>{selected.path}</strong><span><b>+{selected.additions}</b><i>−{selected.deletions}</i></span></header>
-      <ChangeDiffEditor sessionId={sessionId} file={selected}/>
+      <ChangeDiffEditor sessionId={sessionId} file={selected} fragmentOnly={fragmentOnly}/>
     </section>
   </div>
 }
