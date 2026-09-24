@@ -333,9 +333,12 @@ func TestBuildManualPromptCarriesEffortLevelAndCostBenefitContract(t *testing.T)
 	})
 	for _, want := range []string{
 		"EFFORT LEVEL: extra_high",
-		"low: one resolution attempt only",
-		"medium: up to 3 total automated resolution attempts",
-		"extra_high: up to 10 total automated resolution attempts before terminal success",
+		"low: up to 3 total automated resolution attempts",
+		"medium: up to 8 total automated resolution attempts",
+		"high: up to 15 total automated resolution attempts",
+		"extra_high: up to 20 total automated resolution attempts before terminal success",
+		"max: up to 30 total automated resolution attempts before terminal success",
+		"ultra: up to 50 total automated resolution attempts before terminal success",
 		"successful host integration is the terminal boundary of the Main Request",
 		"Never propose or expect a post-success continuous-improvement round",
 		"Never consume attempts merely because they are available",

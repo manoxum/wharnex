@@ -397,7 +397,7 @@ func (s *Service) UpdateProjectConfig(sessionID string, cfg projectconfig.Config
 
 func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string, executionMode domain.ExecutionMode, automationMode domain.AutomationMode, requestedEffort ...domain.EffortLevel) (domain.Session, error) {
 	id := ids.New("ses")
-	effortLevel := domain.EffortLevelMedium
+	effortLevel := domain.EffortLevelHigh
 	if len(requestedEffort) > 0 && requestedEffort[0] != "" {
 		effortLevel = requestedEffort[0]
 	}

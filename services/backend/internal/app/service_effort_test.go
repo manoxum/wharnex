@@ -11,12 +11,12 @@ func TestEffortPoliciesExposeRequestedBudgets(t *testing.T) {
 		level domain.EffortLevel
 		max   int
 	}{
-		{domain.EffortLevelLow, 1},
-		{domain.EffortLevelMedium, 3},
-		{domain.EffortLevelHigh, 6},
-		{domain.EffortLevelExtraHigh, 10},
-		{domain.EffortLevelMax, 15},
-		{domain.EffortLevelUltra, 30},
+		{domain.EffortLevelLow, 3},
+		{domain.EffortLevelMedium, 8},
+		{domain.EffortLevelHigh, 15},
+		{domain.EffortLevelExtraHigh, 20},
+		{domain.EffortLevelMax, 30},
+		{domain.EffortLevelUltra, 50},
 		{domain.EffortLevelLoop, 0},
 	}
 	for _, test := range tests {
@@ -27,10 +27,14 @@ func TestEffortPoliciesExposeRequestedBudgets(t *testing.T) {
 	}
 }
 
-func TestLowHasNoAutomaticCorrectionAfterInitialAttempt(t *testing.T) {
-	item := domain.Session{EffortLevel: domain.EffortLevelLow, AutomationMode: domain.AutomationModeAuto, AutomationAttempt: 1}
+func TestLowAllowsThreeTotalAutonomousAttempts(t *testing.T) {
+	item := domain.Session{EffortLevel: domain.EffortLevelLow, AutomationMode: domain.AutomationModeAuto, AutomationAttempt: 2}
+	if !effortAttemptAvailable(item) {
+		t.Fatal("low must allow the third autonomous attempt")
+	}
+	item.AutomationAttempt = 3
 	if effortAttemptAvailable(item) {
-		t.Fatal("low must stop after the initial autonomous attempt")
+		t.Fatal("low must stop after three autonomous attempts")
 	}
 }
 
