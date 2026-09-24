@@ -59,4 +59,14 @@ describe('chat binding recovery', () => {
     await screen.findByText(/não é uma conversa válida/)
     expect(remote).not.toHaveBeenCalled()
   })
+
+  it('shows the current binding without running recovery when the chat is already linked', () => {
+    const recovery = vi.spyOn(api, 'workspaceChatBindingRecovery')
+    render(<ChatBindingRecovery chatId="chat-linked" linkedUrl="https://chatgpt.com/c/current" onBind={vi.fn()} />)
+    expect(screen.getByText('Conversa vinculada')).toBeTruthy()
+    expect(screen.getByText('https://chatgpt.com/c/current')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Recuperar vínculo automático' })).toBeNull()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(recovery).not.toHaveBeenCalled()
+  })
 })
