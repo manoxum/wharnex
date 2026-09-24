@@ -88,11 +88,11 @@ describe('App policy-repair recovery', () => {
     expect(source).not.toMatch(/const original = \[\.\.\.items\]\.reverse\(\)/)
   })
 
-  it('resolves a GPT-only Git conflict in a dedicated chat instead of the detecting one', () => {
-    const drawer = readFileSync(resolve(process.cwd(), 'src/components/GitDrawer.tsx'), 'utf8')
-    const gptOnly = drawer.slice(drawer.indexOf("if (strategy === 'gpt_only')"), drawer.indexOf("if (strategy === 'user_only')"))
-    expect(gptOnly.indexOf('onOpenGitConflictChat(')).toBeGreaterThan(-1)
-    expect(gptOnly.indexOf('onOpenGitConflictChat(')).toBeLessThan(gptOnly.indexOf('api.delegateConflictToGPT'))
+  it('shows GPT-only Git conflicts before continuing in the dedicated chat', () => {
+    const conflictFlow = readFileSync(resolve(process.cwd(), 'src/lib/useGitConflictReview.ts'), 'utf8')
+    expect(conflictFlow).toContain('setConflictReview')
+    expect(conflictFlow).toContain("autoGPT: strategy === 'gpt_only'")
+    expect(conflictFlow).toContain('onOpenGitConflictChat(review.session)')
     const open = source.slice(source.indexOf('async function openGitConflictChat('), source.indexOf('async function submitWorkflowPrompt('))
     const created = open.indexOf('api.createSession(')
     const handoff = open.indexOf('api.handoffGitConflict(source.id, created.id)')

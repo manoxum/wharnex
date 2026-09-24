@@ -21,5 +21,7 @@ describe('manual conflict resolution surface', () => {
     expect(resolver).toContain('Delegar restantes ao GPT')
     expect(resolver).toContain('Marcar edição como resolvida')
     expect(resolver).toContain('api.delegateConflictToGPT')
+    expect(resolver).toContain("strategy === 'gpt_only'")
+    expect(resolver).toContain('GPT Only · informativo')
   })
 })

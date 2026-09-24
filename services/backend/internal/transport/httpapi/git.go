@@ -28,6 +28,7 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/git/merge-candidates", a.gitMergeCandidates)
 	mux.HandleFunc("GET /api/sessions/{id}/git/unpushed", a.gitUnpushed)
 	mux.HandleFunc("GET /api/sessions/{id}/git/unpushed/{sha}", a.gitUnpushedCommit)
+	mux.HandleFunc("POST /api/sessions/{id}/git/preview", a.gitPreview)
 	mux.HandleFunc("PUT /api/sessions/{id}/git/commit-mode", a.setGitCommitMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/git/conflict-strategy", a.setGitConflictStrategy)
 	mux.HandleFunc("PUT /api/sessions/{id}/git/author-settings", a.setGitAuthorSettings)
@@ -48,7 +49,6 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/git/remote-merge", a.gitRemoteMerge)
 	mux.HandleFunc("POST /api/sessions/{id}/git/conflict/handoff", a.gitConflictHandoff)
 }
-
 func (a *API) gitOverview(w http.ResponseWriter, r *http.Request) {
 	overview, err := a.service.GitOverview(app.WithGitRepository(r.Context(), r.URL.Query().Get("repository")), r.PathValue("id"))
 	if err != nil {

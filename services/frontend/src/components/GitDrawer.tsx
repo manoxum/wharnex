@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { GitAuthorSettings, GitBranch, GitCommitDetail, GitCommitMode, GitConflictStrategy, GitFileDiff, GitOverview, GitPendingCommit, Session } from '../types'
+import type { GitAuthorSettings, GitBranch, GitCommitDetail, GitCommitMode, GitConflictStrategy, GitFileDiff, GitOperationPreview, GitOverview, GitPendingCommit, Session } from '../types'
 import { api, APIError } from '../lib/api'
 import { buildGitGraphRows, type GitGraphRow } from '../lib/gitGraph'
 import { announceGitChanged, subscribeGitLiveSync } from '../lib/gitLiveSync'
@@ -10,12 +10,15 @@ import { InternalWindow } from './InternalWindow'
 import { ContentSkeleton } from './Skeleton'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
-import { GitOperationModal, type GitOperation, type GitOperationTarget } from './GitOperationModal'
+import { GitOperationModal, type GitOperationTarget } from './GitOperationModal'
 import { GitContributorsSection } from './GitContributorsSection'
 import { GitRepositorySummary } from './GitRepositorySummary'
 import { GitProjectWorktree } from './GitProjectWorktree'
+import { ConflictResolverModal } from './ConflictResolverModal'
 import { currentBranch, loadGitProjectOverviews, repositoryLabel, repositoryRemote, type GitRepositoryOverviewEntry } from '../lib/gitProjectOverview'
 import { splitWorktreeKey, worktreeKey } from '../lib/gitWorktreeKey'
+import { useGitOperationFlow } from '../lib/useGitOperationFlow'
+import { useGitConflictReview } from '../lib/useGitConflictReview'
 
 type GitTab = 'changes' | 'history' | 'contributors' | 'branches' | 'settings'
 type GitChangesTab = 'working' | 'pending'
@@ -42,7 +45,6 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   const [remoteMergeTarget, setRemoteMergeTarget] = useState('')
   const [remoteMergeSources, setRemoteMergeSources] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<GitTab>('changes')
-  const [operation, setOperation] = useState<GitOperation | null>(null)
   const [activeChangesTab, setActiveChangesTab] = useState<GitChangesTab>('working')
   const [selectedWorktree, setSelectedWorktree] = useState<Set<string>>(new Set())
   const [worktreeCommitMessage, setWorktreeCommitMessage] = useState('')
@@ -104,6 +106,12 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     }
   }), [repositoryEntries])
 
+  const { operation, runGitOperation, reviewGitOperation, selectRepositories, previewsForRepositories, closeOperation } = useGitOperationFlow({
+    sessionId: session.id, onSession, loadOverview, report, repositoryTargets, availableEntries, setWorking, setNotice, setNoticeError,
+  })
+  const { conflictReview, conflictMessage, closeConflictReview } = useGitConflictReview({
+    session, strategy: overview?.conflict_strategy, onSession, onResolveConflictWithGPT, onOpenGitConflictChat, report,
+  })
   async function runForRepositories(targets: string[], action: (entry: GitRepositoryOverviewEntry) => Promise<string>) {
     const successes: string[] = []
     const failures: string[] = []
@@ -135,42 +143,8 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     }
   }
 
-  async function runGitOperation(title: string, detail: string, action: () => Promise<string>, syncSession = false) {
-    let phase: 'running' | 'refreshing' = 'running'
-    let actionMessage = ''
-    setWorking(true)
-    setNotice('')
-    setNoticeError(false)
-    setOperation({ title, detail, phase })
-    try {
-      actionMessage = await action()
-      phase = 'refreshing'
-      setOperation({ title, detail, phase })
-      await loadOverview()
-      announceGitChanged(session.id)
-      if (syncSession && onSession) onSession(await api.getSession(session.id))
-      setNotice(actionMessage)
-      setOperation({ title, detail, phase: 'success', message: actionMessage })
-      return true
-    } catch (error) {
-      const cause = error instanceof APIError ? error.message : error instanceof Error ? error.message : String(error)
-      const message = phase === 'refreshing' && actionMessage ? `${actionMessage} Não foi possível atualizar o painel: ${cause}` : cause
-      report(error)
-      setOperation({ title, detail, phase: 'error', message, failedPhase: phase })
-      return false
-    } finally {
-      setWorking(false)
-    }
-  }
-
-  function selectRepositories(title: string, detail: string, action: (targets: string[]) => Promise<string>, syncSession = false, allowedTargets = repositoryTargets) {
-    const eligible = allowedTargets.filter((target) => target.available !== false)
-    if (eligible.length <= 1) { void runGitOperation(title, detail, () => action(eligible.map((target) => target.path)), syncSession); return }
-    setOperation({ title, detail, phase: 'selecting', targets: allowedTargets, onConfirmTargets: (targets) => { void runGitOperation(title, detail, () => action(targets), syncSession) } })
-  }
 
   const disabled = busy || working || loading
-
   async function copyGitText(value: string, success: string) {
     try {
       await navigator.clipboard.writeText(value)
@@ -181,22 +155,6 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     }
   }
 
-  async function conflictMessage(conflictID: string | undefined, context: string) {
-    if (!conflictID) return context
-    const strategy = overview?.conflict_strategy || 'user_decide'
-    if (strategy === 'gpt_only') {
-      if (onOpenGitConflictChat) {
-        await onOpenGitConflictChat(await api.getSession(session.id))
-        return `${context} A resolução foi aberta num chat dedicado com o GPT.`
-      }
-      const updated = await api.delegateConflictToGPT(session.id, [], '')
-      onSession?.(updated)
-      await onResolveConflictWithGPT?.(updated)
-      return `${context} O conflito foi delegado automaticamente ao GPT.`
-    }
-    if (strategy === 'user_only') return `${context} A estratégia deste projeto exige resolução manual pelo utilizador.`
-    return `${context} Escolha no chat se pretende resolver manualmente ou delegar ao GPT.`
-  }
 
   function toggle(id: string) {
     setSelected((currentSelection) => {
@@ -208,9 +166,10 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   }
 
   async function commit(ids: string[]) {
-    await runGitOperation(
-      ids.length ? 'A criar commits selecionados' : 'A criar commits',
-      ids.length ? `${ids.length} registo(s) selecionado(s) serão adicionados ao histórico local.` : 'A fila pendente será registada no histórico local.',
+    const title = ids.length ? 'A criar commits selecionados' : 'A criar commits'
+    const detail = ids.length ? `${ids.length} registo(s) selecionado(s) serão adicionados ao histórico local.` : 'A fila pendente será registada no histórico local.'
+    await reviewGitOperation(title, detail,
+      async () => [await api.gitPreview(session.id, { operation: 'commit', pending_ids: ids })],
       async () => {
         const result = await api.commitGitPending(session.id, ids)
         setSelected(new Set())
@@ -243,6 +202,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
       },
       false,
       targets,
+      (paths) => previewsForRepositories(paths, async (entry) => api.gitPreview(session.id, { operation: 'commit', repository: entry.repository.path, paths: grouped.get(entry.repository.path) || [] })),
     )
   }
 
@@ -320,12 +280,23 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
                   }),
                   true,
                   target,
+                  (paths) => previewsForRepositories(paths, async (selectedEntry) => {
+                    const selectedBranch = currentBranch(selectedEntry.overview)
+                    const selectedRemote = repositoryRemote(selectedEntry, remote)
+                    if (!selectedRemote || !selectedBranch) throw new Error('Este repositório não tem branch/remoto disponível para push.')
+                    return api.gitPreview(session.id, { operation: 'push', repository: selectedEntry.repository.path, remote: selectedRemote, branch: selectedBranch.name })
+                  }),
                 )
               }}
               onSelectedPush={async (commitSHAs) => {
-                await runGitOperation(
+                const branch = currentBranch(entry.overview)
+                if (!branch?.upstream) throw new Error('Este repositório não tem upstream disponível para push seletivo.')
+                const [remote, ...branchParts] = branch.upstream.split('/')
+                const remoteBranch = branchParts.join('/')
+                await reviewGitOperation(
                   'A publicar commits selecionados',
                   `A enviar ${commitSHAs.length} commit(s) para o upstream de ${repositoryLabel(entry)}.`,
+                  async () => [await api.gitPreview(session.id, { operation: 'push', repository: entry.repository.path, remote, branch: remoteBranch, commit_shas: commitSHAs })],
                   async () => {
                     const result = await api.gitPushSelected(session.id, commitSHAs, entry.repository.path)
                     return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
@@ -358,6 +329,18 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
               return message
             },
             true,
+            repositoryTargets,
+            async (paths) => {
+              const previews: GitOperationPreview[] = []
+              for (const path of paths) {
+                const entry = availableEntries.find((item) => item.repository.path === path)
+                if (!entry?.overview) continue
+                const selectedRefs = new Set([remoteMergeTarget, ...remoteMergeSources])
+                const remotes = entry.overview.branches.filter((branch) => selectedRefs.has(branch.name) && branch.remote).map((branch) => branch.remote!)
+                for (const source of remoteMergeSources) previews.push(await api.gitPreview(session.id, { operation: 'merge', repository: entry.repository.path, base_ref: remoteMergeTarget, ref: source, refresh_remotes: remotes }))
+              }
+              return previews
+            },
           )}
           onMerge={() => selectRepositories(
             'A integrar branch',
@@ -371,6 +354,8 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
               return message
             },
             true,
+            repositoryTargets,
+            (paths) => previewsForRepositories(paths, (entry) => api.gitPreview(session.id, { operation: 'merge', repository: entry.repository.path, ref: mergeRef })),
           )}
           onFetch={(remote) => selectRepositories(
             'A procurar alterações na origem',
@@ -393,6 +378,13 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
               return result.conflict_id ? conflictMessage(result.conflict_id, `Pull de ${result.ref} encontrou conflito.`) : (result.detail || `Pull de ${result.ref}: ${result.outcome}.`)
             }),
             true,
+            repositoryTargets,
+            (paths) => previewsForRepositories(paths, async (entry) => {
+              const selectedBranch = currentBranch(entry.overview)
+              const selectedRemote = repositoryRemote(entry, remote)
+              if (!selectedBranch || !selectedRemote) throw new Error('Este repositório não tem branch/remoto disponível para pull.')
+              return api.gitPreview(session.id, { operation: 'pull', repository: entry.repository.path, remote: selectedRemote, branch: selectedBranch.name })
+            }),
           )}
           onSwitch={(branch) => selectRepositories(
             'A alternar branch',
@@ -433,6 +425,13 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
               return result.detail || pushMessage(result.outcome, result.integrated, result.conflict_id)
             }),
             true,
+            repositoryTargets,
+            (paths) => previewsForRepositories(paths, async (entry) => {
+              const selectedBranch = currentBranch(entry.overview)
+              const selectedRemote = repositoryRemote(entry, remote)
+              if (!selectedBranch || !selectedRemote) throw new Error('Este repositório não tem branch/remoto disponível para push.')
+              return api.gitPreview(session.id, { operation: 'push', repository: entry.repository.path, remote: selectedRemote, branch: selectedBranch.name })
+            }),
           )}
         />}
         {activeTab === 'settings' && <>
@@ -457,7 +456,8 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
 
     {openDiff && <DiffModal sessionId={session.id} record={openDiff} onClose={() => setOpenDiff(null)} />}
     {worktreeDiff && <WorktreeDiffModal sessionId={session.id} file={worktreeDiff} onClose={() => setWorktreeDiff(null)}/>}
-    {operation && <GitOperationModal operation={operation} onClose={() => setOperation(null)}/>}
+    {operation && <GitOperationModal operation={operation} sessionId={session.id} onClose={closeOperation}/>}
+    {conflictReview && <ConflictResolverModal session={conflictReview.session} initialWorkbench={conflictReview.workbench} strategy={conflictReview.strategy} busy={busy || working} onClose={() => void closeConflictReview()} onSession={(updated) => onSession?.(updated)} onDelegateToGPT={async (updated) => { await onResolveConflictWithGPT?.(updated) }}/>}
   </section>
 }
 
