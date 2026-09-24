@@ -82,6 +82,9 @@ export function upLinkPorts(env = process.env) {
   return [...ports].sort((a, b) => a - b)
 }
 
+// Keep helper and gateway as separate positional inputs across both namespace
+// layers: the helper owns namespace entry while the gateway is consumed by the
+// in-namespace on-link route repair. Dropping either silently regresses startup.
 export function upLinkCommand({ command, args = [], ports = [], resolvPath, uid, gid, unshareCommand = 'unshare', gateway = '' }) {
   return {
     command: 'sh',

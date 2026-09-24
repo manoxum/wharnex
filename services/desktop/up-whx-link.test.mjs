@@ -35,12 +35,14 @@ test('only loopback Desktop endpoints are forwarded, once each', () => {
   assert.deepEqual(upLinkPorts({ WHARNESS_API_URL: 'http://10.0.0.5:8888', WHARNESS_FRONTEND_URL: 'not a url' }), [])
 })
 
-test('the launch chain uses the dedicated unshare helper for both namespace layers', () => {
+test('the launch chain keeps the dedicated helper and gateway positional across both namespace layers', () => {
   const launch = upLinkCommand({ command: '/opt/electron', args: ['.', '--ozone-platform=x11'], ports: [5173, 6969], resolvPath: '/run/r.conf', uid: 1000, gid: 1000, unshareCommand: UP_LINK_UNSHARE, gateway: '192.168.1.1' })
   assert.equal(launch.command, 'sh')
   assert.deepEqual(launch.args, ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, '/run/r.conf', '1000', '1000', '5173,6969', UP_LINK_DNS, UP_LINK_UNSHARE, '192.168.1.1', '/opt/electron', '.', '--ozone-platform=x11'])
   for (const script of [UP_LINK_OUTER_SCRIPT, UP_LINK_ENTER_SCRIPT]) assert.doesNotMatch(script, /\/opt\/electron|6969|1000|169\.254|192\.168\.1\.1/)
   assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" --user --map-root-user/)
+  assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" "\$gw" "\$@"/)
+  assert.match(UP_LINK_ENTER_SCRIPT, /r=\$1; u=\$2; g=\$3; h=\$4; gw=\$5; shift 5/)
   assert.match(UP_LINK_ENTER_SCRIPT, /"\$h" --user --map-user="\$u"/)
 })
 
