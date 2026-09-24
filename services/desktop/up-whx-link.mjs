@@ -11,6 +11,7 @@ import path from 'node:path'
 export const UP_LINK_DNS = '169.254.1.1'
 const REQUIRED_TOOLS = ['pasta', 'unshare', 'ip', 'mount']
 const PREFLIGHT_TIMEOUT_MS = 15_000
+const PREFLIGHT_ATTEMPTS = 2
 
 // The namespaces are created by `unshare` rather than by pasta itself, because
 // pasta would also start a new PID namespace in which Electron becomes PID 1:
@@ -113,12 +114,12 @@ export function prepareUpLink(env, { runtimeDir, platform = process.platform, pr
   const plan = { active: true, mode, reason: '', ports, resolvPath, uid, gid }
   // The launch often follows a stack (re)start whose host network is still
   // settling, so one transient failure is retried before giving up.
-  for (let attempt = 1; ; attempt++) {
+  for (let attempt = 1; attempt <= PREFLIGHT_ATTEMPTS; attempt++) {
     try {
       preflight(plan, env)
       break
     } catch (error) {
-      if (attempt < 2) continue
+      if (attempt < PREFLIGHT_ATTEMPTS) continue
       return inactive(`preflight failed: ${String(error?.message || error).split('\n')[0]}`)
     }
   }
