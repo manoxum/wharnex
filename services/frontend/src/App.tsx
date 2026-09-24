@@ -2,6 +2,7 @@ import { type ComponentProps, type PointerEvent as ReactPointerEvent, useCallbac
 import { api, APIError } from './lib/api'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import { isAutomaticAutomationMode, isAutoApproveAutomationMode } from './lib/automationMode'
+import { knowledgeConsolidationPending, requestChainActive } from './lib/requestActivity'
 import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, EvolutionKnowledgeRef, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
 import type { ReasoningEffort } from './types'
 import { Bootstrap } from './components/Bootstrap'
@@ -3244,13 +3245,30 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	}
 
   async function consolidateProjectKnowledge() {
-    if (!session) return
-    if (busy || requestChainActive(session)) throw new Error('Conclua o pedido ativo antes de consolidar o conhecimento do projeto.')
-    const targetSession = session
-    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!session || busy) return
+    if (knowledgeConsolidationPending(session)) throw new Error('A consolidação do conhecimento já está em curso neste chat.')
+    let targetSession = session
+    let targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
     setBusy(true); setError(undefined)
     try {
+      if (requestChainActive(session)) {
+        // Knowledge maintenance owns request identity too, so isolate it instead
+        // of overwriting the active request chain on the current session.
+        const chatId = crypto.randomUUID()
+        const created = await api.createSession(session.project_path, executionMode, automationMode, chatId, effortLevel)
+        const maintenanceChat = newWorkspaceChat(created.id, 'Conhecimento · consolidação', chatId)
+        await api.saveWorkspaceChat(durableWorkspaceChat(created.project_path, maintenanceChat))
+        hideChatGPTSurfaces(targetChat)
+        targetSession = created
+        targetChat = maintenanceChat
+        persistChats(created.project_path, [maintenanceChat, ...chats])
+        transcriptReadyRef.current.add(maintenanceChat.id)
+        sourceRef.current?.close(); sourceRef.current = null
+        activeChatIdRef.current = maintenanceChat.id; setActiveChatId(maintenanceChat.id); setSession(created)
+        setItems([welcomeItem(created)]); setEvents([]); setManualPrompt(''); setChatTransportMode(created.chat_transport_mode || 'scraper'); setMode('agent')
+        connectEvents(created.id, created.project_path, maintenanceChat.id)
+      }
       const result = await api.consolidateProjectKnowledge(targetSession.id)
       acceptSessionForChat(targetChat, result.session)
       if (activeChatIdRef.current === targetChat.id) setManualPrompt(result.session.last_manual_prompt || '')
@@ -3991,12 +4009,6 @@ function contextArtifact(session: Session) {
 
 function sessionContextSHA(session: Session) {
   return session.context.workspace_sha256 || session.context.manifest.sha256
-}
-
-function requestChainActive(session: Session) {
-  if (session.planner_in_flight || session.pending_manual_request_ids?.length) return true
-  if (session.self_evolution_activation === 'restart_scheduled') return true
-  return new Set(['awaiting_plan', 'awaiting_plan_approval', 'workflow_pending', 'workflow_planned', 'workflow_observed', 'debug_approval_required', 'repair_pending', 'planned', 'baseline_update_pending', 'conflict_resolution_pending', 'restart_scheduled']).has(session.state)
 }
 
 function buildAppliedChangeSummary(session: Session) {

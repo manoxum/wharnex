@@ -50,6 +50,8 @@ An empty consolidation result is refused outright. Reorganizing must never becom
 
 Consolidation reads the durable catalog alone, never a staged candidate: promoting an in-flight Main Request's unproven learning would bypass the terminal boundary that exists to gate exactly that.
 
+The maintenance request is chat-visible but must not steal identity from unrelated work. If the operator invokes consolidation from a session whose Main Request is still active, the Desktop creates and durably binds a same-project maintenance chat/session first, switches the visible work there, and only then calls the consolidation API. This preserves the active session's `LastRequestID`, pending transport and repair/execution lineage while keeping the maintenance prompt cancellable and retryable in a normal workspace chat.
+
 ### Terminal reporting
 
 The planner reports its proposed learning in cumulative `summary.md`, but only

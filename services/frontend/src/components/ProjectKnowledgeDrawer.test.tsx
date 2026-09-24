@@ -38,4 +38,20 @@ describe('ProjectKnowledgeDrawer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Consolidar com GPT/i }))
     expect(onConsolidate).toHaveBeenCalledTimes(1)
   })
+
+  it('blocks duplicate consolidation while the maintenance request is pending', async () => {
+    vi.spyOn(api, 'projectKnowledgeCatalog').mockResolvedValue({ catalog })
+    const pendingSession = {
+      ...session,
+      last_request_id: 'req-knowledge',
+      pending_manual_request_ids: ['req-knowledge'],
+      request_lineages: {
+        'req-knowledge': { request_id: 'req-knowledge', root_request_id: 'req-knowledge', kind: 'knowledge_consolidation' as const, created_at: '2026-09-07T10:11:00.000Z' },
+      },
+    }
+    render(<ProjectKnowledgeDrawer session={pendingSession} onConsolidate={vi.fn(async () => undefined)} onClose={vi.fn()}/>)
+
+    const button = await screen.findByRole('button', { name: /Consolidação em curso/i })
+    expect(button).toHaveProperty('disabled', true)
+  })
 })
