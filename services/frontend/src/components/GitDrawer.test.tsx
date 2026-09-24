@@ -26,6 +26,7 @@ vi.mock('../lib/api', async () => {
       commitGitWorktree: vi.fn().mockResolvedValue({ commit_sha: 'abcdef123456', paths: ['app.go'] }),
       discardGitPending: vi.fn().mockResolvedValue({ removed: 1 }),
       gitPush: vi.fn().mockResolvedValue({ outcome: 'pushed', remote: 'origin', branch: 'main' }),
+      gitPreview: vi.fn(),
       gitPushSelected: vi.fn().mockResolvedValue({ outcome: 'pushed', remote: 'origin', branch: 'main' }),
       gitFetch: vi.fn().mockResolvedValue({ outcome: 'fetched', remote: 'origin' }),
       gitPull: vi.fn().mockResolvedValue({ outcome: 'merged', remote: 'origin', branch: 'main', ref: 'origin/main' }),
@@ -88,12 +89,19 @@ function openChangesTab(name: 'Alterações pendentes' | 'Commits pendentes') {
   fireEvent.click(screen.getByRole('tab', { name: new RegExp(name) }))
 }
 
+async function confirmGitReview() {
+  const confirm = await screen.findByRole('button', { name: 'Confirmar e continuar' }) as HTMLButtonElement
+  expect(confirm.disabled).toBe(false)
+  fireEvent.click(confirm)
+}
+
 describe('GitDrawer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
     vi.mocked(api.gitHead).mockResolvedValue({ current_branch: 'main', detached: false, commit_sha: 'a1' })
     vi.mocked(api.gitUnpushed).mockResolvedValue({ branch: 'main', upstream: 'origin/main', remote: 'origin', remote_branch: 'main', has_upstream: true, commits: [] })
+    vi.mocked(api.gitPreview).mockImplementation(async (_id, input) => ({ operation: input.operation, repository: input.repository || '', from_label: 'Antes', to_label: 'Depois', diff: '' }))
     vi.mocked(api.gitHistoryPage).mockResolvedValue({ commits: overview().commits, next_offset: overview().commits.length, has_more: false })
     vi.mocked(api.gitContributors).mockResolvedValue({
       total_commits: 5, truncated: false,
@@ -243,6 +251,7 @@ describe('GitDrawer', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar app.go' }))
     fireEvent.change(screen.getByPlaceholderText('ex.: fix(ui): ajustar painel Git'), { target: { value: 'fix(ui): ajustar painel Git' } })
     fireEvent.click(screen.getByRole('button', { name: /Commitar \(1\)/ }))
+    await confirmGitReview()
 
     await waitFor(() => expect(api.commitGitWorktree).toHaveBeenCalledWith('ses_1', 'fix(ui): ajustar painel Git', ['app.go'], ''))
   })
@@ -262,6 +271,7 @@ describe('GitDrawer', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar feat: oldest unpublished' }))
     fireEvent.click(screen.getByRole('button', { name: /Push selecionado \(1\)/ }))
+    await confirmGitReview()
     await waitFor(() => expect(api.gitPushSelected).toHaveBeenCalledWith('ses_1', [oldest.sha], ''))
 
     fireEvent.click(screen.getByRole('button', { name: 'Abrir diff do commit 2222222' }))
@@ -297,6 +307,7 @@ describe('GitDrawer', () => {
     expect((screen.getByRole('checkbox', { name: 'Selecionar fix: local unpublished commit' }) as HTMLInputElement).disabled).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: /Push completo/ }))
+    await confirmGitReview()
     await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'fix/no-upstream', true, ''))
   })
 
@@ -403,6 +414,7 @@ describe('GitDrawer', () => {
     expect(api.gitFetch).toHaveBeenCalledWith('ses_1', 'origin', '')
 
     fireEvent.click(screen.getByRole('button', { name: /Pull/ }))
+    await confirmGitReview()
     const featureRow = screen.getByText('feature', { selector: '.git-branch-name' }).closest('li')
     if (!featureRow) throw new Error('feature row missing')
     const featureSwitch = within(featureRow).getByRole('button', { name: 'Alternar para feature' })
@@ -469,6 +481,7 @@ describe('GitDrawer', () => {
     await screen.findByText('Alterações locais')
     openTab('Branches')
     fireEvent.click(screen.getByRole('button', { name: /Push/ }))
+    await confirmGitReview()
     await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'main', false, ''))
     expect((await screen.findByRole('status')).textContent).toContain('Push concluído')
   })
@@ -479,6 +492,7 @@ describe('GitDrawer', () => {
     await screen.findByText('Alterações locais')
     openTab('Branches')
     fireEvent.click(screen.getByRole('button', { name: /Push/ }))
+    await confirmGitReview()
     expect((await screen.findByRole('status')).textContent).toContain('Nada foi publicado')
   })
 
@@ -490,6 +504,7 @@ describe('GitDrawer', () => {
     await waitFor(() => expect(Array.from((select as HTMLSelectElement).options).some((option) => option.value === 'feature')).toBe(true))
     fireEvent.change(select, { target: { value: 'feature' } })
     fireEvent.click(screen.getByRole('button', { name: 'Merge' }))
+    await confirmGitReview()
     await waitFor(() => expect(api.gitMerge).toHaveBeenCalledWith('ses_1', 'feature', ''))
   })
 
@@ -515,6 +530,7 @@ describe('GitDrawer', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Branch remota de destino' }), { target: { value: 'origin/main' } })
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Integrar origin/feature' }))
     fireEvent.click(screen.getByRole('button', { name: /Merge remoto \(1\)/ }))
+    await confirmGitReview()
     await waitFor(() => expect(api.gitRemoteMerge).toHaveBeenCalledWith('ses_1', 'origin/main', ['origin/feature'], ''))
   })
 
