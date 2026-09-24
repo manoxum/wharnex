@@ -54,7 +54,9 @@ export function chatgptConversationURL(value: string) {
     if (!trusted) return ''
     const match = /^\/c\/([^/]+)(?:\/.*)?$/.exec(url.pathname)
     const id = match?.[1] || ''
-    if (!id || /^WEB(?::|%3A)/i.test(id)) return ''
+    // Creation URLs (`WEB:…`, `local-chatgpt:…`) are provisional; only the
+    // durable id charset can become a binding.
+    if (!/^[A-Za-z0-9-]{1,128}$/.test(id)) return ''
     return `https://chatgpt.com/c/${id}`
   } catch { return '' }
 }

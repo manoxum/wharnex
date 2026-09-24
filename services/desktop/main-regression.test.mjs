@@ -488,7 +488,7 @@ test('automatic and confirmed submissions wait for a stable loaded definitive Ch
   assert.match(waiter, /settleChatGPTAffinityAfterSubmit\(cacheKey, entry, stableURL\)/)
   assert.match(waiter, /return ''/)
   assert.doesNotMatch(waiter, /finalURL \|\| canonicalChatGPTConversationURL/)
-  assert.match(source, /return \/\^WEB\(\?:\:\|%3A\)\/i\.test\(id\) \? '' : id/)
+  assert.match(source, /return \/\^\[A-Za-z0-9-\]\{1,128\}\$\/\.test\(id\) \? id : ''/)
 
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const prepareEnd = source.indexOf('\nasync function attachContextToChatGPT', prepareStart)
@@ -1785,8 +1785,9 @@ test('conversation ids are recovered from project-scoped conversation URLs', asy
   const body = source.slice(start, end)
   assert.match(body, /\(\?:\^\|\\\/\)c\\\/\(\[\^\/\?#\]\+\)/)
   assert.doesNotMatch(body, /\/\^\\\/c\\\//)
-  // Transient creation URLs still never become durable affinity.
-  assert.match(body, /WEB\(\?::\|%3A\)/)
+  // Transient creation URLs (`WEB:…`, `local-chatgpt:…`) never become durable
+  // affinity: only the durable id charset is accepted.
+  assert.match(body, /\^\[A-Za-z0-9-\]\{1,128\}\$/)
 })
 
 // Account automation gives a background chat surface a real, full-size layout

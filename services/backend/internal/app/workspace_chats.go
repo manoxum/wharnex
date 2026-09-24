@@ -318,7 +318,8 @@ func normalizeChatGPTConversationURL(value string) string {
 	if cut := strings.IndexAny(id, "/?#"); cut != -1 {
 		id = id[:cut]
 	}
-	// ChatGPT's transient creation URLs (`/c/WEB:...`) are not durable ids.
+	// ChatGPT's transient creation URLs (`/c/WEB:...`, `/c/local-chatgpt:...`)
+	// are not durable ids.
 	if id == "" || strings.Contains(id, ":") || len(id) > 128 {
 		return ""
 	}

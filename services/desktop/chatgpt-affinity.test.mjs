@@ -36,6 +36,9 @@ test('new chats ignore transient WEB conversation URLs and bind the final URL wh
 
   assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/WEB:temporary-id' }), '')
   assert.equal(settleChatGPTAffinity(tracker, 'https://chatgpt.com/c/WEB:temporary-id'), '')
+  // Live-captured 2026-09-24: the creation id is now `local-chatgpt:<uuid>`.
+  assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/local-chatgpt%3A73bacc39-76f9-4a34-8c0f-cf42f5d8a931' }), '')
+  assert.equal(settleChatGPTAffinity(tracker, 'https://chatgpt.com/c/local-chatgpt:73bacc39-76f9-4a34-8c0f-cf42f5d8a931'), '')
   assert.deepEqual(publicChatGPTAffinity(tracker), { affinityPhase: 'armed', boundConversationUrl: '', bindingCandidate: '' })
 
   assert.equal(observeChatGPTAffinity(tracker, { conversationUrl: 'https://chatgpt.com/c/final-id' }), 'https://chatgpt.com/c/final-id')

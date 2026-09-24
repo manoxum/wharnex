@@ -101,6 +101,8 @@ function normalizeConversationURL(value) {
     if (url.protocol !== 'https:' || (host !== 'chatgpt.com' && !host.endsWith('.chatgpt.com'))) return ''
     const match = /^\/c\/([^/]+)(?:\/.*)?$/.exec(url.pathname)
     const id = match?.[1] || ''
-    return id && !/^WEB(?::|%3A)/i.test(id) ? `https://chatgpt.com/c/${id}` : ''
+    // Creation URLs (`WEB:…`, `local-chatgpt:…`) are provisional; only the
+    // durable id charset can become a binding.
+    return /^[A-Za-z0-9-]{1,128}$/.test(id) ? `https://chatgpt.com/c/${id}` : ''
   } catch { return '' }
 }

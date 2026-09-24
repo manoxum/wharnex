@@ -7285,7 +7285,9 @@ function chatGPTConversationID(value) {
     // left account operations unable to address it by id.
     const { pathname } = new URL(trusted)
     const id = /(?:^|\/)c\/([^/?#]+)/.exec(pathname)?.[1] || ''
-    return /^WEB(?::|%3A)/i.test(id) ? '' : id
+    // Creation URLs (`WEB:…`, `local-chatgpt:…`) are provisional; only the
+    // durable id charset can become a binding.
+    return /^[A-Za-z0-9-]{1,128}$/.test(id) ? id : ''
   } catch { return '' }
 }
 
