@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import type { Session, TerminalRunRequest } from '../types'
 import { workspaceDragEndedOutside } from '../lib/workspaceSurface'
 import { InteractiveTerminal, type ConnectionStatus } from './InteractiveTerminal'
+import { api } from '../lib/api'
+import { loadTerminalWorkspace, saveTerminalWorkspace, terminalTabsFromMemory, type PersistedTerminalTab } from './terminalWorkspaceState'
 import { Icon } from './Icon'
 
-type TerminalTab = { id: number; label: string; session: Session; reconnectNonce: number; status: ConnectionStatus; cwd: string; history: string; viewportY: number }
-type PersistedTerminalTab = Pick<TerminalTab, 'id' | 'label' | 'cwd' | 'history' | 'viewportY'>
+type TerminalTab = PersistedTerminalTab & { session: Session; reconnectNonce: number; status: ConnectionStatus }
 
 export function TerminalWorkspace({ session, height, visible, runRequest, onHeight, onError, fill = false, onDetachTerminal, onSplitTerminal }: {
   session: Session
@@ -53,24 +54,26 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     }
     const id = nextID.current++
     runTargetRef.current = { requestID: runRequest.id, tabID: id }
-    setTabs((items) => [...items, { id, label: runRequest.label || `Terminal ${id}`, session, reconnectNonce: 0, status: 'connecting', cwd: runRequest.cwd || '.', history: '', viewportY: 0 }])
+    setTabs((items) => [...items, { id, label: runRequest.label || `Terminal ${id}`, terminalID: '', session, reconnectNonce: 0, status: 'connecting', cwd: runRequest.cwd || '.', history: '', viewportY: 0 }])
     setActiveID(id)
   }, [activeID, runRequest, session])
 
   function addTerminal() {
     const id = nextID.current++
-    setTabs((items) => [...items, { id, label: `Terminal ${id}`, session, reconnectNonce: 0, status: 'connecting', cwd: '.', history: '', viewportY: 0 }])
+    setTabs((items) => [...items, { id, label: `Terminal ${id}`, terminalID: '', session, reconnectNonce: 0, status: 'connecting', cwd: '.', history: '', viewportY: 0 }])
     setActiveID(id)
   }
 
   function closeTerminal(id: number) {
     const index = tabs.findIndex((item) => item.id === id)
     if (index < 0) return
+    const closing = tabs[index]
+    if (closing.terminalID) void api.closeTerminal(closing.session.id, closing.terminalID).catch((error) => onError(error instanceof Error ? error.message : 'Erro ao fechar terminal'))
     const remaining = tabs.filter((item) => item.id !== id)
     if (editingID === id) setEditingID(undefined)
     if (!remaining.length) {
       const replacementID = nextID.current++
-      setTabs([{ id: replacementID, label: `Terminal ${replacementID}`, session, reconnectNonce: 0, status: 'connecting', cwd: '.', history: '', viewportY: 0 }])
+      setTabs([{ id: replacementID, label: `Terminal ${replacementID}`, terminalID: '', session, reconnectNonce: 0, status: 'connecting', cwd: '.', history: '', viewportY: 0 }])
       setActiveID(replacementID)
       return
     }
@@ -101,6 +104,10 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
 
   function updateSnapshot(id: number, snapshot: { cwd: string; history: string; viewportY: number }) {
     setTabs((items) => items.map((item) => item.id === id ? { ...item, ...snapshot } : item))
+  }
+
+  function updateTerminalID(id: number, terminalID: string) {
+    setTabs((items) => items.map((item) => item.id === id && item.terminalID !== terminalID ? { ...item, terminalID } : item))
   }
 
   const activeTab = tabs.find((item) => item.id === activeID)
@@ -158,6 +165,8 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
           visible={visible && tab.id === activeID}
           reconnectNonce={tab.reconnectNonce}
           cwd={tab.cwd}
+          terminalID={tab.terminalID}
+          onTerminalIDChange={(terminalID) => updateTerminalID(tab.id, terminalID)}
           initialHistory={tab.history}
           initialViewportY={tab.viewportY}
           onSnapshot={(snapshot) => updateSnapshot(tab.id, snapshot)}
@@ -180,35 +189,3 @@ function inDirectory(cwd: string, command: string) {
 }
 
 function shellQuote(value: string) { return `'${value.replace(/'/g, `'"'"'`)}'` }
-
-
-const TERMINAL_WORKSPACE_PREFIX = 'whx.terminal.workspace.v1:'
-const MAX_PERSISTED_TERMINAL_HISTORY = 256 * 1024
-
-function terminalWorkspaceKey(projectPath: string) { return `${TERMINAL_WORKSPACE_PREFIX}${projectPath}` }
-
-function loadTerminalWorkspace(projectPath: string): { activeID: number; nextID: number; tabs: PersistedTerminalTab[] } {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(terminalWorkspaceKey(projectPath)) || '{}')
-    const tabs = Array.isArray(parsed?.tabs) ? parsed.tabs.slice(0, 12).flatMap((value: unknown) => {
-      if (!value || typeof value !== 'object') return []
-      const tab = value as Record<string, unknown>
-      const id = Number(tab.id)
-      if (!Number.isInteger(id) || id <= 0) return []
-      return [{ id, label: String(tab.label || `Terminal ${id}`).slice(0, 120), cwd: String(tab.cwd || '.').slice(0, 4096), history: String(tab.history || '').slice(-MAX_PERSISTED_TERMINAL_HISTORY), viewportY: Math.max(0, Math.floor(Number(tab.viewportY) || 0)) }]
-    }) : []
-    return { activeID: Number(parsed?.activeID) || tabs[0]?.id || 1, nextID: Math.max(Number(parsed?.nextID) || 2, ...tabs.map((tab: PersistedTerminalTab) => tab.id + 1)), tabs }
-  } catch { return { activeID: 1, nextID: 2, tabs: [] } }
-}
-
-function terminalTabsFromMemory(session: Session, tabs: PersistedTerminalTab[]): TerminalTab[] {
-  const restored = tabs.map((tab) => ({ ...tab, session, reconnectNonce: 0, status: 'connecting' as ConnectionStatus }))
-  return restored.length ? restored : [{ id: 1, label: 'Terminal 1', session, reconnectNonce: 0, status: 'connecting', cwd: '.', history: '', viewportY: 0 }]
-}
-
-function saveTerminalWorkspace(projectPath: string, value: { activeID: number; nextID: number; tabs: TerminalTab[] }) {
-  try {
-    const tabs = value.tabs.slice(0, 12).map(({ id, label, cwd, history, viewportY }) => ({ id, label, cwd, history: history.slice(-MAX_PERSISTED_TERMINAL_HISTORY), viewportY }))
-    localStorage.setItem(terminalWorkspaceKey(projectPath), JSON.stringify({ version: 1, activeID: value.activeID, nextID: value.nextID, tabs }))
-  } catch { /* storage quota is best-effort */ }
-}

@@ -28,7 +28,9 @@ _(reserved — no entries yet)_
 
 ### Chat ef6a2604-cc58-4090-83b8-ebff6acc176a (2026-09-24)
 
-_(reserved — no entries yet)_
+- Move os PTYs Host para um sidecar Compose durável, separado do backend e do Desktop, preservando shells durante builds, reloads e reinícios normais da aplicação.
+- Persiste e reutiliza o `terminal_id` por aba, com reconexão e replay limitado de output; desmontagens do frontend apenas destacam o transporte e o fecho explícito da aba continua a encerrar a shell.
+- Separa o impacto de ativação `terminal` na autoevolução e mantém o bridge nativo do Desktop apenas para Git Host restrito.
 
 
 ### Chat f6bc4f93-92dd-4c89-a2e4-9e4676d6b9be (2026-09-24)

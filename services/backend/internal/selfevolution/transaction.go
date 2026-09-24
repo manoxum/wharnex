@@ -207,45 +207,6 @@ func (tx Transaction) appendPendingPlan(sessionID, planID string) error {
 	return tx.saveMetadata(metadata)
 }
 
-func activationImpacts(patches []string) []string {
-	impacts := map[string]struct{}{}
-	for _, patch := range patches {
-		for _, path := range patchPaths(patch) {
-			switch {
-			case strings.HasPrefix(path, "services/backend/"), strings.HasPrefix(path, "schemas/"):
-				impacts["backend"] = struct{}{}
-			case strings.HasPrefix(path, "services/frontend/"):
-				impacts["frontend"] = struct{}{}
-			case strings.HasPrefix(path, "services/webapp/"):
-				impacts["webapp"] = struct{}{}
-			case strings.HasPrefix(path, "services/gateway/"):
-				impacts["gateway"] = struct{}{}
-			case strings.HasPrefix(path, "services/desktop/"):
-				impacts["desktop"] = struct{}{}
-			case strings.HasPrefix(path, "services/tunnel/"):
-				impacts["tunnel"] = struct{}{}
-			case path == "compose.yml", strings.HasPrefix(path, "docker/"):
-				impacts["backend"] = struct{}{}
-				impacts["frontend"] = struct{}{}
-				impacts["webapp"] = struct{}{}
-				impacts["gateway"] = struct{}{}
-				impacts["tunnel"] = struct{}{}
-			}
-		}
-	}
-	return uniqueSorted(impacts)
-}
-
-func mergeActivationImpacts(groups ...[]string) []string {
-	merged := map[string]struct{}{}
-	for _, group := range groups {
-		for _, impact := range group {
-			merged[impact] = struct{}{}
-		}
-	}
-	return uniqueSorted(merged)
-}
-
 // RemoveExtensionPlan rolls back only the membership appended while preparing
 // an extension that failed before any host mutation. Source backups captured
 // for new paths are intentionally retained: they still describe the original

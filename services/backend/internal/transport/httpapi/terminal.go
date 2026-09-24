@@ -23,15 +23,16 @@ func (a *API) openInteractiveTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Cwd     string `json:"cwd"`
-		Network bool   `json:"network"`
-		Cols    int    `json:"cols"`
-		Rows    int    `json:"rows"`
+		TerminalID string `json:"terminal_id"`
+		Cwd        string `json:"cwd"`
+		Network    bool   `json:"network"`
+		Cols       int    `json:"cols"`
+		Rows       int    `json:"rows"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	descriptor, err := a.service.StartInteractiveTerminal(r.Context(), r.PathValue("id"), target, body.Cwd, body.Network, body.Cols, body.Rows)
+	descriptor, err := a.service.StartOrReconnectInteractiveTerminal(r.Context(), r.PathValue("id"), body.TerminalID, target, body.Cwd, body.Network, body.Cols, body.Rows)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "terminal_open_failed", err.Error())
 		return

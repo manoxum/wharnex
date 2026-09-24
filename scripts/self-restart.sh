@@ -123,7 +123,7 @@ if [ "${WHARNESS_SERVICES_MODE:-}" = stack ]; then
   old_ifs=$IFS
   IFS=,
   for impact in $IMPACTS; do
-    case "$impact" in backend|frontend|webapp|gateway|tunnel) stack_services="$stack_services $impact";; desktop|'') ;; *) status restart_failed "invalid activation impact $impact"; release_stage_lock; exit 1;; esac
+    case "$impact" in backend|frontend|webapp|gateway|tunnel|terminal) stack_services="$stack_services $impact";; desktop|'') ;; *) status restart_failed "invalid activation impact $impact"; release_stage_lock; exit 1;; esac
   done
   IFS=$old_ifs
   status restarting "host build passed; activating only affected components: ${IMPACTS:-none}"

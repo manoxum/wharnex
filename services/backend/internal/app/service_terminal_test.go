@@ -75,7 +75,7 @@ func TestInteractiveTerminalCarriesOpaquePTYInputWithoutPersistingIt(t *testing.
 		t.Fatal(err)
 	}
 	defer cancel()
-	if len(replay) != 2 || replay[0].Type != "output" || replay[1].Type != "ready" {
+	if len(replay) != 2 || replay[0].Type != "ready" || replay[1].Type != "output" {
 		t.Fatalf("terminal replay did not preserve startup frames: %#v", replay)
 	}
 	input := "vim README.md\nbash -c 'printf changed > file'\n"

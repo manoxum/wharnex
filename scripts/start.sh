@@ -99,7 +99,7 @@ if [ "$(uname -s 2>/dev/null || printf unknown)" = "Linux" ]; then
   unset CHROME_DEVEL_SANDBOX 2>/dev/null || true
 fi
 
-# Gateway/backend/frontend/webapp/PostgreSQL/tunnel are persistent Compose services.
+# Gateway/backend/frontend/webapp/PostgreSQL/tunnel/terminal are persistent Compose services.
 # The Desktop reaches backend and frontend exclusively through the gateway.
 WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" ensure
 
