@@ -9,7 +9,8 @@ import { accessSync, constants, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 export const UP_LINK_DNS = '169.254.1.1'
-const REQUIRED_TOOLS = ['pasta', 'unshare', 'ip', 'mount']
+export const UP_LINK_UNSHARE = '/opt/wharness/libexec/wharnex-up-link-unshare'
+const REQUIRED_TOOLS = ['pasta', 'ip', 'mount']
 const PREFLIGHT_TIMEOUT_MS = 15_000
 const PREFLIGHT_ATTEMPTS = 2
 
@@ -24,8 +25,8 @@ const PREFLIGHT_ATTEMPTS = 2
 // until they really exist, attaches pasta to them and returns Electron's exit
 // status. Every value is positional, never interpolated into a script.
 export const UP_LINK_OUTER_SCRIPT = [
-  'inner=$1; r=$2; u=$3; g=$4; p=$5; d=$6; shift 6',
-  'unshare --user --map-root-user --net --mount --propagation slave -- sh -c "$inner" up-whx-link-ns "$r" "$u" "$g" "$@" &',
+  'inner=$1; r=$2; u=$3; g=$4; p=$5; d=$6; h=$7; shift 7',
+  '"$h" --user --map-root-user --net --mount --propagation slave -- sh -c "$inner" up-whx-link-ns "$r" "$u" "$g" "$h" "$@" &',
   'ns=$!; host=$(readlink /proc/self/ns/net); i=0',
   'while [ "$(readlink /proc/$ns/ns/net 2>/dev/null)" = "$host" ] && [ "$i" -lt 100 ]; do sleep 0.02; i=$((i+1)); done',
   'if [ "$(readlink /proc/$ns/ns/net 2>/dev/null)" = "$host" ]; then kill -KILL "$ns" 2>/dev/null; exit 96; fi',
@@ -39,19 +40,20 @@ export const UP_LINK_OUTER_SCRIPT = [
 // back to the real uid/gid because Chromium refuses to run as root with its
 // sandbox enabled.
 export const UP_LINK_ENTER_SCRIPT = [
-  'r=$1; u=$2; g=$3; shift 3; i=0',
+  'r=$1; u=$2; g=$3; h=$4; shift 4; i=0',
   'while [ -z "$(ip route show default 2>/dev/null)" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i+1)); done',
   '[ -n "$(ip route show default 2>/dev/null)" ] || exit 95',
   'i=0; while [ -n "$(ip -6 addr show tentative 2>/dev/null)" ] && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i+1)); done',
   'mount --bind "$r" "$(readlink -f /etc/resolv.conf)" || exit 97',
-  'exec unshare --user --map-user="$u" --map-group="$g" -- "$@"',
+  'exec "$h" --user --map-user="$u" --map-group="$g" -- "$@"',
 ].join('\n')
 
 export function upLinkMode(env = process.env) {
   const value = String(env.WHARNESS_UP_LINK || '').trim().toLowerCase()
   if (['off', '0', 'false', 'disabled'].includes(value)) return 'off'
+  if (value === 'auto') return 'auto'
   if (value === 'required') return 'required'
-  return 'auto'
+  return 'required'
 }
 
 // The Desktop reaches the host only through these loopback endpoints; each
@@ -69,10 +71,10 @@ export function upLinkPorts(env = process.env) {
   return [...ports].sort((a, b) => a - b)
 }
 
-export function upLinkCommand({ command, args = [], ports = [], resolvPath, uid, gid }) {
+export function upLinkCommand({ command, args = [], ports = [], resolvPath, uid, gid, unshareCommand = 'unshare' }) {
   return {
     command: 'sh',
-    args: ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, resolvPath, String(uid), String(gid), ports.join(','), UP_LINK_DNS, command, ...args],
+    args: ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, resolvPath, String(uid), String(gid), ports.join(','), UP_LINK_DNS, unshareCommand, command, ...args],
   }
 }
 
@@ -83,8 +85,21 @@ function onPath(tool, env) {
   return false
 }
 
+function upLinkUnshare(env, unsharePath) {
+  const configured = String(env.WHARNESS_UP_LINK_UNSHARE || '').trim()
+  if (configured) return configured
+  try { accessSync(unsharePath, constants.X_OK); return unsharePath } catch { return 'unshare' }
+}
+
+function executable(command, env) {
+  if (path.isAbsolute(command)) {
+    try { accessSync(command, constants.X_OK); return true } catch { return false }
+  }
+  return onPath(command, env)
+}
+
 function defaultPreflight(plan, env) {
-  const probe = upLinkCommand({ command: 'true', ports: plan.ports, resolvPath: plan.resolvPath, uid: plan.uid, gid: plan.gid })
+  const probe = upLinkCommand({ command: 'true', ports: plan.ports, resolvPath: plan.resolvPath, uid: plan.uid, gid: plan.gid, unshareCommand: plan.unshareCommand })
   try {
     execFileSync(probe.command, probe.args, { env, stdio: ['ignore', 'ignore', 'pipe'], timeout: PREFLIGHT_TIMEOUT_MS })
   } catch (error) {
@@ -96,22 +111,24 @@ function defaultPreflight(plan, env) {
 // Decides whether the Desktop launches through the up-link. When it does, the
 // Linux sandbox mode is switched to user namespaces in `env`: a setuid helper
 // cannot gain privileges inside a user namespace.
-export function prepareUpLink(env, { runtimeDir, platform = process.platform, preflight = defaultPreflight, uid = process.getuid?.(), gid = process.getgid?.() } = {}) {
+export function prepareUpLink(env, { runtimeDir, platform = process.platform, preflight = defaultPreflight, uid = process.getuid?.(), gid = process.getgid?.(), unsharePath = UP_LINK_UNSHARE } = {}) {
   const mode = upLinkMode(env)
   const inactive = (reason) => {
     if (mode === 'required' && reason !== 'disabled') throw new Error(`up-whx-link is required but unavailable: ${reason}`)
     return { active: false, mode, reason }
   }
   if (mode === 'off') return inactive('disabled')
-  if (platform !== 'linux') return inactive('unsupported-platform')
+  if (platform !== 'linux') return { active: false, mode, reason: 'unsupported-platform' }
   const missing = REQUIRED_TOOLS.filter((tool) => !onPath(tool, env))
+  const unshareCommand = upLinkUnshare(env, unsharePath)
+  if (!executable(unshareCommand, env)) missing.push(unshareCommand)
   if (missing.length) return inactive(`missing ${missing.join(', ')}`)
   const ports = upLinkPorts(env)
   if (!ports.length) return inactive('no loopback endpoint to forward')
   mkdirSync(runtimeDir, { recursive: true })
   const resolvPath = path.join(runtimeDir, 'up-whx-link.resolv.conf')
   writeFileSync(resolvPath, `nameserver ${UP_LINK_DNS}\noptions edns0 trust-ad\n`, { mode: 0o644 })
-  const plan = { active: true, mode, reason: '', ports, resolvPath, uid, gid }
+  const plan = { active: true, mode, reason: '', ports, resolvPath, uid, gid, unshareCommand }
   // The launch often follows a stack (re)start whose host network is still
   // settling, so one transient failure is retried before giving up.
   for (let attempt = 1; attempt <= PREFLIGHT_ATTEMPTS; attempt++) {

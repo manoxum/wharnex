@@ -1,0 +1,13 @@
+abi <abi/4.0>,
+
+include <tunables/global>
+
+# Ubuntu restricts capabilities inside user namespaces for unconfined
+# applications. This profile admits them only through Wharnex's immutable,
+# root-owned copy of unshare; the host installer limits execute access to the
+# local user that installed this checkout.
+profile wharnex-up-link /opt/wharness/libexec/wharnex-up-link-unshare flags=(unconfined) {
+  userns,
+
+  include if exists <local/wharnex-up-link>
+}

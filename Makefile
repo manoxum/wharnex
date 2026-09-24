@@ -13,6 +13,7 @@ BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 .PHONY: reset-data clean-all help deps deps-unlocked deps-status deps-refresh deps-refresh-unlocked build-status build-refresh storage-prune storage-reclaim runner-deps build build-stage build-stage-unlocked build-all build-backend build-frontend build-webapp build-desktop build-runner build-plan stack-build \
 	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check webapp-check desktop-check lifecycle-check check test start stop restart status logs \
 	electron-runtime-check electron-runtime-install electron-runtime-status \
+	up-link-host-check up-link-host-install up-link-host-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
 	run-backend run-frontend run-webapp run-desktop install-dev clean export export-check
 
@@ -59,6 +60,8 @@ help:
 		'  make electron-runtime-check     Verify immutable runtime / user-namespace fallback' \
 		'  make electron-runtime-install   Install versioned root-owned runtime under /opt/wharness' \
 		'  make electron-runtime-status    Show current runtime metadata' \
+		'  make up-link-host-status        Show Linux namespace/AppArmor readiness' \
+		'  make up-link-host-install       Install the scoped up-whx-link host profile' \
 		'  electron-sandbox-* targets remain compatibility aliases' \
 		'' \
 		'Linux graphics override:' \
@@ -157,6 +160,7 @@ build-stage-unlocked:
 	@printf '\nWharness build stage complete; running stack services were not replaced.\n'
 
 build: build-stage
+	@$(MAKE) --no-print-directory up-link-host-install
 	@$(MAKE) --no-print-directory build-runner
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/stack.sh" ensure
 	@$(MAKE) --no-print-directory storage-prune
@@ -237,6 +241,15 @@ electron-runtime-install:
 
 electron-runtime-status:
 	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/electron-runtime.sh" status
+
+up-link-host-check:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/up-whx-link-host.sh" check
+
+up-link-host-install:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/up-whx-link-host.sh" install
+
+up-link-host-status:
+	@WHARNESS_ROOT="$(ROOT_DIR)" "$(ROOT_DIR)/scripts/up-whx-link-host.sh" status
 
 # Compatibility aliases retained for operators/scripts from v1.2.23.x.
 electron-sandbox-check: electron-runtime-check

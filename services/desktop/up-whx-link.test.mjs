@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { UP_LINK_DNS, UP_LINK_ENTER_SCRIPT, UP_LINK_OUTER_SCRIPT, prepareUpLink, upLinkCommand, upLinkMode, upLinkPorts, writeUpLinkState } from './up-whx-link.mjs'
+import { UP_LINK_DNS, UP_LINK_ENTER_SCRIPT, UP_LINK_OUTER_SCRIPT, UP_LINK_UNSHARE, prepareUpLink, upLinkCommand, upLinkMode, upLinkPorts, writeUpLinkState } from './up-whx-link.mjs'
 
 const runtimeDir = () => mkdtempSync(path.join(tmpdir(), 'up-whx-link-'))
 const gatewayEnv = (extra = {}) => ({
@@ -22,7 +22,8 @@ const withTools = (env) => {
 }
 
 test('the up-link is on by default and can be disabled or required', () => {
-  assert.equal(upLinkMode({}), 'auto')
+  assert.equal(upLinkMode({}), 'required')
+  assert.equal(upLinkMode({ WHARNESS_UP_LINK: 'auto' }), 'auto')
   assert.equal(upLinkMode({ WHARNESS_UP_LINK: 'off' }), 'off')
   assert.equal(upLinkMode({ WHARNESS_UP_LINK: '0' }), 'off')
   assert.equal(upLinkMode({ WHARNESS_UP_LINK: 'REQUIRED' }), 'required')
@@ -34,17 +35,19 @@ test('only loopback Desktop endpoints are forwarded, once each', () => {
   assert.deepEqual(upLinkPorts({ WHARNESS_API_URL: 'http://10.0.0.5:8888', WHARNESS_FRONTEND_URL: 'not a url' }), [])
 })
 
-test('the launch chain keeps every value positional, never interpolated into a script', () => {
-  const launch = upLinkCommand({ command: '/opt/electron', args: ['.', '--ozone-platform=x11'], ports: [5173, 6969], resolvPath: '/run/r.conf', uid: 1000, gid: 1000 })
+test('the launch chain uses the dedicated unshare helper for both namespace layers', () => {
+  const launch = upLinkCommand({ command: '/opt/electron', args: ['.', '--ozone-platform=x11'], ports: [5173, 6969], resolvPath: '/run/r.conf', uid: 1000, gid: 1000, unshareCommand: UP_LINK_UNSHARE })
   assert.equal(launch.command, 'sh')
-  assert.deepEqual(launch.args, ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, '/run/r.conf', '1000', '1000', '5173,6969', UP_LINK_DNS, '/opt/electron', '.', '--ozone-platform=x11'])
+  assert.deepEqual(launch.args, ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, '/run/r.conf', '1000', '1000', '5173,6969', UP_LINK_DNS, UP_LINK_UNSHARE, '/opt/electron', '.', '--ozone-platform=x11'])
   for (const script of [UP_LINK_OUTER_SCRIPT, UP_LINK_ENTER_SCRIPT]) assert.doesNotMatch(script, /\/opt\/electron|6969|1000|169\.254/)
+  assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" --user --map-root-user/)
+  assert.match(UP_LINK_ENTER_SCRIPT, /"\$h" --user --map-user="\$u"/)
 })
 
 test('Electron keeps the host PID namespace and process group', () => {
   // A PID namespace would make Electron PID 1: TERM ignored, orphans unreaped,
   // and a single-instance lock naming a PID the host cannot resolve.
-  assert.match(UP_LINK_OUTER_SCRIPT, /unshare --user --map-root-user --net --mount --propagation slave -- sh -c "\$inner"/)
+  assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" --user --map-root-user --net --mount --propagation slave -- sh -c "\$inner"/)
   assert.doesNotMatch(UP_LINK_OUTER_SCRIPT, /--pid|--fork|setsid/)
   // pasta is attached only once the namespace really exists, never to the host's.
   const attach = UP_LINK_OUTER_SCRIPT.indexOf('pasta --config-net')
@@ -56,7 +59,7 @@ test('Electron keeps the host PID namespace and process group', () => {
 test('Electron starts only on a settled namespace, as the real user', () => {
   const route = UP_LINK_ENTER_SCRIPT.indexOf('ip route show default')
   const dad = UP_LINK_ENTER_SCRIPT.indexOf('ip -6 addr show tentative')
-  const launch = UP_LINK_ENTER_SCRIPT.indexOf('exec unshare --user --map-user="$u" --map-group="$g" -- "$@"')
+  const launch = UP_LINK_ENTER_SCRIPT.indexOf('exec "$h" --user --map-user="$u" --map-group="$g" -- "$@"')
   assert.ok(route > -1 && dad > route && launch > dad)
   assert.match(UP_LINK_ENTER_SCRIPT, /mount --bind "\$r" "\$\(readlink -f \/etc\/resolv\.conf\)"/)
 })
@@ -74,18 +77,18 @@ test('an active up-link switches the sandbox to user namespaces and writes its r
 })
 
 test('auto mode falls back to the ordinary launch and keeps the sandbox untouched', () => {
-  const env = withTools(gatewayEnv())
+  const env = withTools(gatewayEnv({ WHARNESS_UP_LINK: 'auto' }))
   const plan = prepareUpLink(env, { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => { throw new Error('userns denied') } })
   assert.equal(plan.active, false)
   assert.match(plan.reason, /preflight failed: userns denied/)
   let attempts = 0
-  const retryEnv = withTools(gatewayEnv())
+  const retryEnv = withTools(gatewayEnv({ WHARNESS_UP_LINK: 'auto' }))
   const retried = prepareUpLink(retryEnv, { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => { if (++attempts === 1) throw new Error('settling') } })
   assert.equal(retried.active, true, 'one transient preflight failure is retried')
   assert.equal(attempts, 2)
   assert.equal(retryEnv.WHARNESS_LINUX_SANDBOX_MODE, 'userns', 'successful retry keeps the sandbox mode switch')
   assert.equal(env.WHARNESS_LINUX_SANDBOX_MODE, 'runtime')
-  assert.equal(prepareUpLink(gatewayEnv({ PATH: '/nonexistent' }), { runtimeDir: runtimeDir(), platform: 'linux' }).reason, 'missing pasta, unshare, ip, mount')
+  assert.equal(prepareUpLink(gatewayEnv({ WHARNESS_UP_LINK: 'auto', PATH: '/nonexistent' }), { runtimeDir: runtimeDir(), platform: 'linux', unsharePath: '/nonexistent/wharnex-up-link-unshare' }).reason, 'missing pasta, ip, mount, unshare')
   assert.equal(prepareUpLink(gatewayEnv(), { runtimeDir: runtimeDir(), platform: 'darwin' }).reason, 'unsupported-platform')
   assert.equal(prepareUpLink(gatewayEnv({ WHARNESS_UP_LINK: 'off' }), { runtimeDir: runtimeDir(), platform: 'linux' }).reason, 'disabled')
 })

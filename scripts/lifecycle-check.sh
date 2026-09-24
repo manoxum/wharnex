@@ -21,6 +21,7 @@ BUILD_LOCK="$ROOT/scripts/build-lock.sh"
 ELECTRON_RUNTIME="$ROOT/scripts/electron-runtime.sh"
 DESKTOP_DEV="$ROOT/services/desktop/dev.mjs"
 DESKTOP_RELAUNCH="$ROOT/scripts/desktop-relaunch.sh"
+UP_LINK_HOST_CHECK="$ROOT/scripts/up-whx-link-host-check.sh"
 SELF_EVOLUTION="$ROOT/services/backend/internal/selfevolution/manager.go"
 SELF_RESTART="$ROOT/scripts/self-restart.sh"
 BACKEND_DOCKERFILE="$ROOT/services/backend/Dockerfile"
@@ -411,3 +412,10 @@ if ! grep -Fq 'build-previous-success' "$MAKEFILE"; then
   exit 1
 fi
 printf 'Lifecycle compiled-artifact cache checks passed.\n'
+
+if ! printf '%s\n' "$build_block" | grep -Fq 'up-link-host-install'; then
+  echo 'lifecycle regression: make build must install the up-whx-link host profile' >&2
+  exit 1
+fi
+[ -x "$UP_LINK_HOST_CHECK" ] || { echo 'lifecycle regression: up-whx-link host installer check is missing' >&2; exit 1; }
+WHARNESS_ROOT="$ROOT" "$UP_LINK_HOST_CHECK"
