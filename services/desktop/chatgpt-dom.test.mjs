@@ -25,7 +25,11 @@ test('DOM automation scripts stay narrow and escape user text', () => {
   const activity = chatGPTVisibleActivityScript()
   assert.match(activity, /data-testid="stop-button"/)
   assert.match(activity, /thinking/)
-  assert.match(activity, /data-message-author-role="assistant"/)
+  assert.match(activity, /data-message-author-role/)
+  assert.match(activity, /data-testid\*="reasoning"/)
+  assert.match(activity, /data-testid\*="thinking"/)
+  assert.match(activity, /group\/activity-header/)
+  assert.match(activity, /icon-primary-action path\[d\^="M4\.5 5\.75"\]/)
   assert.match(activity, /rows\.length >= 8/)
   assert.match(activity, /value\.length < 8 \|\| value\.length > 200/)
   assert.match(activity, /node\.textContent/)
@@ -42,7 +46,7 @@ test('visible reasoning capture stays inside its exception', () => {
   // The answer itself, code and tool output are excluded structurally, by
   // container — never by judging what the text says.
   for (const selector of ['pre', 'code', '.markdown', '.sr-only', '[data-message-author-role]']) {
-    assert.ok(activity.includes(`'${selector}'`), `missing structural exclusion ${selector}`)
+    assert.ok(activity.includes(selector), `missing structural exclusion ${selector}`)
   }
   assert.match(activity, /node\.children\.length/)
 
@@ -52,6 +56,10 @@ test('visible reasoning capture stays inside its exception', () => {
 
   // A wrapper repeats the concatenation of the rows beneath it.
   assert.match(activity, /rows\.filter\(\(row\) => !rows\.some/)
+  assert.match(activity, /const roots = \[\.\.\.document\.querySelectorAll/)
+  assert.match(activity, /roots\.length \? null/)
+  assert.match(activity, /\[roots\.at\(-1\)\]/)
+  assert.match(activity, /class~="group\/activity-header"/)
 
   // Passive: a health probe observes, it never mutates the page. Expanding a
   // collapsed reasoning disclosure would be a click.

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ChatGPTUploadCoordinator, chatGPTComposerPoint, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
+import { ChatGPTUploadCoordinator, chatGPTComposerPoint, chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 
 const uploadURL = 'https://chatgpt.com/backend-api/files/process_upload_stream'
 
@@ -350,5 +350,41 @@ test('ChatGPT upload observation does not accept unrelated file metadata traffic
     method: 'GET',
     url: 'https://chatgpt.com/backend-api/files/file-123',
   }), false)
+  await assert.rejects(() => upload, /did not start the file upload before timeout/)
+})
+
+test('the composer upload thumbnail reports its percentage and completed state without reading response prose', async () => {
+  const script = chatGPTUploadThumbnailScript('request.zip')
+  assert.match(script, /aria-valuenow/)
+  assert.match(script, /animate-spin/)
+  assert.match(script, /data-composer-surface/)
+  assert.match(script, /data-file-name/)
+  assert.match(script, /complete|completed|uploaded/)
+  assert.doesNotMatch(script, /textContent|innerText|document\.cookie|localStorage|sessionStorage/)
+  assert.doesNotThrow(() => new Function(script))
+})
+
+test('the new indeterminate upload thumbnail confirms completion when its spinner disappears', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  const progress = []
+  const upload = coordinator.expect(49, { startTimeoutMs: 100, completionTimeoutMs: 100, onProgress: (value) => progress.push(value) })
+  assert.equal(coordinator.onThumbnail(49, { visible: true, progress: null, active: true, complete: false }, (value) => progress.push(value)), true)
+  assert.equal(coordinator.onThumbnail(49, { visible: true, progress: null, active: false, complete: false }, (value) => progress.push(value)), true)
+  assert.deepEqual(await upload, { observed: true, progress: 100, source: 'thumbnail-spinner' })
+  assert.deepEqual(progress, [])
+})
+
+test('a persistent new preview confirms upload when a short-lived spinner was missed', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  const upload = coordinator.expect(50, { startTimeoutMs: 100, completionTimeoutMs: 100, baselineMarkerCount: 4 })
+  assert.equal(coordinator.onThumbnail(50, { visible: true, markerCount: 5, active: false, complete: false }), true)
+  assert.equal(coordinator.onThumbnail(50, { visible: true, markerCount: 5, active: false, complete: false }), true)
+  assert.deepEqual(await upload, { observed: true, progress: 100, source: 'thumbnail-card' })
+})
+
+test('an unchanged composer never treats its existing previews as a new upload', async () => {
+  const coordinator = new ChatGPTUploadCoordinator()
+  const upload = coordinator.expect(51, { startTimeoutMs: 10, completionTimeoutMs: 100, baselineMarkerCount: 4 })
+  assert.equal(coordinator.onThumbnail(51, { visible: true, markerCount: 4, active: false, complete: false }), true)
   await assert.rejects(() => upload, /did not start the file upload before timeout/)
 })

@@ -10,7 +10,7 @@ import { TextDecoder } from 'node:util'
 import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, dispatchChatGPTPointerPress, submitWithoutReplay } from './chatgpt-input.mjs'
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
 import { installNativeSurfaceLifecycleGuard } from './native-surface-lifecycle.mjs'
-import { ChatGPTUploadCoordinator, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
+import { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
@@ -4695,6 +4695,7 @@ async function loadAndSettleChatGPTWorkerConversation(key, entry, conversationUR
 async function pasteChatGPTFile(entry, filePath, index, count, { translation = false, pacedWorker = false } = {}) {
   const key = chatGPTKeyForEntry(entry)
   const { wc } = requireOwnedChatGPTEntry(key, entry)
+  let uploadBaseline
   const result = await pasteWithUploadRetry({
     beforeAttempt: async () => {
       // A retry is a fresh provider-facing action: without this, two Workers
@@ -4712,8 +4713,18 @@ async function pasteChatGPTFile(entry, filePath, index, count, { translation = f
       await waitForChatGPTSurfaceReady(key, entry)
       const ready = await wc.executeJavaScript(chatGPTComposerReadyScript(), true)
       if (!ready) throw new Error('ChatGPT composer DOM was not found before upload')
+      uploadBaseline = await wc.executeJavaScript(chatGPTUploadThumbnailScript(path.basename(filePath)), true)
     },
-    beginUpload: () => chatGPTUploads.expect(wc.id),
+    beginUpload: () => chatGPTUploads.expect(wc.id, {
+      // The upload card is the provider's live, structural acknowledgement.
+      // It is scoped to the active composer and compares the pre-selection
+      // structural baseline when this rollout omits filename metadata. It
+      // returns only counts/progress/state; no response text or account data is
+      // read. Network observation remains the compatibility fallback.
+      observe: () => wc.executeJavaScript(chatGPTUploadThumbnailScript(path.basename(filePath)), true),
+      baselineMarkerCount: uploadBaseline?.markerCount,
+      onProgress: ({ progress, complete }) => console.debug(`[chatgpt-upload] wc=${wc.id} file=${index}/${count} progress=${progress}% complete=${complete}`),
+    }),
     cancelUpload: (error) => chatGPTUploads.cancel(wc.id, `ChatGPT upload selection failed: ${error instanceof Error ? error.message : String(error)}`),
     paste: async () => {
       await selectChatGPTUploadFile(wc, filePath)

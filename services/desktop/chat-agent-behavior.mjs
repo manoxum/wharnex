@@ -1,3 +1,5 @@
+import { CHATGPT_DOM_BEHAVIOR_REVISION, CHATGPT_EFFORT_LEVELS, CHATGPT_OPTIONAL_SELECTORS, CHATGPT_REQUIRED_SELECTORS } from './chatgpt-behavior-dom-map.mjs'
+
 // Materialized behavior for a chat-provider agent.
 //
 // An agent owns *how to drive a browser instance*; this document owns *what to
@@ -18,62 +20,23 @@ export const BEHAVIOR_SCHEMA = 'harness.chat-agent-behavior/v1'
 export const CHATGPT_BEHAVIOR = Object.freeze({
   schema: BEHAVIOR_SCHEMA,
   provider: 'chatgpt',
-  revision: '2026-09-19.2',
+  // 2026-09-24: the definitive-chat composer renders a ZIP attachment as an
+  // indeterminate preview spinner. Upload observation remains composer-local
+  // and never reads preview/prompt text; see chatgpt-upload-observation.mjs.
+  revision: CHATGPT_DOM_BEHAVIOR_REVISION,
   origin: 'builtin',
   baseURL: 'https://chatgpt.com',
   trustedHosts: ['chatgpt.com'],
   conversationPath: '/c/',
   newConversationPath: '/',
-  selectors: {
-    composer: ['#prompt-textarea', 'div[contenteditable="true"][role="textbox"]', 'textarea[name="prompt-textarea"]'],
-    sendButton: ['button[data-testid="send-button"]'],
-    stopButton: ['button[data-testid="stop-button"]', 'button[aria-label*="stop generating" i]'],
-    assistantTurn: ['[data-message-author-role="assistant"]'],
-    conversationTurn: ['[data-testid^="conversation-turn"]'],
-    sidebarRoot: ['[data-testid="sidebar"]', 'nav[data-testid*="sidebar"]', 'aside[data-testid*="sidebar"]'],
-    sidebarClose: ['button[data-testid="close-sidebar-button"]'],
-    sidebarOpen: ['button[data-testid="open-sidebar-button"]'],
-    conversationAnchor: ['a[href^="/c/"]'],
-    conversationOptionsTrigger: ['[data-conversation-options-trigger]'],
-    conversationOptionsHeader: ['button[data-testid="conversation-options-button"]'],
-    menuItem: ['[role="menuitem"]'],
-    projectAnchor: ['a[role="menuitem"][href^="/g/g-p-"]', 'a[href^="/g/g-p-"]'],
-    titleEditor: ['input[name="title-editor"]', 'input[aria-label="Chat title"]'],
-    dialog: ['[role="dialog"]'],
-    libraryRow: ['div[role="row"][data-page-table-selection-id]'],
-    libraryRowActions: ['button[aria-label^="Open actions menu for "]'],
-    errorNotice: ['[data-testid*="error" i]', 'div[role="alert"]'],
-  },
+  selectors: CHATGPT_REQUIRED_SELECTORS,
   // Controls that some accounts/rollouts simply do not render. They are declared
   // separately from `selectors` because an empty list here is a legitimate state
   // ("this account has no model picker"), whereas an empty required selector is
   // a broken document. An unmapped optional control makes its verb report
   // `capability-unavailable` instead of clicking something adjacent, and is the
   // data gap the behavior-evolution pass is meant to fill.
-  optionalSelectors: {
-    // ChatGPT exposes model and reasoning effort behind one composer pill. It
-    // carries no testid and no aria-label, so it is identified as the composer
-    // surface's only popup button that is not the (testid-bearing) attach
-    // button. Options are matched by role rather than by class: the class names
-    // in this menu are build-hashed and change on every deploy.
-    modelPicker: ['[data-composer-surface] button[aria-haspopup="menu"]:not([data-testid])'],
-    modelOption: ['[role="menuitemradio"]'],
-    effortPicker: ['[data-composer-surface] button[aria-haspopup="menu"]:not([data-testid])'],
-    // Live-captured 2026-09: ChatGPT replaced the effort control's own global
-    // keyboard shortcut (previously a fixed cycle) with a genuine ARIA slider
-    // living inside the picker menu opened by effortPicker above. It is
-    // reached by ArrowLeft/ArrowRight once focused, never by a shortcut that
-    // bypasses opening the menu - a real Chromium-level key dispatch to the
-    // old shortcut landed on the page (confirmed live via CDP) and still did
-    // nothing, because nothing was listening for it any more.
-    effortSlider: ['[data-model-reasoning-effort-slider] [role="slider"]', '[role="slider"][aria-valuenow]'],
-    // Completed reasoning collapses behind a disclosure ("Processou durante
-    // 5m 23s"). Expanding it is what makes the summary rows readable at all,
-    // which is why a retroactive scrape of a finished conversation found
-    // nothing before this was mapped.
-    reasoningDisclosure: ['button[aria-expanded]'],
-    reasoningRow: ['[data-reasoning-row]'],
-  },
+  optionalSelectors: CHATGPT_OPTIONAL_SELECTORS,
   // Visible reasoning capture. ChatGPT renders short activity summaries above
   // the answer ("Validou estilos e temas da interface"). Those are useful; the
   // tool/code blocks interleaved with them are not, and are excluded
@@ -100,11 +63,7 @@ export const CHATGPT_BEHAVIOR = Object.freeze({
   // Reasoning-effort levels observed on the composer slider, weakest to
   // strongest. Do not invent intermediate levels: the September 2026 captured
   // surfaces expose exactly these three stops.
-  effortLevels: [
-    { id: 'instant', labels: ['instantâneo', 'instantaneo', 'instant'] },
-    { id: 'medium', labels: ['médio', 'medio', 'medium', 'standard'] },
-    { id: 'high', labels: ['elevada', 'elevado', 'high', 'alta'] },
-  ],
+  effortLevels: CHATGPT_EFFORT_LEVELS,
   timing: {
     settleMs: 350,
     menuSettleMs: 400,

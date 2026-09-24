@@ -26,6 +26,7 @@ test('reasoning-effort probe is confined to the active composer chrome', () => {
   const script = behaviorProbeScript('reasoning-effort')
   assert.match(script, /prompt-textarea/)
   assert.match(script, /closest\('\[data-composer-surface\]'\)/)
+  assert.match(script, /closest\('form\[data-chatgpt-composer\]'\)/)
   assert.match(script, /button\[aria-haspopup="menu"\]:not\(\[data-testid\]\)/)
   assert.doesNotMatch(script, /data-message-author-role|conversation-turn|\.click\(/)
 })

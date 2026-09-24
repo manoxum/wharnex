@@ -159,7 +159,7 @@ const PROBES = Object.freeze({
   // validate the selector/locale mapping; it never traverses a chat turn.
   'reasoning-effort': `
     const composers = [...document.querySelectorAll('#prompt-textarea, div[contenteditable="true"][role="textbox"], textarea[name="prompt-textarea"]')].filter((node) => usable(node) && visible(node));
-    const surfaces = composers.map((node) => node.closest('[data-composer-surface]')).filter(Boolean);
+    const surfaces = composers.map((node) => node.closest('[data-composer-surface]') || node.closest('form[data-chatgpt-composer]')).filter(Boolean);
     const controls = surfaces.flatMap((surface) => [...surface.querySelectorAll('button[aria-haspopup="menu"]:not([data-testid])')]).filter((node) => usable(node) && visible(node));
     return {
       control: 'reasoning-effort',

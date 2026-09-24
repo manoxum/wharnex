@@ -71,9 +71,13 @@ test('the conversation menu trigger is the one control a script may click', () =
 test('reasoning effort probe is composer-scoped and reads only allowlisted chrome labels', () => {
   const source = reasoningEffortStateScript(BASE)
   assert.match(source, /closest\?\.\('\[data-composer-surface\]'\)/)
+  assert.match(source, /closest\?\.\('form\[data-chatgpt-composer\]'\)/)
   assert.match(source, /surface\.contains\(node\)/)
   assert.match(source, /candidates\.length !== 1/)
   assert.match(source, /__whx\.effortLevels/)
+  assert.match(source, /candidates\[0\]\.querySelectorAll\('\*'\)/)
+  assert.match(source, /node\.children\.length === 0/)
+  assert.match(source, /labels\.includes\(fold\(value\)\)/)
   const body = source.slice(source.indexOf('const composer = pick(S.composer)'))
   assert.doesNotMatch(body, /assistantTurn|conversationTurn|\.markdown|\.click\(/)
 })

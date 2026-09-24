@@ -58,9 +58,12 @@ Wharnex cannot adopt the documented procedure:
   the validated WireGuard document is retained as private provider state in
   `tunnel.conf` (mode `0600`), including its originally requested local port.
   A backend restart reuses that document and port, preserving the allocated
-  slug without another provisioning request. A missing document is the only
-  condition that allocates a new tunnel; an invalid saved document fails closed
-  rather than silently replacing the URL.
+  slug without another provisioning request. A missing document allocates a new
+  tunnel; a structurally valid saved lease that fails the private readiness
+  probe is discarded and provisioned once more, since tunnel.pyjam.as can
+  expire its server-side mapping while leaving the document syntactically
+  valid. An invalid saved document still fails closed rather than silently
+  replacing the URL.
 
 The service generates the client private key itself, so it can decrypt the
 tunnel. That is the same trust position as every other TLS-terminating provider
