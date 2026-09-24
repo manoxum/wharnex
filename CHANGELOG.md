@@ -2,6 +2,8 @@
 ### Chat f6bc4f93-92dd-4c89-a2e4-9e4676d6b9be (2026-09-24)
 
 - Redesenhado o dossiê de auto-evolução com três modalidades explícitas: Eventos, Conhecimento e Logs externos, incluindo importação dedicada e seleção combinável para análise.
+- Atualiza os orçamentos autónomos de Esforço para Low 3, Medium 8, High 15, Extra High 20, Max 30 e Ultra 50, mantendo Loop sem limite numérico.
+- Novos projetos e sessões passam a iniciar em High, incluindo o Desktop e o Remote, com os controlos e contratos do planner alinhados aos novos limites.
 
 
 ### Chat 417418ff-5def-4c90-aac6-bdd172a77b21 (2026-09-24)
