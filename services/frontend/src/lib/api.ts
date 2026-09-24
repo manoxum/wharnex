@@ -285,6 +285,7 @@ export const api = {
   conflictWorkbench: (id: string) => request<ConflictWorkbench>(`/api/sessions/${id}/conflict`),
   resolveConflictManually: (id: string, resolutions: ConflictManualResolution[]) => request<ConflictManualResult>(`/api/sessions/${id}/conflict/manual`, { method: 'POST', body: JSON.stringify({ resolutions }) }),
   delegateConflictToGPT: (id: string, resolutions: ConflictManualResolution[], guidance = '') => request<Session>(`/api/sessions/${id}/conflict/delegate`, { method: 'POST', body: JSON.stringify({ resolutions, guidance }) }),
+  handoffGitConflict: (id: string, targetSessionId: string) => request<Session>(`/api/sessions/${id}/git/conflict/handoff`, { method: 'POST', body: JSON.stringify({ target_session_id: targetSessionId }) }),
   revert: (id: string) => request<Session>(`/api/sessions/${id}/revert`, { method: 'POST', body: '{}' }),
   restoreReverted: (id: string) => request<Session>(`/api/sessions/${id}/restore-reverted`, { method: 'POST', body: '{}' }),
   restartSelfEvolution: (id: string) => request<Session>(`/api/sessions/${id}/self-restart`, { method: 'POST', body: '{}' }),

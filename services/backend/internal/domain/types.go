@@ -1321,6 +1321,10 @@ type GitConflictContext struct {
 	TargetBranch string `json:"target_branch,omitempty"`
 	// SourceRefs preserves the ordered source set of an isolated remote merge.
 	SourceRefs []string `json:"source_refs,omitempty"`
+	// AutoDispatch is set once the operator's choice (the project's GPT-only
+	// strategy handing it to a dedicated chat, or an explicit delegation) makes
+	// the conflict prompt sendable without another decision.
+	AutoDispatch bool `json:"auto_dispatch,omitempty"`
 }
 
 type RequestLineage struct {

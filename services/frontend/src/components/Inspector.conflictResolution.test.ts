@@ -11,7 +11,7 @@ describe('manual conflict resolution surface', () => {
     expect(inspector).toContain('Resolver manualmente')
     expect(inspector).toContain('Resolver com GPT')
     expect(app).toContain("!['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state)")
-    expect(app).toContain("session.state === 'conflict_resolution_pending') void submitConflictPrompt(session, targetChat)")
+    expect(app).toContain("session.state === 'conflict_resolution_pending') { if (conflictAutoDispatchable(session)) void submitConflictPrompt(session, targetChat) }")
   })
 
   it('uses a three-way editable workbench and supports hybrid delegation', () => {

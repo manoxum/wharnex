@@ -229,6 +229,7 @@ func (s *Service) DelegateConflictToGPT(ctx context.Context, sessionID string, r
 		}
 		current.IntegrationConflict.ManualPaths = append([]string(nil), manualPaths...)
 		current.IntegrationConflict.ManualPatch = patch
+		markGitConflictAutoDispatch(current.IntegrationConflict)
 		current.LastManualPrompt = prompt
 		current.State = "conflict_resolution_pending"
 		return nil

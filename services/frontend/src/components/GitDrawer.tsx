@@ -20,13 +20,14 @@ import { splitWorktreeKey, worktreeKey } from '../lib/gitWorktreeKey'
 type GitTab = 'changes' | 'history' | 'contributors' | 'branches' | 'settings'
 type GitChangesTab = 'working' | 'pending'
 
-export function GitDrawer({ session, busy, onClose, onError, onSession, onResolveConflictWithGPT }: {
+export function GitDrawer({ session, busy, onClose, onError, onSession, onResolveConflictWithGPT, onOpenGitConflictChat }: {
   session: Session
   busy: boolean
   onClose: () => void
   onError?: (message: string) => void
   onSession?: (session: Session) => void
   onResolveConflictWithGPT?: (session: Session) => Promise<void>
+  onOpenGitConflictChat?: (session: Session) => Promise<void>
 }) {
   const [overview, setOverview] = useState<GitOverview | null>(null)
   const [repositoryEntries, setRepositoryEntries] = useState<GitRepositoryOverviewEntry[]>([])
@@ -184,6 +185,10 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     if (!conflictID) return context
     const strategy = overview?.conflict_strategy || 'user_decide'
     if (strategy === 'gpt_only') {
+      if (onOpenGitConflictChat) {
+        await onOpenGitConflictChat(await api.getSession(session.id))
+        return `${context} A resolução foi aberta num chat dedicado com o GPT.`
+      }
       const updated = await api.delegateConflictToGPT(session.id, [], '')
       onSession?.(updated)
       await onResolveConflictWithGPT?.(updated)

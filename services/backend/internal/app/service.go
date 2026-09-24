@@ -1295,6 +1295,10 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		}
 		return BundleSubmission{Session: updated, AutoError: updated.LastRepairError}, nil
 	}
+	current, _ = s.retireObsoleteGitConflict(ctx, sessionID, current)
+	if submission, ignored, ignoreErr := s.ignoreObsoleteConflictAnswer(sessionID, current, parsed.Turn.RequestID); ignored {
+		return submission, ignoreErr
+	}
 	supersededByContinuation := requestSupersededByBaselineContinuation(current, parsed.Turn.RequestID)
 	baselineCompatible := false
 	archiveReconcilable := false

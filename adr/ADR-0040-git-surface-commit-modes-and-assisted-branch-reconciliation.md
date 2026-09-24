@@ -160,6 +160,47 @@ conflicted file contains Git's `<<<<<<<` markers, which no patch can be
 authored against; our own clean version is exactly the CURRENT content the
 capsule showed the resolver.
 
+### 6a. A conflict whose merge already landed is retired
+
+Aborting leaves the operator free to finish the merge themselves, and a later
+pull, push or Wharnex merge can finish it too. Once the recorded incoming side
+(`theirs_sha`) is reachable from the ref the merge would have advanced — the
+local target branch, or `refs/remotes/<target>` for a remote branch merge —
+there is nothing left to reconcile. Wharnex then retires the Git-origin
+conflict (`git.conflict_obsolete`): the record, its pending request and the
+`conflict_resolution_pending` state are cleared. The check runs when the Git
+surface is read, after every successful merge, pull, integrating push or remote
+merge, and before a bundle is processed. Keeping the record would block Apply
+indefinitely and turn the eventual answer into a replay of a merge that no
+longer exists.
+
+A planner answer to a `conflict` request whose conflict is no longer open is
+ignored (`conflict.bundle_obsolete`). It never falls through to the ordinary
+change path, where an automatic mode would plan and apply it as new work.
+
+### 6b. GPT-only resolution runs in a dedicated chat
+
+A pull, push, branch merge or remote merge started from the Git surface can
+conflict while the chat that owns that surface is busy with unrelated work.
+Under the project's `gpt_only` conflict strategy the Git surface therefore
+creates a new chat (`Conflito Git · <ref>`) with its own backend session and
+ChatGPT conversation, and hands the conflict to it
+(`POST /api/sessions/{id}/git/conflict/handoff`, event
+`git.conflict_handed_off`). The conflict is prepared anew on the dedicated
+session rather than copied, because its request id, capsule artifact and
+expected bundle filename belong to the chat that receives the answer. The
+originating session is released only after the dedicated one holds the
+conflict. A conflict with operator-locked manual paths is not handed off.
+
+A freshly detected Git-origin conflict is not sent to the model by any
+automatic continuation: the operator's choice comes first (see
+`SoT/AI_PROTOCOL.md`). The conflict's `git.auto_dispatch` mark records that
+choice. It is set by the hand-off to the dedicated chat and by an explicit
+delegation to GPT, and only then do the visible-chat and background recovery
+continuations send, or resend, the capsule. Under `user_decide`, "Resolver com
+GPT" still continues in the current chat so that operator guidance and any
+hand-resolved paths travel with the delegation.
+
 ### 7. Protocol evolution: one capsule, two destinations
 
 `harness.conflict/v1` gains `origin` (`integration` | `push` | `pull` | `branch_merge`)

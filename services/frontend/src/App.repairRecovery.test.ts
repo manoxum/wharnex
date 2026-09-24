@@ -8,14 +8,14 @@ describe('App policy-repair recovery', () => {
   it('restores automatic repair, baseline, and conflict prompts', () => {
     expect(source).toMatch(/const repairDispatchRef = useRef\(new Set<string>\(\)\)/)
 	expect(source).toMatch(/!\['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'\]\.includes\(session\.state\)/)
-	expect(source).toMatch(/session\.state === 'conflict_resolution_pending'\) void submitConflictPrompt\(session, targetChat\)/)
+	expect(source).toMatch(/session\.state === 'conflict_resolution_pending'\) \{ if \(conflictAutoDispatchable\(session\)\) void submitConflictPrompt\(session, targetChat\) \}/)
     expect(source).toMatch(/void submitRepairPrompt\(session, targetChat\)/)
 	expect(source).toMatch(/void transportPlannerContinuation\(session, targetChat\)\.catch/)
   })
 
   it('recovers every inactive auto continuation through durable background workers', () => {
 	const recovery = source.slice(source.indexOf('const requests = pendingBundleRequestIDs(candidate)') - 2400, source.indexOf('const requests = pendingBundleRequestIDs(candidate)') + 100)
-	expect(recovery).toContain("['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)")
+	expect(recovery).toContain("['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state) && (candidate.state !== 'conflict_resolution_pending' || conflictAutoDispatchable(candidate))")
 	expect(recovery).toContain("candidate.state === 'awaiting_plan' && Number(candidate.remote_recovery_attempt || 0) > 0")
 	expect(recovery).toContain('isAutomaticAutomationMode(candidate.automation_mode)')
 	expect(recovery).toMatch(/api\.chatAgentTasksForRequest\(continuationRequestID\)/)
@@ -86,5 +86,19 @@ describe('App policy-repair recovery', () => {
     expect(request).toBeGreaterThan(targetCapture)
     expect(retry).toMatch(/transportPlannerContinuation\(retried, targetChat\)/)
     expect(source).not.toMatch(/const original = \[\.\.\.items\]\.reverse\(\)/)
+  })
+
+  it('resolves a GPT-only Git conflict in a dedicated chat instead of the detecting one', () => {
+    const drawer = readFileSync(resolve(process.cwd(), 'src/components/GitDrawer.tsx'), 'utf8')
+    const gptOnly = drawer.slice(drawer.indexOf("if (strategy === 'gpt_only')"), drawer.indexOf("if (strategy === 'user_only')"))
+    expect(gptOnly.indexOf('onOpenGitConflictChat(')).toBeGreaterThan(-1)
+    expect(gptOnly.indexOf('onOpenGitConflictChat(')).toBeLessThan(gptOnly.indexOf('api.delegateConflictToGPT'))
+    const open = source.slice(source.indexOf('async function openGitConflictChat('), source.indexOf('async function submitWorkflowPrompt('))
+    const created = open.indexOf('api.createSession(')
+    const handoff = open.indexOf('api.handoffGitConflict(source.id, created.id)')
+    const submit = open.indexOf('await submitConflictPrompt(dedicated, chat)')
+    expect(created).toBeGreaterThan(-1)
+    expect(handoff).toBeGreaterThan(created)
+    expect(submit).toBeGreaterThan(handoff)
   })
 })

@@ -445,6 +445,9 @@ func (s *Service) GitOverview(ctx context.Context, sessionID string) (GitOvervie
 	if repoPath == "" {
 		overview.Pending = s.pendingRecordsWithoutDiffs(item.ProjectPath)
 	}
+	if repoPath == "" {
+		item, _ = s.retireObsoleteGitConflict(ctx, sessionID, item)
+	}
 	if repoPath == "" && item.IntegrationConflict != nil && item.IntegrationConflict.Git != nil {
 		overview.Conflict = item.IntegrationConflict.Git
 	}

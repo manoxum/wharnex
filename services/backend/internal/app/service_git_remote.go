@@ -96,6 +96,7 @@ func (s *Service) PushBranch(ctx context.Context, sessionID, remote, branch stri
 	}
 	result.Outcome, result.Detail = string(retry.Outcome), retry.Detail
 	s.bus.Publish(sessionID, "git.push_completed", map[string]any{"remote": remote, "branch": branch, "outcome": string(retry.Outcome), "integrated": true, "repository": repoPath})
+	s.retireObsoleteGitConflictByID(ctx, sessionID)
 	return result, nil
 }
 
@@ -219,6 +220,7 @@ func (s *Service) MergeBranchIntoCurrent(ctx context.Context, sessionID, ref str
 	result := GitMergeResult{Outcome: string(merge.Outcome), Ref: ref, CommitSHA: merge.CommitSHA, Paths: merge.Paths}
 	if merge.Outcome != hostrepo.MergeOutcomeConflict {
 		s.bus.Publish(sessionID, "git.merge_completed", map[string]any{"ref": ref, "outcome": string(merge.Outcome), "repository": repoPath})
+		s.retireObsoleteGitConflictByID(ctx, sessionID)
 		return result, nil
 	}
 	if repoPath != "" {
@@ -447,6 +449,9 @@ func (s *Service) MergeRemoteBranches(ctx context.Context, sessionID, targetRef 
 		result.ConflictID = conflictID
 	}
 	s.bus.Publish(sessionID, "git.remote_merge_completed", map[string]any{"target": targetRef, "sources": sourceRefs, "outcome": result.Outcome, "push_outcome": result.PushOutcome, "repository": repoPath})
+	if result.Outcome != "conflict" {
+		s.retireObsoleteGitConflictByID(ctx, sessionID)
+	}
 	return result, nil
 }
 
@@ -481,6 +486,7 @@ func (s *Service) PullBranch(ctx context.Context, sessionID, remote, branch stri
 	result := GitBranchActionResult{Outcome: string(merge.Outcome), Remote: remote, Branch: branch, Ref: ref, CommitSHA: merge.CommitSHA, Paths: merge.Paths}
 	if merge.Outcome != hostrepo.MergeOutcomeConflict {
 		s.bus.Publish(sessionID, "git.pull_completed", map[string]any{"remote": remote, "branch": branch, "outcome": string(merge.Outcome), "repository": repoPath})
+		s.retireObsoleteGitConflictByID(ctx, sessionID)
 		return result, nil
 	}
 	if repoPath != "" {

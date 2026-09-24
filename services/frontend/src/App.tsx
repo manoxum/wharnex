@@ -79,6 +79,7 @@ const EXECUTION_ACTIVE_EVENT_TYPES = new Set(['execution.queued', 'execution.deq
 const EXECUTION_TERMINAL_EVENT_TYPES = new Set(['execution.completed', 'execution.failed', 'execution.duplicate_blocked'])
 
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation } from './lib/desktop'
+import { conflictAutoDispatchable, gitConflictChatTitle } from './lib/gitConflictChat'
 import { embeddedProjectInitiallyActive, embeddedProjectPath } from './lib/projectBindings'
 import { addChatAttachments, attachmentPromptSuffix, encodeChatAttachments } from './lib/chatAttachments'
 import { persistOperationalEvidence } from './lib/evolutionEvidenceImport'
@@ -436,7 +437,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         // One workspace-chat read for the whole batch, not two per frame.
         const needsOwner = batch.some((parsed) => parsed.type === 'execution.started' || (parsed.data.plan_id && EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)))
         const owner = needsOwner ? loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId) : undefined
-        const sessionMutationEvents = new Set(['plan.received', 'plan.control_changed', 'plan.reversal_requested', 'repair.prompt_ready', 'baseline.continuation_ready', 'conflict.prompt_ready', 'host.applied', 'host.apply_paused', 'automation.paused', 'host.reverted', 'host.restored'])
+        const sessionMutationEvents = new Set(['plan.received', 'plan.control_changed', 'plan.reversal_requested', 'repair.prompt_ready', 'baseline.continuation_ready', 'conflict.prompt_ready', 'git.conflict_obsolete', 'conflict.bundle_obsolete', 'host.applied', 'host.apply_paused', 'automation.paused', 'host.reverted', 'host.restored'])
         if (batch.some((parsed) => (parsed.type === 'artifact.persisted' && parsed.data.kind === 'bundle') || sessionMutationEvents.has(parsed.type))) {
           void api.getSession(id).then((updated) => {
             sessionCacheRef.current[chatId] = updated
@@ -713,7 +714,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 	if (!session || !activeChatOwnsSession || !['repair_pending', 'baseline_update_pending', 'conflict_resolution_pending'].includes(session.state) || !isAutomaticAutomationMode(session.automation_mode) || !session.last_manual_prompt || !activeChatId) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
-	if (session.state === 'conflict_resolution_pending') void submitConflictPrompt(session, targetChat)
+	if (session.state === 'conflict_resolution_pending') { if (conflictAutoDispatchable(session)) void submitConflictPrompt(session, targetChat) }
 	else if (session.state === 'repair_pending') void submitRepairPrompt(session, targetChat)
 	else {
 		const dispatchKey = `dispatch:${targetChat.id}:${session.last_request_id || session.id}`
@@ -1600,7 +1601,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		  // may subsequently fail. Reconcile the queue itself, retry an initial
 		  // write at most three times, and never duplicate an accepted submit.
 		  const automaticContinuation = isAutomaticAutomationMode(candidate.automation_mode) && candidate.last_manual_prompt && (
-			['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state)
+			(['conflict_resolution_pending', 'repair_pending', 'workflow_pending', 'baseline_update_pending'].includes(candidate.state) && (candidate.state !== 'conflict_resolution_pending' || conflictAutoDispatchable(candidate)))
 			|| (candidate.state === 'awaiting_plan' && Number(candidate.remote_recovery_attempt || 0) > 0)
 		  )
 		  const continuationRequestID = candidate.state === 'conflict_resolution_pending' ? candidate.integration_conflict?.request_id : candidate.last_request_id
@@ -2479,6 +2480,22 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		const targetChat = chats.find((chat) => chat.id === ownerChatId)
 		if (!targetChat) throw new Error('Não foi possível localizar o chat deste conflito.')
 		await submitConflictPrompt(conflictedSession, targetChat)
+	}
+
+	// GPT-only Git conflicts are resolved in their own chat and ChatGPT
+	// conversation, never inside the chat whose Git surface detected them.
+	async function openGitConflictChat(source: Session) {
+		hideChatGPTSurfaces(chats.find((chat) => chat.id === activeChatIdRef.current))
+		const chatId = crypto.randomUUID()
+		const created = await api.createSession(source.project_path, executionMode, automationMode, chatId, effortLevel)
+		const dedicated = await api.handoffGitConflict(source.id, created.id)
+		const chat = newWorkspaceChat(dedicated.id, gitConflictChatTitle(dedicated), chatId)
+		await api.saveWorkspaceChat(durableWorkspaceChat(dedicated.project_path, chat))
+		persistChats(dedicated.project_path, [chat, ...chats])
+		transcriptReadyRef.current.add(chat.id)
+		activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(dedicated); setItems([welcomeItem(dedicated)])
+		setEvents([]); setManualPrompt(dedicated.last_manual_prompt || ''); setChatTransportMode(dedicated.chat_transport_mode || 'scraper'); setMode('agent'); connectEvents(dedicated.id, dedicated.project_path, chat.id)
+		await submitConflictPrompt(dedicated, chat)
 	}
 
   async function submitWorkflowPrompt(workflowSession: Session, targetChat: WorkspaceChat, force = false): Promise<boolean> {
@@ -3811,6 +3828,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onError={setError}
         onSession={setSession}
         onResolveConflictWithGPT={resolveConflictWithGPT}
+        onOpenGitConflictChat={openGitConflictChat}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
         onRunInTerminal={runInTerminal}
@@ -3914,6 +3932,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         onError={setError}
         onSession={setSession}
         onResolveConflictWithGPT={resolveConflictWithGPT}
+        onOpenGitConflictChat={openGitConflictChat}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((open) => !open)}
         onRunInTerminal={runInTerminal}

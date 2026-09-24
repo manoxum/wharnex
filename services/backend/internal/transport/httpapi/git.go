@@ -46,6 +46,7 @@ func (a *API) registerGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/git/releases", a.gitCreateRelease)
 	mux.HandleFunc("POST /api/sessions/{id}/git/merge", a.gitMerge)
 	mux.HandleFunc("POST /api/sessions/{id}/git/remote-merge", a.gitRemoteMerge)
+	mux.HandleFunc("POST /api/sessions/{id}/git/conflict/handoff", a.gitConflictHandoff)
 }
 
 func (a *API) gitOverview(w http.ResponseWriter, r *http.Request) {
