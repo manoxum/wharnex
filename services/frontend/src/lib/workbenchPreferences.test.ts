@@ -19,6 +19,8 @@ describe('workbenchPreferences', () => {
     expect(errorsPanel.left.tool).toBe('errors')
     const dockerPanel = normalizeWorkbenchState({ right: { open: true, collapsed: false, size: 520, tool: 'docker' } })
     expect(dockerPanel.right.tool).toBe('docker')
+    const externalAgentsPanel = normalizeWorkbenchState({ left: { open: true, collapsed: false, size: 380, tool: 'external-agents' } })
+    expect(externalAgentsPanel.left.tool).toBe('external-agents')
     const fresh = loadWorkbenchState('/projects/b')
     expect({ ...fresh, left: { ...fresh.left, size: 0 }, right: { ...fresh.right, size: 0 } })
       .toEqual({ ...DEFAULT_WORKBENCH_STATE, left: { ...DEFAULT_WORKBENCH_STATE.left, size: 0 }, right: { ...DEFAULT_WORKBENCH_STATE.right, size: 0 } })
