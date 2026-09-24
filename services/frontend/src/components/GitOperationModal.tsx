@@ -25,13 +25,21 @@ export type GitOperation = {
   onConfirmTargets?: (paths: string[]) => void
   previews?: GitOperationPreview[]
   onConfirmReview?: () => void
+  reviewMessage?: string
+  quickCommit?: {
+    fileCount: number
+    repositoryCount: number
+    unavailableReason?: string
+    onCommit: (message: string) => void
+  }
 }
 
 export function GitOperationModal({ operation, sessionId = '', onClose }: { operation: GitOperation; sessionId?: string; onClose: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(() => initialSelection(operation))
   const [activePreview, setActivePreview] = useState(0)
+  const [quickCommitMessage, setQuickCommitMessage] = useState('')
   const availableTargets = (operation.targets || []).filter((target) => target.available !== false)
-  useEffect(() => { setSelected(initialSelection(operation)); setActivePreview(0) }, [operation])
+  useEffect(() => { setSelected(initialSelection(operation)); setActivePreview(0); setQuickCommitMessage('') }, [operation])
 
   const selecting = operation.phase === 'selecting'
   const reviewing = operation.phase === 'reviewing'
@@ -55,6 +63,15 @@ export function GitOperationModal({ operation, sessionId = '', onClose }: { oper
           <div className="min-w-0"><span className="panel-kicker">Revisão antes de executar</span><strong className="block truncate">{operation.title}</strong><p className="m-0 truncate text-xs text-whx-muted">{operation.detail}</p></div>
           <button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar revisão"><Icon name="close" size={14}/></button>
         </header>
+        {operation.reviewMessage && <p className="m-0 border-b border-whx-border bg-whx-elevated px-4 py-2 text-xs text-whx-muted" role="status">{operation.reviewMessage}</p>}
+        {operation.quickCommit && <section className="border-b border-whx-border bg-whx-surface px-4 py-3" aria-label="Commit rápido antes do push">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="min-w-[260px] flex-1 text-xs text-whx-muted"><span className="mb-1 block font-semibold text-whx-text">Commit rápido antes do push</span><input type="text" className="w-full rounded-md border border-whx-border bg-whx-elevated px-3 py-2 text-sm text-whx-text outline-none" aria-label="Mensagem do commit rápido" placeholder="Ex.: fix(git): ajustar publicação" value={quickCommitMessage} onChange={(event) => setQuickCommitMessage(event.target.value)}/></label>
+            <button type="button" className="git-action primary" disabled={!quickCommitMessage.trim() || Boolean(operation.quickCommit.unavailableReason)} onClick={() => operation.quickCommit?.onCommit(quickCommitMessage.trim())}>Commit rápido</button>
+          </div>
+          <p className="mb-0 mt-2 text-xs text-whx-muted">Cria um commit com todas as {operation.quickCommit.fileCount} alteração(ões) comitáveis em {operation.quickCommit.repositoryCount} repositório(s) selecionado(s). O diff do push será recalculado antes da confirmação final.</p>
+          {operation.quickCommit.unavailableReason && <p className="mb-0 mt-2 text-xs text-whx-warning" role="alert">{operation.quickCommit.unavailableReason}</p>}
+        </section>}
         {previews.length > 1 && <nav className="flex gap-1 overflow-x-auto border-b border-whx-border px-3 py-2" aria-label="Repositórios revistos">{previews.map((item, index) => <button key={`${item.repository}-${index}`} type="button" className={`rounded-md px-3 py-1.5 text-xs ${index === activePreview ? 'bg-whx-elevated text-whx-text' : 'text-whx-muted hover:bg-whx-hover'}`} onClick={() => setActivePreview(index)}>{`${item.repository || 'Projeto principal'} · ${item.to_label}`}</button>)}</nav>}
         {preview ? <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-wrap items-center gap-2 border-b border-whx-border px-4 py-2 text-xs text-whx-muted"><span className="rounded-md bg-whx-surface px-2 py-1"><b className="text-whx-text">Antes:</b> {preview.from_label}</span><Icon name="arrow-right" size={12}/><span className="rounded-md bg-whx-surface px-2 py-1"><b className="text-whx-text">Depois:</b> {preview.to_label}</span>{preview.truncated && <span className="ml-auto text-whx-warning">Diff limitado a 2 MiB</span>}</div>

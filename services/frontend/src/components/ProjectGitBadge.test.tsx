@@ -16,6 +16,8 @@ vi.mock('../lib/api', async () => {
       gitFetch: vi.fn(),
       gitPull: vi.fn(),
       gitPush: vi.fn(),
+      gitPreview: vi.fn(),
+      commitGitWorktree: vi.fn(),
       gitSwitch: vi.fn(),
       getSession: vi.fn(),
     },
@@ -57,6 +59,8 @@ describe('ProjectGitBadge', () => {
     vi.clearAllMocks()
     vi.mocked(api.gitOverview).mockResolvedValue(overview())
     vi.mocked(api.gitHead).mockResolvedValue({ current_branch: 'main', detached: false, commit_sha: 'a1' })
+    vi.mocked(api.gitPreview).mockResolvedValue({ operation: 'push', repository: '', from_label: 'origin/main', to_label: 'main', diff: 'diff --git a/app.ts b/app.ts\n--- a/app.ts\n+++ b/app.ts\n@@ -1 +1 @@\n-old\n+new\n' })
+    vi.mocked(api.commitGitWorktree).mockResolvedValue({ commit_sha: 'cafe1234cafe', paths: ['app.ts'] })
   })
 
   it('refreshes remote refs every minute without opening the popup', async () => {
@@ -240,12 +244,45 @@ describe('ProjectGitBadge', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fechar' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Push' }))
-    const pushDialog = await screen.findByRole('dialog', { name: 'A publicar alterações' })
-    expect(pushDialog.className).toContain('running')
-    expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'main', false, '')
+    const reviewDialog = await screen.findByRole('dialog', { name: 'A publicar alterações' })
+    expect(reviewDialog.textContent).toContain('Revisão antes de executar')
+    expect(api.gitPreview).toHaveBeenCalledWith('ses_1', { operation: 'push', repository: '', remote: 'origin', branch: 'main' })
+    expect(api.gitPush).not.toHaveBeenCalled()
+    const confirm = screen.getByRole('button', { name: 'Confirmar e continuar' }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(false)
+    fireEvent.click(confirm)
+    await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'main', false, ''))
     push.resolve({ outcome: 'pushed', remote: 'origin', branch: 'main' })
-    await waitFor(() => expect(pushDialog.className).toContain('success'))
+    await waitFor(() => expect((screen.getByRole('dialog', { name: 'A publicar alterações' })).className).toContain('success'))
+    const pushDialog = screen.getByRole('dialog', { name: 'A publicar alterações' })
     expect(pushDialog.querySelector('.git-operation-message')?.textContent).toBe('Push: pushed.')
     expect(screen.getByRole('button', { name: 'Fechar' })).toBeTruthy()
+  })
+
+  it('quick-commits all selected worktree changes and recalculates the push diff before publishing', async () => {
+    const state = overview()
+    state.working = { clean: false, stageable_count: 1, files: [{ path: 'app.ts', kind: 'change', status: 'modified' }] }
+    vi.mocked(api.gitOverview).mockResolvedValue(state)
+    vi.mocked(api.gitPreview)
+      .mockResolvedValueOnce({ operation: 'push', repository: '', from_label: 'origin/main', to_label: 'main', diff: 'diff --git a/app.ts b/app.ts\n--- a/app.ts\n+++ b/app.ts\n@@ -1 +1 @@\n-old\n+before-commit\n' })
+      .mockResolvedValueOnce({ operation: 'push', repository: '', from_label: 'origin/main', to_label: 'main', diff: 'diff --git a/app.ts b/app.ts\n--- a/app.ts\n+++ b/app.ts\n@@ -1 +1 @@\n-old\n+after-commit\n' })
+    vi.mocked(api.gitPush).mockResolvedValue({ outcome: 'pushed', remote: 'origin', branch: 'main' })
+
+    render(<ProjectGitBadge sessionID="ses_1" busy={false}/>)
+    await openBadge()
+    fireEvent.click(screen.getByRole('button', { name: 'Push' }))
+
+    const quickCommitInput = await screen.findByRole('textbox', { name: 'Mensagem do commit rápido' })
+    fireEvent.change(quickCommitInput, { target: { value: 'fix(git): guardar alterações' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Commit rápido' }))
+
+    await waitFor(() => expect(api.commitGitWorktree).toHaveBeenCalledWith('ses_1', 'fix(git): guardar alterações', [], '', true))
+    await waitFor(() => expect(api.gitPreview).toHaveBeenCalledTimes(2))
+    expect((await screen.findByRole('status')).textContent).toContain('diff do push foi recalculado')
+    expect(api.gitPush).not.toHaveBeenCalled()
+    expect(screen.queryByRole('textbox', { name: 'Mensagem do commit rápido' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar e continuar' }))
+    await waitFor(() => expect(api.gitPush).toHaveBeenCalledWith('ses_1', 'origin', 'main', false, ''))
   })
 })
