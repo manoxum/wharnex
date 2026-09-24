@@ -88,6 +88,8 @@ function onPath(tool, env) {
 function upLinkUnshare(env, unsharePath) {
   const configured = String(env.WHARNESS_UP_LINK_UNSHARE || '').trim()
   if (configured) return configured
+  // Keep the production default on UP_LINK_UNSHARE while allowing focused
+  // availability checks to substitute a path that is independent of the host.
   try { accessSync(unsharePath, constants.X_OK); return unsharePath } catch { return 'unshare' }
 }
 
