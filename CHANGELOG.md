@@ -1,4 +1,14 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat 74e31873-20ff-4059-b556-c6275c82ca19 (2026-09-24)
+
+_(reserved — no entries yet)_
+
+
+### Chat 16f4a870-eb30-46cf-9116-a180a53ef5dc (2026-09-24)
+
+_(reserved — no entries yet)_
+
+
 ### Chat 5a56f66c-ba0a-443a-94f8-7afd08e8d00b (2026-09-23)
 
 - Alinha o Wharnex Remote com as preferências visuais do Desktop através de um perfil de UI persistido no backend, incluindo tema, accent, escala, tipografia e densidade.
