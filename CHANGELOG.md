@@ -1,4 +1,9 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat ef6a2604-cc58-4090-83b8-ebff6acc176a (2026-09-24)
+
+_(reserved — no entries yet)_
+
+
 ### Chat f6bc4f93-92dd-4c89-a2e4-9e4676d6b9be (2026-09-24)
 
 - Redesenhado o dossiê de auto-evolução com três modalidades explícitas: Eventos, Conhecimento e Logs externos, incluindo importação dedicada e seleção combinável para análise.
