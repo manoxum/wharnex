@@ -103,6 +103,13 @@ func TestSelectiveExportRefusesUnknownRecords(t *testing.T) {
 
 // An edited or truncated transfer must be refused, not quietly installed as
 // project truth that later requests will reason from.
+func TestImportRefusesUnknownKnowledgeCategory(t *testing.T) {
+	raw := []byte(`{"protocol":"harness.knowledge-export/v1","exported_at":"2026-01-01T00:00:00Z","entries":[{"id":"a","content":"project fact","category":"business_rule"}]}`)
+	if _, err := ParseKnowledgeExport(raw); err == nil || !strings.Contains(err.Error(), "category") {
+		t.Fatalf("expected an unsupported category refusal, got %v", err)
+	}
+}
+
 func TestImportRefusesABundleWhoseContentDoesNotMatchItsDigest(t *testing.T) {
 	raw := []byte(`{"protocol":"harness.knowledge-export/v1","exported_at":"2026-01-01T00:00:00Z","entries":[{"id":"a","content":"tampered","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}]}`)
 	if _, err := ParseKnowledgeExport(raw); err == nil || !strings.Contains(err.Error(), "sha256") {

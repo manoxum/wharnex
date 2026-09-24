@@ -796,7 +796,7 @@ describe('AgentWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Logs de auto-evolução' })).toBeNull()
 
     const self = { ...session(), self_evolution: true }
-    vi.spyOn(api, 'evolutionEvidence').mockResolvedValue({ events: [], counts: {}, projects: [], categories: [], total: 0, truncated: false })
+    vi.spyOn(api, 'evolutionEvidence').mockResolvedValue({ events: [], counts: {}, projects: [], categories: [], total: 0, truncated: false, knowledge: [], knowledge_counts: {}, knowledge_categories: [], knowledge_total: 0, knowledge_truncated: false })
     rendered.rerender(props(self).element)
     expect(screen.queryByText('WHX · AUTO-EVOLUÇÃO')).toBeNull()
     const directChatGPT = screen.getByRole('navigation', { name: 'ChatGPT direto' })
@@ -954,11 +954,17 @@ describe('AgentWorkspace', () => {
   })
 
   it('opens the project knowledge explorer from the left activity rail', async () => {
-    vi.spyOn(api, 'projectKnowledge').mockResolvedValue({ knowledge: { project_path: '/workspace/wharness', content: '# Arquitetura\n\n- API local.', version: 2, updated_at: '2026-09-07T10:00:00.000Z', updated_by_request_id: 'req-review' } })
+    vi.spyOn(api, 'projectKnowledgeCatalog').mockResolvedValue({ catalog: {
+      project_path: '/workspace/wharness',
+      revision: 2,
+      updated_at: '2026-09-07T10:00:00.000Z',
+      updated_by_request_id: 'req-review',
+      entries: [{ id: 'arquitetura', category: 'product_domain', content: '# Arquitetura\n\n- API local.', version: 2, updated_at: '2026-09-07T10:00:00.000Z', updated_by_request_id: 'req-review' }],
+    } })
     render(props().element)
     fireEvent.click(screen.getByTitle('Conhecimento adquirido'))
-    expect(await screen.findByRole('navigation', { name: 'Tópicos do conhecimento' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Arquitetura' })).toBeTruthy()
+    expect(await screen.findByRole('navigation', { name: 'Registos de conhecimento' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /arquitetura/ })).toBeTruthy()
   })
 
 })

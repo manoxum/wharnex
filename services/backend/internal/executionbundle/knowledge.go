@@ -26,9 +26,10 @@ type knowledgeIndexWire struct {
 }
 
 type knowledgeIndexEntryWire struct {
-	ID     string `json:"id"`
-	File   string `json:"file"`
-	SHA256 string `json:"sha256"`
+	ID       string `json:"id"`
+	File     string `json:"file"`
+	SHA256   string `json:"sha256"`
+	Category string `json:"category,omitempty"`
 }
 
 func parseKnowledgeCandidate(files map[string][]byte) (*domain.ProjectKnowledgeCandidate, error) {
@@ -95,7 +96,11 @@ func parseKnowledgeCandidate(files map[string][]byte) (*domain.ProjectKnowledgeC
 		if strings.ToLower(strings.TrimSpace(wire.SHA256)) != actual {
 			return nil, fmt.Errorf("knowledge %q sha256 mismatch", id)
 		}
-		candidate.Entries = append(candidate.Entries, domain.ProjectKnowledgeEntry{ID: id, Content: strings.TrimSpace(string(content))})
+		text := strings.TrimSpace(string(content))
+		if wire.Category != "" && !domain.IsKnowledgeCategory(wire.Category) {
+			return nil, fmt.Errorf("knowledge %q category must be one of the supported values", id)
+		}
+		candidate.Entries = append(candidate.Entries, domain.ProjectKnowledgeEntry{ID: id, Content: text, Category: domain.NormalizeKnowledgeCategory(wire.Category, id, text)})
 	}
 	for name := range files {
 		if !strings.HasPrefix(name, "knowledge/") || name == "knowledge/index.json" {

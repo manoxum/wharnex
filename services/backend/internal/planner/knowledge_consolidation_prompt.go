@@ -36,7 +36,7 @@ The complete current catalog is attached as separate knowledge/<id>.md files. Re
 
 RESULT CONTRACT:
 - turn.json at ZIP root: harness.turn/v1, request_id exactly %q, kind="answer", completed outcome. turn.message states concisely what you merged, split, rewrote and removed, and why — the operator approves nothing here, so this is their only account of what changed.
-- knowledge/index.json with protocol %s, mode=replace, base_revision=%d, and one entry per record in the CONSOLIDATED catalog, each with its exact SHA-256 and file knowledge/<id>.md.
+- knowledge/index.json with protocol %s, mode=replace, base_revision=%d, and one entry per record in the CONSOLIDATED catalog, each with id, file, exact SHA-256 and category.
 - One knowledge/<id>.md per indexed record, carrying that record's complete final content.
 - README.md at ZIP root, non-empty.
 - No plan.json. No patches/. No summary.md and no attempts/ledger.md: this round is not part of a Main Request and has no execution history to account for.
@@ -44,18 +44,20 @@ RESULT CONTRACT:
 CONSOLIDATION RULES:
 - Merge records that state the same lesson, or that are only meaningful together. Keep the clearest existing id rather than inventing a new one.
 - Split a record that has accumulated several unrelated topics, so each resulting record stands alone.
-- Delete a record only when it is superseded, contradicted by better evidence, or merely restates a rule that already lives in AGENTS.md, SoT/*.md, an ADR, or the README.
+- Remove empty, near-empty, placeholder or content-free records.
+- Delete a record when it is superseded or merely restates a rule that already lives in AGENTS.md, SoT/*.md, an ADR, or the README.
+- Reconcile contradictions by evidence quality and recency: prefer stronger evidence, and when evidence quality is comparable prefer the more recently updated record. Keep an older contradictory conclusion only when its scope is genuinely different and make that scope explicit.
 - Rewrite each record so it opens by naming the situation it applies to. These records are retrieved by relevance in later requests; a record whose first line does not say when it applies will not be found when it matters.
-- Preserve every distinct proven fact. Consolidation reorganizes evidence; it never discards it. Where two records genuinely disagree, keep both conclusions in one record and say what supports each.
-- Never invent knowledge no record already contains, and never generalize an operational fact into advice that could have been written without ever running this project.
+- Assign exactly one category to every final record: conflict_resolution, patch_strategy, execution_repair, verification, runtime_environment, protocol_transport, product_domain, or general. Only the first six are eligible as reusable evidence for WHX self-evolution; project-specific business/domain facts belong in product_domain.
+- Preserve every distinct proven fact that remains valid after contradiction/supersession reconciliation. Never invent knowledge no record already contains, and never generalize an operational fact into advice that could have been written without ever running this project.
 - Returning an empty catalog is rejected by Wharnex. Discarding knowledge is a separate explicit human action, never a consolidation outcome.
 
 MANDATORY SELF-CHECK BEFORE ATTACHING:
 1. Re-open the ZIP and verify the canonical filename, request_id and kind=answer.
 2. Verify there is no plan.json and no patches/.
 3. Verify knowledge/index.json uses only protocol, base_revision, mode and entries, with base_revision=%d and mode=replace.
-4. Verify every indexed record has its knowledge/<id>.md present and its sha256 exact.
-5. Verify the catalog is not empty and that every distinct fact from the input survives somewhere in the output.
+4. Verify every indexed record has its knowledge/<id>.md present, its sha256 exact, and a valid category.
+5. Verify the catalog is not empty and that every still-valid distinct fact from the input survives somewhere in the output; empty/placeholders and superseded contradictions may be removed under the rules above.
 `, SystemProtocol, expectedFilename, req.RequestID, plannerKnowledgeIdentity(req), req.Message, req.RequestID,
 		domain.KnowledgeProtocolV2, req.KnowledgeRevision, req.KnowledgeRevision)
 }

@@ -2,7 +2,7 @@ import { type ComponentProps, type PointerEvent as ReactPointerEvent, useCallbac
 import { api, APIError } from './lib/api'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import { isAutomaticAutomationMode, isAutoApproveAutomationMode } from './lib/automationMode'
-import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
+import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, EvolutionKnowledgeRef, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
 import type { ReasoningEffort } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
@@ -3226,7 +3226,36 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		} finally { setBusy(false) }
 	}
 
-  async function analyzeEvolutionEvidence(evidenceIds: string[], evidenceFiles: File[] = []) {
+  async function consolidateProjectKnowledge() {
+    if (!session) return
+    if (busy || requestChainActive(session)) throw new Error('Conclua o pedido ativo antes de consolidar o conhecimento do projeto.')
+    const targetSession = session
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
+    setBusy(true); setError(undefined)
+    try {
+      const result = await api.consolidateProjectKnowledge(targetSession.id)
+      acceptSessionForChat(targetChat, result.session)
+      if (activeChatIdRef.current === targetChat.id) setManualPrompt(result.session.last_manual_prompt || '')
+      let submitted = false
+      if (result.session.chat_transport_mode !== 'manual' && result.session.last_manual_prompt) {
+        const prepared = await transportPlannerContinuation(result.session, targetChat)
+        submitted = prepared.submitted
+        setChatgptAttentionNonce((value) => value + 1)
+      }
+      appendChatItem(targetChat, result.session.project_path, {
+        id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
+        text: submitted ? 'O catálogo completo foi empacotado e enviado ao GPT para consolidação. A resposta poderá mesclar duplicados, reconciliar contradições por evidência/recência, remover registos vazios e recategorizar conhecimento.' : 'A consolidação do catálogo foi preparada. Envie o prompt pendente ao ChatGPT para concluir a manutenção.',
+        meta: submitted ? 'Conhecimento · consolidação enviada' : 'Conhecimento · consolidação preparada',
+        iteration: result.session.last_request_id ? iterationRef(result.session.last_request_id, submitted ? 'submitted' : 'prepared', ['prompt'], targetChat.chatgptUrl) : undefined,
+      })
+    } catch (cause) {
+      setError(messageOf(cause))
+      throw cause
+    } finally { setBusy(false) }
+  }
+
+  async function analyzeEvolutionEvidence(evidenceIds: string[], knowledgeRefs: EvolutionKnowledgeRef[] = [], evidenceFiles: File[] = []) {
     if (!session?.self_evolution || busy || requestChainActive(session)) return
     setBusy(true); setError(undefined)
     try {
@@ -3241,7 +3270,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         persistChats(session.project_path, [targetChat, ...chats])
       }
       const artifactIds = await persistOperationalEvidence(targetSession.id, evidenceFiles)
-      const result = await api.analyzeEvolutionEvidence(targetSession.id, evidenceIds, artifactIds)
+      const result = await api.analyzeEvolutionEvidence(targetSession.id, evidenceIds, knowledgeRefs, artifactIds)
       sourceRef.current?.close(); sourceRef.current = null
       activeChatIdRef.current = targetChat.id; setActiveChatId(targetChat.id); setSession(result.session); setEvents([])
       const existingItems = loadChat(result.session.project_path, targetChat.id)
@@ -3255,7 +3284,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       // window here is otherwise invisible to the user. This reuses the same
       // signal openChatGPTHumanAction uses to focus that surface.
       setChatgptAttentionNonce((value) => value + 1)
-      appendChatItem(targetChat, result.session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `Foram correlacionados ${result.evidence_total} eventos operacionais. A análise foi aberta como proposta de plano e continuará sujeita a aprovação, Policy e sandbox Protected.`, meta: prepared.submitted ? 'Auto-evolução · análise enviada' : 'Auto-evolução · análise preparada', iteration: result.session.last_request_id ? iterationRef(result.session.last_request_id, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], targetChat.chatgptUrl) : undefined })
+      const eventSelection = evidenceIds.length > 0 ? `${evidenceIds.length} eventos` : knowledgeRefs.length > 0 ? '0 eventos' : 'todos os eventos aplicáveis'
+      appendChatItem(targetChat, result.session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `A análise foi preparada a partir do dossiê selecionado. A fonte global contém ${result.evidence_total} eventos e ${result.knowledge_total} conhecimentos operacionais elegíveis; esta ronda recebeu ${eventSelection} e ${knowledgeRefs.length} conhecimentos selecionados, além dos anexos escolhidos. A proposta continuará sujeita a Policy e sandbox Protected.`, meta: prepared.submitted ? 'Auto-evolução · análise enviada' : 'Auto-evolução · análise preparada', iteration: result.session.last_request_id ? iterationRef(result.session.last_request_id, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], targetChat.chatgptUrl) : undefined })
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
 
@@ -3777,6 +3807,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         explorerRevealPath={explorerReveal.path}
         explorerRevealNonce={explorerReveal.nonce}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
+        onConsolidateKnowledge={consolidateProjectKnowledge}
         onError={setError}
         onSession={setSession}
         onResolveConflictWithGPT={resolveConflictWithGPT}
@@ -3879,6 +3910,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         explorerRevealPath={explorerReveal.path}
         explorerRevealNonce={explorerReveal.nonce}
         onAnalyzeEvolution={analyzeEvolutionEvidence}
+        onConsolidateKnowledge={consolidateProjectKnowledge}
         onError={setError}
         onSession={setSession}
         onResolveConflictWithGPT={resolveConflictWithGPT}

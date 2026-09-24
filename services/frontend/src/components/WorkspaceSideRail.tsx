@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type ComponentProps } from 'react'
-import type { HarnessEvent, ProjectTodo, Session, TerminalRunInput } from '../types'
+import type { EvolutionKnowledgeRef, HarnessEvent, ProjectTodo, Session, TerminalRunInput } from '../types'
 import { ChatPanel } from './ChatPanel'
 import { Icon } from './Icon'
 import { desktopWindowScope } from '../lib/projectBindings'
@@ -88,7 +88,8 @@ export type WorkspaceSideRailProps = {
   onOpenFile: (path: string) => void
   explorerRevealPath?: string
   explorerRevealNonce?: number
-  onAnalyzeEvolution?: (ids: string[]) => Promise<void>
+  onAnalyzeEvolution?: (ids: string[], knowledgeRefs?: EvolutionKnowledgeRef[], files?: File[]) => Promise<void>
+  onConsolidateKnowledge?: () => Promise<void>
   onError: (message: string) => void
   onSession?: (session: Session) => void
   onResolveConflictWithGPT?: (session: Session) => Promise<void>
@@ -244,7 +245,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
         {candidate === 'archive' ? <ChatManagementDrawer projectPath={session.project_path} savedChats={savedChats} archivedChats={archivedChats} busy={busy} onRestoreSaved={props.onRestoreSavedChat} onArchiveSaved={props.onArchiveSavedChat} onRestoreArchived={props.onRestoreChat} onDeleteArchived={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
         {candidate === 'project' ? <AgentProjectExplorer session={session} onOpen={props.onOpenFile} onError={onError} onClose={close} revealPath={props.explorerRevealPath} revealNonce={props.explorerRevealNonce}/> : null}
         {candidate === 'library' ? <ArtifactExplorerPanel sessionId={session.id} onError={onError} onClose={close}/> : null}
-        {candidate === 'knowledge' ? <ProjectKnowledgeDrawer session={session} onClose={close}/> : null}
+        {candidate === 'knowledge' ? <ProjectKnowledgeDrawer session={session} busy={busy} onConsolidate={props.onConsolidateKnowledge} onClose={close}/> : null}
         {candidate === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession} onResolveConflictWithGPT={props.onResolveConflictWithGPT}/> : null}
         {candidate === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
         {candidate === 'tasks' ? <ProjectTasksDrawer projectPath={session.project_path} currentSession={session} chats={props.chats} savedChats={savedChats} archivedChats={archivedChats} activeChatId={props.activeChatId} activeEvents={props.activeEvents} executionFIFO={executionFIFO} onClose={close} onError={onError} onGoToChat={props.onGoToChat}/> : null}

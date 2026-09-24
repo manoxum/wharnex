@@ -719,9 +719,109 @@ type ProjectKnowledge struct {
 type ProjectKnowledgeEntry struct {
 	ID                 string    `json:"id"`
 	Content            string    `json:"content"`
+	Category           string    `json:"category,omitempty"`
 	Version            int       `json:"version"`
 	UpdatedAt          time.Time `json:"updated_at"`
 	UpdatedByRequestID string    `json:"updated_by_request_id,omitempty"`
+}
+
+const (
+	KnowledgeCategoryConflictResolution = "conflict_resolution"
+	KnowledgeCategoryPatchStrategy      = "patch_strategy"
+	KnowledgeCategoryExecutionRepair    = "execution_repair"
+	KnowledgeCategoryVerification       = "verification"
+	KnowledgeCategoryRuntimeEnvironment = "runtime_environment"
+	KnowledgeCategoryProtocolTransport  = "protocol_transport"
+	KnowledgeCategoryProductDomain      = "product_domain"
+	KnowledgeCategoryGeneral            = "general"
+)
+
+var knowledgeCategories = map[string]struct{}{
+	KnowledgeCategoryConflictResolution: {},
+	KnowledgeCategoryPatchStrategy:      {},
+	KnowledgeCategoryExecutionRepair:    {},
+	KnowledgeCategoryVerification:       {},
+	KnowledgeCategoryRuntimeEnvironment: {},
+	KnowledgeCategoryProtocolTransport:  {},
+	KnowledgeCategoryProductDomain:      {},
+	KnowledgeCategoryGeneral:            {},
+}
+
+// IsKnowledgeCategory reports whether category is one of the canonical
+// knowledge categories. Matching is case-insensitive and ignores outer space.
+func IsKnowledgeCategory(category string) bool {
+	_, ok := knowledgeCategories[strings.ToLower(strings.TrimSpace(category))]
+	return ok
+}
+
+// NormalizeKnowledgeCategory preserves valid explicit categories, classifies
+// historical uncategorized records conservatively, and fails closed for an
+// unknown explicit value.
+func NormalizeKnowledgeCategory(category, id, content string) string {
+	category = strings.ToLower(strings.TrimSpace(category))
+	if category != "" {
+		if IsKnowledgeCategory(category) {
+			return category
+		}
+		return KnowledgeCategoryGeneral
+	}
+	return InferKnowledgeCategory(id, content)
+}
+
+// KnowledgeCategorySupportsSelfEvolution is deliberately allowlist-based so
+// project-domain or unknown/general knowledge never reaches self-evolution.
+func KnowledgeCategorySupportsSelfEvolution(category string) bool {
+	switch strings.ToLower(strings.TrimSpace(category)) {
+	case KnowledgeCategoryConflictResolution,
+		KnowledgeCategoryPatchStrategy,
+		KnowledgeCategoryExecutionRepair,
+		KnowledgeCategoryVerification,
+		KnowledgeCategoryRuntimeEnvironment,
+		KnowledgeCategoryProtocolTransport:
+		return true
+	default:
+		return false
+	}
+}
+
+// InferKnowledgeCategory classifies legacy records only when their identifier
+// or content carries a strong operational signal. Ambiguous records remain
+// general so historical project-specific knowledge is not promoted by mistake.
+func InferKnowledgeCategory(id, content string) string {
+	id = strings.ToLower(strings.TrimSpace(id))
+	body := strings.ToLower(strings.TrimSpace(content))
+
+	switch {
+	case containsKnowledgeSignal(id, "conflict", "three-way", "3-way") ||
+		containsKnowledgeSignal(body, "conflict resolution", "merge conflict", "three-way merge", "3-way merge"):
+		return KnowledgeCategoryConflictResolution
+	case containsKnowledgeSignal(id, "patch", "hunk") ||
+		containsKnowledgeSignal(body, "git apply", "apply_patch", "patch hunk", "unified diff", "patch strategy"):
+		return KnowledgeCategoryPatchStrategy
+	case containsKnowledgeSignal(id, "verification", "testing", "regression-test", "regression-testing", "quality-gate") ||
+		containsKnowledgeSignal(body, "verification gate", "quality gate", "regression test", "go test", "vitest", "typecheck"):
+		return KnowledgeCategoryVerification
+	case containsKnowledgeSignal(id, "runtime-environment", "host-command", "toolchain", "sandbox-tool") ||
+		containsKnowledgeSignal(body, "runtime environment", "host command", "toolchain", "missing executable", "dependency cache"):
+		return KnowledgeCategoryRuntimeEnvironment
+	case containsKnowledgeSignal(id, "repair", "recovery", "correction", "revert", "rollback", "restart") ||
+		containsKnowledgeSignal(body, "execution repair", "verification failed", "build failed", "host-pending", "rollback", "recovery"):
+		return KnowledgeCategoryExecutionRepair
+	case containsKnowledgeSignal(id, "protocol", "transport", "bundle", "context-map") ||
+		containsKnowledgeSignal(body, "protocol", "request archive", "response bundle", "wire shape", "transport"):
+		return KnowledgeCategoryProtocolTransport
+	default:
+		return KnowledgeCategoryGeneral
+	}
+}
+
+func containsKnowledgeSignal(value string, signals ...string) bool {
+	for _, signal := range signals {
+		if strings.Contains(value, signal) {
+			return true
+		}
+	}
+	return false
 }
 
 // ProjectKnowledgeCatalog is the current per-project catalog. Revision changes

@@ -73,7 +73,8 @@ func concurrentKnowledgeID(id string, entries map[string]domain.ProjectKnowledge
 }
 
 func sameKnowledge(a, b domain.ProjectKnowledgeEntry) bool {
-	return strings.TrimSpace(a.Content) == strings.TrimSpace(b.Content)
+	return strings.TrimSpace(a.Content) == strings.TrimSpace(b.Content) &&
+		domain.NormalizeKnowledgeCategory(a.Category, a.ID, a.Content) == domain.NormalizeKnowledgeCategory(b.Category, b.ID, b.Content)
 }
 
 func sortedKnowledgeEntries(entries map[string]domain.ProjectKnowledgeEntry) []domain.ProjectKnowledgeEntry {

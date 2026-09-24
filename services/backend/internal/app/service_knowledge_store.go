@@ -42,6 +42,7 @@ const (
 type KnowledgeExportEntry struct {
 	ID                 string    `json:"id"`
 	Content            string    `json:"content"`
+	Category           string    `json:"category,omitempty"`
 	SHA256             string    `json:"sha256"`
 	Version            int       `json:"version,omitempty"`
 	UpdatedAt          time.Time `json:"updated_at,omitempty"`
@@ -109,7 +110,7 @@ func (s *Service) ExportProjectKnowledge(sessionID string, ids []string) (Knowle
 		found[entry.ID] = true
 		content := strings.TrimSpace(entry.Content)
 		export.Entries = append(export.Entries, KnowledgeExportEntry{
-			ID: entry.ID, Content: content, SHA256: knowledgeDigest(content),
+			ID: entry.ID, Content: content, Category: domain.NormalizeKnowledgeCategory(entry.Category, entry.ID, content), SHA256: knowledgeDigest(content),
 			Version: entry.Version, UpdatedAt: entry.UpdatedAt, UpdatedByRequestID: entry.UpdatedByRequestID,
 		})
 	}
@@ -163,8 +164,12 @@ func ParseKnowledgeExport(raw []byte) (KnowledgeExport, error) {
 		if digest := strings.ToLower(strings.TrimSpace(entry.SHA256)); digest != "" && digest != knowledgeDigest(content) {
 			return KnowledgeExport{}, fmt.Errorf("knowledge %q sha256 does not match its content", id)
 		}
+		if entry.Category != "" && !domain.IsKnowledgeCategory(entry.Category) {
+			return KnowledgeExport{}, fmt.Errorf("knowledge %q has unsupported category %q", id, entry.Category)
+		}
 		export.Entries[index].ID = id
 		export.Entries[index].Content = content
+		export.Entries[index].Category = domain.NormalizeKnowledgeCategory(entry.Category, id, content)
 	}
 	return export, nil
 }
@@ -250,9 +255,10 @@ func applyKnowledgeImport(current []domain.ProjectKnowledgeEntry, incoming []Kno
 			report.Kept = append(report.Kept, entry.ID)
 			continue
 		}
-		result[entry.ID] = domain.ProjectKnowledgeEntry{ID: entry.ID, Content: entry.Content}
+		category := domain.NormalizeKnowledgeCategory(entry.Category, entry.ID, entry.Content)
+		result[entry.ID] = domain.ProjectKnowledgeEntry{ID: entry.ID, Content: entry.Content, Category: category}
 		switch {
-		case collides && strings.TrimSpace(previous.Content) == entry.Content:
+		case collides && strings.TrimSpace(previous.Content) == entry.Content && domain.NormalizeKnowledgeCategory(previous.Category, previous.ID, previous.Content) == category:
 			report.Kept = append(report.Kept, entry.ID)
 		case collides:
 			report.Replaced = append(report.Replaced, entry.ID)
@@ -360,7 +366,7 @@ func (s *Service) AdoptLegacyProjectKnowledgeFiles(sessionID string) (KnowledgeI
 	}
 	incoming := make([]KnowledgeExportEntry, 0, len(fileEntries))
 	for _, entry := range fileEntries {
-		incoming = append(incoming, KnowledgeExportEntry{ID: entry.ID, Content: strings.TrimSpace(entry.Content)})
+		incoming = append(incoming, KnowledgeExportEntry{ID: entry.ID, Content: strings.TrimSpace(entry.Content), Category: domain.NormalizeKnowledgeCategory(entry.Category, entry.ID, entry.Content)})
 	}
 	// Local records win: this machine's own catalog was earned by execution
 	// here, while the files may be an older snapshot someone committed.

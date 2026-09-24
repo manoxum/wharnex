@@ -189,7 +189,7 @@ test('v2 project knowledge is transported as independently named files', async (
     const requestId = 'req_20260908T193332_knowledgev2'
     const target = path.join(root, chatInputArchiveFilename('chat-v2', requestId))
     const entriesInput = [
-      { id: 'apply-order', content: 'Persist staged knowledge only after host Apply succeeds.', version: 2, updated_by_request_id: 'req_apply' },
+      { id: 'apply-order', content: 'Persist staged knowledge only after host Apply succeeds.', category: 'protocol_transport', version: 2, updated_by_request_id: 'req_apply' },
       { id: 'desktop-upload', content: 'Use the dedicated file input to preserve canonical bundle names.', version: 1, updated_by_request_id: 'req_upload' },
     ]
     const hash = (await import('node:crypto')).createHash('sha256')
@@ -209,6 +209,7 @@ test('v2 project knowledge is transported as independently named files', async (
     assert.equal(transport.knowledge.protocol, 'harness.knowledge/v2')
     assert.equal(transport.knowledge.revision, 7)
     assert.deepEqual(transport.knowledge.entries.map((entry) => entry.path), ['knowledge/apply-order.md', 'knowledge/desktop-upload.md'])
+    assert.deepEqual(transport.knowledge.entries.map((entry) => entry.category), ['protocol_transport', 'general'])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -230,6 +231,8 @@ test('a persisted pre-v2 prompt is upgraded at the archive boundary without losi
     assert.match(prompt, /ONLY top-level keys protocol, base_revision, mode, entries/)
     assert.match(prompt, /never add request_id/)
     assert.match(prompt, /base_revision=9 and mode=replace/)
+    assert.match(prompt, /id, file, sha256, category/)
+    assert.match(prompt, /product_domain/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

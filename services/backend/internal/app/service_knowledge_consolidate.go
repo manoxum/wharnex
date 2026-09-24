@@ -161,7 +161,12 @@ func (s *Service) ingestKnowledgeConsolidationResponse(sessionID string, parsed 
 func buildKnowledgeConsolidationMessage(catalog domain.ProjectKnowledgeCatalog) string {
 	inventory := make([]string, 0, len(catalog.Entries))
 	for _, entry := range catalog.Entries {
-		inventory = append(inventory, fmt.Sprintf("- %s (%d characters, version %d)", entry.ID, len(strings.TrimSpace(entry.Content)), entry.Version))
+		category := domain.NormalizeKnowledgeCategory(entry.Category, entry.ID, entry.Content)
+		updated := "unknown"
+		if !entry.UpdatedAt.IsZero() {
+			updated = entry.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+		}
+		inventory = append(inventory, fmt.Sprintf("- %s (category=%s, %d characters, version=%d, updated_at=%s)", entry.ID, category, len(strings.TrimSpace(entry.Content)), entry.Version, updated))
 	}
 	return fmt.Sprintf(`KNOWLEDGE CONSOLIDATION REQUEST — CATALOG MAINTENANCE ONLY
 
@@ -175,15 +180,18 @@ Read every attached knowledge/<id>.md, then return the complete consolidated cat
 WHAT TO DO:
 - Merge records that say the same thing under different ids, or that are only meaningful read together. Keep the id that best names the merged subject; prefer an existing id over inventing one, so links and habits survive.
 - Split a record that has become several unrelated topics. Each resulting record must stand alone and be individually useful.
-- Delete a record that is superseded, contradicted by a later one, or that merely restates a rule already in AGENTS.md, SoT/*.md, an ADR, or the README. Knowledge is for operational learning that those documents do not encode.
+- Remove empty, near-empty, placeholder or content-free records. A record that contains no actionable/project-specific learning should not survive merely because it has an id.
+- Reconcile contradictions using evidence quality and recency. When two records address the same situation and cannot both be true, prefer the conclusion backed by stronger evidence; when evidence quality is comparable, prefer the more recently updated record. Preserve an older conclusion only when its scope is genuinely different, and state that scope explicitly.
+- Delete a record that is superseded or merely restates a rule already in AGENTS.md, SoT/*.md, an ADR, or the README. Knowledge is for operational learning that those documents do not encode.
 - Rewrite for retrieval, not for prose: each record should open by naming the situation it applies to, so a later request can tell in one line whether it is relevant.
-- Preserve every distinct proven fact. Consolidation reorganizes; it never discards evidence. If two records genuinely disagree, keep both conclusions in one record and say which evidence supports each.
+- Assign exactly one category to every final record. Allowed categories: conflict_resolution, patch_strategy, execution_repair, verification, runtime_environment, protocol_transport, product_domain, general. Use the first six only for reusable operational evidence that may help WHX self-evolve; project-specific business/domain facts belong in product_domain and must not become self-evolution evidence. Use general only when none of the specific categories fits.
+- Preserve every distinct proven fact that remains valid after the contradiction/supersession rules above. Never invent missing evidence.
 
 WHAT NOT TO DO:
-- Do not return an empty catalog. Wharnex rejects that outright; discarding knowledge is a separate explicit human action.
+- Do not return an empty catalog. Wharnex rejects that outright; discarding all knowledge is a separate explicit human action.
 - Do not invent knowledge that no record already contains.
 - Do not turn operational learning into generic advice. A record that could have been written without ever running this project is worth nothing.
 
-Return kind=answer whose turn.message briefly states what you merged, split and removed and why, plus knowledge/index.json with mode=replace, base_revision=%d, and one knowledge/<id>.md per record in the consolidated catalog.`,
+Return kind=answer whose turn.message briefly states what you merged, split, removed, recategorized and why, plus knowledge/index.json with mode=replace, base_revision=%d, and one knowledge/<id>.md per record in the consolidated catalog. Every index entry must include id, file, sha256 and category.`,
 		len(catalog.Entries), catalog.Revision, strings.Join(inventory, "\n"), catalog.Revision)
 }

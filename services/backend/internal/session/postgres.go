@@ -92,11 +92,13 @@ CREATE TABLE IF NOT EXISTS harness_project_knowledge_entries (
     project_path text NOT NULL,
     knowledge_id text NOT NULL,
     content text NOT NULL,
+    category text NOT NULL DEFAULT '',
     version integer NOT NULL DEFAULT 1,
     updated_at timestamptz NOT NULL DEFAULT now(),
     updated_by_request_id text NOT NULL DEFAULT '',
     PRIMARY KEY (project_path, knowledge_id)
 );
+ALTER TABLE harness_project_knowledge_entries ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS harness_project_knowledge_entries_project_idx
     ON harness_project_knowledge_entries (project_path, knowledge_id);
 CREATE TABLE IF NOT EXISTS harness_workspace_chats (
@@ -281,8 +283,8 @@ CREATE INDEX IF NOT EXISTS harness_chat_agent_task_events_task_idx
     ON harness_chat_agent_task_events (task_id, occurred_at, id);
 CREATE INDEX IF NOT EXISTS harness_chat_agent_task_events_request_idx
     ON harness_chat_agent_task_events (root_request_id, request_id, occurred_at, id);
-INSERT INTO harness_project_knowledge_entries (project_path, knowledge_id, content, version, updated_at, updated_by_request_id)
-SELECT legacy.project_path, 'legacy-project-knowledge', legacy.content, GREATEST(legacy.version, 1), legacy.updated_at, legacy.updated_by_request_id
+INSERT INTO harness_project_knowledge_entries (project_path, knowledge_id, content, category, version, updated_at, updated_by_request_id)
+SELECT legacy.project_path, 'legacy-project-knowledge', legacy.content, '', GREATEST(legacy.version, 1), legacy.updated_at, legacy.updated_by_request_id
 FROM harness_project_knowledge AS legacy
 WHERE btrim(legacy.content) <> ''
   AND NOT EXISTS (SELECT 1 FROM harness_project_knowledge_state AS state WHERE state.project_path=legacy.project_path)
