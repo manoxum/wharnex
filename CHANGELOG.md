@@ -38,11 +38,6 @@ _(reserved — no entries yet)_
 - Novos projetos e sessões passam a iniciar em High, incluindo o Desktop e o Remote, com os controlos e contratos do planner alinhados aos novos limites.
 
 
-### Chat 417418ff-5def-4c90-aac6-bdd172a77b21 (2026-09-24)
-
-_(reserved — no entries yet)_
-
-
 ### Chat 45c978a2-3e83-4f70-aaac-8e99cb010787 (2026-09-24)
 
 - feat(git): add preflight per-file diff review before commit, push, pull and merge actions.
