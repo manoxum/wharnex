@@ -25,6 +25,7 @@ func normalizeKnowledgeEntries(entries []domain.ProjectKnowledgeEntry) ([]domain
 	for _, entry := range entries {
 		entry.ID = strings.TrimSpace(strings.ToLower(entry.ID))
 		entry.Content = strings.TrimSpace(entry.Content)
+		entry.Category = domain.NormalizeKnowledgeCategory(entry.Category, entry.ID, entry.Content)
 		if !knowledgeIDPattern.MatchString(entry.ID) {
 			return nil, fmt.Errorf("invalid project knowledge id %q", entry.ID)
 		}
@@ -68,7 +69,7 @@ func legacyKnowledgeCatalog(item domain.ProjectKnowledge) domain.ProjectKnowledg
 		ProjectPath: item.ProjectPath, Revision: int64(item.Version), UpdatedAt: item.UpdatedAt,
 		UpdatedByRequestID: item.UpdatedByRequestID,
 		Entries: []domain.ProjectKnowledgeEntry{{
-			ID: "legacy-project-knowledge", Content: item.Content, Version: max(item.Version, 1),
+			ID: "legacy-project-knowledge", Content: item.Content, Category: domain.InferKnowledgeCategory("legacy-project-knowledge", item.Content), Version: max(item.Version, 1),
 			UpdatedAt: item.UpdatedAt, UpdatedByRequestID: item.UpdatedByRequestID,
 		}},
 	}
@@ -114,7 +115,7 @@ func knowledgeEntryVersions(current, next []domain.ProjectKnowledgeEntry, reques
 	}
 	out := make([]domain.ProjectKnowledgeEntry, 0, len(next))
 	for _, entry := range next {
-		if previous, ok := old[entry.ID]; ok && strings.TrimSpace(previous.Content) == strings.TrimSpace(entry.Content) {
+		if previous, ok := old[entry.ID]; ok && strings.TrimSpace(previous.Content) == strings.TrimSpace(entry.Content) && domain.NormalizeKnowledgeCategory(previous.Category, previous.ID, previous.Content) == entry.Category {
 			entry.Version, entry.UpdatedAt, entry.UpdatedByRequestID = previous.Version, previous.UpdatedAt, previous.UpdatedByRequestID
 		} else {
 			entry.Version = 1
@@ -138,16 +139,17 @@ func (s *Store) postgresGetProjectKnowledgeCatalog(projectPath string) (domain.P
 	if err != nil {
 		return domain.ProjectKnowledgeCatalog{}, false, err
 	}
-	rows, err := s.db.QueryContext(context.Background(), `SELECT knowledge_id, content, version, updated_at, updated_by_request_id FROM harness_project_knowledge_entries WHERE project_path=$1 ORDER BY knowledge_id`, projectPath)
+	rows, err := s.db.QueryContext(context.Background(), `SELECT knowledge_id, content, category, version, updated_at, updated_by_request_id FROM harness_project_knowledge_entries WHERE project_path=$1 ORDER BY knowledge_id`, projectPath)
 	if err != nil {
 		return domain.ProjectKnowledgeCatalog{}, false, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var entry domain.ProjectKnowledgeEntry
-		if err := rows.Scan(&entry.ID, &entry.Content, &entry.Version, &entry.UpdatedAt, &entry.UpdatedByRequestID); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.Content, &entry.Category, &entry.Version, &entry.UpdatedAt, &entry.UpdatedByRequestID); err != nil {
 			return domain.ProjectKnowledgeCatalog{}, false, err
 		}
+		entry.Category = domain.NormalizeKnowledgeCategory(entry.Category, entry.ID, entry.Content)
 		item.Entries = append(item.Entries, entry)
 	}
 	return item, true, rows.Err()
@@ -175,16 +177,17 @@ func (s *Store) postgresCompareAndSwapProjectKnowledgeCatalog(projectPath string
 		return domain.ProjectKnowledgeCatalog{}, ErrProjectKnowledgeConflict
 	}
 	current := []domain.ProjectKnowledgeEntry{}
-	rows, err := tx.QueryContext(ctx, `SELECT knowledge_id, content, version, updated_at, updated_by_request_id FROM harness_project_knowledge_entries WHERE project_path=$1`, projectPath)
+	rows, err := tx.QueryContext(ctx, `SELECT knowledge_id, content, category, version, updated_at, updated_by_request_id FROM harness_project_knowledge_entries WHERE project_path=$1`, projectPath)
 	if err != nil {
 		return domain.ProjectKnowledgeCatalog{}, err
 	}
 	for rows.Next() {
 		var entry domain.ProjectKnowledgeEntry
-		if err := rows.Scan(&entry.ID, &entry.Content, &entry.Version, &entry.UpdatedAt, &entry.UpdatedByRequestID); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.Content, &entry.Category, &entry.Version, &entry.UpdatedAt, &entry.UpdatedByRequestID); err != nil {
 			rows.Close()
 			return domain.ProjectKnowledgeCatalog{}, err
 		}
+		entry.Category = domain.NormalizeKnowledgeCategory(entry.Category, entry.ID, entry.Content)
 		current = append(current, entry)
 	}
 	if err := rows.Close(); err != nil {
@@ -196,7 +199,7 @@ func (s *Store) postgresCompareAndSwapProjectKnowledgeCatalog(projectPath string
 		return domain.ProjectKnowledgeCatalog{}, err
 	}
 	for _, entry := range entries {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO harness_project_knowledge_entries (project_path, knowledge_id, content, version, updated_at, updated_by_request_id) VALUES ($1,$2,$3,$4,$5,$6)`, projectPath, entry.ID, entry.Content, entry.Version, entry.UpdatedAt, entry.UpdatedByRequestID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO harness_project_knowledge_entries (project_path, knowledge_id, content, category, version, updated_at, updated_by_request_id) VALUES ($1,$2,$3,$4,$5,$6,$7)`, projectPath, entry.ID, entry.Content, entry.Category, entry.Version, entry.UpdatedAt, entry.UpdatedByRequestID); err != nil {
 			return domain.ProjectKnowledgeCatalog{}, err
 		}
 	}

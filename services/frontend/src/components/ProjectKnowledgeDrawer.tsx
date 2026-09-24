@@ -1,36 +1,61 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
-import type { ProjectKnowledge, Session } from '../types'
+import type { KnowledgeCategory, ProjectKnowledgeCatalog, Session } from '../types'
 import { Icon } from './Icon'
 import { ContentSkeleton } from './Skeleton'
 import { TranslatableMarkdown } from './TranslatableMarkdown'
-import { splitKnowledgeSections } from './projectKnowledgeSections'
 
-export function ProjectKnowledgeDrawer({ session, onClose }: { session: Session; onClose: () => void }) {
-  const [knowledge, setKnowledge] = useState<ProjectKnowledge | null>(null)
+const categoryLabel: Record<KnowledgeCategory, string> = {
+  conflict_resolution: 'Conflitos',
+  patch_strategy: 'Estratégia de patch',
+  execution_repair: 'Reparação',
+  verification: 'Verificação',
+  runtime_environment: 'Runtime',
+  protocol_transport: 'Protocolo e transporte',
+  product_domain: 'Domínio do projeto',
+  general: 'Geral',
+}
+
+const selfEvolutionCategories = new Set<KnowledgeCategory>(['conflict_resolution', 'patch_strategy', 'execution_repair', 'verification', 'runtime_environment', 'protocol_transport'])
+
+export function ProjectKnowledgeDrawer({ session, busy = false, onConsolidate, onClose }: { session: Session; busy?: boolean; onConsolidate?: () => Promise<void>; onClose: () => void }) {
+  const [catalog, setCatalog] = useState<ProjectKnowledgeCatalog | null>(null)
   const [loading, setLoading] = useState(true)
+  const [consolidating, setConsolidating] = useState(false)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState('all')
+  const [category, setCategory] = useState<KnowledgeCategory | ''>('')
+  const [selected, setSelected] = useState('')
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const result = await api.projectKnowledge(session.id)
-      setKnowledge(result.knowledge)
+      const result = await api.projectKnowledgeCatalog(session.id)
+      setCatalog(result.catalog)
+      setSelected((current) => current && result.catalog.entries.some((entry) => entry.id === current) ? current : result.catalog.entries[0]?.id || '')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar os conhecimentos do projeto.')
     } finally { setLoading(false) }
   }, [session.id])
 
-  useEffect(() => { void refresh() }, [refresh, session.last_turn?.request_id])
+  useEffect(() => { void refresh() }, [refresh, session.last_turn?.request_id, session.knowledge_last_seen_revision])
 
-  const sections = useMemo(() => splitKnowledgeSections(knowledge?.content || ''), [knowledge?.content])
+  const categories = useMemo(() => Array.from(new Set((catalog?.entries || []).map((entry) => entry.category || 'general'))).sort(), [catalog])
   const visible = useMemo(() => {
     const term = query.trim().toLocaleLowerCase()
-    return term ? sections.filter((section) => `${section.title}\n${section.markdown}`.toLocaleLowerCase().includes(term)) : sections
-  }, [query, sections])
-  const selectedMarkdown = selected === 'all' ? knowledge?.content || '' : sections.find((section) => section.id === selected)?.markdown || knowledge?.content || ''
+    return (catalog?.entries || []).filter((entry) => {
+      const currentCategory = entry.category || 'general'
+      return (!category || currentCategory === category) && (!term || `${entry.id}\n${entry.content}`.toLocaleLowerCase().includes(term))
+    })
+  }, [catalog, category, query])
+  const selectedEntry = visible.find((entry) => entry.id === selected) || visible[0]
+  const operationalCount = (catalog?.entries || []).filter((entry) => selfEvolutionCategories.has(entry.category || 'general')).length
+
+  async function consolidate() {
+    if (!onConsolidate || consolidating || busy || (catalog?.entries.length || 0) < 2) return
+    setConsolidating(true); setError('')
+    try { await onConsolidate() } catch (cause) { setError(cause instanceof Error ? cause.message : 'Não foi possível iniciar a consolidação.') } finally { setConsolidating(false) }
+  }
 
   return <section className="project-knowledge-drawer" aria-label="Conhecimento do projeto">
     <header className="agent-drawer-heading">
@@ -40,20 +65,30 @@ export function ProjectKnowledgeDrawer({ session, onClose }: { session: Session;
         <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar conhecimentos"><Icon name="close" size={13}/></button>
       </div>
     </header>
-    {knowledge && <div className="project-knowledge-toolbar">
-      <div className="project-knowledge-meta"><span className="project-knowledge-version"><Icon name="knowledge" size={12}/>v{knowledge.version}</span><span>{new Date(knowledge.updated_at).toLocaleString()}</span>{knowledge.updated_by_request_id && <code>{knowledge.updated_by_request_id}</code>}</div>
-      <label className="panel-search-field project-knowledge-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar conhecimentos" aria-label="Pesquisar conhecimentos"/>{query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={11}/></button>}</label>
+    {catalog && <div className="project-knowledge-toolbar">
+      <div className="project-knowledge-meta"><span className="project-knowledge-version"><Icon name="knowledge" size={12}/>r{catalog.revision}</span><span>{catalog.entries.length} registos</span><span>{operationalCount} úteis para auto-evolução</span></div>
+      <div className="flex flex-wrap gap-2">
+        <label className="panel-search-field project-knowledge-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar conhecimentos" aria-label="Pesquisar conhecimentos"/>{query && <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={11}/></button>}</label>
+        <select aria-label="Filtrar categoria de conhecimento" className="rounded border border-whx-border bg-whx-elevated px-2 text-xs" value={category} onChange={(event) => setCategory(event.target.value as KnowledgeCategory | '')}><option value="">Todas as categorias</option>{categories.map((value) => <option key={value} value={value}>{categoryLabel[value as KnowledgeCategory] || value}</option>)}</select>
+        <button type="button" className="inline-flex items-center gap-1.5 rounded border border-whx-border bg-whx-elevated px-2 py-1.5 text-xs font-semibold hover:bg-whx-hover disabled:opacity-50" disabled={busy || consolidating || catalog.entries.length < 2 || !onConsolidate} onClick={() => void consolidate()} title="Enviar o catálogo completo ao GPT para deduplicar, reconciliar e reorganizar"><Icon name="sparkles" size={12}/> {consolidating ? 'A preparar…' : 'Consolidar com GPT'}</button>
+      </div>
+      <p className="m-0 text-[10px] leading-5 text-whx-faint">A consolidação envia o catálogo completo num pedido de manutenção, remove vazios/duplicados, reconcilia contradições pela evidência e recência e grava o catálogo resultante no banco de dados. Conhecimento de domínio permanece fora da auto-evolução.</p>
     </div>}
-    {loading && !knowledge ? <ContentSkeleton label="A carregar conhecimentos adquiridos" rows={5}/> : error && !knowledge ? <div className="agent-drawer-empty">{error}</div> : !knowledge ? <div className="agent-drawer-empty">Ainda não há conhecimento persistido para este projeto. Ele é consolidado após alterações aplicadas e revistas.</div> : <div className="project-knowledge-layout">
-      <nav className="project-knowledge-index" aria-label="Tópicos do conhecimento">
-        <div className="project-knowledge-index-heading"><span><Icon name="list" size={13}/>Tópicos</span><b>{visible.length}</b></div>
-        <button type="button" className={selected === 'all' ? 'active' : ''} onClick={() => setSelected('all')}><Icon name="clipboard" size={13}/><span>Documento completo</span></button>
-        {visible.map((section) => <button type="button" key={section.id} className={selected === section.id ? 'active' : ''} onClick={() => setSelected(section.id)}><Icon name="knowledge" size={12}/><span>{section.title}</span></button>)}
-        {!visible.length && <div className="agent-drawer-empty">Nenhum tópico corresponde à pesquisa.</div>}
+    {loading && !catalog ? <ContentSkeleton label="A carregar conhecimentos adquiridos" rows={5}/> : error && !catalog ? <div className="agent-drawer-empty">{error}</div> : !catalog || !catalog.entries.length ? <div className="agent-drawer-empty">Ainda não há conhecimento persistido para este projeto.</div> : <div className="project-knowledge-layout">
+      <nav className="project-knowledge-index" aria-label="Registos de conhecimento">
+        <div className="project-knowledge-index-heading"><span><Icon name="list" size={13}/>Conhecimentos</span><b>{visible.length}</b></div>
+        {visible.map((entry) => {
+          const currentCategory = entry.category || 'general'
+          return <button type="button" key={entry.id} className={selectedEntry?.id === entry.id ? 'active' : ''} onClick={() => setSelected(entry.id)}><Icon name="knowledge" size={12}/><span><span className="block truncate">{entry.id}</span><small className="block truncate text-[9px] text-whx-faint">{categoryLabel[currentCategory]}</small></span></button>
+        })}
+        {!visible.length && <div className="agent-drawer-empty">Nenhum registo corresponde aos filtros.</div>}
       </nav>
       <article className="project-knowledge-content">
         {error && <div className="project-knowledge-inline-error">{error}</div>}
-        <TranslatableMarkdown sessionId={session.id} markdown={selectedMarkdown}/>
+        {selectedEntry && <>
+          <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-whx-border pb-3"><strong>{selectedEntry.id}</strong><span className="rounded-full border border-whx-border bg-whx-muted px-2 py-0.5 text-[10px] text-whx-soft">{categoryLabel[selectedEntry.category || 'general']}</span>{selfEvolutionCategories.has(selectedEntry.category || 'general') && <span className="rounded-full border border-whx-accent/40 bg-whx-accent-soft px-2 py-0.5 text-[10px] text-whx-accent">auto-evolução</span>}<span className="text-[10px] text-whx-faint">v{selectedEntry.version} · {new Date(selectedEntry.updated_at).toLocaleString()}</span></div>
+          <TranslatableMarkdown sessionId={session.id} markdown={selectedEntry.content}/>
+        </>}
       </article>
     </div>}
   </section>

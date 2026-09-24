@@ -2,6 +2,7 @@ package planner
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"kernl.local/harness/backend/internal/bundlename"
@@ -310,6 +311,23 @@ func plannerKnowledgeIdentity(req Request) string {
 	return fmt.Sprintf("Knowledge identity: version=%d sha256=%s updated_by_request_id=%s", req.KnowledgeVersion, req.KnowledgeSHA256, req.KnowledgeUpdatedByRequestID)
 }
 
+func plannerKnowledgeCategoryInventory(req Request) string {
+	if len(req.KnowledgeEntries) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(req.KnowledgeEntries))
+	for _, entry := range req.KnowledgeEntries {
+		category := domain.NormalizeKnowledgeCategory(entry.Category, entry.ID, entry.Content)
+		eligibility := "project-only"
+		if domain.KnowledgeCategorySupportsSelfEvolution(category) {
+			eligibility = "self-evolution-eligible"
+		}
+		lines = append(lines, fmt.Sprintf("  - %s: %s (%s)", entry.ID, category, eligibility))
+	}
+	sort.Strings(lines)
+	return "\n- Current record categories:\n" + strings.Join(lines, "\n")
+}
+
 func BuildManualPrompt(req Request) string {
 	if req.PlanningMode == "orchestrator" {
 		return buildOrchestratorManualPrompt(req)
@@ -387,7 +405,7 @@ For explicit CHANGE requests, implement the requested change in this turn and in
 	knowledgeState := "sharing=off; no prior knowledge files are attached to this request"
 	knowledgeMode := "overlay"
 	if req.KnowledgeSharingEnabled {
-		knowledgeState = fmt.Sprintf("sharing=on; %s; each catalog item is attached separately as knowledge/<id>.md", plannerKnowledgeIdentity(req))
+		knowledgeState = fmt.Sprintf("sharing=on; %s; each catalog item is attached separately as knowledge/<id>.md%s", plannerKnowledgeIdentity(req), plannerKnowledgeCategoryInventory(req))
 		knowledgeMode = "replace"
 	}
 	knowledgeSection := fmt.Sprintf(`
@@ -397,8 +415,9 @@ PROJECT KNOWLEDGE PROTOCOL — harness.knowledge/v2:
 - Before designing any answer, workflow, patch, or implementation, inspect/search the attached knowledge entries and actively use the entries related to this task. This is a required reasoning input, not decorative context.
 - Every response bundle in this Main Request MUST contain summary.md with the cumulative summary of everything handled so far in this Main Request, plus knowledge/index.json using protocol harness.knowledge/v2. End summary.md with a section titled exactly ## Conhecimento adquirido. State explicitly whether you propose new or updated durable knowledge in this response and briefly identify it when you do; if none, state that explicitly. Wharnex replaces this proposal at terminal commit with the authoritative persistence outcome.
 - knowledge/index.json has an EXACT top-level wire shape. The only keys are protocol, base_revision, mode, and entries. Do NOT add request_id, requestId, version, revision, state, sharing_enabled, updated_by_request_id, or any other top-level field.
-- For THIS request, base_revision MUST be %d and mode MUST be %s. The exact JSON skeleton is: {"protocol":"harness.knowledge/v2","base_revision":%d,"mode":"%s","entries":[{"id":"example-id","file":"knowledge/example-id.md","sha256":"<64 lowercase hex>"}]}. An empty catalog uses entries:[].
-- Each entries item has EXACTLY id, file, and sha256. Its file MUST be knowledge/<id>.md and sha256 MUST be the exact SHA-256 of that UTF-8 Markdown file.
+- For THIS request, base_revision MUST be %d and mode MUST be %s. The exact JSON skeleton for newly emitted records is: {"protocol":"harness.knowledge/v2","base_revision":%d,"mode":"%s","entries":[{"id":"example-id","file":"knowledge/example-id.md","sha256":"<64 lowercase hex>","category":"verification"}]}. An empty catalog uses entries:[].
+- Each newly emitted entries item has EXACTLY id, file, sha256, and category. Historical bundles without category remain readable, but new responses MUST categorize every record. Its file MUST be knowledge/<id>.md and sha256 MUST be the exact SHA-256 of that UTF-8 Markdown file.
+- category MUST be exactly one of conflict_resolution, patch_strategy, execution_repair, verification, runtime_environment, protocol_transport, product_domain, general. The first six are reusable operational evidence eligible for WHX self-evolution. Project-specific business/domain knowledge MUST use product_domain; uncertain/non-operational records use general and are not self-evolution evidence.
 - When sharing=on, return mode=replace and the complete desired catalog: carry forward still-valid entries and freely add, edit, remove duplicates, merge/reconcile overlapping entries, split entries that became too long, or delete superseded entries. Every index entry uses file knowledge/<id>.md and its exact SHA-256.
 - When sharing=off, return mode=overlay and only records learned or improved from the current Main Request; never delete or rewrite unseen prior records.
 - In every successive response for this same Main Request, return the same cumulative summary and current knowledge candidate again, refining/correcting them as execution evidence arrives.

@@ -332,3 +332,8 @@ Loading is part of the workbench interaction contract, not an implementation det
 - A blocking wait is acceptable only when the missing result is itself a correctness or security prerequisite for the requested action. Such waits MUST be scoped to that action, not to unrelated navigation or application startup, and the reason should be documented near the implementation.
 
 When adding or refactoring a surface, reviewers MUST treat synchronous root waits, blank loading screens, spinner-only placeholders for substantial content, and avoidable eager loading of heavyweight modules as UX regressions unless one of the explicit correctness/security exceptions applies.
+### Knowledge and self-evolution drawers
+
+The Knowledge drawer MUST present the durable catalog as individual categorized records, expose revision/count/search/category filtering, and provide an explicit **Consolidar com GPT** action when at least two records exist. Consolidation is visible chat work: it packages the whole durable catalog, creates the normal maintenance request, and uses the existing ChatGPT transport rather than silently rewriting records in the renderer.
+
+The `WHX · AUTO-EVOLUÇÃO` drawer MUST treat operational events, eligible categorized knowledge, and imported files as distinct evidence sources in one dossier. Events remain independently resolvable; knowledge selection is read-only evidence and only categories permitted by `AI_PROTOCOL.md` appear. The panel should keep source switching, filtering, selection totals and the Analyze action legible in narrow side-panel widths without requiring horizontal scrolling.

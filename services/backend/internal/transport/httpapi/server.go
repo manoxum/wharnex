@@ -1580,18 +1580,19 @@ func (a *API) selfEvolutionEvidence(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) selfEvolutionAnalyze(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		EvidenceIDs []string `json:"evidence_ids"`
-		ArtifactIDs []string `json:"artifact_ids"`
+		EvidenceIDs   []string                    `json:"evidence_ids"`
+		KnowledgeRefs []app.EvolutionKnowledgeRef `json:"knowledge_refs"`
+		ArtifactIDs   []string                    `json:"artifact_ids"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	item, evidence, err := a.service.PrepareEvolutionAnalysisWithArtifacts(r.Context(), r.PathValue("id"), body.EvidenceIDs, body.ArtifactIDs)
+	item, evidence, err := a.service.PrepareEvolutionAnalysisWithKnowledge(r.Context(), r.PathValue("id"), body.EvidenceIDs, body.KnowledgeRefs, body.ArtifactIDs)
 	if err != nil {
 		writeError(w, http.StatusConflict, "self_evolution_analysis_unavailable", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"session": item, "evidence_total": evidence.Total})
+	writeJSON(w, http.StatusAccepted, map[string]any{"session": item, "evidence_total": evidence.Total, "knowledge_total": evidence.KnowledgeTotal})
 }
 
 func (a *API) selfEvolutionResolveEvidence(w http.ResponseWriter, r *http.Request) {

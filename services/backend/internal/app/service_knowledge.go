@@ -60,7 +60,7 @@ func knowledgeManifest(snapshot domain.RequestKnowledgeSnapshot) map[string]any 
 	entries := make([]map[string]any, 0, len(snapshot.Entries))
 	for _, entry := range snapshot.Entries {
 		entries = append(entries, map[string]any{
-			"id": entry.ID, "path": "knowledge/" + entry.ID + ".md", "version": entry.Version,
+			"id": entry.ID, "path": "knowledge/" + entry.ID + ".md", "category": domain.NormalizeKnowledgeCategory(entry.Category, entry.ID, entry.Content), "version": entry.Version,
 			"sha256": knowledgeDigest(strings.TrimSpace(entry.Content)), "updated_by_request_id": entry.UpdatedByRequestID,
 		})
 	}
