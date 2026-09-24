@@ -9,6 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"kernl.local/harness/backend/internal/domain"
@@ -25,6 +28,13 @@ CREATE TABLE IF NOT EXISTS harness_sessions (
 );
 CREATE INDEX IF NOT EXISTS harness_sessions_project_created_idx
     ON harness_sessions (project_path, created_at, id);
+CREATE TABLE IF NOT EXISTS harness_known_projects (
+    project_path text PRIMARY KEY,
+    name text NOT NULL DEFAULT '',
+    last_seen_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS harness_known_projects_seen_idx
+    ON harness_known_projects (last_seen_at DESC, project_path);
 CREATE TABLE IF NOT EXISTS legacy_session_migrations (
     snapshot_sha256 text PRIMARY KEY,
     source_path text NOT NULL,
@@ -374,6 +384,24 @@ func (s *Store) migrateLegacySnapshot(ctx context.Context, path string) error {
 			imported++
 		}
 	}
+	for _, project := range envelope.KnownProjects {
+		projectPath := strings.TrimSpace(project.ProjectPath)
+		if projectPath == "" {
+			continue
+		}
+		name := strings.TrimSpace(project.Name)
+		if name == "" {
+			name = filepath.Base(projectPath)
+		}
+		seenAt := project.LastSeenAt
+		if seenAt.IsZero() {
+			seenAt = time.Now().UTC()
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO harness_known_projects (project_path, name, last_seen_at) VALUES ($1,$2,$3)
+			ON CONFLICT (project_path) DO UPDATE SET name=EXCLUDED.name, last_seen_at=GREATEST(harness_known_projects.last_seen_at, EXCLUDED.last_seen_at)`, projectPath, name, seenAt); err != nil {
+			return fmt.Errorf("import known project %s: %w", projectPath, err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO legacy_session_migrations (snapshot_sha256, source_path, imported_records) VALUES ($1, $2, $3)`, digestText, path, imported); err != nil {
 		return fmt.Errorf("record legacy session migration: %w", err)
 	}
@@ -425,7 +453,7 @@ func (s *Store) postgresList() ([]domain.Session, error) {
 }
 
 func (s *Store) postgresClear() error {
-	_, err := s.db.Exec(`TRUNCATE harness_tasks, harness_execution_errors, harness_events, harness_sessions CASCADE`)
+	_, err := s.db.Exec(`TRUNCATE harness_tasks, harness_execution_errors, harness_events, harness_sessions, harness_known_projects CASCADE`)
 	return wrapPostgresError("clear sessions", err)
 }
 

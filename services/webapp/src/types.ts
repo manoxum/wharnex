@@ -17,6 +17,7 @@ export type TunnelTestResult = { ok: boolean; instance_id: string; public_url: s
 
 export type ProjectStorage = { project_path: string; session_count: number; total_bytes: number }
 export type StorageUsage = { projects: ProjectStorage[]; total_bytes: number }
+export type ProjectHistoryEntry = { project_path: string; name: string; open: boolean }
 export type Session = {
   id: string; chat_id?: string; project_path: string; state: string; automation_mode: 'manual' | 'auto' | 'auto_approve'
   effort_level: string; reasoning_effort: 'instant' | 'medium' | 'high'; last_request_id?: string; last_manual_prompt?: string

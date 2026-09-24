@@ -7,6 +7,8 @@ import "net/http"
 // remains the authority that protects every remote API except its public claim
 // handshake.
 func (a *API) registerRemoteWorkspaceRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/projects/history", a.projectHistory)
+	mux.HandleFunc("POST /api/projects/history", a.rememberProjectOpened)
 	mux.HandleFunc("POST /api/tunnel/control", a.controlTunnel)
 	mux.HandleFunc("POST /api/pairing/start", a.startPairing)
 	mux.HandleFunc("POST /api/pairing/claim", a.claimPairing)

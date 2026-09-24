@@ -26,6 +26,14 @@ describe('remote api', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/sessions/ses-1/remote-dispatch', expect.objectContaining({ method: 'POST', body: JSON.stringify(payload) }))
   })
 
+  it('loads durable Desktop project history instead of inferring projects from storage', async () => {
+    const payload = { projects: [{ project_path: '/work/core', name: 'core', open: false }] }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(api.projectHistory()).resolves.toEqual(payload)
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/history', expect.objectContaining({ credentials: 'same-origin' }))
+  })
+
   it('controls a tunnel without any Desktop bridge dependency', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ remote_input: { enabled: true, mode: 'tunnel', instances: [] } }), { status: 200, headers: { 'content-type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)

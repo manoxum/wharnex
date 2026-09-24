@@ -21,6 +21,7 @@
 - Added pause, stop, resume, copy, open, pair and connectivity actions for tunnel instances, including durable stopped state and publication eligibility enforcement.
 - Migrated the touched tunnel/pairing UI to Tailwind utilities and added focused backend/frontend coverage for pairing, remote proxying, tunnel control and remote dispatch.
 - Evolved the paired webapp into a responsive Agent/Orchestrator cockpit with indexed projects, durable chats, QR scanning, notifications, tasks, TODOs, files, artifacts, Git, Docker and tunnel panels; remote requests are now queued as Desktop-owned Supervisor writes instead of running a second AI browser in the webapp.
+- Fixed Remote project discovery to use a durable Desktop-open history instead of storage usage; Desktop opens are persisted server-side, legacy recent projects are seeded best-effort, and session history is merged so older worked projects remain discoverable.
 
 
 ### Chat f95a949e-f4eb-469b-b6a8-227fd2e546da (2026-09-23)
