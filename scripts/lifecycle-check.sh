@@ -20,6 +20,7 @@ STORAGE_RECLAIM="$ROOT/scripts/storage-reclaim.sh"
 BUILD_LOCK="$ROOT/scripts/build-lock.sh"
 ELECTRON_RUNTIME="$ROOT/scripts/electron-runtime.sh"
 DESKTOP_DEV="$ROOT/services/desktop/dev.mjs"
+HOST_GIT_BRIDGE="$ROOT/services/desktop/host-git-bridge.mjs"
 DESKTOP_RELAUNCH="$ROOT/scripts/desktop-relaunch.sh"
 SELF_EVOLUTION="$ROOT/services/backend/internal/selfevolution/manager.go"
 SELF_RESTART="$ROOT/scripts/self-restart.sh"
@@ -316,12 +317,16 @@ if ! grep -Fq 'coordinatorKeepAlive' "$DESKTOP_DEV"; then
   echo 'lifecycle regression: detached Electron must retain a tracked coordinator owner' >&2
   exit 1
 fi
-if ! grep -Fq 'wharnex-host-pty' "$MAKEFILE" || ! grep -Fq "run('hostpty'" "$DESKTOP_DEV"; then
-  echo 'lifecycle regression: stack Host PTY must be built and launched natively by the Desktop coordinator' >&2
+if ! grep -Fq 'wharnex-host-pty' "$MAKEFILE" || ! grep -Fq "run('hostpty'" "$HOST_GIT_BRIDGE" || ! grep -Fq -- "--git-socket" "$HOST_GIT_BRIDGE"; then
+  echo 'lifecycle regression: Desktop must keep the restricted native Host Git bridge' >&2
   exit 1
 fi
-if ! grep -Fq 'HARNESS_HOST_PTY_SOCKET:' "$COMPOSE"; then
-  echo 'lifecycle regression: Compose backend must proxy Host PTY sessions through the checkout bridge socket' >&2
+if grep -Fq 'hostPTYSocket' "$DESKTOP_DEV"; then
+  echo 'lifecycle regression: Desktop reload must not own the durable Host PTY socket' >&2
+  exit 1
+fi
+if ! grep -Fq '  terminal:' "$COMPOSE" || ! grep -Fq 'terminal.sock' "$COMPOSE" || ! grep -Fq 'ensure_terminal_service' "$STACK" || ! grep -Fq -- '--no-recreate terminal' "$ROOT/scripts/terminal-service.sh"; then
+  echo 'lifecycle regression: Host PTYs must run in the durable Compose terminal sidecar' >&2
   exit 1
 fi
 printf 'Lifecycle immutable Electron runtime checks passed.\n'

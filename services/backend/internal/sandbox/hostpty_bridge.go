@@ -1,13 +1,10 @@
 package sandbox
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +14,7 @@ const maxHostPTYInputBytes = 64 * 1024
 
 type hostPTYFrame struct {
 	Type    string `json:"type"`
+	ID      string `json:"id,omitempty"`
 	Root    string `json:"root,omitempty"`
 	Cwd     string `json:"cwd,omitempty"`
 	Cols    uint16 `json:"cols,omitempty"`
@@ -42,7 +40,8 @@ func startBridgedHostTerminal(socketPath string, workspace Workspace, options Te
 		return nil, fmt.Errorf("connect host PTY bridge %s: %w", socketPath, err)
 	}
 	terminal := &bridgedHostTerminal{conn: conn, encoder: json.NewEncoder(conn), onExit: onExit}
-	if err := terminal.send(hostPTYFrame{Type: "start", Root: workspace.Path, Cwd: options.Cwd, Cols: options.Cols, Rows: options.Rows}); err != nil {
+	start := hostPTYFrame{Type: "start", ID: options.ID, Root: workspace.Path, Cwd: options.Cwd, Cols: options.Cols, Rows: options.Rows}
+	if err := terminal.send(start); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("start host PTY bridge: %w", err)
 	}
@@ -82,10 +81,7 @@ func (t *bridgedHostTerminal) Write(data []byte) error {
 	if len(data) > maxHostPTYInputBytes {
 		return fmt.Errorf("host PTY input exceeds %d bytes", maxHostPTYInputBytes)
 	}
-	t.stateMu.Lock()
-	closed := t.closed
-	t.stateMu.Unlock()
-	if closed {
+	if t.isClosed() {
 		return errors.New("host PTY is closed")
 	}
 	return t.send(hostPTYFrame{Type: "input", Data: data})
@@ -95,35 +91,48 @@ func (t *bridgedHostTerminal) Resize(cols, rows uint16) error {
 	if cols == 0 || rows == 0 {
 		return errors.New("host PTY dimensions must be non-zero")
 	}
-	t.stateMu.Lock()
-	closed := t.closed
-	t.stateMu.Unlock()
-	if closed {
+	if t.isClosed() {
 		return errors.New("host PTY is closed")
 	}
 	return t.send(hostPTYFrame{Type: "resize", Cols: cols, Rows: rows})
 }
 
 func (t *bridgedHostTerminal) Close() error {
-	t.stateMu.Lock()
-	if t.closed {
-		t.stateMu.Unlock()
+	if !t.markClosed() {
 		return nil
 	}
-	t.closed = true
-	t.stateMu.Unlock()
 	_ = t.send(hostPTYFrame{Type: "close"})
 	return t.conn.Close()
 }
 
+func (t *bridgedHostTerminal) Detach() error {
+	if !t.markClosed() {
+		return nil
+	}
+	return t.conn.Close()
+}
+
+func (t *bridgedHostTerminal) isClosed() bool {
+	t.stateMu.Lock()
+	defer t.stateMu.Unlock()
+	return t.closed
+}
+
+func (t *bridgedHostTerminal) markClosed() bool {
+	t.stateMu.Lock()
+	defer t.stateMu.Unlock()
+	if t.closed {
+		return false
+	}
+	t.closed = true
+	return true
+}
+
 func (t *bridgedHostTerminal) finish(code int, err error) {
 	t.exitOnce.Do(func() {
-		t.stateMu.Lock()
-		closed := t.closed
-		t.closed = true
-		t.stateMu.Unlock()
+		wasOpen := t.markClosed()
 		_ = t.conn.Close()
-		if !closed && t.onExit != nil {
+		if wasOpen && t.onExit != nil {
 			t.onExit(code, err)
 		}
 	})
@@ -133,10 +142,7 @@ func (t *bridgedHostTerminal) readFrames(decoder *json.Decoder, onOutput func([]
 	for {
 		var frame hostPTYFrame
 		if err := decoder.Decode(&frame); err != nil {
-			t.stateMu.Lock()
-			closed := t.closed
-			t.stateMu.Unlock()
-			if !closed {
+			if !t.isClosed() {
 				t.finish(-1, fmt.Errorf("host PTY bridge disconnected: %w", err))
 			}
 			return
@@ -159,154 +165,6 @@ func (t *bridgedHostTerminal) readFrames(decoder *json.Decoder, onOutput func([]
 				message = "host PTY bridge error"
 			}
 			t.finish(-1, errors.New(message))
-			return
-		}
-	}
-}
-
-// ServeHostPTYBridge owns host-side PTYs for stack mode. It is intentionally
-// launched by the Desktop lifecycle coordinator, so every shell inherits the
-// logged-in operating-system user's environment and hostname instead of the
-// backend control container's runtime identity.
-func ServeHostPTYBridge(ctx context.Context, socketPath string) error {
-	socketPath = strings.TrimSpace(socketPath)
-	if socketPath == "" || !filepath.IsAbs(socketPath) {
-		return errors.New("host PTY bridge socket must be an absolute path")
-	}
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
-		return fmt.Errorf("prepare host PTY bridge directory: %w", err)
-	}
-	if info, err := os.Lstat(socketPath); err == nil {
-		if info.Mode()&os.ModeSocket == 0 {
-			return fmt.Errorf("refusing to replace non-socket host PTY bridge path %s", socketPath)
-		}
-		probe, dialErr := net.DialTimeout("unix", socketPath, 250*time.Millisecond)
-		if dialErr == nil {
-			_ = probe.Close()
-			return fmt.Errorf("host PTY bridge is already listening on %s", socketPath)
-		}
-		if err := os.Remove(socketPath); err != nil {
-			return fmt.Errorf("remove stale host PTY bridge socket: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
-		return fmt.Errorf("listen host PTY bridge: %w", err)
-	}
-	defer func() {
-		_ = listener.Close()
-		_ = os.Remove(socketPath)
-	}()
-	if err := os.Chmod(socketPath, 0o600); err != nil {
-		return fmt.Errorf("secure host PTY bridge socket: %w", err)
-	}
-	go func() {
-		<-ctx.Done()
-		_ = listener.Close()
-	}()
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("accept host PTY bridge connection: %w", err)
-		}
-		go handleHostPTYConnection(conn)
-	}
-}
-
-func handleHostPTYConnection(conn net.Conn) {
-	defer conn.Close()
-	decoder := json.NewDecoder(conn)
-	encoder := json.NewEncoder(conn)
-	var sendMu sync.Mutex
-	send := func(frame hostPTYFrame) error {
-		sendMu.Lock()
-		defer sendMu.Unlock()
-		return encoder.Encode(frame)
-	}
-
-	var start hostPTYFrame
-	if err := decoder.Decode(&start); err != nil {
-		_ = send(hostPTYFrame{Type: "error", Message: "invalid host PTY start frame"})
-		return
-	}
-	if start.Type != "start" {
-		_ = send(hostPTYFrame{Type: "error", Message: "host PTY session must begin with start"})
-		return
-	}
-	workspace := Workspace{Path: start.Root, SourcePath: start.Root}
-	cmd, err := localTerminalCommand(workspace, TerminalOptions{Cwd: start.Cwd, Cols: start.Cols, Rows: start.Rows})
-	if err != nil {
-		_ = send(hostPTYFrame{Type: "error", Message: err.Error()})
-		return
-	}
-	options := TerminalOptions{ID: "host-bridge", Cwd: start.Cwd, Cols: start.Cols, Rows: start.Rows}
-	if options.Cols == 0 {
-		options.Cols = 80
-	}
-	if options.Rows == 0 {
-		options.Rows = 24
-	}
-	started := make(chan struct{})
-	terminal, err := startProcessTerminal(cmd, options, nil, func(data []byte) {
-		<-started
-		_ = send(hostPTYFrame{Type: "output", Data: data})
-	}, func(code int, waitErr error) {
-		<-started
-		message := ""
-		if waitErr != nil {
-			message = waitErr.Error()
-		}
-		_ = send(hostPTYFrame{Type: "exit", Code: code, Message: message})
-		_ = conn.Close()
-	})
-	if err != nil {
-		_ = send(hostPTYFrame{Type: "error", Message: err.Error()})
-		close(started)
-		return
-	}
-	if err := send(hostPTYFrame{Type: "started"}); err != nil {
-		close(started)
-		_ = terminal.Close()
-		return
-	}
-	close(started)
-	defer terminal.Close()
-
-	for {
-		var frame hostPTYFrame
-		if err := decoder.Decode(&frame); err != nil {
-			return
-		}
-		switch frame.Type {
-		case "input":
-			if len(frame.Data) == 0 {
-				continue
-			}
-			if len(frame.Data) > maxHostPTYInputBytes {
-				_ = send(hostPTYFrame{Type: "error", Message: fmt.Sprintf("host PTY input exceeds %d bytes", maxHostPTYInputBytes)})
-				return
-			}
-			if err := terminal.Write(frame.Data); err != nil {
-				_ = send(hostPTYFrame{Type: "error", Message: err.Error()})
-				return
-			}
-		case "resize":
-			if frame.Cols == 0 || frame.Rows == 0 {
-				continue
-			}
-			if err := terminal.Resize(frame.Cols, frame.Rows); err != nil {
-				_ = send(hostPTYFrame{Type: "error", Message: err.Error()})
-				return
-			}
-		case "close":
-			return
-		default:
-			_ = send(hostPTYFrame{Type: "error", Message: "unsupported host PTY bridge frame"})
 			return
 		}
 	}

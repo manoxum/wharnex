@@ -2,6 +2,7 @@
 set -eu
 
 ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
+. "$ROOT/scripts/terminal-service.sh"
 STATE_DIR="$ROOT/.harness/state"
 BRIDGE_DIR="$ROOT/.harness/bridge"
 STACK_ENV="$STATE_DIR/stack.env"
@@ -383,6 +384,7 @@ ensure_durable_services() {
   # its named state volume, but must adopt a newly built tunnel image so changes
   # to its adapters are actually deployed by the normal build/start cycle.
   compose up -d --no-recreate database minio
+  ensure_terminal_service
   desired_tunnel=$(docker image inspect -f '{{.Id}}' "$TUNNEL_IMAGE")
   tunnel_container=$(compose ps -q tunnel 2>/dev/null || true)
   running_tunnel=''
@@ -468,7 +470,7 @@ activate_selected_services() {
   expanded=''
   for service in "$@"; do
     case "$service" in
-      backend|tunnel) expanded="$expanded $service" ;;
+      backend|tunnel|terminal) expanded="$expanded $service" ;;
       frontend) expanded="$expanded frontend gateway" ;;
       webapp) expanded="$expanded webapp gateway" ;;
       gateway) expanded="$expanded gateway" ;;

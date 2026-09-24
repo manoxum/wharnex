@@ -3,7 +3,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/wharness-backend ./cmd/harness
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/wharness-backend ./cmd/harness \
+ && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/wharnex-terminald ./cmd/terminald
 
 # The backend owns Protected execution and Wharness self-evolution orchestration.
 # Keep the build/control toolchain in this container so the host only needs
@@ -47,6 +48,7 @@ RUN apk add --no-cache \
  && addgroup -g "${WHARNESS_GID}" wharness \
  && adduser -D -u "${WHARNESS_UID}" -G wharness wharness
 COPY --from=build /out/wharness-backend /usr/local/bin/wharness-backend
+COPY --from=build /out/wharnex-terminald /usr/local/bin/wharnex-terminald
 # The build stage already downloaded every module in go.sum. Discarding that
 # cache made each self-evolution host build re-fetch the identical bytes from
 # the network, so a transient DNS or proxy fault reverted a candidate that had

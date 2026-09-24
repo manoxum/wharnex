@@ -1,11 +1,11 @@
 import electronPath from 'electron'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { createConnection } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { electronChildEnvironment, electronLaunchArguments, resolveElectronBinary } from './electron-launch.mjs'
 import { startUpLink, upLinkTarget } from './up-whx-link.mjs'
+import { startHostGitBridge, waitForUnixSocket } from './host-git-bridge.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(here, '../..')
@@ -13,9 +13,6 @@ const backendDir = path.resolve(here, '../backend')
 const frontendDir = path.resolve(here, '../frontend')
 const runtimeDir = path.resolve(process.env.WHARNESS_RUNTIME_DIR || path.join(projectRoot, '.harness/run'))
 const backendBinary = path.resolve(projectRoot, 'dist/bin/wharness-backend')
-const hostPTYBinary = path.resolve(projectRoot, 'dist/bin/wharnex-host-pty')
-const hostPTYSocket = path.resolve(projectRoot, '.harness/bridge/host-pty.sock')
-const hostGitSocket = path.resolve(projectRoot, '.harness/bridge/host-git.sock')
 const children = new Map()
 const servicesMode = process.env.WHARNESS_SERVICES_MODE || 'local'
 // Two checkouts running concurrently each pin their own backend/frontend
@@ -105,19 +102,6 @@ async function waitFor(url, label) {
   throw new Error(`${label} did not become ready: ${url}`)
 }
 
-async function waitForUnixSocket(socketPath, label) {
-  for (let attempt = 0; attempt < 120; attempt++) {
-    const connected = await new Promise((resolve) => {
-      const socket = createConnection(socketPath)
-      socket.once('connect', () => { socket.end(); resolve(true) })
-      socket.once('error', () => resolve(false))
-    })
-    if (connected) return
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-  throw new Error(`${label} did not become ready: ${socketPath}`)
-}
-
 function backendCommand() {
   if (existsSync(backendBinary)) return { command: backendBinary, args: [] }
   return { command: 'go', args: ['run', './cmd/harness'] }
@@ -132,19 +116,14 @@ function frontendCommand() {
 
 async function main() {
   if (servicesMode === 'stack') {
-    if (!existsSync(hostPTYBinary)) throw new Error(`Host PTY bridge is missing: ${hostPTYBinary}. Run make build.`)
-    const hostPTY = run('hostpty', hostPTYBinary, ['--socket', hostPTYSocket, '--git-socket', hostGitSocket], projectRoot, {
-      HARNESS_HOST_PTY_SOCKET: hostPTYSocket,
-      HARNESS_HOST_GIT_SOCKET: hostGitSocket,
-    })
-    hostPTY.on('exit', (code) => {
+    const hostGit = startHostGitBridge(projectRoot, run)
+    hostGit.child.on('exit', (code) => {
       if (!shuttingDown) shutdown(code || 1)
     })
     await Promise.all([
       waitFor(`${apiURL}/api/health`, 'stack backend'),
       waitFor(frontendURL, 'stack frontend'),
-      waitForUnixSocket(hostPTYSocket, 'host PTY bridge'),
-      waitForUnixSocket(hostGitSocket, 'host Git bridge'),
+      waitForUnixSocket(hostGit.socketPath, 'host Git bridge'),
     ])
   } else {
     if (await ready(`${apiURL}/api/health`)) throw new Error(`An untracked process already owns Wharnex backend ${apiURL}. Stop that verified Wharnex process before starting.`)

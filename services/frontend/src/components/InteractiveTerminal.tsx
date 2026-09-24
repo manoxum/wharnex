@@ -7,38 +7,11 @@ import { desktopBridge } from '../lib/desktop'
 import type { Session, TerminalFrame, TerminalRunRequest } from '../types'
 import { subscribeUIPreferences, workspaceTerminalFontSize } from '../lib/uiPreferences'
 
-const terminalThemes = {
-  dark: {
-    background: '#151715', foreground: '#D8DDD7', cursor: '#9FCB73', selectionBackground: '#3C473588',
-    black: '#111311', red: '#E27676', green: '#9FCB73', yellow: '#D8BB70', blue: '#7DA7D9',
-    magenta: '#B58AC9', cyan: '#71B7B0', white: '#D8DDD7', brightBlack: '#747B74',
-    brightRed: '#EE9188', brightGreen: '#B5DD8B', brightYellow: '#E4CB91', brightBlue: '#9ABEE5',
-    brightMagenta: '#CBA6DA', brightCyan: '#92CEC7', brightWhite: '#F0F2EE',
-  },
-  light: {
-    background: '#f7f8f4', foreground: '#30362e', cursor: '#527c20', selectionBackground: '#cadab8aa',
-    black: '#20241d', red: '#a54038', green: '#39734b', yellow: '#996117', blue: '#4777a5',
-    magenta: '#8d5aa1', cyan: '#397e75', white: '#e8ebe5', brightBlack: '#697066',
-    brightRed: '#c55f55', brightGreen: '#557d24', brightYellow: '#b77a26', brightBlue: '#5b8fbe',
-    brightMagenta: '#a86aba', brightCyan: '#4b978d', brightWhite: '#ffffff',
-  },
-  'high-contrast': {
-    background: '#000000', foreground: '#ffffff', cursor: '#ffffff', selectionBackground: '#ffffff55',
-    black: '#000000', red: '#ff6b6b', green: '#7dff7d', yellow: '#fff56b', blue: '#70b7ff',
-    magenta: '#ff8cff', cyan: '#72ffff', white: '#ffffff', brightBlack: '#a0a0a0',
-    brightRed: '#ff9494', brightGreen: '#a6ffa6', brightYellow: '#fff99a', brightBlue: '#9bd0ff',
-    brightMagenta: '#ffb2ff', brightCyan: '#adffff', brightWhite: '#ffffff',
-  },
-}
-
-function activeTerminalTheme() {
-  const scheme = document.documentElement.dataset.contentScheme
-  return terminalThemes[scheme === 'light' || scheme === 'high-contrast' ? scheme : 'dark']
-}
+import { activeTerminalTheme, MAX_PERSISTED_TERMINAL_HISTORY, splitTerminalInput } from './interactiveTerminalSupport'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'closed' | 'error'
 
-export function InteractiveTerminal({ session, height, onError, visible = true, runRequest, reconnectNonce = 0, onStatusChange, cwd = '.', initialHistory = '', initialViewportY = 0, onSnapshot }: { session: Session; height: number; onError: (message: string) => void; visible?: boolean; runRequest?: TerminalRunRequest; reconnectNonce?: number; onStatusChange?: (status: ConnectionStatus) => void; cwd?: string; initialHistory?: string; initialViewportY?: number; onSnapshot?: (snapshot: { cwd: string; history: string; viewportY: number }) => void }) {
+export function InteractiveTerminal({ session, height, onError, visible = true, runRequest, reconnectNonce = 0, onStatusChange, cwd = '.', initialHistory = '', initialViewportY = 0, onSnapshot, terminalID: persistedTerminalID = '', onTerminalIDChange }: { session: Session; height: number; onError: (message: string) => void; visible?: boolean; runRequest?: TerminalRunRequest; reconnectNonce?: number; onStatusChange?: (status: ConnectionStatus) => void; cwd?: string; initialHistory?: string; initialViewportY?: number; onSnapshot?: (snapshot: { cwd: string; history: string; viewportY: number }) => void; terminalID?: string; onTerminalIDChange?: (terminalID: string) => void }) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const statusRef = useRef<ConnectionStatus>('connecting')
   const terminalRootRef = useRef<HTMLDivElement>(null)
@@ -49,16 +22,18 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
   const onErrorRef = useRef(onError)
   const onStatusChangeRef = useRef(onStatusChange)
   const onSnapshotRef = useRef(onSnapshot)
+  const onTerminalIDChangeRef = useRef(onTerminalIDChange)
   onErrorRef.current = onError
   onStatusChangeRef.current = onStatusChange
   onSnapshotRef.current = onSnapshot
+  onTerminalIDChangeRef.current = onTerminalIDChange
 
   useEffect(() => {
     const root = terminalRootRef.current
     if (!root) return
     let active = true
     let source: EventSource | undefined
-    let terminalID = ''
+    let terminalID = persistedTerminalID || terminalIDRef.current || ''
     let inputBuffer = ''
     let inputTimer = 0
     let inputQueue = Promise.resolve()
@@ -150,9 +125,9 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     async function connect() {
       setConnectionStatus('connecting')
       try {
-        const descriptor = await api.openTerminal(session.id, { cwd: rememberedCwd, network: false, cols: terminal.cols || 80, rows: terminal.rows || 24 }, 'host', true)
-        if (!active) { void api.closeTerminal(session.id, descriptor.terminal_id).catch(() => undefined); return }
-        terminalID = descriptor.terminal_id; terminalIDRef.current = terminalID
+        const descriptor = await api.openTerminal(session.id, { terminal_id: terminalID || undefined, cwd: rememberedCwd, network: false, cols: terminal.cols || 80, rows: terminal.rows || 24 }, 'host', true)
+        if (!active) return
+        terminalID = descriptor.terminal_id; terminalIDRef.current = terminalID; onTerminalIDChangeRef.current?.(terminalID)
         void api.resizeTerminal(session.id, terminalID, terminal.cols || 80, terminal.rows || 24).catch(reportError)
         source = new EventSource(api.terminalEventsURL(session.id, terminalID))
         source.onmessage = (event) => {
@@ -180,8 +155,6 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
       observer?.disconnect(); source?.close(); root.removeEventListener('keydown', clipboardShortcut, true); inputDisposable.dispose(); resizeDisposable.dispose(); scrollDisposable.dispose(); terminal.dispose()
       fitRef.current = null
       if (terminalRef.current === terminal) terminalRef.current = null
-      if (terminalIDRef.current === terminalID) terminalIDRef.current = ''
-      if (terminalID) void api.closeTerminal(session.id, terminalID).catch(() => undefined)
     }
   // `cwd` and restored history are initial conditions for a new PTY. They do not
   // reconnect a live shell merely because its remembered metadata changed.
@@ -214,19 +187,3 @@ function messageOf(error: unknown) {
   if (error instanceof APIError || error instanceof Error) return error.message
   return 'Erro inesperado no terminal'
 }
-
-function splitTerminalInput(data: string) {
-  const chunks: string[] = []
-  let chunk = ''
-  let bytes = 0
-  const encoder = new TextEncoder()
-  for (const character of data) {
-    const size = encoder.encode(character).length
-    if (bytes + size > 60_000 && chunk) { chunks.push(chunk); chunk = ''; bytes = 0 }
-    chunk += character; bytes += size
-  }
-  if (chunk) chunks.push(chunk)
-  return chunks
-}
-
-const MAX_PERSISTED_TERMINAL_HISTORY = 256 * 1024

@@ -70,6 +70,35 @@ services:
       wharness.root: "${WHARNESS_ROOT}"
       wharness.role: "tunnel"
 
+  terminal:
+    image: "wharness-backend:${WHARNESS_STACK_ID}"
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/wharnex-terminald"]
+    command: ["--socket", "${WHARNESS_BRIDGE_DIR}/terminal.sock"]
+    user: "${WHARNESS_UID}:${WHARNESS_GID}"
+    group_add:
+      - "${WHARNESS_DOCKER_GID}"
+    environment:
+      HOME: "${WHARNESS_HOME}"
+      SHELL: "/bin/bash"
+      TMPDIR: "${WHARNESS_BRIDGE_DIR}/tmp"
+      HARNESS_HOST_PTY_SOCKET: "${WHARNESS_BRIDGE_DIR}/terminal.sock"
+      WHARNESS_ROOT: "${WHARNESS_ROOT}"
+    volumes:
+      - "${WHARNESS_HOME}:${WHARNESS_HOME}"
+      - "${WHARNESS_ROOT}:${WHARNESS_ROOT}"
+      - "${WHARNESS_BRIDGE_DIR}:${WHARNESS_BRIDGE_DIR}"
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "test -S $$HARNESS_HOST_PTY_SOCKET"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 2s
+    labels:
+      wharness.root: "${WHARNESS_ROOT}"
+      wharness.role: "terminal"
+
   backend:
     image: "wharness-backend:${WHARNESS_STACK_ID}"
     build:
@@ -93,7 +122,7 @@ services:
       HARNESS_RUNNER_IMAGE: "${HARNESS_RUNNER_IMAGE:-kernl-runner:local}"
       HARNESS_DATABASE_URL: "postgres://wharness:${WHARNESS_DATABASE_PASSWORD}@database:5432/wharness?sslmode=disable"
       HARNESS_STATE_FILE: "${WHARNESS_STATE_DIR}/sessions.json"
-      HARNESS_HOST_PTY_SOCKET: "${WHARNESS_BRIDGE_DIR}/host-pty.sock"
+      HARNESS_HOST_PTY_SOCKET: "${WHARNESS_BRIDGE_DIR}/terminal.sock"
       HARNESS_HOST_GIT_SOCKET: "${WHARNESS_BRIDGE_DIR}/host-git.sock"
       HARNESS_TUNNEL_DAEMON_URL: "http://tunnel:8090"
       HARNESS_TUNNEL_DAEMON_TOKEN: "${WHARNESS_TUNNEL_API_TOKEN}"
@@ -125,6 +154,8 @@ services:
       tunnel:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      terminal:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]

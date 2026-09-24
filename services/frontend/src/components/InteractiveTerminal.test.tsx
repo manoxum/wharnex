@@ -15,6 +15,7 @@ vi.mock('@xterm/xterm', () => ({
   Terminal: class Terminal {
     cols = 80
     rows = 24
+    buffer = { active: { viewportY: 0 } }
     loadAddon() {}
     open() {}
     write() {}
@@ -26,6 +27,8 @@ vi.mock('@xterm/xterm', () => ({
     paste(data: string) { terminalMock.paste(data) }
     onData(callback: (data: string) => void) { terminalMock.onData = callback; return { dispose() {} } }
     onResize(callback: (size: { cols: number; rows: number }) => void) { terminalMock.onResize = callback; return { dispose() {} } }
+    onScroll() { return { dispose() {} } }
+    scrollToLine() {}
   },
 }))
 
@@ -83,13 +86,19 @@ describe('InteractiveTerminal PTY', () => {
     expect(screen.queryByText('HOST DIRECTO')).toBeNull()
   })
 
-  it('reconnects the same host terminal surface when the reconnect nonce changes', async () => {
-    vi.mocked(api.openTerminal).mockResolvedValueOnce({ terminal_id: 'pty-host-1', target: 'host' }).mockResolvedValueOnce({ terminal_id: 'pty-host-2', target: 'host' })
+  it('reconnects by the same stable terminal id without closing it on remount', async () => {
+    vi.mocked(api.openTerminal).mockResolvedValue({ terminal_id: 'pty_host_1', target: 'host' })
     const { rerender } = render(<InteractiveTerminal session={session} height={245} reconnectNonce={0} onError={() => undefined} />)
     await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(1))
     rerender(<InteractiveTerminal session={session} height={245} reconnectNonce={1} onError={() => undefined} />)
     await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(2))
-    expect(api.openTerminal).toHaveBeenLastCalledWith('ses-terminal', expect.objectContaining({ network: false }), 'host', true)
+    expect(api.openTerminal).toHaveBeenLastCalledWith('ses-terminal', expect.objectContaining({ terminal_id: 'pty_host_1', network: false }), 'host', true)
+    expect(api.closeTerminal).not.toHaveBeenCalled()
+  })
+
+  it('reattaches a terminal id restored by the workspace after a page reload', async () => {
+    render(<InteractiveTerminal session={session} height={245} terminalID="pty_restored_1" onError={() => undefined} />)
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledWith('ses-terminal', expect.objectContaining({ terminal_id: 'pty_restored_1' }), 'host', true))
   })
 
   it('copies selections and pastes clipboard text through desktop shortcuts', async () => {

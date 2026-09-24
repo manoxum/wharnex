@@ -65,6 +65,12 @@ type InteractiveTerminal interface {
 	Close() error
 }
 
+// DetachableTerminal can drop a transport connection without terminating the
+// underlying human shell. Durable bridge-backed terminals implement it.
+type DetachableTerminal interface {
+	Detach() error
+}
+
 // InteractiveTerminalRunner is deliberately separate from Runner: planners
 // can receive only Runner, while the HTTP/application terminal path may opt in
 // to the human-only PTY capability.
