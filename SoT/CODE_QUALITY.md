@@ -95,7 +95,51 @@ read anyway. This is a continuation of the existing `AGENTS.md` §4 principle
 authorization for unrelated drive-by rewrites in the same change — an
 unrelated cleanup is its own change.
 
-## 4. Enforcement
+## 4. Rename-on-touch from Wharness to Wharnex
+
+Wharnex is the canonical product nomenclature. New project-owned work MUST use
+`Wharnex`/`WHARNEX` in product prose and `wharnex`/`WHARNEX_*` when a
+product-name token is needed in technical identifiers. New implementation MUST
+NOT mint `Wharness`, `wharness-*`, `WHARNESS_*`, `wharness.*`, or an equivalent
+legacy spelling merely because nearby code still uses it.
+
+Legacy Wharness naming is migration debt and is governed by rename-on-touch. A
+change that maintains or evolves a concern containing that nomenclature MUST
+migrate the touched concern in the same change, even when renaming was not the
+primary purpose of the task. The migration includes the directly related,
+project-owned surface needed to keep the concern coherent: symbols and types,
+constants and selectors, tests and fixtures, documentation labels, configuration
+keys and paths, and internal call sites. Do not create a new legacy alias to
+avoid updating those references.
+
+The obligation is bounded to the cohesive concern being changed. It does not
+authorize a repository-wide rename just because the same legacy token appears
+elsewhere, and it does not require rewriting unrelated behavior in a large file.
+Like extract-on-touch, the repository converges incrementally as maintained
+surfaces are migrated.
+
+Compatibility is the only exception. An already-shipped identifier MAY retain
+its exact legacy spelling when changing it would break an external or persisted
+contract, including wire/protocol identifiers, persisted database/storage keys
+or paths, environment variables or CLI inputs, and artifact/bundle names. In
+that case the change MUST:
+
+- keep the legacy spelling only at the narrow compatibility boundary;
+- map immediately to canonical Wharnex naming inside new or maintained code;
+- avoid introducing new internal consumers of the legacy spelling; and
+- preserve a compatibility test when the old identifier remains supported.
+
+When a safe compatibility migration can provide both names, Wharnex is the
+canonical write/output path and the legacy spelling is read/accept-only until a
+separately reviewed removal. User-visible prose that is not itself a compatibility
+identifier has no exemption and MUST say Wharnex when touched.
+
+Reviewers and planners MUST treat any newly added, unexempted legacy Wharness
+product token as a defect. If a diff adds one intentionally for compatibility,
+the change description and test coverage must make the compatibility boundary
+explicit rather than leaving the exception implicit.
+
+## 5. Enforcement
 
 `scripts/check-file-size.sh` is the mechanical check for the new-file rule
 (§1). It compares the current working tree against a base ref (default: the
@@ -117,6 +161,6 @@ Per `adr/ADR-0066`, this script is **not** currently wired into
 manually-run, documented gate. It exists so the rule is checkable today and
 can be promoted to a blocking gate deliberately once adopted.
 
-The extract-on-touch rule (§2) and continuous refactoring (§3) are review
-discipline, not mechanically checkable; they are enforced in code review
-against this document.
+The extract-on-touch rule (§2), continuous refactoring (§3), and naming
+migration rule (§4) are review discipline, not mechanically checkable; they are
+enforced in code review against this document.
