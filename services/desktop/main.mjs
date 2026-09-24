@@ -22,6 +22,7 @@ import { buildBundleName, parseBundleName, safeChatId } from './bundlename.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
 import { chatGPTDeliveryContinuationPrompt, chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, classifyChatGPTConversationTransport, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress, reconcileChatGPTConversationTransport, recordChatGPTConversationTransport } from './chatgpt-recovery.mjs'
+import { claimNetworkFaultReloadSlot, isNetworkRecoveryFault } from './chatgpt-transport-backoff.mjs'
 import { RATE_LIMIT_GATE, classifyChatGPTRateLimit, isChatGPTBackendAPIURL } from './chatgpt-rate-limit.mjs'
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry, canonicalProjectPath } from './project-window-registry.mjs'
@@ -6914,6 +6915,7 @@ async function performChatGPTRecoveryAction(key, expected, entry, action, comple
   requireOwnedChatGPTEntry(key, entry)
   const now = Date.now()
   if (action.type === 'reload') {
+    if (action.reason === 'transport' && isNetworkRecoveryFault(action.detail) && !claimNetworkFaultReloadSlot(now)) return false
     commitChatGPTRecoveryAction(expected.recovery, action, now)
     expected.settledAt = 0
     expected.lastDOMClick = 0

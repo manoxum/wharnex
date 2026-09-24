@@ -84,7 +84,12 @@ function onPath(tool, env) {
 
 function defaultPreflight(plan, env) {
   const probe = upLinkCommand({ command: 'true', ports: plan.ports, resolvPath: plan.resolvPath, uid: plan.uid, gid: plan.gid })
-  execFileSync(probe.command, probe.args, { env, stdio: 'ignore', timeout: PREFLIGHT_TIMEOUT_MS })
+  try {
+    execFileSync(probe.command, probe.args, { env, stdio: ['ignore', 'ignore', 'pipe'], timeout: PREFLIGHT_TIMEOUT_MS })
+  } catch (error) {
+    const detail = String(error?.stderr || '').trim().split('\n').filter((line) => !/No routable interface for IPv6/.test(line)).pop() || ''
+    throw new Error(`${error?.signal ? `signal ${error.signal}` : `exit ${error?.status ?? '?'}`}${detail ? ` (${detail})` : ''}`)
+  }
 }
 
 // Decides whether the Desktop launches through the up-link. When it does, the
@@ -106,10 +111,16 @@ export function prepareUpLink(env, { runtimeDir, platform = process.platform, pr
   const resolvPath = path.join(runtimeDir, 'up-whx-link.resolv.conf')
   writeFileSync(resolvPath, `nameserver ${UP_LINK_DNS}\noptions edns0 trust-ad\n`, { mode: 0o644 })
   const plan = { active: true, mode, reason: '', ports, resolvPath, uid, gid }
-  try {
-    preflight(plan, env)
-  } catch (error) {
-    return inactive(`preflight failed: ${String(error?.message || error).split('\n')[0]}`)
+  // The launch often follows a stack (re)start whose host network is still
+  // settling, so one transient failure is retried before giving up.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      preflight(plan, env)
+      break
+    } catch (error) {
+      if (attempt < 2) continue
+      return inactive(`preflight failed: ${String(error?.message || error).split('\n')[0]}`)
+    }
   }
   env.WHARNESS_LINUX_SANDBOX_MODE = 'userns'
   return plan

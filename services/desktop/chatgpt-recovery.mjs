@@ -1,3 +1,5 @@
+import { networkFaultStatus } from './chatgpt-transport-backoff.mjs'
+
 const DEFAULT_SILENT_MS = 30_000
 const DEFAULT_RELOAD_SETTLE_MS = 15_000
 const DEFAULT_ACTION_COOLDOWN_MS = 5_000
@@ -130,6 +132,9 @@ export function chooseChatGPTRecoveryAction(state, snapshot = {}, now = Date.now
 
   if (snapshot.humanActionRequired === true) return undefined
 
+  const networkFault = networkFaultStatus(state, current)
+  if (networkFault === 'deferred') return undefined
+  if (networkFault === 'recovered') clearChatGPTRecoveryFault(state)
   if (state.pendingFault) {
     const maxTransportReloads = Math.max(1, Number(options.maxTransportReloads) || 3)
     if (Number(state.transportReloadCount || 0) >= maxTransportReloads) {

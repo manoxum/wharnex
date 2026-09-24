@@ -72,6 +72,10 @@ test('auto mode falls back to the ordinary launch and keeps the sandbox untouche
   const plan = prepareUpLink(env, { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => { throw new Error('userns denied') } })
   assert.equal(plan.active, false)
   assert.match(plan.reason, /preflight failed: userns denied/)
+  let attempts = 0
+  const retried = prepareUpLink(withTools(gatewayEnv()), { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => { if (++attempts === 1) throw new Error('settling') } })
+  assert.equal(retried.active, true, 'one transient preflight failure is retried')
+  assert.equal(attempts, 2)
   assert.equal(env.WHARNESS_LINUX_SANDBOX_MODE, 'runtime')
   assert.equal(prepareUpLink(gatewayEnv({ PATH: '/nonexistent' }), { runtimeDir: runtimeDir(), platform: 'linux' }).reason, 'missing pasta, unshare, ip, mount')
   assert.equal(prepareUpLink(gatewayEnv(), { runtimeDir: runtimeDir(), platform: 'darwin' }).reason, 'unsupported-platform')

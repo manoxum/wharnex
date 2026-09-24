@@ -71,9 +71,11 @@ test('conversation transport completion/error and navigation generations reconci
 test('recoverable socket and internet errors request a bounded reload first', () => {
   const state = createChatGPTRecoveryState(1_000)
   noteChatGPTRecoveryFault(state, 'net::ERR_INTERNET_DISCONNECTED', 2_000)
-  const action = chooseChatGPTRecoveryAction(state, { thinking: true }, 3_000, { actionCooldownMs: 0 })
+  // The page gets the first chance to retry its own stream.
+  assert.equal(chooseChatGPTRecoveryAction(state, { thinking: true }, 3_000, { actionCooldownMs: 0 }), undefined)
+  const action = chooseChatGPTRecoveryAction(state, { thinking: true }, 22_000, { actionCooldownMs: 0 })
   assert.deepEqual(action, { type: 'reload', reason: 'transport', detail: 'net::ERR_INTERNET_DISCONNECTED' })
-  commitChatGPTRecoveryAction(state, action, 3_000)
+  commitChatGPTRecoveryAction(state, action, 22_000)
   assert.equal(state.pendingFault, '')
   assert.equal(state.reloadCount, 1)
 })
@@ -149,24 +151,28 @@ test('initial conversation affinity blocks silent recovery but never masks a con
   const state = createChatGPTRecoveryState(1_000)
   assert.equal(chooseChatGPTRecoveryAction(state, { awaitingConversationAffinity: true, responseStarted: false }, 40_000, { silentMs: 30_000, actionCooldownMs: 0 }), undefined)
   noteChatGPTRecoveryFault(state, 'net::ERR_CONNECTION_RESET', 41_000)
-  const action = chooseChatGPTRecoveryAction(state, { awaitingConversationAffinity: true }, 42_000, { actionCooldownMs: 0 })
+  const action = chooseChatGPTRecoveryAction(state, { awaitingConversationAffinity: true }, 61_000, { actionCooldownMs: 0 })
   assert.equal(action?.reason, 'transport')
 })
 
 test('transport recovery is bounded and escalates to one human intervention instead of looping forever', () => {
   const state = createChatGPTRecoveryState(1_000)
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    noteChatGPTRecoveryFault(state, 'net::ERR_CONNECTION_RESET', 2_000 + attempt * 10_000)
-    const action = chooseChatGPTRecoveryAction(state, {}, 3_000 + attempt * 10_000, { actionCooldownMs: 0, maxTransportReloads: 3 })
+  // Each network-fault reload waits longer than the previous one.
+  let at = 2_000
+  for (const delay of [20_000, 60_000, 180_000]) {
+    noteChatGPTRecoveryFault(state, 'net::ERR_CONNECTION_RESET', at)
+    assert.equal(chooseChatGPTRecoveryAction(state, {}, at + delay - 1, { actionCooldownMs: 0, maxTransportReloads: 3 }), undefined)
+    const action = chooseChatGPTRecoveryAction(state, {}, at + delay, { actionCooldownMs: 0, maxTransportReloads: 3 })
     assert.equal(action?.reason, 'transport')
-    commitChatGPTRecoveryAction(state, action, 3_000 + attempt * 10_000)
+    commitChatGPTRecoveryAction(state, action, at + delay)
+    at += delay + 1_000
   }
-  noteChatGPTRecoveryFault(state, 'net::ERR_CONNECTION_RESET', 40_000)
-  const human = chooseChatGPTRecoveryAction(state, {}, 41_000, { actionCooldownMs: 0, maxTransportReloads: 3 })
+  noteChatGPTRecoveryFault(state, 'net::ERR_CONNECTION_RESET', at)
+  const human = chooseChatGPTRecoveryAction(state, {}, at + 180_000, { actionCooldownMs: 0, maxTransportReloads: 3 })
   assert.equal(human?.type, 'human')
   assert.equal(human?.reason, 'transport-exhausted')
-  commitChatGPTRecoveryAction(state, human, 41_000)
-  assert.equal(chooseChatGPTRecoveryAction(state, {}, 50_000, { actionCooldownMs: 0, maxTransportReloads: 3 }), undefined)
+  commitChatGPTRecoveryAction(state, human, at + 180_000)
+  assert.equal(chooseChatGPTRecoveryAction(state, {}, at + 400_000, { actionCooldownMs: 0, maxTransportReloads: 3 }), undefined)
 })
 
 test('missing composer reloads once and escalates when the surface is still unavailable', () => {

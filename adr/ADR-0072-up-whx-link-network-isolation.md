@@ -66,6 +66,27 @@ The implementation is `services/desktop/up-whx-link.mjs`, called by
 The decision is logged (`[up-whx-link] active|inactive …`), recorded in
 `.harness/run/up-whx-link.state`, and shown by `make status`.
 
+### Network faults wait before reloading
+
+The up-link removes the spurious network-change faults. A real transport
+failure can still happen, for example a dropped connection or a failed DNS
+lookup. Before this decision, a single `net::ERR_*` on the main frame or on the
+conversation transport (for example `POST /backend-api/f/conversation/resume`)
+reloaded the page immediately. The only limits were a 5 s cooldown and 3
+reloads, and every view hit by the same network flap reloaded at once. That
+turned a flap into a request burst that ChatGPT answered with HTTP 429.
+`services/desktop/chatgpt-transport-backoff.mjs` changes this:
+
+- A network fault first leaves recovery to the page. The reload waits 20 s, then
+  60 s, then 180 s, depending on how many transport reloads the request has
+  already used. Each new fault restarts the wait.
+- A fault is dropped without reloading when the conversation shows progress
+  after it.
+- Network-fault reloads are spaced by at least 15 s across the whole Desktop.
+- Renderer faults (crash, unresponsive, failed DOM probes) keep their immediate
+  reload. The bounded escalation to human action is unchanged. It is reached
+  only after the waits.
+
 ## Consequences
 
 - Host interface churn (container restarts, bridges, interface renaming, IPv6
