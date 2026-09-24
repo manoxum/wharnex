@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -13,7 +13,13 @@ const gatewayEnv = (extra = {}) => ({
   WHARNESS_LINUX_SANDBOX_MODE: 'runtime',
   ...extra,
 })
-const withTools = (env) => ({ ...env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin' })
+const withTools = (env) => {
+  const dir = runtimeDir()
+  for (const tool of ['pasta', 'unshare', 'ip', 'mount']) {
+    writeFileSync(path.join(dir, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  }
+  return { ...env, PATH: dir }
+}
 
 test('the up-link is on by default and can be disabled or required', () => {
   assert.equal(upLinkMode({}), 'auto')
@@ -73,9 +79,11 @@ test('auto mode falls back to the ordinary launch and keeps the sandbox untouche
   assert.equal(plan.active, false)
   assert.match(plan.reason, /preflight failed: userns denied/)
   let attempts = 0
-  const retried = prepareUpLink(withTools(gatewayEnv()), { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => { if (++attempts === 1) throw new Error('settling') } })
+  const retryEnv = withTools(gatewayEnv())
+  const retried = prepareUpLink(retryEnv, { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => { if (++attempts === 1) throw new Error('settling') } })
   assert.equal(retried.active, true, 'one transient preflight failure is retried')
   assert.equal(attempts, 2)
+  assert.equal(retryEnv.WHARNESS_LINUX_SANDBOX_MODE, 'userns', 'successful retry keeps the sandbox mode switch')
   assert.equal(env.WHARNESS_LINUX_SANDBOX_MODE, 'runtime')
   assert.equal(prepareUpLink(gatewayEnv({ PATH: '/nonexistent' }), { runtimeDir: runtimeDir(), platform: 'linux' }).reason, 'missing pasta, unshare, ip, mount')
   assert.equal(prepareUpLink(gatewayEnv(), { runtimeDir: runtimeDir(), platform: 'darwin' }).reason, 'unsupported-platform')

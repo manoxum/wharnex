@@ -57,7 +57,9 @@ INNER (root do namespace):
 Modos (`WHARNESS_UP_LINK`, definível em `.harness/env`):
 
 - `auto` (omissão): usa o up-link quando `pasta` e `unshare` existem e o
-  preflight passa; caso contrário arranca como hoje e regista o motivo.
+  preflight passa; o preflight admite uma repetição para absorver rede ainda a
+  estabilizar e, se ambas falharem, regista exit/sinal e a última linha útil do
+  stderr antes de arrancar como hoje.
 - `required`: se o up-link não puder ser criado o arranque falha.
 - `off`: comportamento atual.
 
