@@ -18,6 +18,7 @@ import { Icon } from './Icon'
 import { ContentSkeleton } from './Skeleton'
 import { PlanView, TerminalView } from './Inspector'
 import { ChatAgentTaskTimeline } from './ChatAgentTaskTimeline'
+import { ProjectTaskCardShell } from './ProjectTaskCardShell'
 
 const ACTIVE = new Set(['PENDING', 'LEASED', 'RUNNING', 'WAITING', 'READY', 'DOING', 'REVIEW'])
 const FAILED = new Set(['FAILED', 'ATTENTION'])
@@ -200,15 +201,9 @@ function executionQueueState(item: ExecutionFIFOItem): { label: string; detail: 
 }
 
 function ProjectTaskCard({ item, currentSession, activeChatId, activeEvents, onGoToChat }: { item: ProjectTask; currentSession: Session; activeChatId: string; activeEvents: HarnessEvent[]; onGoToChat?: (chatId?: string, sessionId?: string) => void }) {
-  const [opened, setOpened] = useState(false)
-  const state = projectTaskState(item)
-  return <article className={`project-task-card ${item.disposition} ${item.failed ? 'failed' : ''}`}>
-    <div className="project-task-card-heading"><div><div className="project-task-card-eyebrow"><span className={`project-task-source source-${item.source}`}>{sourceIcon(item.source)}{sourceLabel(item.source)}</span><span className="project-task-state"><i aria-hidden="true"/>{state}</span></div><strong>{item.title}</strong></div><time dateTime={item.updatedAt}>{formatDate(item.updatedAt)}</time></div>
-    <p className="project-task-prompt">{presentationPrompt(item.prompt) || standaloneFallback(item)}</p>
-    <div className="project-task-card-meta"><code>{item.rootRequestId}</code>{item.kind === 'request' ? <span>{item.requests.length} {item.requests.length === 1 ? 'requisição GPT' : 'requisições GPT'}</span> : <span>{taskTypeLabel(item.taskType)}</span>}{item.tasks[0]?.assigned_worker ? <span>Worker: {item.tasks[0].assigned_worker}</span> : null}{item.failed ? <span className="danger">Requer atenção</span> : null}</div>
-    {onGoToChat && item.chatId ? <div className="project-task-actions"><button type="button" onClick={() => onGoToChat(item.chatId, item.sessionId)}><Icon name="bridge" size={12}/> Ver chat</button></div> : null}
-    <details className="project-task-details" onToggle={(event) => setOpened(event.currentTarget.open)}><summary><span>Detalhes, planos, execuções, logs e metadados</span></summary>{opened ? <ProjectTaskDetail item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents}/> : null}</details>
-  </article>
+  return <ProjectTaskCardShell disposition={item.disposition} failed={item.failed} source={item.source} sourceLabel={sourceLabel(item.source)} sourceIcon={sourceIcon(item.source)} stateLabel={projectTaskState(item)} title={item.title} updatedAt={item.updatedAt} updatedLabel={formatDate(item.updatedAt)} prompt={presentationPrompt(item.prompt) || standaloneFallback(item)} rootRequestId={item.rootRequestId}
+    metadata={<>{item.kind === 'request' ? <span>{item.requests.length} {item.requests.length === 1 ? 'requisição GPT' : 'requisições GPT'}</span> : <span>{taskTypeLabel(item.taskType)}</span>}{item.tasks[0]?.assigned_worker ? <span>Worker: {item.tasks[0].assigned_worker}</span> : null}{item.failed ? <span className="danger">Requer atenção</span> : null}</>} onGoToChat={onGoToChat && item.chatId ? () => onGoToChat(item.chatId, item.sessionId) : undefined}
+    renderDetails={() => <ProjectTaskDetail item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents}/>}/>
 }
 
 function ProjectTaskDetail({ item, currentSession, activeChatId, activeEvents }: { item: ProjectTask; currentSession: Session; activeChatId: string; activeEvents: HarnessEvent[] }) {

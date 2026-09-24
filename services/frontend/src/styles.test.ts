@@ -792,13 +792,9 @@ describe('workbench visual hierarchy CSS', () => {
     expect(directChatGPT).toContain('--agent-chat-width: calc((100% - 6px) * 0.4)')
   })
 
-  it('flattens repeated task and database cards into separator-led sections', () => {
-    const taskCard = lastRule('.project-task-card')
+  it('flattens repeated database cards into separator-led sections', () => {
     const databaseSection = lastRule('.database-connection-section')
 
-    expect(taskCard).toContain('border-radius: 0')
-    expect(taskCard).toContain('background: transparent')
-    expect(taskCard).toContain('box-shadow: none')
     expect(databaseSection).toContain('border-radius: 0')
     expect(databaseSection).toContain('background: transparent')
   })
