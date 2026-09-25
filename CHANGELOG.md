@@ -13,6 +13,7 @@
 
 - Mantém o ChatGPT Manual projetado no Engine, troca o painel isolado por uma toolbar de entrega/importação e preserva a captura automática dos bundles canónicos sem reativar o scraper DOM.
 - Refina a toolbar Manual com hierarquia visual mais limpa, ações agrupadas, estado compacto e importação de resposta em card/dropzone mais claro e acessível.
+- Torna as ações principais da toolbar Manual em controlos compactos baseados em ícones, com foco/hover mais elegante, hints nativos e nomes acessíveis preservados.
 
 
 ### Chat 7d20d781-c4b2-4ccd-b95c-9d1a1623c27e (2026-09-24)
