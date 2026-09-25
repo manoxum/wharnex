@@ -4,6 +4,7 @@ import type { WorkspaceChat } from '../lib/workspaceMemory'
 import { collectPlanActivities, mainRequestRoot, sessionForPlan } from '../lib/projectActivity'
 import { riskLabel } from '../lib/risk'
 import { activityExportFilename, buildMainPlanExport, buildSubplanExport, downloadActivityExport } from '../lib/activityExport'
+import { resolveExportTraceMetadata } from '../lib/exportMetadata'
 import { formatActivityDate, shortPlanId, shortRequestId } from '../lib/activityFormat'
 import { Icon } from './Icon'
 import { HistoryExportButton } from './HistoryExportButton'
@@ -34,7 +35,10 @@ export function PlanHistorySurface({ session, chat, events, loading, error, curr
 function PlanHistoryBlock({ group, session, currentPlan, renderHistoricalPlan, defaultOpen }: { group: PlanGroup; session: Session; currentPlan: ReactNode; renderHistoricalPlan: (session: Session) => ReactNode; defaultOpen: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
   const lead = group.plans[0]?.plan
-  const exportGroup = () => downloadActivityExport(activityExportFilename('plano', group.rootRequestId), buildMainPlanExport(group.rootRequestId, group.plans))
+  const exportGroup = async () => {
+    const metadata = await resolveExportTraceMetadata(session, { kind: 'plan', rootRequestId: group.rootRequestId })
+    downloadActivityExport(activityExportFilename('plano', group.rootRequestId), buildMainPlanExport(group.rootRequestId, group.plans, metadata))
+  }
   return <details className="main-request-block plan-history-block" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary className="main-request-summary">
       <span className="main-request-summary-mark"><Icon name="plan" size={14}/></span>
@@ -44,15 +48,18 @@ function PlanHistoryBlock({ group, session, currentPlan, renderHistoricalPlan, d
     {open && <div className="main-request-plan-list">{group.plans.map((item, planIndex) => {
       const current = item.plan.plan_id === session.plan?.plan_id
       const sequence = group.plans.length - planIndex
-      return <PlanHistoryLine key={item.id} item={item} sequence={sequence} rootRequestId={group.rootRequestId} defaultOpen={current}>{current ? <div className="history-current-plan">{currentPlan}</div> : renderHistoricalPlan(sessionForPlan(item))}</PlanHistoryLine>
+      return <PlanHistoryLine key={item.id} item={item} sequence={sequence} rootRequestId={group.rootRequestId} session={session} defaultOpen={current}>{current ? <div className="history-current-plan">{currentPlan}</div> : renderHistoricalPlan(sessionForPlan(item))}</PlanHistoryLine>
     })}</div>}
   </details>
 }
 
-function PlanHistoryLine({ item, sequence, rootRequestId, defaultOpen, children }: { item: ReturnType<typeof collectPlanActivities>[number]; sequence: number; rootRequestId: string; defaultOpen: boolean; children: ReactNode }) {
+function PlanHistoryLine({ item, sequence, rootRequestId, session, defaultOpen, children }: { item: ReturnType<typeof collectPlanActivities>[number]; sequence: number; rootRequestId: string; session: Session; defaultOpen: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(defaultOpen)
   const label = `Subplano ${String(sequence).padStart(2, '0')}`
-  const exportItem = () => downloadActivityExport(activityExportFilename('subplano', item.plan.plan_id), buildSubplanExport(item, sequence, rootRequestId))
+  const exportItem = async () => {
+    const metadata = await resolveExportTraceMetadata(session, { kind: 'subplan', rootRequestId, requestId: item.plan.request_id, planId: item.plan.plan_id })
+    downloadActivityExport(activityExportFilename('subplano', item.plan.plan_id), buildSubplanExport(item, sequence, rootRequestId, metadata))
+  }
   return <details className="main-request-plan-row" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary className="main-request-plan-summary">
       <span className="plan-history-sequence">{String(sequence).padStart(2, '0')}</span>

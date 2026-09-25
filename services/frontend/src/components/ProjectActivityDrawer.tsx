@@ -146,7 +146,7 @@ export function ProjectActivityDrawer({ kind, chats, currentSession, activeChatI
           {eventHistoryLoading === chosenExecution.session.id ? <ContentSkeleton label="A carregar histórico de auditoria" rows={4} compact/> : null}
           {eventHistory[chosenExecution.session.id]?.truncated ? <div className="project-log-notice warning">A sessão tem {eventHistory[chosenExecution.session.id].total} eventos; são mostrados os 2000 mais recentes.</div> : null}
           {eventHistoryError[chosenExecution.session.id] ? <div className="project-log-notice warning">{eventHistoryError[chosenExecution.session.id]}</div> : null}
-          {logQuery && !visibleEvents.length ? <div className="agent-drawer-empty">Nenhum log corresponde ao filtro atual.</div> : <TerminalView key={`${chosenExecution.id}:${logScope}`} events={visibleEvents} />}
+          {logQuery && !visibleEvents.length ? <div className="agent-drawer-empty">Nenhum log corresponde ao filtro atual.</div> : <TerminalView key={`${chosenExecution.id}:${logScope}`} session={chosenExecution.session} events={visibleEvents} />}
         </> : null}
       </div>
     </div>}

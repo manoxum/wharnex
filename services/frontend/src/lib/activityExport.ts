@@ -1,5 +1,6 @@
 import type { PlanActivityItem } from './projectActivity'
 import type { ExecutionSubtaskGroup } from './executionTimeline'
+import { exportTraceMarkdownLines, type ExportTraceMetadata } from './exportMetadata'
 
 export type PlanExportItem = Pick<PlanActivityItem, 'label' | 'timestamp' | 'plan'>
 
@@ -10,11 +11,12 @@ export function activityExportFilename(kind: 'plano' | 'subplano' | 'execucao' |
   return `${kind}-${clean}.md`
 }
 
-export function buildMainPlanExport(rootRequestId: string, plans: PlanExportItem[]) {
+export function buildMainPlanExport(rootRequestId: string, plans: PlanExportItem[], metadata: ExportTraceMetadata) {
   const ordered = [...plans].sort((a, b) => a.timestamp.localeCompare(b.timestamp))
   const lines = [
     '# Plano · Main Request',
     '',
+    ...exportTraceMarkdownLines(metadata),
     `- Main Request: \`${rootRequestId}\``,
     `- Subplanos: ${ordered.length}`,
     '',
@@ -23,20 +25,22 @@ export function buildMainPlanExport(rootRequestId: string, plans: PlanExportItem
   return lines.join('\n').trimEnd() + '\n'
 }
 
-export function buildSubplanExport(item: PlanExportItem, sequence: number, rootRequestId: string) {
+export function buildSubplanExport(item: PlanExportItem, sequence: number, rootRequestId: string, metadata: ExportTraceMetadata) {
   return [
     `# Subplano ${String(sequence).padStart(2, '0')}`,
     '',
+    ...exportTraceMarkdownLines(metadata),
     `- Main Request: \`${rootRequestId}\``,
     '',
     ...planSection(item, ''),
   ].join('\n').trimEnd() + '\n'
 }
 
-export function buildMainExecutionExport(rootRequestId: string, updatedAt: string, groups: ExecutionSubtaskGroup[]) {
+export function buildMainExecutionExport(rootRequestId: string, updatedAt: string, groups: ExecutionSubtaskGroup[], metadata: ExportTraceMetadata) {
   const lines = [
     '# Execução · Main Request',
     '',
+    ...exportTraceMarkdownLines(metadata),
     `- Main Request: \`${rootRequestId}\``,
     `- Atualizada em: ${updatedAt}`,
     `- Subexecuções: ${groups.length}`,
@@ -46,10 +50,11 @@ export function buildMainExecutionExport(rootRequestId: string, updatedAt: strin
   return lines.join('\n').trimEnd() + '\n'
 }
 
-export function buildSubexecutionExport(group: ExecutionSubtaskGroup, sequence: number) {
+export function buildSubexecutionExport(group: ExecutionSubtaskGroup, sequence: number, metadata: ExportTraceMetadata) {
   return [
     `# Subexecução ${String(sequence).padStart(2, '0')}`,
     '',
+    ...exportTraceMarkdownLines(metadata),
     ...executionSection(group, sequence).slice(1),
   ].join('\n').trimEnd() + '\n'
 }
