@@ -1,9 +1,11 @@
-import type { AutomationMode, EffortLevel, ChatArtifactSelection, ChatItem, ChatRequestMode, ExecutionMode, HarnessEvent, WorkspaceMode } from '../types'
+import type { AutomationMode, EffortLevel, ChatArtifactSelection, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, HarnessEvent, ReasoningEffort, WorkspaceMode } from '../types'
 import { chatgptConversationURL } from './desktop'
 
 const ACTIVE_KEY = 'kernl.workspace.active.v1'
 const RECENT_KEY = 'kernl.workspace.recent.v1'
+export const WORKSPACE_DIRECTORY_KEY = 'kernl.workspace.directory.v1'
 export const BOOTSTRAP_PROMPT_PREFIX = 'kernl.workspace.bootstrap-prompt.v1:'
+export const BOOTSTRAP_LAUNCH_PREFIX = 'kernl.workspace.bootstrap-launch.v1:'
 const PROJECT_LOGO_PREFIX = 'kernl.workspace.project-logo.v1:'
 const LEGACY_CHAT_PREFIX = 'kernl.workspace.chat.v1:'
 const CHAT_INDEX_PREFIX = 'kernl.workspace.chats.v2:'
@@ -16,6 +18,25 @@ const EFFORT_LEVEL_PREFIX = 'kernl.workspace.effort-level.v1:'
 const EXECUTION_HISTORY_PREFIX = 'kernl.workspace.execution-history.v1:'
 const LEGACY_TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v2'
 export const TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v3'
+
+
+export type BootstrapLaunchOptions = {
+  artifacts: ChatArtifactSelection
+  requestMode: ChatRequestMode
+  automationMode: AutomationMode
+  effortLevel: EffortLevel
+  reasoningEffort: ReasoningEffort
+  chatTransportMode: ChatTransportMode
+}
+
+export const DEFAULT_BOOTSTRAP_LAUNCH_OPTIONS: BootstrapLaunchOptions = {
+  artifacts: { context: true, prompt: true, result: false, error: false },
+  requestMode: 'direct',
+  automationMode: 'auto',
+  effortLevel: 'high',
+  reasoningEffort: 'high',
+  chatTransportMode: 'scraper',
+}
 
 export type TransportOptions = { disabledTunnelIds: string[] }
 export const DEFAULT_TRANSPORT_OPTIONS: TransportOptions = { disabledTunnelIds: [] }
@@ -166,6 +187,18 @@ export function loadRecentWorkspaces(): string[] {
   } catch { return [] }
 }
 
+export function loadWorkspaceDirectory() {
+  try { return (localStorage.getItem(WORKSPACE_DIRECTORY_KEY) || '').trim() } catch { return '' }
+}
+
+export function saveWorkspaceDirectory(projectPath: string) {
+  const target = projectPath.trim()
+  try {
+    if (target) localStorage.setItem(WORKSPACE_DIRECTORY_KEY, target)
+    else localStorage.removeItem(WORKSPACE_DIRECTORY_KEY)
+  } catch { /* storage unavailable/full */ }
+}
+
 export function rememberRecent(projectPath: string) {
   const next = [projectPath, ...loadRecentWorkspaces().filter((item) => item !== projectPath)]
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch { /* storage unavailable/full */ }
@@ -191,6 +224,46 @@ export function loadPendingProjectPrompt(projectPath: string) {
 
 export function clearPendingProjectPrompt(projectPath: string) {
   try { localStorage.removeItem(BOOTSTRAP_PROMPT_PREFIX + projectPath.trim()) } catch { /* storage unavailable */ }
+}
+
+export function savePendingProjectLaunch(projectPath: string, options: BootstrapLaunchOptions) {
+  const target = projectPath.trim()
+  if (!target) return
+  try { localStorage.setItem(BOOTSTRAP_LAUNCH_PREFIX + target, JSON.stringify(normalizeBootstrapLaunchOptions(options))) } catch { /* storage unavailable/full */ }
+}
+
+export function loadPendingProjectLaunch(projectPath: string): BootstrapLaunchOptions | undefined {
+  const target = projectPath.trim()
+  if (!target) return undefined
+  try {
+    const raw = localStorage.getItem(BOOTSTRAP_LAUNCH_PREFIX + target)
+    if (!raw) return undefined
+    return normalizeBootstrapLaunchOptions(JSON.parse(raw) as Partial<BootstrapLaunchOptions>)
+  } catch { return undefined }
+}
+
+export function clearPendingProjectLaunch(projectPath: string) {
+  try { localStorage.removeItem(BOOTSTRAP_LAUNCH_PREFIX + projectPath.trim()) } catch { /* storage unavailable */ }
+}
+
+function normalizeBootstrapLaunchOptions(value?: Partial<BootstrapLaunchOptions>): BootstrapLaunchOptions {
+  const automationMode: AutomationMode = value?.automationMode === 'manual' || value?.automationMode === 'auto_approve' ? value.automationMode : 'auto'
+  const effortLevel: EffortLevel = value?.effortLevel && ['low', 'medium', 'high', 'extra_high', 'max', 'ultra', 'loop'].includes(value.effortLevel) ? value.effortLevel : 'high'
+  const reasoningEffort: ReasoningEffort = value?.reasoningEffort === 'instant' || value?.reasoningEffort === 'medium' ? value.reasoningEffort : 'high'
+  const chatTransportMode: ChatTransportMode = value?.chatTransportMode === 'manual' ? 'manual' : 'scraper'
+  return {
+    artifacts: {
+      context: value?.artifacts?.context !== false,
+      prompt: true,
+      result: Boolean(value?.artifacts?.result),
+      error: Boolean(value?.artifacts?.error),
+    },
+    requestMode: value?.requestMode === 'plan_first' ? 'plan_first' : 'direct',
+    automationMode,
+    effortLevel,
+    reasoningEffort,
+    chatTransportMode,
+  }
 }
 
 export function saveProjectLogo(projectPath: string, dataURL: string) {

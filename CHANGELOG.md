@@ -6,7 +6,8 @@ _(reserved — no entries yet)_
 
 ### Chat f3ebe00d-4ce0-4de5-84ba-a16a7732986b (2026-09-25)
 
-_(reserved — no entries yet)_
+- feat(home): moderniza a página inicial com ações rápidas, opções da primeira request e configurações globais de workspace.
+- feat(projects): abrir pasta usa o seletor diretamente e novos projetos deixam explícita a inicialização Git local.
 
 
 ### Chat 7e463b09-c1c9-45cf-9dcd-198e6fe888cd (2026-09-25)
