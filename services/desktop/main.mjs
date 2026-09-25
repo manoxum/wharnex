@@ -7573,6 +7573,29 @@ function registerIPC() {
     })
     return { cancelled: result.canceled || result.filePaths.length === 0, path: result.filePaths[0] || '' }
   })
+  ipcMain.handle('wharness:projects:pick-image', async (event, request) => {
+    const windowState = trustedSender(event)
+    const result = await dialog.showOpenDialog(windowState.window, {
+      title: typeof request?.title === 'string' && request.title.trim() ? request.title.trim() : 'Selecionar logo do projeto',
+      properties: ['openFile'],
+      filters: [{ name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'] }],
+    })
+    const selected = result.canceled ? '' : result.filePaths[0] || ''
+    if (!selected) return { cancelled: true, dataURL: '' }
+    const extension = path.extname(selected).toLowerCase()
+    const mime = extension === '.svg' ? 'image/svg+xml' : extension === '.jpg' || extension === '.jpeg' ? 'image/jpeg' : extension === '.webp' ? 'image/webp' : extension === '.gif' ? 'image/gif' : 'image/png'
+    const payload = await readFile(selected)
+    if (payload.byteLength > 2 * 1024 * 1024) throw new Error('O logotipo deve ter no máximo 2 MiB.')
+    return { cancelled: false, dataURL: `data:${mime};base64,${payload.toString('base64')}` }
+  })
+  ipcMain.handle('wharness:projects:trash', async (event, request) => {
+    trustedSender(event)
+    const projectPath = canonicalProjectPath(request?.projectPath)
+    const owner = [...desktopWindows.values()].find((state) => !state.window.isDestroyed() && !state.transientSurface && state.projects.has(projectPath))
+    if (owner) throw new Error('Feche ou desvincule o projeto antes de o mover para o lixo.')
+    await shell.trashItem(projectPath)
+    return { ok: true, path: projectPath }
+  })
   ipcMain.handle('wharness:projects:acquire', (event, request) => acquireProjectForWindow(trustedSender(event), request?.projectPath))
   ipcMain.handle('wharness:projects:release', (event, request) => releaseProjectForWindow(trustedSender(event), request?.projectPath))
   ipcMain.handle('wharness:projects:activate', (event, request) => {
@@ -7620,9 +7643,11 @@ function registerIPC() {
     owner.window.show(); owner.window.focus()
     return { ok: true, windowId: owner.id, projectPath }
   })
-  ipcMain.handle('wharness:windows:open', (event) => {
+  ipcMain.handle('wharness:windows:open', (event, request) => {
     trustedSender(event)
-    const windowState = createWindow()
+    const requestedProject = typeof request?.projectPath === 'string' && request.projectPath.trim() ? canonicalProjectPath(request.projectPath) : ''
+    const launch = requestedProject ? { recovery: { projects: [requestedProject], activeProject: requestedProject, pending: false } } : {}
+    const windowState = createWindow(undefined, true, launch)
     windowState.window.show(); windowState.window.focus()
     return { ok: true, windowId: windowState.id }
   })

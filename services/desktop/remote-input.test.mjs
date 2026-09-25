@@ -47,6 +47,7 @@ test('prompt preparation bounds optional remote routes before materializing the 
 test('remote comment mirroring cannot hold a submitted ChatGPT comment indefinitely', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function publishRemoteChannelComment(')
+  assert.notEqual(start, -1, 'remote comment publication function must remain present after conflict resolution')
   const publication = source.slice(start, source.indexOf('\nasync function pollChatGPTVisibleActivity', start))
   assert.match(publication, /remoteInputPublicationSignal\(undefined, REMOTE_COMMENT_PUBLICATION_TIMEOUT_MS\)/)
   assert.match(publication, /signal: deadline\.signal/)
