@@ -20,9 +20,10 @@ export const BEHAVIOR_SCHEMA = 'harness.chat-agent-behavior/v1'
 export const CHATGPT_BEHAVIOR = Object.freeze({
   schema: BEHAVIOR_SCHEMA,
   provider: 'chatgpt',
-  // 2026-09-24: the definitive-chat composer renders a ZIP attachment as an
-  // indeterminate preview spinner. Upload observation remains composer-local
-  // and never reads preview/prompt text; see chatgpt-upload-observation.mjs.
+  // 2026-09-25: the definitive-chat composer separates media inputs from the
+  // general-file input and renders a ZIP as an indeterminate preview spinner.
+  // Upload observation remains composer-local and never reads preview/prompt
+  // text; see chatgpt-upload.mjs and chatgpt-upload-observation.mjs.
   revision: CHATGPT_DOM_BEHAVIOR_REVISION,
   origin: 'builtin',
   baseURL: 'https://chatgpt.com',

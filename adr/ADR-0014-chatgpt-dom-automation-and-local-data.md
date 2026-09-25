@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; amended for v1.2.21, v1.2.26, v1.2.31, v1.2.38.1 and v1.2.42.3.
+Accepted; amended for v1.2.21, v1.2.26, v1.2.31, v1.2.38.1, v1.2.42.3 and the 2026-09-25 DOM maintenance.
 
 ## Context
 
@@ -39,6 +39,13 @@ When the provider uses its current ZIP-preview shape — an indeterminate
 composer-local spinner without a numeric value — observing that spinner starts
 the upload and its disappearance confirms completion. The bridge reports no
 invented percentage in that state.
+
+The current composer may expose separate media and general-file inputs. A ZIP
+selection resolves the explicit upload input first, then a composer-scoped file
+input with no `accept` restriction; a generic `multiple` input is only a final
+compatibility fallback. This prevents a successful native selection from being
+sent to the image/video listener while the transport waits for an upload that
+can never start.
 
 The visible-reasoning probe first selects only visible provider containers whose
 `data-testid` identifies reasoning, thinking, or analysis, or whose semantic
@@ -94,6 +101,17 @@ For an active expected Wharnex bundle, Desktop maintains per-request liveness st
 Named account-management commands are a separate allowlist: exact project lookup/creation, move of the owned conversation, `WHX:` rename, stop/archive and sidebar collapse. They inspect only controls and the exact requested project/title values. There is no generic selector or arbitrary-script IPC, and any unsupported surface fails closed.
 
 This recovery is intentionally bounded. It does not inspect arbitrary assistant prose to make decisions, does not change the original request or scope, does not access another chat's renderer, and does not create an unbounded retry loop.
+
+Manual **Retomar pedido** uses that same compact delivery-continuation path in
+the already-linked conversation. It does not reconstruct project context or
+upload the request ZIP again. The manual action may be used after the one
+automatic wake-up was exhausted, while preserving request identity, affinity,
+active-transport and validated-bundle guards.
+
+Supervisor transport serialization is per physical Supervisor instance. A
+write in one instance cannot place unrelated chats owned by another instance
+behind a process-global transport tail; a pending or active write still pins
+its own instance until the operation settles.
 
 ### v1.2.42.3 liveness qualification
 

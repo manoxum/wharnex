@@ -2,7 +2,7 @@
 
 Este documento descreve o contrato atualmente implementado para a automação do ChatGPT no Desktop, como investigar mudanças estruturais da página e como validar uma correção. Use-o quando uma atualização do ChatGPT quebrar uma operação, quando houver HTTP 429/“too many requests” ou antes de aceitar uma alteração no engine.
 
-Última revisão estrutural e operacional: **2026-09-19**.
+Última revisão estrutural e operacional: **2026-09-25**.
 
 ## 1. Limites de segurança
 
@@ -110,7 +110,7 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
 7. Preserve a validação estrita do artefato e a fronteira que proíbe leitura de conteúdo remoto.
 8. Remova toda instrumentação temporária `[DEBUG-...]` antes de concluir.
 
-### Mapa estrutural confirmado em 2026-09-19
+### Mapa estrutural confirmado em 2026-09-25
 
 - O histórico expõe `data-conversation-options-trigger`; o `data-testid` visual pode ser `history-item-<n>-options` ou `undefined-options` e não serve como identidade durável.
 - O menu da conversa carregada expõe `button[data-testid="conversation-options-button"]`. Use-o somente para a conversa cujo URL/id foi confirmado.
@@ -120,6 +120,18 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
 - O popover de esforço pode apresentar um slider utilizável sem `aria-expanded="true"`. Um único slider definido em `effortSlider` e limitado ao composer é a evidência de menu aberto.
 - Worker oculto não pode depender de `webContents.sendInputEvent` sem viewport/hit-testing válidos. Use a operação estreita `pressChatGPTControl`; não substitua por click DOM.
 - Todo gerador de script de conta deve entrar em `ALL_SCRIPTS` e passar por compilação com `new Function`. Regex dentro de template strings precisam preservar dupla fuga (`\\/`).
+- O composer atual pode expor três `input[type=file]`: vídeo/imagem,
+  imagem e ficheiro geral sem `accept`. O upload de ZIP deve preferir o ID ou
+  `data-testid` explícito e, na ausência deles, o input geral sem `accept`
+  dentro do composer. Nunca selecione o primeiro input `multiple`.
+- Cada Supervisor possui a sua própria fila de transporte. Um upload em
+  `supervisor-1` só adia chats que realmente precisariam dessa instância; não
+  bloqueia um chat residente ou disponível em `supervisor-2`.
+- **Retomar pedido** envia somente a continuação textual curta na conversa já
+  vinculada. Não rematerializa o contexto, não cria outro ZIP e não repete o
+  upload do bundle de entrada. A ação manual pode ultrapassar o limite do único
+  wake-up automático, mas continua bloqueada para request substituído, bundle
+  já validado ou conversa com transporte ativo.
 
 Quando o mapa mudar, incremente `CHATGPT_BEHAVIOR.revision`, acrescente a regressão correspondente e registre a data da nova confirmação.
 
