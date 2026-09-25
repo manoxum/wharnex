@@ -50,7 +50,7 @@ func (m treeMerge) integrate(ctx context.Context) error {
 		return fmt.Errorf("record integration merge commit: %s", commit)
 	}
 	forwardArgs := append(hostrepo.InternalGitArgs(m.topology, m.identity), "merge", "--ff-only", "-q", commit)
-	if output, err := runGit(ctx, m.hostPath, forwardArgs...); err != nil {
+	if output, err := runGitWaitingForIndexLock(ctx, m.hostPath, forwardArgs...); err != nil {
 		if blocked := hostrepo.HostGitBlocked(ctx, m.hostPath, output); blocked != nil {
 			return blocked
 		}

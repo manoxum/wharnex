@@ -3479,7 +3479,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 				// merged cleanly before this one conflicted — all-or-
 				// nothing, matching the legacy ChangeSet path's semantics.
 				if len(mergedIntegrationBranches) > 0 {
-					_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true))
+					s.undoBatchMerges(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, mergedIntegrationBranches)
 				}
 				updated, prepareErr := s.prepareConflictResolutionFromMerge(ctx, sessionID, item, item.ProjectPath, failedPlanID, conflict)
 				if errors.Is(prepareErr, ErrManagedStateConflict) {
@@ -3491,7 +3491,7 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 				return updated, abortPreparedTransaction(fmt.Errorf("%w: %s", ErrIntegrationConflict, strings.Join(conflict.Paths, ", ")))
 			}
 			if len(mergedIntegrationBranches) > 0 {
-				_ = s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true))
+				s.undoBatchMerges(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, mergedIntegrationBranches)
 			}
 			// A refused host state is not a defect in the generated change and
 			// no new patch can resolve it: the operator has an unfinished

@@ -287,28 +287,6 @@ func commitTrailer(body, key string) string {
 	return ""
 }
 
-// RevertHostMerge resets the host's checked-out branch back to preMergeSHA.
-// Safe because preMergeSHA is always the tip this exact request's own merge
-// moved away from, moments earlier — used when post-merge verification
-// fails, so the host is never left in a state that failed its own build.
-//
-// The submodule realignment is not optional bookkeeping. `git reset --hard`
-// restores the superproject's gitlinks but leaves every submodule checkout
-// wherever the merge left it, so a revert without it returns a host that
-// reports itself permanently modified — the exact condition that used to make
-// every subsequent Apply fail before it began.
-func RevertHostMerge(ctx context.Context, hostPath, preMergeSHA string) (hostrepo.SyncResult, error) {
-	before, inspectErr := hostrepo.Inspect(ctx, hostPath)
-	if output, err := runGit(ctx, hostPath, "reset", "--hard", preMergeSHA); err != nil {
-		return hostrepo.SyncResult{}, fmt.Errorf("revert host merge to %s: %s", preMergeSHA, output)
-	}
-	if inspectErr != nil {
-		return hostrepo.SyncResult{}, nil
-	}
-	sync, _ := hostrepo.SyncSubmodules(ctx, hostPath, before.Submodules)
-	return sync, nil
-}
-
 // ReadFileAtRef returns a path's content as of a specific commit/ref,
 // without touching the working tree. Used to build a BASE/CURRENT/RESULT
 // conflict capsule from a *MergeConflictError's HostSHA/MergeBaseSHA/Branch

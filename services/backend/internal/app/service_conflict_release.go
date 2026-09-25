@@ -50,7 +50,7 @@ func conflictThreadIdle(item domain.Session) bool {
 }
 
 // healPendingIntegrationState retires what later rounds already superseded and
-// releases an orphaned conflict record, so a session that accumulated either
+// releases an orphaned conflict record (retiring nothing for it), so a session that accumulated either
 // one converges on its own instead of needing the operator to discard verified
 // work by hand.
 //
@@ -88,14 +88,18 @@ func (s *Service) healPendingIntegrationState(ctx context.Context, sessionID str
 		}
 		item = updated
 	}
-	retirements := make([]*domain.ConflictResolution, 0, 2)
-	if orphan {
-		retirements = append(retirements, item.IntegrationConflict)
-	}
+	// An orphan's record is released, but nothing is retired from its
+	// candidates: no round will ever deliver a replacement for its paths, so
+	// retiring them discarded the candidate's own verified work — production
+	// lost a component's implementation this way while keeping the tests
+	// written for it. The next Apply measures those paths again from each
+	// candidate's request base, and a collision that still exists becomes a
+	// fresh capsule carrying the candidate's version.
+	retirements := make([]*domain.ConflictResolution, 0, 1)
 	if superseded := supersededConflictResolution(item, pending); superseded != nil {
 		retirements = append(retirements, superseded)
 	}
-	if len(retirements) == 0 {
+	if len(retirements) == 0 && !orphan {
 		return pending, item, nil
 	}
 	healed := pending
