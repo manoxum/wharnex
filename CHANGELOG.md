@@ -9,11 +9,6 @@ _(reserved — no entries yet)_
 _(reserved — no entries yet)_
 
 
-### Chat f5bceab8-e582-489a-8f3e-018f2a78fe0c (2026-09-25)
-
-_(reserved — no entries yet)_
-
-
 ### Chat 687999cb-e16d-4199-8662-5fc1442b83f7 (2026-09-25)
 
 - Mantém o ChatGPT Manual projetado no Engine, troca o painel isolado por uma toolbar de entrega/importação e preserva a captura automática dos bundles canónicos sem reativar o scraper DOM.
