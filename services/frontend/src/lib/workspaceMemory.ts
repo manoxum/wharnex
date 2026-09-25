@@ -3,6 +3,8 @@ import { chatgptConversationURL } from './desktop'
 
 const ACTIVE_KEY = 'kernl.workspace.active.v1'
 const RECENT_KEY = 'kernl.workspace.recent.v1'
+export const BOOTSTRAP_PROMPT_PREFIX = 'kernl.workspace.bootstrap-prompt.v1:'
+const PROJECT_LOGO_PREFIX = 'kernl.workspace.project-logo.v1:'
 const LEGACY_CHAT_PREFIX = 'kernl.workspace.chat.v1:'
 const CHAT_INDEX_PREFIX = 'kernl.workspace.chats.v2:'
 const CHAT_ITEMS_PREFIX = 'kernl.workspace.chat.v2:'
@@ -160,13 +162,48 @@ export function loadRecentWorkspaces(): string[] {
   try {
     const value = localStorage.getItem(RECENT_KEY)
     const items = value ? JSON.parse(value) as string[] : []
-    return Array.isArray(items) ? items.filter((item) => typeof item === 'string').slice(0, 8) : []
+    return Array.isArray(items) ? items.filter((item) => typeof item === 'string') : []
   } catch { return [] }
 }
 
 export function rememberRecent(projectPath: string) {
-  const next = [projectPath, ...loadRecentWorkspaces().filter((item) => item !== projectPath)].slice(0, 8)
+  const next = [projectPath, ...loadRecentWorkspaces().filter((item) => item !== projectPath)]
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch { /* storage unavailable/full */ }
+}
+
+export function removeRecent(projectPath: string) {
+  const target = projectPath.trim()
+  if (!target) return
+  const next = loadRecentWorkspaces().filter((item) => item !== target)
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch { /* storage unavailable/full */ }
+}
+
+export function savePendingProjectPrompt(projectPath: string, prompt: string) {
+  const target = projectPath.trim()
+  const text = prompt.trim()
+  if (!target || !text) return
+  try { localStorage.setItem(BOOTSTRAP_PROMPT_PREFIX + target, text) } catch { /* storage unavailable/full */ }
+}
+
+export function loadPendingProjectPrompt(projectPath: string) {
+  try { return localStorage.getItem(BOOTSTRAP_PROMPT_PREFIX + projectPath.trim()) || '' } catch { return '' }
+}
+
+export function clearPendingProjectPrompt(projectPath: string) {
+  try { localStorage.removeItem(BOOTSTRAP_PROMPT_PREFIX + projectPath.trim()) } catch { /* storage unavailable */ }
+}
+
+export function saveProjectLogo(projectPath: string, dataURL: string) {
+  const target = projectPath.trim()
+  if (!target) return
+  try {
+    if (dataURL.trim()) localStorage.setItem(PROJECT_LOGO_PREFIX + target, dataURL.trim())
+    else localStorage.removeItem(PROJECT_LOGO_PREFIX + target)
+  } catch { /* storage unavailable/full */ }
+}
+
+export function loadProjectLogo(projectPath: string) {
+  try { return localStorage.getItem(PROJECT_LOGO_PREFIX + projectPath.trim()) || '' } catch { return '' }
 }
 
 

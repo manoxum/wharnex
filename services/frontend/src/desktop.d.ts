@@ -71,6 +71,8 @@ interface WharnessDesktopBridge {
   platform: string
   projects: {
     pickDirectory(request?: { title?: string; defaultPath?: string }): Promise<{ cancelled: boolean; path: string }>
+    pickImage(request?: { title?: string }): Promise<{ cancelled: boolean; dataURL: string }>
+    trash(projectPath: string): Promise<{ ok: boolean; path: string }>
     acquire(projectPath: string): Promise<{ ok: boolean; path: string; ownerWindowId?: string; message?: string }>
     release(projectPath: string): Promise<{ ok: boolean; released: boolean; path: string }>
     activate(projectPath: string): Promise<{ ok: boolean; path: string }>
@@ -86,7 +88,7 @@ interface WharnessDesktopBridge {
     onCloseConfirmation(callback: (payload: DesktopWindowClosePrompt) => void): () => void
     acknowledgeClose(): Promise<{ ok: boolean; reason?: string }>
     resolveClose(action: DesktopWindowCloseAction): Promise<{ ok: boolean; action?: DesktopWindowCloseAction; reason?: string }>
-    open(): Promise<{ ok: boolean; windowId: string }>
+    open(request?: { projectPath?: string }): Promise<{ ok: boolean; windowId: string }>
     openSurface(request: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string }): Promise<{ ok: boolean; windowId: string }>
     moveSurface(request: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string; screenX?: number; screenY?: number }): Promise<{ ok: boolean; action: 'moved' | 'opened' | 'blocked'; windowId?: string; reason?: string; message?: string }>
     onSurfaceReceived(callback: (payload: { surface: { projectPath: string; kind: 'chat' | 'editor' | 'terminal'; chatId?: string; path?: string } }) => void): () => void

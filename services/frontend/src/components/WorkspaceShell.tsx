@@ -5,7 +5,7 @@ import { desktopBridge } from '../lib/desktop'
 import { isDesktopTrayTunnelAction } from '../lib/desktopTray'
 import { announceHeaderPopover, subscribeHeaderPopover, subscribeOtherHeaderPopover } from '../lib/headerPopover'
 import { desktopWindowScope, loadBoundActiveProject, loadBoundProjects, rememberOpenedProject, saveBoundActiveProject, saveBoundProjects, syncOpenedProjectHistory } from '../lib/projectBindings'
-import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent } from '../lib/workspaceMemory'
+import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent, removeRecent, savePendingProjectPrompt } from '../lib/workspaceMemory'
 import type { AppConfig, WorkspaceMode } from '../types'
 import { Bootstrap } from './Bootstrap'
 import { Icon } from './Icon'
@@ -14,7 +14,6 @@ import { ErrorToast } from './ErrorToast'
 import { TunnelOverviewModal } from './TunnelOverviewModal'
 import { ProjectGitBadge } from './ProjectGitBadge'
 import { SignalCore } from './SignalCore'
-import { ProjectLinkModal } from './ProjectLinkModal'
 import { DesktopCloseDialogHost } from './DesktopCloseDialogHost'
 import { DesktopRecoveryDialog } from './DesktopRecoveryDialog'
 import { WorkspaceSkeleton } from './Skeleton'
@@ -41,7 +40,6 @@ export function WorkspaceShell() {
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [busy, setBusy] = useState(true)
   const [initialized, setInitialized] = useState(false)
-  const [linkModalOpen, setLinkModalOpen] = useState(false)
   const [pendingRecovery, setPendingRecovery] = useState<{ projects: string[]; activeProject: string }>()
   const [readyProjects, setReadyProjects] = useState<string[]>([])
   const [error, setError] = useState<string>()
@@ -218,6 +216,32 @@ export function WorkspaceShell() {
     return bindProject(picked.path)
   }
 
+  async function openProjectWindow(projectPath: string) {
+    const target = projectPath.trim()
+    if (!target) return
+    const bridge = desktopBridge()
+    if (!bridge) { await bindProject(target); return }
+    try {
+      const snapshot = await bridge.windows.projects() as ProjectWindowSnapshot
+      const existing = snapshot.items.find((item) => item.projectPath === target)
+      if (existing?.windowId === snapshot.currentWindowId && projects.includes(target)) { setActiveProject(target); return }
+      if (existing) { await bridge.windows.focusProject(target); return }
+      await bridge.windows.open({ projectPath: target })
+    } catch (reason) { setError(messageOf(reason)) }
+  }
+
+  async function chooseAndOpenWindow() {
+    const picked = await desktopBridge()?.projects.pickDirectory({ title: 'Abrir projeto numa nova janela' })
+    if (!picked || picked.cancelled || !picked.path) return
+    rememberRecent(picked.path); setRecent(loadRecentWorkspaces()); void rememberOpenedProject(picked.path).catch(() => undefined)
+    await openProjectWindow(picked.path)
+  }
+
+  function forgetRecent(projectPath: string) {
+    removeRecent(projectPath)
+    setRecent(loadRecentWorkspaces())
+  }
+
   async function unbindProject(projectPath: string) {
     if (busy) return
     setBusy(true); setError(undefined)
@@ -266,7 +290,17 @@ export function WorkspaceShell() {
     } catch (reason) { setError(messageOf(reason)); setBusy(false); return false }
   }
 
-  const chrome = <ShellChrome projects={projects} activeProject={activeProject} composerTypingProject={composerTypingProject} activeSessionID={projectSessions[activeProject] || ''} activeRuntime={projectRuntime[activeProject]} activeAttention={projectAttention[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onAttention={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-attention' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onBind={() => setLinkModalOpen(true)} onNewWindow={() => void desktopBridge()?.windows.open()} />
+  async function bootstrapProject(parentPath: string, name: string, prompt: string) {
+    setBusy(true); setError(undefined)
+    try {
+      const created = await api.createProject(parentPath, name)
+      savePendingProjectPrompt(created.project_path, prompt)
+      setBusy(false)
+      await bindProject(created.project_path)
+    } catch (reason) { setError(messageOf(reason)); setBusy(false) }
+  }
+
+  const chrome = <ShellChrome projects={projects} recent={recent} activeProject={activeProject} composerTypingProject={composerTypingProject} activeSessionID={projectSessions[activeProject] || ''} activeRuntime={projectRuntime[activeProject]} activeAttention={projectAttention[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onAttention={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-attention' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onLinkProject={(projectPath) => void bindProject(projectPath)} onOpenProject={(projectPath) => void openProjectWindow(projectPath)} onForgetProject={forgetRecent} onBrowseLink={() => void chooseAndBind()} onBrowseOpen={() => void chooseAndOpenWindow()} onNewWindow={() => void desktopBridge()?.windows.open()} />
   const recoveryModal = pendingRecovery ? <DesktopRecoveryDialog
     projects={pendingRecovery.projects}
     busy={busy}
@@ -278,13 +312,10 @@ export function WorkspaceShell() {
     onDiscard={() => { setPendingRecovery(undefined); setBusy(false); setInitialized(true) }}
   /> : null
 
-  const linkModal = linkModalOpen ? <ProjectLinkModal recent={recent} boundProjects={projects} busy={busy} error={error} onOpen={bindProject} onBrowse={chooseAndBind} onCreate={createProject} onClone={cloneProject} onClose={() => setLinkModalOpen(false)} /> : null
-
   if (!projects.length) return <div className="desktop-shell-root">
     {chrome}
     {recoveryModal}
-    <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={busy} onStart={async (projectPath) => { await bindProject(projectPath) }} onCreate={async (parentPath, name) => { await createProject(parentPath, name) }} onClone={async (repositoryURL, parentPath, directory) => { await cloneProject(repositoryURL, parentPath, directory) }} />
-    {linkModal}
+    <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={busy} onStart={async (projectPath) => { await bindProject(projectPath) }} onCreate={async (parentPath, name) => { await createProject(parentPath, name) }} onClone={async (repositoryURL, parentPath, directory) => { await cloneProject(repositoryURL, parentPath, directory) }} onBootstrap={bootstrapProject} onRecentChanged={() => setRecent(loadRecentWorkspaces())} />
   </div>
 
   return <main className="desktop-shell-root">
@@ -303,15 +334,15 @@ export function WorkspaceShell() {
           its frame boots, instead of showing a blank panel. */}
       {activeProject && !readyProjects.includes(activeProject) && <div className="bound-project-loading" aria-hidden="true"><WorkspaceSkeleton/></div>}
     </section>
-    {linkModal}
     {recoveryModal}
   </main>
 }
 
-export function ShellChrome({ projects, activeProject, composerTypingProject, activeSessionID, activeRuntime, activeAttention, mode, busy, onActivate, onMode, onGitSync, onAttention, onSettings, onUnbind, onBind, onNewWindow }: {
-  projects: string[]; activeProject: string; composerTypingProject?: string; activeSessionID?: string; activeRuntime?: ProjectRuntimeState; activeAttention?: ProjectAttentionState; busy: boolean
+export function ShellChrome({ projects, recent = [], activeProject, composerTypingProject, activeSessionID, activeRuntime, activeAttention, mode, busy, onActivate, onMode, onGitSync, onAttention, onSettings, onUnbind, onLinkProject, onOpenProject, onForgetProject, onBrowseLink, onBrowseOpen, onNewWindow }: {
+  projects: string[]; recent?: string[]; activeProject: string; composerTypingProject?: string; activeSessionID?: string; activeRuntime?: ProjectRuntimeState; activeAttention?: ProjectAttentionState; busy: boolean
   mode: WorkspaceMode
-  onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onGitSync?: () => void; onAttention?: () => void; onSettings: () => void; onUnbind: (projectPath: string) => void; onBind: () => void; onNewWindow: () => void
+  onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onGitSync?: () => void; onAttention?: () => void; onSettings: () => void; onUnbind: (projectPath: string) => void
+  onLinkProject?: (projectPath: string) => void; onOpenProject?: (projectPath: string) => void; onForgetProject?: (projectPath: string) => void; onBrowseLink?: () => void; onBrowseOpen?: () => void; onBind?: () => void; onNewWindow: () => void
 }) {
   const [projectActionsOpen, setProjectActionsOpen] = useState(false)
   const [projectWindowOpen, setProjectWindowOpen] = useState(false)
@@ -394,9 +425,24 @@ export function ShellChrome({ projects, activeProject, composerTypingProject, ac
       <QuickSwitcher compact />
       <div ref={projectActionsRef} className="project-actions-menu">
         <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => { if (!projectActionsOpen) announceHeaderPopover('project-actions'); setProjectActionsOpen((current) => !current) }} aria-label="Ações de projeto" aria-expanded={projectActionsOpen} title="Ações de projeto"><Icon name="plus" size={15}/></button>
-        {projectActionsOpen && <div className="project-actions-popover" role="menu" data-chatgpt-overlay-blocker="true">
-          <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBind() }}><Icon name="workspace" size={14}/><span><strong>Vincular projeto</strong><small>Recentes, novo, clone ou pasta</small></span></button>
-          <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onNewWindow() }}><Icon name="external" size={14}/><span><strong>Nova janela</strong><small>Workspace independente</small></span></button>
+        {projectActionsOpen && <div className="project-actions-popover project-actions-hub" role="menu" data-chatgpt-overlay-blocker="true">
+          <div className="project-actions-hub-heading"><span><strong>Projetos recentes</strong><small>Abrir, vincular ou remover desta lista.</small></span><b>{recent.length}</b></div>
+          <div className="project-actions-recent-list">
+            {recent.length ? recent.map((projectPath) => <div key={projectPath} className="project-actions-recent-row" style={projectAccentStyle(projectPath)}>
+              <span className="project-actions-recent-mark"><Icon name="workspace" size={13}/></span>
+              <span className="project-actions-recent-copy"><strong>{projectName(projectPath)}</strong><small>{projectPath}</small></span>
+              <div className="project-actions-recent-buttons">
+                <button type="button" disabled={busy} onClick={() => onForgetProject?.(projectPath)} title="Remover dos recentes" aria-label={`Remover ${projectName(projectPath)} dos recentes`}><Icon name="close" size={12}/></button>
+                <button type="button" disabled={busy || projects.includes(projectPath)} onClick={() => { setProjectActionsOpen(false); onLinkProject?.(projectPath) }} title="Vincular nesta janela" aria-label={`Vincular ${projectName(projectPath)}`}><Icon name="link" size={12}/></button>
+                <button type="button" disabled={busy} onClick={() => { setProjectActionsOpen(false); onOpenProject?.(projectPath) }} title="Abrir projeto" aria-label={`Abrir ${projectName(projectPath)}`}><Icon name="external" size={12}/></button>
+              </div>
+            </div>) : <div className="project-actions-empty"><Icon name="history" size={15}/><span>Nenhum projeto recente.</span></div>}
+          </div>
+          <div className="project-actions-hub-footer">
+            <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onNewWindow() }}><Icon name="plus" size={15}/><span><strong>Nova janela</strong><small>Início Wharnex</small></span></button>
+            <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBrowseOpen?.() }}><Icon name="external" size={15}/><span><strong>Abrir</strong><small>Noutra janela</small></span></button>
+            <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBrowseLink?.() }}><Icon name="link" size={15}/><span><strong>Vincular</strong><small>Nesta janela</small></span></button>
+          </div>
         </div>}
       </div>
       {activeProject && <button type="button" data-attention-trigger="true" className={`workspace-attention-button${activeAttention?.total ? ' has-alerts' : ''}${activeAttention?.urgent ? ' urgent' : ''}`} onClick={() => { announceHeaderPopover('attention'); onAttention?.() }} aria-label={`Centro de notificações, ${activeAttention?.total || 0} alerta(s), ${activeAttention?.urgent || 0} urgente(s), ${activeAttention?.actionable || 0} com ação`} title="Notificações · ver alertas recentes"><Icon name="bell" size={16}/>{Boolean(activeAttention?.total) && <b className="workspace-attention-count" aria-hidden="true">{activeAttention!.total > 99 ? '99+' : activeAttention!.total}</b>}</button>}

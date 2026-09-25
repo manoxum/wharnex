@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
   platform: process.platform,
   projects: Object.freeze({
     pickDirectory: (request = {}) => invoke('wharness:projects:pick-directory', request),
+    pickImage: (request = {}) => invoke('wharness:projects:pick-image', request),
+    trash: (projectPath) => invoke('wharness:projects:trash', { projectPath: String(projectPath || '') }),
     acquire: (projectPath) => invoke('wharness:projects:acquire', { projectPath: String(projectPath || '') }),
     release: (projectPath) => invoke('wharness:projects:release', { projectPath: String(projectPath || '') }),
     activate: (projectPath) => invoke('wharness:projects:activate', { projectPath: String(projectPath || '') }),
@@ -44,7 +46,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     },
     acknowledgeClose: () => invoke('wharness:windows:acknowledge-close'),
     resolveClose: (action) => invoke('wharness:windows:resolve-close', { action: String(action || '') }),
-    open: () => invoke('wharness:windows:open'),
+    open: (request = {}) => invoke('wharness:windows:open', request),
     openSurface: (request = {}) => invoke('wharness:windows:open-surface', request),
     moveSurface: (request = {}) => invoke('wharness:windows:move-surface', request),
     onSurfaceReceived: (callback) => {

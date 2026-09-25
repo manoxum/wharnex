@@ -126,7 +126,7 @@ describe('WorkspaceShell project actions', () => {
 
     expect(screen.queryByRole('textbox', { name: 'Caminho completo do projeto' })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: /Vincular por caminho/i })).toBeNull()
-    expect(screen.getByRole('menuitem', { name: /Vincular projeto/i })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /Vincular/i })).toBeTruthy()
   })
 
   it('places the active branch and project version before the mode selector', async () => {
@@ -155,7 +155,7 @@ describe('WorkspaceShell project actions', () => {
     }
   })
 
-  it('shows recent projects before opening the native folder chooser', async () => {
+  it('shows recent projects directly in the project action hub before browsing folders', async () => {
     vi.spyOn(api, 'config').mockResolvedValue({ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false })
     rememberRecent('/tmp/recent-project')
     const pickDirectory = vi.fn().mockResolvedValue({ cancelled: true })
@@ -167,16 +167,14 @@ describe('WorkspaceShell project actions', () => {
     render(<WorkspaceShell />)
     const trigger = await screen.findByRole('button', { name: 'Ações de projeto' })
     fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('menuitem', { name: /Vincular projeto/ }))
 
-    const dialog = await screen.findByRole('dialog', { name: 'Vincular projeto' })
-    const modal = within(dialog)
-    expect(modal.getByText('recent-project')).toBeTruthy()
-    expect(modal.getByRole('button', { name: /Criar projeto/ })).toBeTruthy()
-    expect(modal.getByRole('button', { name: /Clonar Git/ })).toBeTruthy()
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByText('recent-project')).toBeTruthy()
+    expect(within(menu).getByRole('button', { name: 'Abrir recent-project' })).toBeTruthy()
+    expect(within(menu).getByRole('button', { name: 'Vincular recent-project' })).toBeTruthy()
     expect(pickDirectory).not.toHaveBeenCalled()
 
-    fireEvent.click(modal.getByRole('button', { name: /Carregar outro/ }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Vincular/i }))
     await waitFor(() => expect(pickDirectory).toHaveBeenCalledWith({ title: 'Vincular projeto' }))
   })
 
