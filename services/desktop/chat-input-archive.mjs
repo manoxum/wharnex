@@ -4,6 +4,7 @@ import { inflateRawSync } from 'node:zlib'
 import { buildBundleName, safeChatId } from './bundlename.mjs'
 import { safeEntryName, writeChatInputZip } from './chat-input-zip-writer.mjs'
 
+// Keep low-level ZIP writes private to the writer; this module owns final archive publication.
 const STORE_METHOD = 0
 
 const LEGACY_CONTEXT_SOURCES_INDEX = 'RELATED_PROJECTS.json'

@@ -28,8 +28,8 @@ import { Icon } from './components/Icon'
 import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, archiveSavedChat as archiveStoredSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat,
-  loadAutomationMode, loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, loadPendingProjectPrompt, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveChatForLater as saveStoredChatForLater, saveComposerDraft, saveComposerFileDraft,
-  BOOTSTRAP_PROMPT_PREFIX, clearPendingProjectPrompt, durableWorkspaceChat, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, type ChatNaming, type RemoteArchive, type WorkspaceChat,
+  loadAutomationMode, loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, loadPendingProjectLaunch, loadPendingProjectPrompt, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveChatForLater as saveStoredChatForLater, saveComposerDraft, saveComposerFileDraft,
+  BOOTSTRAP_PROMPT_PREFIX, clearPendingProjectLaunch, clearPendingProjectPrompt, durableWorkspaceChat, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, type ChatNaming, type RemoteArchive, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
 // Background chat maintenance runs rarely on purpose: it drives real ChatGPT
@@ -777,9 +777,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setBusy(true); setError(undefined)
     try {
       const projectExecutionMode: ExecutionMode = 'protected'
-      const projectAutomationMode: AutomationMode = loadAutomationMode(projectPath)
-      const projectEffortLevel: EffortLevel = loadEffortLevel(projectPath)
-      const created = await api.createSession(projectPath, projectExecutionMode, projectAutomationMode, undefined, projectEffortLevel)
+      const pendingLaunch = loadPendingProjectLaunch(projectPath)
+      const projectAutomationMode: AutomationMode = pendingLaunch?.automationMode || loadAutomationMode(projectPath)
+      const projectEffortLevel: EffortLevel = pendingLaunch?.effortLevel || loadEffortLevel(projectPath)
+      const created = await api.createSession(projectPath, projectExecutionMode, projectAutomationMode, undefined, projectEffortLevel, pendingLaunch?.reasoningEffort || 'high')
       rememberRecent(created.project_path); setRecent(loadRecentWorkspaces())
       const hydrated = await hydrateWorkspaceMemory(created.project_path)
       let nextChats = hydrated.active
@@ -800,6 +801,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         nextChats = [selected]
         const legacy = loadLegacyChat(created.project_path)
         if (legacy.length) saveChat(created.project_path, selected.id, legacy)
+      }
+      if (pendingLaunch?.reasoningEffort && selectedSession.reasoning_effort !== pendingLaunch.reasoningEffort) {
+        selectedSession = await api.setReasoningEffort(selectedSession.id, pendingLaunch.reasoningEffort)
+      }
+      if (pendingLaunch?.chatTransportMode && selectedSession.chat_transport_mode !== pendingLaunch.chatTransportMode) {
+        selectedSession = await api.setChatTransportMode(selectedSession.id, pendingLaunch.chatTransportMode)
       }
       const chatItems = await hydrateChatTranscript(created.project_path, selected.id)
       transcriptReadyRef.current.add(selected.id)
@@ -1925,11 +1932,21 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!projectPath || !activeChatOwnsSession || !activeChatId || activeBusy || bootstrapPromptInFlightRef.current.has(projectPath)) return
     const prompt = loadPendingProjectPrompt(projectPath)
     if (!prompt) return
+    const launch = loadPendingProjectLaunch(projectPath)
     bootstrapPromptInFlightRef.current.add(projectPath)
-    void send(prompt, [], [], { context: true, prompt: true, result: false, error: false }, 'direct', 'main', () => {
-      clearPendingProjectPrompt(projectPath)
-      bootstrapPromptInFlightRef.current.delete(projectPath)
-    }).catch(() => undefined)
+    void send(
+      prompt,
+      [],
+      [],
+      launch?.artifacts || { context: true, prompt: true, result: false, error: false },
+      launch?.requestMode || 'direct',
+      'main',
+      () => {
+        clearPendingProjectPrompt(projectPath)
+        clearPendingProjectLaunch(projectPath)
+        bootstrapPromptInFlightRef.current.delete(projectPath)
+      },
+    ).catch(() => undefined)
   }, [activeBusy, activeChatId, activeChatOwnsSession, bootstrapPromptRevision, send, session?.project_path])
 
   async function adjustExecutionPlan(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) {

@@ -34,6 +34,7 @@ export function safeEntryName(value) {
   return { name, raw }
 }
 
+// Internal helper: callers publish complete archives through writeChatInputZip.
 async function writeAll(handle, buffer, position, signal) {
   let written = 0
   while (written < buffer.byteLength) {
