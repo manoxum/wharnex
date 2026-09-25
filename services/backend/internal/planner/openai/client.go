@@ -50,7 +50,7 @@ func (c *Client) Plan(ctx context.Context, request planner.Request) (planner.Res
 	body := map[string]any{
 		"model":        c.model,
 		"reasoning":    map[string]any{"effort": apiReasoningEffort(request.ReasoningEffort)},
-		"instructions": planner.SystemProtocol + planner.ProviderTurnContract,
+		"instructions": planner.SystemProtocol + planner.IntegrationOutcomeGuidance + planner.ProviderTurnContract,
 		"text":         map[string]any{"format": executionFormat(request.RequestID, request.ContextManifest.SHA256)},
 		"store":        true,
 		"truncation":   "auto",

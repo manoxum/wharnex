@@ -59,22 +59,29 @@ func (s *Service) RecoverBlockedIntegrations(ctx context.Context) int {
 		if !s.integrationConflictReleasable(ctx, item, pending) || !pendingBatchProvenClean(ctx, item.ProjectPath, pending) {
 			continue
 		}
-		head, err := sandbox.CurrentHeadSHA(ctx, item.ProjectPath)
-		if err != nil || !s.integrationRecovery.claim(integrationRecoveryKey(item.ID, head, pending)) {
-			continue
+		if s.resumeParkedIntegration(ctx, item, pending) {
+			attempted++
 		}
-		attempted++
-		s.bus.Publish(item.ID, "integration.auto_recovery_started", map[string]any{
-			"candidates": len(pending), "host_head": head, "failure_kind": item.FailureKind,
-			"reason": "every pending candidate is proven to integrate into the live host",
-		})
-		if _, applyErr := s.ApplyToHost(ctx, item.ID); applyErr != nil {
-			s.bus.Publish(item.ID, "integration.auto_recovery_failed", map[string]any{"error": applyErr.Error(), "host_head": head})
-			continue
-		}
-		s.bus.Publish(item.ID, "integration.auto_recovery_completed", map[string]any{"candidates": len(pending), "host_head": head})
 	}
 	return attempted
+}
+
+// resumeParkedIntegration re-applies one proven session, once per host state.
+func (s *Service) resumeParkedIntegration(ctx context.Context, item domain.Session, pending []domain.PendingHostChange) bool {
+	head, err := sandbox.CurrentHeadSHA(ctx, item.ProjectPath)
+	if err != nil || !s.integrationRecovery.claim(integrationRecoveryKey(item.ID, head, pending)) {
+		return false
+	}
+	s.bus.Publish(item.ID, "integration.auto_recovery_started", map[string]any{
+		"candidates": len(pending), "host_head": head, "failure_kind": item.FailureKind,
+		"reason": "every pending candidate is proven to integrate into the live host",
+	})
+	if _, applyErr := s.ApplyToHost(ctx, item.ID); applyErr != nil {
+		s.bus.Publish(item.ID, "integration.auto_recovery_failed", map[string]any{"error": applyErr.Error(), "host_head": head})
+		return true
+	}
+	s.bus.Publish(item.ID, "integration.auto_recovery_completed", map[string]any{"candidates": len(pending), "host_head": head})
+	return true
 }
 
 func integrationRecoveryEligible(item domain.Session) bool {

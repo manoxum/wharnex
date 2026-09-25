@@ -2,6 +2,7 @@ import type { Session } from '../types'
 import type { WorkspaceChat } from './workspaceMemory'
 import { executionNeedsAttention, sessionCanExecutePlan, sessionNeedsExecutionConsent } from './executionRecovery'
 import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable } from './plannerRecovery'
+import { hostApplyAttention } from './hostApplyAttention'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionKind = 'task-completed' | 'restart-pending'
@@ -174,45 +175,15 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
         failureAlertAdded = true
       }
       break
-    case 'self_evolution_transaction_metadata_mismatch':
-      if (pendingCount) {
-        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; o estado transacional local será validado e reparado com segurança antes de repetir a integração.', 'plan', 'retry-host-apply'))
+    default: {
+      // Every host-Apply failure that keeps a verified candidate shares one
+      // card and one action; only the wording differs (hostApplyAttention).
+      const retry = pendingCount ? hostApplyAttention(session) : undefined
+      if (retry) {
+        items.push(item(chat, 'host-apply-retry', 'warning', retry.title, retry.detail, 'plan', 'retry-host-apply'))
         failureAlertAdded = true
       }
-      break
-    case 'self_evolution_transaction_busy':
-      if (pendingCount) {
-        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host bloqueada', session.last_repair_error || 'A candidata continua verificada; uma transação local impede temporariamente a integração.', 'plan', 'retry-host-apply'))
-        failureAlertAdded = true
-      }
-      break
-    case 'host_integration_race':
-      if (pendingCount) {
-        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; uma disputa local temporária impediu a integração anterior.', 'plan', 'retry-host-apply'))
-        failureAlertAdded = true
-      }
-      break
-    case 'stale_host_baseline':
-      if (pendingCount) {
-        items.push(item(chat, 'host-apply-retry', 'warning', 'Candidata precisa de nova validação', 'O host mudou desde a verificação. Reveja a candidata retida e tente a integração novamente.', 'plan', 'retry-host-apply'))
-        failureAlertAdded = true
-      }
-      break
-    case 'host_working_state_blocked':
-      // The backend refused to commit on top of a host state where doing so
-      // would damage the operator's own uncommitted work. Its message already
-      // names the exact paths and the single action that clears it, so it is
-      // shown verbatim rather than replaced by a generic phrasing.
-      if (pendingCount) {
-        items.push(item(
-          chat, 'host-apply-retry', 'warning',
-          'Worktree do host precisa de resolução',
-          session.last_repair_error || 'Resolva o estado não commitado do projeto no host e repita a aplicação.',
-          'plan', 'retry-host-apply',
-        ))
-        failureAlertAdded = true
-      }
-      break
+    }
   }
 
   // A live Desktop human-action block already names the real transport or

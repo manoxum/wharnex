@@ -1286,6 +1286,9 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		if failureKind == domain.FailureKindOfflineGoModuleCache {
 			s.bus.Publish(sessionID, "sandbox.dependency_network_approval_required", map[string]any{"plan_id": parsed.Turn.RequestID, "error": detail, "scope": "go_dependency_commands"})
 		}
+		if failureKind == domain.FailureKindIntegrationActionRequired {
+			s.scheduleIntegrationAction(sessionID, parsed.Turn.RequestID, outcome.ReasonCode)
+		}
 		if !blocksAutomaticRepair && outcome.Retryable && domain.AutomationModeIsAutomatic(updated.AutomationMode) && updated.RemoteRecoveryAttempt < 1 {
 			if recovered, retryErr := s.retryFailedRequest(ctx, sessionID, true); retryErr == nil {
 				s.bus.Publish(sessionID, "turn.auto_recovery_prepared", map[string]any{"request_id": recovered.LastRequestID, "replaces_request_id": parsed.Turn.RequestID, "reason_code": outcome.ReasonCode})

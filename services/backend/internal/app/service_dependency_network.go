@@ -52,6 +52,13 @@ var nonRepairablePlannerReasonCodes = map[string]string{
 	"conflict_capsule_refresh_required":            domain.FailureKindConflictCapsuleStale,
 	"conflict_capsule_stale":                       domain.FailureKindConflictCapsuleStale,
 	"conflict_capsule_missing":                     domain.FailureKindConflictCapsuleStale,
+	// Integration-layer blockers. The first is the canonical code the provider
+	// contract asks for; the others are the codes planners actually returned on
+	// 2026-09-25 when a pending candidate could not replay before their plan.
+	"integration_action_required":        domain.FailureKindIntegrationActionRequired,
+	"pending_integration_replay_blocked": domain.FailureKindIntegrationActionRequired,
+	"legacy_candidate_replay_conflict":   domain.FailureKindIntegrationActionRequired,
+	"integration_reanchor_required":      domain.FailureKindIntegrationActionRequired,
 }
 
 // executionFailureKind is the single attribution point for a finished execution.

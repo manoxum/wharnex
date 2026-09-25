@@ -256,6 +256,14 @@ const (
 	// text — reproduces the same rejection every round. Its dedicated recovery,
 	// RenewConflictCapsule, rebuilds and resends that exact capsule.
 	FailureKindConflictCapsuleStale = "conflict_capsule_stale"
+
+	// FailureKindIntegrationActionRequired marks a planner outcome proving that
+	// only Wharnex's own integration layer can make progress: a pending
+	// candidate fails to replay before any plan runs, or a capsule no longer
+	// matches the host. No planner patch can reach that point, and no operator
+	// guidance is needed either — the engine re-applies what the host now
+	// accepts or rebuilds the capsule from the live host.
+	FailureKindIntegrationActionRequired = "integration_action_required"
 )
 
 type AutomationMode string
