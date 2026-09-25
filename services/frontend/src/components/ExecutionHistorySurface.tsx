@@ -12,16 +12,20 @@ import { StatusPill } from './StatusPill'
 import { HistoryExportButton } from './HistoryExportButton'
 import { AuditHistoryNotice } from './PlanHistorySurface'
 import { ContentSkeleton } from './Skeleton'
+import { useHistoryTail } from './useHistoryTail'
 
 export function ExecutionHistorySurface({ session, events, loading, error }: { session: Session; events: HarnessEvent[]; loading: boolean; error: string }) {
-  const groups = useMemo(() => groupMainRequestActivity(session, events).map((group) => ({ ...group, events: filterExecutionAuditEvents(group.events) })).filter((group) => group.events.length), [events, session])
+  // Chronological like the transcript: oldest Main Request first, newest at the bottom.
+  const groups = useMemo(() => groupMainRequestActivity(session, events).map((group) => ({ ...group, events: filterExecutionAuditEvents(group.events) })).filter((group) => group.events.length).sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)), [events, session])
   const activeRequestId = String(session.last_request_id || '').trim()
   const activeRootRequestId = currentMainRequestRoot(session)
+  const tailRef = useHistoryTail(groups.length)
   if (!groups.length) return <>{loading && <ContentSkeleton label="A carregar histórico de execução" rows={5}/>} {error && <AuditHistoryNotice text={error} danger/>}{!loading && <TerminalView session={session} events={[]} />}</>
   return <div className="main-request-history execution-history">
     <AuditHistoryNotice text={loading ? 'A atualizar o histórico durável de execução…' : `${groups.length} Main Request(s) com atividade de execução auditável.`} danger={Boolean(error)}/>
     {error && <AuditHistoryNotice text={error} danger/>}
-    {groups.map((group, index) => <ExecutionHistoryBlock key={group.rootRequestId} group={group} session={session} defaultOpen={index === 0} allowActive={group.rootRequestId === activeRootRequestId} activeRequestId={group.rootRequestId === activeRootRequestId ? activeRequestId : ''}/>) }
+    {groups.map((group, index) => <ExecutionHistoryBlock key={group.rootRequestId} group={group} session={session} defaultOpen={index === groups.length - 1} allowActive={group.rootRequestId === activeRootRequestId} activeRequestId={group.rootRequestId === activeRootRequestId ? activeRequestId : ''}/>) }
+    <div ref={tailRef}/>
   </div>
 }
 

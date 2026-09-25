@@ -136,13 +136,128 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
   cancela a supervisão obsoleta e usa o reenvio idempotente do prompt + ZIP
   completos a partir do artefacto persistido. A ação continua bloqueada para
   request substituído, bundle já validado ou conversa com transporte ativo.
-- O mapa de ficheiros das rotas remotas usa uma allowlist fechada partilhada
-  com os providers: `context`, `context-map`, `knowledge`, `continuation`,
-  `git-context`, `attachment` e `artifact`. Uma divergência nesta lista faz a
-  publicação opcional falhar antes do upload e não deve ser tratada como uma
-  regressão do scraper.
+- Um request **nunca depende de túneis** (`adr/ADR-0074`). A preparação, o
+  upload, a submissão, o reenvio e os comentários não chamam `/remote-input`,
+  não esperam por nenhum provider e não colocam endpoints de túnel no ZIP nem
+  no bootstrap do compositor. Os túneis servem apenas o webapp emparelhado.
+  Se um request voltar a mostrar "a publicar túneis", é regressão.
 
 Quando o mapa mudar, incremente `CHATGPT_BEHAVIOR.revision`, acrescente a regressão correspondente e registre a data da nova confirmação.
+
+## 5A. Observação ao vivo: reconstruir a linha do tempo de um request
+
+Um request lento ou parado só se diagnostica com tempos absolutos. Nenhuma
+fonte isolada chega; cruze-as por `request_id`, `task_id` e `chat_id`.
+
+| Fonte | O que dá | Limitação |
+|---|---|---|
+| `harness_operational_log` / `GET /api/operational-log` (desde `adr/ADR-0075`) | **Primeira fonte a consultar.** Tudo o que o backend e a Desktop fazem, com hora, nível, componente e correlação (`request_id`, `chat_id`, `task_id`, `session_id`). Os eventos apontam para o corpo completo via `event_ref` | Expira: trace/debug aos 3 dias, o resto aos 15. Polling saudável fica só agregado por minuto |
+| `docker logs wharnex-gateway-1` | Cada chamada HTTP Desktop/frontend → backend, com hora ao segundo, estado e bytes | Regista **na conclusão**; a ordem dentro do mesmo segundo não é fiável. `499` = o cliente abortou |
+| `.harness/logs/desktop.log` | Eventos do scraper (`[chatgpt-worker-write]`, `[chatgpt-upload]`, `[chatgpt-submit]`, `[chat-agent] provider-rate-limit`, …), cada linha prefixada com timestamp ISO | O mesmo conteúdo chega ao registo operacional; o ficheiro é recriado a cada arranque |
+| Tabela `harness_chat_agent_tasks` | Estado durável, `attempt`, `not_before`, `last_error` por tarefa | `last_error` é apagado quando a tarefa conclui |
+| Tabela `harness_events` (`occurred_at`, `type`, `data`) | Linha do tempo da sessão: `artifact.persisted`, `conflict.prompt_ready`, `host.apply_*`, `self_evolution.*`, `automation.*` | Filtre por `session_id`; `harness_chat_agent_task_events` costuma estar vazio para tarefas do Supervisor |
+| `.harness/logs/self-evolution.log` e `.harness/self-evolution/status` | Fases da ativação escritas pelo supervisor destacado | Se o supervisor morrer, nada mais é escrito (ver 5B) |
+
+Desde a fase 2 do `adr/ADR-0075`, cada chamada relevante ao backend fica no
+registo operacional (`component=http`) com duração e trace; o log do gateway
+passa a ser só uma segunda fonte. Consultas úteis:
+
+```bash
+curl -fsS 'http://127.0.0.1:6969/api/operational-log?request_id=<req>&limit=500' | jq -r '.records[] | [.occurred_at,.source,.level,.event,.message] | @tsv'
+curl -fsS 'http://127.0.0.1:6969/api/operational-log?chat_id=<chat>&min_level=warning&since=<ISO>' | jq .
+# Tudo o que uma tentativa fez, Desktop + chamadas ao backend (o trace aparece como trace=… no desktop.log):
+curl -fsS 'http://127.0.0.1:6969/api/operational-log?trace_id=task:<cat_…>:<tentativa>&limit=1000' | jq -r '.records[] | [.occurred_at,.source,.event,.message] | @tsv'
+# Chamadas lentas ou falhadas da última hora:
+curl -fsS 'http://127.0.0.1:6969/api/operational-log?component=http&min_level=warning&since=<ISO>' | jq -r '.records[] | [.occurred_at,.data.route,.data.status,.data.duration_ms] | @tsv'
+db() { docker exec wharnex-database-1 psql -U wharness -d wharness -P pager=off -F $'\t' -Atc "$1"; }
+db "select task_id,type,status,attempt,to_char(updated_at,'HH24:MI:SS'),left(coalesce(last_error,''),160)
+    from harness_chat_agent_tasks where chat_id='<chat>' order by created_at desc limit 20"
+db "select to_char(occurred_at,'HH24:MI:SS.MS'),type,left(data::text,220)
+    from harness_events where session_id='<sessão>' and occurred_at > now() - interval '30 minutes' order by occurred_at"
+docker logs --since <ISO> --until <ISO> wharnex-gateway-1 2>&1 \
+  | grep -v 'tasks/claim\|runtime\|/api/events\|/api/health\|tasks/summary\|/git/head' \
+  | awk '{print $4, $6, $7, $9, $10}'
+```
+
+### Sequência saudável de um `BOT_WRITE` (medida em 2026-09-25)
+
+`POST …/tasks/<id>/start` → no mesmo segundo `…/knowledge`, `…/bundle`,
+`…/context/maps`, `…/continuation`, `…/git/context` → ZIP local (~2 s para
+14,7 MB/1485 entradas) → `POST …/artifacts` (ZIP, contexto, artefactos) →
+compositor → upload → submit → `PATCH …/workspace-chats/<chat>/remote` →
+`POST …/tasks` (`AWAIT_RESPONSE`) → `…/complete`. Total observado: **16 s**.
+
+### Padrões de bloqueio conhecidos
+
+- **Só heartbeats depois dos insumos.** A tarefa arranca, descarrega tudo no
+  mesmo segundo e depois só aparecem `…/heartbeat` durante minutos. É a fase
+  local (ZIP/persistência) presa. Antes de 2026-09-25 só o timeout implícito de
+  300 s do `fetch` do Node a libertava (16:55:13 → 17:00:14 no chat
+  `f3ebe00d-…`). Agora a fase tem prazo de 120 s e falha como tentativa
+  repetível que não contactou o ChatGPT; a linha `[chatgpt-prepare]` diz em que
+  fase parou.
+- **"A preparar rotas remotas / publicar túneis".** Era a publicação remota a
+  correr em série antes do ZIP (um túnel Cloudflare pode levar ~110 s).
+  Removida por `adr/ADR-0074`.
+- **`BOT_WRITE` a renovar lease com `loadURL` pendurado.** Uma navegação Electron
+  que nunca resolve mantinha a tarefa viva. A navegação tem agora prazo de 25 s
+  (`chatgpt-navigation-timeout.mjs`) e para o carregamento.
+- **`AWAIT_RESPONSE` criado antes de o `BOT_WRITE` chegar a `DONE`.** A
+  supervisão prematura fazia "Retomar" enviar só `keep continue` sem prompt/ZIP
+  submetidos. Um write ativo ou terminal sem `DONE` nunca arma supervisão.
+- **Pedido principal nunca submetido e pendente para sempre.** O pedido
+  principal usa IPC direto, não `BOT_WRITE`, e por isso não tem retry durável.
+  Se a preparação falha (no chat `7e463b09-…` o ZIP só foi persistido 300 s
+  depois dos insumos, 15:48:42 → 15:53:43, e não houve upload), a falha fica
+  apenas em memória do renderer e perde-se no reinício seguinte. O
+  reconciliador de retoma armava então `AWAIT_RESPONSE` para um pedido que
+  nunca saiu, que acabava em `ATTENTION`. Hoje a Desktop só arma com prova DOM
+  do ZIP e responde `resend_required`, e o reconciliador converte essa resposta
+  no aviso "Entrega falhou" com **Reenviar request**
+  (`lib/pendingDeliveryResume.ts`). Assinatura: request pendente, apenas
+  `artifact.persisted kind=bundle` sem `kind=context` depois, e nenhuma tarefa
+  `BOT_WRITE`.
+- **Várias chamadas `[chatgpt-worker-write] queued` para o mesmo request.** São
+  normais: a `dedupe_key` `prepare:<request_id>` converge para uma tarefa.
+
+## 5B. Estados presos depois de Apply ou build no host
+
+Sintoma: a candidata continua `verified`, o chat não avança, não mostra falha e
+não oferece ação. Verifique pela ordem:
+
+1. `curl -fsS http://127.0.0.1:6969/api/self-evolution/block` e
+   `.harness/self-evolution/status`. Uma fase `restarting` ou
+   `restart_scheduled` com `updated_at` antigo significa que o supervisor de
+   ativação (contentor `wharness-self-restart-<transação>`, criado com `--rm`)
+   morreu sem escrever `restarted`/`rollback_*`. O único escritor dessas fases
+   é esse supervisor; `awaitSelfEvolutionActivation` no backend só espera
+   10 min e morre com o backend substituído.
+2. Eventos `integration.startup_reconcile_failed` e
+   `automation.local_recovery_retained` com
+   `another Wharnex self-evolution transaction is already active` confirmam que
+   todo o Apply está a ser recusado atrás desse lock.
+
+Comportamento atual (2026-09-25):
+
+- Uma ativação em `restarting`/`restart_scheduled` há mais de 15 min cujo
+  supervisor já não existe (`docker inspect`; fora do modo stack decide só a
+  idade) passa automaticamente a `restart_failed`. Fica registado
+  `activation_abandoned` no `self-evolution.log` e o evento
+  `self_evolution.activation_abandoned`. `restart_failed` é o lote pendente
+  retomável: o chat mostra a ativação pendente e o Apply seguinte junta-se ao
+  lote em vez de receber `ErrBusy`. Um supervisor que ainda corre nunca é
+  interrompido.
+- Um bloqueio `self_evolution_transaction_busy` aparece na Atenção como
+  "Aplicação ao host bloqueada". A ação de repetir mostra a transação exata e
+  só a liberta depois de confirmação explícita.
+- A reconciliação da autoevolução corre em cada leitura de sessão. Ela só
+  persiste e publica quando a projeção muda. Antes, cada `GET` regravava a
+  sessão inteira (5,6 MB) e gerou 1008 eventos `batch_state` para uma só
+  transação presa.
+
+Caso de referência: `txn-20260925T111106-e95a54cd1c7e` ficou em `restarting`
+das 11:16 às 16:55 (ativação de
+`backend,desktop,frontend,gateway,tunnel,webapp`) até ser libertada à mão.
 
 ## 6. Operações que devem ser exercitadas
 
@@ -161,6 +276,36 @@ Use somente fixtures temporárias e cubra, conforme a mudança:
 - observação e download do bundle canónico esperado.
 
 Chats anónimos, conversas alheias, ficheiros sem identidade Wharnex e conteúdo de resposta não fazem parte da superfície autorizada de automação.
+
+### 6.1 Armadilhas da manutenção ao vivo
+
+Aprendidas nas sessões Codex e Claude de 2026-09-25:
+
+- **O repositório muda debaixo de si.** Quando o chat monitorizado faz Apply no
+  próprio Wharnex, o commit `Wharnex host snapshot before integration` absorve
+  todo o trabalho não commitado, incluindo o seu. Outras sessões de agentes
+  podem editar ficheiros ao mesmo tempo. Depois de cada Apply, reveja
+  `git log`/`git status` e releia um ficheiro antes de o editar de novo.
+- **Fixtures fora de `/tmp`.** O backend corre num contentor que não partilha o
+  `/tmp` do host. Crie fixtures em `.harness/live-fixtures/<nome>` (estado
+  ignorado pelo Git, mas visível ao backend).
+- **Não force a janela de rate limit.** Durante uma suspensão de Workers,
+  espere; os Supervisores continuam. Reiniciar o Desktop preserva a pausa.
+- **Atribua falhas contra o baseline.** Crie um worktree em `HEAD`
+  (`git worktree add --detach <scratch>/baseline HEAD`), faça symlink de
+  `services/frontend/node_modules` e corra os mesmos ficheiros de teste nos
+  dois lados. A suíte frontend ampla já tem dezenas de falhas pré-existentes.
+- **Não corra suítes pesadas em paralelo.** Correr as suítes Go e Vitest ao
+  mesmo tempo gera falhas de temporização que não se repetem isoladas (por
+  exemplo `TestHostPTYBridgeKeepsShellAliveAcrossClientDetach`, testes de
+  `GitDrawer`/`AgentWorkspace`). Confirme qualquer falha nova isoladamente.
+- **"Retomar" não é "Reenviar".** Só com prova DOM do ZIP canónico no turno do
+  utilizador se envia `keep continue`; sem prova, o caminho é o reenvio
+  completo e idempotente (ver 5).
+- **Rollout exige rebuild.** Uma correção no Desktop/backend só vale para o
+  chat ao vivo depois de `make build`/reinício. Se outra sessão estiver a meio
+  de alterações não commitadas, o rebuild leva-as também; coordene antes de
+  reiniciar.
 
 ## 7. Aceitação por tipo: regra 4/5
 
@@ -240,7 +385,14 @@ node --test \
   chatgpt-upload.test.mjs \
   chatgpt-dom.test.mjs \
   chatgpt-account.test.mjs \
+  chatgpt-request-preparation.test.mjs \
+  chatgpt-navigation-timeout.test.mjs \
+  chatgpt-request-delivery.test.mjs \
   main-regression.test.mjs
+
+cd ../backend
+go test ./internal/selfevolution -run 'Activation|SupervisorContainer'
+go test ./internal/app -run 'AbandonedActivation|UnchangedSelfEvolution|ApplyRecovery'
 
 cd ../frontend
 npm test -- --run src/components/AgentRuntimeDrawer.test.tsx
@@ -271,4 +423,9 @@ Também execute `npm run build` no frontend quando a aba Políticas for alterada
 - [ ] Retomada recarrega e confirma estruturalmente antes de liberar claims.
 - [ ] Novo 429 reinicia a janela configurada.
 - [ ] Cada tipo alterado alcança pelo menos 4/5 numa amostra nova.
+- [ ] Nenhum caminho de request chama `/remote-input` nem espera por túneis.
+- [ ] A preparação local tem prazo próprio e regista `[chatgpt-prepare]` por fase.
+- [ ] Uma ativação sem supervisor vivo sai de `restarting` e oferece repetir.
+- [ ] Leituras de sessão repetidas não regravam a sessão nem geram eventos.
+- [ ] Falhas atribuídas contra o baseline, com cada suíte corrida isoladamente.
 - [ ] Regressões focadas, build aplicável e gates sem regressão nova foram concluídos.

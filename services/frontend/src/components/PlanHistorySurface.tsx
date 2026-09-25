@@ -9,6 +9,7 @@ import { formatActivityDate, shortPlanId, shortRequestId } from '../lib/activity
 import { Icon } from './Icon'
 import { HistoryExportButton } from './HistoryExportButton'
 import { ContentSkeleton } from './Skeleton'
+import { useHistoryTail } from './useHistoryTail'
 
 type PlanGroup = { rootRequestId: string; plans: ReturnType<typeof collectPlanActivities>; updatedAt: string }
 
@@ -24,17 +25,19 @@ export function PlanHistorySurface({ session, chat, events, loading, error, curr
   const historyChat = useMemo<WorkspaceChat>(() => chat || ({ id: session.id, title: 'Chat atual', sessionId: session.id, createdAt: session.created_at, updatedAt: session.created_at }), [chat, session.created_at, session.id])
   const items = useMemo(() => collectPlanActivities([{ chat: historyChat, session }], { [historyChat.id]: events }), [events, historyChat, session])
   const groups = useMemo(() => groupPlans(items, session), [items, session])
+  const tailRef = useHistoryTail(groups.length)
   if (!groups.length) return <>{loading && <ContentSkeleton label="A carregar histórico de planos" rows={4}/>} {error && <AuditHistoryNotice text={error} danger/>}{currentPlan}</>
   return <div className="main-request-history plan-history">
     <AuditHistoryNotice text={loading ? 'A atualizar o histórico durável de planos…' : `${groups.length} Main Request(s) com plano registado.`} danger={Boolean(error)}/>
     {error && <AuditHistoryNotice text={error} danger/>}
-    {groups.map((group, index) => <PlanHistoryBlock key={group.rootRequestId} group={group} session={session} currentPlan={currentPlan} renderHistoricalPlan={renderHistoricalPlan} defaultOpen={index === 0}/>) }
+    {groups.map((group, index) => <PlanHistoryBlock key={group.rootRequestId} group={group} session={session} currentPlan={currentPlan} renderHistoricalPlan={renderHistoricalPlan} defaultOpen={index === groups.length - 1}/>) }
+    <div ref={tailRef}/>
   </div>
 }
 
 function PlanHistoryBlock({ group, session, currentPlan, renderHistoricalPlan, defaultOpen }: { group: PlanGroup; session: Session; currentPlan: ReactNode; renderHistoricalPlan: (session: Session) => ReactNode; defaultOpen: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
-  const lead = group.plans[0]?.plan
+  const lead = group.plans[group.plans.length - 1]?.plan
   const exportGroup = async () => {
     const metadata = await resolveExportTraceMetadata(session, { kind: 'plan', rootRequestId: group.rootRequestId })
     downloadActivityExport(activityExportFilename('plano', group.rootRequestId), buildMainPlanExport(group.rootRequestId, group.plans, metadata))
@@ -47,7 +50,7 @@ function PlanHistoryBlock({ group, session, currentPlan, renderHistoricalPlan, d
     </summary>
     {open && <div className="main-request-plan-list">{group.plans.map((item, planIndex) => {
       const current = item.plan.plan_id === session.plan?.plan_id
-      const sequence = group.plans.length - planIndex
+      const sequence = planIndex + 1
       return <PlanHistoryLine key={item.id} item={item} sequence={sequence} rootRequestId={group.rootRequestId} session={session} defaultOpen={current}>{current ? <div className="history-current-plan">{currentPlan}</div> : renderHistoricalPlan(sessionForPlan(item))}</PlanHistoryLine>
     })}</div>}
   </details>
@@ -77,7 +80,11 @@ function groupPlans(items: ReturnType<typeof collectPlanActivities>, session: Se
     const bucket = grouped.get(root) || []
     bucket.push(item); grouped.set(root, bucket)
   }
-  return [...grouped].map(([rootRequestId, plans]) => ({ rootRequestId, plans: plans.sort((a, b) => b.timestamp.localeCompare(a.timestamp)), updatedAt: plans[0]?.timestamp || '' })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  // Chronological like the transcript: oldest first, newest at the bottom.
+  return [...grouped].map(([rootRequestId, plans]) => {
+    const ordered = plans.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+    return { rootRequestId, plans: ordered, updatedAt: ordered[ordered.length - 1]?.timestamp || '' }
+  }).sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
 }
 
 export function AuditHistoryNotice({ text, danger = false }: { text: string; danger?: boolean }) {

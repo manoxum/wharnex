@@ -13,7 +13,7 @@ These are human IDE capabilities. They must not weaken the existing boundary tha
 ## Decision
 
 1. Backend PTYs are independent resources keyed by terminal id. `StartInteractiveTerminal` no longer closes siblings in the same project session. Session reset/teardown retains authority to close the applicable set.
-2. Frontend terminal state is managed by a persistent tabbed workbench. Inactive and collapsed tabs stay mounted so their SSE subscription and process continue; explicit tab close unmounts and closes only that PTY. There is no fixed UI tab limit.
+2. Frontend terminal state is managed by a persistent tabbed workbench. Inactive and collapsed tabs stay mounted so their live-stream subscription (WebSocket since ADR-0076) and process continue; explicit tab close unmounts and closes only that PTY. There is no fixed UI tab limit.
 3. The normal human terminal workbench opens Host PTYs only. Tab identity, rename/close, connection status, reconnect, resize, split/detach and new-terminal actions share one compact top line; target/network/reset controls and the redundant Host-direct banner are absent.
 4. Editor run actions are explicit human gestures routed only to the currently active PTY. Supported actions include discovered `package.json` scripts, runnable source files, and the current selection. They do not become execution-plan operations.
 5. Per-file Git diff is a read-only endpoint. The backend validates the path through `workspacefs.Read` before calling the bounded host-repository diff helper, so Editor containment/exclusion/symlink rules still apply.

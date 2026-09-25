@@ -101,3 +101,19 @@ they MUST be swept on the same retention window as their owning task row
 ## Interactive v2 evidence
 
 Interactive v2 publishes `interactive.operation_started` and `interactive.operation_completed` around every typed operation. Completion evidence includes only bounded/redacted metadata and result content; secrets and unbounded stdout/stderr are not audit state. Workflow observations sent back to the planner include the structured interactive result list so a diagnosis can correlate a SQL/log/shell probe with its capability and target without scraping localized prose. The persisted grant identifies the approved protocol, root request, target, access, capabilities, scope and digest so a later audit can explain why an operation was allowed.
+
+## Classified operational log (v1.3.20, see `adr/ADR-0075`)
+
+Everything the engine does MUST reach one classified, correlated store, `harness_operational_log`: every audit-bus event (mirrored with `event_ref` to its `harness_events` row), every backend `log` line (`component=backend-log`), and every Desktop `console` line (`source=desktop`, channel as component). Each record carries `occurred_at`, `source`, `component`, `level` (closed set `trace`/`debug`/`info`/`success`/`warning`/`error`), `category`, `event`, a bounded redacted `message`, correlation (`session_id`, `request_id`, `root_request_id`, `chat_id`, `task_id`, `plan_id`, `project_id`) and bounded scalar `data`. Classification MUST be derived by the engine's fixed table from the event or channel name, never from localized prose.
+
+The log references complete bodies instead of copying them: plans, executions and execution errors stay in their own ledgers, which remain the chat history. Records pass the same redaction and bounding as every durable event, and a client may write only `desktop`/`frontend` records — never backend records, ids or ledger references.
+
+Recording MUST NOT slow or fail the work it records. The backend writer is asynchronous and bounded and drops-and-counts when full; the Desktop shipper is bounded, times out, keeps records while the backend restarts and never logs through the console it captures. Write failures go to stderr, never through the captured logger.
+
+The ingest (`POST /api/operational-log`) and query (`GET /api/operational-log`) endpoints are local-only and MUST refuse the paired remote ingress.
+
+Retention is automatic and nothing is kept longer than 15 days: `trace`/`debug` records expire after 3 days and every other record after 15 days, swept hourly. The same sweep removes the fixed set of high-volume progress event types (`command.output`, host build output, git fetches, status reconciliation, context refresh) from `harness_events` after 15 days; lifecycle, plan, execution and error ledger events are chat history and are not swept by age.
+
+Every backend HTTP call MUST be observed. Errors, calls of 2 s or more, mutations, request-input transport calls and event-stream closes are recorded individually as `http.request` with route, status, duration, bytes and route-derived correlation; healthy polling and fast reads are aggregated per route per minute as `http.calls_aggregated`, because recording ~12 task claims per second individually would drown the evidence it exists to keep. One operation is correlated across processes by `X-Wharnex-Trace`: the backend echoes a well-formed trace or generates one, and the Desktop scopes each scheduler attempt and each transport preparation to its own trace, sends it only to the local backend and stamps it on every console line.
+
+Self-evolution status reconciliation runs on every session read and MUST persist and publish only when the projection actually changes; re-announcing an unchanged state is noise that drowns evidence.

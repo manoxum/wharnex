@@ -9,6 +9,7 @@ import { supervisorInstanceLabel } from '../lib/engineInstanceLabel'
 import { observeChatGPTOverlayBlockers } from '../lib/chatGPTOverlay'
 import { EngineInstanceSelector } from './EngineInstanceSelector'
 import { ManualChatGPTToolbar } from './ManualChatGPTToolbar'
+import { chatgptWriteInProgressNotice } from '../lib/chatgptWriteProgress'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
@@ -306,7 +307,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     try {
       let result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
       if (!result.ok && result.reason === 'write_in_progress') {
-        setNotice('O prompt e o bundle ainda estão a ser preparados para envio. A navegação será repetida automaticamente se não concluir.')
+        setNotice(chatgptWriteInProgressNotice)
         return
       }
       if (!result.ok && result.reason === 'not_supervised') {
@@ -327,7 +328,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
           requestedAt,
         })
         if (!resumed.ok && resumed.reason === 'write_in_progress') {
-          setNotice('O prompt e o bundle ainda estão a ser preparados para envio. A navegação será repetida automaticamente se não concluir.')
+          setNotice(chatgptWriteInProgressNotice)
           return
         }
         if (!resumed.ok && (resumed.reason === 'write_not_submitted' || resumed.reason === 'resend_required')) {

@@ -317,6 +317,10 @@ func NewPostgresStore(ctx context.Context, databaseURL, legacyPath string) (*Sto
 		db.Close()
 		return nil, fmt.Errorf("initialize PostgreSQL session schema: %w", err)
 	}
+	if err := ensureOperationalLogSchema(ctx, db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := store.migrateLegacySnapshot(ctx, legacyPath); err != nil {
 		db.Close()
 		return nil, err

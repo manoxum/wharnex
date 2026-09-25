@@ -111,4 +111,11 @@ describe('App policy-repair recovery', () => {
     expect(handoff).toBeGreaterThan(created)
     expect(submit).toBeGreaterThan(handoff)
   })
+
+  it('surfaces a never-submitted pending request as a resendable delivery failure after restart', () => {
+    const resume = source.slice(source.indexOf('const resumed = await bridge.chatgpt.resumeExpectedBundle('), source.indexOf("console.warn('pending ChatGPT bundle recovery failed'"))
+    expect(resume).toContain('const outcome = pendingDeliveryResumeOutcome(resumed)')
+    expect(resume).toContain("if (outcome === 'resend' && !cancelled)")
+    expect(resume).toContain("[cacheKey]: { kind: 'retry', requestId }")
+  })
 })

@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { chatInputArchiveFilename, commentAttachmentArchiveFilename, localChatInputBootstrap, writeChatInputArchive, writeChatInputTransportArchives, writeCommentAttachmentArchive } from './chat-input-archive.mjs'
+import { storedEntries } from './chat-input-zip-test-helper.mjs'
 
 
 function contextMaps() {
@@ -12,27 +13,6 @@ function contextMaps() {
     { path: 'context-map/main/sensitive-file-map', content: '# harness.sensitive-file-map/v1\nPASSWORD=<<configured>>\n' },
   ]
 }
-
-function storedEntries(buffer) {
-  const entries = new Map()
-  let offset = 0
-  while (buffer.readUInt32LE(offset) === 0x04034b50) {
-    const method = buffer.readUInt16LE(offset + 8)
-    const size = buffer.readUInt32LE(offset + 18)
-    const nameBytes = buffer.readUInt16LE(offset + 26)
-    const extraBytes = buffer.readUInt16LE(offset + 28)
-    assert.equal(method, 0)
-    const nameStart = offset + 30
-    const dataStart = nameStart + nameBytes + extraBytes
-    const name = buffer.subarray(nameStart, nameStart + nameBytes).toString('utf8')
-    entries.set(name, buffer.subarray(dataStart, dataStart + size))
-    offset = dataStart + size
-  }
-  assert.equal(buffer.readUInt32LE(offset), 0x02014b50)
-  assert.equal(buffer.readUInt32LE(buffer.byteLength - 22), 0x06054b50)
-  return entries
-}
-
 
 test('aborted request preparation does not leave a partial chat input ZIP', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wharness-chat-input-abort-'))

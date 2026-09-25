@@ -1,12 +1,10 @@
-import { open, rm } from 'node:fs/promises'
+import { open, rename, rm } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import { buildBundleName, safeChatId } from './bundlename.mjs'
+import { safeEntryName, writeChatInputZip } from './chat-input-zip-writer.mjs'
 
-const UTF8_FLAG = 0x0800
 const STORE_METHOD = 0
-const DOS_DATE_1980_01_01 = 0x0021
-const MAX_ZIP32 = 0xffffffff
 
 const LEGACY_CONTEXT_SOURCES_INDEX = 'RELATED_PROJECTS.json'
 const LEGACY_RELATED_CONTEXT_ROOT = 'RELATED_PROJECTS/'
@@ -16,32 +14,6 @@ const REFERENCE_CONTEXT_ROOT = 'ref-context/'
 const ATTACHED_CONTEXT_ROOT = 'att-context/'
 const CONTEXT_MAP_ROOT = 'context-map/'
 const CONTEXT_SOURCES_INDEX = 'metadata/context-sources.json'
-
-const crcTable = (() => {
-  const table = new Uint32Array(256)
-  for (let index = 0; index < 256; index += 1) {
-    let value = index
-    for (let bit = 0; bit < 8; bit += 1) value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0)
-    table[index] = value >>> 0
-  }
-  return table
-})()
-
-function crc32(buffer) {
-  let value = 0xffffffff
-  for (const byte of buffer) value = crcTable[(value ^ byte) & 0xff] ^ (value >>> 8)
-  return (value ^ 0xffffffff) >>> 0
-}
-
-function safeEntryName(value) {
-  const name = String(value || '').normalize('NFC')
-  if (!name || name.startsWith('/') || name.includes('\\') || name.includes('\u0000')) throw new Error('Invalid chat input archive path')
-  const parts = name.split('/')
-  if (parts.some((part) => !part || part === '.' || part === '..')) throw new Error('Invalid chat input archive path')
-  const raw = Buffer.from(name, 'utf8')
-  if (raw.byteLength > 0xffff) throw new Error('Chat input archive path is too long')
-  return { name, raw }
-}
 
 function findZipEnd(buffer) {
   const floor = Math.max(0, buffer.byteLength - 0xffff - 22)
@@ -148,100 +120,6 @@ function throwIfArchiveAborted(signal) {
   const error = new Error('Chat input archive preparation was cancelled')
   error.name = 'AbortError'
   throw error
-}
-
-async function writeAll(handle, buffer, position, signal) {
-  let written = 0
-  while (written < buffer.byteLength) {
-    throwIfArchiveAborted(signal)
-    const result = await handle.write(buffer, written, buffer.byteLength - written, position + written)
-    if (!result.bytesWritten) throw new Error('Could not write chat input archive')
-    written += result.bytesWritten
-  }
-  return position + written
-}
-
-async function writeStoredZip(targetPath, entries, signal) {
-  if (!Array.isArray(entries) || !entries.length || entries.length > 0xffff) throw new Error('Invalid chat input archive entries')
-  const names = new Set()
-  const central = []
-  let position = 0
-  throwIfArchiveAborted(signal)
-  const handle = await open(targetPath, 'wx', 0o600)
-  try {
-    throwIfArchiveAborted(signal)
-    for (const entry of entries) {
-      const { name, raw: nameRaw } = safeEntryName(entry?.name)
-      const key = name.toLocaleLowerCase('en-US')
-      if (names.has(key)) throw new Error(`Duplicate chat input archive path: ${name}`)
-      names.add(key)
-      const data = Buffer.isBuffer(entry?.bytes) ? entry.bytes : Buffer.from(entry?.bytes || '')
-      if (data.byteLength > MAX_ZIP32 || position > MAX_ZIP32) throw new Error('Chat input archive exceeds ZIP32 limits')
-      const checksum = crc32(data)
-      const localOffset = position
-      const header = Buffer.alloc(30)
-      header.writeUInt32LE(0x04034b50, 0)
-      header.writeUInt16LE(20, 4)
-      header.writeUInt16LE(UTF8_FLAG, 6)
-      header.writeUInt16LE(STORE_METHOD, 8)
-      header.writeUInt16LE(0, 10)
-      header.writeUInt16LE(DOS_DATE_1980_01_01, 12)
-      header.writeUInt32LE(checksum, 14)
-      header.writeUInt32LE(data.byteLength, 18)
-      header.writeUInt32LE(data.byteLength, 22)
-      header.writeUInt16LE(nameRaw.byteLength, 26)
-      header.writeUInt16LE(0, 28)
-      position = await writeAll(handle, header, position, signal)
-      position = await writeAll(handle, nameRaw, position, signal)
-      position = await writeAll(handle, data, position, signal)
-      central.push({ nameRaw, checksum, bytes: data.byteLength, localOffset })
-    }
-
-    const centralOffset = position
-    for (const entry of central) {
-      const header = Buffer.alloc(46)
-      header.writeUInt32LE(0x02014b50, 0)
-      header.writeUInt16LE(20, 4)
-      header.writeUInt16LE(20, 6)
-      header.writeUInt16LE(UTF8_FLAG, 8)
-      header.writeUInt16LE(STORE_METHOD, 10)
-      header.writeUInt16LE(0, 12)
-      header.writeUInt16LE(DOS_DATE_1980_01_01, 14)
-      header.writeUInt32LE(entry.checksum, 16)
-      header.writeUInt32LE(entry.bytes, 20)
-      header.writeUInt32LE(entry.bytes, 24)
-      header.writeUInt16LE(entry.nameRaw.byteLength, 28)
-      header.writeUInt16LE(0, 30)
-      header.writeUInt16LE(0, 32)
-      header.writeUInt16LE(0, 34)
-      header.writeUInt16LE(0, 36)
-      header.writeUInt32LE(0, 38)
-      header.writeUInt32LE(entry.localOffset, 42)
-      position = await writeAll(handle, header, position, signal)
-      position = await writeAll(handle, entry.nameRaw, position, signal)
-    }
-
-    const centralSize = position - centralOffset
-    if (position > MAX_ZIP32 || centralOffset > MAX_ZIP32 || centralSize > MAX_ZIP32) throw new Error('Chat input archive exceeds ZIP32 limits')
-    const end = Buffer.alloc(22)
-    end.writeUInt32LE(0x06054b50, 0)
-    end.writeUInt16LE(0, 4)
-    end.writeUInt16LE(0, 6)
-    end.writeUInt16LE(central.length, 8)
-    end.writeUInt16LE(central.length, 10)
-    end.writeUInt32LE(centralSize, 12)
-    end.writeUInt32LE(centralOffset, 16)
-    end.writeUInt16LE(0, 20)
-    position = await writeAll(handle, end, position, signal)
-    await handle.sync()
-    return position
-  } catch (error) {
-    try { await handle.close() } catch { /* cleanup below */ }
-    await rm(targetPath, { force: true }).catch(() => {})
-    throw error
-  } finally {
-    try { await handle.close() } catch { /* already closed on error */ }
-  }
 }
 
 function knowledgeCatalogDigest(entries) {
@@ -563,7 +441,7 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
   }
   for (const artifact of artifacts) entries.push({ name: `artifacts/${artifact.name}`, bytes: artifact.bytes })
   for (const attachment of attachments) entries.push({ name: `attachments/${attachment.name}`, bytes: attachment.bytes })
-  const bytes = await writeStoredZip(targetPath, entries, signal)
+  const bytes = await writeChatInputZip(targetPath, entries, signal)
   return { bytes, fileCount: entries.length, requestMetadata: normalizedRequestMetadata }
 }
 
@@ -610,21 +488,8 @@ export async function writeChatInputTransportArchives(targetDir, { chatId, reque
   }
   const directPath = `${targetDir}/${archiveName}`
   if (logical.bytes <= partLimit) {
-    const source = await open(logicalPath, 'r')
-    const target = await open(directPath, 'wx', 0o600)
-    try {
-      const buffer = Buffer.alloc(1024 * 1024)
-      let position = 0
-      while (true) {
-        throwIfArchiveAborted(signal)
-        const { bytesRead } = await source.read(buffer, 0, buffer.byteLength, position)
-        if (!bytesRead) break
-        await writeAll(target, buffer.subarray(0, bytesRead), position, signal)
-        position += bytesRead
-      }
-      await target.sync()
-    } finally { await source.close(); await target.close() }
-    await rm(logicalPath, { force: true })
+    throwIfArchiveAborted(signal)
+    await rename(logicalPath, directPath)
     return {
       archiveName, archivePath: directPath, uploadPaths: [directPath], uploadNames: [archiveName],
       parts: [{ name: archiveName, path: directPath, bytes: logical.bytes }], multipart: undefined,
@@ -666,7 +531,7 @@ export async function writeChatInputTransportArchives(targetDir, { chatId, reque
         chunk_offset: offset, chunk_bytes: length, chunk_sha256: chunkSha256, chunk_path: 'multipart/payload.part',
       }
       const readme = `# Wharnex multipart request\n\nPart ${index} of ${count}. Reassemble the request by ordering all parts by part_index and concatenating multipart/payload.part. Verify payload_bytes and payload_sha256 from transport.json before opening ${archiveName}.\n`
-      const bytes = await writeStoredZip(target, [
+      const bytes = await writeChatInputZip(target, [
         { name: 'transport.json', bytes: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8') },
         { name: 'README.md', bytes: Buffer.from(readme, 'utf8') },
         { name: 'multipart/payload.part', bytes: chunk },
@@ -702,6 +567,6 @@ export function commentAttachmentArchiveFilename(chatId, requestId) {
 export async function writeCommentAttachmentArchive(targetPath, { attachments = [] } = {}) {
   if (!attachments.length) throw new Error('Comment attachment archive requires at least one attachment')
   const entries = attachments.map((attachment) => ({ name: `attachments/${attachment.name}`, bytes: attachment.bytes }))
-  const bytes = await writeStoredZip(targetPath, entries)
+  const bytes = await writeChatInputZip(targetPath, entries)
   return { bytes, fileCount: entries.length }
 }

@@ -402,7 +402,7 @@ describe('ChatGPTDesktopPane affinity ownership', () => {
     await waitFor(() => expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledWith('chat-1', 'req_pending123'))
   })
 
-  it('does not send a continuation while the original prompt bundle is still being written', async () => {
+  it('does not send a continuation while the original write remains in progress', async () => {
     const desktop = bridge()
     desktop.chatgpt.continueExpectedBundle = vi.fn().mockResolvedValue({ ok: false, cacheKey: 'chat-1', requestId: 'req_pending123', reason: 'write_in_progress' })
     window.wharnessDesktop = desktop
@@ -410,7 +410,7 @@ describe('ChatGPTDesktopPane affinity ownership', () => {
 
     screen.getByRole('button', { name: 'Retomar pedido' }).click()
 
-    expect(await screen.findByText(/ainda estão a ser preparados/)).toBeTruthy()
+    expect(await screen.findByText('O envio do pedido ainda está em andamento. Aguarde; se a navegação não concluir, ela será repetida automaticamente.')).toBeTruthy()
     expect(desktop.chatgpt.resumeExpectedBundle).not.toHaveBeenCalled()
   })
 

@@ -1,5 +1,6 @@
 import { type ComponentProps, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
+import { openLiveEventStream, type LiveEventStream } from './lib/liveEventStream'
 import { exportTraceChatItem, resolveExportTraceMetadata } from './lib/exportMetadata'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import { isAutomaticAutomationMode, isAutoApproveAutomationMode } from './lib/automationMode'
@@ -28,7 +29,7 @@ import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, archiveSavedChat as archiveStoredSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat,
   loadAutomationMode, loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, loadPendingProjectPrompt, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveChatForLater as saveStoredChatForLater, saveComposerDraft, saveComposerFileDraft,
-  BOOTSTRAP_PROMPT_PREFIX, clearPendingProjectPrompt, durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
+  BOOTSTRAP_PROMPT_PREFIX, clearPendingProjectPrompt, durableWorkspaceChat, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, type ChatNaming, type RemoteArchive, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
 // Background chat maintenance runs rarely on purpose: it drives real ChatGPT
@@ -112,6 +113,7 @@ import { buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from '
 import { workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget, type WorkspaceSurfaceTransferPoint } from './lib/workspaceSurface'
 import { activeChatBusy } from './lib/chatBusy'
 import { clearSelfEvolutionBlockForRetry } from './lib/selfEvolutionRecovery'
+import { pendingDeliveryResumeOutcome } from './lib/pendingDeliveryResume'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 
@@ -144,7 +146,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [automationMode, setAutomationMode] = useState<AutomationMode>('auto')
   const [effortLevel, setEffortLevel] = useState<EffortLevel>('high')
   const [chatTransportMode, setChatTransportMode] = useState<ChatTransportMode>('scraper')
-  const [globalTransport, setGlobalTransport] = useState<TransportOptions>(() => loadTransportOptions())
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [restoring, setRestoring] = useState(Boolean(activeAtLoad || embeddedProject))
   const [busy, setBusyState] = useState(false)
@@ -202,7 +203,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [activeSurfaceKey, setActiveSurfaceKey] = useState(() => initialSurfaceTarget ? workspaceSurfaceKey(initialSurfaceTarget) : '')
   const [hiddenSurfaceKeys, setHiddenSurfaceKeys] = useState<string[]>([])
   const [surfaceTabMenu, setSurfaceTabMenu] = useState<{ target: WorkspaceSurfaceTarget; x: number; y: number }>()
-  const sourceRef = useRef<EventSource | null>(null)
+  const sourceRef = useRef<LiveEventStream | null>(null)
   // Owns the event stream's deduplication, retained window and flush/persist
   // cadence, so a catch-up burst costs a handful of renders instead of one
   // render (and one persisted window) per frame - see lib/eventStream.
@@ -448,7 +449,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const restored = loadExecutionHistory(projectPath, chatId)
     setEvents(restored)
 
-    const source = new EventSource(api.eventsURL(id))
+    const source = openLiveEventStream(api.eventsURL(id))
     const coalescer = createEventStreamCoalescer({
       restored,
       // A timer that outlives its stream must not write another chat's window;
@@ -490,7 +491,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     })
     source.onmessage = (event) => {
       try { coalescer.accept(JSON.parse(event.data) as HarnessEvent) }
-      catch { /* ignore malformed SSE frame */ }
+      catch { /* ignore malformed stream frame */ }
     }
     coalescerRef.current = coalescer
     sourceRef.current = source
@@ -626,13 +627,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setRecent(loadRecentWorkspaces())
   }, [session, activeChatOwnsSession, mode, activeChatId, executionMode, automationMode, effortLevel, embeddedProject])
 
-  useEffect(() => {
-    const syncTransport = (event: StorageEvent) => {
-      if (event.key === TRANSPORT_OPTIONS_STORAGE_KEY) setGlobalTransport(loadTransportOptions())
-    }
-    window.addEventListener('storage', syncTransport)
-    return () => window.removeEventListener('storage', syncTransport)
-  }, [])
 
   useEffect(() => subscribeWorkspaceRailLayout(setRailLayout), [])
 
@@ -1673,12 +1667,18 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             try {
               const recoveryBootstrap = pendingRequestRecoveryPrompt(candidate, requestId)
               if (!recoveryBootstrap) return
-              await bridge.chatgpt.resumeExpectedBundle({
+              const resumed = await bridge.chatgpt.resumeExpectedBundle({
                 cacheKey, sessionId: candidate.id, requestId, url, recoveryBootstrap,
                 expectedFilename: expectedResponseBundleName(recoveryBootstrap, requestId),
                 chatTitle: chat.title, chatHash: sessionContextSHA(candidate),
                 requestedAt: candidate.request_lineages?.[requestId]?.created_at || candidate.created_at,
               })
+              const outcome = pendingDeliveryResumeOutcome(resumed)
+              if (outcome === 'wait') resumedBundleKeysRef.current.delete(resumeKey)
+              if (outcome === 'resend' && !cancelled) {
+                failedPromptDeliveryKeysRef.current.add(resumeKey)
+                setFailedPromptDeliveries((current) => ({ ...current, [cacheKey]: { kind: 'retry', requestId } }))
+              }
             } catch (resumeError) {
               resumedBundleKeysRef.current.delete(resumeKey)
               console.warn('pending ChatGPT bundle recovery failed', cacheKey, messageOf(resumeError))
@@ -1769,8 +1769,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!targetChat) throw new Error('Harness Chat ativo não encontrado.')
     if (!await restoreChatGPTConversationAffinity(targetChat)) return
     const projectPath = targetSession.project_path
-    const transport = targetChat.transport || globalTransport
-    const tunnelInstanceIds = enabledTunnelIds(transport, config?.remote_input?.instances || [])
 
     setChatBusy(targetChat.id, true); setError(undefined)
     const messageId = crypto.randomUUID()
@@ -1828,9 +1826,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         try {
           const bridge = desktopBridge()
           if (!bridge) throw new Error('Desktop bridge indisponível')
-          if (activeChatIdRef.current === targetChat.id) setTransportProgress(manualTransport ? 'A preparar o bundle para entrega manual no Engine…' : 'A preparar o bundle ZIP e a publicar apenas os túneis selecionados…')
+          if (activeChatIdRef.current === targetChat.id) setTransportProgress(manualTransport ? 'A preparar o bundle para entrega manual no Engine…' : 'A preparar o bundle ZIP…')
           const prepared = await bridge.chatgpt.preparePrompt({
-            cacheKey: targetChat.id, workspaceChatId: targetChat.id, text: prompt, transport, tunnelInstanceIds, bootstrapText: message, url: targetChat.chatgptUrl, sessionId: response.session.id,
+            cacheKey: targetChat.id, workspaceChatId: targetChat.id, text: prompt, bootstrapText: message, url: targetChat.chatgptUrl, sessionId: response.session.id,
             requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: !manualTransport && isAutomaticAutomationMode(automationMode), manualTransport,
             expectedFilename: expectedResponseBundleName(prompt, requestId),
             projectFiles,
@@ -2473,7 +2471,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!text) throw new Error('Continuação do planner vazia.')
     const manualTransport = promptSession.chat_transport_mode === 'manual'
     const continuationArtifacts = continuationArtifactSelection(promptSession)
-    const transport = targetChat.transport || globalTransport
     const continuationRequestId = activePendingRequestId(promptSession)
     if (!isDesktop()) throw new Error('O loop automático com ChatGPT requer Wharnex Desktop.')
     await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
@@ -2482,7 +2479,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const artifacts = await encodeSystemArtifacts(promptSession, continuationArtifacts)
     const prepared = manualTransport
       ? await bridge.chatgpt.preparePrompt({
-          cacheKey: targetChat.id, background: false, workspaceChatId: targetChat.id, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetChat.chatgptUrl, sessionId: promptSession.id,
+          cacheKey: targetChat.id, background: false, workspaceChatId: targetChat.id, text, url: targetChat.chatgptUrl, sessionId: promptSession.id,
           requestId: continuationRequestId, attachments: [], artifacts, autoSubmit: false, manualTransport: true,
           expectedFilename: expectedResponseBundleName(text, continuationRequestId),
           projectFiles: [],
@@ -2493,7 +2490,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           reasoningEffort: promptSession.reasoning_effort || 'high',
         })
       : await bridge.chatgpt.preparePrompt({
-          cacheKey: targetChat.id, background: true, workspaceChatId: targetChat.id, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetChat.chatgptUrl, sessionId: promptSession.id,
+          cacheKey: targetChat.id, background: true, workspaceChatId: targetChat.id, text, url: targetChat.chatgptUrl, sessionId: promptSession.id,
           requestId: continuationRequestId, attachments: [], artifacts, autoSubmit: true,
           expectedFilename: expectedResponseBundleName(text, continuationRequestId),
           projectFiles: [],
@@ -3778,9 +3775,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     attachmentsEnabled: isDesktop() && config?.planner === 'manual', preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
     artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
     artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
-    requestMode: activeChat?.requestMode || 'direct', globalTransport, chatTransport: activeChat?.transport, tunnelInstances: config?.remote_input?.instances || [], taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '', transportRequestId: busyChats[activeChatId] ? activePendingRequestId(session) : '',
+    requestMode: activeChat?.requestMode || 'direct', taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '', transportRequestId: busyChats[activeChatId] ? activePendingRequestId(session) : '',
     onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onDebugMode: changeDebugMode, onEffortLevel: changeEffortLevel, onReasoningEffort: changeReasoningEffort, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
-    onChatTransport: (transport?: TransportOptions) => activeChat && updateWorkspaceChat(activeChat.id, session.project_path, { transport }),
     onComposerTyping: notifyComposerTyping,
     onSend: enqueueMainRequest, onAdjustExecutionPlan: adjustExecutionPlan, onPreviewBundle: previewComposerBundle, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
     onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),
