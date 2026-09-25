@@ -18,6 +18,7 @@ describe('Bootstrap project home', () => {
     expect(onBootstrap.mock.calls[0][1]).toBe('criar-gestor-tarefas-offline')
     expect(onBootstrap.mock.calls[0][2]).toContain('Briefing inicial:')
     expect(onBootstrap.mock.calls[0][2]).toContain('Criar um gestor de tarefas offline moderno')
+    expect(onBootstrap.mock.calls[0][3]).toMatchObject({ automationMode: 'auto', effortLevel: 'high', reasoningEffort: 'high', chatTransportMode: 'scraper', requestMode: 'direct' })
   })
 
   it('keeps open, create and clone as compact project actions', () => {
@@ -27,4 +28,26 @@ describe('Bootstrap project home', () => {
     expect(actions.getByRole('button', { name: /Criar projeto/i })).toBeTruthy()
     expect(actions.getByRole('button', { name: /Clonar Git/i })).toBeTruthy()
   })
+
+  it('opens the desktop folder picker directly from the quick action and starts in the configured workspace', async () => {
+    localStorage.setItem('kernl.workspace.directory.v1', '/workspace')
+    const pickDirectory = vi.fn().mockResolvedValue({ cancelled: false, path: '/workspace/demo' })
+    window.wharnessDesktop = { projects: { pickDirectory } } as never
+    const onStart = vi.fn().mockResolvedValue(undefined)
+    render(<Bootstrap busy={false} recent={[]} restoring={false} onStart={onStart} onCreate={vi.fn()} onClone={vi.fn()} onBootstrap={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Abrir pasta/i }))
+
+    await waitFor(() => expect(pickDirectory).toHaveBeenCalledWith({ title: 'Selecionar projeto', defaultPath: '/workspace' }))
+    await waitFor(() => expect(onStart).toHaveBeenCalledWith('/workspace/demo'))
+    expect(screen.queryByText('Escolher pasta do projeto')).toBeNull()
+  })
+
+  it('exposes global settings and no longer shows the AI icon in the new-project composer heading', () => {
+    render(<Bootstrap busy={false} recent={[]} restoring={false} onStart={vi.fn()} onCreate={vi.fn()} onClone={vi.fn()} onBootstrap={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Configurações globais' })).toBeTruthy()
+    expect(screen.getByText('O que quer construir?')).toBeTruthy()
+    expect(screen.queryByText('Escolher pasta do projeto')).toBeNull()
+  })
+
 })

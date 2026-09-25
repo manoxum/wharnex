@@ -12,13 +12,14 @@ import { ThemePreferenceControl } from './ThemeToggle'
 import { RemoteStorageSettings } from './RemoteStorageSettings'
 import { TunnelProviderSettings } from './TunnelProviderSettings'
 import { LanguageSettingsPanel } from './LanguageSettingsPanel'
+import { loadWorkspaceDirectory, saveWorkspaceDirectory } from '../lib/workspaceMemory'
 
-type SettingsSection = 'appearance' | 'composer' | 'language' | 'context' | 'tunnel-provider' | 'remote-storage' | 'limits' | 'data'
+type SettingsSection = 'appearance' | 'composer' | 'language' | 'context' | 'tunnel-provider' | 'remote-storage' | 'workspace' | 'limits' | 'data'
 
 export function ProjectSettings({ session, onClose, onSession, onError, onTunnelConfigSaved }: {
-  session: Session
+  session?: Session
   onClose: () => void
-  onSession: (session: Session) => void
+  onSession?: (session: Session) => void
   onError: (message: string) => void
   onTunnelConfigSaved?: (config: TunnelProviderDocument, runtime?: AppConfig) => void
 }) {
@@ -45,33 +46,36 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
   const [requestBundlePartLimit, setRequestBundlePartLimit] = useState(10)
   const [uiPreferences, setUIPreferences] = useState<UIPreferences>(() => loadUIPreferences())
   const [activeSection, setActiveSection] = useState<SettingsSection>('appearance')
+  const [workspaceDirectory, setWorkspaceDirectory] = useState(() => loadWorkspaceDirectory())
 
   useEffect(() => subscribeUIPreferences(setUIPreferences), [])
 
   useEffect(() => {
     let alive = true
     setConfig(undefined); setInspection(undefined); setLoadingError(''); setInspectionError('')
-    api.projectConfig(session.id).then((value) => {
-      if (!alive) return
-      setConfig(value)
-      setInclude(formatPatternLines(value.context.include || []))
-      setExclude(formatPatternLines(value.context.exclude || []))
-      setMaxMiB(bytesToMiB(value.context.max_file_bytes))
-    }).catch((error) => {
-      if (!alive) return
-      const message = messageOf(error, 'Não foi possível carregar whaness.yml')
-      setLoadingError(message); onError(message)
-    })
-    api.contextInspection(session.id).then((value) => { if (alive) setInspection(value) }).catch((error) => {
-      if (!alive) return
-      setInspectionError(messageOf(error, 'Não foi possível inspecionar o contexto'))
-    })
+    if (session) {
+      api.projectConfig(session.id).then((value) => {
+        if (!alive) return
+        setConfig(value)
+        setInclude(formatPatternLines(value.context.include || []))
+        setExclude(formatPatternLines(value.context.exclude || []))
+        setMaxMiB(bytesToMiB(value.context.max_file_bytes))
+      }).catch((error) => {
+        if (!alive) return
+        const message = messageOf(error, 'Não foi possível carregar whaness.yml')
+        setLoadingError(message); onError(message)
+      })
+      api.contextInspection(session.id).then((value) => { if (alive) setInspection(value) }).catch((error) => {
+        if (!alive) return
+        setInspectionError(messageOf(error, 'Não foi possível inspecionar o contexto'))
+      })
+    }
     api.storage().then((value) => { if (alive) setBackendStorage(value) }).catch(() => {})
     api.artifactSettings().then((value) => { if (alive) { applyArtifactSettings(value) } }).catch(() => {})
     const bridge = desktopBridge()
     if (bridge) bridge.data.storage().then((value) => { if (alive) setDesktopStorage(value) }).catch(() => {})
     return () => { alive = false }
-  }, [session.id, onError, reloadNonce])
+  }, [session?.id, onError, reloadNonce])
 
   function applyArtifactSettings(value: ArtifactSettings) {
     setArtifactRetentionDays(value.retention_days)
@@ -100,12 +104,12 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
   }
 
   async function save() {
-    if (!config || saving) return
+    if (!session || !config || saving) return
     setSaving(true)
     try {
       const next: ProjectConfig = { ...config, context: { ...config.context, max_file_bytes: miBToBytes(maxMiB), include: parsePatternLines(include), include_overrides: config.context.include_overrides || [], exclude: parsePatternLines(exclude) } }
       const result = await api.updateProjectConfig(session.id, next)
-      setConfig(result.config); onSession(result.session)
+      setConfig(result.config); onSession?.(result.session)
       const nextInspection = await api.contextInspection(session.id)
       setInspection(nextInspection)
     } catch (error) { onError(messageOf(error, 'Não foi possível guardar a configuração do projeto')) }
@@ -113,7 +117,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
   }
 
   async function applyContextSelection(selection: ContextSelection) {
-    if (!config || configuring) return
+    if (!session || !config || configuring) return
     if (selection.action === 'include' && selection.kind === 'directory' && !(await confirmDialog({
       title: 'Incluir pasta no contexto?',
       message: `${selection.path} e os seus ficheiros elegíveis passarão a ocupar o contexto. Pastas de SDK/cache podem ser muito grandes; confirme apenas se este conteúdo for realmente útil ao planner.`,
@@ -135,23 +139,44 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
       setConfig(result.config)
       setInclude(formatPatternLines(result.config.context.include || []))
       setExclude(formatPatternLines(result.config.context.exclude || []))
-      onSession(result.session)
+      onSession?.(result.session)
       setInspection(await api.contextInspection(session.id))
     } catch (error) { onError(messageOf(error, `Não foi possível ${selection.action === 'include' ? 'incluir' : 'excluir'} ${selection.path}`)) }
     finally { setConfiguring(false) }
   }
 
   async function refresh() {
-    if (refreshing) return
+    if (!session || refreshing) return
     setRefreshing(true); setInspectionError('')
     try {
       const nextSession = await api.refreshContext(session.id)
-      onSession(nextSession)
+      onSession?.(nextSession)
       setInspection(await api.contextInspection(session.id))
     } catch (error) {
       const message = messageOf(error, 'Não foi possível reconstruir o contexto')
       setInspectionError(message); onError(message)
     } finally { setRefreshing(false) }
+  }
+
+  async function browseWorkspace() {
+    const bridge = desktopBridge()
+    if (!bridge?.projects) return
+    try {
+      const picked = await bridge.projects.pickDirectory({ title: 'Selecionar workspace padrão', defaultPath: workspaceDirectory || undefined })
+      if (picked.cancelled || !picked.path) return
+      saveWorkspaceDirectory(picked.path)
+      setWorkspaceDirectory(picked.path)
+    } catch (error) { onError(messageOf(error, 'Não foi possível selecionar o workspace')) }
+  }
+
+  function persistWorkspace() {
+    saveWorkspaceDirectory(workspaceDirectory)
+    setWorkspaceDirectory(loadWorkspaceDirectory())
+  }
+
+  function clearWorkspace() {
+    saveWorkspaceDirectory('')
+    setWorkspaceDirectory('')
   }
 
   async function refreshStorage() {
@@ -230,25 +255,26 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
   return <InternalWindow title="Configurações" layerClassName="project-settings-backdrop" onClose={onClose}>
     <section className="project-settings-dialog context-settings-dialog" role="dialog" aria-modal="false" aria-labelledby="project-settings-title">
       <header>
-        <div className="settings-dialog-heading"><span className="settings-dialog-symbol"><Icon name="settings" size={18}/></span><div><span className="eyebrow">Preferências</span><h2 id="project-settings-title">Configurações</h2><p>Personalize o workbench e administre contexto, integrações e dados num espaço mais organizado.</p></div></div>
+        <div className="settings-dialog-heading"><span className="settings-dialog-symbol"><Icon name="settings" size={18}/></span><div><span className="eyebrow">Preferências</span><h2 id="project-settings-title">Configurações</h2><p>{session ? 'Personalize o workbench e administre contexto, integrações e dados num espaço mais organizado.' : 'Personalize o Wharnex e defina preferências globais para novos projetos.'}</p></div></div>
         <button className="icon-button" onClick={onClose} title="Fechar"><Icon name="close" size={16}/></button>
       </header>
       <div className="project-settings-body settings-layout">
         <nav className="settings-navigation" aria-label="Secções das configurações">
-          <div className="settings-project-summary"><span>Projeto atual</span><strong>{session.project_path.split('/').filter(Boolean).pop() || session.project_path}</strong><small title={session.project_path}>{session.project_path}</small></div>
+          {session ? <div className="settings-project-summary"><span>Projeto atual</span><strong>{session.project_path.split('/').filter(Boolean).pop() || session.project_path}</strong><small title={session.project_path}>{session.project_path}</small></div> : <div className="settings-project-summary"><span>Escopo</span><strong>Global</strong><small>Desktop e novos projetos</small></div>}
           <SettingsNavGroup label="Interface">
             <SettingsNavButton active={activeSection === 'appearance'} icon="monitor" label="Aparência" detail="Tema, cores e tipografia" onClick={() => setActiveSection('appearance')}/>
             <SettingsNavButton active={activeSection === 'composer'} icon="edit" label="Composer" detail="Pastes e anexos" onClick={() => setActiveSection('composer')}/>
             <SettingsNavButton active={activeSection === 'language'} icon="edit" label="Idioma" detail="Interface e tradução" onClick={() => setActiveSection('language')}/>
           </SettingsNavGroup>
-          <SettingsNavGroup label="Projeto">
+          {session ? <SettingsNavGroup label="Projeto">
             <SettingsNavButton active={activeSection === 'context'} icon="file" label="Contexto" detail="Recorte enviado à IA" onClick={() => setActiveSection('context')}/>
-          </SettingsNavGroup>
+          </SettingsNavGroup> : null}
           <SettingsNavGroup label="Integrações">
             <SettingsNavButton active={activeSection === 'tunnel-provider'} icon="network" label="Tunnel Provider" detail="Transporte ChatGPT" onClick={() => setActiveSection('tunnel-provider')}/>
             <SettingsNavButton active={activeSection === 'remote-storage'} icon="database" label="Storage remoto" detail="Contas e limites" onClick={() => setActiveSection('remote-storage')}/>
           </SettingsNavGroup>
           <SettingsNavGroup label="Sistema">
+            <SettingsNavButton active={activeSection === 'workspace'} icon="folder" label="Workspace" detail="Pasta padrão dos projetos" onClick={() => setActiveSection('workspace')}/>
             <SettingsNavButton active={activeSection === 'limits'} icon="shield" label="Limites" detail="Anexos e bundles por request" onClick={() => setActiveSection('limits')}/>
             <SettingsNavButton active={activeSection === 'data'} icon="shield" label="Dados locais" detail="Uso, retenção e limpeza" onClick={() => setActiveSection('data')}/>
           </SettingsNavGroup>
@@ -295,7 +321,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
         {activeSection === 'context' ? (!config ? (loadingError
           ? <div className="settings-load-error"><Icon name="shield" size={22}/><div><strong>Não foi possível carregar a configuração</strong><p>{loadingError}</p><span>O backend tenta recriar automaticamente <code>whaness.yml</code> quando ele não existe. Pode tentar novamente sem fechar o projeto.</span><button className="secondary-button" onClick={() => setReloadNonce((value) => value + 1)}><Icon name="refresh" size={14}/> Tentar novamente</button></div></div>
           : <div className="settings-loading"><span className="settings-spinner"/>A carregar configuração…</div>) : <><section className="context-config-section">
-          <div className="context-section-title"><div><strong>Configuração fina</strong><span>Estas opções alteram a próxima reconstrução do contexto.</span></div><div className="context-config-badges"><span>{config.context.include_overrides?.length || 0} inclusões explícitas</span><code>{session.context.manifest.sha256.slice(0, 12)}</code></div></div>
+          <div className="context-section-title"><div><strong>Configuração fina</strong><span>Estas opções alteram a próxima reconstrução do contexto.</span></div><div className="context-config-badges"><span>{config.context.include_overrides?.length || 0} inclusões explícitas</span><code>{session?.context.manifest.sha256.slice(0, 12) || '—'}</code></div></div>
           <label className="settings-toggle"><input type="checkbox" checked={config.context.auto_exclude} onChange={(event) => setConfig({ ...config, context: { ...config.context, auto_exclude: event.target.checked } })}/><span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários, logs, IDE metadata e outros artefactos sem valor para a IA.</small></span></label>
           <div className="settings-grid">
             <label><span>Incluir apenas <small>opcional</small></span><textarea value={include} onChange={(event) => setInclude(event.target.value)} placeholder={'src/**\ndocs/**\ngo.mod'}/><small>Se vazio, todos os ficheiros elegíveis são considerados.</small></label>
@@ -308,6 +334,18 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
         <section className="context-explorer-section">
           {inspection ? <ContextInspector inspection={inspection} refreshing={refreshing} configuring={configuring} onRefresh={() => void refresh()} onSelection={(selection) => void applyContextSelection(selection)} /> : inspectionError ? <div className="context-inspection-error"><Icon name="shield" size={16}/><span>{inspectionError}</span><button onClick={() => setReloadNonce((value) => value + 1)}>Tentar novamente</button></div> : <div className="settings-loading compact"><span className="settings-spinner"/>A inspecionar o snapshot final…</div>}
         </section></>) : null}
+        {activeSection === 'workspace' ? <section className="appearance-settings-section">
+          <div className="settings-page-hero"><div><span className="eyebrow">Projetos</span><strong>Workspace padrão</strong><p>Define a pasta inicial usada pelos seletores de abrir, criar e clonar projetos na página inicial.</p></div><code>{workspaceDirectory ? 'configurado' : 'automático'}</code></div>
+          <section className="settings-premium-card">
+            <div className="settings-card-heading"><span><strong>Pasta de trabalho</strong><small>O caminho fica apenas neste dispositivo e pode ser alterado a qualquer momento.</small></span><Icon name="folder" size={16}/></div>
+            <div className="settings-workspace-picker">
+              <input aria-label="Workspace padrão" value={workspaceDirectory} onChange={(event) => setWorkspaceDirectory(event.target.value)} placeholder="/home/utilizador/workspace" spellCheck={false}/>
+              <button className="secondary-button" type="button" disabled={!desktopBridge()?.projects} onClick={() => void browseWorkspace()}><Icon name="folder" size={14}/> Procurar</button>
+            </div>
+            <div className="context-config-actions"><button className="primary-button" type="button" onClick={persistWorkspace}><Icon name="save" size={15}/>Guardar workspace</button>{workspaceDirectory ? <button className="secondary-button" type="button" onClick={clearWorkspace}>Usar seleção automática</button> : null}</div>
+            <div className="settings-security-note"><Icon name="info" size={16}/><span>Ao abrir uma pasta, o seletor começa neste workspace. Criar projeto também usa este destino por padrão; o repositório Git local continua a ser inicializado pelo fluxo normal de criação.</span></div>
+          </section>
+        </section> : null}
         {activeSection === 'tunnel-provider' ? <TunnelProviderSettings onError={onError} onSaved={onTunnelConfigSaved}/> : null}
         {activeSection === 'remote-storage' ? <RemoteStorageSettings onError={onError}/> : null}
         {activeSection === 'limits' ? <section className="appearance-settings-section">
@@ -339,7 +377,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
             <StorageMetric label="Temporários/órfãos" bytes={(backendStorage?.orphan_bytes || 0) + (desktopStorage?.temp_bytes || 0)} />
           </div>
           <div className="project-storage-list">
-            {(backendStorage?.projects || []).map((project) => <div key={project.project_path} className={project.project_path === session.project_path ? 'project-storage-row active' : 'project-storage-row'}><div><strong>{project.project_path === session.project_path ? 'Projeto atual' : project.project_path.split('/').filter(Boolean).pop()}</strong><span title={project.project_path}>{project.project_path}</span></div><code>{formatBytes(project.total_bytes)}</code></div>)}
+            {(backendStorage?.projects || []).map((project) => <div key={project.project_path} className={project.project_path === session?.project_path ? 'project-storage-row active' : 'project-storage-row'}><div><strong>{project.project_path === session?.project_path ? 'Projeto atual' : project.project_path.split('/').filter(Boolean).pop()}</strong><span title={project.project_path}>{project.project_path}</span></div><code>{formatBytes(project.total_bytes)}</code></div>)}
             {!backendStorage?.projects?.length && <span className="muted-copy">Sem métricas de projeto disponíveis.</span>}
           </div>
           <div className="browser-session-actions">
@@ -373,13 +411,14 @@ function SettingsNavGroup({ label, children }: { label: string; children: ReactN
   return <div className="settings-nav-group"><span className="settings-nav-group-label">{label}</span>{children}</div>
 }
 
-function SettingsNavButton({ active, icon, label, detail, onClick }: { active: boolean; icon: 'monitor' | 'edit' | 'file' | 'network' | 'database' | 'shield'; label: string; detail: string; onClick: () => void }) {
+function SettingsNavButton({ active, icon, label, detail, onClick }: { active: boolean; icon: 'monitor' | 'edit' | 'file' | 'folder' | 'network' | 'database' | 'shield'; label: string; detail: string; onClick: () => void }) {
   return <button className={active ? 'active' : ''} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon name={icon} size={16}/><span><strong>{label}</strong><small>{detail}</small></span></button>
 }
 
 function footerHint(section: SettingsSection) {
   if (section === 'remote-storage') return 'A configuração de storage é global e aplica-se a todos os projetos após reiniciar.'
   if (section === 'data') return 'Os ficheiros dos projetos reais não são removidos pelas operações desta secção.'
+  if (section === 'workspace') return 'O workspace padrão é local a este dispositivo e orienta os seletores da página inicial.'
   if (section === 'limits') return 'Os limites são globais e passam a valer na preparação do próximo request bundle.'
   if (section === 'appearance') return 'Preferências visuais ficam apenas neste dispositivo.'
   if (section === 'composer') return 'Preferências do composer ficam apenas neste dispositivo.'

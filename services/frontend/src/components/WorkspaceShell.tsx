@@ -5,7 +5,7 @@ import { desktopBridge } from '../lib/desktop'
 import { isDesktopTrayTunnelAction } from '../lib/desktopTray'
 import { announceHeaderPopover, subscribeHeaderPopover, subscribeOtherHeaderPopover } from '../lib/headerPopover'
 import { desktopWindowScope, loadBoundActiveProject, loadBoundProjects, rememberOpenedProject, saveBoundActiveProject, saveBoundProjects, syncOpenedProjectHistory } from '../lib/projectBindings'
-import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent, removeRecent, savePendingProjectPrompt } from '../lib/workspaceMemory'
+import { loadActiveWorkspace, loadRecentWorkspaces, rememberRecent, removeRecent, saveAutomationMode, saveEffortLevel, savePendingProjectLaunch, savePendingProjectPrompt, type BootstrapLaunchOptions } from '../lib/workspaceMemory'
 import type { AppConfig, WorkspaceMode } from '../types'
 import { Bootstrap } from './Bootstrap'
 import { Icon } from './Icon'
@@ -290,11 +290,14 @@ export function WorkspaceShell() {
     } catch (reason) { setError(messageOf(reason)); setBusy(false); return false }
   }
 
-  async function bootstrapProject(parentPath: string, name: string, prompt: string) {
+  async function bootstrapProject(parentPath: string, name: string, prompt: string, options: BootstrapLaunchOptions) {
     setBusy(true); setError(undefined)
     try {
       const created = await api.createProject(parentPath, name)
       savePendingProjectPrompt(created.project_path, prompt)
+      savePendingProjectLaunch(created.project_path, options)
+      saveAutomationMode(created.project_path, options.automationMode)
+      saveEffortLevel(created.project_path, options.effortLevel)
       setBusy(false)
       await bindProject(created.project_path)
     } catch (reason) { setError(messageOf(reason)); setBusy(false) }

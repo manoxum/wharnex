@@ -1,13 +1,22 @@
 import { FormEvent, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { AppConfig } from '../types'
+import type { AppConfig, AutomationMode, ChatTransportMode, EffortLevel, ReasoningEffort } from '../types'
 import { desktopBridge, isDesktop } from '../lib/desktop'
 import { confirmDialog, noticeDialog } from '../lib/appDialog'
-import { loadProjectLogo, removeRecent, savePendingProjectPrompt, saveProjectLogo } from '../lib/workspaceMemory'
+import {
+  DEFAULT_BOOTSTRAP_LAUNCH_OPTIONS,
+  loadProjectLogo,
+  loadWorkspaceDirectory,
+  removeRecent,
+  savePendingProjectPrompt,
+  saveProjectLogo,
+  type BootstrapLaunchOptions,
+} from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { ThemeToggle } from './ThemeToggle'
 import { SignalCore } from './SignalCore'
 import { WorkspaceSkeleton } from './Skeleton'
+import { ProjectSettings } from './ProjectSettings'
 
 type SetupMode = 'open' | 'create' | 'clone' | ''
 
@@ -20,36 +29,48 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
   onStart: (path: string) => Promise<void>
   onCreate: (parentPath: string, name: string) => Promise<void>
   onClone: (repositoryURL: string, parentPath: string, directory: string) => Promise<void>
-  onBootstrap?: (parentPath: string, name: string, prompt: string) => Promise<void>
+  onBootstrap?: (parentPath: string, name: string, prompt: string, options: BootstrapLaunchOptions) => Promise<void>
   onRecentChanged?: () => void
 }) {
   const [mode, setMode] = useState<SetupMode>('')
   const [path, setPath] = useState('')
-  const [parent, setParent] = useState(() => parentDirectory(recent[0] || ''))
+  const [parent, setParent] = useState(() => loadWorkspaceDirectory() || parentDirectory(recent[0] || ''))
   const [name, setName] = useState('')
   const [repository, setRepository] = useState('')
   const [directory, setDirectory] = useState('')
   const [briefing, setBriefing] = useState('')
   const [logoRevision, setLogoRevision] = useState(0)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsError, setSettingsError] = useState('')
+  const [launchOptions, setLaunchOptions] = useState<BootstrapLaunchOptions>(() => ({
+    ...DEFAULT_BOOTSTRAP_LAUNCH_OPTIONS,
+    artifacts: { ...DEFAULT_BOOTSTRAP_LAUNCH_OPTIONS.artifacts },
+  }))
   const suggestedName = useMemo(() => name.trim() || projectSlug(briefing), [name, briefing])
+  const configuredWorkspace = loadWorkspaceDirectory()
 
   async function choose(title: string, current = '') {
     const bridge = desktopBridge()
     if (!bridge?.projects) return ''
-    const picked = await bridge.projects.pickDirectory({ title, defaultPath: current || undefined })
+    const picked = await bridge.projects.pickDirectory({ title, defaultPath: current || configuredWorkspace || undefined })
     return picked.cancelled ? '' : picked.path
   }
 
   async function openFolder() {
-    const selected = await choose('Selecionar projeto', path)
+    const selected = await choose('Selecionar projeto', path || configuredWorkspace || parent)
     if (selected) {
       setPath(selected)
       await onStart(selected)
     }
   }
 
+  function activateOpen() {
+    if (isDesktop()) void openFolder()
+    else setMode(mode === 'open' ? '' : 'open')
+  }
+
   async function chooseParent(title = mode === 'clone' ? 'Selecionar destino do clone' : 'Selecionar pasta pai') {
-    const selected = await choose(title, parent)
+    const selected = await choose(title, parent || configuredWorkspace)
     if (selected) setParent(selected)
     return selected
   }
@@ -67,12 +88,21 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
   async function submitBriefing(event: FormEvent) {
     event.preventDefault()
     if (!briefing.trim() || !onBootstrap) return
-    let destination = parent.trim()
+    let destination = parent.trim() || configuredWorkspace
     if (!destination && isDesktop()) destination = await chooseParent('Selecionar workspace para o novo projeto')
     if (!destination) return
     setParent(destination)
-    await onBootstrap(destination, suggestedName, buildBootstrapPrompt(briefing))
+    await onBootstrap(destination, suggestedName, buildBootstrapPrompt(briefing), launchOptions)
   }
+
+  function updateArtifact(kind: 'context' | 'result' | 'error', selected: boolean) {
+    setLaunchOptions((current) => ({ ...current, artifacts: { ...current.artifacts, [kind]: selected } }))
+  }
+
+  function updateAutomationMode(value: AutomationMode) { setLaunchOptions((current) => ({ ...current, automationMode: value })) }
+  function updateEffortLevel(value: EffortLevel) { setLaunchOptions((current) => ({ ...current, effortLevel: value })) }
+  function updateReasoningEffort(value: ReasoningEffort) { setLaunchOptions((current) => ({ ...current, reasoningEffort: value })) }
+  function updateTransport(value: ChatTransportMode) { setLaunchOptions((current) => ({ ...current, chatTransportMode: value })) }
 
   async function openRecent(projectPath: string) {
     const windows = desktopBridge()?.windows
@@ -129,44 +159,72 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
       <div className="bootstrap-home-shell">
         <header className="bootstrap-home-header">
           <div className="brand-lockup bootstrap-home-brand"><SignalCore size="large" decorative /><div><strong>Wharnex</strong><span>Local Agent Harness</span></div></div>
-          <div className="bootstrap-theme-toggle"><ThemeToggle /></div>
+          <div className="bootstrap-home-header-actions">
+            <button className="icon-button bootstrap-global-settings" type="button" aria-label="Configurações globais" title="Configurações globais" onClick={() => { setSettingsError(''); setSettingsOpen(true) }}><Icon name="settings" size={17}/></button>
+            <div className="bootstrap-theme-toggle"><ThemeToggle /></div>
+          </div>
         </header>
 
         {restoring ? <section className="bootstrap-home-restoring"><WorkspaceSkeleton/></section> : <>
-          <section className="bootstrap-prompt-card">
-            <div className="bootstrap-prompt-heading"><span className="bootstrap-prompt-icon"><Icon name="sparkles" size={19}/></span><div><strong>Novo projeto</strong><small>Comece pelo que quer construir.</small></div></div>
-            <form onSubmit={submitBriefing}>
-              <textarea aria-label="Descrever novo projeto" autoFocus value={briefing} onChange={(event) => setBriefing(event.target.value)} placeholder="Descreva a aplicação, site, serviço ou ferramenta que quer criar…" rows={6} />
-              <div className="bootstrap-prompt-controls">
-                <button type="button" className="bootstrap-destination" onClick={() => void chooseParent('Selecionar workspace para o novo projeto')} title="Alterar pasta de destino"><Icon name="folder" size={14}/><span>{parent ? compactPath(parent) : 'Escolher workspace'}</span></button>
-                <label className="bootstrap-project-name"><span>Nome</span><input aria-label="Nome do novo projeto" value={name} onChange={(event) => setName(event.target.value)} placeholder={projectSlug(briefing)} spellCheck={false}/></label>
-                <button className="bootstrap-prompt-submit" disabled={busy || !briefing.trim() || !onBootstrap} type="submit" aria-label="Criar projeto a partir deste prompt" title="Criar projeto"><Icon name="arrow-up" size={18}/></button>
-              </div>
-            </form>
-          </section>
+          <section className="bootstrap-home-primary">
+            <section className="bootstrap-prompt-card">
+              <div className="bootstrap-prompt-heading"><div><span>Novo projeto</span><strong>O que quer construir?</strong><small>Descreva a ideia e ajuste como a primeira request deve arrancar.</small></div></div>
+              <form onSubmit={submitBriefing}>
+                <textarea aria-label="Descrever novo projeto" autoFocus value={briefing} onChange={(event) => setBriefing(event.target.value)} placeholder="Descreva a aplicação, site, serviço ou ferramenta que quer criar…" rows={7} />
+                <div className="bootstrap-composer-toolbar" aria-label="Opções da primeira request">
+                  <button type="button" className={`composer-round-action ${launchOptions.artifacts.context ? 'selected' : ''}`} aria-pressed={launchOptions.artifacts.context} onClick={() => updateArtifact('context', !launchOptions.artifacts.context)} title="Incluir contexto do projeto"><Icon name="package" size={14}/><span>Contexto</span></button>
+                  <button type="button" className="composer-round-action selected" disabled title="O prompt inicial é sempre incluído"><Icon name="clipboard" size={14}/><span>Prompt</span></button>
+                  <button type="button" className={`composer-round-action ${launchOptions.requestMode === 'plan_first' ? 'selected' : ''}`} aria-pressed={launchOptions.requestMode === 'plan_first'} onClick={() => setLaunchOptions((current) => ({ ...current, requestMode: current.requestMode === 'plan_first' ? 'direct' : 'plan_first' }))} title="Pedir plano antes de alterar o projeto"><Icon name="plan" size={14}/><span>Plan first</span></button>
+                  <span className="bootstrap-composer-divider" aria-hidden="true"/>
+                  <div className="composer-mode-group" aria-label="Automação">
+                    {(['manual', 'auto', 'auto_approve'] as AutomationMode[]).map((value) => <button key={value} type="button" className={launchOptions.automationMode === value ? 'selected' : ''} aria-pressed={launchOptions.automationMode === value} onClick={() => updateAutomationMode(value)}>{automationLabel(value)}</button>)}
+                  </div>
+                  <label className="composer-effort-picker bootstrap-option-select"><span>Effort</span><select aria-label="Effort da primeira request" value={launchOptions.effortLevel} onChange={(event) => updateEffortLevel(event.target.value as EffortLevel)}>{(['low', 'medium', 'high', 'extra_high', 'max', 'ultra', 'loop'] as EffortLevel[]).map((value) => <option key={value} value={value}>{effortLabel(value)}</option>)}</select></label>
+                  <label className="composer-effort-picker bootstrap-option-select"><span>Intelligence</span><select aria-label="Intelligence da primeira request" value={launchOptions.reasoningEffort} onChange={(event) => updateReasoningEffort(event.target.value as ReasoningEffort)}><option value="instant">Instant</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+                  <div className="composer-mode-group" aria-label="Transporte">
+                    <button type="button" className={launchOptions.chatTransportMode === 'scraper' ? 'selected' : ''} aria-pressed={launchOptions.chatTransportMode === 'scraper'} onClick={() => updateTransport('scraper')}>Auto</button>
+                    <button type="button" className={launchOptions.chatTransportMode === 'manual' ? 'selected' : ''} aria-pressed={launchOptions.chatTransportMode === 'manual'} onClick={() => updateTransport('manual')}>Manual</button>
+                  </div>
+                </div>
+                <div className="bootstrap-prompt-controls">
+                  <button type="button" className="bootstrap-destination" onClick={() => void chooseParent('Selecionar workspace para o novo projeto')} title="Alterar pasta de destino"><Icon name="folder" size={14}/><span>{parent ? compactPath(parent) : 'Escolher workspace'}</span></button>
+                  <label className="bootstrap-project-name"><span>Nome</span><input aria-label="Nome do novo projeto" value={name} onChange={(event) => setName(event.target.value)} placeholder={projectSlug(briefing)} spellCheck={false}/></label>
+                  <button className="bootstrap-prompt-submit" disabled={busy || !briefing.trim() || !onBootstrap} type="submit" aria-label="Criar projeto a partir deste prompt" title="Criar projeto"><Icon name="arrow-up" size={18}/></button>
+                </div>
+              </form>
+            </section>
 
-          <section className="bootstrap-quick-actions" aria-label="Ações de projeto">
-            <button className={mode === 'open' ? 'active' : ''} onClick={() => setMode(mode === 'open' ? '' : 'open')}><span><Icon name="folder" size={19}/></span><strong>Abrir pasta</strong><small>Projeto existente</small></button>
-            <button className={mode === 'create' ? 'active' : ''} onClick={() => setMode(mode === 'create' ? '' : 'create')}><span><Icon name="plus" size={19}/></span><strong>Criar projeto</strong><small>Pasta vazia</small></button>
-            <button className={mode === 'clone' ? 'active' : ''} onClick={() => setMode(mode === 'clone' ? '' : 'clone')}><span><Icon name="git" size={19}/></span><strong>Clonar Git</strong><small>Repositório remoto</small></button>
+            <aside className="bootstrap-start-panel">
+              <div className="bootstrap-start-heading"><span>Começar</span><small>Ações rápidas para entrar no workspace.</small></div>
+              <section className="bootstrap-quick-actions" aria-label="Ações de projeto">
+                <button className={mode === 'open' ? 'active' : ''} onClick={activateOpen}><span><Icon name="folder" size={19}/></span><div><strong>Abrir pasta</strong><small>Escolha e abra diretamente</small></div><Icon name="chevron-right" size={15}/></button>
+                <button className={mode === 'create' ? 'active' : ''} onClick={() => setMode(mode === 'create' ? '' : 'create')}><span><Icon name="plus" size={19}/></span><div><strong>Criar projeto</strong><small>Pasta + repositório Git local</small></div><Icon name="chevron-right" size={15}/></button>
+                <button className={mode === 'clone' ? 'active' : ''} onClick={() => setMode(mode === 'clone' ? '' : 'clone')}><span><Icon name="git" size={19}/></span><div><strong>Clonar Git</strong><small>Repositório remoto existente</small></div><Icon name="chevron-right" size={15}/></button>
+              </section>
+              <button type="button" className="bootstrap-workspace-shortcut" onClick={() => { setSettingsError(''); setSettingsOpen(true) }}><Icon name="settings" size={15}/><span><strong>Workspace padrão</strong><small>{configuredWorkspace ? compactPath(configuredWorkspace) : 'Definir nas configurações globais'}</small></span></button>
+            </aside>
           </section>
 
           {mode && <section className="bootstrap-inline-provision">
-            {mode === 'open' && <div className="project-form project-form-browser">
-              {isDesktop() ? <button className="project-picker-button" disabled={busy} onClick={() => void openFolder()}>
-                <span className="project-picker-icon"><Icon name="folder" size={20}/></span><span><strong>{path || 'Escolher pasta do projeto'}</strong><small>Abre noutra área de trabalho</small></span><Icon name="chevron" size={16}/>
-              </button> : <form onSubmit={(event) => { event.preventDefault(); if (path.trim()) void onStart(path.trim()) }} className="input-row"><input value={path} onChange={(event) => setPath(event.target.value)} placeholder="/home/user/project" spellCheck={false}/><button className="primary-button" disabled={busy || !path.trim()} type="submit">Abrir</button></form>}
-            </div>}
+            {mode === 'open' && !isDesktop() && <div className="project-form project-form-browser"><form onSubmit={(event) => { event.preventDefault(); if (path.trim()) void onStart(path.trim()) }} className="input-row"><input value={path} onChange={(event) => setPath(event.target.value)} placeholder="/home/user/project" spellCheck={false}/><button className="primary-button" disabled={busy || !path.trim()} type="submit">Abrir</button></form></div>}
             {mode === 'create' && <form onSubmit={submitCreate} className="project-form provision-form bootstrap-inline-form">
+              <div className="bootstrap-provision-heading"><div><Icon name="plus" size={16}/><span><strong>Criar projeto</strong><small>O Wharnex cria também o repositório Git local e o commit inicial.</small></span></div><span className="bootstrap-git-ready"><Icon name="git" size={13}/> Git incluído</span></div>
               <div className="path-picker-row"><input value={parent} onChange={(event) => setParent(event.target.value)} placeholder="Pasta pai" spellCheck={false} readOnly={isDesktop()}/><button type="button" onClick={() => void chooseParent()} disabled={busy}><Icon name="folder" size={15}/> Procurar</button></div>
               <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nome do projeto" spellCheck={false}/><button className="primary-button" disabled={busy || !parent.trim() || !name.trim()} type="submit">Criar e abrir</button>
             </form>}
             {mode === 'clone' && <form onSubmit={submitClone} className="project-form provision-form bootstrap-inline-form">
+              <div className="bootstrap-provision-heading"><div><Icon name="git" size={16}/><span><strong>Clonar repositório</strong><small>Escolha o remoto e o destino dentro do seu workspace.</small></span></div></div>
               <input value={repository} onChange={(event) => setRepository(event.target.value)} placeholder="https://github.com/org/projeto.git" spellCheck={false}/><div className="path-picker-row"><input value={parent} onChange={(event) => setParent(event.target.value)} placeholder="Destino" spellCheck={false} readOnly={isDesktop()}/><button type="button" onClick={() => void chooseParent()} disabled={busy}><Icon name="folder" size={15}/> Procurar</button></div><input value={directory} onChange={(event) => setDirectory(event.target.value)} placeholder="Nome da pasta (opcional)" spellCheck={false}/><button className="primary-button" disabled={busy || !repository.trim() || !parent.trim()} type="submit">Clonar e abrir</button>
             </form>}
           </section>}
 
-          {error && <div className="error-banner bootstrap-home-error">{error}</div>}
+          {(error || settingsError) && <div className="error-banner bootstrap-home-error">{settingsError || error}</div>}
+
+          <section className="bootstrap-home-insights" aria-label="Informação do workspace">
+            <article><span><Icon name="folder" size={16}/></span><div><strong>Workspace</strong><small>{configuredWorkspace ? compactPath(configuredWorkspace) : 'Usa o destino recente até definir um padrão.'}</small></div></article>
+            <article><span><Icon name="git" size={16}/></span><div><strong>Git desde o início</strong><small>Projetos criados pelo Wharnex já arrancam com repositório local.</small></div></article>
+            <article><span><Icon name="shield" size={16}/></span><div><strong>Execução protegida</strong><small>A primeira sessão mantém o mesmo modelo de segurança do workspace.</small></div></article>
+          </section>
 
           <section className="bootstrap-recents-section">
             <div className="bootstrap-section-heading"><div><strong>Projetos recentes</strong><small>{recent.length ? (recent.length === 1 ? '1 disponível' : `${recent.length} disponíveis`) : 'Os projetos abertos aparecem aqui.'}</small></div><span className="bootstrap-meta-inline">{config?.model || ''}</span></div>
@@ -189,6 +247,14 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
           </section>
         </>}
       </div>
+      {settingsOpen ? <ProjectSettings
+        onClose={() => {
+          setSettingsOpen(false)
+          const workspace = loadWorkspaceDirectory()
+          if (workspace) setParent(workspace)
+        }}
+        onError={setSettingsError}
+      /> : null}
     </main>
   )
 }
@@ -197,6 +263,8 @@ function ProjectMark({ projectPath, logo }: { projectPath: string; logo: string 
   return <span className="bootstrap-project-mark" style={projectAccentStyle(projectPath)}>{logo ? <img src={logo} alt=""/> : <span>{projectInitials(projectPath)}</span>}</span>
 }
 
+function automationLabel(value: AutomationMode) { return value === 'manual' ? 'Manual' : value === 'auto_approve' ? 'Auto + approve' : 'Auto' }
+function effortLabel(value: EffortLevel) { return value === 'extra_high' ? 'Extra high' : value[0].toUpperCase() + value.slice(1) }
 function projectName(projectPath: string) { return projectPath.split(/[\\/]/).filter(Boolean).at(-1) || projectPath }
 function parentDirectory(projectPath: string) { const parts = projectPath.split(/[\\/]/); parts.pop(); return parts.join(projectPath.includes('\\') ? '\\' : '/') }
 function compactPath(projectPath: string) { return projectPath.length > 54 ? `…${projectPath.slice(-53)}` : projectPath }
