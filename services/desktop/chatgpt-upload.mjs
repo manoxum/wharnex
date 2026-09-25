@@ -5,7 +5,13 @@ const composerUploadInputExpression = `(() => {
   const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"][data-testid*="composer"], div[contenteditable="true"][role="textbox"], textarea[placeholder]');
   const root = composer?.closest('[data-composer-surface]') || composer?.closest('form');
   if (!root) return null;
-  const selectors = ['input#upload-files', 'input[type="file"][data-testid*="upload" i]', 'input[type="file"][multiple]'];
+  const selectors = [
+    'input#upload-files',
+    'input[type="file"][data-testid*="upload" i]',
+    'input[type="file"]:not([accept])',
+    'input[type="file"][accept=""]',
+    'input[type="file"][multiple]',
+  ];
   for (const selector of selectors) { const input = root.querySelector(selector); if (input) return input; }
   return null;
 })()`
@@ -91,12 +97,20 @@ export async function selectChatGPTUploadFile(webContents, filePath) {
     // ChatGPT added another earlier multi-file control, that made Wharnex set
     // files on the wrong input while reporting a misleading upload timeout.
     // Query the closed preference ladder one selector at a time: exact stable
-    // id, explicit upload test id, composer-scoped multi-file input, then the
-    // historical bounded multi-file fallback.
+    // id, explicit upload test id, composer-scoped general-file input, then
+    // the historical bounded multi-file fallback. ChatGPT now places two
+    // media-only inputs before the general input, so `[multiple]` alone can
+    // select an input that rejects ZIP bundles.
     const selectors = [
       'input#upload-files',
       'input[type="file"][data-testid*="upload" i]',
+      'form[data-chatgpt-composer] input[type="file"]:not([accept])',
+      'form[data-chatgpt-composer] input[type="file"][accept=""]',
+      'form input[type="file"]:not([accept])',
+      'form input[type="file"][accept=""]',
       'form input[type="file"][multiple]',
+      'input[type="file"]:not([accept])',
+      'input[type="file"][accept=""]',
       'input[type="file"][multiple]',
     ]
     if (!nodeId) {

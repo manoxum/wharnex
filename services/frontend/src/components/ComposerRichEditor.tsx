@@ -8,6 +8,7 @@ import {
   type ComposerDirective,
 } from '../lib/composerDirectives'
 import { deltaToCanonicalText, directiveChipBadge, directivesToDelta, quillIndexToTextOffset, registerComposerEditor, textOffsetToQuillIndex, unregisterComposerEditor, type DirectiveChipValue } from '../lib/composerRichText'
+import { spellcheckWordBounds } from '../lib/composerSpellcheck'
 
 /**
  * The composer's editing surface: a Quill `contenteditable` instance carrying
@@ -157,14 +158,10 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
     if (!editor || !selection || selection.length) return undefined
 
     const text = editor.getText(0, editor.getLength())
-    let start = Math.max(0, Math.min(selection.index, text.length))
-    let end = start
-    const isWordCharacter = (character: string) => /[\p{L}\p{M}'’\-]/u.test(character)
-    while (start > 0 && isWordCharacter(text[start - 1] || '')) start -= 1
-    while (end < text.length && isWordCharacter(text[end] || '')) end += 1
-    if (start === end) return undefined
+    const word = spellcheckWordBounds(text, selection.index)
+    if (!word) return undefined
 
-    const bounds = editor.getBounds(start, end - start)
+    const bounds = editor.getBounds(word.start, word.length)
     if (!bounds) return undefined
     const container = (editor as unknown as { container: HTMLElement }).container
     const containerBounds = container.getBoundingClientRect()

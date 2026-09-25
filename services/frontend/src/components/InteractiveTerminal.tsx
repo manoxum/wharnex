@@ -158,7 +158,6 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     }
   // `cwd` and restored history are initial conditions for a new PTY. They do not
   // reconnect a live shell merely because its remembered metadata changed.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id, reconnectNonce])
 
   useEffect(() => subscribeUIPreferences((preferences) => {

@@ -849,7 +849,8 @@ test('idle backgrounded ChatGPT views may re-enable normal throttling, but never
   const reconcileEnd = source.indexOf('\nfunction sendToWindowState', reconcileStart)
   const reconcile = source.slice(reconcileStart, reconcileEnd)
   assert.match(reconcile, /chatGPTEntryIsActiveVisible\(key, entry\) \|\| chatGPTEntryNeedsSupervision\(key, entry\)/)
-  assert.match(reconcile, /entry\.view\.webContents\.setBackgroundThrottling\(!fullSpeed\)/)
+  assert.match(reconcile, /const wc = entry\?\.view\?\.webContents/)
+  assert.match(reconcile, /wc\.setBackgroundThrottling\(!fullSpeed\)/)
 
   // Reconciled on every visibility transition (both the outgoing and the
   // incoming view) and on the existing bounded poller, never left to drift
@@ -1238,23 +1239,6 @@ test('deferred Supervisor navigation retries until its gate is actually clear', 
   assert.match(apply, /!chatgptViews\.has\(pending\.key\) && chatgptViews\.size >= desiredChatAgentSupervisorSlots/)
   assert.match(apply, /!reusableSupervisor\(pending\.key, state\)[\s\S]*scheduleDeferredSupervisorNavigation\(\)[\s\S]*return/)
   assert.match(apply, /clearDeferredSupervisorNavigation\(\)[\s\S]*activateChatGPTView\(pending\.key/)
-})
-
-test('direct Supervisor writes serialize across chats and preserve the selected surface', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const helperStart = source.indexOf('async function withChatGPTSupervisorTransport(')
-  const helperEnd = source.indexOf('\nfunction sendToWindowState', helperStart)
-  const helper = source.slice(helperStart, helperEnd)
-
-  assert.match(source, /let chatGPTSupervisorTransportTail = Promise\.resolve\(\)/)
-  assert.match(helper, /await waitForDifferentSupervisorTransport\(key\)/)
-  assert.match(helper, /preserveVisibleSupervisorForTransport\(key, windowState\)/)
-  assert.match(helper, /withChatGPTTransportPreparation\(key, entry, requestId/)
-  for (const channel of ['submit-prompt', 'prepare-prompt', 'retry-prepared-prompt', 'attach-context', 'attach-prompt', 'submit-prepared']) {
-    const start = source.indexOf(`ipcMain.handle('wharness:chatgpt:${channel}'`)
-    const end = source.indexOf('\n  })', start)
-    assert.match(source.slice(start, end), /withChatGPTSupervisorTransport/)
-  }
 })
 
 test('auto submit persists binding and delegates response supervision to workers', async () => {

@@ -211,7 +211,6 @@ let pollingChatGPTVisibleActivity = false
 const chatGPTTransportTails = new Map()
 const chatGPTTransportAbortControllers = new Map()
 const chatAgentResidency = new ChatAgentResidency({ minResidenceMs: Number(process.env.WHARNESS_CHAT_AGENT_RESIDENCY_MS || 30_000) })
-let chatGPTSupervisorTransportTail = Promise.resolve()
 const chatGPTWorkerPacer = new ChatAgentGlobalPacer()
 let chatGPTRateLimitUntil = 0
 let chatGPTRateLimitResumeProbeRequired = false
@@ -480,6 +479,7 @@ function supervisorBindingHold(key, entry) {
     return 'expected-bundle'
   }
   if (hasPendingChatGPTComments(key)) return 'queued-comment'
+  if (chatGPTTransportTails.has(`chat:${key}`)) return 'transport'
   if (Number(entry.transportPreparationCount || 0) > 0) return 'transport'
   if (entry.accountOperationActive) return 'account-operation'
   if (entry.humanAction?.active) return 'human-action'
@@ -547,12 +547,13 @@ function chatSupervisorBoundLanes() {
 }
 
 function reconcileChatGPTThrottle(key, entry) {
-  if (!entry || entry.view.webContents.isDestroyed()) return
+  const wc = entry?.view?.webContents
+  if (!wc || wc.isDestroyed()) return
   const fullSpeed = chatGPTEntryIsActiveVisible(key, entry) || chatGPTEntryNeedsSupervision(key, entry)
   if (entry.backgroundThrottled === !fullSpeed) return
   // setBackgroundThrottling's `allowed` parameter is "is throttling allowed",
   // the inverse of "stay full speed" — false keeps this view at full speed.
-  entry.view.webContents.setBackgroundThrottling(!fullSpeed)
+  wc.setBackgroundThrottling(!fullSpeed)
   entry.backgroundThrottled = !fullSpeed
 }
 
@@ -634,51 +635,10 @@ async function withChatGPTTransportPreparation(cacheKey, entry, requestId, opera
   }
 }
 
-async function waitForDifferentSupervisorTransport(cacheKey) {
-  const key = sanitizeChatCacheKey(cacheKey)
-  for (;;) {
-    const currentKey = supervisorKey(windowStateForEntry(chatgptViews.get(key)))
-    const current = currentKey ? chatgptViews.get(currentKey) : undefined
-    if (!current || currentKey === key || Number(current.transportPreparationCount || 0) === 0) return
-    const activeTail = chatGPTTransportTails.get(`chat:${currentKey}`)
-    if (activeTail) {
-      try { await activeTail } catch { /* transport failures still release the Supervisor */ }
-      continue
-    }
-    await wait(25)
-  }
-}
-
-function preserveVisibleSupervisorForTransport(cacheKey, windowState) {
-  const key = sanitizeChatCacheKey(cacheKey)
-  const desiredKey = String(windowState?.desiredVisibleChatGPTKey || windowState?.activeChatGPTKey || '')
-  if (!windowState?.chatgptVisible || !desiredKey || desiredKey === key) return
-  if (deferredSupervisorNavigation?.windowState === windowState && deferredSupervisorNavigation.key === desiredKey) return
-  const visibleEntry = chatgptViews.get(desiredKey)
-  if (!visibleEntry) return
-  setDeferredSupervisorNavigation(desiredKey, windowState, {
-    bounds: windowState.chatgptBounds,
-    url: visibleEntry.view.webContents.getURL(),
-    visible: true,
-  }, visibleEntry)
-}
-
 async function withChatGPTSupervisorTransport(cacheKey, windowState, requestId, operation) {
   const key = sanitizeChatCacheKey(cacheKey)
-  const prior = chatGPTSupervisorTransportTail
-  let release
-  const tail = new Promise((resolve) => { release = resolve })
-  chatGPTSupervisorTransportTail = tail
-  try { await prior } catch { /* a prior direct submission cannot poison the queue */ }
-  try {
-    await waitForDifferentSupervisorTransport(key)
-    preserveVisibleSupervisorForTransport(key, windowState)
-    const { entry } = ensureChatGPTView(key, windowState)
-    return await withChatGPTTransportPreparation(key, entry, requestId, () => operation(key, entry))
-  } finally {
-    release()
-    if (chatGPTSupervisorTransportTail === tail) chatGPTSupervisorTransportTail = Promise.resolve()
-  }
+  const { entry } = ensureChatGPTView(key, windowState)
+  return withChatGPTTransportPreparation(key, entry, requestId, () => operation(key, entry))
 }
 
 function sendToWindowState(state, channel, payload) {
@@ -1470,6 +1430,7 @@ function releaseChatGPTView(cacheKey, ownerState) {
   const entry = chatgptViews.get(key)
   if (!entry) return false
   if (ownerState && entry.ownerWindowId !== ownerState.id) throw new Error('ChatGPT view belongs to another Wharnex window')
+  if (supervisorBindingHeld(key, entry)) return false
   if (entry.humanAction?.active) sendToChatGPTKey(key, 'wharness:chatgpt:human-action', { cacheKey: key, active: false, requestId: entry.humanAction.requestId || '', clearedAt: new Date().toISOString(), reason: 'surface released' })
   cancelExternalAuthentication(key)
   clearTimeout(entry.authProbeTimer)

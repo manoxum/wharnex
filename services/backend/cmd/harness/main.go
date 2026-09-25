@@ -108,14 +108,7 @@ func main() {
 	defer stopRemote()
 	cleanupRemote()
 	handler := httpapi.New(service, store, bus, cfg)
-	server := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Minute,
-		IdleTimeout:       60 * time.Second,
-	}
+	server := newHTTPServer(cfg.Addr, handler)
 
 	go func() {
 		log.Printf("kernl backend listening on %s planner=%s sandbox=%s", cfg.Addr, cfg.Planner, cfg.Sandbox)
