@@ -38,26 +38,41 @@ func PreflightMergeIntoHost(ctx context.Context, hostPath, branch string) (*Merg
 // conflict would abort a legitimate integration and hand a planner a commit id
 // to patch (adr/ADR-0039).
 func PreflightMergeIntoHostExcept(ctx context.Context, hostPath, branch, requestBaseRef string, integratingUnits []string) (*MergeConflictError, error) {
+	conflict, _, err := preflightMergeIntoHost(ctx, hostPath, branch, requestBaseRef, integratingUnits)
+	return conflict, err
+}
+
+// MergeIntoHostProvenClean is the strict reading of the same preflight: true
+// only when Git actually answered and predicts no planner-resolvable conflict.
+// The advisory preflight treats an unanswerable question as "go ahead and let
+// the real merge decide"; a caller that releases state on the strength of the
+// answer must not.
+func MergeIntoHostProvenClean(ctx context.Context, hostPath, branch, requestBaseRef string, integratingUnits []string) bool {
+	conflict, supported, err := preflightMergeIntoHost(ctx, hostPath, branch, requestBaseRef, integratingUnits)
+	return err == nil && supported && conflict == nil
+}
+
+func preflightMergeIntoHost(ctx context.Context, hostPath, branch, requestBaseRef string, integratingUnits []string) (*MergeConflictError, bool, error) {
 	comparison, err := CaptureWorkingTreeCommit(ctx, hostPath, "Wharnex merge preflight")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// The same base the real merge will use, so the preflight predicts that
 	// merge rather than a different one (see CandidateMergeBase).
 	mergeBase := candidateMergeBaseOrRef(ctx, hostPath, branch, requestBaseRef)
 	preflight, err := PreflightMergeFrom(ctx, hostPath, mergeBase, comparison, branch)
 	if err != nil || !preflight.Supported || preflight.Clean {
-		return nil, err
+		return nil, preflight.Supported, err
 	}
 	_, ordinary := partitionManagedMergePaths(preflight.ConflictPaths)
 	ordinary = withoutIntegratingUnits(ordinary, integratingUnits)
 	if len(ordinary) == 0 {
-		return nil, nil
+		return nil, true, nil
 	}
 	if mergeBase == "" {
 		mergeBase, _ = runGit(ctx, hostPath, "merge-base", comparison, branch)
 	}
-	return &MergeConflictError{Paths: ordinary, Branch: branch, HostSHA: comparison, MergeBaseSHA: mergeBase}, nil
+	return &MergeConflictError{Paths: ordinary, Branch: branch, HostSHA: comparison, MergeBaseSHA: mergeBase}, true, nil
 }
 
 // withoutIntegratingUnits removes only the gitlink paths for submodules that
