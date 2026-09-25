@@ -45,6 +45,7 @@ import { reasoningEffortAdjustScript, reasoningEffortStateScript } from './chat-
 import { CHATGPT_REASONING_EFFORTS, ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort } from './chatgpt-effort.mjs'
 import { spellcheckContextMenuTemplate } from './spellcheck-menu.mjs'
 import { publicSupervisorId, supervisorSurfaceRoute } from './supervisor-surface-routing.mjs'
+import { createManualChatGPTTransport } from './manual-chatgpt-transport.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
@@ -247,11 +248,15 @@ const RETRYABLE_PROMPT_TTL_MS = 10 * 60 * 1000
 // This makes a late click idempotent after the valid bundle already consumed
 // the in-memory prompt instead of surfacing a false missing-delivery error.
 const DELIVERED_BUNDLE_DEDUP_TTL_MS = RETRYABLE_PROMPT_TTL_MS
-// Defense in depth for Manual chat transport mode (cacheKey -> 'manual').
-// The frontend never calls preparePrompt while a chat is Manual, so this
-// only matters for a bundle already armed before the human flips the
-// toggle mid-flight — see the 3 checks below. Absence means Scraper.
+// Manual mode keeps the human-facing ChatGPT engine live while automatic
+// conversation DOM reads/writes stay disabled. Request bundles are still
+// materialized locally and response downloads remain under Wharnex control.
 const chatgptTransportModes = new Map()
+const manualChatGPTTransport = createManualChatGPTTransport({
+  clipboard,
+  ClipboardItem,
+  onStateChange: (key) => publishChatGPTState(key),
+})
 let chatGPTAccountOperation = Promise.resolve()
 const chatGPTAccountProviders = new ChatGPTAccountProviderChain({})
 const EXPECTED_BUNDLE_TTL_MS = 60 * 60 * 1000
@@ -1135,6 +1140,7 @@ async function cancelChatGPTRequestState(cacheKey, requestId) {
   if (String(retryable?.request?.requestId || '') === id) { retryableChatGPTPrompts.delete(key); cleared = true }
   const prepared = preparedChatGPTDrafts.get(key)
   if (String(prepared?.requestId || '') === id) { preparedChatGPTDrafts.delete(key); cleared = true }
+  if (await manualChatGPTTransport.clear(key, id)) cleared = true
   const comments = pendingChatGPTComments.get(key) || []
   const retainedComments = comments.filter((comment) => String(comment?.requestId || '') !== id)
   if (retainedComments.length !== comments.length) {
@@ -1443,6 +1449,7 @@ function releaseChatGPTView(cacheKey, ownerState) {
   chatGPTActivityFingerprints.delete(key)
   expectedChatGPTBundles.delete(key)
   chatGPTTransportTails.delete(key)
+  manualChatGPTTransport.release(key)
   const state = windowStateForEntry(entry)
   if (state?.activeChatGPTKey === key) {
     state.activeChatGPTKey = ''
@@ -1486,6 +1493,7 @@ function currentChatGPTState(cacheKey = '', windowState) {
     authWindowOpen: Boolean(key && chatGPTAuthBrowsers.has(key)),
     authenticated: Boolean(entry?.authenticated),
     humanAction: entry?.humanAction?.active ? { cacheKey: key, ...entry.humanAction } : undefined,
+    manualInput: key ? manualChatGPTTransport.publicState(key) : undefined,
     ...publicChatGPTAffinity(entry?.affinity),
   }
 }
@@ -2096,11 +2104,6 @@ function registerChatGPTPlanDownloads(chatSession) {
     if (registerChatGPTTodoClassificationDownload(item, sourceFilename)) return
     const expectedBundle = expectedChatGPTBundleForDownload(sourceWebContents, sourceFilename)
     const sourceCacheKey = expectedBundle?.key || chatGPTKeyForWebContents(sourceWebContents)
-    // Manual chat transport mode: let the download proceed as an ordinary
-    // Chromium download (goes to the user's normal Downloads folder) rather
-    // than intercepting/validating/auto-importing it — the human is expected
-    // to hand the file to Wharnex themselves via the Manual upload UI.
-    if (sourceCacheKey && chatgptTransportModes.get(sourceCacheKey) === 'manual') return
     let bundleCandidate
     try {
       bundleCandidate = canonicalWharnessBundleDownload(sourceFilename, expectedBundle?.requestId || '', item.getMimeType?.() || '', sourceCacheKey || '', expectedBundle?.filename || '')
@@ -2610,7 +2613,7 @@ function createChatGPTView(cacheKey, windowState) {
   wc.on('will-navigate', (event, url) => { routeChatGPTNavigation(entry, event, url) })
   wc.on('will-redirect', (event, url) => { routeChatGPTNavigation(entry, event, url) })
   wc.on('did-start-loading', () => { entry.loading = true; entry.loadingSince = Date.now(); entry.loadingFaultNoted = false; touchChatGPTEntry(entry); publishChatGPTState(cacheKey) })
-  wc.on('did-stop-loading', () => { entry.loading = false; entry.loadingSince = 0; entry.loadingFaultNoted = false; observeChatGPTAffinityURL(cacheKey, entry, wc.getURL()); scheduleChatGPTAffinitySettlement(cacheKey, entry); touchChatGPTEntry(entry); publishChatGPTState(cacheKey); scheduleEmbeddedChatGPTAuthenticationProbe(cacheKey, entry); if (expectedChatGPTBundles.has(cacheKey)) void pollExpectedChatGPTDownloadKey(cacheKey); setTimeout(() => { if (!entry.accountOperationActive) void hideChatGPTSidebar(cacheKey, entry).catch(() => undefined) }, 500) })
+  wc.on('did-stop-loading', () => { entry.loading = false; entry.loadingSince = 0; entry.loadingFaultNoted = false; observeChatGPTAffinityURL(cacheKey, entry, wc.getURL()); scheduleChatGPTAffinitySettlement(cacheKey, entry); touchChatGPTEntry(entry); publishChatGPTState(cacheKey); scheduleEmbeddedChatGPTAuthenticationProbe(cacheKey, entry); if (expectedChatGPTBundles.has(cacheKey)) void pollExpectedChatGPTDownloadKey(cacheKey); setTimeout(() => { if (!entry.accountOperationActive && chatgptTransportModes.get(cacheKey) !== 'manual') void hideChatGPTSidebar(cacheKey, entry).catch(() => undefined) }, 500) })
   wc.on('did-navigate', (_event, url) => { observeEmbeddedAuthURL(cacheKey, entry, url); observeChatGPTAffinityURL(cacheKey, entry, url); scheduleChatGPTAffinitySettlement(cacheKey, entry); touchChatGPTEntry(entry); publishChatGPTState(cacheKey); scheduleEmbeddedChatGPTAuthenticationProbe(cacheKey, entry) })
   wc.on('did-navigate-in-page', (_event, url) => { observeEmbeddedAuthURL(cacheKey, entry, url); observeChatGPTAffinityURL(cacheKey, entry, url); scheduleChatGPTAffinitySettlement(cacheKey, entry); touchChatGPTEntry(entry); publishChatGPTState(cacheKey); scheduleEmbeddedChatGPTAuthenticationProbe(cacheKey, entry) })
   wc.on('page-title-updated', () => publishChatGPTState(cacheKey))
@@ -4849,13 +4852,16 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
   const requestId = String(request?.requestId || '').trim()
   const requestedTitle = String(request?.chatTitle || '').replace(/\s+/g, ' ').trim().slice(0, 82)
   const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
-  const autoSubmit = request?.autoSubmit === true
+  const manualTransport = request?.manualTransport === true || chatgptTransportModes.get(key) === 'manual'
+  if (manualTransport) chatgptTransportModes.set(key, 'manual')
+  const autoSubmit = !manualTransport && request?.autoSubmit === true
   const reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
   if (autoSubmit) await requireAutoSession(request?.sessionId, signal)
   throwIfChatGPTTransportAborted(signal)
-  // Preserve this already-authorized delivery only in Desktop memory so a
-  // transient remote-surface failure can be retried without replanning.
-  retryableChatGPTPrompts.set(key, { request, preparedAt: Date.now() })
+  // Preserve an automatic delivery only in Desktop memory so a transient
+  // remote-surface failure can be retried without replanning. Manual mode
+  // never schedules an automatic transport retry.
+  if (!manualTransport) retryableChatGPTPrompts.set(key, { request, preparedAt: Date.now() })
   const linkedConversation = canonicalChatGPTConversationURL(request?.url || '')
   const entry = entryOverride || chatgptViews.get(key)
   const currentConversationURL = linkedConversation || canonicalChatGPTConversationURL(entry?.view.webContents.getURL() || '')
@@ -4870,7 +4876,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
   }
   const includeContext = shouldAttachProjectContext({ currentSha, previousSha, currentConversationId: chatGPTConversationID(currentConversationURL), previousConversationId: chatGPTConversationID(previousURL), force: request?.includeContext === true })
 
-  const tunnelInstanceIds = normalizeTunnelInstanceIDs(request?.tunnelInstanceIds)
+  const tunnelInstanceIds = manualTransport ? [] : normalizeTunnelInstanceIDs(request?.tunnelInstanceIds)
   let remoteInput = null
   if (tunnelInstanceIds.length) {
     try {
@@ -4887,6 +4893,20 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
   const input = await materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], remoteInput?.tunnels || [], requestMetadata, signal)
   throwIfChatGPTTransportAborted(signal)
   const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, remoteInput?.tunnels || [], input.requestMetadata, input.multipart)
+  if (manualTransport) {
+    preparedChatGPTDrafts.delete(key)
+    await manualChatGPTTransport.prepare(key, {
+      requestId,
+      files: input.uploadPaths,
+      filenames: input.uploadPaths.map((file) => path.basename(file)),
+      bytes: input.bytes,
+      prompt: bootstrap,
+    }, entry?.view?.webContents)
+    if (entry) touchChatGPTEntry(entry)
+    const conversationUrl = currentConversationURL || CHATGPT_URL
+    console.log(`[chatgpt-manual] prepared key=${key} attachments=${input.uploadPaths.length} bytes=${input.bytes} request=${requestId}`)
+    return { ok: true, cacheKey: key, attachmentCount: input.uploadPaths.length, submitted: false, expectedFilename, includedContext: includeContext, conversationUrl, manual: true }
+  }
   const target = await targetChatGPTComposer(key, linkedConversation || CHATGPT_URL, linkedConversation ? request?.preferCurrentConversation === true : false, entryOverride)
   throwIfChatGPTTransportAborted(signal)
   target.reasoningEffort = reasoningEffort
@@ -7876,9 +7896,22 @@ function registerIPC() {
     trustedSender(event)
     const key = sanitizeChatCacheKey(request?.cacheKey)
     const mode = request?.mode === 'manual' ? 'manual' : 'scraper'
-    if (mode === 'manual') chatgptTransportModes.set(key, 'manual')
-    else chatgptTransportModes.delete(key)
+    if (mode === 'manual') {
+      chatgptTransportModes.set(key, 'manual')
+      abortChatGPTTransportPreparations(key)
+      preparedChatGPTDrafts.delete(key)
+      retryableChatGPTPrompts.delete(key)
+      expectedChatGPTBundles.delete(key)
+    } else chatgptTransportModes.delete(key)
+    await manualChatGPTTransport.setMode(key, mode, chatgptViews.get(key)?.view?.webContents)
+    publishChatGPTState(key)
     return { ok: true }
+  })
+  ipcMain.handle('wharness:chatgpt:copy-pending-bundles', async (event, request) => {
+    trustedSender(event)
+    const key = sanitizeChatCacheKey(request?.cacheKey)
+    if (chatgptTransportModes.get(key) !== 'manual') throw new Error('A cópia do bundle pendente só está disponível no transporte Manual.')
+    return manualChatGPTTransport.copyPendingBundles(key, request?.requestId)
   })
   ipcMain.handle('wharness:chatgpt:start-auth', async (event, request) => {
     const windowState = trustedSender(event)

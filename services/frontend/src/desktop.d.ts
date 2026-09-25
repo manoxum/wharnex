@@ -3,7 +3,8 @@ type DesktopWindowCloseAction = 'background' | 'close-project' | 'close-all' | '
 type DesktopWindowClosePrompt = { projectPath: string; projectName: string; hasProject: boolean }
 type DesktopChatGPTAuthMode = 'embedded' | 'external'
 type DesktopChatGPTAffinityPhase = 'unbound' | 'armed' | 'candidate' | 'bound'
-type DesktopChatGPTState = { cacheKey?: string; surfaceDeferred?: boolean; supervisorId?: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; externalAuthProvider?: string; authMode?: DesktopChatGPTAuthMode; authWindowOpen?: boolean; authenticated?: boolean; humanAction?: DesktopChatGPTHumanAction; affinityPhase?: DesktopChatGPTAffinityPhase; boundConversationUrl?: string; bindingCandidate?: string }
+type DesktopManualChatGPTInput = { requestId: string; filenames: string[]; bytes: number; pickerArmed: boolean; pickerAttached: boolean; error?: string; prompt?: string }
+type DesktopChatGPTState = { cacheKey?: string; surfaceDeferred?: boolean; supervisorId?: string; url: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; externalAuthProvider?: string; authMode?: DesktopChatGPTAuthMode; authWindowOpen?: boolean; authenticated?: boolean; humanAction?: DesktopChatGPTHumanAction; manualInput?: DesktopManualChatGPTInput; affinityPhase?: DesktopChatGPTAffinityPhase; boundConversationUrl?: string; bindingCandidate?: string }
 type ContextClipboardResult = { ok: boolean; filePath: string; bytes: number }
 type DesktopExternalAuthState = { cacheKey?: string; provider: string; url: string; authMode?: DesktopChatGPTAuthMode; managedWindow?: boolean; managedBrowser?: boolean }
 type DesktopAuthCompleteState = { cacheKey?: string; authMode: DesktopChatGPTAuthMode; url: string }
@@ -118,7 +119,7 @@ interface WharnessDesktopBridge {
     paste(cacheKey: string): Promise<{ ok: boolean }>
     openDevTools(cacheKey: string): Promise<{ ok: boolean }>
     submitPrompt(request: { cacheKey: string; sessionId: string; text: string; url?: string; requestId: string }): Promise<{ ok: boolean; cacheKey: string; expectedFilename: string }>
-    preparePrompt(request: { cacheKey: string; workspaceChatId?: string; background?: boolean; text: string; transport?: { disabledTunnelIds: string[] }; tunnelInstanceIds?: string[]; bootstrapText?: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; artifacts?: DesktopUserAttachment[]; projectFiles?: string[]; autoSubmit?: boolean; contextSha256?: string; lastContextSha256?: string; lastContextChatgptUrl?: string; includeContext?: boolean; preferCurrentConversation?: boolean; firstRequest?: boolean; chatTitle?: string; requestedAt?: string; projectName?: string; projectPath?: string; expectedFilename?: string; reasoningEffort?: 'instant' | 'medium' | 'high' }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; queued?: boolean; expectedFilename: string; includedContext: boolean; conversationUrl?: string; transport?: 'tunnel' | 'remote_channel'; provider?: string; instanceId?: string; expiresAt?: string }>
+    preparePrompt(request: { cacheKey: string; workspaceChatId?: string; background?: boolean; text: string; transport?: { disabledTunnelIds: string[] }; tunnelInstanceIds?: string[]; bootstrapText?: string; url?: string; sessionId: string; requestId: string; attachments: DesktopUserAttachment[]; artifacts?: DesktopUserAttachment[]; projectFiles?: string[]; autoSubmit?: boolean; contextSha256?: string; lastContextSha256?: string; lastContextChatgptUrl?: string; includeContext?: boolean; preferCurrentConversation?: boolean; firstRequest?: boolean; chatTitle?: string; requestedAt?: string; projectName?: string; projectPath?: string; expectedFilename?: string; reasoningEffort?: 'instant' | 'medium' | 'high'; manualTransport?: boolean }): Promise<{ ok: boolean; cacheKey: string; attachmentCount: number; submitted: boolean; queued?: boolean; expectedFilename: string; includedContext: boolean; conversationUrl?: string; transport?: 'tunnel' | 'remote_channel'; provider?: string; instanceId?: string; expiresAt?: string }>
     retryPreparedPrompt(request: { cacheKey: string; expectedRequestId?: string; sessionId?: string; url?: string; recoveryPrompt?: string; expectedFilename?: string; reasoningEffort?: 'instant' | 'medium' | 'high' }): Promise<{ ok: boolean; cacheKey: string; attachmentCount?: number; submitted?: boolean; expectedFilename?: string; includedContext?: boolean; conversationUrl?: string; requestId?: string; alreadyDelivered?: boolean; alreadySupervised?: boolean; durable?: boolean; transport?: 'tunnel' | 'remote_channel'; provider?: string; instanceId?: string; expiresAt?: string }>
     attachContext(request: { cacheKey: string; sessionId: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
     attachPrompt(request: { cacheKey: string; text: string; url?: string }): Promise<{ ok: boolean; cacheKey: string; bytes: number; submitted: boolean; conversationUrl?: string }>
@@ -135,12 +136,11 @@ interface WharnessDesktopBridge {
     suggestTitle(cacheKey: string, url?: string): Promise<{ ok: boolean; state: string; title: string }>
     hideSidebar(cacheKey: string): Promise<{ ok: boolean; state: string }>
     setAuthMode(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
-    /** Defense in depth for Manual chat transport mode: tells Desktop's own
-     *  background polling loops to stop touching this chat's DOM (composer
-     *  fill/submit, download interception) even if a bundle was already
-     *  armed before the mode changed mid-flight. The primary enforcement is
-     *  the frontend never calling preparePrompt at all while manual. */
+    /** Manual mode keeps the embedded engine live but disables automatic
+     *  conversation DOM reads/writes; request bundles are materialized for
+     *  explicit human delivery and response downloads remain intercepted. */
     setTransportMode(cacheKey: string, mode: 'scraper' | 'manual'): Promise<{ ok: boolean }>
+    copyPendingBundles(cacheKey: string, requestId?: string): Promise<{ ok: boolean; count: number; filenames: string[] }>
     startAuth(cacheKey: string, mode: DesktopChatGPTAuthMode): Promise<DesktopChatGPTState>
     openExternal(url?: string): Promise<{ ok: boolean }>
     openInternal(url?: string): Promise<{ ok: boolean; reused: boolean }>

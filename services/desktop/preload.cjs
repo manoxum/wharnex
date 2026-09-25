@@ -114,6 +114,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     probeBehaviorControls: () => invoke('wharness:chatgpt:probe-behavior-controls', {}),
     setAuthMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-auth-mode', { cacheKey, mode }),
     setTransportMode: (cacheKey, mode) => invoke('wharness:chatgpt:set-transport-mode', { cacheKey, mode }),
+    copyPendingBundles: (cacheKey, requestId = '') => invoke('wharness:chatgpt:copy-pending-bundles', { cacheKey, requestId }),
     startAuth: (cacheKey, mode) => invoke('wharness:chatgpt:start-auth', { cacheKey, mode }),
     openExternal: (url = '') => invoke('wharness:chatgpt:open-external', { url: String(url || '') }),
     openInternal: (url = '') => invoke('wharness:chatgpt:open-internal', { url: String(url || '') }),
