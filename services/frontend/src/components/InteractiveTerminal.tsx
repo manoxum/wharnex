@@ -35,8 +35,10 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     let source: EventSource | undefined
     let terminalID = persistedTerminalID || terminalIDRef.current || ''
     let inputBuffer = ''
-    let inputTimer = 0
-    let inputQueue = Promise.resolve()
+    let inputFlushScheduled = false
+    let inputInFlight = false
+    let reconnectTimer = 0
+    let connectInFlight = false
     let resizeTimer = 0
     let snapshotTimer = 0
     let history = String(initialHistory || '').slice(-MAX_PERSISTED_TERMINAL_HISTORY)
@@ -74,23 +76,32 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
       const message = messageOf(error)
       setConnectionStatus('error'); terminal.writeln(`\r\n\x1b[38;2;227;106;96m${message}\x1b[0m`); onErrorRef.current(message)
     }
-    const flushInput = () => {
-      window.clearTimeout(inputTimer)
-      inputTimer = 0
-      if (!terminalID) {
-        if (active && inputBuffer) inputTimer = window.setTimeout(flushInput, 25)
-        return
-      }
+    const scheduleInputFlush = () => {
+      if (!active || inputFlushScheduled || inputInFlight || !inputBuffer) return
+      inputFlushScheduled = true
+      queueMicrotask(() => {
+        inputFlushScheduled = false
+        void flushInput()
+      })
+    }
+    const flushInput = async () => {
+      if (!active || inputInFlight || !inputBuffer) return
+      if (!terminalID) return
       const data = inputBuffer
       inputBuffer = ''
-      if (!data) return
-      for (const chunk of splitTerminalInput(data)) {
-        inputQueue = inputQueue.then(() => api.terminalInput(session.id, terminalID, chunk)).catch(reportError)
+      inputInFlight = true
+      try {
+        for (const chunk of splitTerminalInput(data)) await api.terminalInput(session.id, terminalID, chunk)
+      } catch (error) {
+        reportError(error)
+      } finally {
+        inputInFlight = false
+        scheduleInputFlush()
       }
     }
     const inputDisposable = terminal.onData((data) => {
       inputBuffer += data
-      if (!inputTimer) inputTimer = window.setTimeout(flushInput, 12)
+      scheduleInputFlush()
     })
     const clipboardShortcut = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
@@ -122,12 +133,25 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(fitTerminal)
     observer?.observe(root)
 
-    async function connect() {
+    const scheduleReconnect = (delay = 250) => {
+      if (!active || statusRef.current === 'closed' || reconnectTimer) return
       setConnectionStatus('connecting')
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = 0
+        void connect()
+      }, delay)
+    }
+    async function connect() {
+      if (!active || connectInFlight) return
+      connectInFlight = true
+      setConnectionStatus('connecting')
+      source?.close()
+      source = undefined
       try {
         const descriptor = await api.openTerminal(session.id, { terminal_id: terminalID || undefined, cwd: rememberedCwd, network: false, cols: terminal.cols || 80, rows: terminal.rows || 24 }, 'host', true)
         if (!active) return
         terminalID = descriptor.terminal_id; terminalIDRef.current = terminalID; onTerminalIDChangeRef.current?.(terminalID)
+        scheduleInputFlush()
         void api.resizeTerminal(session.id, terminalID, terminal.cols || 80, terminal.rows || 24).catch(reportError)
         source = new EventSource(api.terminalEventsURL(session.id, terminalID))
         source.onmessage = (event) => {
@@ -143,15 +167,28 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
             } else if (terminalFrame.type === 'error') reportError(terminalFrame.message || 'Erro no terminal')
           } catch { /* ignore malformed transport frames */ }
         }
-        source.onerror = () => { if (active && statusRef.current !== 'closed') setConnectionStatus('connecting') }
-      } catch (error) { reportError(error) }
+        source.onerror = () => {
+          if (!active || statusRef.current === 'closed') return
+          source?.close()
+          source = undefined
+          scheduleReconnect()
+        }
+      } catch (error) {
+        if (active) {
+          const message = messageOf(error)
+          onErrorRef.current(message)
+          scheduleReconnect(500)
+        }
+      } finally {
+        connectInFlight = false
+      }
     }
     void connect()
 
     return () => {
       active = false
       emitSnapshot()
-      window.cancelAnimationFrame(frame); window.clearTimeout(inputTimer); window.clearTimeout(resizeTimer); window.clearTimeout(snapshotTimer)
+      window.cancelAnimationFrame(frame); window.clearTimeout(reconnectTimer); window.clearTimeout(resizeTimer); window.clearTimeout(snapshotTimer)
       observer?.disconnect(); source?.close(); root.removeEventListener('keydown', clipboardShortcut, true); inputDisposable.dispose(); resizeDisposable.dispose(); scrollDisposable.dispose(); terminal.dispose()
       fitRef.current = null
       if (terminalRef.current === terminal) terminalRef.current = null

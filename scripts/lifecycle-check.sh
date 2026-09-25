@@ -326,8 +326,12 @@ if grep -Fq 'hostPTYSocket' "$DESKTOP_DEV"; then
   echo 'lifecycle regression: Desktop reload must not own the durable Host PTY socket' >&2
   exit 1
 fi
-if ! grep -Fq '  terminal:' "$COMPOSE" || ! grep -Fq 'terminal.sock' "$COMPOSE" || ! grep -Fq 'ensure_terminal_service' "$STACK" || ! grep -Fq -- '--no-recreate terminal' "$ROOT/scripts/terminal-service.sh"; then
-  echo 'lifecycle regression: Host PTYs must run in the durable Compose terminal sidecar' >&2
+if grep -Fq '  terminal:' "$COMPOSE" || ! grep -Fq 'HARNESS_HOST_PTY_SOCKET' "$COMPOSE" || ! grep -Fq 'ensure_terminal_service' "$STACK" || ! grep -Fq 'wharnex-host-pty' "$ROOT/scripts/terminal-service.sh"; then
+  echo 'lifecycle regression: Host PTYs must run in the durable native host terminal service' >&2
+  exit 1
+fi
+if ! grep -Fq 'terminald.pid' "$ROOT/scripts/terminal-service.sh" || ! grep -Fq 'host terminal bridge' "$DESKTOP_DEV"; then
+  echo 'lifecycle regression: native Host PTY ownership must survive app restarts and gate Desktop readiness' >&2
   exit 1
 fi
 printf 'Lifecycle immutable Electron runtime checks passed.\n'

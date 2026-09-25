@@ -13,6 +13,7 @@ const backendDir = path.resolve(here, '../backend')
 const frontendDir = path.resolve(here, '../frontend')
 const runtimeDir = path.resolve(process.env.WHARNESS_RUNTIME_DIR || path.join(projectRoot, '.harness/run'))
 const backendBinary = path.resolve(projectRoot, 'dist/bin/wharness-backend')
+const hostTerminalSocket = path.resolve(projectRoot, '.harness/bridge/terminal.sock')
 const children = new Map()
 const servicesMode = process.env.WHARNESS_SERVICES_MODE || 'local'
 // Two checkouts running concurrently each pin their own backend/frontend
@@ -124,6 +125,7 @@ async function main() {
       waitFor(`${apiURL}/api/health`, 'stack backend'),
       waitFor(frontendURL, 'stack frontend'),
       waitForUnixSocket(hostGit.socketPath, 'host Git bridge'),
+      waitForUnixSocket(hostTerminalSocket, 'host terminal bridge'),
     ])
   } else {
     if (await ready(`${apiURL}/api/health`)) throw new Error(`An untracked process already owns Wharnex backend ${apiURL}. Stop that verified Wharnex process before starting.`)
