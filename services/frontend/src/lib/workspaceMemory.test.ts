@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	archiveChat, archiveSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
+  durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeRecent, loadPendingProjectPrompt, savePendingProjectPrompt, clearPendingProjectPrompt, loadProjectLogo, saveProjectLogo, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -79,9 +79,22 @@ describe('workspace memory', () => {
     expect(enabledTunnelIds({ disabledTunnelIds: ['secondary'] }, [{ id: 'primary', available: true }, { id: 'secondary', available: true }, { id: 'offline', available: false }])).toEqual(['primary'])
   })
 
-  it('deduplicates recent workspaces', () => {
+  it('deduplicates recent workspaces and can remove an item without touching the project', () => {
     rememberRecent('/tmp/a'); rememberRecent('/tmp/b'); rememberRecent('/tmp/a')
     expect(loadRecentWorkspaces()).toEqual(['/tmp/a', '/tmp/b'])
+    removeRecent('/tmp/a')
+    expect(loadRecentWorkspaces()).toEqual(['/tmp/b'])
+  })
+
+  it('persists one-shot project bootstrap prompts and project logos by canonical path key', () => {
+    savePendingProjectPrompt('/tmp/project', 'build this')
+    expect(loadPendingProjectPrompt('/tmp/project')).toBe('build this')
+    clearPendingProjectPrompt('/tmp/project')
+    expect(loadPendingProjectPrompt('/tmp/project')).toBe('')
+    saveProjectLogo('/tmp/project', 'data:image/png;base64,abc')
+    expect(loadProjectLogo('/tmp/project')).toBe('data:image/png;base64,abc')
+    saveProjectLogo('/tmp/project', '')
+    expect(loadProjectLogo('/tmp/project')).toBe('')
   })
 
   it('restores active chats in the persisted tab order instead of sorting by activity', () => {

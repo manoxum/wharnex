@@ -241,6 +241,25 @@ test('linked projects expose owning windows and can bring an existing owner forw
   assert.match(preload, /wharness:windows:activate-project/)
 })
 
+test('project home IPC can pick logos, move closed projects to trash and open a project in a new window', async () => {
+  const [source, preload] = await Promise.all([
+    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('./preload.cjs', import.meta.url), 'utf8'),
+  ])
+  assert.match(source, /ipcMain\.handle\('wharness:projects:pick-image'/)
+  assert.match(source, /filters: \[\{ name: 'Imagens', extensions: \['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'\] \}\]/)
+  assert.match(source, /ipcMain\.handle\('wharness:projects:trash'/)
+  assert.match(source, /await shell\.trashItem\(projectPath\)/)
+  const openStart = source.indexOf("ipcMain.handle('wharness:windows:open'")
+  const openEnd = source.indexOf("ipcMain.handle('wharness:windows:open-surface'", openStart)
+  const openHandler = source.slice(openStart, openEnd)
+  assert.match(openHandler, /canonicalProjectPath\(request\.projectPath\)/)
+  assert.match(openHandler, /recovery: \{ projects: \[requestedProject\], activeProject: requestedProject, pending: false \}/)
+  assert.match(preload, /pickImage: \(request = \{\}\) => invoke\('wharness:projects:pick-image', request\)/)
+  assert.match(preload, /trash: \(projectPath\) => invoke\('wharness:projects:trash'/)
+  assert.match(preload, /open: \(request = \{\}\) => invoke\('wharness:windows:open', request\)/)
+})
+
 test('a failed prompt delivery remains retryable without asking the planner for a new prompt', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')

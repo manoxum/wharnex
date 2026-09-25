@@ -27,8 +27,8 @@ import { Icon } from './components/Icon'
 import { ErrorToast } from './components/ErrorToast'
 import {
   archiveChat as archiveStoredChat, archiveSavedChat as archiveStoredSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat,
-  loadAutomationMode, loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveChatForLater as saveStoredChatForLater, saveComposerDraft, saveComposerFileDraft,
-  durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
+  loadAutomationMode, loadEffortLevel, loadExecutionHistory, loadRecentWorkspaces, loadWorkspaceChats, loadPendingProjectPrompt, newWorkspaceChat, rememberRecent, removeArchivedChat as removeStoredArchivedChat, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveChatForLater as saveStoredChatForLater, saveComposerDraft, saveComposerFileDraft,
+  BOOTSTRAP_PROMPT_PREFIX, clearPendingProjectPrompt, durableWorkspaceChat, enabledTunnelIds, loadTransportOptions, mergeDurableWorkspaceChats, saveArchivedWorkspaceChats, saveSavedWorkspaceChats, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionHistory, saveExecutionMode, saveWorkspaceChats, TRANSPORT_OPTIONS_STORAGE_KEY, type ChatNaming, type RemoteArchive, type TransportOptions, type WorkspaceChat,
 } from './lib/workspaceMemory'
 
 // Background chat maintenance runs rarely on purpose: it drives real ChatGPT
@@ -227,6 +227,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const ingestingBundleKeysRef = useRef(new Set<string>())
   const nativeCompletionBaselineRef = useRef(Date.now())
   const nativeNotificationIdsRef = useRef(new Set<string>())
+  const bootstrapPromptInFlightRef = useRef(new Set<string>())
+  const [bootstrapPromptRevision, setBootstrapPromptRevision] = useState(0)
   const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
   const [boundProjects, setBoundProjects] = useState<string[]>(() => embeddedProject ? [embeddedProject] : [])
   const relatedProjectsSyncRef = useRef('')
@@ -258,6 +260,17 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [terminalHeight])
 
   useEffect(() => { setTerminalRunRequest(undefined) }, [session?.id])
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key?.startsWith(BOOTSTRAP_PROMPT_PREFIX)) {
+        bootstrapPromptInFlightRef.current.delete(event.key.slice(BOOTSTRAP_PROMPT_PREFIX.length))
+        setBootstrapPromptRevision((value) => value + 1)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   useEffect(() => {
     const projectPath = session?.project_path || ''
@@ -1745,7 +1758,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     })
   }
 
-  async function send(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode = 'direct', continuation: 'main' | 'execution_plan_adjustment' = 'main') {
+  async function send(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode = 'direct', continuation: 'main' | 'execution_plan_adjustment' = 'main', onAccepted?: () => void) {
     if (!session) return
     if (attachments.length && (!isDesktop() || config?.planner !== 'manual')) {
       setError('Anexos diretos requerem o Wharnex Desktop com o planner manual.')
@@ -1792,6 +1805,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     try {
       const requestText = canonicalizeDirectives(message) + attachmentPromptSuffix(attachments) + projectFileReferenceSuffix(projectFiles)
       const response = continuation === 'execution_plan_adjustment' ? await api.adjustExecutionPlan(targetSession.id, requestText) : await api.message(targetSession.id, requestText, requestMode)
+      onAccepted?.()
       const prompt = response.manual_prompt || response.session.last_manual_prompt || ''
       const turn = response.session.last_turn || response.turn
       const requestId = response.session.last_request_id || turn?.request_id || ''
@@ -1901,12 +1915,24 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (e) {
       const msg = messageOf(e)
       reportChatError(`Falha no planeamento: ${msg}`, 'Falha na request', targetChat, projectPath)
+      if (onAccepted) throw e
     } finally {
       if (activeChatIdRef.current === targetChat.id) setTransportProgress('')
       setChatBusy(targetChat.id, false)
     }
   }
 
+  useEffect(() => {
+    const projectPath = session?.project_path || ''
+    if (!projectPath || !activeChatOwnsSession || !activeChatId || activeBusy || bootstrapPromptInFlightRef.current.has(projectPath)) return
+    const prompt = loadPendingProjectPrompt(projectPath)
+    if (!prompt) return
+    bootstrapPromptInFlightRef.current.add(projectPath)
+    void send(prompt, [], [], { context: true, prompt: true, result: false, error: false }, 'direct', 'main', () => {
+      clearPendingProjectPrompt(projectPath)
+      bootstrapPromptInFlightRef.current.delete(projectPath)
+    }).catch(() => undefined)
+  }, [activeBusy, activeChatId, activeChatOwnsSession, bootstrapPromptRevision, send, session?.project_path])
 
   async function adjustExecutionPlan(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) {
     await send(message, attachments, projectFiles, artifacts, 'direct', 'execution_plan_adjustment')
