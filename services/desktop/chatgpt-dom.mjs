@@ -93,6 +93,40 @@ export function chatGPTAssistantTurnCountScript() {
   return `(() => document.querySelectorAll('[data-message-author-role="assistant"]').length)()`
 }
 
+export function chatGPTSubmittedRequestEvidenceScript(filename) {
+  const expected = encode(filename)
+  return `(() => {
+    const expected = ${expected}.trim().toLowerCase();
+    const unique = (values) => [...new Set(values)];
+    const turns = unique([
+      ...document.querySelectorAll('[data-message-author-role="user"]'),
+      ...document.querySelectorAll('[class~="group/user-message"]'),
+    ]).slice(-40);
+    let inspectedCards = 0;
+    for (const turn of turns) {
+      const cards = unique([
+        ...turn.querySelectorAll('[class~="group/resource-card"]'),
+        ...turn.querySelectorAll('[data-testid*="attachment" i], [data-testid*="file" i]'),
+      ]).slice(-24);
+      for (const card of cards) {
+        inspectedCards += 1;
+        const nodes = [card, ...card.querySelectorAll('span,button,a,[role="button"]')].slice(0, 120);
+        const exact = nodes.some((node) => {
+          const values = [
+            node.children?.length ? '' : node.textContent,
+            node.getAttribute?.('aria-label'),
+            node.getAttribute?.('title'),
+            node.getAttribute?.('download'),
+          ];
+          return values.some((value) => String(value || '').replace(/\\s+/g, ' ').trim().toLowerCase() === expected);
+        });
+        if (exact) return { submitted: true, userTurn: true, attachment: true, inspectedTurns: turns.length, inspectedCards };
+      }
+    }
+    return { submitted: false, userTurn: turns.length > 0, attachment: false, inspectedTurns: turns.length, inspectedCards };
+  })()`
+}
+
 export function chooseChatGPTDownloadCandidate(candidates, expectedFilename) {
   const expected = String(expectedFilename || '').trim().toLowerCase()
   if (!expected || !Array.isArray(candidates)) return { index: -1, mode: '' }

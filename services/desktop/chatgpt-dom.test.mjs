@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTResponseCompletionScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTHumanActionScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript, parseChatGPTProcessingDuration, chooseChatGPTDownloadCandidate, chooseUsableChatGPTDOMCandidate } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTResponseCompletionScript, chatGPTExpectedDownloadScript, chatGPTFillComposerScript, chatGPTHumanActionScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript, chatGPTSubmittedRequestEvidenceScript, parseChatGPTProcessingDuration, chooseChatGPTDownloadCandidate, chooseUsableChatGPTDOMCandidate } from './chatgpt-dom.mjs'
 
 test('DOM automation scripts stay narrow and escape user text', () => {
   const fill = chatGPTFillComposerScript('hello ` ${world} </script>')
@@ -46,8 +46,26 @@ test('every generated ChatGPT DOM bridge is valid JavaScript before renderer inj
     chatGPTResponseCompletionScript(2),
     chatGPTExpectedDownloadScript('wharness-bundle-req_12345678.zip', 1),
     chatGPTVisibleActivityScript(),
+    chatGPTSubmittedRequestEvidenceScript('wharness_req_chat-1_req_12345678.zip'),
   ]
   for (const script of scripts) assert.doesNotThrow(() => new Function(script))
+})
+
+test('manual resume proves an exact Wharnex archive inside a submitted user turn', () => {
+  const expected = 'wharness_req_chat-1_req_12345678.zip'
+  const leaf = { children: [], textContent: expected, getAttribute: () => '' }
+  const card = { children: [leaf], textContent: expected, getAttribute: () => '', querySelectorAll: () => [leaf] }
+  const turn = { querySelectorAll: () => [card] }
+  const document = { querySelectorAll: (selector) => selector.includes('group/user-message') ? [turn] : [] }
+  const inspect = (filename) => new Function('document', `return ${chatGPTSubmittedRequestEvidenceScript(filename)}`)(document)
+
+  assert.deepEqual(inspect(expected), { submitted: true, userTurn: true, attachment: true, inspectedTurns: 1, inspectedCards: 1 })
+  assert.deepEqual(inspect('wharness_req_chat-1_req_other.zip'), { submitted: false, userTurn: true, attachment: false, inspectedTurns: 1, inspectedCards: 1 })
+  const script = chatGPTSubmittedRequestEvidenceScript(expected)
+  assert.match(script, /data-message-author-role="user"/)
+  assert.match(script, /group\/user-message/)
+  assert.match(script, /group\/resource-card/)
+  assert.doesNotMatch(script, /assistant|innerHTML|document\.cookie|localStorage|sessionStorage|fetch\(/)
 })
 
 test('composer selection ignores stale disabled and hidden candidates', () => {

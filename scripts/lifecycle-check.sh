@@ -10,6 +10,7 @@ SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
 SOURCE_FINGERPRINT_CHECK="$ROOT/scripts/source-fingerprint-check.sh"
 LAUNCHER_CHECK="$ROOT/scripts/launcher-check.sh"
 DOCKER_DAEMON_GUARD_CHECK="$ROOT/scripts/docker-daemon-guard-check.sh"
+TERMINAL_SERVICE_CHECK="$ROOT/scripts/terminal-service-check.sh"
 INSTALL_DEV="$ROOT/scripts/install-dev.sh"
 INSTALL_DEV_CHECK="$ROOT/scripts/install-dev-check.sh"
 STOP="$ROOT/scripts/stop.sh"
@@ -334,6 +335,11 @@ if ! grep -Fq 'terminald.pid' "$ROOT/scripts/terminal-service.sh" || ! grep -Fq 
   echo 'lifecycle regression: native Host PTY ownership must survive app restarts and gate Desktop readiness' >&2
   exit 1
 fi
+if [ ! -x "$TERMINAL_SERVICE_CHECK" ]; then
+  echo 'lifecycle regression: the durable host terminal service needs an isolated fd-leak regression check' >&2
+  exit 1
+fi
+WHARNESS_ROOT="$ROOT" "$TERMINAL_SERVICE_CHECK"
 printf 'Lifecycle immutable Electron runtime checks passed.\n'
 
 if [ ! -x "$LOGS" ]; then

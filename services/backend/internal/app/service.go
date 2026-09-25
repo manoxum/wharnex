@@ -1838,12 +1838,7 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 			// Route the marked failure through the same bounded repair transition
 			// so a rolled-back self-evolution build cannot remain stranded as a
 			// verified candidate waiting for an operator to rediscover the error.
-			if isPlannerRepairableApplyFailure(execErr) {
-				if repaired, repairErr := s.TriggerApplyFailureRepair(ctx, sessionID, execErr); repairErr == nil {
-					result.Session = repaired
-					result.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
-				}
-			}
+			s.projectAutomaticApplyFailure(ctx, sessionID, &result, execErr)
 			result.AutoError = execErr.Error()
 			s.bus.Publish(sessionID, "automation.execution_failed", map[string]any{"error": execErr.Error(), "repair_pending": result.Session.State == "repair_pending"})
 			return result
@@ -1883,10 +1878,7 @@ func (s *Service) runAutomaticPlan(ctx context.Context, sessionID, transport str
 				s.bus.Publish(sessionID, "automation.infrastructure_blocked", map[string]any{"error": applyErr.Error(), "kind": "offline_dependencies"})
 				return result
 			}
-			if repaired, repairErr := s.TriggerApplyFailureRepair(ctx, sessionID, applyErr); repairErr == nil {
-				result.Session = repaired
-				result.RepairPrepared = repaired.State == "repair_pending" && repaired.LastManualPrompt != ""
-			}
+			s.projectAutomaticApplyFailure(ctx, sessionID, &result, applyErr)
 			return result
 		}
 		result.AutoApplied = true
@@ -2775,73 +2767,6 @@ func (s *Service) failExecution(ctx context.Context, sessionID string, result do
 // candidate defect after doing its own rollback/recovery. Preconditions,
 // coordination locks, persistence failures and unknown local plumbing errors
 // are deliberately unmarked and therefore cannot spend a GPT round.
-type plannerRepairableApplyError struct{ cause error }
-
-func (e *plannerRepairableApplyError) Error() string { return e.cause.Error() }
-func (e *plannerRepairableApplyError) Unwrap() error { return e.cause }
-
-// localApplyRecoveryError overrides a nested candidate-defect marker when the
-// integration engine itself could not finish rollback/recovery. A planner may
-// repair source, but it cannot repair Wharnex's transaction or Git machinery.
-type localApplyRecoveryError struct{ cause error }
-
-func (e *localApplyRecoveryError) Error() string { return e.cause.Error() }
-func (e *localApplyRecoveryError) Unwrap() error { return e.cause }
-
-func localApplyRecoveryFailure(cause error) error {
-	if cause == nil {
-		return nil
-	}
-	var local *localApplyRecoveryError
-	if errors.As(cause, &local) {
-		return cause
-	}
-	return &localApplyRecoveryError{cause: cause}
-}
-
-func plannerRepairableApplyFailure(cause error) error {
-	if cause == nil {
-		return nil
-	}
-	var marked *plannerRepairableApplyError
-	if errors.As(cause, &marked) {
-		return cause
-	}
-	return &plannerRepairableApplyError{cause: cause}
-}
-
-func isPlannerRepairableApplyFailure(cause error) bool {
-	var local *localApplyRecoveryError
-	if errors.As(cause, &local) {
-		return false
-	}
-	var marked *plannerRepairableApplyError
-	return errors.As(cause, &marked)
-}
-
-func (s *Service) TriggerApplyFailureRepair(ctx context.Context, sessionID string, cause error) (domain.Session, error) {
-	item, err := s.store.Get(sessionID)
-	if err != nil {
-		return item, err
-	}
-	if !isPlannerRepairableApplyFailure(cause) {
-		planID := ""
-		if item.LastExecution != nil {
-			planID = item.LastExecution.PlanID
-		}
-		s.bus.Publish(sessionID, "automation.local_recovery_retained", map[string]any{"error": cause.Error(), "plan_id": planID})
-		return item, nil
-	}
-	if item.LastExecution != nil {
-		repaired, repairErr := s.prepareRepairRequest(ctx, sessionID, *item.LastExecution, cause)
-		if repairErr == nil {
-			return repaired, nil
-		}
-		s.bus.Publish(sessionID, "repair.prepare_failed", map[string]any{"error": repairErr.Error()})
-	}
-	return item, nil
-}
-
 // RequestFailureRepair is the explicit operator fallback for a repairable
 // execution or planner failure. It can resend an already prepared repair after
 // Desktop transport failed, or start a fresh manual repair cycle after the

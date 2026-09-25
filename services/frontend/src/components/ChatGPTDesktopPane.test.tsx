@@ -402,6 +402,45 @@ describe('ChatGPTDesktopPane affinity ownership', () => {
     await waitFor(() => expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledWith('chat-1', 'req_pending123'))
   })
 
+  it('does not send a continuation while the original prompt bundle is still being written', async () => {
+    const desktop = bridge()
+    desktop.chatgpt.continueExpectedBundle = vi.fn().mockResolvedValue({ ok: false, cacheKey: 'chat-1', requestId: 'req_pending123', reason: 'write_in_progress' })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" />)
+
+    screen.getByRole('button', { name: 'Retomar pedido' }).click()
+
+    expect(await screen.findByText(/ainda estão a ser preparados/)).toBeTruthy()
+    expect(desktop.chatgpt.resumeExpectedBundle).not.toHaveBeenCalled()
+  })
+
+  it('requires the dedicated resend action when the original write never submitted', async () => {
+    const desktop = bridge()
+    desktop.chatgpt.continueExpectedBundle = vi.fn().mockResolvedValue({ ok: false, cacheKey: 'chat-1', requestId: 'req_pending123', reason: 'not_supervised' })
+    desktop.chatgpt.resumeExpectedBundle = vi.fn().mockResolvedValue({ ok: false, cacheKey: 'chat-1', requestId: 'req_pending123', expectedFilename: 'bundle.zip', reason: 'write_not_submitted' })
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" pendingRequestId="req_pending123" sessionId="ses-1" recoveryBootstrap="bootstrap" />)
+
+    screen.getByRole('button', { name: 'Retomar pedido' }).click()
+
+    expect(await screen.findByText(/Use “Reenviar request”/)).toBeTruthy()
+    expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledTimes(1)
+  })
+
+  it('resends the complete request and never keep-continues when DOM proof is absent', async () => {
+    const desktop = bridge()
+    desktop.chatgpt.continueExpectedBundle = vi.fn().mockResolvedValue({ ok: false, cacheKey: 'chat-1', requestId: 'req_pending123', reason: 'resend_required' })
+    const onResend = vi.fn().mockResolvedValue(undefined)
+    window.wharnessDesktop = desktop
+    render(<ChatGPTDesktopPane {...props} pendingRequestId="req_pending123" onResendPendingRequest={onResend} />)
+
+    screen.getByRole('button', { name: 'Retomar pedido' }).click()
+
+    await waitFor(() => expect(onResend).toHaveBeenCalledWith('req_pending123'))
+    expect(await screen.findByText(/sem enviar “keep continue”/)).toBeTruthy()
+    expect(desktop.chatgpt.continueExpectedBundle).toHaveBeenCalledTimes(1)
+  })
+
 
   it('re-arms lost desktop supervision before continuing a durable pending request', async () => {
     const desktop = bridge()

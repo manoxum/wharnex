@@ -12,7 +12,7 @@ import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard
 import { installNativeSurfaceLifecycleGuard } from './native-surface-lifecycle.mjs'
 import { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
-import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript } from './chatgpt-dom.mjs'
+import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript, chatGPTSubmittedRequestEvidenceScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { behaviorProbeScript, isBehaviorProbeEnabled, normalizeBehaviorProbeResult, sanitizeBehaviorProbeControl, BEHAVIOR_PROBE_CONTROLS } from './chatgpt-behavior-probe.mjs'
@@ -33,6 +33,7 @@ import { createDesktopTrayControl } from './desktop-tray-control.mjs'
 import { completionNotificationRecord } from './desktop-notification-request.mjs'
 import { nativeWindowCloseChoice } from './desktop-window-close-prompt.mjs'
 import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
+import { remoteInputPublicationSignal } from './remote-input-timeout.mjs'
 import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, DEFAULT_SUSPENDED_WORKER_TASK_TYPES, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes } from './chat-agent-policies.mjs'
@@ -46,6 +47,8 @@ import { CHATGPT_REASONING_EFFORTS, ensureChatGPTReasoningEffort, normalizeChatG
 import { spellcheckContextMenuTemplate } from './spellcheck-menu.mjs'
 import { publicSupervisorId, supervisorSurfaceRoute } from './supervisor-surface-routing.mjs'
 import { createManualChatGPTTransport } from './manual-chatgpt-transport.mjs'
+import { withChatGPTNavigationDeadline } from './chatgpt-navigation-timeout.mjs'
+import { classifyChatGPTRequestDelivery } from './chatgpt-request-delivery.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
@@ -96,6 +99,10 @@ const DEFAULT_CHAT_ATTACHMENT_COUNT_LIMIT = 0
 const DEFAULT_REQUEST_BUNDLE_TOTAL_BYTES = 100 * 1024 * 1024
 const DEFAULT_REQUEST_BUNDLE_PART_BYTES = 30 * 1024 * 1024
 const DEFAULT_REQUEST_BUNDLE_PART_LIMIT = 10
+// Live tunnels are optional links alongside the mandatory request archive.
+// Keep their preparation short so a provider outage cannot block ZIP delivery.
+const REMOTE_INPUT_PUBLICATION_TIMEOUT_MS = 18_000
+const REMOTE_COMMENT_PUBLICATION_TIMEOUT_MS = 5_000
 const MAX_CHAT_ARTIFACTS = 4
 const MAX_CHAT_ARTIFACT_BYTES = 2 * 1024 * 1024
 const MAX_CHAT_ARTIFACTS_BYTES = 6 * 1024 * 1024
@@ -313,7 +320,7 @@ const PROCESSING_SIGNAL_GRACE_MS = 15_000
 // wrong in the safe direction; concluding early costs the whole response.
 const BUNDLE_UNOBSERVED_SETTLE_MS = 3 * 60_000
 const CONVERSATION_TRANSPORT_STALE_MS = 30_000
-const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
+const PROCESSING_STALE_ATTENTION_MS = 2 * 60_000
 // How long an AWAIT_RESPONSE probe may keep reading a page that is neither
 // generating nor complete before it asks for a human.
 //
@@ -322,7 +329,7 @@ const PROCESSING_STALE_ATTENTION_MS = 5 * 60_000
 // runs while the page shows no structural sign of life at all, and any
 // generating/complete/download signal resets it. A visibly working model is
 // therefore never interrupted, while a genuinely stuck surface still stops.
-const AWAIT_STALL_ATTENTION_MS = 10 * 60_000
+const AWAIT_STALL_ATTENTION_MS = 3 * 60_000
 const CHATGPT_RATE_LIMIT_BACKOFF_MS = 7.5 * 60_000
 // Local mirror of the backend's account-wide gate suspension, applied on the
 // tick the gate is observed so workers stop before the round-trip returns. The
@@ -2542,7 +2549,10 @@ async function loadOwnedChatGPTURL(cacheKey, entry, value, reason = 'navigate') 
     entry.navigationTarget = target
     console.log(`[chatgpt-load] start key=${key} reason=${reason} target=${sanitizeDiagnosticURL(target)}`)
     try {
-      await wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT })
+      await withChatGPTNavigationDeadline(
+        () => wc.loadURL(target, { userAgent: CHATGPT_USER_AGENT }),
+        () => { if (!wc.isDestroyed()) wc.stop() },
+      )
     } catch (error) {
       if (!isBenignChatGPTLoadAbort(error)) throw error
       await waitForChatGPTNavigationSettle(wc)
@@ -3800,13 +3810,21 @@ async function persistChatArtifact(sessionId, requestId, direction, kind, filena
 async function publishRemoteChatInput(sessionId, requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles = [], tunnelInstanceIds = [], requestMetadata = {}, signal) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/remote-input`, BACKEND_URL)
-  const response = await fetch(target, {
-    method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
-    signal,
-    body: JSON.stringify(remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles, tunnelInstanceIds, requestMetadata)),
-  })
-  const result = await response.json().catch(() => ({}))
-  return parseRemoteInputResponse(response.status, result)
+  const deadline = remoteInputPublicationSignal(signal, REMOTE_INPUT_PUBLICATION_TIMEOUT_MS)
+  try {
+    const response = await fetch(target, {
+      method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
+      signal: deadline.signal,
+      body: JSON.stringify(remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles, tunnelInstanceIds, requestMetadata)),
+    })
+    const result = await response.json().catch(() => ({}))
+    return parseRemoteInputResponse(response.status, result)
+  } catch (error) {
+    if (deadline.timedOut()) throw new Error('A publicação das rotas remotas excedeu 18 segundos; o bundle ZIP será enviado sem túneis.')
+    throw error
+  } finally {
+    deadline.dispose()
+  }
 }
 
 function normalizeTunnelInstanceIDs(value) {
@@ -3896,14 +3914,17 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', cacheKey)
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const knowledge = await fetchRequestKnowledge(sessionId, requestId, signal)
+  const [knowledge, gitContext, continuation, eagerContext] = await Promise.all([
+    fetchRequestKnowledge(sessionId, requestId, signal),
+    fetchRequestGitContext(sessionId, signal),
+    fetchRequestContinuation(sessionId, requestId, signal),
+    includeContext ? fetchContextZip(sessionId, signal) : Promise.resolve(undefined),
+  ])
   throwIfChatGPTTransportAborted(signal)
-  const gitContext = await fetchRequestGitContext(sessionId, signal)
-  const continuation = await fetchRequestContinuation(sessionId, requestId, signal)
   // A derived request must be self-contained even when the linked ChatGPT
   // conversation forgot or truncated an earlier snapshot. The delta remains
   // useful for focus, while the current full context is authoritative.
-  const context = includeContext || continuation.length ? await fetchContextZip(sessionId, signal) : undefined
+  const context = eagerContext || (continuation.length ? await fetchContextZip(sessionId, signal) : undefined)
   const transport = await writeChatInputTransportArchives(dir, {
     chatId: cacheKey, requestId, maxTotalBytes: limits.totalBytes, maxPartBytes: limits.partBytes, maxParts: limits.partLimit,
     requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded,
@@ -3923,10 +3944,12 @@ async function materializeProtocolChatInput(cacheKey, sessionId, requestId, prom
   const { decoded } = decodeChatAttachmentSet(values, limits)
   const dir = path.join(app.getPath('temp'), 'wharness-chat-protocol', cacheKey, `${Date.now()}-${randomUUID()}`)
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const context = await fetchContextZip(sessionId, signal)
-  const knowledge = await fetchRequestKnowledge(sessionId, requestId, signal)
-  const gitContext = await fetchRequestGitContext(sessionId, signal)
-  const continuation = await fetchRequestContinuation(sessionId, requestId, signal)
+  const [context, knowledge, gitContext, continuation] = await Promise.all([
+    fetchContextZip(sessionId, signal),
+    fetchRequestKnowledge(sessionId, requestId, signal),
+    fetchRequestGitContext(sessionId, signal),
+    fetchRequestContinuation(sessionId, requestId, signal),
+  ])
   const transport = await writeChatInputTransportArchives(dir, {
     chatId: cacheKey, requestId, maxTotalBytes: limits.totalBytes, maxPartBytes: limits.partBytes, maxParts: limits.partLimit,
     requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels, signal,
@@ -4118,6 +4141,9 @@ async function pressChatGPTControl(entry, wc, rect) {
 const CHATGPT_CONTROL_KEYS = Object.freeze({
   Left: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
   Right: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
+  Enter: { key: 'Enter', code: 'Enter', keyCode: 13 },
+  Space: { key: ' ', code: 'Space', keyCode: 32 },
+  Down: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
   Escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
 })
 
@@ -4763,6 +4789,14 @@ async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
     await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
     const before = staged
     staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
+    if (staged?.state === 'effort-menu-closed' && staged.triggerFocused === true) {
+      for (const openKey of ['Enter', 'Space', 'Down']) {
+        await pressChatGPTControlKey(entry, wc, openKey)
+        await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
+        staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
+        if (staged?.state !== 'effort-menu-closed') break
+      }
+    }
     // Control geometry and the state it reported, never page content. Without
     // this the failure reads only "effort-menu-closed", which cannot separate
     // a press that missed the control from one that landed and was ignored.
@@ -6847,10 +6881,15 @@ async function flushQueuedChatGPTComments() {
 
 async function publishRemoteChannelComment(sessionId, requestId, comment) {
   const target = new URL(`/api/sessions/${encodeURIComponent(sessionId)}/remote-input/events`, BACKEND_URL)
-  const response = await fetch(target, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ request_id: requestId, comment }) })
-  // A durable-store request has no live channel; comment delivery through the
-  // ChatGPT composer remains authoritative in that mode.
-  if (!response.ok && response.status !== 409) throw new Error(`Remote channel comment HTTP ${response.status}`)
+  const deadline = remoteInputPublicationSignal(undefined, REMOTE_COMMENT_PUBLICATION_TIMEOUT_MS)
+  try {
+    const response = await fetch(target, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, signal: deadline.signal, body: JSON.stringify({ request_id: requestId, comment }) })
+    // A durable-store request has no live channel; comment delivery through the
+    // ChatGPT composer remains authoritative in that mode.
+    if (!response.ok && response.status !== 409) throw new Error(`Remote channel comment HTTP ${response.status}`)
+  } finally {
+    deadline.dispose()
+  }
 }
 
 async function pollChatGPTVisibleActivity() {
@@ -7960,7 +7999,7 @@ function registerIPC() {
     return currentChatGPTState(key, windowState)
   })
   ipcMain.handle('wharness:chatgpt:resume-expected-bundle', async (event, request) => {
-    trustedSender(event)
+    const windowState = trustedSender(event)
     const key = sanitizeChatCacheKey(request?.cacheKey)
     const requestId = String(request?.requestId || '').trim()
     const target = requireTrustedChatGPTURL(request?.url || '')
@@ -7972,21 +8011,47 @@ function registerIPC() {
       chat_title: String(request?.chatTitle || ''), chat_id: key,
       chat_hash: String(request?.chatHash || ''), requested_at: String(request?.requestedAt || ''),
     }
-    armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId, expectedFilename, requestMetadata)
-    const resumedExpected = expectedChatGPTBundles.get(key)
-    if (resumedExpected) resumedExpected.recoveryEligibleAt = Date.now() + chatAgentInitialRequestWaitMs()
-    const workspaceChatId = durableWorkspaceChatID(key, request?.workspaceChatId)
-    if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, conversation, { remoteState: 'awaiting-response' })
-    const payload = expectedChatAgentPayload(key, requestId, conversation, {
-      expectedFilename, recoveryBootstrap: recoveryPrompt, originalPrompt: recoveryPrompt,
-      sessionId: request?.sessionId, workspaceChatId, requestMetadata,
+    const listed = await chatAgentScheduler.list({ request_id: requestId })
+    const delivery = classifyChatGPTRequestDelivery(listed?.tasks, key)
+    if (delivery === 'writing') {
+      return { ok: false, cacheKey: key, requestId, expectedFilename, reason: 'write_in_progress' }
+    }
+    if (delivery === 'not_submitted') {
+      return { ok: false, cacheKey: key, requestId, expectedFilename, reason: 'write_not_submitted' }
+    }
+    const { entry } = ensureChatGPTView(key, windowState)
+    requireOwnedChatGPTEntry(key, entry)
+    return withChatGPTTransportPreparation(key, entry, requestId, async () => {
+      const targeted = await targetChatGPTComposer(key, conversation, false, entry)
+      if (entry.loading || targeted.wc.isLoading()) await waitForChatGPTSurfaceReady(key, entry)
+      const submissionEvidence = await executeChatGPTDOMScript(
+        key,
+        entry,
+        'resume-original-request',
+        chatGPTSubmittedRequestEvidenceScript(chatInputArchiveFilename(key, requestId)),
+      )
+      if (submissionEvidence?.submitted !== true) {
+        disarmExpectedChatGPTBundle(key, requestId)
+        await chatAgentScheduler.cancelLineage(requestId)
+        void refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState).catch(() => undefined)
+        return { ok: false, cacheKey: key, requestId, expectedFilename, reason: 'resend_required' }
+      }
+      armExpectedChatGPTBundle(key, requestId, 0, recoveryPrompt, [], recoveryPrompt, request?.sessionId, expectedFilename, requestMetadata)
+      const resumedExpected = expectedChatGPTBundles.get(key)
+      if (resumedExpected) resumedExpected.recoveryEligibleAt = Date.now() + chatAgentInitialRequestWaitMs()
+      const workspaceChatId = durableWorkspaceChatID(key, request?.workspaceChatId)
+      if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, conversation, { remoteState: 'awaiting-response' })
+      const payload = expectedChatAgentPayload(key, requestId, conversation, {
+        expectedFilename, recoveryBootstrap: recoveryPrompt, originalPrompt: recoveryPrompt,
+        sessionId: request?.sessionId, workspaceChatId, requestMetadata,
+      })
+      await enqueueChatAgentTask('AWAIT_RESPONSE', {
+        key, requestId, rootRequestId: requestId, conversationURL: conversation,
+        sessionID: payload.session_id, dedupeKey: `await:${requestId}`,
+        payload, maxAttempts: 30,
+      })
+      return { ok: true, cacheKey: key, requestId, expectedFilename, scheduled: true }
     })
-    await enqueueChatAgentTask('AWAIT_RESPONSE', {
-      key, requestId, rootRequestId: requestId, conversationURL: conversation,
-      sessionID: payload.session_id, dedupeKey: `await:${requestId}`,
-      payload, maxAttempts: 30,
-    })
-    return { ok: true, cacheKey: key, requestId, expectedFilename, scheduled: true }
   })
   ipcMain.handle('wharness:chatgpt:continue-expected-bundle', async (event, request) => {
     const windowState = trustedSender(event)
@@ -7994,6 +8059,15 @@ function registerIPC() {
     const requestId = String(request?.requestId || '').trim()
     let expected = expectedChatGPTBundles.get(key)
     if (!expected || expected.requestId !== requestId) {
+      return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'not_supervised' }
+    }
+    const listed = await chatAgentScheduler.list({ request_id: requestId })
+    const delivery = classifyChatGPTRequestDelivery(listed?.tasks, key)
+    if (delivery === 'writing') {
+      return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'write_in_progress' }
+    }
+    if (delivery === 'not_submitted') {
+      disarmExpectedChatGPTBundle(key, requestId)
       return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'not_supervised' }
     }
     const { entry } = ensureChatGPTView(key, windowState)
@@ -8046,6 +8120,19 @@ function registerIPC() {
         confirmationRequired: true,
         reason: staleTransport ? 'transport_stale' : 'processing_ambiguous',
       }
+    }
+
+    const submissionEvidence = await executeChatGPTDOMScript(
+      key,
+      entry,
+      'manual-continuation-original-request',
+      chatGPTSubmittedRequestEvidenceScript(chatInputArchiveFilename(key, requestId)),
+    )
+    if (submissionEvidence?.submitted !== true) {
+      disarmExpectedChatGPTBundle(key, requestId)
+      await chatAgentScheduler.cancelLineage(requestId)
+      void refreshChatAgentRuntimeState().then(publishChatAgentRuntimeState).catch(() => undefined)
+      return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'resend_required' }
     }
 
     expected.manualContinuationInFlight = true

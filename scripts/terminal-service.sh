@@ -79,21 +79,36 @@ ensure_terminal_service() {
   }
 
   printf 'Starting durable native host terminal service...\n'
+  # `setsid` forks internally instead of calling setsid(2) directly whenever
+  # the caller is already a process-group leader, so "$!" on the `nohup
+  # setsid ...` job can name a wrapper that exits immediately rather than the
+  # daemon that keeps running. The daemon writes its own pid ($$, stable
+  # across the following `exec`s) so the pid file always names the process
+  # that is actually still alive. sh -c also starts a fresh shell that does
+  # not inherit close_inherited_fds as a function, so that loop is inlined.
+  daemon_command='
+    printf "%s\n" "$$" >"$4"
+    chmod 600 "$4"
+    for fd in $(ls /proc/self/fd 2>/dev/null); do
+      case "$fd" in
+        0 | 1 | 2) ;;
+        *) eval "exec $fd>&-" 2>/dev/null ;;
+      esac
+    done
+    exec env \
+      WHARNESS_ROOT="$1" \
+      HARNESS_HOST_PTY_SOCKET="$2" \
+      "$3" --socket "$2"
+  '
   if command -v setsid >/dev/null 2>&1; then
-    nohup setsid env \
-      WHARNESS_ROOT="$ROOT" \
-      HARNESS_HOST_PTY_SOCKET="$TERMINAL_SOCKET" \
-      "$TERMINAL_BINARY" --socket "$TERMINAL_SOCKET" \
+    nohup setsid sh -c "$daemon_command" terminald \
+      "$ROOT" "$TERMINAL_SOCKET" "$TERMINAL_BINARY" "$TERMINAL_PID_FILE" \
       >>"$TERMINAL_LOG_FILE" 2>&1 </dev/null &
   else
-    nohup env \
-      WHARNESS_ROOT="$ROOT" \
-      HARNESS_HOST_PTY_SOCKET="$TERMINAL_SOCKET" \
-      "$TERMINAL_BINARY" --socket "$TERMINAL_SOCKET" \
+    nohup sh -c "$daemon_command" terminald \
+      "$ROOT" "$TERMINAL_SOCKET" "$TERMINAL_BINARY" "$TERMINAL_PID_FILE" \
       >>"$TERMINAL_LOG_FILE" 2>&1 </dev/null &
   fi
-  printf '%s\n' "$!" >"$TERMINAL_PID_FILE"
-  chmod 600 "$TERMINAL_PID_FILE"
   wait_terminal_service
 }
 

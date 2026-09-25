@@ -145,7 +145,7 @@ interface WharnessDesktopBridge {
     openExternal(url?: string): Promise<{ ok: boolean }>
     openInternal(url?: string): Promise<{ ok: boolean; reused: boolean }>
     resumeEmbedded(cacheKey: string): Promise<DesktopChatGPTState>
-    resumeExpectedBundle(request: { cacheKey: string; sessionId: string; requestId: string; url: string; recoveryBootstrap?: string; expectedFilename?: string; chatTitle?: string; chatHash?: string; requestedAt?: string }): Promise<{ ok: boolean; cacheKey: string; requestId: string; expectedFilename: string }>
+    resumeExpectedBundle(request: { cacheKey: string; sessionId: string; requestId: string; url: string; recoveryBootstrap?: string; expectedFilename?: string; chatTitle?: string; chatHash?: string; requestedAt?: string }): Promise<{ ok: boolean; cacheKey: string; requestId: string; expectedFilename: string; reason?: 'write_in_progress' | 'write_not_submitted' | 'resend_required' }>
     continueExpectedBundle(cacheKey: string, requestId: string, options?: { force?: boolean }): Promise<{ ok: boolean; cacheKey: string; requestId: string; confirmationRequired?: boolean; reason?: string }>
     pickBundle(request: { requestId: string }): Promise<{ cancelled: boolean; filename?: string; requestId?: string; contentBase64?: string; bytes?: number; sourceFilename?: string; normalizedFilename?: boolean }>
     pendingBundles(): Promise<DesktopBundleDownload[]>

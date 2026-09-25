@@ -31,6 +31,16 @@ describe('App policy-repair recovery', () => {
 	expect(continuation).toMatch(/cacheKey: targetChat\.id, background: true, workspaceChatId: targetChat\.id/)
   })
 
+  it('does not arm response supervision before a durable write was submitted', () => {
+	const start = source.indexOf('const requests = pendingBundleRequestIDs(candidate)')
+	const recovery = source.slice(start, source.indexOf('return { chat, session: candidate }', start))
+	expect(recovery).toMatch(/chatAgentTasksForRequest\(requestId\)/)
+	expect(recovery).toMatch(/\['BOT_WRITE', 'RECOVERY_WRITE'\]/)
+	expect(recovery).toMatch(/status === 'DONE'/)
+	expect(recovery).toMatch(/if \(requestWrites\.length && !requestWriteSubmitted\) return/)
+	expect(recovery.indexOf('requestWriteSubmitted')).toBeLessThan(recovery.indexOf('resumeExpectedBundle'))
+  })
+
   it('dispatches a conflict immediately after importing the bundle that prepared it', () => {
 	const submission = source.slice(source.indexOf('async function submitBundleFile'), source.indexOf('async function recoverInterruptedExecution'))
 	expect(submission).toMatch(/submission\.conflict_prepared && updated\.state === 'conflict_resolution_pending'/)

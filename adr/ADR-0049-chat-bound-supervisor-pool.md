@@ -127,6 +127,19 @@ the attempt budget — and therefore needs bounds that are not a counter. Two ap
 - **Task age.** A supervision older than the expected-bundle TTL moves to `ATTENTION`. This bound survives
   a Desktop restart, which the in-memory expectation does not.
 
+### 7. Manual resume proves the original remote turn
+
+`Retomar pedido` is a recovery decision, not evidence that the original write
+arrived. Before it sends a short same-request continuation, the owning
+Supervisor must inspect the bound conversation structurally and find the exact
+canonical Wharnex request-archive filename inside an already-submitted user
+turn attachment/resource card. The probe returns booleans and bounded counts;
+it never returns or classifies prompt/assistant prose. Durable write state and
+network/upload observations remain useful diagnostics but do not replace this
+DOM proof. Without the proof, the Supervisor retires the stale response
+expectation and the UI invokes the persisted full-request resend path instead
+of sending `keep continue` into a turn that may never have started.
+
 ## Consequences
 
 - Alternating between up to six chats performs **no** provider navigation at all. That is the 429 source

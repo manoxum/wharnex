@@ -30,7 +30,7 @@ export { TerminalView } from './ExecutionHistorySurface'
 
 
 
-export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onControlExecutionPlan, onPrepareExecutionPlanReversal, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
+export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onResendPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onControlExecutionPlan, onPrepareExecutionPlanReversal, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
   session: Session
   events: HarnessEvent[]
@@ -46,6 +46,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   onChatGPTActivity?: (activity: ChatGPTActivity) => void
 	 onTransportFailure?: (requestId: string, reason: string) => void
   onCancelPendingRequest?: (requestId: string) => Promise<void>
+  onResendPendingRequest?: (requestId: string) => Promise<void>
   onContextSent?: (sha256: string, conversationUrl?: string) => void
   onExecute: (approved: boolean, sudoPassword?: string) => Promise<void>
   onApproveDebug?: () => Promise<void>
@@ -148,6 +149,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
           onChatGPTActivity={onChatGPTActivity}
           onTransportFailure={onTransportFailure}
           onCancelPendingRequest={onCancelPendingRequest}
+          onResendPendingRequest={onResendPendingRequest}
           onPlanFile={importPlanFile}
           onBundleFile={onBundleFile}
         />}
@@ -191,7 +193,7 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
 // the durable backend queue, so React must not keep a pane mounted per chat.
 // Re-rendering the same component with another chat id preserves one Supervisor
 // surface while Desktop coalesces navigation around submit/write critical phases.
-function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, busy, session, manualPrompt, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onPlanFile, onBundleFile }: {
+function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, busy, session, manualPrompt, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onResendPendingRequest, onPlanFile, onBundleFile }: {
   visible: boolean
   globallySuspended: boolean
   chats: WorkspaceChat[]
@@ -203,6 +205,7 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, bu
   onChatGPTActivity?: (activity: ChatGPTActivity) => void
   onTransportFailure?: (requestId: string, reason: string) => void
   onCancelPendingRequest?: (requestId: string) => Promise<void>
+  onResendPendingRequest?: (requestId: string) => Promise<void>
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
 }) {
@@ -230,6 +233,7 @@ function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, bu
         onActivity={onChatGPTActivity}
         onTransportFailure={onTransportFailure}
         onCancelPendingRequest={onCancelPendingRequest}
+        onResendPendingRequest={onResendPendingRequest}
         onPlanFile={onPlanFile}
         onBundleFile={onBundleFile}
       />
