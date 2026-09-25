@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	archiveChat, archiveSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  durableWorkspaceChat, enabledTunnelIds, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeRecent, loadPendingProjectPrompt, savePendingProjectPrompt, clearPendingProjectPrompt, loadProjectLogo, saveProjectLogo, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
+  durableWorkspaceChat, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeRecent, loadPendingProjectPrompt, savePendingProjectPrompt, clearPendingProjectPrompt, loadProjectLogo, saveProjectLogo, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -76,7 +76,6 @@ describe('workspace memory', () => {
     localStorage.removeItem('kernl.workspace.transport-options.v3')
     localStorage.setItem('kernl.workspace.transport-options.v2', JSON.stringify({ requestArchive: true, liveTunnels: false }))
     expect(loadTransportOptions()).toEqual({ disabledTunnelIds: ['*'] })
-    expect(enabledTunnelIds({ disabledTunnelIds: ['secondary'] }, [{ id: 'primary', available: true }, { id: 'secondary', available: true }, { id: 'offline', available: false }])).toEqual(['primary'])
   })
 
   it('deduplicates recent workspaces and can remove an item without touching the project', () => {
