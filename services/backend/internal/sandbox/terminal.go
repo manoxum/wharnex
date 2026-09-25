@@ -227,6 +227,13 @@ func ownedInteractiveTerminalContainer(container dockerContainerInspection, owne
 	}
 	labels := container.Config.Labels
 	if labels != nil {
+		// Docker Compose names the durable sidecar <project>-terminal-1, which
+		// overlaps the transient wharnex-terminal-* sandbox prefix. Compose
+		// ownership is authoritative: the backend must never reclaim a managed
+		// service container as stale interactive-terminal residue.
+		if strings.TrimSpace(labels["com.docker.compose.service"]) != "" {
+			return false
+		}
 		labelRoot := strings.TrimSpace(labels["wharness.root"])
 		role := strings.TrimSpace(labels["wharness.role"])
 		if labelRoot != "" || role != "" {

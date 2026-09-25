@@ -126,6 +126,16 @@ func TestOwnedInteractiveTerminalContainerUsesLabelsAndScopedLegacyMounts(t *tes
 		t.Fatal("terminal carrying this checkout's ownership labels must be reclaimable")
 	}
 
+	durableSidecar := terminalContainerInspectionForTest("/wharnex-terminal-1", map[string]string{
+		"wharness.role":              "terminal",
+		"wharness.root":              root,
+		"com.docker.compose.project": "wharnex",
+		"com.docker.compose.service": "terminal",
+	}, root)
+	if ownedInteractiveTerminalContainer(durableSidecar, root, privateTemp) {
+		t.Fatal("durable Compose terminal sidecar must never be reclaimed as transient residue")
+	}
+
 	foreign := terminalContainerInspectionForTest("/wharnex-terminal-pty_foreign", map[string]string{
 		"wharness.role": "terminal",
 		"wharness.root": filepath.Join(root, "other-checkout"),

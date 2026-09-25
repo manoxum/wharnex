@@ -11,7 +11,7 @@ _(reserved — no entries yet)_
 
 ### Chat e643aac8-3db9-4839-bd54-cf1c6d44ceca (2026-09-25)
 
-_(reserved — no entries yet)_
+- Impede a limpeza de terminais transitórios de remover o sidecar Compose durável `terminal`, eliminando o socket PTY órfão que fazia todos os terminais Host falharem com `connection refused`.
 
 
 ### Chat 687999cb-e16d-4199-8662-5fc1442b83f7 (2026-09-25)
