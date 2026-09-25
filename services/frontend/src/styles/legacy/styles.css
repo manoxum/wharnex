@@ -352,8 +352,6 @@ body.terminal-resizing { cursor: ns-resize; user-select: none; }
 .success-card { border-color: #b9d0ac; background: #edf4e7; color: #3f5e2c; }
 .warning-card { border-color: #dec9a9; background: #f5efe5; color: #765425; }
 .danger-card { border-color: #c98a80; background: #f6e2de; color: #803d34; }
-.manual-bundle-dropzone { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 14px; border: 1px dashed #b7bcae; border-radius: 9px; background: rgba(255,255,255,.35); color: #686d63; font-size: calc(11px * var(--ui-font-scale)); text-align: center; cursor: pointer; margin-bottom: 16px; }
-.manual-bundle-dropzone.drag-over { border-color: #6ba3a3; background: #dcf0ef; color: #23615f; }
 .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #d1d4ca; background: rgba(255,255,255,.38); margin-bottom: 16px; }
 .provider-grid .metric { border-right: 1px solid #d1d4ca; }
 .provider-grid .metric:last-child { border-right: 0; }

@@ -8,12 +8,13 @@ import { errorMessage } from '../lib/errorMessage'
 import { supervisorInstanceLabel } from '../lib/engineInstanceLabel'
 import { observeChatGPTOverlayBlockers } from '../lib/chatGPTOverlay'
 import { EngineInstanceSelector } from './EngineInstanceSelector'
+import { ManualChatGPTToolbar } from './ManualChatGPTToolbar'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
 const AGENT_FOLLOW_EVENT = 'wharnex:agent-follow'
 
-export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, sessionId, chatHash, requestedAt, recoveryBootstrap, onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest }: {
+export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, sessionId, chatHash, requestedAt, recoveryBootstrap, transportMode = 'scraper', manualPrompt = '', onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest }: {
   suspended?: boolean
   busy: boolean
   chatId: string
@@ -24,6 +25,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   chatHash?: string
   requestedAt?: string
   recoveryBootstrap?: string
+  transportMode?: 'scraper' | 'manual'
+  manualPrompt?: string
   onChatGPTURL: (url: string) => boolean
   onPlanFile: (json: string, requestId: string) => Promise<string>
   onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
@@ -53,6 +56,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     try { return window.localStorage.getItem(CHATGPT_CONTROLS_KEY) === '1' } catch { return false }
   })
   const bridge = desktopBridge()
+  const manualTransport = transportMode === 'manual'
 
   const applyDesktopState = useCallback((next: DesktopChatGPTState) => {
     if (next.cacheKey && next.cacheKey !== chatIdRef.current) return
@@ -141,6 +145,11 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       unsubscribe(); unsubscribeAuth(); unsubscribeAuthComplete(); unsubscribeAuthError(); unsubscribePlan(); unsubscribePlanError(); unsubscribeBundleError(); unsubscribeActivity(); unsubscribeAccount(); void bridge.chatgpt.hide(chatIdRef.current)
     }
   }, [bridge, applyDesktopState])
+
+  useEffect(() => {
+    if (!bridge) return
+    void bridge.chatgpt.setTransportMode?.(chatId, transportMode).catch(() => undefined)
+  }, [bridge, chatId, transportMode])
 
   useEffect(() => observeChatGPTOverlayBlockers(window, (blocked) => {
     // A WebContentsView is composited above the renderer. Hide it in the
@@ -350,6 +359,13 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       setRequestAction(null)
       return
     }
+    if (manualTransport) {
+      try { await bridge?.chatgpt.cancelRequest(chatId, pendingRequestId) }
+      catch (error) { setNotice(`Pedido cancelado no WHX; limpeza local incompleta: ${errorMessage(error)}`); setRequestAction(null); return }
+      setNotice(`Pedido ${pendingRequestId} cancelado no WHX. Se o ChatGPT ainda estiver a gerar, pare-o manualmente.`)
+      setRequestAction(null)
+      return
+    }
     const [remote, cleanup] = await Promise.allSettled([
       bridge ? bridge.chatgpt.stopConversation(chatId) : Promise.resolve({ ok: false, state: 'ponte indisponível' }),
       bridge ? bridge.chatgpt.cancelRequest(chatId, pendingRequestId) : Promise.resolve({ ok: false, cacheKey: chatId, requestId: pendingRequestId, cleared: false }),
@@ -424,6 +440,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       </div>
     </div>
 
+    {manualTransport && <ManualChatGPTToolbar chatId={chatId} manualPrompt={manualPrompt} pendingRequestId={pendingRequestId} state={state} busy={busy} onBundleFile={onBundleFile} onNotice={setNotice} />}
+
     {(pendingRequestId || controlsExpanded || !authenticated || Boolean(externalAuth)) && <div className="chatgpt-auth-compact-panel">
       {!authenticated && <strong>{externalAuth ? `Autenticação ${externalAuth.provider} em curso` : 'Autenticação necessária'}</strong>}
       <div className="chatgpt-auth-mode-actions" role="group" aria-label="Modo de autenticação ChatGPT">
@@ -431,7 +449,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
         <button className={state.authMode !== 'embedded' ? 'secondary-button active' : 'text-button'} type="button" disabled={busy} onClick={() => void startAuthentication('external')}><Icon name="external" size={13}/> Externo</button>
         <button className="text-button" type="button" disabled={busy} onClick={() => void bridge?.chatgpt.openExternal(linkedConversation || CHATGPT_HOME)}><Icon name="external" size={13}/> Navegador</button>
       </div>
-      {pendingRequestId && <div className="chatgpt-request-toolbar" role="group" aria-label={`Pedido ${pendingRequestId} sob supervisão`}>
+      {pendingRequestId && !manualTransport && <div className="chatgpt-request-toolbar" role="group" aria-label={`Pedido ${pendingRequestId} sob supervisão`}>
         <span className="chatgpt-request-chip" title={`Pedido ${pendingRequestId} sob supervisão`}><Icon name="bridge" size={12}/><code>{compactRequestId(pendingRequestId)}</code></span>
         <button className="text-button" type="button" disabled={busy || Boolean(requestAction)} onClick={() => void continuePendingRequest()}><Icon name="refresh" size={12}/>{requestAction === 'resume' ? 'A retomar…' : 'Retomar pedido'}</button>
         {onCancelPendingRequest && <button className="text-button danger" type="button" disabled={busy || Boolean(requestAction)} onClick={() => void stopPendingRequest()}><Icon name="close" size={12}/>{requestAction === 'stop' ? 'A parar…' : 'Parar pedido'}</button>}

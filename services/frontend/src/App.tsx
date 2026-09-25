@@ -1799,14 +1799,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       let draftCount = 0
       let autoSubmitted = false
       let transportFailure = ''
-      if (prompt && isDesktop() && response.session.chat_transport_mode !== 'manual') {
+      const manualTransport = response.session.chat_transport_mode === 'manual'
+      if (prompt && isDesktop()) {
         try {
           const bridge = desktopBridge()
           if (!bridge) throw new Error('Desktop bridge indisponível')
-          if (activeChatIdRef.current === targetChat.id) setTransportProgress('A preparar o bundle ZIP e a publicar apenas os túneis selecionados…')
+          if (activeChatIdRef.current === targetChat.id) setTransportProgress(manualTransport ? 'A preparar o bundle para entrega manual no Engine…' : 'A preparar o bundle ZIP e a publicar apenas os túneis selecionados…')
           const prepared = await bridge.chatgpt.preparePrompt({
             cacheKey: targetChat.id, workspaceChatId: targetChat.id, text: prompt, transport, tunnelInstanceIds, bootstrapText: message, url: targetChat.chatgptUrl, sessionId: response.session.id,
-            requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: isAutomaticAutomationMode(automationMode),
+            requestId: response.session.last_request_id || '', attachments: encoded, artifacts: systemArtifacts, autoSubmit: !manualTransport && isAutomaticAutomationMode(automationMode), manualTransport,
             expectedFilename: expectedResponseBundleName(prompt, requestId),
             projectFiles,
             contextSha256: sessionContextSHA(response.session), lastContextSha256: targetChat.lastContextSha256,
@@ -1838,7 +1839,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
             mutateChatItems(targetChat, response.session.project_path, (current) => current.map((item) => item.id === messageId ? { ...item, iteration: iterationRef(requestId, prepared.submitted ? 'submitted' : 'prepared', actualArtifacts, prepared.conversationUrl || targetChat.chatgptUrl) } : item))
           }
           updateWorkspaceChat(targetChat.id, response.session.project_path, { artifactSelection: { context: false, result: false, error: false } })
-          if (!prepared.submitted) setPreparedDrafts((current) => ({ ...current, [targetChat.id]: prepared.attachmentCount }))
+          if (!manualTransport && !prepared.submitted) setPreparedDrafts((current) => ({ ...current, [targetChat.id]: prepared.attachmentCount }))
           setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[targetChat.id]; return next })
           failedPromptDeliveryKeysRef.current.delete(deliveryKey)
         } catch (prepareError) {
@@ -1872,13 +1873,17 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
               ? `O pedido não pôde ser persistido porque o armazenamento local está sem espaço: ${transportFailure}`
               : promptDeliveryFailureKind(transportFailure) === 'attention'
               ? `O ChatGPT está aberto, mas ainda não expõe um campo de escrita utilizável: ${transportFailure}`
-              : `O prompt foi preparado, mas não foi possível montar o rascunho no ChatGPT: ${transportFailure}`
+              : manualTransport
+                ? `O prompt foi preparado, mas não foi possível montar o fallback manual no Engine: ${transportFailure}`
+                : `O prompt foi preparado, mas não foi possível montar o rascunho no ChatGPT: ${transportFailure}`
             : autoSubmitted
               ? 'Entrada do planner submetida automaticamente ao ChatGPT em modo Auto. O Wharnex aguarda agora o download validado do bundle.'
             : draftCount
-              ? 'A preparação foi enviada ao composer do ChatGPT. Verifique visualmente a entrada preparada antes de confirmar o envio.'
+              ? (manualTransport
+                ? 'Fallback manual preparado no Engine. Use a toolbar para copiar o prompt e entregar o bundle pendente pelo picker ou pela área de transferência.'
+                : 'A preparação foi enviada ao composer do ChatGPT. Verifique visualmente a entrada preparada antes de confirmar o envio.')
               : 'Prompt do planner preparado. No ChatGPT, gere o bundle ZIP solicitado e clique em Download; o Desktop irá importá-lo automaticamente.',
-        meta: immediatePlannerFailure ? `Pedido não concluído · ${turn?.outcome?.retryable ? 'pode ser repetido' : 'requer intervenção'}` : (immediateConversationalTurn ? turnMeta(turn!.kind) : (response.session.state === 'applied' ? 'AUTO · Host aplicado' : (response.session.plan ? `Plano ${response.session.plan.plan_id}` : (autoSubmitted ? `${draftCount} item(ns) de entrada transportados · aguardando resultado ZIP` : (draftCount ? `${draftCount} item(ns) de entrada preparados · aguardando confirmação` : 'Aguardando resultado externo'))))),
+        meta: immediatePlannerFailure ? `Pedido não concluído · ${turn?.outcome?.retryable ? 'pode ser repetido' : 'requer intervenção'}` : (immediateConversationalTurn ? turnMeta(turn!.kind) : (response.session.state === 'applied' ? 'AUTO · Host aplicado' : (response.session.plan ? `Plano ${response.session.plan.plan_id}` : (autoSubmitted ? `${draftCount} item(ns) de entrada transportados · aguardando resultado ZIP` : (draftCount ? (manualTransport ? `${draftCount} bundle(s) manuais preparados · scraper desligado` : `${draftCount} item(ns) de entrada preparados · aguardando confirmação`) : 'Aguardando resultado externo'))))),
         turnKind: turn?.kind,
         approval: immediatePlanProposal && requestId ? { status: 'pending', requestId, originalMessage: message } : undefined,
         iteration: immediatePlannerFailure && requestId ? iterationRef(requestId, 'failed', ['error'], targetChat.chatgptUrl) : undefined,
@@ -2430,7 +2435,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   async function transportPlannerContinuation(promptSession: Session, targetChat: WorkspaceChat, options?: { forceContext?: boolean }) {
     const text = promptSession.last_manual_prompt || ''
     if (!text) throw new Error('Continuação do planner vazia.')
-    if (promptSession.chat_transport_mode === 'manual') throw new Error('Este chat está em modo Manual: copie o prompt e submeta o bundle de resposta manualmente.')
+    const manualTransport = promptSession.chat_transport_mode === 'manual'
     const continuationArtifacts = continuationArtifactSelection(promptSession)
     const transport = targetChat.transport || globalTransport
     const continuationRequestId = activePendingRequestId(promptSession)
@@ -2438,17 +2443,30 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
     const bridge = desktopBridge()
     if (!bridge) throw new Error('Desktop bridge indisponível')
-	const prepared = await bridge.chatgpt.preparePrompt({
-	  cacheKey: targetChat.id, background: true, workspaceChatId: targetChat.id, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetChat.chatgptUrl, sessionId: promptSession.id,
-      requestId: continuationRequestId, attachments: [], artifacts: await encodeSystemArtifacts(promptSession, continuationArtifacts), autoSubmit: true,
-      expectedFilename: expectedResponseBundleName(text, continuationRequestId),
-      projectFiles: [],
-	  contextSha256: sessionContextSHA(promptSession), lastContextSha256: targetChat.lastContextSha256,
-	  lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: options?.forceContext ?? continuationArtifacts.context, preferCurrentConversation: false,
-      chatTitle: targetChat.title, requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
-      projectPath: promptSession.project_path,
-      reasoningEffort: promptSession.reasoning_effort || 'high',
-    })
+    const artifacts = await encodeSystemArtifacts(promptSession, continuationArtifacts)
+    const prepared = manualTransport
+      ? await bridge.chatgpt.preparePrompt({
+          cacheKey: targetChat.id, background: false, workspaceChatId: targetChat.id, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetChat.chatgptUrl, sessionId: promptSession.id,
+          requestId: continuationRequestId, attachments: [], artifacts, autoSubmit: false, manualTransport: true,
+          expectedFilename: expectedResponseBundleName(text, continuationRequestId),
+          projectFiles: [],
+          contextSha256: sessionContextSHA(promptSession), lastContextSha256: targetChat.lastContextSha256,
+          lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: options?.forceContext ?? continuationArtifacts.context, preferCurrentConversation: false,
+          chatTitle: targetChat.title, requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
+          projectPath: promptSession.project_path,
+          reasoningEffort: promptSession.reasoning_effort || 'high',
+        })
+      : await bridge.chatgpt.preparePrompt({
+          cacheKey: targetChat.id, background: true, workspaceChatId: targetChat.id, text, transport, tunnelInstanceIds: enabledTunnelIds(transport, config?.remote_input?.instances || []), url: targetChat.chatgptUrl, sessionId: promptSession.id,
+          requestId: continuationRequestId, attachments: [], artifacts, autoSubmit: true,
+          expectedFilename: expectedResponseBundleName(text, continuationRequestId),
+          projectFiles: [],
+          contextSha256: sessionContextSHA(promptSession), lastContextSha256: targetChat.lastContextSha256,
+          lastContextChatgptUrl: targetChat.lastContextChatgptUrl, includeContext: options?.forceContext ?? continuationArtifacts.context, preferCurrentConversation: false,
+          chatTitle: targetChat.title, requestedAt: promptSession.request_lineages?.[continuationRequestId]?.created_at || new Date().toISOString(),
+          projectPath: promptSession.project_path,
+          reasoningEffort: promptSession.reasoning_effort || 'high',
+        })
 	const bindingAccepted = prepared.conversationUrl ? bindChatGPTURLForOwnedKey(targetChat.id, promptSession.project_path, prepared.conversationUrl) : true
     const patch: Partial<WorkspaceChat> = {}
 	if (!prepared.queued && prepared.includedContext && bindingAccepted) {
@@ -2825,7 +2843,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         meta: 'Reversão calculada por GPT',
         iteration: response.session.last_request_id ? iterationRef(response.session.last_request_id, 'prepared', selectedArtifactKinds(continuationArtifactSelection(response.session)), targetChat.chatgptUrl) : undefined,
       })
-      if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) await transportPlannerContinuation(response.session, targetChat)
+      if (response.session.last_manual_prompt) await transportPlannerContinuation(response.session, targetChat)
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
 
@@ -2875,7 +2893,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         text: 'Pedido de reversão enviado ao ciclo GPT. O Wharnex preserva o plano aplicado e o estado atual como evidência até a reversão calculada ser verificada e aplicada.',
         meta: 'Reversão GPT preparada',
       })
-      if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) await transportPlannerContinuation(response.session, targetChat)
+      if (response.session.last_manual_prompt) await transportPlannerContinuation(response.session, targetChat)
     } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
   }
 
@@ -2989,7 +3007,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const updated = await api.setChatTransportMode(targetSession.id, next)
       acceptSessionForChat(targetChat, updated)
       if (activeChatIdRef.current === targetChat.id) setChatTransportMode(next)
-      if (isDesktop()) { try { await desktopBridge()?.chatgpt.setTransportMode(targetChat.id, next) } catch { /* best-effort defense in depth; the primary guard is never calling preparePrompt while manual */ } }
+      if (isDesktop()) { try { await desktopBridge()?.chatgpt.setTransportMode(targetChat.id, next) } catch { /* best-effort transport sync; Desktop also honors manualTransport on prepared requests */ } }
       appendChatItem(targetChat, updated.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: next === 'manual' ? 'Modo Manual ativado para este chat. O Wharnex deixa de interagir com o ChatGPT — copie o prompt e entregue o bundle de resposta manualmente.' : 'Modo Scraper ativado para este chat. O Wharnex volta a interagir diretamente com o ChatGPT.', meta: next === 'manual' ? 'Manual' : 'Scraper' })
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
   }
@@ -3283,7 +3301,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       acceptSessionForChat(targetChat, result.session)
       if (activeChatIdRef.current === targetChat.id) setManualPrompt(result.session.last_manual_prompt || '')
       let submitted = false
-      if (result.session.chat_transport_mode !== 'manual' && result.session.last_manual_prompt) {
+      if (result.session.last_manual_prompt) {
         const prepared = await transportPlannerContinuation(result.session, targetChat)
         submitted = prepared.submitted
         setChatgptAttentionNonce((value) => value + 1)
@@ -3348,7 +3366,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (activeChatIdRef.current === active.id) setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
       mutateChatItems(active, response.session.project_path, (current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'approved' } } : entry))
       updateChat({ pendingPlan: undefined, requestMode: 'direct' })
-      if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) {
+      if (response.session.last_manual_prompt) {
         const prepared = await transportPlannerContinuation(response.session, active)
         appendChatItem(active, response.session.project_path, {
           id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),
@@ -3385,7 +3403,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (activeChatIdRef.current === active.id) setManualPrompt(response.manual_prompt || response.session.last_manual_prompt || '')
       mutateChatItems(active, response.session.project_path, (current) => current.map((entry) => entry.id === item.id && entry.approval ? { ...entry, approval: { ...entry.approval, status: 'superseded' } } : entry))
       updateChat({ pendingPlan: { requestId: response.session.last_request_id || item.approval.requestId, originalMessage: item.approval.originalMessage }, requestMode: 'direct' })
-      if (response.session.chat_transport_mode !== 'manual' && response.session.last_manual_prompt) {
+      if (response.session.last_manual_prompt) {
         const prepared = await transportPlannerContinuation(response.session, active)
         appendChatItem(active, response.session.project_path, {
           id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(),

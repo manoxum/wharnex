@@ -445,7 +445,7 @@ test('Desktop sends one logical request and uses configured multipart transport 
   const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function attachContextToChatGPT', start)
   const prepare = source.slice(start, end)
-  assert.match(prepare, /const tunnelInstanceIds = normalizeTunnelInstanceIDs\(request\?\.tunnelInstanceIds\)/)
+  assert.match(prepare, /const tunnelInstanceIds = manualTransport \? \[\] : normalizeTunnelInstanceIDs\(request\?\.tunnelInstanceIds\)/)
   assert.match(prepare, /materializeChatInput\([^\n]+directPrompt/)
   assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, remoteInput\?\.tunnels \|\| \[\], input\.requestMetadata, input\.multipart\)/)
   assert.match(prepare, /for \(let index = 0; index < input\.uploadPaths\.length; index \+= 1\) await pasteChatGPTFile/)
@@ -1561,40 +1561,6 @@ test('activity polling is single-flight and reads visible reasoning only for an 
   assert.notEqual(activityProbe, -1)
   assert.ok(expected < activityProbe, 'the expected-response check must precede the expensive reasoning probe')
   assert.match(body, /if \(!expectedActive\) continue/)
-})
-
-test('Manual chat transport mode disarms bundle polling, skips activity probing, and lets downloads pass through uncontrolled', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-
-  const pollDownloadStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
-  const pollDownloadEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', pollDownloadStart)
-  assert.notEqual(pollDownloadStart, -1)
-  const pollDownload = source.slice(pollDownloadStart, pollDownloadEnd)
-  const transportGuard = pollDownload.indexOf("chatgptTransportModes.get(key) === 'manual'")
-  const ttlCheck = pollDownload.indexOf('EXPECTED_BUNDLE_TTL_MS')
-  assert.notEqual(transportGuard, -1)
-  assert.ok(transportGuard < ttlCheck, 'the manual-mode guard must run before any other bundle-wait bookkeeping')
-
-  const pollActivityStart = source.indexOf('async function pollChatGPTVisibleActivity()')
-  const pollActivityEnd = source.indexOf('\nasync function performChatGPTRecoveryAction', pollActivityStart)
-  assert.notEqual(pollActivityStart, -1)
-  const pollActivity = source.slice(pollActivityStart, pollActivityEnd)
-  const activityGuard = pollActivity.indexOf("chatgptTransportModes.get(key) === 'manual'")
-  const firstProbe = pollActivity.indexOf('executeJavaScript(chatGPTHumanActionScript()')
-  assert.notEqual(activityGuard, -1)
-  assert.ok(activityGuard < firstProbe, 'the manual-mode guard must run before any DOM probe')
-
-  const registerStart = source.indexOf('function registerChatGPTPlanDownloads(chatSession)')
-  const registerEnd = source.indexOf('\nfunction publishBundleDownloadError', registerStart)
-  assert.notEqual(registerStart, -1)
-  const register = source.slice(registerStart, registerEnd)
-  const downloadGuard = register.indexOf("chatgptTransportModes.get(sourceCacheKey) === 'manual'")
-  const firstInterception = register.indexOf('canonicalWharnessBundleDownload(')
-  assert.notEqual(downloadGuard, -1)
-  assert.ok(downloadGuard < firstInterception, 'the manual-mode guard must run before any download interception')
-
-  const handlerStart = source.indexOf("ipcMain.handle('wharness:chatgpt:set-transport-mode'")
-  assert.notEqual(handlerStart, -1)
 })
 
 test('a re-click of the expected bundle download is guarded against an in-flight download, and delivered bundles are deduplicated by request id', async () => {
