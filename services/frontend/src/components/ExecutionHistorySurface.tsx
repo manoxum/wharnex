@@ -3,6 +3,7 @@ import type { HarnessEvent, Session } from '../types'
 import { buildExecutionTimeline, groupExecutionSubtasks, type ExecutionSubtaskGroup, type ExecutionTimelineEntry, type ExecutionTimelineOverview } from '../lib/executionTimeline'
 import { groupMainRequestActivity } from '../lib/projectActivity'
 import { activityExportFilename, buildMainExecutionExport, buildSubexecutionExport, downloadActivityExport } from '../lib/activityExport'
+import { resolveExportTraceMetadata } from '../lib/exportMetadata'
 import { formatActivityDate, formatActivityDuration, shortRequestId } from '../lib/activityFormat'
 import { filterExecutionAuditEvents } from '../lib/executionAudit'
 import { currentMainRequestRoot, executionActivityOverview } from '../lib/executionActivityStatus'
@@ -16,15 +17,15 @@ export function ExecutionHistorySurface({ session, events, loading, error }: { s
   const groups = useMemo(() => groupMainRequestActivity(session, events).map((group) => ({ ...group, events: filterExecutionAuditEvents(group.events) })).filter((group) => group.events.length), [events, session])
   const activeRequestId = String(session.last_request_id || '').trim()
   const activeRootRequestId = currentMainRequestRoot(session)
-  if (!groups.length) return <>{loading && <ContentSkeleton label="A carregar histórico de execução" rows={5}/>} {error && <AuditHistoryNotice text={error} danger/>}{!loading && <TerminalView events={[]} />}</>
+  if (!groups.length) return <>{loading && <ContentSkeleton label="A carregar histórico de execução" rows={5}/>} {error && <AuditHistoryNotice text={error} danger/>}{!loading && <TerminalView session={session} events={[]} />}</>
   return <div className="main-request-history execution-history">
     <AuditHistoryNotice text={loading ? 'A atualizar o histórico durável de execução…' : `${groups.length} Main Request(s) com atividade de execução auditável.`} danger={Boolean(error)}/>
     {error && <AuditHistoryNotice text={error} danger/>}
-    {groups.map((group, index) => <ExecutionHistoryBlock key={group.rootRequestId} group={group} defaultOpen={index === 0} allowActive={group.rootRequestId === activeRootRequestId} activeRequestId={group.rootRequestId === activeRootRequestId ? activeRequestId : ''}/>) }
+    {groups.map((group, index) => <ExecutionHistoryBlock key={group.rootRequestId} group={group} session={session} defaultOpen={index === 0} allowActive={group.rootRequestId === activeRootRequestId} activeRequestId={group.rootRequestId === activeRootRequestId ? activeRequestId : ''}/>) }
   </div>
 }
 
-function ExecutionHistoryBlock({ group, defaultOpen, allowActive, activeRequestId }: { group: ReturnType<typeof groupMainRequestActivity>[number]; defaultOpen: boolean; allowActive: boolean; activeRequestId: string }) {
+function ExecutionHistoryBlock({ group, session, defaultOpen, allowActive, activeRequestId }: { group: ReturnType<typeof groupMainRequestActivity>[number]; session: Session; defaultOpen: boolean; allowActive: boolean; activeRequestId: string }) {
   const [open, setOpen] = useState(defaultOpen)
   const entries = useMemo(() => buildExecutionTimeline(group.events), [group.events])
   const subtasks = useMemo(() => groupExecutionSubtasks(entries), [entries])
@@ -34,18 +35,21 @@ function ExecutionHistoryBlock({ group, defaultOpen, allowActive, activeRequestI
   }), [activeRequestId, allowActive, subtasks])
   const overview = executionActivityOverview(entries, allowActive, activeRequestId)
   const status = executionStatus(overview)
-  const exportGroup = () => downloadActivityExport(activityExportFilename('execucao', group.rootRequestId), buildMainExecutionExport(group.rootRequestId, group.updatedAt, visibleSubtasks))
+  const exportGroup = async () => {
+    const metadata = await resolveExportTraceMetadata(session, { kind: 'execution', rootRequestId: group.rootRequestId })
+    downloadActivityExport(activityExportFilename('execucao', group.rootRequestId), buildMainExecutionExport(group.rootRequestId, group.updatedAt, visibleSubtasks, metadata))
+  }
   return <details className={`main-request-block execution-main-request tone-${overview}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary className="main-request-summary">
       <span className="main-request-summary-mark"><Icon name="terminal" size={14}/></span>
       <span className="main-request-summary-copy"><span className="panel-kicker">Main Request · execução</span><strong>{status}</strong><small>{formatActivityDate(group.updatedAt)} · {visibleSubtasks.length || group.requestIds.length || 1} subtarefa(s) · {group.events.length} eventos</small></span>
       <span className="main-request-summary-meta"><span className="history-summary-context"><code title={group.rootRequestId}>{shortRequestId(group.rootRequestId)}</code><span className="history-count">{visibleSubtasks.length || group.requestIds.length || 1}</span></span><span className="history-summary-actions"><HistoryExportButton label="Exportar execução" onExport={exportGroup}/><span className="history-chevron"><Icon name="chevron-right" size={14}/></span></span></span>
     </summary>
-    {open && <div className="main-request-execution-detail"><TerminalView events={group.events} compact allowActive={allowActive} activeRequestId={activeRequestId}/></div>}
+    {open && <div className="main-request-execution-detail"><TerminalView session={session} events={group.events} compact allowActive={allowActive} activeRequestId={activeRequestId}/></div>}
   </details>
 }
 
-export function TerminalView({ events, compact = false, allowActive = true, activeRequestId = '' }: { events: HarnessEvent[]; compact?: boolean; allowActive?: boolean; activeRequestId?: string }) {
+export function TerminalView({ session, events, compact = false, allowActive = true, activeRequestId = '' }: { session: Session; events: HarnessEvent[]; compact?: boolean; allowActive?: boolean; activeRequestId?: string }) {
   const entries = useMemo(() => buildExecutionTimeline(events), [events])
   const subtasks = useMemo(() => groupExecutionSubtasks(entries), [entries])
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -64,17 +68,20 @@ export function TerminalView({ events, compact = false, allowActive = true, acti
       {subtasks.map((group, index) => {
         const overview = executionActivityOverview(group.entries, allowActive, activeRequestId)
         const visibleGroup = overview === group.overview ? group : { ...group, overview }
-        return <ExecutionSubtaskBlock key={group.id} group={visibleGroup} sequence={index + 1} defaultOpen={overview === 'active' || overview === 'waiting' || index === subtasks.length - 1} expanded={expanded} onToggleEntry={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })}/>
+        return <ExecutionSubtaskBlock key={group.id} group={visibleGroup} session={session} sequence={index + 1} defaultOpen={overview === 'active' || overview === 'waiting' || index === subtasks.length - 1} expanded={expanded} onToggleEntry={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })}/>
       })}
       <div ref={endRef}/>
     </div>
   </div>
 }
 
-function ExecutionSubtaskBlock({ group, sequence, defaultOpen, expanded, onToggleEntry }: { group: ExecutionSubtaskGroup; sequence: number; defaultOpen: boolean; expanded: Set<string>; onToggleEntry: (id: string) => void }) {
+function ExecutionSubtaskBlock({ group, session, sequence, defaultOpen, expanded, onToggleEntry }: { group: ExecutionSubtaskGroup; session: Session; sequence: number; defaultOpen: boolean; expanded: Set<string>; onToggleEntry: (id: string) => void }) {
   const [open, setOpen] = useState(defaultOpen)
   const requestId = group.requestId || group.rootRequestId
-  const exportGroup = () => downloadActivityExport(activityExportFilename('subexecucao', requestId), buildSubexecutionExport(group, sequence))
+  const exportGroup = async () => {
+    const metadata = await resolveExportTraceMetadata(session, { kind: 'subexecution', rootRequestId: group.rootRequestId || requestId, requestId })
+    downloadActivityExport(activityExportFilename('subexecucao', requestId), buildSubexecutionExport(group, sequence, metadata))
+  }
   return <details className={`execution-subtask tone-${group.overview}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary className="execution-subtask-summary">
       <span className="execution-subtask-index">{String(sequence).padStart(2, '0')}</span>

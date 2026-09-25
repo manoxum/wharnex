@@ -1,7 +1,7 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 ### Chat c5e9b688-1bae-4ce6-9955-d8bbe6905a0d (2026-09-25)
 
-_(reserved — no entries yet)_
+- Inclui metadados de rastreio (data, versões do Wharnex/projeto e correlação de request/contexto) nos exports de chat, plano e execução.
 
 
 ### Chat e643aac8-3db9-4839-bd54-cf1c6d44ceca (2026-09-25)

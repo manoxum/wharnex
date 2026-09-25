@@ -1,5 +1,6 @@
 import { type ComponentProps, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { api, APIError } from './lib/api'
+import { exportTraceChatItem, resolveExportTraceMetadata } from './lib/exportMetadata'
 import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError } from './lib/bundleRouting'
 import { isAutomaticAutomationMode, isAutoApproveAutomationMode } from './lib/automationMode'
 import { knowledgeConsolidationPending, requestChainActive } from './lib/requestActivity'
@@ -932,11 +933,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!target || target.sessionId !== session.id) return
     setChatBusy(target.id, true); setError(undefined)
     try {
+      const metadata = await resolveExportTraceMetadata(session, { kind: 'chat' })
       const exported = await api.exportChat(session.id, {
         chat_id: target.id,
         title: target.title,
         chatgpt_url: target.chatgptUrl,
-        chat_items: items,
+        chat_items: [exportTraceChatItem(metadata), ...items],
         frontend_events: events,
       })
       const url = URL.createObjectURL(exported.blob)
