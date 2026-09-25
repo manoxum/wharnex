@@ -1,7 +1,7 @@
 import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, ExecutionPlan, Interview, InterviewQuestion, ManagedArtifact, ChatFileRecord, ProjectTodo, QueuedChatRequest, Session } from '../types'
 import type { ReasoningEffort } from '../types'
-import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, clearComposerDraft, flushComposerDraftSave, loadComposerDraft, loadComposerFileDraft, loadComposerStoredFileDraft, saveComposerFileDraft, saveComposerStoredFileDraft, scheduleComposerDraftSave, type ComposerStoredAttachmentDraft, type TransportOptions, type WorkspaceChat } from '../lib/workspaceMemory'
+import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, clearComposerDraft, flushComposerDraftSave, loadComposerDraft, loadComposerFileDraft, loadComposerStoredFileDraft, saveComposerFileDraft, saveComposerStoredFileDraft, scheduleComposerDraftSave, type ComposerStoredAttachmentDraft, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { ExecutionModeControls } from './ExecutionModeControls'
 import { InternalWindow } from './InternalWindow'
@@ -144,9 +144,6 @@ export type ChatPanelProps = {
   artifactRequired?: Partial<Record<ChatArtifactKind, boolean>>
   artifactContent?: Partial<Record<ChatArtifactKind, string>>
   requestMode?: ChatRequestMode
-  globalTransport?: TransportOptions
-  chatTransport?: TransportOptions
-  tunnelInstances?: Array<{ id: string; provider: string; available: boolean; error?: string }>
   taskInFlight?: boolean
   queuedRequests?: QueuedChatRequest[]
   transportProgress?: string
@@ -160,7 +157,6 @@ export type ChatPanelProps = {
   onKnowledgeSharing?: (enabled: boolean) => void
   onToggleArtifact?: (kind: ChatArtifactKind) => void
   onRequestMode?: (mode: ChatRequestMode) => void
-  onChatTransport?: (transport?: TransportOptions) => void
   onComposerTyping?: () => void
   onSend: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection, requestMode: ChatRequestMode) => Promise<void>
   onAdjustExecutionPlan?: (message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) => Promise<void>
@@ -199,7 +195,7 @@ export type ChatPanelProps = {
   onGenerateChatTitle?: (chatId: string) => Promise<void>
 }
 
-export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, compactComposer = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, reasoningEffort, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', globalTransport = { disabledTunnelIds: [] }, chatTransport, tunnelInstances = [], taskInFlight = false, queuedRequests = [], transportProgress = '', transportRequestId = '', onExecutionMode, onAutomationMode, onDebugMode, onEffortLevel, onReasoningEffort, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onChatTransport, onComposerTyping, onSend, onAdjustExecutionPlan, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onSaveChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, compactComposer = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, reasoningEffort, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', taskInFlight = false, queuedRequests = [], transportProgress = '', transportRequestId = '', onExecutionMode, onAutomationMode, onDebugMode, onEffortLevel, onReasoningEffort, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onComposerTyping, onSend, onAdjustExecutionPlan, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onSaveChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
   const [initialDraft] = useState(() => loadComposerDraft(session.project_path, activeChatId))
   const [initialFileDraft] = useState(() => loadComposerFileDraft(session.project_path, activeChatId))
   const [message, setMessage] = useState(initialDraft.message)
@@ -223,7 +219,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [editingQueueId, setEditingQueueId] = useState('')
   const [editingQueueText, setEditingQueueText] = useState('')
   const [todoOpen, setTodoOpen] = useState(false)
-  const [contextChannelOpen, setContextChannelOpen] = useState(false)
   const [attachmentsPanelOpen, setAttachmentsPanelOpen] = useState(false)
   const [attachmentsPanelPath, setAttachmentsPanelPath] = useState<string>()
   const [attachmentsPanelKind, setAttachmentsPanelKind] = useState<'attach' | 'ref'>('attach')
@@ -267,28 +262,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const currentChatTransportMode = chatTransportMode || session.chat_transport_mode || 'scraper'
   const knowledgeSharingEnabled = session.knowledge_sharing_enabled !== false
   const composerProjectName = session.project_path.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) || session.project_path
-  const effectiveTransport = chatTransport || globalTransport
   const composerRef = useRef<HTMLFormElement>(null)
-  const contextChannelRef = useRef<HTMLSpanElement>(null)
   const composerResizeRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(null)
   const copiedResetTimerRef = useRef<number | null>(null)
   const composerTypingTimerRef = useRef<number | null>(null)
   const richEditorRef = useRef<ComposerRichEditorHandle>(null)
   const composerMessageRef = useRef(initialDraft.message)
 
-  useEffect(() => {
-    if (!contextChannelOpen) return
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !contextChannelRef.current?.contains(event.target)) setContextChannelOpen(false)
-    }
-    const onKeyDown = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') setContextChannelOpen(false) }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [contextChannelOpen])
   const composerCaretRef = useRef(initialDraft.message.length)
   const editorShellRef = useRef<HTMLDivElement>(null)
   const draftPersistRevisionRef = useRef(0)
@@ -1175,7 +1155,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           {attachedPaths.length > 0 && <button type="button" className={attachmentsPanelOpen ? 'composer-round-action selected' : 'composer-round-action'} aria-pressed={attachmentsPanelOpen} onClick={() => { setAttachmentsPanelPath(undefined); setAttachmentsPanelKind('attach'); setAttachmentsPanelOpen((open) => !open) }} title="Escolher o que é enviado de cada caminho anexado" aria-label="Conteúdo dos caminhos anexados"><Icon name="folder" size={12}/><b>{attachedPaths.length}</b></button>}
           {!compactComposer && <>
           <span className="composer-action-divider" />
-          <span ref={contextChannelRef} className="context-channel-picker"><button type="button" className={`composer-round-action ${contextChannelOpen || effectiveTransport.disabledTunnelIds.length ? 'selected' : ''}`} aria-expanded={contextChannelOpen} aria-haspopup="menu" aria-label="Túneis do ChatGPT" title="Ligar ou desligar túneis; o bundle ZIP é sempre enviado" onClick={() => setContextChannelOpen((open) => !open)}><Icon name="network" size={12}/></button>{contextChannelOpen && <span className="context-channel-menu" role="menu" data-chatgpt-overlay-blocker="true"><strong>Canais remotos</strong><span className="transport-protocol-note"><Icon name="file" size={13}/><span>Bundle ZIP<small>Sempre incluído em qualquer requisição</small></span><Icon name="check" size={13}/></span><TransportChoices value={effectiveTransport} tunnels={tunnelInstances} onChoose={(next) => onChatTransport?.(next)}/>{chatTransport && <button type="button" className="transport-use-default" onClick={() => onChatTransport?.(undefined)}><Icon name="refresh" size={13}/><span>Usar padrão global<small>Repõe a seleção global dos túneis</small></span></button>}</span>}</span>
           <button type="button" className={`composer-round-action ${knowledgeSharingEnabled ? 'selected' : ''}`} disabled={busy || !onKnowledgeSharing} aria-pressed={knowledgeSharingEnabled} aria-label="Conhecimento do projeto" title={knowledgeSharingEnabled ? 'Conhecimento ligado · enviar e atualizar conhecimento incremental nesta requisição' : 'Conhecimento desligado · não enviar catálogo existente; novas aprendizagens continuam a ser recolhidas'} onClick={() => onKnowledgeSharing?.(!knowledgeSharingEnabled)}><Icon name="knowledge" size={12}/>{knowledgeSharingEnabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <button type="button" className={`composer-round-action debug-mode ${session.debug_enabled ? 'selected' : ''}`} disabled={busy || !onDebugMode} aria-pressed={Boolean(session.debug_enabled)} aria-label="Modo interativo" title={session.debug_enabled ? 'Interativo ligado · observações seguras podem continuar automaticamente' : 'Interativo desligado · a primeira observação de cada pedido pedirá autorização'} onClick={() => onDebugMode?.(!session.debug_enabled)}><Icon name="code" size={12}/>{session.debug_enabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <ExecutionModeControls mode={currentExecutionMode} busy={busy} selfEvolution={Boolean(session.self_evolution)} onChange={onExecutionMode} />
@@ -1384,25 +1363,6 @@ function ChangeSummaryCard({ item, onInspect, onOpenFile, onRevert }: { item: Ch
 
 function DiffInspector({ sessionId, file, onOpenFile, onClose }: { sessionId: string; file: ChatChangeFile; onOpenFile?: (path: string) => void; onClose: () => void }) {
   return <InternalWindow title={`Diff de ${file.path}`} onClose={onClose} layerClassName="diff-inspector-backdrop"><section className="diff-inspector" role="dialog" aria-modal="false" aria-label={`Diff de ${file.path}`}><header><div><strong>{file.path}</strong><span>+{file.additions} −{file.deletions}</span></div><div><button type="button" className="text-button" onClick={() => { onOpenFile?.(file.path); onClose() }}><Icon name="file" size={12}/> Abrir no Editor</button><button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></div></header><ChangeDiffEditor sessionId={sessionId} file={file}/></section></InternalWindow>
-}
-
-function TransportChoices({ value, tunnels, onChoose }: { value: TransportOptions; tunnels: Array<{ id: string; provider: string; available: boolean; error?: string }>; onChoose?: (value: TransportOptions) => void }) {
-  const disabled = new Set(value.disabledTunnelIds)
-  const toggle = (id: string) => {
-    if (disabled.has('*')) {
-      onChoose?.({ disabledTunnelIds: tunnels.map((tunnel) => tunnel.id).filter((tunnelId) => tunnelId !== id) })
-      return
-    }
-    const next = new Set(disabled)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    onChoose?.({ disabledTunnelIds: [...next] })
-  }
-  if (!tunnels.length) return <span className="transport-empty">Nenhum túnel configurado.</span>
-  return <>{tunnels.map((tunnel) => {
-    const enabled = tunnel.available && !disabled.has('*') && !disabled.has(tunnel.id)
-    return <button key={tunnel.id} type="button" role="menuitemcheckbox" aria-checked={enabled} disabled={!tunnel.available} title={tunnel.error || undefined} onClick={() => toggle(tunnel.id)}><Icon name="network" size={13}/><span>{tunnel.id}<small>{tunnel.provider}{tunnel.available ? '' : ' · indisponível'}</small></span>{enabled && <Icon name="check" size={13}/>}</button>
-  })}</>
 }
 
 function ArtifactToggle({ kind, label, selected, required = false, disabled = false, inspectable = false, onToggle, onInspect }: { kind: ChatArtifactKind; label: string; selected: boolean; required?: boolean; disabled?: boolean; inspectable?: boolean; onToggle?: (kind: ChatArtifactKind) => void; onInspect?: (kind: ChatArtifactKind) => void }) {

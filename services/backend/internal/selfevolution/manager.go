@@ -920,7 +920,7 @@ func (m *Manager) scheduleStackRestart(tx Transaction, sessionID, planID string)
 	if image == "" || dockerGID == "" || home == "" {
 		return errors.New("stack self-restart environment is incomplete")
 	}
-	name := "wharness-self-restart-" + sanitizeLabel(tx.ID)
+	name := SupervisorContainerName(tx.ID)
 	args := []string{
 		"run", "-d", "--rm", "--name", name,
 		"--network", "host",

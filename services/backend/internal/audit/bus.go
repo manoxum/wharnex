@@ -20,6 +20,7 @@ type Bus struct {
 	history     map[string][]domain.Event
 	subscribers map[string]map[chan domain.Event]struct{}
 	store       EventStore
+	observer    func(domain.Event)
 }
 
 func NewBus() *Bus {
@@ -41,10 +42,24 @@ func NewPersistentBus(store EventStore) *Bus {
 // Publish applies, instead of a second, driftable implementation.
 func SanitizeEventData(data map[string]any) map[string]any { return sanitizeData(data) }
 
+// SetObserver registers a function that sees every published event after it
+// is persisted, such as the operational log mirror. It must not block.
+func (b *Bus) SetObserver(observer func(domain.Event)) {
+	b.mu.Lock()
+	b.observer = observer
+	b.mu.Unlock()
+}
+
 func (b *Bus) Publish(sessionID, eventType string, data map[string]any) domain.Event {
 	event := domain.Event{ID: ids.New("evt"), SessionID: sessionID, Type: eventType, Timestamp: time.Now().UTC(), Data: sanitizeData(data)}
 	if b.store != nil {
 		_ = b.store.AppendEvent(event)
+	}
+	b.mu.RLock()
+	observer := b.observer
+	b.mu.RUnlock()
+	if observer != nil {
+		observer(event)
 	}
 	b.mu.Lock()
 	b.history[sessionID] = append(b.history[sessionID], event)

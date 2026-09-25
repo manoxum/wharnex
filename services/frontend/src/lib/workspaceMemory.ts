@@ -259,12 +259,6 @@ export function normalizeTransportOptions(value?: Partial<TransportOptions> & { 
   return { disabledTunnelIds }
 }
 
-export function enabledTunnelIds(value: TransportOptions | undefined, instances: Array<{ id: string; available?: boolean }> = []): string[] {
-  const disabled = new Set(normalizeTransportOptions(value).disabledTunnelIds)
-  if (disabled.has('*')) return []
-  return instances.filter((instance) => instance.available !== false && !disabled.has(instance.id)).map((instance) => instance.id).slice(0, 16)
-}
-
 export function loadWorkspaceChats(projectPath: string): WorkspaceChat[] {
   try {
     const raw = localStorage.getItem(CHAT_INDEX_PREFIX + projectPath)

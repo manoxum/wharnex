@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { api, APIError } from '../lib/api'
 import { desktopBridge } from '../lib/desktop'
+import { openLiveEventStream, type LiveEventStream } from '../lib/liveEventStream'
 import type { Session, TerminalFrame, TerminalRunRequest } from '../types'
 import { subscribeUIPreferences, workspaceTerminalFontSize } from '../lib/uiPreferences'
 
@@ -32,7 +33,7 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     const root = terminalRootRef.current
     if (!root) return
     let active = true
-    let source: EventSource | undefined
+    let source: LiveEventStream | undefined
     let terminalID = persistedTerminalID || terminalIDRef.current || ''
     let inputBuffer = ''
     let inputFlushScheduled = false
@@ -153,7 +154,7 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
         terminalID = descriptor.terminal_id; terminalIDRef.current = terminalID; onTerminalIDChangeRef.current?.(terminalID)
         scheduleInputFlush()
         void api.resizeTerminal(session.id, terminalID, terminal.cols || 80, terminal.rows || 24).catch(reportError)
-        source = new EventSource(api.terminalEventsURL(session.id, terminalID))
+        source = openLiveEventStream(api.terminalEventsURL(session.id, terminalID))
         source.onmessage = (event) => {
           if (!active) return
           try {

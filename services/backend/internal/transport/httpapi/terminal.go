@@ -1,10 +1,8 @@
 package httpapi
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 )
@@ -78,36 +76,18 @@ func (a *API) closeInteractiveTerminal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) interactiveTerminalEvents(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "stream_unsupported", "streaming unavailable")
-		return
-	}
 	replay, frames, cancel, err := a.service.SubscribeInteractiveTerminal(r.PathValue("id"), r.PathValue("terminal_id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "terminal_not_found", err.Error())
 		return
 	}
 	defer cancel()
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	for _, frame := range replay {
-		writeSSE(w, frame)
-	}
-	flusher.Flush()
-	heartbeat := time.NewTicker(20 * time.Second)
-	defer heartbeat.Stop()
-	for {
-		select {
-		case frame := <-frames:
-			writeSSE(w, frame)
-			flusher.Flush()
-		case <-heartbeat.C:
-			fmt.Fprint(w, ": heartbeat\n\n")
-			flusher.Flush()
-		case <-r.Context().Done():
-			return
+	a.serveLiveStream(w, r, func(stream liveStream) {
+		for _, frame := range replay {
+			if stream.send(frame) != nil {
+				return
+			}
 		}
-	}
+		pumpLiveStream(stream, frames)
+	})
 }

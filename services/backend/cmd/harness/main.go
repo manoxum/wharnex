@@ -49,6 +49,8 @@ func main() {
 	}
 	defer orchestratorStore.Close()
 	bus := audit.NewPersistentBus(store)
+	stopOperationalLog := configureOperationalLog(store, bus)
+	defer stopOperationalLog()
 	builder := contextbundle.NewBuilder(cfg.MaxContextBytes, cfg.MaxBundleBytes)
 	policies := policy.NewEngine()
 

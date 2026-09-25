@@ -42,6 +42,8 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+vi.mock('../lib/liveEventStream', () => ({ openLiveEventStream: () => new FakeEventSource() }))
+
 class FakeEventSource {
   constructor() { eventSources.push(this) }
   onmessage: ((event: MessageEvent) => void) | null = null
@@ -63,7 +65,6 @@ describe('InteractiveTerminal PTY', () => {
     vi.clearAllMocks()
     eventSources.length = 0
     terminalMock.onData = undefined; terminalMock.onResize = undefined; terminalMock.selection = ''
-    vi.stubGlobal('EventSource', FakeEventSource)
     Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: { clipboard } })
     clipboard.readText.mockResolvedValue('printf "copiado"\n')
     clipboard.writeText.mockResolvedValue({ ok: true })
