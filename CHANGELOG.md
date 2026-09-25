@@ -1,7 +1,9 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 ### Chat 7d20d781-c4b2-4ccd-b95c-9d1a1623c27e (2026-09-24)
 
-_(reserved — no entries yet)_
+- Autoevolução com amostragem determinística de eventos de alto sinal ao selecionar conhecimento, com opção explícita para revisão apenas de conhecimento e audit do modo/IDs incluídos.
+- Bundles `apply_patch` passam a validar estruturalmente unified diffs antes de Policy/sandbox, incluindo contagens de hunks e headers Git canónicos.
+- Estratégias de `git apply` deixam de avançar para recount/3-way/reverse depois de cancelamento ou deadline.
 
 
 ### Chat f83f50af-eff8-46fb-9271-c784361deedf (2026-09-24)

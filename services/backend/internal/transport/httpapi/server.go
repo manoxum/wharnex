@@ -1583,11 +1583,12 @@ func (a *API) selfEvolutionAnalyze(w http.ResponseWriter, r *http.Request) {
 		EvidenceIDs   []string                    `json:"evidence_ids"`
 		KnowledgeRefs []app.EvolutionKnowledgeRef `json:"knowledge_refs"`
 		ArtifactIDs   []string                    `json:"artifact_ids"`
+		KnowledgeOnly bool                        `json:"knowledge_only"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	item, evidence, err := a.service.PrepareEvolutionAnalysisWithKnowledge(r.Context(), r.PathValue("id"), body.EvidenceIDs, body.KnowledgeRefs, body.ArtifactIDs)
+	item, evidence, err := a.service.PrepareEvolutionAnalysisWithKnowledgeMode(r.Context(), r.PathValue("id"), body.EvidenceIDs, body.KnowledgeRefs, body.ArtifactIDs, body.KnowledgeOnly)
 	if err != nil {
 		writeError(w, http.StatusConflict, "self_evolution_analysis_unavailable", err.Error())
 		return

@@ -57,6 +57,37 @@ describe('EvolutionEvidenceDrawer modalities', () => {
       ['evt-1'],
       [{ project_path: '/workspace/wharnex', id: 'verification-pattern' }],
       [file],
+      false,
+    ))
+  })
+
+  it('samples recent operational events for knowledge reviews unless the operator opts out', async () => {
+    vi.spyOn(api, 'evolutionEvidence').mockResolvedValue(evidence)
+    const onAnalyze = vi.fn(async () => undefined)
+    render(<EvolutionEvidenceDrawer session={session} busy={false} onAnalyze={onAnalyze} onClose={vi.fn()}/>)
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Conhecimento/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Selecionar conhecimento verification-pattern' }))
+
+    const optOut = screen.getByRole('checkbox', { name: 'Analisar apenas conhecimento selecionado' })
+    expect((optOut as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByText(/amostra limitada de eventos operacionais recentes de alto sinal/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Analisar e evoluir/ }))
+    await waitFor(() => expect(onAnalyze).toHaveBeenLastCalledWith(
+      [],
+      [{ project_path: '/workspace/wharnex', id: 'verification-pattern' }],
+      [],
+      false,
+    ))
+
+    fireEvent.click(optOut)
+    fireEvent.click(screen.getByRole('button', { name: /Analisar e evoluir/ }))
+    await waitFor(() => expect(onAnalyze).toHaveBeenLastCalledWith(
+      [],
+      [{ project_path: '/workspace/wharnex', id: 'verification-pattern' }],
+      [],
+      true,
     ))
   })
 })

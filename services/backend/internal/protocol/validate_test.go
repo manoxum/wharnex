@@ -41,6 +41,39 @@ func TestValidateRejectsRenameTraversalAndSensitivePaths(t *testing.T) {
 	}
 }
 
+func TestValidatePatchRejectsMalformedUnifiedDiffStructure(t *testing.T) {
+	cases := []struct {
+		name  string
+		patch string
+	}{
+		{name: "markdown fence", patch: strings.Repeat("`", 3) + "diff\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n" + strings.Repeat("`", 3)},
+		{name: "noncanonical diff header", patch: "diff " + "--git  a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n"},
+		{name: "quoted diff path", patch: "diff " + "--git \"a/a.txt\" \"b/a.txt\"\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n"},
+		{name: "bad hunk counts", patch: "diff " + "--git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-a\n+b\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidatePatch(tc.patch); err == nil {
+				t.Fatalf("expected structural rejection for %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestValidatePatchAcceptsTextualCreateDeleteRenameAndNoNewline(t *testing.T) {
+	patches := []string{
+		"diff " + "--git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+one\n+two\n",
+		"diff " + "--git a/old.txt b/old.txt\ndeleted file mode 100644\n--- a/old.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-one\n-two\n",
+		"diff " + "--git a/old.txt b/new.txt\nsimilarity index 100%\nrename from old.txt\nrename to new.txt\n",
+		"diff " + "--git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
+	}
+	for index, patch := range patches {
+		if err := ValidatePatch(patch); err != nil {
+			t.Fatalf("valid patch %d was rejected: %v", index, err)
+		}
+	}
+}
+
 func TestValidatePatchPathsAllowsDocumentedEnvironmentTemplates(t *testing.T) {
 	for _, name := range []string{".env.example", ".env.sample", ".env.template", "config/.env.example"} {
 		patch := "--- /dev/null\n+++ b/" + name + "\n@@ -0,0 +1 @@\n+KEY=replace-me\n"

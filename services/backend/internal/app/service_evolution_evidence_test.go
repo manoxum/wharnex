@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,4 +126,82 @@ func TestEvolutionKnowledgeEvidenceExcludesProjectDomainAndCanBeSelected(t *test
 	if strings.Contains(updated.LastManualPrompt, "customer-billing") {
 		t.Fatal("project-domain knowledge leaked into self-evolution evidence")
 	}
+}
+
+func TestSelectedEvolutionEventsBalancesDefaultKnowledgeSample(t *testing.T) {
+	var events []EvolutionEvidenceEvent
+	appendCategory := func(project, category, prefix string, count int) {
+		for index := 0; index < count; index++ {
+			events = append(events, EvolutionEvidenceEvent{
+				Event:       domain.Event{ID: fmt.Sprintf("%s-%02d", prefix, index)},
+				ProjectPath: project,
+				Category:    category,
+			})
+		}
+	}
+	appendCategory("/workspace/a", "atividade", "activity", 5)
+	appendCategory("/workspace/a", "erro", "error", 20)
+	appendCategory("/workspace/b", "protocolo", "protocol", 20)
+	appendCategory("/workspace/c", "sucesso", "success", 20)
+	appendCategory("/workspace/d", "transporte", "transport", 20)
+	appendCategory("/workspace/e", "policy", "policy", 20)
+
+	sampled, mode := selectedEvolutionEvents(events, nil, false, true)
+	if mode != "knowledge_with_event_sample" {
+		t.Fatalf("unexpected selection mode: %s", mode)
+	}
+	if len(sampled) != defaultEvolutionEventSampleMax {
+		t.Fatalf("expected bounded sample of %d events, got %d", defaultEvolutionEventSampleMax, len(sampled))
+	}
+	categoryCounts := map[string]int{}
+	projectCounts := map[string]int{}
+	for _, event := range sampled {
+		if event.Category == "atividade" {
+			t.Fatal("low-signal activity event entered the default knowledge sample")
+		}
+		categoryCounts[event.Category]++
+		projectCounts[event.ProjectPath]++
+	}
+	for category, count := range categoryCounts {
+		if count > defaultEvolutionEventSampleCategory {
+			t.Fatalf("category %s exceeded quota: %d", category, count)
+		}
+	}
+	for project, count := range projectCounts {
+		if count > defaultEvolutionEventSamplePerProject {
+			t.Fatalf("project %s exceeded quota: %d", project, count)
+		}
+	}
+
+	again, againMode := selectedEvolutionEvents(events, nil, false, true)
+	if againMode != mode || eventIDs(again) != eventIDs(sampled) {
+		t.Fatalf("sampling is not deterministic: %s/%q vs %s/%q", mode, eventIDs(sampled), againMode, eventIDs(again))
+	}
+	if strings.Contains(eventIDs(sampled), "error-00") || !strings.Contains(eventIDs(sampled), "error-19") {
+		t.Fatalf("sample did not prefer recent events within quota: %s", eventIDs(sampled))
+	}
+}
+
+func TestSelectedEvolutionEventsPreservesExplicitAndKnowledgeOnlyModes(t *testing.T) {
+	events := []EvolutionEvidenceEvent{
+		{Event: domain.Event{ID: "activity"}, ProjectPath: "/workspace/a", Category: "atividade"},
+		{Event: domain.Event{ID: "failed"}, ProjectPath: "/workspace/a", Category: "erro"},
+		{Event: domain.Event{ID: "applied"}, ProjectPath: "/workspace/a", Category: "sucesso"},
+	}
+	explicit, mode := selectedEvolutionEvents(events, []string{"activity", "applied"}, false, true)
+	if mode != "explicit_events" || eventIDs(explicit) != "activity,applied" {
+		t.Fatalf("explicit selection changed: mode=%s ids=%s", mode, eventIDs(explicit))
+	}
+	knowledgeOnly, mode := selectedEvolutionEvents(events, nil, false, false)
+	if mode != "knowledge_only" || len(knowledgeOnly) != 0 {
+		t.Fatalf("knowledge-only opt-out included events: mode=%s ids=%s", mode, eventIDs(knowledgeOnly))
+	}
+}
+
+func eventIDs(events []EvolutionEvidenceEvent) string {
+	ids := make([]string, 0, len(events))
+	for _, event := range events {
+		ids = append(ids, event.ID)
+	}
+	return strings.Join(ids, ",")
 }

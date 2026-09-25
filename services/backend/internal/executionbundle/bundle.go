@@ -240,6 +240,11 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 					resolved.Patch = string(patchBytes)
 					patches = append(patches, patchName)
 				}
+				if op.Type == "apply_patch" {
+					if err := protocol.ValidatePatch(resolved.Patch); err != nil {
+						return nil, fmt.Errorf("%soperation %d patch preflight: %w", label, index, err)
+					}
+				}
 				operations = append(operations, resolved)
 			}
 			return operations, nil

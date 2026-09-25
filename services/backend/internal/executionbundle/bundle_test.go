@@ -47,6 +47,18 @@ func TestParseResolvesPatchFile(t *testing.T) {
 	}
 }
 
+func TestParseRejectsMalformedPatchBeforePolicy(t *testing.T) {
+	malformedPatch := "diff " + "--git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-old\n+new\n"
+	raw := zipBytes(t, map[string]string{
+		"README.md":         "# Fix\n",
+		"patches/001.patch": malformedPatch,
+		"plan.json":         `{"protocol":"harness.execution/v1","plan_id":"p1","request_id":"req_12345678","status":"ready","summary":"fix","risk":"low","requires_approval":false,"operations":[{"type":"apply_patch","patch_file":"patches/001.patch","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]}}],"verification":[]}`,
+	})
+	if _, err := Parse("wharness-bundle-req_12345678.zip", raw); err == nil || !strings.Contains(err.Error(), "hunk") {
+		t.Fatalf("expected structural patch preflight rejection, got %v", err)
+	}
+}
+
 func TestParsePreservesBaselineConcurrencyMetadata(t *testing.T) {
 	raw := zipBytes(t, map[string]string{
 		"README.md": "# Fix\n",

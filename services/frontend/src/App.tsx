@@ -3290,7 +3290,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } finally { setBusy(false) }
   }
 
-  async function analyzeEvolutionEvidence(evidenceIds: string[], knowledgeRefs: EvolutionKnowledgeRef[] = [], evidenceFiles: File[] = []) {
+  async function analyzeEvolutionEvidence(evidenceIds: string[], knowledgeRefs: EvolutionKnowledgeRef[] = [], evidenceFiles: File[] = [], knowledgeOnly = false) {
     if (!session?.self_evolution || busy || requestChainActive(session)) return
     setBusy(true); setError(undefined)
     try {
@@ -3305,7 +3305,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         persistChats(session.project_path, [targetChat, ...chats])
       }
       const artifactIds = await persistOperationalEvidence(targetSession.id, evidenceFiles)
-      const result = await api.analyzeEvolutionEvidence(targetSession.id, evidenceIds, knowledgeRefs, artifactIds)
+      const result = await api.analyzeEvolutionEvidence(targetSession.id, evidenceIds, knowledgeRefs, artifactIds, knowledgeOnly)
       sourceRef.current?.close(); sourceRef.current = null
       activeChatIdRef.current = targetChat.id; setActiveChatId(targetChat.id); setSession(result.session); setEvents([])
       const existingItems = loadChat(result.session.project_path, targetChat.id)
@@ -3319,7 +3319,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       // window here is otherwise invisible to the user. This reuses the same
       // signal openChatGPTHumanAction uses to focus that surface.
       setChatgptAttentionNonce((value) => value + 1)
-      const eventSelection = evidenceIds.length > 0 ? `${evidenceIds.length} eventos` : knowledgeRefs.length > 0 ? '0 eventos' : 'todos os eventos aplicáveis'
+      const eventSelection = evidenceIds.length > 0 ? `${evidenceIds.length} eventos` : knowledgeRefs.length > 0 ? (knowledgeOnly ? '0 eventos (só conhecimento)' : 'uma amostra automática de eventos de alto sinal') : 'todos os eventos aplicáveis'
       appendChatItem(targetChat, result.session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: `A análise foi preparada a partir do dossiê selecionado. A fonte global contém ${result.evidence_total} eventos e ${result.knowledge_total} conhecimentos operacionais elegíveis; esta ronda recebeu ${eventSelection} e ${knowledgeRefs.length} conhecimentos selecionados, além dos anexos escolhidos. A proposta continuará sujeita a Policy e sandbox Protected.`, meta: prepared.submitted ? 'Auto-evolução · análise enviada' : 'Auto-evolução · análise preparada', iteration: result.session.last_request_id ? iterationRef(result.session.last_request_id, prepared.submitted ? 'submitted' : 'prepared', ['context', 'prompt'], targetChat.chatgptUrl) : undefined })
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }

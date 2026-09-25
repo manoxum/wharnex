@@ -355,7 +355,9 @@ The embedded consumer ChatGPT web surface is not treated as a trusted local MCP 
 
 ## Self-evolution evidence disposition (v1.3.1)
 
-A self-evolution `turn.json` MAY return `resolved_evidence_ids`, containing only event IDs from the active, explicit evidence-review selection. Wharnex validates the IDs against that selection and marks them resolved only after the corresponding self-evolution change has passed Protected verification and host application. Failed, rejected, merely analyzed, or unrelated evidence remains unresolved.
+A self-evolution `turn.json` MAY return `resolved_evidence_ids`, containing only event IDs from the active evidence-review selection. Wharnex validates the IDs against that selection and marks them resolved only after the corresponding self-evolution change has passed Protected verification and host application. Failed, rejected, merely analyzed, or unrelated evidence remains unresolved.
+
+When reusable operational knowledge is selected without explicit event IDs, Wharnex MUST add a bounded deterministic sample of recent high-signal unresolved events by default, with quotas that prevent one category or project from consuming the entire review budget. Explicit event selections remain exact and are never expanded. The operator MAY explicitly choose a knowledge-only review, in which case zero events are added automatically. The prepared analysis audit event records the selection mode, available/included totals, and the exact included event IDs so later resolution remains attributable to evidence actually reviewed.
 
 ## Session attempt ledger (`harness.attempts/v1`, v1.3.5 — see `adr/ADR-0041`)
 

@@ -40,6 +40,15 @@ existing host-infrastructure classifier to record the gate as unsupported
 instead of reverting a Protected-verified candidate and requesting source
 repair.
 
+Planner-authored `apply_patch` payloads are structurally preflighted while the
+response bundle is ingested, before Policy or sandbox execution. Text patches
+must be raw unified diffs: Markdown fences, non-canonical Git diff headers,
+quoted/escaped Git paths, and hunk headers whose declared old/new counts do not
+match their bodies are rejected. Valid create/delete/rename patches and the
+standard `\ No newline at end of file` marker remain supported. This catches
+internally inconsistent correction bundles before they can consume an execution
+or repair round.
+
 ## Consequences
 
 Correction archives are larger, deliberately trading bandwidth for convergence
