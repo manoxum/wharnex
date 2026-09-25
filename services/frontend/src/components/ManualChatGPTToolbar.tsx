@@ -3,8 +3,8 @@ import { requestIdFromBundleName } from '../lib/bundlename'
 import { desktopBridge, formatBytes } from '../lib/desktop'
 import { Icon } from './Icon'
 
-const manualActionClass = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-transparent px-2.5 text-xs font-medium text-whx-soft transition hover:border-whx-border hover:bg-whx-hover hover:text-whx-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-whx-accent disabled:pointer-events-none disabled:opacity-40'
-const manualPrimaryActionClass = 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-whx-accent bg-whx-accent-soft px-2.5 text-xs font-semibold text-whx-accent transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-whx-accent disabled:pointer-events-none disabled:opacity-40'
+const manualActionClass = 'grid size-8 shrink-0 place-items-center rounded-lg border border-whx-border-soft bg-whx-surface text-whx-soft shadow-[0_1px_2px_var(--theme-shadow)] transition-[transform,background-color,border-color,color,box-shadow] duration-150 hover:-translate-y-px hover:border-whx-border hover:bg-whx-hover hover:text-whx-text hover:shadow-[0_5px_14px_var(--theme-shadow)] active:translate-y-0 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-whx-accent disabled:pointer-events-none disabled:opacity-35 disabled:shadow-none'
+const manualPrimaryActionClass = 'grid size-8 shrink-0 place-items-center rounded-lg border border-whx-accent/45 bg-whx-accent-soft text-whx-accent shadow-[0_1px_2px_var(--theme-shadow)] transition-[transform,background-color,border-color,color,box-shadow,filter] duration-150 hover:-translate-y-px hover:border-whx-accent hover:brightness-110 hover:shadow-[0_6px_18px_var(--theme-shadow)] active:translate-y-0 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-whx-accent disabled:pointer-events-none disabled:opacity-35 disabled:shadow-none'
 
 type ManualInputState = {
   requestId: string
@@ -77,26 +77,28 @@ export function ManualChatGPTToolbar({ chatId, manualPrompt, pendingRequestId, s
 
   const status = manualInput?.pickerAttached ? 'Bundle anexado pelo picker' : manualInput?.pickerArmed ? 'Picker automático armado' : manualInput ? 'Bundle pendente preparado' : 'Sem bundle pendente'
 
-  return <div className="border-b border-whx-border bg-whx-bg px-2.5 py-2.5 text-whx-text" data-testid="manual-chatgpt-toolbar">
-    <div className="rounded-xl border border-whx-border bg-whx-elevated p-1.5 shadow-[0_8px_24px_var(--theme-shadow)]">
+  const bundleCopyLabel = `Copiar bundle${manualInput && manualInput.filenames.length > 1 ? 's' : ''}`
+
+  return <div className="border-b border-whx-border bg-whx-bg px-2.5 py-2 text-whx-text" data-testid="manual-chatgpt-toolbar">
+    <div className="rounded-2xl border border-whx-border bg-whx-elevated p-1.5 shadow-[0_8px_24px_var(--theme-shadow)]">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <div className="flex min-w-0 items-center gap-2 rounded-lg border border-whx-warning/30 bg-whx-muted px-2.5 py-1.5">
-          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-whx-warning/10 text-whx-warning"><Icon name="cursor" size={13}/></span>
+        <div className="flex min-w-0 items-center gap-2 rounded-xl border border-whx-warning/25 bg-whx-surface px-2 py-1">
+          <span className="grid size-7 shrink-0 place-items-center rounded-lg border border-whx-warning/20 bg-whx-warning/10 text-whx-warning"><Icon name="cursor" size={13}/></span>
           <div className="min-w-0 leading-tight">
             <span className="block text-xs font-semibold text-whx-text">Manual · sem scraper</span>
             <span className="block truncate text-[10px] text-whx-faint">Handoff controlado pelo utilizador</span>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-0.5 rounded-lg border border-whx-border-soft bg-whx-surface p-0.5">
-          <button type="button" className={manualActionClass} disabled={!preparedPrompt || busy} onClick={() => void copyPrompt()}><Icon name="copy" size={13}/> Copiar prompt</button>
-          <button type="button" className={manualActionClass} disabled={!manualInput || busy} onClick={() => void copyBundles()}><Icon name="archive" size={13}/> Copiar bundle{manualInput && manualInput.filenames.length > 1 ? 's' : ''}</button>
-          <button type="button" className={manualActionClass} disabled={!bridge || busy} onClick={() => void bridge?.chatgpt.paste(chatId)}><Icon name="clipboard" size={13}/> Colar no foco</button>
+        <div className="flex shrink-0 items-center gap-1 rounded-xl border border-whx-border-soft bg-whx-bg/70 p-1 shadow-[inset_0_1px_0_var(--theme-shadow)]">
+          <button type="button" className={manualActionClass} title="Copiar prompt" aria-label="Copiar prompt" disabled={!preparedPrompt || busy} onClick={() => void copyPrompt()}><Icon name="copy" size={14}/></button>
+          <button type="button" className={manualActionClass} title={bundleCopyLabel} aria-label={bundleCopyLabel} disabled={!manualInput || busy} onClick={() => void copyBundles()}><Icon name="archive" size={14}/></button>
+          <button type="button" className={manualActionClass} title="Colar no foco" aria-label="Colar no foco" disabled={!bridge || busy} onClick={() => void bridge?.chatgpt.paste(chatId)}><Icon name="clipboard" size={14}/></button>
+          <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-whx-border-soft" />
+          <button type="button" className={manualPrimaryActionClass} title="Carregar resposta" aria-label="Carregar resposta" aria-controls="manual-chatgpt-response-importer" disabled={!responseRequestId || busy} aria-expanded={responseOpen} onClick={() => setResponseOpen((open) => !open)}><Icon name="download" size={14}/></button>
         </div>
 
-        <button type="button" className={manualPrimaryActionClass} disabled={!responseRequestId || busy} aria-expanded={responseOpen} onClick={() => setResponseOpen((open) => !open)}><Icon name="download" size={13}/> Carregar resposta</button>
-
-        <span className="ml-auto inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-whx-border-soft bg-whx-surface px-2.5 py-1.5 text-xs text-whx-soft" role="status" title={status}>
+        <span className="ml-auto inline-flex min-w-0 items-center gap-1.5 rounded-xl border border-whx-border-soft bg-whx-surface px-2.5 py-1.5 text-xs text-whx-soft" role="status" title={status}>
           <span className={`size-1.5 shrink-0 rounded-full ${manualInput ? 'bg-whx-success' : 'bg-whx-faint'}`} />
           <span className="truncate">{status}</span>
           {manualInput?.bytes ? <span className="shrink-0 font-mono text-[10px] text-whx-faint">{formatBytes(manualInput.bytes)}</span> : null}
@@ -105,7 +107,7 @@ export function ManualChatGPTToolbar({ chatId, manualPrompt, pendingRequestId, s
 
       {manualInput?.error && <div className="mx-1 mt-1.5 rounded-lg border border-whx-danger/30 bg-whx-surface px-2.5 py-2 text-xs text-whx-danger">Picker: {manualInput.error}</div>}
 
-      {responseOpen && <div className="mt-1.5 overflow-hidden rounded-xl border border-whx-border bg-whx-surface shadow-[0_12px_32px_var(--theme-shadow)]" role="dialog" aria-label="Carregar bundle de resposta">
+      {responseOpen && <div id="manual-chatgpt-response-importer" className="mt-1.5 overflow-hidden rounded-xl border border-whx-border bg-whx-surface shadow-[0_12px_32px_var(--theme-shadow)]" role="dialog" aria-label="Carregar bundle de resposta">
         <div className="flex items-start justify-between gap-3 border-b border-whx-border-soft bg-whx-elevated px-3 py-2.5">
           <div className="min-w-0">
             <span className="block text-sm font-semibold">Importar resposta</span>

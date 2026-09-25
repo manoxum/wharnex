@@ -35,6 +35,18 @@ describe('ManualChatGPTToolbar', () => {
     expect(screen.getByText(/Picker automático armado/)).toBeTruthy()
   })
 
+  it('renders the toolbar actions as compact icon controls with accessible labels', () => {
+    window.wharnessDesktop = bridge()
+    render(<ManualChatGPTToolbar chatId="chat-a" manualPrompt="fallback" pendingRequestId={state.manualInput?.requestId} state={state} busy={false} onBundleFile={async () => ''} onNotice={() => undefined} />)
+
+    for (const label of ['Copiar prompt', 'Copiar bundle', 'Colar no foco', 'Carregar resposta']) {
+      const button = screen.getByRole('button', { name: label })
+      expect(button.querySelector('svg')).toBeTruthy()
+      expect(button.textContent?.trim()).toBe('')
+      expect(button.getAttribute('title')).toBe(label)
+    }
+  })
+
   it('imports a response bundle dropped on the popup', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     const onBundleFile = vi.fn<(contentBase64: string, requestId: string, filename: string) => Promise<string>>(async () => 'Bundle importado')
