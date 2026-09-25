@@ -35,9 +35,18 @@ func localTerminalCommand(workspace Workspace, options TerminalOptions) (*exec.C
 	if err != nil {
 		return nil, err
 	}
-	terminalDir := filepath.Dir(filepath.Dir(historyFile))
+	wharnexHistoryFile, err := prepareWharnexTerminalHistory()
+	if err != nil {
+		return nil, err
+	}
+	historyDir := filepath.Dir(historyFile)
+	sessionHistoryFile, err := prepareTerminalSessionHistory(historyDir, options.ID)
+	if err != nil {
+		return nil, err
+	}
+	terminalDir := filepath.Dir(historyDir)
 	args := []string{"-l"}
-	env := terminalEnvironment(os.Environ(), historyFile)
+	env := terminalEnvironment(os.Environ(), historyFile, wharnexHistoryFile, sessionHistoryFile)
 	switch {
 	case isBashShell(shell):
 		initFile, err := prepareBashTerminalInit(terminalDir)
@@ -67,23 +76,27 @@ func prepareTerminalHistory(workspace Workspace, shell string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, terminalHistoryShellName(shell))
+	return prepareTerminalHistoryFile(dir, terminalHistoryShellName(shell), "project")
+}
+
+func prepareTerminalHistoryFile(dir, name, scope string) (string, error) {
+	path := filepath.Join(dir, name)
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return "", errors.New("project terminal history path must be a regular file")
+			return "", fmt.Errorf("%s terminal history path must be a regular file", scope)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("inspect project terminal history: %w", err)
+		return "", fmt.Errorf("inspect %s terminal history: %w", scope, err)
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
-		return "", fmt.Errorf("prepare project terminal history: %w", err)
+		return "", fmt.Errorf("prepare %s terminal history: %w", scope, err)
 	}
 	if err := file.Close(); err != nil {
-		return "", fmt.Errorf("close project terminal history: %w", err)
+		return "", fmt.Errorf("close %s terminal history: %w", scope, err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
-		return "", fmt.Errorf("secure project terminal history: %w", err)
+		return "", fmt.Errorf("secure %s terminal history: %w", scope, err)
 	}
 	return path, nil
 }
@@ -142,22 +155,6 @@ func terminalHistoryShellName(shell string) string {
 		return "shell"
 	}
 	return safe.String()
-}
-
-// terminalEnvironment points every shell at the project history file. Bash
-// additionally re-pins it after the user's startup files through the
-// Wharnex-owned rcfile, because those files may reassign HISTFILE.
-func terminalEnvironment(base []string, historyFile string) []string {
-	env := append([]string(nil), base...)
-	for key, value := range map[string]string{
-		"TERM":                     "xterm-256color",
-		"COLORTERM":                "truecolor",
-		"HISTFILE":                 historyFile,
-		"WHARNEX_PROJECT_HISTFILE": historyFile,
-	} {
-		env = replaceEnvironmentValue(env, key, value)
-	}
-	return env
 }
 
 func environmentValue(env []string, key string) string {

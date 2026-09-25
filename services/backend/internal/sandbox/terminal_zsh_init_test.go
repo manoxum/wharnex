@@ -63,3 +63,26 @@ func TestZshTerminalRunsUserStartupAndKeepsHistoryInTheProject(t *testing.T) {
 		t.Fatalf("global history was modified: %q", globalData)
 	}
 }
+
+func TestZshTerminalInitInstallsScopedHistoryBindings(t *testing.T) {
+	terminalDir := t.TempDir()
+	zdotdir, err := prepareZshTerminalInit(terminalDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(zdotdir, ".zshrc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		"WHARNEX_OS_HISTFILE",
+		"WHARNEX_GLOBAL_HISTFILE",
+		"bindkey '^[[1;2A' __wharnex_history_wharnex",
+		"bindkey '^[[1;6A' __wharnex_history_all",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("generated .zshrc is missing %q", want)
+		}
+	}
+}

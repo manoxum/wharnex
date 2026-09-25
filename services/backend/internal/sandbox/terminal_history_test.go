@@ -13,15 +13,17 @@ func TestLocalTerminalCommandUsesProjectScopedHistoryInsteadOfHostHistory(t *tes
 	}
 	project := t.TempDir()
 	execution := t.TempDir()
+	wharnexRoot := t.TempDir()
 	hostHistory := filepath.Join(t.TempDir(), "host-history")
 	t.Setenv("SHELL", "/bin/bash")
 	t.Setenv("HISTFILE", hostHistory)
+	t.Setenv("WHARNESS_ROOT", wharnexRoot)
 
 	cmd, err := localTerminalCommand(Workspace{
 		Path:        execution,
 		SourcePath:  execution,
 		ProjectPath: project,
-	}, TerminalOptions{Cwd: "."})
+	}, TerminalOptions{ID: "term-one", Cwd: "."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,12 +35,25 @@ func TestLocalTerminalCommandUsesProjectScopedHistoryInsteadOfHostHistory(t *tes
 	if got := environmentValue(cmd.Env, "WHARNEX_PROJECT_HISTFILE"); got != want {
 		t.Fatalf("WHARNEX_PROJECT_HISTFILE = %q, want %q", got, want)
 	}
+	if got := environmentValue(cmd.Env, "WHARNEX_OS_HISTFILE"); got != hostHistory {
+		t.Fatalf("WHARNEX_OS_HISTFILE = %q, want %q", got, hostHistory)
+	}
+	wantGlobal := filepath.Join(wharnexRoot, ".harness", "terminal", "history", "wharnex", "commands")
+	if got := environmentValue(cmd.Env, "WHARNEX_GLOBAL_HISTFILE"); got != wantGlobal {
+		t.Fatalf("WHARNEX_GLOBAL_HISTFILE = %q, want %q", got, wantGlobal)
+	}
+	wantSession := filepath.Join(project, ".harness", "terminal", "history", ".session-term-one")
+	if got := environmentValue(cmd.Env, "WHARNEX_SESSION_HISTFILE"); got != wantSession {
+		t.Fatalf("WHARNEX_SESSION_HISTFILE = %q, want %q", got, wantSession)
+	}
 	initFile := filepath.Join(project, ".harness", "terminal", bashTerminalInitName)
 	if got := strings.Join(cmd.Args[1:], " "); got != "--rcfile "+initFile+" -i" {
 		t.Fatalf("bash must start through the project terminal init: %q", got)
 	}
-	if data, err := os.ReadFile(initFile); err != nil || !strings.Contains(string(data), `HISTFILE="$WHARNEX_PROJECT_HISTFILE"`) {
-		t.Fatalf("project terminal init does not pin the project history: %v %q", err, data)
+	if data, err := os.ReadFile(initFile); err != nil ||
+		!strings.Contains(string(data), `HISTFILE="$WHARNEX_PROJECT_HISTFILE"`) ||
+		!strings.Contains(string(data), `WHARNEX_OS_HISTFILE=$HOME/.bash_history`) {
+		t.Fatalf("project terminal init does not configure scoped history: %v %q", err, data)
 	}
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("project history file was not prepared: %v", err)
@@ -100,5 +115,32 @@ func TestPrepareTerminalHistoryRejectsSymlinkHistoryFile(t *testing.T) {
 	}
 	if _, err := prepareTerminalHistory(Workspace{Path: project, SourcePath: project}, "/bin/bash"); err == nil {
 		t.Fatal("symlink history file was accepted")
+	}
+}
+func TestWharnexTerminalHistoryIsSharedAcrossProjects(t *testing.T) {
+	t.Setenv("WHARNESS_ROOT", t.TempDir())
+	first := t.TempDir()
+	second := t.TempDir()
+	firstProject, err := prepareTerminalHistory(Workspace{Path: first, SourcePath: first}, "/bin/bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondProject, err := prepareTerminalHistory(Workspace{Path: second, SourcePath: second}, "/bin/bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstGlobal, err := prepareWharnexTerminalHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondGlobal, err := prepareWharnexTerminalHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstProject == secondProject {
+		t.Fatalf("project histories unexpectedly share %q", firstProject)
+	}
+	if firstGlobal == "" || firstGlobal != secondGlobal {
+		t.Fatalf("Wharnex history = %q then %q, want one shared path", firstGlobal, secondGlobal)
 	}
 }
