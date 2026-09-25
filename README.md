@@ -169,9 +169,11 @@ On Linux the Desktop's Electron process runs inside the **up-whx-link**: its own
 network namespace, connected to the host by `pasta` (package `passt`). Host
 interface churn, such as container restarts, NIC/Wi-Fi switches or IPv6 address
 renewals, then no longer fails the embedded ChatGPT with
-`net::ERR_NETWORK_CHANGED`. Set `WHARNESS_UP_LINK=auto|required|off` (default
-`auto`: used when `pasta` is installed and its preflight passes) in `.harness/env`.
-`make status` shows whether it is active. See `adr/ADR-0072`.
+`net::ERR_NETWORK_CHANGED`. Set `WHARNESS_UP_LINK=required|auto|off` in
+`.harness/env`. Linux defaults to `required` and refuses to start the embedded
+pool without isolation; `auto` is an explicit compatibility fallback. A normal
+`make build` installs or verifies the scoped host helper/AppArmor profile, and
+`make status` shows whether the link is active. See `adr/ADR-0072`.
 
 Useful lifecycle commands:
 

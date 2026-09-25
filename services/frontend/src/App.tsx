@@ -109,6 +109,7 @@ import { loadWorkbenchState, saveWorkbenchState } from './lib/workbenchPreferenc
 import { subscribeHeaderPopover } from './lib/headerPopover'
 import { buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from './lib/desktopTray'
 import { workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget, type WorkspaceSurfaceTransferPoint } from './lib/workspaceSurface'
+import { activeChatBusy } from './lib/chatBusy'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 
@@ -144,7 +145,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [globalTransport, setGlobalTransport] = useState<TransportOptions>(() => loadTransportOptions())
   const [recent, setRecent] = useState<string[]>(loadRecentWorkspaces())
   const [restoring, setRestoring] = useState(Boolean(activeAtLoad || embeddedProject))
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusyState] = useState(false)
+  const [busyOwnerChatId, setBusyOwnerChatId] = useState('')
   const [busyChats, setBusyChats] = useState<Record<string, boolean>>({})
   // Last known Session per chat. Switching chats is a local navigation — the
   // transcript, the draft and the tab state all live in localStorage — but it
@@ -294,7 +296,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // opened again.
   const bundleRoutingReadyKey = session && chats.length > 0 ? `${session.project_path}:${chats.map((chat) => `${chat.id}:${chat.sessionId}`).join(',')}` : ''
   const chatgptHumanAction = chatgptHumanActions[activeChatId]
-  const activeBusy = busy || Boolean(busyChats[activeChatId])
+  const activeBusy = activeChatBusy({ activeChatId, busyChats, globalBusy: busy, globalBusyOwnerChatId: busyOwnerChatId })
+
+  function setBusy(value: boolean) {
+    setBusyState(value)
+    setBusyOwnerChatId(value ? activeChatIdRef.current : '')
+  }
 
   useEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
   useEffect(() => {
@@ -1964,10 +1971,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [activeChatId, activeChatOwnsSession, activeBusy, preparedDrafts, queuedRequestsByChat, restartModalOpen, session?.state, session?.pending_manual_request_ids, session?.self_evolution_activation])
 
   async function confirmPreparedDraft() {
-    if (!activeChatId || busy) return
+    if (!activeChatId || busyChats[activeChatId]) return
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat || !session) return
-    setBusy(true); setError(undefined)
+    setChatBusy(targetChat.id, true); setError(undefined)
     try {
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Desktop bridge indisponível')
@@ -1975,7 +1982,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (submitted.conversationUrl) bindChatGPTURL(submitted.conversationUrl)
       setPreparedDrafts((current) => { const next = { ...current }; delete next[activeChatId]; return next })
       appendChatItem(targetChat, session.project_path, { id: crypto.randomUUID(), role: 'harness', source: 'wharness', presentation: 'notice', createdAt: new Date().toISOString(), text: 'Prompt e anexos enviados ao ChatGPT após confirmação.', meta: 'Aguardando bundle do ChatGPT' })
-    } catch (e) { setError(messageOf(e)) } finally { setBusy(false) }
+    } catch (e) { setError(messageOf(e)) } finally { setChatBusy(targetChat.id, false) }
   }
 
   function dismissPreparedDraft() {
@@ -1983,14 +1990,14 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   async function retryPreparedPromptDelivery(requestId?: string) {
-    if (!session || !activeChatId || busy) return
+    if (!session || !activeChatId || busyChats[activeChatId]) return
     if (requestId && !sessionHasPendingRequest(session, requestId)) {
       setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[activeChatId]; return next })
       return
     }
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
-    setBusy(true); setError(undefined); setTransportProgress('A repetir a entrega já preparada ao ChatGPT…')
+    setChatBusy(targetChat.id, true); setError(undefined); setTransportProgress('A repetir a entrega já preparada ao ChatGPT…')
     try {
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Desktop bridge indisponível')
@@ -2029,7 +2036,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       } else {
         setError(`Não foi possível repetir a entrega: ${detail}`)
       }
-    } finally { setTransportProgress(''); setBusy(false) }
+    } finally {
+      if (activeChatIdRef.current === targetChat.id) setTransportProgress('')
+      setChatBusy(targetChat.id, false)
+    }
   }
 
   async function submitManualPlan(raw: string) {
@@ -3199,11 +3209,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
 
   async function retryTransportFailure(requestId: string) {
-    if (!session || busy || requestChainActive(session)) return
+    if (!session || busyChats[activeChatId] || requestChainActive(session)) return
     const targetSession = session
     const targetChat = chats.find((chat) => chat.id === activeChatId)
     if (!targetChat) return
-    setBusy(true); setError(undefined)
+    setChatBusy(targetChat.id, true); setError(undefined)
     try {
       const retried = await api.retryFailedRequest(targetSession.id)
       acceptSessionForChat(targetChat, retried)
@@ -3219,7 +3229,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const detail = messageOf(retryError)
       setError(detail)
       reportChatError(`Não foi possível recriar o pedido ${requestId}: ${detail}`, 'Repetição falhou', targetChat, session.project_path)
-    } finally { setBusy(false) }
+    } finally { setChatBusy(targetChat.id, false) }
   }
 
 	async function cancelPendingRequest(requestId: string) {

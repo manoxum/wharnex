@@ -33,14 +33,14 @@ Electron em `dev.mjs`):
 
 ```
 sh -c OUTER                                  # no host, no grupo de processos do coordenador
-  unshare --user --map-root-user --net --mount --propagation slave -- sh -c INNER &   # sem --pid
+  <helper-unshare> --user --map-root-user --net --mount --propagation slave -- sh -c INNER &   # sem --pid
   espera até /proc/<ns>/ns/net diferir do host (senão exit 96)
   pasta --config-net --foreground --quiet -T <portas> --dns-forward 169.254.1.1 <ns>
   wait <ns>; termina o pasta; devolve o código de saída do Electron
 INNER (root do namespace):
   espera pela rota por omissão (senão exit 95) e pelo fim de endereços IPv6 `tentative`
   mount --bind <resolv.conf do up-link> "$(readlink -f /etc/resolv.conf)"
-  exec unshare --user --map-user=<uid> --map-group=<gid> -- <electron> <args>
+  exec <helper-unshare> --user --map-user=<uid> --map-group=<gid> -- <electron> <args>
 ```
 
 | Elemento | Porquê |
@@ -56,12 +56,14 @@ INNER (root do namespace):
 
 Modos (`WHARNESS_UP_LINK`, definível em `.harness/env`):
 
-- `auto` (omissão): usa o up-link quando `pasta` e `unshare` existem e o
-  preflight passa; o preflight admite uma repetição para absorver rede ainda a
-  estabilizar e, se ambas falharem, regista exit/sinal e a última linha útil do
-  stderr antes de arrancar como hoje.
-- `required`: se o up-link não puder ser criado o arranque falha.
-- `off`: comportamento atual.
+- `required` (omissão no Linux): se o up-link não puder ser criado o arranque
+  falha fechado, evitando que o pool incorporado volte silenciosamente ao
+  namespace de rede do host.
+- `auto`: compatibilidade explícita; usa o up-link quando as dependências e o
+  preflight estão prontos. O preflight admite uma repetição para absorver rede
+  ainda a estabilizar e, se ambas falharem, regista exit/sinal e a última linha
+  útil do stderr antes de arrancar sem isolamento.
+- `off`: desativa explicitamente o isolamento e usa a rede do host.
 
 Fora de âmbito (possível evolução): saída por WireGuard (ADR-0069) para também
 sobreviver à troca real de uplink; isolar só as vistas do ChatGPT num processo
@@ -72,8 +74,10 @@ separado.
 - `pasta` fica em primeiro plano e termina quando o comando termina.
 - Dentro: `uid=0`; com `unshare --user --map-user=1000 --map-group=1000` volta a
   `uid=1000`, ficheiros do `$HOME` com o dono correto.
-- Namespace de utilizador aninhado (necessário ao sandbox do Chromium) permitido
-  mesmo com `kernel.apparmor_restrict_unprivileged_userns=1`.
+- Namespace de utilizador aninhado (necessário ao sandbox do Chromium)
+  permitido. Em hosts com `kernel.apparmor_restrict_unprivileged_userns=1`, o
+  `make build` instala/verifica um helper imutável de caminho exato e o perfil
+  AppArmor mínimo que lhe concede `userns,`, sem desligar a restrição global.
 - `-T 6969`: `http://127.0.0.1:6969/api/health` → 200 dentro do namespace.
 - DNS: `-U 53` não resolve; `--dns-forward 127.0.0.53` é recusado;
   `--dns-forward 169.254.1.1` + `resolv.conf` sobreposto → `https://chatgpt.com/`
@@ -107,10 +111,20 @@ separado.
 - 2026-09-24 — Tarefa 7: app mínima com `requestSingleInstanceLock` dentro do up-link + segunda instância fora com o mesmo perfil → a primária recebe `second-instance` e a segunda sai; o lock regista o PID real do host. O relançamento pós-auto-evolução passa pelo mesmo `start.sh` → `dev.mjs`.
 - 2026-09-24 — Tarefa 8: `adr/ADR-0072-up-whx-link-network-isolation.md`, secção no `README.md`, nota no `SECURITY.md` (sandbox muda de mecanismo, nunca é desligado) e linha `up-whx-link` no `make status` (lê `.harness/run/up-whx-link.state`).
 - 2026-09-24 — Tarefa 9: 509/509 testes do desktop, `make file-size-check` sem violações nos ficheiros novos, `make build` completo.
-- Tarefa 10 pendente: exige reiniciar o Desktop real (`make restart`), o que interrompe pedidos do ChatGPT em curso. Passos: 1) `make restart`; 2) `make status` deve mostrar `up-whx-link active`; `grep up-whx-link .harness/logs/desktop.log`; 3) com uma resposta do ChatGPT em curso, `docker network create whx-probe && docker run --rm --network whx-probe alpine true && docker network rm whx-probe` (ou reiniciar um container); 4) `grep -c NETWORK_CHANGED .harness/logs/desktop.log` não deve aumentar. Se algo falhar: `WHARNESS_UP_LINK=off` em `.harness/env` + `make restart` repõe o comportamento anterior.
+- 2026-09-24, antes da validação final — a tarefa 10 ainda exigia reiniciar o Desktop real (`make restart`), o que interrompia pedidos do ChatGPT em curso. O procedimento usado depois foi: confirmar `up-whx-link active`, provocar churn Docker durante uma resposta e verificar que a contagem de `NETWORK_CHANGED` não aumentava.
 - 2026-09-24 — O Desktop reiniciou às 11:35 já com o up-link, mas o preflight falhou e arrancou sem isolamento (`auto`); o motivo registado era só "Command failed". Com o mesmo ambiente do coordenador o preflight passa, logo a falha foi transitória (provavelmente a rede do host ainda a assentar após a recriação da stack). Correção: o motivo passa a incluir código de saída/sinal e a última linha do stderr, e o preflight tenta 2 vezes. Tarefa 10 continua pendente de um `make restart`.
 - 2026-09-24 11:42 — `make restart`: up-link ativo (`make status`). Processo principal, NetworkService e GPU no namespace do up-link; renderers no namespace do sandbox; o `sh` wrapper (pid em `electron.pid`) no host. Teste ao vivo em curso: DYNAMIC → DITEI-8.8.8.8 → DYNAMIC.
 - Achado: a recarga imediata vinha de `noteChatGPTNetworkFailure` (erro `net::ERR_*` no frame principal ou no transporte da conversa, ex. `POST /backend-api/f/conversation/resume`) → `chooseChatGPTRecoveryAction` devolvia `reload transport` sem espera (só 5 s de intervalo mínimo e máx. 3), em todas as vistas ao mesmo tempo → rajada de pedidos → 429.
 - 2026-09-24 11:44–11:46 — Tarefa 10 (ao vivo, up-link ativo): DYNAMIC → DITEI-8.8.8.8 (11:44:25) → DYNAMIC (11:45:25). Host: 258 eventos netlink (enp1s0 a cair/voltar e containers a recriar `veth`/`br-*`). Desktop: **0** `ERR_NETWORK_CHANGED`, **0** recargas de recuperação, **0** HTTP 429; único evento um `ERR_ABORTED` (cancelamento normal da página). Depois da troca, ligações ao `chatgpt.com` a receber dados há < 1 s.
 - Tarefa 12: política de recarga com espera documentada no ADR-0072.
 - Observação: dentro do namespace de utilizador o libnotify reporta "Running in confined mode, using Portal notifications"; as notificações passam pelo portal do desktop. Confirmar visualmente que continuam a aparecer.
+- 2026-09-25 — Consolidação após alterações concorrentes: helper e perfil do
+  host byte a byte válidos, preflight no contexto AppArmor real pronto,
+  Electron e Network Service em `net:[4026534603]` enquanto o host permanece em
+  `net:[4026531833]`, rota/DNS internos válidos e testes focados 30/30. Durante
+  uma submissão real do ChatGPT: DYNAMIC → Home → DYNAMIC (78 eventos netlink),
+  Wi-Fi `.NET24 1` off/on mantendo DYNAMIC (94 eventos) e criação/uso/remoção de
+  bridge+veth Docker (107 eventos) produziram zero `ERR_NETWORK_CHANGED`, zero
+  recarga de recuperação e zero 429; a namespace do Network Service não mudou.
+  O `make build` canônico concluiu e verificou o helper do host de forma
+  idempotente; a suíte Desktop concluiu 521/521 testes.
