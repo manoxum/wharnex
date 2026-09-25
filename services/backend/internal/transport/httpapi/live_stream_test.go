@@ -14,13 +14,13 @@ import (
 	"kernl.local/harness/backend/internal/config"
 )
 
-// wrappingWriter mimics middleware that wraps the ResponseWriter the way the
+// middlewareWriter mimics middleware that wraps the ResponseWriter the way the
 // request log does: it stays a Flusher and exposes Unwrap, but is not itself
 // an http.Hijacker.
-type wrappingWriter struct{ http.ResponseWriter }
+type middlewareWriter struct{ http.ResponseWriter }
 
-func (w wrappingWriter) Flush()                      { w.ResponseWriter.(http.Flusher).Flush() }
-func (w wrappingWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w middlewareWriter) Flush()                      { w.ResponseWriter.(http.Flusher).Flush() }
+func (w middlewareWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func liveStreamServer(t *testing.T, bus *audit.Bus, serverTimeout time.Duration) *httptest.Server {
 	t.Helper()
@@ -28,7 +28,7 @@ func liveStreamServer(t *testing.T, bus *audit.Bus, serverTimeout time.Duration)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/sessions/{id}/events", api.events)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mux.ServeHTTP(wrappingWriter{w}, r)
+		mux.ServeHTTP(middlewareWriter{w}, r)
 	}))
 	server.Config.ReadTimeout = serverTimeout
 	server.Config.WriteTimeout = serverTimeout

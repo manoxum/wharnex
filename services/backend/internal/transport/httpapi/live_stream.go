@@ -43,7 +43,7 @@ func (a *API) serveLiveStream(w http.ResponseWriter, r *http.Request, run func(l
 			stream := newSocketStream(conn)
 			defer conn.Close()
 			run(stream)
-		}}.ServeHTTP(responseHijacker{w}, r)
+		}}.ServeHTTP(middlewareHijacker{w}, r)
 		return
 	}
 	flusher, ok := w.(http.Flusher)
@@ -100,13 +100,13 @@ func (a *API) liveStreamHandshake(_ *websocket.Config, r *http.Request) error {
 	return fmt.Errorf("websocket origin %q is not allowed", origin)
 }
 
-// responseHijacker lets the WebSocket server hijack through middleware that
+// middlewareHijacker lets the WebSocket server hijack through middleware that
 // wraps the ResponseWriter (the request log's recorder, for one). The server
 // type-asserts http.Hijacker directly; ResponseController instead follows
 // the wrappers' Unwrap chain, the net/http convention.
-type responseHijacker struct{ http.ResponseWriter }
+type middlewareHijacker struct{ http.ResponseWriter }
 
-func (h responseHijacker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+func (h middlewareHijacker) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return http.NewResponseController(h.ResponseWriter).Hijack()
 }
 

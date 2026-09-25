@@ -7517,9 +7517,10 @@ function desktopWindowAtScreenPoint(point, excludeWindowId = '') {
 function registerIPC() {
   ipcMain.handle('wharness:projects:pick-directory', async (event, request) => {
     const windowState = trustedSender(event)
+    const requestedDefaultPath = typeof request?.defaultPath === 'string' && path.isAbsolute(request.defaultPath) ? request.defaultPath : undefined
     const result = await dialog.showOpenDialog(windowState.window, {
       title: typeof request?.title === 'string' ? request.title.slice(0, 120) : 'Selecionar pasta',
-      defaultPath: typeof request?.defaultPath === 'string' && path.isAbsolute(request.defaultPath) ? request.defaultPath : undefined,
+      defaultPath: requestedDefaultPath,
       properties: ['openDirectory', 'createDirectory'],
     })
     return { cancelled: result.canceled || result.filePaths.length === 0, path: result.filePaths[0] || '' }

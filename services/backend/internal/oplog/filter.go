@@ -38,14 +38,18 @@ func (f Filter) BoundedLimit() int {
 	if f.Limit <= 0 {
 		return 200
 	}
-	ceiling := maxQueryLimit
-	if f.Export {
-		ceiling = MaxExportRecords
-	}
+	ceiling := f.limitCeiling()
 	if f.Limit > ceiling {
 		return ceiling
 	}
 	return f.Limit
+}
+
+func (f Filter) limitCeiling() int {
+	if f.Export {
+		return MaxExportRecords
+	}
+	return maxQueryLimit
 }
 
 // SQL renders the filter as a parameterized WHERE clause.

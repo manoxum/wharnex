@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	archiveChat, archiveSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  durableWorkspaceChat, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeRecent, loadPendingProjectPrompt, savePendingProjectPrompt, clearPendingProjectPrompt, loadProjectLogo, saveProjectLogo, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
+  durableWorkspaceChat, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, loadWorkspaceDirectory, saveWorkspaceDirectory, loadPendingProjectLaunch, savePendingProjectLaunch, clearPendingProjectLaunch, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeRecent, loadPendingProjectPrompt, savePendingProjectPrompt, clearPendingProjectPrompt, loadProjectLogo, saveProjectLogo, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -83,6 +83,32 @@ describe('workspace memory', () => {
     expect(loadRecentWorkspaces()).toEqual(['/tmp/a', '/tmp/b'])
     removeRecent('/tmp/a')
     expect(loadRecentWorkspaces()).toEqual(['/tmp/b'])
+  })
+
+  it('persists the global workspace directory and one-shot launch preferences', () => {
+    expect(loadWorkspaceDirectory()).toBe('')
+    saveWorkspaceDirectory('/workspace')
+    expect(loadWorkspaceDirectory()).toBe('/workspace')
+    savePendingProjectLaunch('/workspace/demo', {
+      artifacts: { context: false, prompt: true, result: false, error: false },
+      requestMode: 'plan_first',
+      automationMode: 'auto_approve',
+      effortLevel: 'extra_high',
+      reasoningEffort: 'medium',
+      chatTransportMode: 'manual',
+    })
+    expect(loadPendingProjectLaunch('/workspace/demo')).toEqual({
+      artifacts: { context: false, prompt: true, result: false, error: false },
+      requestMode: 'plan_first',
+      automationMode: 'auto_approve',
+      effortLevel: 'extra_high',
+      reasoningEffort: 'medium',
+      chatTransportMode: 'manual',
+    })
+    clearPendingProjectLaunch('/workspace/demo')
+    expect(loadPendingProjectLaunch('/workspace/demo')).toBeUndefined()
+    saveWorkspaceDirectory('')
+    expect(loadWorkspaceDirectory()).toBe('')
   })
 
   it('persists one-shot project bootstrap prompts and project logos by canonical path key', () => {

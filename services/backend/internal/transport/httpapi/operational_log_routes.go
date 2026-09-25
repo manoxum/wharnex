@@ -70,7 +70,7 @@ func (a *API) queryOperationalLog(w http.ResponseWriter, r *http.Request) {
 	if refuseRemoteOperationalLog(w, r) {
 		return
 	}
-	filter, ok := operationalLogFilter(w, r)
+	filter, ok := parseOperationalLogFilter(w, r)
 	if !ok {
 		return
 	}
@@ -89,7 +89,7 @@ func (a *API) exportOperationalLog(w http.ResponseWriter, r *http.Request) {
 	if refuseRemoteOperationalLog(w, r) {
 		return
 	}
-	filter, ok := operationalLogFilter(w, r)
+	filter, ok := parseOperationalLogFilter(w, r)
 	if !ok {
 		return
 	}
@@ -107,7 +107,7 @@ func (a *API) exportOperationalLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, oplog.NewDossier(filter, records, filter.BoundedLimit(), now))
 }
 
-func operationalLogFilter(w http.ResponseWriter, r *http.Request) (oplog.Filter, bool) {
+func parseOperationalLogFilter(w http.ResponseWriter, r *http.Request) (oplog.Filter, bool) {
 	query := r.URL.Query()
 	filter := oplog.Filter{
 		MinLevel: query.Get("min_level"), Source: query.Get("source"), Component: query.Get("component"), Category: query.Get("category"),

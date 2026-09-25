@@ -57,7 +57,7 @@ func TestOperationalLogIngestBoundsTheBatch(t *testing.T) {
 	}
 }
 
-func TestOperationalLogExportIsALocalDownloadableDossier(t *testing.T) {
+func TestOperationalLogExportStaysLocalAndDownloadable(t *testing.T) {
 	response := httptest.NewRecorder()
 	operationalLogHandler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/operational-log/export?min_level=warning", nil))
 	var dossier struct {
