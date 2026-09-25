@@ -104,6 +104,8 @@ func main() {
 	defer stopChatArchive()
 	stopChatAgentTasks := configureChatAgentTaskRetention(cfg, store)
 	defer stopChatAgentTasks()
+	stopIntegrationRecovery := configureIntegrationRecovery(service)
+	defer stopIntegrationRecovery()
 	service.SetRemoteStorageConnector(remoteinput.NewRcloneConnector())
 	remoteStore, cleanupRemote, stopRemote := configureRemoteInputs(cfg, service)
 	service.SetRemoteInputStore(remoteStore)

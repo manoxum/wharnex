@@ -97,6 +97,7 @@ const maxRetainedProjectRevisions = 512
 const maxRetainedBaselineNotices = 200
 
 type Service struct {
+	integrationRecovery     integrationRecoveryLedger
 	store                   *session.Store
 	bus                     *audit.Bus
 	context                 *contextbundle.Builder
