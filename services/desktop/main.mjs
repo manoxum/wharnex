@@ -32,6 +32,8 @@ import { createDesktopWindowCloseCoordinator } from './desktop-window-close.mjs'
 import { createDesktopTrayControl } from './desktop-tray-control.mjs'
 import { completionNotificationRecord } from './desktop-notification-request.mjs'
 import { nativeWindowCloseChoice } from './desktop-window-close-prompt.mjs'
+// Planner requests are deliberately ZIP-only here; retired remote-input
+// publication must not be reintroduced into the Desktop request path.
 import { boundedChatInputPartBytes, requestPreparationTimer, withRequestPreparationDeadline } from './chatgpt-request-preparation.mjs'
 import { uploadChatArtifact } from './artifact-upload.mjs'
 import { createOperationalLogShipper, installConsoleCapture } from './operational-log.mjs'
