@@ -269,6 +269,8 @@ test('a failed prompt delivery remains retryable without asking the planner for 
   assert.match(source.slice(prepareStart, prepareEnd), /retryableChatGPTPrompts\.set\(key, \{ request, preparedAt: Date\.now\(\) \}\)/)
   assert.match(source.slice(retryStart, retryEnd), /return preparePromptForChatGPT\(retryable\.request, entryOverride\)/)
   assert.match(source, /wharness:chatgpt:retry-prepared-prompt/)
+  assert.match(source, /from '\.\/chatgpt-request-preparation\.mjs'/)
+  assert.doesNotMatch(source, /from '\.\/remote-input(?:-timeout)?\.mjs'/)
 })
 
 test('observing a submit does not erase the retryable prompt, only a real terminal outcome does', async () => {
