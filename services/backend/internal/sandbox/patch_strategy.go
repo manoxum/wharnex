@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -28,9 +29,15 @@ func applyPatchWithStrategies(ctx context.Context, workspace Workspace, patch, p
 	var diagnostics []string
 	var last domain.CommandResult
 	for _, attempt := range attempts {
+		if err := ctx.Err(); err != nil {
+			return last, err
+		}
 		check := domain.CommandSpec{Argv: attempt.check, Cwd: ".", TimeoutSeconds: timeoutSeconds, ExpectedExitCodes: []int{0}}
 		result, err := run(ctx, workspace, check)
 		last = result
+		if cancelErr := patchCancellationError(ctx, err); cancelErr != nil {
+			return result, cancelErr
+		}
 		if err != nil {
 			diagnostics = append(diagnostics, fmt.Sprintf("%s check error: %v", attempt.name, err))
 			continue
@@ -39,9 +46,16 @@ func applyPatchWithStrategies(ctx context.Context, workspace Workspace, patch, p
 			diagnostics = append(diagnostics, patchFailureDetail(attempt.name+" --check", result))
 			continue
 		}
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		apply := check
 		apply.Argv = attempt.apply
 		result, err = run(ctx, workspace, apply)
+		last = result
+		if cancelErr := patchCancellationError(ctx, err); cancelErr != nil {
+			return result, cancelErr
+		}
 		if err != nil {
 			return result, fmt.Errorf("%s failed: %w", attempt.name, err)
 		}
@@ -58,8 +72,15 @@ func applyPatchWithStrategies(ctx context.Context, workspace Workspace, patch, p
 		{name: "git apply --reverse --recount", check: []string{"git", "apply", "--reverse", "--recount", "--check", patchArg}},
 	}
 	for _, attempt := range reverseAttempts {
+		if err := ctx.Err(); err != nil {
+			return last, err
+		}
 		check := domain.CommandSpec{Argv: attempt.check, Cwd: ".", TimeoutSeconds: timeoutSeconds, ExpectedExitCodes: []int{0}}
 		result, err := run(ctx, workspace, check)
+		last = result
+		if cancelErr := patchCancellationError(ctx, err); cancelErr != nil {
+			return result, cancelErr
+		}
 		if err == nil && result.Success {
 			result.Argv = []string{"git", "apply", "<already-applied>"}
 			result.Stdout = "patch already applied; no changes needed"
@@ -73,6 +94,16 @@ func applyPatchWithStrategies(ctx context.Context, workspace Workspace, patch, p
 		diagnostics = append(diagnostics, "git apply rejected the patch")
 	}
 	return last, fmt.Errorf("patch does not apply cleanly:\n%s", strings.Join(diagnostics, "\n"))
+}
+
+func patchCancellationError(ctx context.Context, runErr error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+		return runErr
+	}
+	return nil
 }
 
 func patchFailureDetail(label string, result domain.CommandResult) string {

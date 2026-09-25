@@ -88,7 +88,7 @@ export type WorkspaceSideRailProps = {
   onOpenFile: (path: string) => void
   explorerRevealPath?: string
   explorerRevealNonce?: number
-  onAnalyzeEvolution?: (ids: string[], knowledgeRefs?: EvolutionKnowledgeRef[], files?: File[]) => Promise<void>
+  onAnalyzeEvolution?: (ids: string[], knowledgeRefs?: EvolutionKnowledgeRef[], files?: File[], knowledgeOnly?: boolean) => Promise<void>
   onConsolidateKnowledge?: () => Promise<void>
   onError: (message: string) => void
   onSession?: (session: Session) => void

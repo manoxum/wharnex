@@ -37,7 +37,7 @@ describe('interrupted execution recovery', () => {
   it('routes evidence analysis through a dedicated self-evolution chat', () => {
     expect(source).toMatch(/chat\.purpose === 'self-evolution'/)
     expect(source).toMatch(/purpose: 'self-evolution'/)
-    expect(source).toMatch(/analyzeEvolutionEvidence\(targetSession\.id, evidenceIds, artifactIds\)/)
+    expect(source).toMatch(/analyzeEvolutionEvidence\(targetSession\.id, evidenceIds, knowledgeRefs, artifactIds, knowledgeOnly\)/)
     expect(source).toMatch(/setActiveChatId\(targetChat\.id\)/)
   })
 })

@@ -6,7 +6,7 @@ import { Icon } from './Icon'
 type Props = {
   session: Session
   busy: boolean
-  onAnalyze: (ids: string[], knowledgeRefs?: EvolutionKnowledgeRef[], files?: File[]) => Promise<void>
+  onAnalyze: (ids: string[], knowledgeRefs?: EvolutionKnowledgeRef[], files?: File[], knowledgeOnly?: boolean) => Promise<void>
   onClose: () => void
 }
 
@@ -29,6 +29,7 @@ export function EvolutionEvidenceDrawer({ session, busy, onAnalyze, onClose }: P
   const [category, setCategory] = useState('')
   const [query, setQuery] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [knowledgeOnly, setKnowledgeOnly] = useState(false)
   const uploadRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -89,7 +90,8 @@ export function EvolutionEvidenceDrawer({ session, busy, onAnalyze, onClose }: P
   async function analyze() {
     const refs = (evidence?.knowledge || []).filter((entry) => selectedKnowledge.has(knowledgeKey(entry.project_path, entry.id)))
       .map(({ project_path, id }) => ({ project_path, id }))
-    await onAnalyze([...selectedEvents], refs, files)
+    const knowledgeOnlyReview = knowledgeOnly && selectedEvents.size === 0 && refs.length > 0
+    await onAnalyze([...selectedEvents], refs, files, knowledgeOnlyReview)
   }
 
   return <section className="flex h-full min-h-0 flex-col bg-whx-surface text-whx-text" aria-label="Evidência de auto-evolução">
@@ -120,6 +122,10 @@ export function EvolutionEvidenceDrawer({ session, busy, onAnalyze, onClose }: P
         <select aria-label="Filtrar categoria" className="min-w-0 rounded-lg border border-whx-border bg-whx-elevated px-2 py-2 text-base outline-none focus:border-whx-accent" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Todas as categorias</option>{categories.map((value) => <option key={value} value={value}>{source === 'knowledge' ? knowledgeCategoryLabel[value] || value : value}</option>)}</select>
         <label className="col-span-2 flex items-center gap-2 rounded-lg border border-whx-border bg-whx-elevated px-3 py-2 text-whx-faint focus-within:border-whx-accent focus-within:text-whx-soft"><Icon name="search" size={13}/><input aria-label="Pesquisar evidência" className="min-w-0 flex-1 bg-transparent text-base text-whx-text outline-none" placeholder={source === 'events' ? 'Pesquisar eventos…' : 'Pesquisar conhecimento…'} value={query} onChange={(event) => setQuery(event.target.value)}/>{query && <button type="button" className="text-whx-faint hover:text-whx-text" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={11}/></button>}</label>
         <button type="button" className="col-span-2 justify-self-start rounded-md px-1 py-1 text-sm font-semibold text-whx-soft hover:text-whx-text" onClick={toggleAll}>{allSelected ? 'Desmarcar visíveis' : 'Selecionar visíveis'}</button>
+        {source === 'knowledge' && selectedKnowledge.size > 0 && selectedEvents.size === 0 && <label className="col-span-2 flex cursor-pointer items-start gap-2 rounded-lg border border-whx-border bg-whx-elevated px-3 py-2 text-whx-soft">
+          <input className="mt-1" type="checkbox" aria-label="Analisar apenas conhecimento selecionado" checked={knowledgeOnly} onChange={(event) => setKnowledgeOnly(event.target.checked)}/>
+          <span><strong className="block text-base text-whx-text">Só conhecimento</strong><small className="block text-sm leading-5 text-whx-faint">Sem esta opção, o Wharnex inclui uma amostra limitada de eventos operacionais recentes de alto sinal.</small></span>
+        </label>}
       </div>}
     </div>
 
