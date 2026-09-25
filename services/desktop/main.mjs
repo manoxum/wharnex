@@ -32,8 +32,9 @@ import { createDesktopWindowCloseCoordinator } from './desktop-window-close.mjs'
 import { createDesktopTrayControl } from './desktop-tray-control.mjs'
 import { completionNotificationRecord } from './desktop-notification-request.mjs'
 import { nativeWindowCloseChoice } from './desktop-window-close-prompt.mjs'
-import { parseRemoteInputResponse, remoteInputPayload } from './remote-input.mjs'
-import { remoteInputPublicationSignal } from './remote-input-timeout.mjs'
+import { requestPreparationTimer, withRequestPreparationDeadline } from './chatgpt-request-preparation.mjs'
+import { createOperationalLogShipper, installConsoleCapture } from './operational-log.mjs'
+import { currentTrace, installBackendTraceHeader, traceForTask, traceId, withTrace } from './operational-trace.mjs'
 import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, DEFAULT_SUSPENDED_WORKER_TASK_TYPES, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes } from './chat-agent-policies.mjs'
@@ -70,6 +71,12 @@ const DESKTOP_ICON = resolveDesktopIcon()
 app.setName(`Wharnex - ${desktopInstanceName(DESKTOP_INSTANCE)}`)
 const FRONTEND_URL = requireLocalHTTPURL(process.env.WHARNESS_FRONTEND_URL || 'http://127.0.0.1:5173', 'Frontend URL').href
 const BACKEND_URL = requireLocalHTTPURL(process.env.WHARNESS_API_URL || 'http://127.0.0.1:8888', 'Backend URL').href
+// Every console line from here on is timestamped and shipped to the
+// classified operational log (adr/ADR-0075).
+const operationalLog = createOperationalLogShipper({ endpoint: new URL('/api/operational-log', BACKEND_URL).href })
+installConsoleCapture(console, operationalLog, { trace: currentTrace })
+installBackendTraceHeader(globalThis, BACKEND_URL)
+app.on('will-quit', () => { void operationalLog.flush() })
 const FRONTEND_ORIGIN = new URL(FRONTEND_URL).origin
 const FRONTEND_RUNTIME_TOKEN = randomUUID()
 const CHATGPT_URL = 'https://chatgpt.com/'
@@ -99,10 +106,6 @@ const DEFAULT_CHAT_ATTACHMENT_COUNT_LIMIT = 0
 const DEFAULT_REQUEST_BUNDLE_TOTAL_BYTES = 100 * 1024 * 1024
 const DEFAULT_REQUEST_BUNDLE_PART_BYTES = 30 * 1024 * 1024
 const DEFAULT_REQUEST_BUNDLE_PART_LIMIT = 10
-// Live tunnels are optional links alongside the mandatory request archive.
-// Keep their preparation short so a provider outage cannot block ZIP delivery.
-const REMOTE_INPUT_PUBLICATION_TIMEOUT_MS = 18_000
-const REMOTE_COMMENT_PUBLICATION_TIMEOUT_MS = 5_000
 const MAX_CHAT_ARTIFACTS = 4
 const MAX_CHAT_ARTIFACT_BYTES = 2 * 1024 * 1024
 const MAX_CHAT_ARTIFACTS_BYTES = 6 * 1024 * 1024
@@ -631,7 +634,7 @@ async function withChatGPTTransportPreparation(cacheKey, entry, requestId, opera
     preparing = true
     entry.transportAbortSignal = controller.signal
     reconcileChatGPTThrottle(key, entry)
-    return await operation()
+    return await withTrace(traceId('prepare', requestId || key, Date.now().toString(36)), operation)
   } finally {
     if (preparing) {
       entry.transportPreparationCount = Math.max(0, Number(entry.transportPreparationCount || 0) - 1)
@@ -3807,30 +3810,6 @@ async function persistChatArtifact(sessionId, requestId, direction, kind, filena
   return response.json()
 }
 
-async function publishRemoteChatInput(sessionId, requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles = [], tunnelInstanceIds = [], requestMetadata = {}, signal) {
-  const id = sanitizeSessionId(sessionId)
-  const target = new URL(`/api/sessions/${encodeURIComponent(id)}/remote-input`, BACKEND_URL)
-  const deadline = remoteInputPublicationSignal(signal, REMOTE_INPUT_PUBLICATION_TIMEOUT_MS)
-  try {
-    const response = await fetch(target, {
-      method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' },
-      signal: deadline.signal,
-      body: JSON.stringify(remoteInputPayload(requestId, prompt, bootstrapText, includeContext, attachments, artifacts, projectFiles, tunnelInstanceIds, requestMetadata)),
-    })
-    const result = await response.json().catch(() => ({}))
-    return parseRemoteInputResponse(response.status, result)
-  } catch (error) {
-    if (deadline.timedOut()) throw new Error('A publicação das rotas remotas excedeu 18 segundos; o bundle ZIP será enviado sem túneis.')
-    throw error
-  } finally {
-    deadline.dispose()
-  }
-}
-
-function normalizeTunnelInstanceIDs(value) {
-  return [...new Set((Array.isArray(value) ? value : []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 16)
-}
-
 async function requireAutoSession(sessionId, signal) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}`, BACKEND_URL)
@@ -3906,7 +3885,7 @@ function chatAttachmentRoot() {
   return path.join(app.getPath('userData'), 'chat-attachments-v1')
 }
 
-async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], liveTunnels = [], requestMetadata = {}, signal) {
+async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], requestMetadata = {}, signal) {
   throwIfChatGPTTransportAborted(signal)
   const limits = await fetchChatTransportLimits(signal)
   const { decoded } = decodeChatAttachmentSet(values, limits)
@@ -3928,7 +3907,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   const transport = await writeChatInputTransportArchives(dir, {
     chatId: cacheKey, requestId, maxTotalBytes: limits.totalBytes, maxPartBytes: limits.partBytes, maxParts: limits.partLimit,
     requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded,
-    artifacts: artifacts.decoded, projectFiles, liveTunnels, signal,
+    artifacts: artifacts.decoded, projectFiles, signal,
   })
   throwIfChatGPTTransportAborted(signal)
   for (const part of transport.parts) await persistChatArtifact(sessionId, requestId, 'input', 'bundle', part.name, 'application/zip', await readFile(part.path), signal)
@@ -3938,7 +3917,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   return { ...transport, userAttachmentCount: decoded.length, artifactCount: artifacts.decoded.length, archiveEntryCount: transport.fileCount }
 }
 
-async function materializeProtocolChatInput(cacheKey, sessionId, requestId, promptText, values = [], liveTunnels = [], requestMetadata = {}, signal) {
+async function materializeProtocolChatInput(cacheKey, sessionId, requestId, promptText, values = [], requestMetadata = {}, signal) {
   throwIfChatGPTTransportAborted(signal)
   const limits = await fetchChatTransportLimits(signal)
   const { decoded } = decodeChatAttachmentSet(values, limits)
@@ -3952,17 +3931,17 @@ async function materializeProtocolChatInput(cacheKey, sessionId, requestId, prom
   ])
   const transport = await writeChatInputTransportArchives(dir, {
     chatId: cacheKey, requestId, maxTotalBytes: limits.totalBytes, maxPartBytes: limits.partBytes, maxParts: limits.partLimit,
-    requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, liveTunnels, signal,
+    requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded, signal,
   })
   throwIfChatGPTTransportAborted(signal)
   for (const part of transport.parts) await persistChatArtifact(sessionId, requestId, 'input', 'bundle', part.name, 'application/zip', await readFile(part.path), signal)
   return { ...transport, attachmentCount: decoded.length, archiveEntryCount: transport.fileCount }
 }
 
-async function fillBundledChatGPTComposer(key, entry, sessionId, requestId, promptText, expectedFilename, attachments = [], liveTunnels = [], requestMetadata = {}) {
+async function fillBundledChatGPTComposer(key, entry, sessionId, requestId, promptText, expectedFilename, attachments = [], requestMetadata = {}) {
   const signal = entry?.transportAbortSignal
-  const input = await materializeProtocolChatInput(key, sessionId, requestId, promptText, attachments, liveTunnels, requestMetadata, signal)
-  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, liveTunnels, input.requestMetadata, input.multipart)
+  const input = await withRequestPreparationDeadline(signal, (bounded) => materializeProtocolChatInput(key, sessionId, requestId, promptText, attachments, requestMetadata, bounded))
+  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, [], input.requestMetadata, input.multipart)
   try {
     throwIfChatGPTTransportAborted(signal)
     const filled = await entry.view.webContents.executeJavaScript(chatGPTFillComposerScript(bootstrap), true)
@@ -4910,23 +4889,17 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
   }
   const includeContext = shouldAttachProjectContext({ currentSha, previousSha, currentConversationId: chatGPTConversationID(currentConversationURL), previousConversationId: chatGPTConversationID(previousURL), force: request?.includeContext === true })
 
-  const tunnelInstanceIds = manualTransport ? [] : normalizeTunnelInstanceIDs(request?.tunnelInstanceIds)
-  let remoteInput = null
-  if (tunnelInstanceIds.length) {
-    try {
-      remoteInput = await publishRemoteChatInput(request?.sessionId, requestId, text, request?.bootstrapText, includeContext, request?.attachments || [], request?.artifacts || [], request?.projectFiles || [], tunnelInstanceIds, requestMetadata, signal)
-    } catch (error) {
-      console.warn(`[chatgpt-protocol-channel] optional live fallback unavailable: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-
   // Every planner request is one logical request ZIP. It is uploaded directly
   // when it fits or wrapped into ordered multipart ZIPs when the configured
-  // per-bundle limit is smaller than the logical request.
-  const directPrompt = remoteInput?.fallbackPrompt ? `${text}\n\n${remoteInput.fallbackPrompt}` : text
-  const input = await materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], remoteInput?.tunnels || [], requestMetadata, signal)
+  // per-bundle limit is smaller than the logical request. Tunnels serve only
+  // the paired webapp: the request never publishes to, waits for or links a
+  // tunnel, so a slow or absent provider cannot delay the bundle.
+  const timer = requestPreparationTimer(requestId)
+  const directPrompt = text
+  const input = await withRequestPreparationDeadline(signal, (bounded) => materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], requestMetadata, bounded))
   throwIfChatGPTTransportAborted(signal)
-  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, remoteInput?.tunnels || [], input.requestMetadata, input.multipart)
+  timer.phase('archive', `bytes=${input.bytes} parts=${input.uploadPaths.length}`)
+  const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, [], input.requestMetadata, input.multipart)
   if (manualTransport) {
     preparedChatGPTDrafts.delete(key)
     await manualChatGPTTransport.prepare(key, {
@@ -4949,15 +4922,17 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
   const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-composer', chatGPTFillComposerScript(bootstrap))
   throwIfChatGPTTransportAborted(signal)
   if (!filled) throw new Error('ChatGPT composer DOM could not be populated with local input bootstrap')
+  timer.phase('composer')
   for (let index = 0; index < input.uploadPaths.length; index += 1) await pasteChatGPTFile(target.entry, input.uploadPaths[index], index + 1, input.uploadPaths.length, { pacedWorker })
   throwIfChatGPTTransportAborted(signal)
+  timer.phase('upload')
   let conversationUrl = target.conversationUrl
   if (autoSubmit) {
     await wait(chatInputSettleDelay(input.bytes, input.uploadPaths.length))
     throwIfChatGPTTransportAborted(signal)
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
     throwIfChatGPTTransportAborted(signal)
-    armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId, expectedFilename, input.requestMetadata)
+    armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, [], directPrompt, request?.sessionId, expectedFilename, input.requestMetadata)
     try {
       throwIfChatGPTTransportAborted(signal)
       await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { rateLimitExempt: !pacedWorker })
@@ -4967,11 +4942,12 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
     }
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
+    timer.phase('submitted')
     if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, conversationUrl, { remoteState: 'awaiting-response' })
     try {
       const mainRequestTask = await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
         expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap, originalPrompt: directPrompt,
-        sessionId: request?.sessionId || '', liveTunnels: remoteInput?.tunnels || [],
+        sessionId: request?.sessionId || '', liveTunnels: [],
         requestMetadata: input.requestMetadata,
         projectName: request?.projectName || '', projectPath: request?.projectPath || '', workspaceChatId,
       })
@@ -4988,7 +4964,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
     }
     preparedChatGPTDrafts.delete(key)
   } else {
-    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: input.uploadPaths.length, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: remoteInput?.tunnels || [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, projectPath: request?.projectPath || '', chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId, requestMetadata: input.requestMetadata, reasoningEffort })
+    preparedChatGPTDrafts.set(key, { preparedAt: Date.now(), attachmentCount: input.uploadPaths.length, requestId, sessionId: request?.sessionId, recoveryBootstrap: bootstrap, liveTunnels: [], originalPrompt: directPrompt, expectedFilename, projectName: request?.projectName, projectPath: request?.projectPath || '', chatTitle: requestedTitle, conversationUrl: target.conversationUrl, workspaceChatId, requestMetadata: input.requestMetadata, reasoningEffort })
   }
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-draft] prepared key=${key} attachments=${input.uploadPaths.length} archiveEntries=${input.archiveEntryCount} userAttachments=${input.userAttachmentCount} systemArtifacts=${input.artifactCount} includeContext=${includeContext} bytes=${input.bytes} chars=${text.length} autoSubmit=${autoSubmit}`)
@@ -5271,18 +5247,17 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   const target = await targetChatGPTComposer(key, expectedURL, false, entryOverride)
   const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
   const prior = expectedChatGPTBundles.get(key)
-  const liveTunnels = prior?.requestId === requestId && Array.isArray(prior.liveTunnels) ? prior.liveTunnels : []
   const requestMetadata = prior?.requestId === requestId ? prior.requestMetadata || {} : {}
-  const bundled = await fillBundledChatGPTComposer(key, target.entry, sessionId, requestId, text, expectedFilename, [], liveTunnels, requestMetadata)
+  const bundled = await fillBundledChatGPTComposer(key, target.entry, sessionId, requestId, text, expectedFilename, [], requestMetadata)
   await wait(100)
   const submission = await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
   if (!submission.accepted && !submission.dispatched) throw new Error('ChatGPT prompt submission was not dispatched')
   const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
   if (!conversationUrl) throw new Error('ChatGPT submission did not produce a stable conversation id')
-  armExpectedChatGPTBundle(key, requestId, assistantBaseline, bundled.bootstrap, liveTunnels, text, sessionId, expectedFilename, requestMetadata)
+  armExpectedChatGPTBundle(key, requestId, assistantBaseline, bundled.bootstrap, [], text, sessionId, expectedFilename, requestMetadata)
   touchChatGPTEntry(target.entry)
   console.log(`[chatgpt-repair] submitted key=${key} chars=${text.length} method=dom`)
-  return { ok: true, cacheKey: key, expectedFilename, conversationUrl, assistantBaseline, recoveryBootstrap: bundled.bootstrap, liveTunnels }
+  return { ok: true, cacheKey: key, expectedFilename, conversationUrl, assistantBaseline, recoveryBootstrap: bundled.bootstrap, liveTunnels: [] }
 }
 
 function automaticChatGPTContinuationBlockReason(cacheKey, requestId, { manual = false } = {}) {
@@ -6844,20 +6819,15 @@ async function flushQueuedChatGPTComments() {
         const ready = await executeChatGPTDOMScript(key, target.entry, 'comment-composer-ready', chatGPTComposerReadyScript())
         if (!ready) return
         const expected = expectedChatGPTBundles.get(key)
-        const liveTunnels = expected?.requestId === pending.requestId && Array.isArray(expected.liveTunnels) ? expected.liveTunnels : []
         const commentPrompt = expected?.requestId === pending.requestId && expected.originalPrompt
           ? `${pending.text}\n\nORIGINAL REQUEST CONTENT — authoritative task context repeated inside this comment bundle:\n\n${expected.originalPrompt}`
           : pending.text
         const expectedFilename = expected?.requestId === pending.requestId ? expected.filename : canonicalBundleFilename(key, pending.requestId)
         const requestMetadata = expected?.requestId === pending.requestId ? expected.requestMetadata || {} : pending.requestMetadata || {}
-        const bundled = await fillBundledChatGPTComposer(key, target.entry, pending.sessionId, pending.requestId, commentPrompt, expectedFilename, pending.attachments, liveTunnels, requestMetadata)
+        const bundled = await fillBundledChatGPTComposer(key, target.entry, pending.sessionId, pending.requestId, commentPrompt, expectedFilename, pending.attachments, requestMetadata)
         const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
         await wait(80)
         await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
-        if (pending.sessionId) {
-          try { await publishRemoteChannelComment(pending.sessionId, pending.requestId, pending.comment) }
-          catch (error) { console.warn(`[remote-channel-comment] ${error instanceof Error ? error.message : String(error)}`) }
-        }
         queue.shift()
         recentChatGPTCommentIds.set(`${key}:${pending.commentId}`, Date.now())
         recentChatGPTCommentFingerprints.set(pending.fingerprint, Date.now())
@@ -6876,19 +6846,6 @@ async function flushQueuedChatGPTComments() {
       for (const [id, sentAt] of recentChatGPTCommentIds) if (sentAt < cutoff) recentChatGPTCommentIds.delete(id)
       for (const [fingerprint, sentAt] of recentChatGPTCommentFingerprints) if (sentAt < fingerprintCutoff) recentChatGPTCommentFingerprints.delete(fingerprint)
     }
-  }
-}
-
-async function publishRemoteChannelComment(sessionId, requestId, comment) {
-  const target = new URL(`/api/sessions/${encodeURIComponent(sessionId)}/remote-input/events`, BACKEND_URL)
-  const deadline = remoteInputPublicationSignal(undefined, REMOTE_COMMENT_PUBLICATION_TIMEOUT_MS)
-  try {
-    const response = await fetch(target, { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, signal: deadline.signal, body: JSON.stringify({ request_id: requestId, comment }) })
-    // A durable-store request has no live channel; comment delivery through the
-    // ChatGPT composer remains authoritative in that mode.
-    if (!response.ok && response.status !== 409) throw new Error(`Remote channel comment HTTP ${response.status}`)
-  } finally {
-    deadline.dispose()
   }
 }
 
@@ -8514,7 +8471,7 @@ app.whenReady().then(async () => {
 
   const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
   chatAgentScheduler = new ChatAgentSchedulerClient({
-    baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: executeChatAgentTask,
+    baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: (task, context) => withTrace(traceForTask(task), () => executeChatAgentTask(task, context)),
     // The Worker pool takes only small account-lifecycle and utility work. The
     // durable claim enforces that partition, so no attempt is charged to reject
     // a chat-bound task this pool must never navigate to.
@@ -8610,7 +8567,7 @@ app.whenReady().then(async () => {
   // executes that single request, and destroys the WebContents immediately.
   chatTranslatorScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: 1, maxWorkers: 1,
-    execute: executeChatTranslatorTask, role: 'translator', agentID: () => 'translator-1',
+    execute: (task, context) => withTrace(traceForTask(task), () => executeChatTranslatorTask(task, context)), role: 'translator', agentID: () => 'translator-1',
     idleMs: 100, taskCooldownMs: 0,
     claimOptions: () => ({
       // Unlike persistent pools, the Translator claims after a cooldown's
@@ -8635,7 +8592,7 @@ app.whenReady().then(async () => {
   // resident at once.
   chatSupervisorScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: desiredChatAgentSupervisorSlots, maxWorkers: HARD_MAX_SUPERVISOR_SLOTS,
-    execute: executeChatSupervisorTask, role: 'supervisor', agentID: chatSupervisorSlotID,
+    execute: (task, context) => withTrace(traceForTask(task), () => executeChatSupervisorTask(task, context)), role: 'supervisor', agentID: chatSupervisorSlotID,
     // Supervision spends almost all of its life handing the slot back between
     // observations, so a task cooldown here would only delay reading a page that
     // is already loaded. The provider pacing gate still covers every real action.

@@ -15,6 +15,16 @@ ZIP is the canonical local snapshot. The API planner still consumes the safe tex
 
 ## Remote consumer-Web transport (v1.3)
 
+> **Suspended by `adr/ADR-0074` (2026-09-25).** A provider request no longer
+> depends on tunnels in any way. Desktop does not publish remote input, does
+> not wait for a tunnel before building or uploading the request archive, does
+> not embed tunnel endpoints in the archive or composer bootstrap, and does not
+> mirror comments to a remote channel. The request archive is the only context
+> channel and the per-chat tunnel selector is removed. Tunnels serve only the
+> paired remote webapp. The live-channel, tunnels-only and final diff-check
+> rules below are retained as history and MUST NOT be implemented again until
+> a tunnel-context strategy is decided in its own ADR.
+
 Consumer ChatGPT input always has one direct Wharness-owned request input archive
 when Desktop attachment transport is selected. That archive is authoritative and
 may additionally contain an ordered list of configured live Tunnel Provider

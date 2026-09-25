@@ -3958,7 +3958,7 @@ func (s *Service) updateSelfEvolutionBatchSessions(transaction selfevolution.Tra
 		}
 		seen[pending.SessionID] = struct{}{}
 		matchedPlan := false
-		updated, updateErr := s.store.Update(pending.SessionID, func(current *domain.Session) error {
+		_, changed, updateErr := s.updateSessionIfChanged(pending.SessionID, func(current *domain.Session) error {
 			if !s.isSelfEvolution(*current) {
 				return nil
 			}
@@ -3981,8 +3981,11 @@ func (s *Service) updateSelfEvolutionBatchSessions(transaction selfevolution.Tra
 			}
 			return nil
 		})
-		if updateErr == nil && updated.ID != "" {
-			updatedCount++
+		if updateErr != nil {
+			continue
+		}
+		updatedCount++
+		if changed {
 			s.bus.Publish(pending.SessionID, "self_evolution.batch_state", map[string]any{"plan_id": pending.PlanID, "state": state, "transaction_id": transaction.ID, "current_plan_matched": matchedPlan})
 		}
 	}
@@ -3993,6 +3996,7 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 	if s.selfEvolution == nil || !s.selfEvolution.Enabled() {
 		return
 	}
+	s.reconcileAbandonedActivation()
 	status, err := s.selfEvolution.LastStatus()
 	if err != nil || status.SessionID == "" {
 		return
@@ -4027,7 +4031,7 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 		}
 	}
 	if !transactionReconciled {
-		updated, updateErr := s.store.Update(status.SessionID, func(current *domain.Session) error {
+		_, changed, updateErr := s.updateSessionIfChanged(status.SessionID, func(current *domain.Session) error {
 			if !s.isSelfEvolution(*current) || current.Plan == nil || current.Plan.PlanID != status.PlanID {
 				return nil
 			}
@@ -4047,7 +4051,7 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 			}
 			return nil
 		})
-		if updateErr == nil && updated.ID != "" {
+		if updateErr == nil && changed {
 			s.bus.Publish(status.SessionID, "self_evolution.status_reconciled", map[string]any{"plan_id": status.PlanID, "phase": status.Phase, "state": state, "detail": status.Detail})
 		}
 	}

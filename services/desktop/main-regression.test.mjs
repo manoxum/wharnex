@@ -411,14 +411,14 @@ test('bundle fallback snapshots assistant-turn baseline before each planner subm
   const prepare = source.slice(prepareStart, prepareEnd)
   const baseline = prepare.indexOf('await chatGPTAssistantTurnCount(target.wc)')
   const submit = prepare.indexOf('await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)')
-  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, remoteInput?.tunnels || [], directPrompt, request?.sessionId, expectedFilename, input.requestMetadata)')
+  const arm = prepare.indexOf('armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, [], directPrompt, request?.sessionId, expectedFilename, input.requestMetadata)')
   assert.ok(baseline >= 0 && arm > baseline && submit > arm)
 
   const repairStart = source.indexOf('async function submitPromptToChatGPT')
   const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
   const repair = source.slice(repairStart, repairEnd)
   assert.match(repair, /const assistantBaseline = await chatGPTAssistantTurnCount\(target\.wc\)/)
-  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline, bundled\.bootstrap, liveTunnels, text, sessionId, expectedFilename, requestMetadata\)/)
+  assert.match(repair, /armExpectedChatGPTBundle\(key, requestId, assistantBaseline, bundled\.bootstrap, \[\], text, sessionId, expectedFilename, requestMetadata\)/)
 })
 
 test('external auth reuses the persistent Wharnex browser profile and clear-session owns deletion', async () => {
@@ -459,14 +459,12 @@ test('desktop owns the new-chat affinity handshake and renderer only confirms or
 
 test('Desktop sends one logical request and uses configured multipart transport only when needed', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  assert.match(source, /function normalizeTunnelInstanceIDs\(value\)/)
   assert.match(source, /async function fetchChatTransportLimits\(signal\)/)
   const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function attachContextToChatGPT', start)
   const prepare = source.slice(start, end)
-  assert.match(prepare, /const tunnelInstanceIds = manualTransport \? \[\] : normalizeTunnelInstanceIDs\(request\?\.tunnelInstanceIds\)/)
   assert.match(prepare, /materializeChatInput\([^\n]+directPrompt/)
-  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, remoteInput\?\.tunnels \|\| \[\], input\.requestMetadata, input\.multipart\)/)
+  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, \[\], input\.requestMetadata, input\.multipart\)/)
   assert.match(prepare, /for \(let index = 0; index < input\.uploadPaths\.length; index \+= 1\) await pasteChatGPTFile/)
   assert.match(prepare, /attachmentCount: input\.uploadPaths\.length/)
 })
@@ -768,11 +766,11 @@ test('the two pools partition the durable queue: Supervisors take chat-bound wor
 
   const workerPool = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('), source.indexOf('chatAgentScheduler.start()'))
   assert.match(workerPool, /role: 'worker'/)
-  assert.match(workerPool, /execute: executeChatAgentTask/)
+  assert.match(workerPool, /execute: \(task, context\) => withTrace\(traceForTask\(task\), \(\) => executeChatAgentTask\(task, context\)\)/)
 
   const supervisorPool = source.slice(source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient('), source.indexOf('chatSupervisorScheduler.start()'))
   assert.match(supervisorPool, /role: 'supervisor'/)
-  assert.match(supervisorPool, /execute: executeChatSupervisorTask/)
+  assert.match(supervisorPool, /execute: \(task, context\) => withTrace\(traceForTask\(task\), \(\) => executeChatSupervisorTask\(task, context\)\)/)
   assert.match(supervisorPool, /workerCount: desiredChatAgentSupervisorSlots, maxWorkers: HARD_MAX_SUPERVISOR_SLOTS/)
   assert.match(supervisorPool, /agentID: chatSupervisorSlotID/)
   // A Supervisor mid-request may claim only its own chat's lane: claiming
@@ -922,7 +920,7 @@ test('Supervisor transport stays unthrottled while durable resume proves the bou
   const helperStart = source.indexOf('async function withChatGPTTransportPreparation(')
   const helperEnd = source.indexOf('\nfunction sendToWindowState', helperStart)
   const helper = source.slice(helperStart, helperEnd)
-  assert.match(helper, /transportPreparationCount[\s\S]*reconcileChatGPTThrottle[\s\S]*try[\s\S]*await operation\(\)[\s\S]*finally[\s\S]*transportPreparationCount[\s\S]*reconcileChatGPTThrottle/)
+  assert.match(helper, /transportPreparationCount[\s\S]*reconcileChatGPTThrottle[\s\S]*try[\s\S]*await withTrace\([^\n]*, operation\)[\s\S]*finally[\s\S]*transportPreparationCount[\s\S]*reconcileChatGPTThrottle/)
   for (const channel of ['submit-prompt', 'prepare-prompt', 'retry-prepared-prompt', 'attach-context', 'attach-prompt', 'submit-prepared']) {
     const start = source.indexOf(`ipcMain.handle('wharness:chatgpt:${channel}'`)
     const end = source.indexOf('\n  })', start)
@@ -934,7 +932,7 @@ test('Supervisor transport stays unthrottled while durable resume proves the bou
   const resume = source.slice(resumeStart, resumeEnd)
   assert.match(resume, /enqueueChatAgentTask\('AWAIT_RESPONSE'/)
   assert.match(resume, /withChatGPTTransportPreparation/)
-  assert.match(source.slice(source.indexOf('async function flushQueuedChatGPTComments()'), source.indexOf('\nasync function publishRemoteChannelComment')), /withChatGPTTransportPreparation/)
+  assert.match(source.slice(source.indexOf('async function flushQueuedChatGPTComments()'), source.indexOf('\nasync function pollChatGPTVisibleActivity')), /withChatGPTTransportPreparation/)
 })
 
 test('request preparation registers a cooperative abort before waiting for its transport slot', async () => {
@@ -1376,15 +1374,15 @@ test('task comments are sent as one logical protocol ZIP with optional multipart
   const fillEnd = source.indexOf('\nasync function executeChatGPTDOMScript', fillStart)
   const fill = source.slice(fillStart, fillEnd)
   assert.match(fill, /const signal = entry\?\.transportAbortSignal/)
-  assert.match(fill, /materializeProtocolChatInput\([^\n]+requestMetadata, signal\)/)
+  assert.match(fill, /materializeProtocolChatInput\([^\n]+requestMetadata, bounded\)/)
   assert.match(fill, /throwIfChatGPTTransportAborted\(signal\)/)
   assert.match(fill, /for \(let index = 0; index < input\.uploadPaths\.length; index \+= 1\) await pasteChatGPTFile/)
 
   const flushStart = source.indexOf('async function flushQueuedChatGPTComments')
-  const flushEnd = source.indexOf('\nasync function publishRemoteChannelComment', flushStart)
+  const flushEnd = source.indexOf('\nasync function pollChatGPTVisibleActivity', flushStart)
   const flush = source.slice(flushStart, flushEnd)
   assert.notEqual(flushStart, -1)
-  assert.match(flush, /fillBundledChatGPTComposer\(key, target\.entry, pending\.sessionId, pending\.requestId, commentPrompt,[^\n]+pending\.attachments, liveTunnels, requestMetadata\)/)
+  assert.match(flush, /fillBundledChatGPTComposer\(key, target\.entry, pending\.sessionId, pending\.requestId, commentPrompt,[^\n]+pending\.attachments, requestMetadata\)/)
   assert.doesNotMatch(flush, /chatGPTFillComposerScript\(pending\.text\)/)
 })
 

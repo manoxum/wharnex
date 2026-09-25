@@ -232,7 +232,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/terminal/reset", a.resetTerminal)
 	a.registerGitRoutes(mux)
 	a.registerConflictRoutes(mux)
-	return cors(a.remotePairingAuth(mux), allowedOrigins(cfg.FrontendOrigin))
+	a.registerOperationalLogRoutes(mux)
+	return cors(a.remotePairingAuth(requestLog(mux)), allowedOrigins(cfg.FrontendOrigin))
 }
 
 // allowedOrigins is the fixed localhost/127.0.0.1:5173 pair every checkout
@@ -1646,44 +1647,6 @@ func (a *API) eventHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"events": events, "total": total, "truncated": truncated,
 	})
-}
-
-func (a *API) events(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, 500, "stream_unsupported", "streaming unavailable")
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	history := a.bus.History(r.PathValue("id"))
-	if len(history) > maxHistoryEvents {
-		history = history[len(history)-maxHistoryEvents:]
-	}
-	for _, event := range history {
-		writeSSE(w, event)
-		flusher.Flush()
-	}
-	ch, cancel := a.bus.Subscribe(r.PathValue("id"))
-	defer cancel()
-	heartbeat := time.NewTicker(20 * time.Second)
-	defer heartbeat.Stop()
-	for {
-		select {
-		case event, ok := <-ch:
-			if !ok {
-				return
-			}
-			writeSSE(w, event)
-			flusher.Flush()
-		case <-heartbeat.C:
-			fmt.Fprint(w, ": heartbeat\n\n")
-			flusher.Flush()
-		case <-r.Context().Done():
-			return
-		}
-	}
 }
 
 func (a *API) refreshContext(w http.ResponseWriter, r *http.Request) {
