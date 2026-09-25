@@ -37,7 +37,7 @@ func (s *Service) StartOrReconnectInteractiveTerminal(ctx context.Context, sessi
 		if !validReconnectTerminalID(requestedID) {
 			return TerminalSessionDescriptor{}, errors.New("terminal id is invalid")
 		}
-		if descriptor, ok, err := s.activeTerminalDescriptor(sessionID, requestedID, target); ok || err != nil {
+		if descriptor, ok, err := s.activeTerminalDescriptor(sessionID, requestedID, item.ProjectPath, target); ok || err != nil {
 			return descriptor, err
 		}
 	}
@@ -67,6 +67,7 @@ func (s *Service) StartOrReconnectInteractiveTerminal(ctx context.Context, sessi
 	}
 	state := &terminalSessionState{
 		sessionID:   sessionID,
+		projectPath: item.ProjectPath,
 		target:      target,
 		frames:      []TerminalFrame{{Type: "ready"}},
 		subscribers: make(map[chan TerminalFrame]struct{}),
@@ -80,7 +81,10 @@ func (s *Service) StartOrReconnectInteractiveTerminal(ctx context.Context, sessi
 	s.terminalMu.Unlock()
 	handle, err := interactive.StartInteractive(workspace, sandbox.TerminalOptions{ID: id, Cwd: cwd, Network: network, Cols: uint16(cols), Rows: uint16(rows)}, state.publishOutput, func(code int, exitErr error) {
 		state.publishExit(code, exitErr)
-		s.bus.Publish(sessionID, "terminal.session_exited", map[string]any{"terminal_id": id, "target": target, "exit_code": code})
+		s.terminalMu.Lock()
+		ownerSessionID := state.sessionID
+		s.terminalMu.Unlock()
+		s.bus.Publish(ownerSessionID, "terminal.session_exited", map[string]any{"terminal_id": id, "target": target, "exit_code": code})
 	})
 	if err != nil {
 		s.terminalMu.Lock()
@@ -105,16 +109,25 @@ func (s *Service) StartOrReconnectInteractiveTerminal(ctx context.Context, sessi
 	return TerminalSessionDescriptor{TerminalID: id, Target: target}, nil
 }
 
-func (s *Service) activeTerminalDescriptor(sessionID, terminalID string, target domain.TerminalTarget) (TerminalSessionDescriptor, bool, error) {
+func (s *Service) activeTerminalDescriptor(sessionID, terminalID, projectPath string, target domain.TerminalTarget) (TerminalSessionDescriptor, bool, error) {
 	s.terminalMu.Lock()
 	state := s.terminals[terminalID]
-	s.terminalMu.Unlock()
 	if state == nil {
+		s.terminalMu.Unlock()
 		return TerminalSessionDescriptor{}, false, nil
 	}
-	if state.sessionID != sessionID || state.target != target {
+	if state.target != target {
+		s.terminalMu.Unlock()
 		return TerminalSessionDescriptor{}, true, errors.New("terminal id is already owned by another session")
 	}
+	if state.sessionID != sessionID {
+		if target != domain.TerminalTargetHost || state.projectPath != projectPath {
+			s.terminalMu.Unlock()
+			return TerminalSessionDescriptor{}, true, errors.New("terminal id is already owned by another session")
+		}
+		state.sessionID = sessionID
+	}
+	s.terminalMu.Unlock()
 	state.mu.Lock()
 	exited := state.exited
 	state.mu.Unlock()

@@ -28,17 +28,24 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
   const [overflowOpen, setOverflowOpen] = useState(false)
   const runTargetRef = useRef<{ requestID: number; tabID: number } | undefined>(undefined)
   const projectPathRef = useRef(session.project_path)
+  const sessionIDRef = useRef(session.id)
   useEffect(() => {
-    if (projectPathRef.current === session.project_path) return
-    projectPathRef.current = session.project_path
-    const memory = loadTerminalWorkspace(session.project_path)
-    const restored = terminalTabsFromMemory(session, memory.tabs)
-    setTabs(restored)
-    setActiveID(restored.some((tab) => tab.id === memory.activeID) ? memory.activeID : restored[0].id)
-    setEditingID(undefined)
-    setEditingLabel('')
-    setOverflowOpen(false)
-    nextID.current = Math.max(memory.nextID, ...restored.map((tab) => tab.id + 1))
+    if (projectPathRef.current !== session.project_path) {
+      projectPathRef.current = session.project_path
+      sessionIDRef.current = session.id
+      const memory = loadTerminalWorkspace(session.project_path)
+      const restored = terminalTabsFromMemory(session, memory.tabs)
+      setTabs(restored)
+      setActiveID(restored.some((tab) => tab.id === memory.activeID) ? memory.activeID : restored[0].id)
+      setEditingID(undefined)
+      setEditingLabel('')
+      setOverflowOpen(false)
+      nextID.current = Math.max(memory.nextID, ...restored.map((tab) => tab.id + 1))
+      return
+    }
+    if (sessionIDRef.current === session.id) return
+    sessionIDRef.current = session.id
+    setTabs((items) => items.map((item) => ({ ...item, session, reconnectNonce: item.reconnectNonce + 1, status: 'connecting' })))
   }, [session])
 
   useEffect(() => {
@@ -158,12 +165,14 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
       </div>
     </div>
     <div className="terminal-instances">
-      {tabs.map((tab) => <div className={`terminal-instance ${tab.id === activeID ? 'active' : ''}`} key={tab.id}>
+      {tabs.map((tab) => {
+        const sameProjectRefresh = tab.session.project_path === session.project_path && tab.session.id !== session.id
+        return <div className={`terminal-instance ${tab.id === activeID ? 'active' : ''}`} key={tab.id}>
         <InteractiveTerminal
-          session={tab.session}
+          session={sameProjectRefresh ? session : tab.session}
           height={Math.max(155, height - 30)}
           visible={visible && tab.id === activeID}
-          reconnectNonce={tab.reconnectNonce}
+          reconnectNonce={tab.reconnectNonce + (sameProjectRefresh ? 1 : 0)}
           cwd={tab.cwd}
           terminalID={tab.terminalID}
           onTerminalIDChange={(terminalID) => updateTerminalID(tab.id, terminalID)}
@@ -174,7 +183,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
           runRequest={runRequest && runTargetRef.current?.requestID === runRequest.id && runTargetRef.current.tabID === tab.id ? { ...runRequest, command: inDirectory(runRequest.cwd, runRequest.command) } : undefined}
           onError={onError}
         />
-      </div>)}
+      </div>})}
     </div>
   </section>
 }

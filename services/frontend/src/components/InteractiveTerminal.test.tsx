@@ -83,6 +83,32 @@ describe('InteractiveTerminal PTY', () => {
     expect(screen.getByLabelText('Terminal interactivo')).toBeTruthy()
   })
 
+  it('buffers typing until the restored terminal has been reattached', async () => {
+    let resolveOpen: ((value: { terminal_id: string; target: 'host' }) => void) | undefined
+    vi.mocked(api.openTerminal).mockImplementationOnce(() => new Promise<{ terminal_id: string; target: 'host' }>((resolve) => { resolveOpen = resolve }))
+    render(<InteractiveTerminal session={session} height={245} terminalID="pty_restored_1" onError={() => undefined} />)
+
+    terminalMock.onData?.('echo buffered\r')
+    await new Promise((resolve) => window.setTimeout(resolve, 30))
+    expect(api.terminalInput).not.toHaveBeenCalled()
+
+    resolveOpen?.({ terminal_id: 'pty_restored_1', target: 'host' })
+    await waitFor(() => expect(api.terminalInput).toHaveBeenCalledWith('ses-terminal', 'pty_restored_1', 'echo buffered\r'))
+  })
+
+  it('reattaches and retries buffered typing after the input transport becomes stale', async () => {
+    vi.mocked(api.openTerminal).mockResolvedValue({ terminal_id: 'pty_recover_input', target: 'host' })
+    vi.mocked(api.terminalInput).mockRejectedValueOnce(new Error('terminal session not found')).mockResolvedValue(undefined)
+    render(<InteractiveTerminal session={session} height={245} onError={() => undefined} />)
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(1))
+
+    terminalMock.onData?.('pwd\r')
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(2), { timeout: 1500 })
+    expect(api.openTerminal).toHaveBeenLastCalledWith('ses-terminal', expect.objectContaining({ terminal_id: 'pty_recover_input' }), 'host', true)
+    await waitFor(() => expect(api.terminalInput).toHaveBeenCalledTimes(2), { timeout: 1500 })
+    expect(api.terminalInput).toHaveBeenLastCalledWith('ses-terminal', 'pty_recover_input', 'pwd\r')
+  })
+
   it('coalesces typing while one host input request is in flight', async () => {
     let resolveFirst: (() => void) | undefined
     vi.mocked(api.terminalInput)

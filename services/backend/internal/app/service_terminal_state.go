@@ -5,10 +5,11 @@ import "errors"
 func (s *Service) ownedTerminal(sessionID, terminalID string) (*terminalSessionState, error) {
 	s.terminalMu.Lock()
 	state := s.terminals[terminalID]
-	s.terminalMu.Unlock()
 	if state == nil || state.sessionID != sessionID {
+		s.terminalMu.Unlock()
 		return nil, errors.New("terminal session not found")
 	}
+	s.terminalMu.Unlock()
 	return state, nil
 }
 

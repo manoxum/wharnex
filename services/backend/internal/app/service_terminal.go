@@ -30,6 +30,7 @@ type TerminalFrame struct {
 type terminalSessionState struct {
 	mu          sync.Mutex
 	sessionID   string
+	projectPath string
 	target      domain.TerminalTarget
 	terminal    sandbox.InteractiveTerminal
 	frames      []TerminalFrame
