@@ -7,6 +7,7 @@ _(reserved — no entries yet)_
 ### Chat 687999cb-e16d-4199-8662-5fc1442b83f7 (2026-09-25)
 
 - Mantém o ChatGPT Manual projetado no Engine, troca o painel isolado por uma toolbar de entrega/importação e preserva a captura automática dos bundles canónicos sem reativar o scraper DOM.
+- Refina a toolbar Manual com hierarquia visual mais limpa, ações agrupadas, estado compacto e importação de resposta em card/dropzone mais claro e acessível.
 
 
 ### Chat 7d20d781-c4b2-4ccd-b95c-9d1a1623c27e (2026-09-24)
