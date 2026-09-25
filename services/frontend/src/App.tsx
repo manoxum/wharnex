@@ -111,6 +111,7 @@ import { subscribeHeaderPopover } from './lib/headerPopover'
 import { buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from './lib/desktopTray'
 import { workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget, type WorkspaceSurfaceTransferPoint } from './lib/workspaceSurface'
 import { activeChatBusy } from './lib/chatBusy'
+import { clearSelfEvolutionBlockForRetry } from './lib/selfEvolutionRecovery'
 
 type FrontendExecutionQueueItem = ExecutionFIFOItem
 
@@ -1646,6 +1647,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 			const url = chat.chatgptUrl
 			const cacheKey = chat.id
             if (!url) return
+			const requestDelivery = await api.chatAgentTasksForRequest(requestId)
+			const requestWrites = requestDelivery.tasks.filter((task) => ['BOT_WRITE', 'RECOVERY_WRITE'].includes(task.type) && task.chat_id === cacheKey)
+			const requestWriteSubmitted = requestWrites.some((task) => task.status === 'DONE')
+			// A durable write that has not reached DONE has not established a
+			// remote turn. Arming AWAIT_RESPONSE here makes Retomar send only a
+			// continuation while the original ZIP/prompt is still unsent.
+			if (requestWrites.length && !requestWriteSubmitted) return
             const resumeKey = `${candidate.id}:${requestId}:${cacheKey}`
             if (cancelled || resumedBundleKeysRef.current.has(resumeKey) || livePromptDeliveryKeysRef.current.has(resumeKey) || failedPromptDeliveryKeysRef.current.has(resumeKey)) return
             resumedBundleKeysRef.current.add(resumeKey)
@@ -3640,7 +3648,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         if (detail !== undefined) await repairFailureWithGPT(detail)
         return
       }
-      case 'retry-host-apply': await apply(); return
+      case 'retry-host-apply': {
+        if (session?.failure_kind === 'self_evolution_transaction_busy' && !(await clearSelfEvolutionBlockForRetry())) return
+        await apply()
+        return
+      }
     }
   }
 
@@ -3793,7 +3805,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       <ErrorToast open={Boolean(error)} message={error} onDismiss={() => setError(undefined)} />
       <div className={`workspace-surface-content ${splitSurface ? `is-split split-${splitSurface.direction}` : ''}`} style={splitSurface ? { ['--workspace-split-primary' as string]: `${Math.round(splitSurface.ratio * 1000) / 10}%` } as React.CSSProperties : undefined}>
         <div className="workspace-surface-primary">
-          {activeSurface.kind === 'chat' && <AgentWorkspace session={session} busy={activeBusy} attentionItems={attentionItems} onOpenAttention={openAttentionItem} onAttentionAction={runAttentionItemAction} chatgptAttentionNonce={chatgptAttentionNonce} inspectorAttention={inspectorAttention} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onOpenAttentionDrawer={() => undefined} onExportChat={exportActiveChat} onReorderChat={reorderChat} chatProps={focusedChatProps} onSplitChat={surfaceRequest.host === 'split' ? undefined : (chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)} inspectorProps={{ config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSuspended: !shellActive, onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onControlExecutionPlan: controlExecutionPlan, onPrepareExecutionPlanReversal: prepareExecutionPlanReversal, onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT }} />}
+          {activeSurface.kind === 'chat' && <AgentWorkspace session={session} busy={activeBusy} attentionItems={attentionItems} onOpenAttention={openAttentionItem} onAttentionAction={runAttentionItemAction} chatgptAttentionNonce={chatgptAttentionNonce} inspectorAttention={inspectorAttention} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onOpenAttentionDrawer={() => undefined} onExportChat={exportActiveChat} onReorderChat={reorderChat} chatProps={focusedChatProps} onSplitChat={surfaceRequest.host === 'split' ? undefined : (chatId, direction) => splitWorkspaceSurface(surfaceTarget('chat', { chatId }), direction)} inspectorProps={{ config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSuspended: !shellActive, onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onControlExecutionPlan: controlExecutionPlan, onPrepareExecutionPlanReversal: prepareExecutionPlanReversal, onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onResendPendingRequest: retryPreparedPromptDelivery, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT }} />}
           {activeSurface.kind === 'editor' && <DeferredEditorWorkspace session={session} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onError={setError} onRunInTerminal={runInTerminal} openPath={activeSurface.path} openNonce={editorOpenNonce} onSplitFile={surfaceRequest.host === 'split' ? undefined : (path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />}
           {activeSurface.kind === 'terminal' && <TerminalWorkspace session={session} height={terminalHeight} visible fill runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onSplitTerminal={surfaceRequest.host === 'split' ? undefined : (direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />}
         </div>
@@ -3924,7 +3936,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           inspectorProps={{
 		  config, session, events, manualPrompt, busy: activeBusy, chat: activeChat, chats, chatgptSuspended: !shellActive || mode !== 'agent' || projectSettingsOpen || restartModalOpen,
 		  onChatGPTURL: bindChatGPTURL, onChatGPTActivity: handleChatGPTActivity, onContextSent: markContextSent, onExecute: execute, onApproveDebug: approveDebug, onRetryDependencyNetwork: retryDependencyNetwork, onRetryHostDependencyRepair: retryHostDependencyRepair, onRejectExecutionPlan: rejectExecutionPlan, onRejectPendingChanges: rejectPendingChanges, onControlExecutionPlan: controlExecutionPlan, onPrepareExecutionPlanReversal: prepareExecutionPlanReversal,
-            onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT,
+            onManualPlan: submitManualPlan, onPlanFile: submitPlanFile, onBundleFile: submitBundleFile, onTransportFailure: failRemoteInput, onCancelPendingRequest: cancelPendingRequest, onResendPendingRequest: retryPreparedPromptDelivery, onSession: setSession, onResolveConflictWithGPT: resolveConflictWithGPT,
           }}
         />}
       </div>

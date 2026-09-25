@@ -34,10 +34,12 @@ export function reasoningEffortAdjustScript(behavior) {
     if (!slider) {
       const target = rect(button[0]);
       if (!target) return { ok: false, state: 'effort-control-offscreen', viewport: viewport() };
+      button[0].focus();
       const hit = document.elementFromPoint(target.x, target.y);
       const shape = (n) => n ? { tag: n.tagName, role: n.getAttribute('role') || '', testid: n.getAttribute('data-testid') || '' } : null;
       return {
         ok: true, state: 'effort-menu-closed', rect: target, viewport: viewport(),
+        triggerFocused: document.activeElement === button[0],
         hit: shape(hit), hitIsControl: Boolean(hit && (hit === button[0] || button[0].contains(hit) || hit.contains(button[0]))),
       };
     }

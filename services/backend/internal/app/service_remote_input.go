@@ -34,6 +34,8 @@ var (
 )
 
 func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, request RemoteInputRequest) (RemoteInputResult, error) {
+	ctx, cancel := boundedRemoteInputPublicationContext(ctx)
+	defer cancel()
 	status := s.RemoteInputStatus()
 	if !status.Enabled || s.remoteInputs == nil {
 		return RemoteInputResult{}, errors.New("remote storage is not configured")

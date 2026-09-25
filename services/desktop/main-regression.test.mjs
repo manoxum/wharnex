@@ -589,7 +589,7 @@ test('same-origin ChatGPT auth redirects stay embedded and explicit loads are se
   const load = source.slice(loadStart, loadEnd)
   assert.match(load, /entry\.navigationPromise/)
   assert.match(load, /isBenignChatGPTLoadAbort/)
-  assert.match(load, /await wc\.loadURL\(target/)
+  assert.match(load, /await withChatGPTNavigationDeadline\([\s\S]*\(\) => wc\.loadURL\(target/)
 
   const createStart = source.indexOf('function createChatGPTView(cacheKey, windowState)')
   const createEnd = source.indexOf('\nfunction ensureChatGPTView', createStart)
@@ -657,13 +657,22 @@ test('a failed delivery wake-up escalates once without a second poll-loop submis
   assert.doesNotMatch(afterRecovery, /submitChatGPTContinuation/)
 })
 
-test('pending bundles resume as durable AWAIT_RESPONSE tasks without allocating a hidden chat view', async () => {
+test('pending bundles resume only after the bound DOM proves the original request archive', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const resumeStart = source.indexOf("ipcMain.handle('wharness:chatgpt:resume-expected-bundle'")
   const resumeEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:continue-expected-bundle'", resumeStart)
   const resume = source.slice(resumeStart, resumeEnd)
   assert.ok(resumeStart >= 0, 'resume expected bundle IPC must exist')
   assert.match(resume, /const conversation = canonicalChatGPTConversationURL\(target\)/)
+  assert.match(resume, /chatAgentScheduler\.list\(\{ request_id: requestId \}\)/)
+  assert.match(resume, /classifyChatGPTRequestDelivery/)
+  assert.match(resume, /reason: 'write_in_progress'/)
+  assert.match(resume, /reason: 'write_not_submitted'/)
+  assert.doesNotMatch(resume, /retryPreparedChatGPTPrompt/)
+  assert.match(resume, /ensureChatGPTView\(key, windowState\)/)
+  assert.match(resume, /chatGPTSubmittedRequestEvidenceScript\(chatInputArchiveFilename\(key, requestId\)\)/)
+  assert.match(resume, /reason: 'resend_required'/)
+  assert.ok(resume.indexOf('submissionEvidence') < resume.indexOf('armExpectedChatGPTBundle'))
   assert.match(resume, /const workspaceChatId = durableWorkspaceChatID\(key, request\?\.workspaceChatId\)/)
   assert.match(resume, /if \(workspaceChatId\) await persistWorkspaceChatRemoteBestEffort\(workspaceChatId, conversation, \{ remoteState: 'awaiting-response' \}\)/)
   assert.match(resume, /armExpectedChatGPTBundle\(key, requestId, 0, recoveryPrompt/)
@@ -673,9 +682,28 @@ test('pending bundles resume as durable AWAIT_RESPONSE tasks without allocating 
   assert.match(resume, /dedupeKey: `await:\$\{requestId\}`/)
   assert.match(resume, /maxAttempts: 30/)
   assert.match(resume, /scheduled: true/)
-  assert.doesNotMatch(resume, /ensureChatGPTView\(/)
   assert.doesNotMatch(resume, /setVisible\(false\)/)
   assert.doesNotMatch(resume, /pollExpectedChatGPTDownloadKey\(key\)/)
+})
+
+test('manual resume sends keep-continue only after DOM proves the original request archive', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf("ipcMain.handle('wharness:chatgpt:continue-expected-bundle'")
+  const end = source.indexOf("ipcMain.handle('wharness:chatgpt:pick-bundle'", start)
+  const resume = source.slice(start, end)
+  assert.match(resume, /chatGPTSubmittedRequestEvidenceScript\(chatInputArchiveFilename\(key, requestId\)\)/)
+  assert.match(resume, /submissionEvidence\?\.submitted !== true/)
+  assert.match(resume, /cancelLineage\(requestId\)/)
+  assert.match(resume, /reason: 'resend_required'/)
+  assert.ok(resume.indexOf('submissionEvidence') < resume.indexOf('submitChatGPTContinuation'))
+})
+
+test('local request evidence is fetched concurrently before the ZIP is assembled', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('async function materializeChatInput(')
+  const end = source.indexOf('\nasync function materializeProtocolChatInput', start)
+  const materialize = source.slice(start, end)
+  assert.match(materialize, /Promise\.all\(\[\s*fetchRequestKnowledge\([\s\S]*fetchRequestGitContext\([\s\S]*fetchRequestContinuation\(/)
 })
 
 test('the Supervisor bound to a chat owns its expected-bundle observation whether visible or not, and Workers stand down from that lane', async () => {
@@ -870,7 +898,7 @@ test('idle backgrounded ChatGPT views may re-enable normal throttling, but never
   assert.match(pollLoop, /reconcileChatGPTThrottle\(key, entry\)/)
 })
 
-test('Supervisor transport stays unthrottled while durable resume bypasses the visible surface', async () => {
+test('Supervisor transport stays unthrottled while durable resume proves the bound DOM', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const helperStart = source.indexOf('async function withChatGPTTransportPreparation(')
   const helperEnd = source.indexOf('\nfunction sendToWindowState', helperStart)
@@ -886,7 +914,7 @@ test('Supervisor transport stays unthrottled while durable resume bypasses the v
   const resumeEnd = source.indexOf("ipcMain.handle('wharness:chatgpt:continue-expected-bundle'", resumeStart)
   const resume = source.slice(resumeStart, resumeEnd)
   assert.match(resume, /enqueueChatAgentTask\('AWAIT_RESPONSE'/)
-  assert.doesNotMatch(resume, /withChatGPTTransportPreparation/)
+  assert.match(resume, /withChatGPTTransportPreparation/)
   assert.match(source.slice(source.indexOf('async function flushQueuedChatGPTComments()'), source.indexOf('\nasync function publishRemoteChannelComment')), /withChatGPTTransportPreparation/)
 })
 
@@ -1313,13 +1341,13 @@ test('task comments are sent as one logical protocol ZIP with optional multipart
   const materializeEnd = source.indexOf('\nasync function fillBundledChatGPTComposer', materializeStart)
   const materialize = source.slice(materializeStart, materializeEnd)
   assert.notEqual(materializeStart, -1)
-  assert.match(materialize, /const context = await fetchContextZip\(sessionId, signal\)/)
+  assert.match(materialize, /const \[context, knowledge, gitContext, continuation\] = await Promise\.all/)
   assert.match(materialize, /writeChatInputTransportArchives\(dir, \{/)
   // The attempt ledger and divergence report must ride in the same single
   // protocol ZIP; fetching them separately at send time would let a comment
   // reach ChatGPT without the evidence the prompt says is attached.
-  assert.match(materialize, /const gitContext = await fetchRequestGitContext\(sessionId, signal\)/)
-  assert.match(materialize, /const continuation = await fetchRequestContinuation\(sessionId, requestId, signal\)/)
+  assert.match(materialize, /fetchRequestGitContext\(sessionId, signal\)/)
+  assert.match(materialize, /fetchRequestContinuation\(sessionId, requestId, signal\)/)
   // Comment/continuation protocol ZIPs are real outbound transport artifacts,
   // so persist the archive before the transient local copy is removed. This
   // keeps them visible in the same sent-bundle surfaces as the initial request.
@@ -1413,6 +1441,12 @@ test('reasoning effort is stepped through the composer slider, not a keyboard sh
   // this Radix trigger settled back closed, and sendInputEvent drops a mouse
   // event entirely on a view that is not visible.
   assert.match(body, /pressChatGPTControl\(entry, wc, staged\.rect\)/)
+  // A hidden Chromium surface can still reject the pointer press even when
+  // hit-testing proves it landed on the trigger. The DOM probe focuses that
+  // same closed control, then one trusted Enter is the bounded fallback.
+  assert.match(body, /staged\.triggerFocused === true/)
+  assert.match(body, /\['Enter', 'Space', 'Down'\]/)
+  assert.match(body, /pressChatGPTControlKey\(entry, wc, openKey\)/)
   // ...then the slider is stepped exactly once and the menu is closed again,
   // so the very next observe() in the caller's bounded loop reads a clean
   // collapsed-button label instead of the menu's generic open-state title.
@@ -1430,6 +1464,8 @@ test('reasoning effort is stepped through the composer slider, not a keyboard sh
   const scriptStart = effortScripts.indexOf('export function reasoningEffortAdjustScript(')
   assert.notEqual(scriptStart, -1)
   const script = effortScripts.slice(scriptStart, effortScripts.indexOf('\nexport function', scriptStart + 1))
+  assert.match(script, /button\[0\]\.focus\(\)/)
+  assert.match(script, /triggerFocused: document\.activeElement === button\[0\]/)
   // Scripts observe and stage; they never click (ADR-0037). Focusing the
   // slider is staging - it cannot itself change the value - not a bypass of
   // that rule.
@@ -2326,7 +2362,7 @@ test('no AWAIT_RESPONSE outcome that never reached ChatGPT spends the attempt bu
   // and it has to be evidence-shaped rather than a retry counter.
   assert.match(probe, /AWAIT_STALL_ATTENTION_MS/)
   assert.match(probe, /expected\.progressAt/)
-  assert.match(source, /const AWAIT_STALL_ATTENTION_MS = 10 \* 60_000/)
+  assert.match(source, /const AWAIT_STALL_ATTENTION_MS = 3 \* 60_000/)
 
   // An active provider cooldown is likewise not an attempt.
   const execute = source.slice(source.indexOf('async function executeChatAgentTask('))

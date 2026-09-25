@@ -14,7 +14,7 @@ const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
 const AGENT_FOLLOW_EVENT = 'wharnex:agent-follow'
 
-export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, sessionId, chatHash, requestedAt, recoveryBootstrap, transportMode = 'scraper', manualPrompt = '', onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest }: {
+export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, sessionId, chatHash, requestedAt, recoveryBootstrap, transportMode = 'scraper', manualPrompt = '', onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest, onResendPendingRequest }: {
   suspended?: boolean
   busy: boolean
   chatId: string
@@ -33,6 +33,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   onActivity?: (activity: DesktopChatGPTActivity) => void
 	 onTransportFailure?: (requestId: string, reason: string) => void
   onCancelPendingRequest?: (requestId: string) => Promise<void>
+  onResendPendingRequest?: (requestId: string) => Promise<void>
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const linkedURLRef = useRef(chatgptUrl)
@@ -304,13 +305,17 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     setRequestAction('resume')
     try {
       let result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
+      if (!result.ok && result.reason === 'write_in_progress') {
+        setNotice('O prompt e o bundle ainda estão a ser preparados para envio. A navegação será repetida automaticamente se não concluir.')
+        return
+      }
       if (!result.ok && result.reason === 'not_supervised') {
         const conversation = chatgptConversationURL(chatgptUrl || state.url)
         if (!sessionId || !conversation) {
           setNotice(manualContinuationFailure(result.reason))
           return
         }
-        await bridge.chatgpt.resumeExpectedBundle({
+        const resumed = await bridge.chatgpt.resumeExpectedBundle({
           cacheKey: chatId,
           sessionId,
           requestId: pendingRequestId,
@@ -321,6 +326,19 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
           chatHash,
           requestedAt,
         })
+        if (!resumed.ok && resumed.reason === 'write_in_progress') {
+          setNotice('O prompt e o bundle ainda estão a ser preparados para envio. A navegação será repetida automaticamente se não concluir.')
+          return
+        }
+        if (!resumed.ok && (resumed.reason === 'write_not_submitted' || resumed.reason === 'resend_required')) {
+          if (onResendPendingRequest) {
+            await onResendPendingRequest(pendingRequestId)
+            setNotice('O DOM não confirmou o envio original. O prompt e o bundle completos foram encaminhados para reenvio.')
+          } else {
+            setNotice('O envio original não chegou ao ChatGPT. Use “Reenviar request” no pedido para enviar novamente o prompt e o bundle completos.')
+          }
+          return
+        }
         result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
       }
       if (result.confirmationRequired) {
@@ -336,6 +354,11 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
         result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId, { force: true })
       }
       if (!result.ok) {
+        if (result.reason === 'resend_required' && onResendPendingRequest) {
+          await onResendPendingRequest(pendingRequestId)
+          setNotice('O DOM não confirmou o turno original com o bundle canónico. O pedido completo foi encaminhado para reenvio, sem enviar “keep continue”.')
+          return
+        }
         setNotice(manualContinuationFailure(result.reason))
         return
       }
@@ -470,6 +493,7 @@ function manualContinuationFailure(reason?: string) {
   if (reason === 'surface_loading') return 'A conversa ChatGPT ainda está a carregar. Aguarde a estabilização antes de retomar.'
   if (reason === 'continuation_in_flight') return 'Já existe uma continuação manual deste pedido em curso.'
   if (reason === 'continuation_failed') return 'A continuação não pôde ser preparada. Consulte o alerta do ChatGPT e tente novamente depois de corrigir a causa indicada.'
+  if (reason === 'resend_required') return 'O DOM não confirmou o turno original com o bundle canónico. Use “Reenviar request” para enviar novamente o pedido completo.'
   if (reason === 'not_supervised') return 'A supervisão local deste pedido ainda não foi restaurada nesta conversa.'
   return 'O pedido não foi retomado porque o estado remoto ainda não permite uma continuação segura.'
 }

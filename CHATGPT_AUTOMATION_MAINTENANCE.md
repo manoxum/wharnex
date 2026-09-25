@@ -127,11 +127,15 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
 - Cada Supervisor possui a sua própria fila de transporte. Um upload em
   `supervisor-1` só adia chats que realmente precisariam dessa instância; não
   bloqueia um chat residente ou disponível em `supervisor-2`.
-- **Retomar pedido** envia somente a continuação textual curta na conversa já
-  vinculada. Não rematerializa o contexto, não cria outro ZIP e não repete o
-  upload do bundle de entrada. A ação manual pode ultrapassar o limite do único
-  wake-up automático, mas continua bloqueada para request substituído, bundle
-  já validado ou conversa com transporte ativo.
+- **Retomar pedido** decide pela conversa vinculada, nunca apenas pelo estado
+  local. Ele procura um turno de utilizador estrutural que contenha um resource
+  card com o nome canónico exato do ZIP de entrada desse request. Somente essa
+  prova DOM autoriza a continuação curta `keep continue`; não se lê a prosa do
+  turno nem a resposta. `BOT_WRITE=DONE`, `AWAIT_RESPONSE`, upload confirmado,
+  spinner ou POST observado não substituem a prova DOM. Se ela faltar, Retomar
+  cancela a supervisão obsoleta e usa o reenvio idempotente do prompt + ZIP
+  completos a partir do artefacto persistido. A ação continua bloqueada para
+  request substituído, bundle já validado ou conversa com transporte ativo.
 - O mapa de ficheiros das rotas remotas usa uma allowlist fechada partilhada
   com os providers: `context`, `context-map`, `knowledge`, `continuation`,
   `git-context`, `attachment` e `artifact`. Uma divergência nesta lista faz a

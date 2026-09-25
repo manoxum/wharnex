@@ -181,6 +181,11 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
       }
       break
     case 'self_evolution_transaction_busy':
+      if (pendingCount) {
+        items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host bloqueada', session.last_repair_error || 'A candidata continua verificada; uma transação local impede temporariamente a integração.', 'plan', 'retry-host-apply'))
+        failureAlertAdded = true
+      }
+      break
     case 'host_integration_race':
       if (pendingCount) {
         items.push(item(chat, 'host-apply-retry', 'warning', 'Aplicação ao host pronta para repetir', 'A candidata continua verificada; uma disputa local temporária impediu a integração anterior.', 'plan', 'retry-host-apply'))
