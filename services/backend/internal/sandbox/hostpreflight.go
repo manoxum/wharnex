@@ -2,6 +2,8 @@ package sandbox
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -102,4 +104,18 @@ func withoutIntegratingUnits(paths, integratingUnits []string) []string {
 		out = append(out, path)
 	}
 	return out
+}
+
+// PatchAppliesToHost reports whether a patch applies to the host's working
+// tree exactly as it stands, without changing anything. It is the proof for a
+// pending candidate that carries only patch bytes (no integration branch),
+// under the same strict reading as MergeIntoHostProvenClean.
+func PatchAppliesToHost(ctx context.Context, hostPath, patch string) bool {
+	if strings.TrimSpace(patch) == "" {
+		return false
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", hostPath, "apply", "--check", "-")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Stdin = strings.NewReader(patch)
+	return cmd.Run() == nil
 }

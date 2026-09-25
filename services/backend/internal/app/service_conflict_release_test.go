@@ -92,6 +92,29 @@ func TestIntegrationConflictKeptWhenItStillHoldsOrCannotBeProven(t *testing.T) {
 	}
 	legacy := []domain.PendingHostChange{{Plan: domain.ExecutionPlan{PlanID: "plan-legacy"}}}
 	if service.integrationConflictDissolved(ctx, item, legacy) {
-		t.Fatal("a candidate without an integration branch cannot be proven clean")
+		t.Fatal("a candidate with neither a branch nor patches cannot be proven clean")
 	}
+	stale := []domain.PendingHostChange{patchOnlyCandidate("l2\n", "stale\n")}
+	if service.integrationConflictDissolved(ctx, item, stale) {
+		t.Fatal("a patch that no longer applies to the host must keep the record")
+	}
+}
+
+// A retirement can narrow a candidate to plain patch bytes. Such a candidate
+// is proven by its patches applying to the host as it stands.
+func TestIntegrationConflictDissolvedWithPatchOnlyCandidate(t *testing.T) {
+	item, pending := dissolvedConflictFixture(t, "l9")
+	pending = append(pending, patchOnlyCandidate("committed\n", "patched\n"))
+	if !(&Service{}).integrationConflictDissolved(context.Background(), item, pending) {
+		t.Fatal("a patch-only candidate that applies to the host must count as proven")
+	}
+}
+
+func patchOnlyCandidate(before, after string) domain.PendingHostChange {
+	file := "a.txt"
+	if before != "committed\n" {
+		file = "wip.go"
+	}
+	patch := "diff --git a/" + file + " b/" + file + "\n--- a/" + file + "\n+++ b/" + file + "\n@@ -1 +1 @@\n-" + before + "+" + after
+	return domain.PendingHostChange{Plan: domain.ExecutionPlan{PlanID: "plan-patch", Operations: []domain.Operation{{Type: "apply_patch", Patch: patch}}}}
 }
