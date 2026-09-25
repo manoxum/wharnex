@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '../types'
 import { TerminalWorkspace } from './TerminalWorkspace'
 
@@ -10,6 +10,11 @@ vi.mock('./InteractiveTerminal', () => ({
 const session = { id: 'ses_multi', project_path: '/tmp/project' } as Session
 
 describe('TerminalWorkspace', () => {
+  // Tabs persist per project in localStorage so shells survive app reloads.
+  // Every test uses the same project, so each must start from an empty
+  // workspace or it inherits the tabs an earlier test opened.
+  beforeEach(() => localStorage.clear())
+
   it('keeps sibling instances mounted while tabs are switched or hidden', () => {
     const { rerender } = render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
     fireEvent.click(screen.getByLabelText('Nova instância de terminal'))
