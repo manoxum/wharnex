@@ -132,6 +132,11 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
   upload do bundle de entrada. A ação manual pode ultrapassar o limite do único
   wake-up automático, mas continua bloqueada para request substituído, bundle
   já validado ou conversa com transporte ativo.
+- O mapa de ficheiros das rotas remotas usa uma allowlist fechada partilhada
+  com os providers: `context`, `context-map`, `knowledge`, `continuation`,
+  `git-context`, `attachment` e `artifact`. Uma divergência nesta lista faz a
+  publicação opcional falhar antes do upload e não deve ser tratada como uma
+  regressão do scraper.
 
 Quando o mapa mudar, incremente `CHATGPT_BEHAVIOR.revision`, acrescente a regressão correspondente e registre a data da nova confirmação.
 
