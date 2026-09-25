@@ -11,7 +11,7 @@ _(reserved — no entries yet)_
 
 ### Chat 7e463b09-c1c9-45cf-9dcd-198e6fe888cd (2026-09-25)
 
-_(reserved — no entries yet)_
+- Stabilize the Host terminal across same-project session refreshes and Desktop reloads, preserving buffered keystrokes while the PTY transport reattaches instead of surfacing stale-session ownership errors.
 
 
 ### Chat c5e9b688-1bae-4ce6-9955-d8bbe6905a0d (2026-09-25)

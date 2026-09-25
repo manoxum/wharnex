@@ -48,12 +48,13 @@ describe('TerminalWorkspace', () => {
     expect(screen.getByTestId('terminal-instance')).toBe(terminal)
   })
 
-  it('keeps live terminals mounted when the same project receives a new session id', () => {
+  it('reattaches live terminals when the same project receives a new session id', () => {
     const { rerender } = render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
     const terminal = screen.getByTestId('terminal-instance')
     rerender(<TerminalWorkspace session={{ ...session, id: 'ses_refreshed' }} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
     expect(screen.getByTestId('terminal-instance')).toBe(terminal)
-    expect(terminal.getAttribute('data-session')).toBe('ses_multi')
+    expect(terminal.getAttribute('data-session')).toBe('ses_refreshed')
+    expect(terminal.getAttribute('data-reconnect')).toBe('1')
   })
 
   it('creates a new host-only terminal for an Editor execution', () => {
