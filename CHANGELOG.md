@@ -1,4 +1,9 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat 49523cf5-5999-4140-928c-2bb65df9650c (2026-09-25)
+
+_(reserved — no entries yet)_
+
+
 ### Chat 7d20d781-c4b2-4ccd-b95c-9d1a1623c27e (2026-09-24)
 
 - Autoevolução com amostragem determinística de eventos de alto sinal ao selecionar conhecimento, com opção explícita para revisão apenas de conhecimento e audit do modo/IDs incluídos.
