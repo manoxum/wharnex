@@ -3603,6 +3603,11 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 			s.bus.Publish(sessionID, "self_evolution.host_build_failed", map[string]any{"plan_id": latestPlanID, "error": buildErr.Error()})
 			return item, failApply(plannerRepairableApplyFailure(buildErr))
 		}
+		if widened, widenErr := s.selfEvolution.WidenActivationImpacts(transaction); widenErr != nil {
+			s.bus.Publish(sessionID, "self_evolution.activation_impacts_degraded", map[string]any{"transaction_id": transaction.ID, "error": widenErr.Error()})
+		} else {
+			transaction = widened
+		}
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "restart_pending", "host build passed; explicit restart confirmation pending")
 		hostCommands = append(hostCommands, domain.CommandResult{Argv: []string{"make", "build-stage"}, Cwd: ".", ExitCode: 0, Success: true, DurationMS: time.Since(buildStarted).Milliseconds()})
 		s.bus.Publish(sessionID, "self_evolution.host_build_completed", map[string]any{"plan_id": latestPlanID, "transaction_id": transaction.ID})
