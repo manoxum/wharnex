@@ -1,5 +1,7 @@
 # ADR-0029 — Git-native sandbox→host integration
 
+> **Amended by `adr/ADR-0077`:** the merge is now a `git merge-tree` three-way merge from the candidate's own request base, recorded as the same two-parent merge commit and fast-forwarded into the checkout. A sandbox without shared history replays pending candidates the same way instead of by raw diff.
+
 ## Decision
 
 Replace the CAS/`ChangeSet` mechanism (`internal/changeset`) as the primary way a verified Protected sandbox candidate is integrated into the host with real Git operations: the sandbox commits its verified patch onto a dedicated branch and Wharness merges that branch into the host with an actual `git merge`, instead of computing a canonical base/result `ChangeSet` and writing files back with per-file compare-and-swap.

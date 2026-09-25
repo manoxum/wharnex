@@ -1,5 +1,7 @@
 # ADR-0035 — Request-base-rooted integration and race escalation
 
+> **Amended by `adr/ADR-0077`:** rooting alone does not give the merge a meaningful merge-base. Git computes the bare HEAD under the request base, so integration now names the candidate's own request base as the merge-base explicitly.
+
 ## Decision
 
 Anchor every planner request to the exact host tree its context was snapshotted

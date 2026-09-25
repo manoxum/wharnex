@@ -212,9 +212,24 @@ Protected execution roots the candidate's integration branch at that base and
 applies the plan's patch there. Applying a patch to the tree it was authored
 against succeeds by construction, however far the host has advanced in the
 meantime. The candidate's commit therefore descends from the request base,
-which gives the eventual host merge a meaningful merge-base: real divergence
-becomes an ordinary three-way merge, resolved with no model turn whenever the
-changes are genuinely compatible.
+and the host merge MUST use that request base as its merge-base
+(`adr/ADR-0077`): real divergence becomes an ordinary three-way merge,
+resolved with no model turn whenever the changes are genuinely compatible.
+
+The merge-base is taken explicitly, never computed by Git. The host does not
+descend from the request base, so Git's own choice is the bare HEAD beneath
+it, which lacks the operator's uncommitted work. From there every operator
+edit present at request time reads as a candidate change: operator files the
+candidate touched become add/add conflicts, lines the operator kept editing
+conflict with their own earlier version, and edits the operator discarded are
+silently restored. The base is the nearest request-base commit on the
+candidate's first-parent chain. Only a candidate without one falls back to
+Git's merge-base. The merged tree is computed offline (`git merge-tree
+--merge-base`), recorded as a two-parent merge commit and fast-forwarded into
+the checkout, so a conflict never leaves the operator's checkout mid-merge. A
+dirty checkout, whether edited by the operator or by another agent while a
+request is in flight, therefore conflicts only where both sides changed the
+same lines.
 
 Whether two changes can be combined is decided by that merge, never by
 impact-file, line-range or column overlap. `impact_files` remains a scheduling
@@ -242,7 +257,8 @@ An advisory preflight (`git merge-tree`) may run before a merge reaches the
 host, so a merge already known to be doomed never mutates it and never leaves a
 pre-merge snapshot commit behind for a merge that did not happen. It compares
 against the host's real current content, including uncommitted state, because
-the real merge commits that state first. A Git build that cannot answer yields
+the real merge commits that state first, and from the same candidate request
+base the real merge uses. A Git build that cannot answer yields
 "unknown", never "clean"; the atomic merge remains authoritative.
 
 ## Submodule integration (v1.3.7)

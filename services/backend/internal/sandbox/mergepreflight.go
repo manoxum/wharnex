@@ -21,6 +21,10 @@ type MergePreflight struct {
 	// an unsupported preflight as "unknown", never as "clean" or "conflict":
 	// the real merge remains the decision point either way.
 	Supported bool
+	// Tree is the merged tree Git wrote. For a conflicting merge it holds the
+	// conflicted paths with markers, so it is only a finished result when
+	// Clean is true or every conflict is subsequently decided locally.
+	Tree string
 }
 
 // PreflightMerge reports whether merging other into base would conflict.
@@ -38,30 +42,49 @@ type MergePreflight struct {
 // stays authoritative; this exists to avoid entering work that is already
 // known to collide, and to name the colliding paths early.
 func PreflightMerge(ctx context.Context, repoPath, base, other string) (MergePreflight, error) {
-	base = strings.TrimSpace(base)
-	other = strings.TrimSpace(other)
-	if base == "" || other == "" {
+	return PreflightMergeFrom(ctx, repoPath, "", base, other)
+}
+
+// PreflightMergeFrom is PreflightMerge with the merge-base named explicitly
+// instead of computed from the commit graph. An empty mergeBase keeps Git's
+// own choice. See CandidateMergeBase for why a Wharnex candidate needs this:
+// the common ancestor Git computes predates the operator work the candidate
+// was authored on top of.
+func PreflightMergeFrom(ctx context.Context, repoPath, mergeBase, ours, theirs string) (MergePreflight, error) {
+	ours = strings.TrimSpace(ours)
+	theirs = strings.TrimSpace(theirs)
+	if ours == "" || theirs == "" {
 		return MergePreflight{}, errors.New("both commits are required")
 	}
 	if _, err := exec.LookPath("git"); err != nil {
 		return MergePreflight{}, errors.New("git executable not found")
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "merge-tree", "--write-tree", "--name-only", base, other)
+	args := []string{"-C", repoPath, "merge-tree", "--write-tree", "--name-only"}
+	if mergeBase = strings.TrimSpace(mergeBase); mergeBase != "" {
+		args = append(args, "--merge-base="+mergeBase)
+	}
+	cmd := exec.CommandContext(ctx, "git", append(args, ours, theirs)...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	output, err := cmd.Output()
 	if err == nil {
-		return MergePreflight{Clean: true, Supported: true}, nil
+		return MergePreflight{Clean: true, Supported: true, Tree: mergeTreeOID(string(output))}, nil
 	}
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) {
 		return MergePreflight{}, err
 	}
 	// git merge-tree exits 1 for "merged with conflicts" and >1 for a real
-	// failure, which includes a Git too old to know --write-tree at all.
+	// failure, which includes a Git too old to know --write-tree (2.38) or
+	// --merge-base (2.40) at all.
 	if exitErr.ExitCode() != 1 {
 		return MergePreflight{Supported: false}, nil
 	}
-	return MergePreflight{Clean: false, ConflictPaths: parseMergeTreeConflicts(string(output)), Supported: true}, nil
+	return MergePreflight{Clean: false, ConflictPaths: parseMergeTreeConflicts(string(output)), Supported: true, Tree: mergeTreeOID(string(output))}, nil
+}
+
+func mergeTreeOID(output string) string {
+	first, _, _ := strings.Cut(output, "\n")
+	return strings.TrimSpace(first)
 }
 
 // parseMergeTreeConflicts reads the conflicted-file section of a conflicting
