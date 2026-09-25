@@ -470,13 +470,15 @@ activate_selected_services() {
   expanded=''
   for service in "$@"; do
     case "$service" in
-      backend|tunnel|terminal) expanded="$expanded $service" ;;
+      backend|tunnel) expanded="$expanded $service" ;;
+      terminal) ensure_terminal_service ;;
       frontend) expanded="$expanded frontend gateway" ;;
       webapp) expanded="$expanded webapp gateway" ;;
       gateway) expanded="$expanded gateway" ;;
       *) echo "Invalid Wharnex activation service: $service" >&2; return 2 ;;
     esac
   done
+  [ -n "$expanded" ] || return 0
   # expanded is derived from the closed enum above.
   # shellcheck disable=SC2086
   if ! compose up -d --force-recreate --no-deps $expanded; then
@@ -495,6 +497,7 @@ stack_status() {
   require_docker
   ensure_credentials
   compose ps
+  terminal_service_status
 }
 
 case ${1:-} in
@@ -528,11 +531,13 @@ case ${1:-} in
     require_docker
     ensure_credentials
     compose stop
+    stop_terminal_service
     ;;
   down)
     require_docker
     ensure_credentials
     compose down --remove-orphans
+    stop_terminal_service
     ;;
   status)
     stack_status
@@ -546,7 +551,7 @@ case ${1:-} in
     fi
     ;;
   *)
-    echo 'usage: stack.sh prepare|build|ensure|up|activate-app|activate-services [backend|frontend|webapp|gateway|tunnel]...|stop|down|status|logs' >&2
+    echo 'usage: stack.sh prepare|build|ensure|up|activate-app|activate-services [backend|frontend|webapp|gateway|tunnel|terminal]...|stop|down|status|logs' >&2
     exit 2
     ;;
 esac

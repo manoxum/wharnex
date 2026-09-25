@@ -1,8 +1,143 @@
 #!/usr/bin/env sh
 
+terminal_service_paths() {
+  TERMINAL_SOCKET="$ROOT/.harness/bridge/terminal.sock"
+  TERMINAL_PID_FILE="$ROOT/.harness/state/terminald.pid"
+  TERMINAL_LOG_FILE="$ROOT/.harness/logs/terminald.log"
+  TERMINAL_BINARY="$ROOT/dist/bin/wharnex-host-pty"
+}
+
+terminal_service_in_container() {
+  [ -f /.dockerenv ] || grep -qaE '/(docker|containerd|kubepods)/' /proc/1/cgroup 2>/dev/null
+}
+
+terminal_service_socket_ready() {
+  terminal_service_paths
+  [ -S "$TERMINAL_SOCKET" ] || return 1
+  command -v node >/dev/null 2>&1 || return 0
+  node - "$TERMINAL_SOCKET" <<'NODE'
+const net = require('node:net')
+const socketPath = process.argv[2]
+const socket = net.createConnection(socketPath)
+const fail = () => { socket.destroy(); process.exit(1) }
+socket.setTimeout(500, fail)
+socket.once('error', fail)
+socket.once('connect', () => { socket.end(); process.exit(0) })
+NODE
+}
+
+wait_terminal_service() {
+  terminal_service_paths
+  attempts=0
+  while [ "$attempts" -lt 120 ]; do
+    if terminal_service_in_container; then
+      [ -S "$TERMINAL_SOCKET" ] && return 0
+    elif terminal_service_socket_ready; then
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.1
+  done
+  echo "Host terminal service did not become ready at $TERMINAL_SOCKET." >&2
+  return 1
+}
+
+migrate_legacy_terminal_sidecar() {
+  terminal_service_in_container && return 0
+  command -v docker >/dev/null 2>&1 || return 0
+  ids=$(docker ps -aq \
+    --filter "label=wharness.root=$ROOT" \
+    --filter 'label=com.docker.compose.service=terminal' 2>/dev/null || true)
+  [ -n "$ids" ] || return 0
+  printf 'Migrating durable terminal ownership from Compose to the host service...\n'
+  # IDs originate from docker ps and contain no whitespace except separators.
+  # shellcheck disable=SC2086
+  docker rm -f $ids >/dev/null
+}
+
 ensure_terminal_service() {
-  # Host PTYs live outside the backend/frontend rollout. Reuse the existing
-  # sidecar unless terminal-specific code explicitly requests replacement.
-  compose up -d --no-recreate terminal
-  wait_service terminal 120
+  terminal_service_paths
+  mkdir -p "$(dirname "$TERMINAL_SOCKET")" "$(dirname "$TERMINAL_PID_FILE")" "$(dirname "$TERMINAL_LOG_FILE")"
+
+  # Self-evolution reconciliation executes stack.sh from a container. It must
+  # never start a supposedly host-native PTY daemon inside that container.
+  # Preserve the already-running host/legacy socket until the detached Desktop
+  # relaunch reaches this function from the real host.
+  if terminal_service_in_container; then
+    wait_terminal_service
+    return
+  fi
+
+  migrate_legacy_terminal_sidecar
+  if terminal_service_socket_ready; then
+    return 0
+  fi
+  rm -f "$TERMINAL_SOCKET" "$TERMINAL_PID_FILE"
+  [ -x "$TERMINAL_BINARY" ] || {
+    echo "Host terminal bridge binary is missing: $TERMINAL_BINARY" >&2
+    return 1
+  }
+
+  printf 'Starting durable native host terminal service...\n'
+  if command -v setsid >/dev/null 2>&1; then
+    nohup setsid env \
+      WHARNESS_ROOT="$ROOT" \
+      HARNESS_HOST_PTY_SOCKET="$TERMINAL_SOCKET" \
+      "$TERMINAL_BINARY" --socket "$TERMINAL_SOCKET" \
+      >>"$TERMINAL_LOG_FILE" 2>&1 </dev/null &
+  else
+    nohup env \
+      WHARNESS_ROOT="$ROOT" \
+      HARNESS_HOST_PTY_SOCKET="$TERMINAL_SOCKET" \
+      "$TERMINAL_BINARY" --socket "$TERMINAL_SOCKET" \
+      >>"$TERMINAL_LOG_FILE" 2>&1 </dev/null &
+  fi
+  printf '%s\n' "$!" >"$TERMINAL_PID_FILE"
+  chmod 600 "$TERMINAL_PID_FILE"
+  wait_terminal_service
+}
+
+stop_terminal_service() {
+  terminal_service_paths
+  terminal_service_in_container && return 0
+  if command -v docker >/dev/null 2>&1; then
+    ids=$(docker ps -aq \
+      --filter "label=wharness.root=$ROOT" \
+      --filter 'label=com.docker.compose.service=terminal' 2>/dev/null || true)
+    if [ -n "$ids" ]; then
+      # shellcheck disable=SC2086
+      docker rm -f $ids >/dev/null
+    fi
+  fi
+  pid=''
+  [ ! -f "$TERMINAL_PID_FILE" ] || pid=$(sed -n '1p' "$TERMINAL_PID_FILE" 2>/dev/null || true)
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill -TERM "$pid" 2>/dev/null || true
+    attempts=0
+    while kill -0 "$pid" 2>/dev/null && [ "$attempts" -lt 40 ]; do
+      attempts=$((attempts + 1))
+      sleep 0.1
+    done
+    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+  fi
+  rm -f "$TERMINAL_PID_FILE" "$TERMINAL_SOCKET"
+}
+
+terminal_service_status() {
+  terminal_service_paths
+  if terminal_service_in_container; then
+    [ -S "$TERMINAL_SOCKET" ] && printf '  %-12s %s\n' 'terminald' 'socket available' || printf '  %-12s %s\n' 'terminald' 'socket unavailable'
+    return
+  fi
+  if terminal_service_socket_ready; then
+    pid=''
+    [ ! -f "$TERMINAL_PID_FILE" ] || pid=$(sed -n '1p' "$TERMINAL_PID_FILE" 2>/dev/null || true)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      printf '  %-12s running (pid %s, native host)\n' 'terminald' "$pid"
+    else
+      printf '  %-12s running (native host socket)\n' 'terminald'
+    fi
+  else
+    printf '  %-12s %s\n' 'terminald' 'unavailable'
+  fi
 }

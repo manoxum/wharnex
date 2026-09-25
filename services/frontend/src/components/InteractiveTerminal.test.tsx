@@ -43,10 +43,13 @@ vi.mock('../lib/api', () => ({
 }))
 
 class FakeEventSource {
+  constructor() { eventSources.push(this) }
   onmessage: ((event: MessageEvent) => void) | null = null
   onerror: (() => void) | null = null
   close = vi.fn()
 }
+
+const eventSources: FakeEventSource[] = []
 
 const clipboard = { readText: vi.fn(), writeText: vi.fn() }
 
@@ -58,6 +61,7 @@ const session: Session = {
 describe('InteractiveTerminal PTY', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    eventSources.length = 0
     terminalMock.onData = undefined; terminalMock.onResize = undefined; terminalMock.selection = ''
     vi.stubGlobal('EventSource', FakeEventSource)
     Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: { clipboard } })
@@ -76,6 +80,26 @@ describe('InteractiveTerminal PTY', () => {
     await waitFor(() => expect(api.terminalInput).toHaveBeenCalledWith('ses-terminal', 'pty-1', 'nano README.md\r'))
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.getByLabelText('Terminal interactivo')).toBeTruthy()
+  })
+
+  it('coalesces typing while one host input request is in flight', async () => {
+    let resolveFirst: (() => void) | undefined
+    vi.mocked(api.terminalInput)
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { resolveFirst = resolve }))
+      .mockResolvedValue(undefined)
+    render(<InteractiveTerminal session={session} height={245} onError={() => undefined} />)
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(1))
+
+    terminalMock.onData?.('a')
+    await waitFor(() => expect(api.terminalInput).toHaveBeenCalledWith('ses-terminal', 'pty-1', 'a'))
+    terminalMock.onData?.('b')
+    terminalMock.onData?.('c')
+    await Promise.resolve()
+    expect(api.terminalInput).toHaveBeenCalledTimes(1)
+
+    resolveFirst?.()
+    await waitFor(() => expect(api.terminalInput).toHaveBeenCalledTimes(2))
+    expect(api.terminalInput).toHaveBeenLastCalledWith('ses-terminal', 'pty-1', 'bc')
   })
 
   it('does not expose sandbox selection or the redundant host-direct banner', async () => {
@@ -99,6 +123,17 @@ describe('InteractiveTerminal PTY', () => {
   it('reattaches a terminal id restored by the workspace after a page reload', async () => {
     render(<InteractiveTerminal session={session} height={245} terminalID="pty_restored_1" onError={() => undefined} />)
     await waitFor(() => expect(api.openTerminal).toHaveBeenCalledWith('ses-terminal', expect.objectContaining({ terminal_id: 'pty_restored_1' }), 'host', true))
+  })
+
+  it('reattaches the same host PTY after the backend event stream restarts', async () => {
+    vi.mocked(api.openTerminal).mockResolvedValue({ terminal_id: 'pty_host_restart', target: 'host' })
+    render(<InteractiveTerminal session={session} height={245} onError={() => undefined} />)
+    await waitFor(() => expect(eventSources).toHaveLength(1))
+
+    eventSources[0].onerror?.()
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(2), { timeout: 1500 })
+    expect(api.openTerminal).toHaveBeenLastCalledWith('ses-terminal', expect.objectContaining({ terminal_id: 'pty_host_restart' }), 'host', true)
+    await waitFor(() => expect(eventSources).toHaveLength(2))
   })
 
   it('copies selections and pastes clipboard text through desktop shortcuts', async () => {

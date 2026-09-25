@@ -6,7 +6,9 @@
 
 ### Chat e643aac8-3db9-4839-bd54-cf1c6d44ceca (2026-09-25)
 
-- Impede a limpeza de terminais transitórios de remover o sidecar Compose durável `terminal`, eliminando o socket PTY órfão que fazia todos os terminais Host falharem com `connection refused`.
+- Move a posse dos PTYs persistentes do sidecar Compose para um daemon nativo do host, preservando shells e sessões quando backend, frontend ou Desktop reiniciam e fazendo o terminal herdar o ambiente/toolchain real do utilizador.
+- Elimina a fila de pequenos POSTs de teclado: o frontend envia input imediatamente com uma única requisição em voo e agrega as teclas recebidas durante essa viagem, reduzindo atraso sem perder ordem.
+- Mantém a proteção contra limpeza indevida de terminais transitórios e migra automaticamente o sidecar legado na próxima reconciliação iniciada pelo host.
 
 
 ### Chat 687999cb-e16d-4199-8662-5fc1442b83f7 (2026-09-25)
