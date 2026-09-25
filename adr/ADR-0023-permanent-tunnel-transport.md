@@ -29,6 +29,12 @@ for every required stable endpoint. Context and attachment aliases are replaced
 atomically when generation changes; hash-addressed copies remain available for
 audit. The consumer never needs to construct a sibling URL.
 
+The provider-side resource allowlist MUST stay aligned with the closed roles
+emitted by the channel file map: `context`, `context-map`, `knowledge`,
+`continuation`, `git-context`, `attachment`, and `artifact`. A provider MUST
+reject unknown roles, but MUST NOT reject one of these producer-owned roles
+after the request resources have already been prepared.
+
 Each tunnel document also owns a user-selected public instance name. The root
 landing page can list configured permanent origins and emit a QR discovery
 record containing only the name and one public origin. This prepares explicit
