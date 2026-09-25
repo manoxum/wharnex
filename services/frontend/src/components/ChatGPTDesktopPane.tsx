@@ -339,7 +339,9 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
         setNotice(manualContinuationFailure(result.reason))
         return
       }
-      setNotice(`Continuação manual enviada para ${pendingRequestId}.`)
+      setNotice(result.reason === 'bundle_already_validated'
+        ? `O bundle de ${pendingRequestId} já tinha sido validado.`
+        : `Continuação manual enviada para ${pendingRequestId}.`)
     } catch (error) {
       setNotice(errorMessage(error, 'Não foi possível retomar o pedido.'))
     } finally {

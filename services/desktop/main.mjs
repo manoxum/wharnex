@@ -21,7 +21,7 @@ import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUse
 import { buildBundleName, parseBundleName, safeChatId } from './bundlename.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
-import { chatGPTDeliveryContinuationPrompt, chatGPTStalledRecoveryPrompt, chooseChatGPTRecoveryAction, classifyChatGPTConversationTransport, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress, reconcileChatGPTConversationTransport, recordChatGPTConversationTransport } from './chatgpt-recovery.mjs'
+import { chatGPTDeliveryContinuationPrompt, chooseChatGPTRecoveryAction, classifyChatGPTConversationTransport, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress, reconcileChatGPTConversationTransport, recordChatGPTConversationTransport } from './chatgpt-recovery.mjs'
 import { claimNetworkFaultReloadSlot, isNetworkRecoveryFault } from './chatgpt-transport-backoff.mjs'
 import { RATE_LIMIT_GATE, classifyChatGPTRateLimit, isChatGPTBackendAPIURL } from './chatgpt-rate-limit.mjs'
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
@@ -5251,13 +5251,13 @@ async function submitPromptToChatGPT(cacheKey, value, expectedURL = '', requestI
   return { ok: true, cacheKey: key, expectedFilename, conversationUrl, assistantBaseline, recoveryBootstrap: bundled.bootstrap, liveTunnels }
 }
 
-function automaticChatGPTContinuationBlockReason(cacheKey, requestId) {
+function automaticChatGPTContinuationBlockReason(cacheKey, requestId, { manual = false } = {}) {
   const key = sanitizeChatCacheKey(cacheKey)
   const id = String(requestId || '').trim()
   if (chatGPTBundleAlreadyValidated(id)) return 'bundle_already_validated'
   const expected = expectedChatGPTBundles.get(key)
   if (!expected || expected.requestId !== id) return 'request_not_supervised'
-  if (expected.automaticContinuationSent === true || Number(expected.continuationCount || 0) >= MAX_AUTOMATIC_BUNDLE_CONTINUATIONS) return 'wake_already_sent'
+  if (!manual && (expected.automaticContinuationSent === true || Number(expected.continuationCount || 0) >= MAX_AUTOMATIC_BUNDLE_CONTINUATIONS)) return 'wake_already_sent'
   return ''
 }
 
@@ -5268,10 +5268,10 @@ function chatGPTContinuationSuppressedError(reason) {
   return error
 }
 
-async function submitChatGPTContinuation(cacheKey, expectedURL = '', requestId = '', entryOverride = undefined) {
+async function submitChatGPTContinuation(cacheKey, expectedURL = '', requestId = '', entryOverride = undefined, { manual = false } = {}) {
   const key = sanitizeChatCacheKey(cacheKey)
   const id = String(requestId || '').trim()
-  const initialBlock = automaticChatGPTContinuationBlockReason(key, id)
+  const initialBlock = automaticChatGPTContinuationBlockReason(key, id, { manual })
   if (initialBlock) return { ok: true, skipped: true, reason: initialBlock }
   const prior = expectedChatGPTBundles.get(key)
   const expectedFilename = prior?.requestId === id ? prior.filename : canonicalBundleFilename(key, id)
@@ -5279,7 +5279,7 @@ async function submitChatGPTContinuation(cacheKey, expectedURL = '', requestId =
   const signal = target.entry.transportAbortSignal
   const preDispatch = async () => {
     throwIfChatGPTTransportAborted(signal)
-    const reason = automaticChatGPTContinuationBlockReason(key, id)
+    const reason = automaticChatGPTContinuationBlockReason(key, id, { manual })
     if (reason) throw chatGPTContinuationSuppressedError(reason)
   }
   throwIfChatGPTTransportAborted(signal)
@@ -5296,8 +5296,10 @@ async function submitChatGPTContinuation(cacheKey, expectedURL = '', requestId =
     const conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT continuation did not produce a stable conversation id')
     if (prior?.requestId === id) {
-      prior.automaticContinuationSent = true
-      prior.continuationCount = Math.max(Number(prior.continuationCount || 0), MAX_AUTOMATIC_BUNDLE_CONTINUATIONS)
+      if (!manual) {
+        prior.automaticContinuationSent = true
+        prior.continuationCount = Math.max(Number(prior.continuationCount || 0), MAX_AUTOMATIC_BUNDLE_CONTINUATIONS)
+      }
       prior.assistantBaseline = Math.max(Number(prior.assistantBaseline || 0), assistantBaseline)
       prior.lastDOMClick = 0
       prior.downloadInFlight = false
@@ -8048,9 +8050,9 @@ function registerIPC() {
 
     expected.manualContinuationInFlight = true
     try {
-      const prompt = chatGPTStalledRecoveryPrompt(requestId, expected.filename, expected.originalPrompt)
+      let continuation
       try {
-        await fillBundledChatGPTComposer(key, entry, expected.sessionId, requestId, prompt, expected.filename, [], expected.liveTunnels || [], expected.requestMetadata || {})
+        continuation = await submitChatGPTContinuation(key, affinityURL, requestId, entry, { manual: true })
       } catch (error) {
         if (error instanceof ChatGPTRateLimitDeferral) {
           return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'provider_cooldown' }
@@ -8058,8 +8060,10 @@ function registerIPC() {
         escalateChatGPTContinuationFailure(key, expected, error, 'manual-continuation')
         return { ok: false, cacheKey: key, requestId, confirmationRequired: false, reason: 'continuation_failed' }
       }
-      await wait(80)
-      await submitChatGPTDraft(key, entry, affinityURL, targeted)
+      if (continuation?.skipped) {
+        const reason = continuation.reason === 'request_not_supervised' ? 'not_supervised' : continuation.reason
+        return { ok: continuation.reason === 'bundle_already_validated', cacheKey: key, requestId, confirmationRequired: false, reason }
+      }
       expected.assistantBaseline = Math.max(expected.assistantBaseline, Number(completion?.assistantCount) || 0)
       expected.settledAt = 0
       expected.lastDOMClick = 0
