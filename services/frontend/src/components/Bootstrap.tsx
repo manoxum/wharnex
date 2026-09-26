@@ -17,6 +17,9 @@ import { ThemeToggle } from './ThemeToggle'
 import { SignalCore } from './SignalCore'
 import { WorkspaceSkeleton } from './Skeleton'
 import { ProjectSettings } from './ProjectSettings'
+import { ComposerRichEditor } from './ComposerRichEditor'
+import { ComposerPlanFirstControl, ComposerRequestControls } from './ComposerRequestControls'
+import { removeDirective } from '../lib/composerDirectives'
 
 type SetupMode = 'open' | 'create' | 'clone' | ''
 
@@ -168,40 +171,63 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
         {restoring ? <section className="bootstrap-home-restoring"><WorkspaceSkeleton/></section> : <>
           <section className="bootstrap-home-primary">
             <section className="bootstrap-prompt-card">
-              <div className="bootstrap-prompt-heading"><div><span>Novo projeto</span><strong>O que quer construir?</strong><small>Descreva a ideia e ajuste como a primeira request deve arrancar.</small></div></div>
-              <form onSubmit={submitBriefing}>
-                <textarea aria-label="Descrever novo projeto" autoFocus value={briefing} onChange={(event) => setBriefing(event.target.value)} placeholder="Descreva a aplicação, site, serviço ou ferramenta que quer criar…" rows={7} />
-                <div className="bootstrap-composer-toolbar" aria-label="Opções da primeira request">
-                  <button type="button" className={`composer-round-action ${launchOptions.artifacts.context ? 'selected' : ''}`} aria-pressed={launchOptions.artifacts.context} onClick={() => updateArtifact('context', !launchOptions.artifacts.context)} title="Incluir contexto do projeto"><Icon name="package" size={14}/><span>Contexto</span></button>
-                  <button type="button" className="composer-round-action selected" disabled title="O prompt inicial é sempre incluído"><Icon name="clipboard" size={14}/><span>Prompt</span></button>
-                  <button type="button" className={`composer-round-action ${launchOptions.requestMode === 'plan_first' ? 'selected' : ''}`} aria-pressed={launchOptions.requestMode === 'plan_first'} onClick={() => setLaunchOptions((current) => ({ ...current, requestMode: current.requestMode === 'plan_first' ? 'direct' : 'plan_first' }))} title="Pedir plano antes de alterar o projeto"><Icon name="plan" size={14}/><span>Plan first</span></button>
-                  <span className="bootstrap-composer-divider" aria-hidden="true"/>
-                  <div className="composer-mode-group" aria-label="Automação">
-                    {(['manual', 'auto', 'auto_approve'] as AutomationMode[]).map((value) => <button key={value} type="button" className={launchOptions.automationMode === value ? 'selected' : ''} aria-pressed={launchOptions.automationMode === value} onClick={() => updateAutomationMode(value)}>{automationLabel(value)}</button>)}
+              <div className="bootstrap-prompt-heading"><div><span>Novo projeto</span><strong>O que quer construir?</strong><small>Descreva a ideia. A primeira request usa o mesmo editor e os mesmos controlos do composer do projeto.</small></div></div>
+              <form className="composer bootstrap-composer" onSubmit={submitBriefing}>
+                <div className="composer-scroll-area">
+                  <div className="bootstrap-composer-meta" aria-label="Destino do novo projeto">
+                    <button type="button" className="bootstrap-destination" onClick={() => void chooseParent('Selecionar workspace para o novo projeto')} title="Alterar workspace"><span className="bootstrap-meta-icon"><Icon name="folder" size={13}/></span><span className="bootstrap-meta-copy"><small>Workspace</small><strong>{parent ? compactPath(parent) : 'Escolher workspace'}</strong></span></button>
+                    <label className="bootstrap-project-name"><span className="bootstrap-meta-icon"><Icon name="workspace" size={13}/></span><span className="bootstrap-meta-copy"><small>Projeto</small><input aria-label="Nome do novo projeto" value={name} onChange={(event) => setName(event.target.value)} placeholder={projectSlug(briefing)} spellCheck={false}/></span></label>
                   </div>
-                  <label className="composer-effort-picker bootstrap-option-select"><span>Effort</span><select aria-label="Effort da primeira request" value={launchOptions.effortLevel} onChange={(event) => updateEffortLevel(event.target.value as EffortLevel)}>{(['low', 'medium', 'high', 'extra_high', 'max', 'ultra', 'loop'] as EffortLevel[]).map((value) => <option key={value} value={value}>{effortLabel(value)}</option>)}</select></label>
-                  <label className="composer-effort-picker bootstrap-option-select"><span>Intelligence</span><select aria-label="Intelligence da primeira request" value={launchOptions.reasoningEffort} onChange={(event) => updateReasoningEffort(event.target.value as ReasoningEffort)}><option value="instant">Instant</option><option value="medium">Medium</option><option value="high">High</option></select></label>
-                  <div className="composer-mode-group" aria-label="Transporte">
-                    <button type="button" className={launchOptions.chatTransportMode === 'scraper' ? 'selected' : ''} aria-pressed={launchOptions.chatTransportMode === 'scraper'} onClick={() => updateTransport('scraper')}>Auto</button>
-                    <button type="button" className={launchOptions.chatTransportMode === 'manual' ? 'selected' : ''} aria-pressed={launchOptions.chatTransportMode === 'manual'} onClick={() => updateTransport('manual')}>Manual</button>
+                  <div className="composer-editor-shell bootstrap-composer-editor">
+                    <ComposerRichEditor
+                      value={briefing}
+                      onChange={(text) => setBriefing(text)}
+                      onClickDirective={() => undefined}
+                      onConfigureDirective={() => undefined}
+                      onRemoveDirective={(directive) => setBriefing((current) => removeDirective(current, directive))}
+                      onKeyDownCapture={(event) => {
+                        if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+                        event.preventDefault()
+                        event.stopPropagation()
+                        event.currentTarget.closest('form')?.requestSubmit()
+                      }}
+                      placeholder="Descreva a aplicação, site, serviço ou ferramenta que quer criar…"
+                      ariaLabel="Descrever novo projeto"
+                      disabled={busy}
+                    />
                   </div>
                 </div>
-                <div className="bootstrap-prompt-controls">
-                  <button type="button" className="bootstrap-destination" onClick={() => void chooseParent('Selecionar workspace para o novo projeto')} title="Alterar pasta de destino"><Icon name="folder" size={14}/><span>{parent ? compactPath(parent) : 'Escolher workspace'}</span></button>
-                  <label className="bootstrap-project-name"><span>Nome</span><input aria-label="Nome do novo projeto" value={name} onChange={(event) => setName(event.target.value)} placeholder={projectSlug(briefing)} spellCheck={false}/></label>
-                  <button className="bootstrap-prompt-submit" disabled={busy || !briefing.trim() || !onBootstrap} type="submit" aria-label="Criar projeto a partir deste prompt" title="Criar projeto"><Icon name="arrow-up" size={18}/></button>
+                <div className="composer-footer bootstrap-composer-footer">
+                  <div className="composer-toolbar-row"><div className="composer-action-row" aria-label="Opções da primeira request">
+                    <button type="button" className={`composer-round-action ${launchOptions.artifacts.context ? 'selected' : ''}`} aria-pressed={launchOptions.artifacts.context} onClick={() => updateArtifact('context', !launchOptions.artifacts.context)} title="Incluir contexto do projeto" aria-label="Contexto ZIP"><Icon name="package" size={12}/></button>
+                    <button type="button" className="composer-round-action selected" disabled title="O prompt inicial é sempre incluído" aria-label="Prompt"><Icon name="clipboard" size={12}/></button>
+                    <span className="composer-action-divider" />
+                    <ComposerRequestControls
+                      automationMode={launchOptions.automationMode}
+                      effortLevel={launchOptions.effortLevel}
+                      reasoningEffort={launchOptions.reasoningEffort}
+                      chatTransportMode={launchOptions.chatTransportMode}
+                      busy={busy}
+                      onAutomationMode={updateAutomationMode}
+                      onEffortLevel={updateEffortLevel}
+                      onReasoningEffort={updateReasoningEffort}
+                      onChatTransportMode={updateTransport}
+                    />
+                    <span className="composer-action-divider" />
+                    <ComposerPlanFirstControl requestMode={launchOptions.requestMode} onRequestMode={(requestMode) => setLaunchOptions((current) => ({ ...current, requestMode }))} />
+                  </div><button className="send-button" disabled={busy || !briefing.trim() || !onBootstrap} type="submit" aria-label="Criar projeto a partir deste prompt" title="Criar projeto e enviar a primeira request"><Icon name="send" size={15}/></button></div>
+                  <div className="composer-hint">Enter cria o projeto e inicia a request · Shift+Enter cria linha</div>
                 </div>
               </form>
             </section>
 
             <aside className="bootstrap-start-panel">
-              <div className="bootstrap-start-heading"><span>Começar</span><small>Ações rápidas para entrar no workspace.</small></div>
+              <div className="bootstrap-start-heading"><span>Ou comece pelo projeto</span><small>Ações diretas para entrar num projeto sem iniciar uma request.</small></div>
               <section className="bootstrap-quick-actions" aria-label="Ações de projeto">
-                <button className={mode === 'open' ? 'active' : ''} onClick={activateOpen}><span><Icon name="folder" size={19}/></span><div><strong>Abrir pasta</strong><small>Escolha e abra diretamente</small></div><Icon name="chevron-right" size={15}/></button>
-                <button className={mode === 'create' ? 'active' : ''} onClick={() => setMode(mode === 'create' ? '' : 'create')}><span><Icon name="plus" size={19}/></span><div><strong>Criar projeto</strong><small>Pasta + repositório Git local</small></div><Icon name="chevron-right" size={15}/></button>
-                <button className={mode === 'clone' ? 'active' : ''} onClick={() => setMode(mode === 'clone' ? '' : 'clone')}><span><Icon name="git" size={19}/></span><div><strong>Clonar Git</strong><small>Repositório remoto existente</small></div><Icon name="chevron-right" size={15}/></button>
+                <button className={mode === 'open' ? 'active' : ''} onClick={activateOpen}><span><Icon name="folder" size={18}/></span><div><strong>Abrir pasta</strong><small>Escolha e abra diretamente</small></div><Icon name="chevron-right" size={14}/></button>
+                <button className={mode === 'create' ? 'active' : ''} onClick={() => setMode(mode === 'create' ? '' : 'create')}><span><Icon name="plus" size={18}/></span><div><strong>Criar projeto</strong><small>Pasta + repositório Git local</small></div><Icon name="chevron-right" size={14}/></button>
+                <button className={mode === 'clone' ? 'active' : ''} onClick={() => setMode(mode === 'clone' ? '' : 'clone')}><span><Icon name="git" size={18}/></span><div><strong>Clonar Git</strong><small>Repositório remoto existente</small></div><Icon name="chevron-right" size={14}/></button>
               </section>
-              <button type="button" className="bootstrap-workspace-shortcut" onClick={() => { setSettingsError(''); setSettingsOpen(true) }}><Icon name="settings" size={15}/><span><strong>Workspace padrão</strong><small>{configuredWorkspace ? compactPath(configuredWorkspace) : 'Definir nas configurações globais'}</small></span></button>
             </aside>
           </section>
 
@@ -219,12 +245,6 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
           </section>}
 
           {(error || settingsError) && <div className="error-banner bootstrap-home-error">{settingsError || error}</div>}
-
-          <section className="bootstrap-home-insights" aria-label="Informação do workspace">
-            <article><span><Icon name="folder" size={16}/></span><div><strong>Workspace</strong><small>{configuredWorkspace ? compactPath(configuredWorkspace) : 'Usa o destino recente até definir um padrão.'}</small></div></article>
-            <article><span><Icon name="git" size={16}/></span><div><strong>Git desde o início</strong><small>Projetos criados pelo Wharnex já arrancam com repositório local.</small></div></article>
-            <article><span><Icon name="shield" size={16}/></span><div><strong>Execução protegida</strong><small>A primeira sessão mantém o mesmo modelo de segurança do workspace.</small></div></article>
-          </section>
 
           <section className="bootstrap-recents-section">
             <div className="bootstrap-section-heading"><div><strong>Projetos recentes</strong><small>{recent.length ? (recent.length === 1 ? '1 disponível' : `${recent.length} disponíveis`) : 'Os projetos abertos aparecem aqui.'}</small></div><span className="bootstrap-meta-inline">{config?.model || ''}</span></div>
@@ -263,8 +283,6 @@ function ProjectMark({ projectPath, logo }: { projectPath: string; logo: string 
   return <span className="bootstrap-project-mark" style={projectAccentStyle(projectPath)}>{logo ? <img src={logo} alt=""/> : <span>{projectInitials(projectPath)}</span>}</span>
 }
 
-function automationLabel(value: AutomationMode) { return value === 'manual' ? 'Manual' : value === 'auto_approve' ? 'Auto + approve' : 'Auto' }
-function effortLabel(value: EffortLevel) { return value === 'extra_high' ? 'Extra high' : value[0].toUpperCase() + value.slice(1) }
 function projectName(projectPath: string) { return projectPath.split(/[\\/]/).filter(Boolean).at(-1) || projectPath }
 function parentDirectory(projectPath: string) { const parts = projectPath.split(/[\\/]/); parts.pop(); return parts.join(projectPath.includes('\\') ? '\\' : '/') }
 function compactPath(projectPath: string) { return projectPath.length > 54 ? `…${projectPath.slice(-53)}` : projectPath }
