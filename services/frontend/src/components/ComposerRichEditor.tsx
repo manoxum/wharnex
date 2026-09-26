@@ -62,10 +62,11 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
   onPasteText?: (text: string) => boolean
   onKeyDownCapture?: (event: React.KeyboardEvent) => void
   placeholder?: string
+  ariaLabel?: string
   disabled?: boolean
   lang?: string
 }>(function ComposerRichEditor(
-  { value, caret, onChange, onClickDirective, onConfigureDirective, onRemoveDirective, onPasteFiles, onPasteText, onKeyDownCapture, placeholder, disabled, lang },
+  { value, caret, onChange, onClickDirective, onConfigureDirective, onRemoveDirective, onPasteFiles, onPasteText, onKeyDownCapture, placeholder, ariaLabel, disabled, lang },
   forwardedRef,
 ) {
   const quillRef = useRef<ReactQuill | null>(null)
@@ -124,9 +125,11 @@ export const ComposerRichEditor = forwardRef<ComposerRichEditorHandle, {
     const editor = quillRef.current?.getEditor()
     if (!editor) return
     editor.root.setAttribute('spellcheck', 'true')
+    if (ariaLabel) editor.root.setAttribute('aria-label', ariaLabel)
+    else editor.root.removeAttribute('aria-label')
     const spellcheckLanguage = lang || document.documentElement.lang
     if (spellcheckLanguage) editor.root.setAttribute('lang', spellcheckLanguage)
-  }, [lang])
+  }, [ariaLabel, lang])
 
   // `source` is 'user' for a real keystroke/click/API call the operator made,
   // and 'silent' for the resync effect above writing its own reload back into

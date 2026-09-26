@@ -1,16 +1,21 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Bootstrap } from './Bootstrap'
+import { findComposerEditor } from '../lib/composerRichText'
 
 describe('Bootstrap project home', () => {
   beforeEach(() => { localStorage.clear(); delete window.wharnessDesktop })
 
   it('starts a new project from a large briefing without the legacy hero panel', async () => {
     const onBootstrap = vi.fn().mockResolvedValue(undefined)
-    render(<Bootstrap busy={false} recent={['/workspace/existing']} restoring={false} onStart={vi.fn()} onCreate={vi.fn()} onClone={vi.fn()} onBootstrap={onBootstrap} />)
+    const view = render(<Bootstrap busy={false} recent={['/workspace/existing']} restoring={false} onStart={vi.fn()} onCreate={vi.fn()} onClone={vi.fn()} onBootstrap={onBootstrap} />)
 
     expect(screen.queryByText(/Abra, crie ou clone/i)).toBeNull()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Descrever novo projeto' }), { target: { value: 'Criar um gestor de tarefas offline moderno' } })
+    const editor = findComposerEditor(view.container)
+    if (!editor) throw new Error('bootstrap composer editor not mounted')
+    await waitFor(() => expect(editor.root.getAttribute('aria-label')).toBe('Descrever novo projeto'))
+    act(() => { editor.setText('Criar um gestor de tarefas offline moderno', 'user') })
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Criar projeto a partir deste prompt' }) as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: 'Criar projeto a partir deste prompt' }))
 
     await waitFor(() => expect(onBootstrap).toHaveBeenCalledTimes(1))
@@ -19,6 +24,19 @@ describe('Bootstrap project home', () => {
     expect(onBootstrap.mock.calls[0][2]).toContain('Briefing inicial:')
     expect(onBootstrap.mock.calls[0][2]).toContain('Criar um gestor de tarefas offline moderno')
     expect(onBootstrap.mock.calls[0][3]).toMatchObject({ automationMode: 'auto', effortLevel: 'high', reasoningEffort: 'high', chatTransportMode: 'scraper', requestMode: 'direct' })
+  })
+
+  it('reuses project composer controls and removes the old informational cards', () => {
+    render(<Bootstrap busy={false} recent={[]} restoring={false} onStart={vi.fn()} onCreate={vi.fn()} onClone={vi.fn()} onBootstrap={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Manual' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Auto' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Auto + Aprovar' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Scraper' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Manual (transporte)' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Planificar antes de alterar' })).toBeTruthy()
+    expect(screen.queryByText('Git desde o início')).toBeNull()
+    expect(screen.queryByText('Execução protegida')).toBeNull()
   })
 
   it('keeps open, create and clone as compact project actions', () => {

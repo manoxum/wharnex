@@ -4,6 +4,7 @@ import type { ReasoningEffort } from '../types'
 import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, clearComposerDraft, flushComposerDraftSave, loadComposerDraft, loadComposerFileDraft, loadComposerStoredFileDraft, saveComposerFileDraft, saveComposerStoredFileDraft, scheduleComposerDraftSave, type ComposerStoredAttachmentDraft, type WorkspaceChat } from '../lib/workspaceMemory'
 import { Icon } from './Icon'
 import { ExecutionModeControls } from './ExecutionModeControls'
+import { ComposerPlanFirstControl, ComposerRequestControls } from './ComposerRequestControls'
 import { InternalWindow } from './InternalWindow'
 import { ChatItemBoundary } from './ChatItemBoundary'
 import { StatusPill } from './StatusPill'
@@ -1158,38 +1159,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           <button type="button" className={`composer-round-action ${knowledgeSharingEnabled ? 'selected' : ''}`} disabled={busy || !onKnowledgeSharing} aria-pressed={knowledgeSharingEnabled} aria-label="Conhecimento do projeto" title={knowledgeSharingEnabled ? 'Conhecimento ligado · enviar e atualizar conhecimento incremental nesta requisição' : 'Conhecimento desligado · não enviar catálogo existente; novas aprendizagens continuam a ser recolhidas'} onClick={() => onKnowledgeSharing?.(!knowledgeSharingEnabled)}><Icon name="knowledge" size={12}/>{knowledgeSharingEnabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <button type="button" className={`composer-round-action debug-mode ${session.debug_enabled ? 'selected' : ''}`} disabled={busy || !onDebugMode} aria-pressed={Boolean(session.debug_enabled)} aria-label="Modo interativo" title={session.debug_enabled ? 'Interativo ligado · observações seguras podem continuar automaticamente' : 'Interativo desligado · a primeira observação de cada pedido pedirá autorização'} onClick={() => onDebugMode?.(!session.debug_enabled)}><Icon name="code" size={12}/>{session.debug_enabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <ExecutionModeControls mode={currentExecutionMode} busy={busy} selfEvolution={Boolean(session.self_evolution)} onChange={onExecutionMode} />
-          <span className="composer-mode-group" role="group" aria-label="Automação de execução">
-            <button type="button" className={`composer-round-action mode-manual ${currentAutomationMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'manual'} aria-label="Manual" title="Manual · executar e aplicar mudanças apenas por ação explícita" onClick={() => onAutomationMode?.('manual')}><Icon name="plan" size={12}/></button>
-            <button type="button" className={`composer-round-action mode-auto ${currentAutomationMode === 'auto' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'auto'} aria-label="Auto" title="Auto · mudanças válidas seguem Protected e são aplicadas após verificação" onClick={() => onAutomationMode?.('auto')}><Icon name="agent" size={12}/></button>
-            <button type="button" className={`composer-round-action mode-auto-approve ${currentAutomationMode === 'auto_approve' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={currentAutomationMode === 'auto_approve'} aria-label="Auto + Aprovar" title="Auto + Aprovar · mudanças permitidas seguem Protected e aprovações de execução elegíveis são concedidas automaticamente; reinício de auto-evolução continua explícito" onClick={() => onAutomationMode?.('auto_approve')}><Icon name="check" size={12}/></button>
-          </span>
-          <label className="composer-effort-picker" title="Nível de esforço · limita tentativas automáticas de resolução; após aplicar com sucesso no host, a Main Request termina">
-            <span>Esforço</span>
-            <select aria-label="Nível de esforço" value={currentEffortLevel} disabled={busy || !onEffortLevel} onChange={(event) => onEffortLevel?.(event.target.value as EffortLevel)}>
-              <option value="low">Low · 3</option>
-              <option value="medium">Medium · 8</option>
-              <option value="high">High · 15</option>
-              <option value="extra_high">Extra High · 20</option>
-              <option value="max">Max · 30</option>
-              <option value="ultra">Ultra · 50</option>
-              <option value="loop">Loop · ∞</option>
-            </select>
-          </label>
-          <label className="composer-effort-picker composer-reasoning-picker" title="Inteligência · define o esforço de raciocínio aplicado pelo ChatGPT antes de enviar este chat">
-            <span>Inteligência</span>
-            <select aria-label="Esforço de raciocínio" value={currentReasoningEffort} disabled={busy || !onReasoningEffort} onChange={(event) => onReasoningEffort?.(event.target.value as ReasoningEffort)}>
-              <option value="instant">Instantâneo</option>
-              <option value="medium">Médio</option>
-              <option value="high">Elevado</option>
-            </select>
-          </label>
-          <span className="composer-mode-group" role="group" aria-label="Transporte com o ChatGPT">
-            <button type="button" className={`composer-round-action mode-scraper ${currentChatTransportMode === 'scraper' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'scraper'} aria-label="Scraper" title="Scraper · o Wharnex interage diretamente com o ChatGPT" onClick={() => onChatTransportMode?.('scraper')}><Icon name="chatgpt" size={12}/></button>
-            <button type="button" className={`composer-round-action mode-manual-transport ${currentChatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={currentChatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>
-          </span>
+          <ComposerRequestControls
+            automationMode={currentAutomationMode}
+            effortLevel={currentEffortLevel}
+            reasoningEffort={currentReasoningEffort}
+            chatTransportMode={currentChatTransportMode}
+            busy={busy}
+            onAutomationMode={onAutomationMode}
+            onEffortLevel={onEffortLevel}
+            onReasoningEffort={onReasoningEffort}
+            onChatTransportMode={onChatTransportMode}
+          />
           <span className="composer-action-divider" />
           <button type="button" className={`composer-round-action ${bundlePreview ? 'selected' : ''}`} disabled={Boolean(planAdjustment) || !onPreviewBundle || bundlePreviewBusy || commentBusy || Boolean(preparedAttachmentCount) || (!message.trim() && !attachments.length)} aria-label="Pré-visualizar próximo bundle" title="Montar e explorar o próximo bundle sem enviar a request" onClick={() => void previewMainBundle()}><Icon name={bundlePreviewBusy ? 'refresh' : 'package'} size={12}/></button>
-          <button type="button" className={`composer-round-action plan-first ${requestMode === 'plan_first' ? 'selected' : ''}`} disabled={Boolean(planAdjustment)} aria-pressed={requestMode === 'plan_first'} aria-label="Planificar antes de alterar" title={requestMode === 'plan_first' ? 'Plan first ativo · o Wharnex pedirá uma proposta e aguardará aprovação' : 'Planificar antes de alterar'} onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}><Icon name="plan" size={12}/></button>
+          <ComposerPlanFirstControl requestMode={requestMode} disabled={Boolean(planAdjustment)} onRequestMode={onRequestMode} />
           <button type="button" className={`composer-round-action ${queueOpen ? 'selected' : ''}`} aria-label="Fila de espera" title="Fila de requests principais" onClick={() => setQueueOpen((current) => !current)}><Icon name="clipboard" size={12}/>{queuedRequests.length > 0 && <b>{queuedRequests.length}</b>}</button>
           <button type="button" className={`composer-round-action ${todoOpen ? 'selected' : ''}`} aria-label="Tarefas TODO" title="Tarefas da iteração" disabled={!todos.length} onClick={() => setTodoOpen((current) => !current)}><Icon name="check" size={12}/>{todos.length > 0 && <b>{todos.filter((todo) => !todo.done).length}</b>}</button>
           {planAdjustment ? <span className="composer-comment-state plan-adjustment-state"><Icon name="edit" size={12}/> Ajuste do plano · use @see para referenciar a miniatura</span> : taskInFlight && <span className="composer-comment-state"><span className="comment-pulse"/><Icon name="chatgpt" size={12}/> Request ativa · Ctrl+Enter comenta</span>}
