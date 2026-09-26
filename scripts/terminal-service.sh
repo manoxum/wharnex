@@ -136,8 +136,9 @@ start_terminal_daemon() {
   # setsid ...` job can name a wrapper that exits immediately rather than the
   # daemon that keeps running. The daemon writes its own pid ($$, stable
   # across the following `exec`s) so the pid file always names the process
-  # that is actually still alive. sh -c also starts a fresh shell that does
-  # not inherit close_inherited_fds as a function, so that loop is inlined.
+  # that is actually still alive. Bash handles multi-digit fd redirects;
+  # dash treats `exec 10>&-` as an attempt to execute a command named 10,
+  # silently exiting before the daemon starts when the launcher inherits one.
   daemon_command='
     printf "%s\n" "$$" >"$4"
     chmod 600 "$4"
@@ -153,11 +154,11 @@ start_terminal_daemon() {
       "$3" --socket "$2"
   '
   if command -v setsid >/dev/null 2>&1; then
-    nohup setsid sh -c "$daemon_command" terminald \
+    nohup setsid bash -c "$daemon_command" terminald \
       "$ROOT" "$TERMINAL_SOCKET" "$TERMINAL_BINARY" "$TERMINAL_PID_FILE" \
       >>"$TERMINAL_LOG_FILE" 2>&1 </dev/null &
   else
-    nohup sh -c "$daemon_command" terminald \
+    nohup bash -c "$daemon_command" terminald \
       "$ROOT" "$TERMINAL_SOCKET" "$TERMINAL_BINARY" "$TERMINAL_PID_FILE" \
       >>"$TERMINAL_LOG_FILE" 2>&1 </dev/null &
   fi
@@ -181,20 +182,6 @@ stop_terminal_service() {
 }
 
 terminal_service_status() {
-  terminal_service_paths
-  if terminal_service_in_container; then
-    [ -S "$TERMINAL_SOCKET" ] && printf '  %-12s %s\n' 'terminald' 'socket available' || printf '  %-12s %s\n' 'terminald' 'socket unavailable'
-    return
-  fi
-  if terminal_service_socket_ready; then
-    pid=''
-    [ ! -f "$TERMINAL_PID_FILE" ] || pid=$(sed -n '1p' "$TERMINAL_PID_FILE" 2>/dev/null || true)
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      printf '  %-12s running (pid %s, native host)\n' 'terminald' "$pid"
-    else
-      printf '  %-12s running (native host socket)\n' 'terminald'
-    fi
-  else
-    printf '  %-12s %s\n' 'terminald' 'unavailable'
-  fi
+  . "$ROOT/scripts/terminal-service-status.sh"
+  wharnex_terminal_service_status
 }

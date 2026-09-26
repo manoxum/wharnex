@@ -22,13 +22,22 @@ function fakeCheckout(mode = 'serve') {
   return { root, binary, socket: path.join(root, '.harness', 'bridge', 'terminal.sock'), pidFile: path.join(root, '.harness', 'state', 'terminald.pid') }
 }
 
-function ensure(root) {
+function ensure(root, setup = '') {
   try {
-    return { code: 0, output: execFileSync('sh', ['-c', `. "${script}"; ROOT="${root}"; ensure_terminal_service`], { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: process.env.PATH } }) }
+    return { code: 0, output: execFileSync(setup ? 'bash' : 'sh', ['-c', `. "${script}"; ROOT="${root}"; ${setup} ensure_terminal_service`], { encoding: 'utf8', stdio: 'pipe' }) }
   } catch (error) {
     return { code: error.status, output: `${error.stdout}${error.stderr}` }
   }
 }
+
+test('launcher startup survives an inherited descriptor above nine', () => {
+  const checkout = fakeCheckout()
+  const result = ensure(checkout.root, `exec 10>"${checkout.root}/inherited.log";`)
+  try {
+    assert.equal(result.code, 0, result.output)
+    assert.ok(existsSync(checkout.socket))
+  } finally { stop(checkout.root) }
+})
 
 function stop(root) {
   execFileSync('sh', ['-c', `. "${script}"; ROOT="${root}"; stop_terminal_service`])
