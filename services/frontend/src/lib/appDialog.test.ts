@@ -114,6 +114,27 @@ describe('appDialog', () => {
     expect(transform).toBe('translate3d(40px, 40px, 0)')
   })
 
+  it('adds the shared resize grip to imperative application dialogs', async () => {
+    const result = confirmDialog({ title: 'Redimensionar confirmação', message: 'A janela mantém o conteúdo.' })
+    const shell = document.querySelector<HTMLElement>('.internal-window-shell')!
+    const grip = document.querySelector<HTMLElement>('.internal-window-resize-grip')!
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1_200 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
+    shell.getBoundingClientRect = vi.fn(() => ({
+      x: 250, y: 150, left: 250, top: 150, right: 650, bottom: 450, width: 400, height: 300, toJSON: () => ({}),
+    } as DOMRect))
+
+    dispatchPointer(grip, 'pointerdown', { pointerId: 4, clientX: 650, clientY: 450 })
+    dispatchPointer(grip, 'pointermove', { pointerId: 4, clientX: 790, clientY: 540 })
+    expect(shell.style.width).toBe('540px')
+    expect(shell.style.height).toBe('390px')
+    dispatchPointer(grip, 'pointerup', { pointerId: 4, clientX: 790, clientY: 540 })
+
+    const cancel = [...document.querySelectorAll<HTMLButtonElement>('.app-dialog-button')].find((button) => button.textContent === 'Cancelar')!
+    cancel.click()
+    await expect(result).resolves.toBe(false)
+  })
+
   it('minimizes to the shared lower-right dock without resolving the dialog', async () => {
     const result = confirmDialog({ title: 'Revisão', message: 'Continuar depois.' })
     const minimize = document.querySelector<HTMLButtonElement>('[aria-label="Minimizar Revisão"]')!

@@ -1,6 +1,8 @@
 export const INTERNAL_WINDOW_DOCK_ID = 'wharnex-internal-window-dock'
 
 const INTERNAL_WINDOW_VIEWPORT_MARGIN = 8
+const INTERNAL_WINDOW_MIN_WIDTH = 280
+const INTERNAL_WINDOW_MIN_HEIGHT = 160
 const INTERNAL_WINDOW_INTERACTIVE_SELECTOR = [
   'button',
   'a',
@@ -80,7 +82,7 @@ export function bindInternalWindowDrag(shell: HTMLElement, additionalHandles: Ar
   }
 
   const pointerDown = (event: PointerEvent) => {
-    if (drag || event.isPrimary === false) return
+    if (drag || event.isPrimary === false || shell.dataset.internalWindowMaximized === 'true') return
     if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return
     if (event.button > 0) return
     if (event.target instanceof Element && event.target.closest(INTERNAL_WINDOW_INTERACTIVE_SELECTOR)) return
@@ -142,5 +144,81 @@ export function bindInternalWindowDrag(shell: HTMLElement, additionalHandles: Ar
       handle.removeEventListener('lostpointercapture', pointerUp)
       if (!additionalHandles.includes(handle)) handle.removeAttribute('data-internal-window-drag-handle')
     }
+  }
+}
+
+
+export function bindInternalWindowResize(shell: HTMLElement, handle: HTMLElement | null | undefined) {
+  if (!handle) return () => undefined
+
+  let resize: {
+    pointerId: number
+    startX: number
+    startY: number
+    width: number
+    height: number
+  } | undefined
+
+  const finishResize = (event?: PointerEvent) => {
+    if (!resize) return
+    const pointerId = resize.pointerId
+    resize = undefined
+    shell.removeAttribute('data-internal-window-resizing')
+    if (event && handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture?.(pointerId)
+  }
+
+  const pointerDown = (event: PointerEvent) => {
+    if (resize || event.isPrimary === false || shell.dataset.internalWindowMaximized === 'true') return
+    if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return
+    if (event.button > 0) return
+    const rect = shell.getBoundingClientRect()
+    resize = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      width: rect.width,
+      height: rect.height,
+    }
+    shell.style.width = `${Math.round(rect.width)}px`
+    shell.style.height = `${Math.round(rect.height)}px`
+    shell.setAttribute('data-internal-window-sized', 'true')
+    shell.setAttribute('data-internal-window-resizing', 'true')
+    handle.setPointerCapture?.(event.pointerId)
+    event.preventDefault()
+  }
+
+  const pointerMove = (event: PointerEvent) => {
+    if (!resize || event.pointerId !== resize.pointerId) return
+    if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return
+    const { width: viewportWidth, height: viewportHeight } = viewportSize()
+    const maximumWidth = viewportWidth > 0 ? Math.max(INTERNAL_WINDOW_MIN_WIDTH, viewportWidth - INTERNAL_WINDOW_VIEWPORT_MARGIN * 2) : Number.POSITIVE_INFINITY
+    const maximumHeight = viewportHeight > 0 ? Math.max(INTERNAL_WINDOW_MIN_HEIGHT, viewportHeight - INTERNAL_WINDOW_VIEWPORT_MARGIN * 2) : Number.POSITIVE_INFINITY
+    const minimumWidth = Math.min(INTERNAL_WINDOW_MIN_WIDTH, resize.width)
+    const minimumHeight = Math.min(INTERNAL_WINDOW_MIN_HEIGHT, resize.height)
+    const nextWidth = Math.min(maximumWidth, Math.max(minimumWidth, resize.width + event.clientX - resize.startX))
+    const nextHeight = Math.min(maximumHeight, Math.max(minimumHeight, resize.height + event.clientY - resize.startY))
+    shell.style.width = `${Math.round(nextWidth)}px`
+    shell.style.height = `${Math.round(nextHeight)}px`
+    event.preventDefault()
+  }
+
+  const pointerUp = (event: PointerEvent) => {
+    if (!resize || event.pointerId !== resize.pointerId) return
+    finishResize(event)
+  }
+
+  handle.addEventListener('pointerdown', pointerDown)
+  handle.addEventListener('pointermove', pointerMove)
+  handle.addEventListener('pointerup', pointerUp)
+  handle.addEventListener('pointercancel', pointerUp)
+  handle.addEventListener('lostpointercapture', pointerUp)
+
+  return () => {
+    finishResize()
+    handle.removeEventListener('pointerdown', pointerDown)
+    handle.removeEventListener('pointermove', pointerMove)
+    handle.removeEventListener('pointerup', pointerUp)
+    handle.removeEventListener('pointercancel', pointerUp)
+    handle.removeEventListener('lostpointercapture', pointerUp)
   }
 }

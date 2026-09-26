@@ -85,6 +85,43 @@ describe('InternalWindow', () => {
     expect(shell.hasAttribute('data-internal-window-dragging')).toBe(false)
   })
 
+  it('resizes every internal modal from the shared resize grip', () => {
+    render(<InternalWindow title="Janela redimensionável" onClose={vi.fn()}>
+      <section role="dialog" aria-modal="false" aria-label="Janela redimensionável"><header>Janela redimensionável</header><div>Conteúdo</div></section>
+    </InternalWindow>)
+
+    const shell = document.querySelector<HTMLElement>('.internal-window-shell')!
+    const grip = screen.getByRole('separator', { name: 'Redimensionar Janela redimensionável' })
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1_200 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
+    shell.getBoundingClientRect = vi.fn(() => ({
+      x: 200, y: 100, left: 200, top: 100, right: 700, bottom: 500, width: 500, height: 400, toJSON: () => ({}),
+    } as DOMRect))
+
+    dispatchPointer(grip, 'pointerdown', { pointerId: 9, clientX: 700, clientY: 500 })
+    dispatchPointer(grip, 'pointermove', { pointerId: 9, clientX: 880, clientY: 620 })
+    expect(shell.style.width).toBe('680px')
+    expect(shell.style.height).toBe('520px')
+    expect(shell.getAttribute('data-internal-window-sized')).toBe('true')
+
+    dispatchPointer(grip, 'pointerup', { pointerId: 9, clientX: 880, clientY: 620 })
+    expect(shell.hasAttribute('data-internal-window-resizing')).toBe(false)
+  })
+
+  it('lets opted-in Git-style windows toggle full-screen mode', () => {
+    render(<InternalWindow title="Operação Git" onClose={vi.fn()} maximizable>
+      <section role="dialog" aria-modal="false" aria-label="Operação Git"><header>Operação Git</header></section>
+    </InternalWindow>)
+
+    const shell = document.querySelector<HTMLElement>('.internal-window-shell')!
+    fireEvent.click(screen.getByRole('button', { name: 'Maximizar Operação Git' }))
+    expect(shell.getAttribute('data-internal-window-maximized')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Restaurar Operação Git' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restaurar Operação Git' }))
+    expect(shell.hasAttribute('data-internal-window-maximized')).toBe(false)
+  })
+
   it('keeps close disabled while an operation cannot safely be dismissed', () => {
     render(<InternalWindow title="Operação Git" onClose={vi.fn()} closeDisabled>
       <section role="dialog" aria-modal="false" aria-label="Operação Git">A processar</section>

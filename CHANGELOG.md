@@ -15,6 +15,9 @@ _(reserved — no entries yet)_
 - Tornada a ação Confirmar e continuar da pré-revisão Git interativa acima da superfície Monaco, cobrindo push e o fluxo partilhado por commit, pull e merge.
 
 
+- feat(ui): torna janelas internas redimensionáveis e adiciona maximização às confirmações Git.
+- style(git): amplia revisões de diff e permite recolher a lista de ficheiros com scroll vertical dedicado.
+
 ### Chat live-resume-20260925-001 (2026-09-25)
 
 _(reserved — no entries yet)_

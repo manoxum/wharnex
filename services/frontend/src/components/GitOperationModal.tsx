@@ -57,8 +57,8 @@ export function GitOperationModal({ operation, sessionId = '', onClose }: { oper
   if (reviewing) {
     const previews = operation.previews || []
     const preview = previews[Math.min(activePreview, Math.max(0, previews.length - 1))]
-    return <InternalWindow title={operation.title} layerClassName="git-operation-backdrop" onClose={onClose}>
-      <section className="isolate flex h-[min(82vh,820px)] w-[min(92vw,1320px)] min-w-0 flex-col overflow-hidden rounded-xl border border-whx-border bg-whx-surface" role="dialog" aria-modal="false" aria-label={operation.title}>
+    return <InternalWindow title={operation.title} layerClassName="git-operation-backdrop" onClose={onClose} maximizable>
+      <section className="isolate flex h-[min(86vh,900px)] w-[min(96vw,1680px)] min-w-0 flex-col overflow-hidden rounded-xl border border-whx-border bg-whx-surface" role="dialog" aria-modal="false" aria-label={operation.title}>
         <header className="flex items-center justify-between gap-3 border-b border-whx-border px-4 py-3">
           <div className="min-w-0"><span className="panel-kicker">Revisão antes de executar</span><strong className="block truncate">{operation.title}</strong><p className="m-0 truncate text-xs text-whx-muted">{operation.detail}</p></div>
           <button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar revisão"><Icon name="close" size={14}/></button>
@@ -82,7 +82,7 @@ export function GitOperationModal({ operation, sessionId = '', onClose }: { oper
     </InternalWindow>
   }
 
-  return <InternalWindow title={operation.title} layerClassName="git-operation-backdrop" onClose={onClose} closeDisabled={running}>
+  return <InternalWindow title={operation.title} layerClassName="git-operation-backdrop" onClose={onClose} closeDisabled={running} maximizable>
     <div className={`git-operation-modal ${operation.phase}`} role="dialog" aria-modal="false" aria-label={operation.title}>
       {selecting ? <div className="git-operation-targets">
         <div className="git-operation-copy"><span className="panel-kicker">Operação Git</span><strong>{operation.title}</strong><p>{operation.detail}</p></div>
