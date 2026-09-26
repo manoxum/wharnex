@@ -1,4 +1,4 @@
-import { bindInternalWindowDrag, ensureInternalWindowDockRoot } from './internalWindow'
+import { bindInternalWindowDrag, bindInternalWindowResize, ensureInternalWindowDockRoot } from './internalWindow'
 
 export type DialogTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
 
@@ -138,9 +138,11 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
     const dockRoot = ensureInternalWindowDockRoot()
     let dockItem: HTMLDivElement | undefined
     let detachDrag: () => void = () => {}
+    let detachResize: () => void = () => {}
 
     const cleanup = (result: boolean | string | undefined) => {
       document.removeEventListener('keydown', keydown)
+      detachResize()
       detachDrag()
       dockItem?.remove()
       backdrop.remove()
@@ -196,6 +198,12 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
     minimizeButton.title = 'Minimizar'
     minimizeButton.setAttribute('aria-label', `Minimizar ${options.title}`)
 
+    const resizeGrip = document.createElement('span')
+    resizeGrip.className = 'internal-window-resize-grip'
+    resizeGrip.dataset.internalWindowNoDrag = 'true'
+    resizeGrip.setAttribute('role', 'separator')
+    resizeGrip.setAttribute('aria-label', `Redimensionar ${options.title}`)
+
     const closeButton = document.createElement('button')
     closeButton.type = 'button'
     closeButton.textContent = '×'
@@ -242,8 +250,9 @@ function openDialog(options: InternalDialogOptions): Promise<boolean | string | 
     content.append(actions)
     card.append(icon, content)
     controls.append(dragGrip, minimizeButton, closeButton)
-    shell.append(card, controls)
+    shell.append(card, controls, resizeGrip)
     detachDrag = bindInternalWindowDrag(shell, [dragGrip])
+    detachResize = bindInternalWindowResize(shell, resizeGrip)
     backdrop.append(shell)
     document.body.append(backdrop)
 

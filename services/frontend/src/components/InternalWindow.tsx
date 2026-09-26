@@ -1,6 +1,6 @@
 import { cloneElement, isValidElement, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { bindInternalWindowDrag, ensureInternalWindowDockRoot } from '../lib/internalWindow'
+import { bindInternalWindowDrag, bindInternalWindowResize, ensureInternalWindowDockRoot } from '../lib/internalWindow'
 import { InternalWindowPersistenceContext } from '../lib/internalWindowPersistence'
 import { Icon } from './Icon'
 
@@ -10,19 +10,22 @@ type InternalWindowProps = {
   children: ReactNode
   layerClassName?: string
   closeDisabled?: boolean
+  maximizable?: boolean
 }
 
-export function InternalWindow({ title, onClose, children, layerClassName = '', closeDisabled = false }: InternalWindowProps) {
+export function InternalWindow({ title, onClose, children, layerClassName = '', closeDisabled = false, maximizable = false }: InternalWindowProps) {
   const persistence = useContext(InternalWindowPersistenceContext)
   const persistenceOwner = persistence?.owner
   const registerPersistence = persistence?.register
   const persistenceKey = persistenceOwner ? `whx.internal-window.state.v1:${persistenceOwner}:${title}` : ''
   const [minimized, setMinimized] = useState(() => loadMinimizedState(persistenceKey))
+  const [maximized, setMaximized] = useState(false)
   const dockRoot = useMemo(() => ensureInternalWindowDockRoot(), [])
   const portalRoot = typeof document === 'undefined' ? null : document.body
   const restoreRef = useRef<HTMLButtonElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
   const dragGripRef = useRef<HTMLSpanElement>(null)
+  const resizeGripRef = useRef<HTMLSpanElement>(null)
 
   useEffect(() => { setMinimized(loadMinimizedState(persistenceKey)) }, [persistenceKey])
 
@@ -51,7 +54,9 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
   useEffect(() => {
     const shell = shellRef.current
     if (!shell) return
-    return bindInternalWindowDrag(shell, [dragGripRef.current])
+    const detachDrag = bindInternalWindowDrag(shell, [dragGripRef.current])
+    const detachResize = bindInternalWindowResize(shell, resizeGripRef.current)
+    return () => { detachResize(); detachDrag() }
   }, [])
 
   const closeWindow = () => {
@@ -62,6 +67,7 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
   const controls = <div className="internal-window-controls" role="group" aria-label={`Controlos da janela ${title}`}>
     <span ref={dragGripRef} className="internal-window-drag-grip" data-internal-window-drag-handle="true" aria-hidden="true"/>
     <button type="button" onClick={() => setMinimized(true)} aria-label={`Minimizar ${title}`} title="Minimizar"><Icon name="minus" size={12}/></button>
+    {maximizable && <button type="button" onClick={() => setMaximized((value) => !value)} aria-label={`${maximized ? 'Restaurar' : 'Maximizar'} ${title}`} title={maximized ? 'Restaurar tamanho' : 'Ecrã inteiro'}><Icon name={maximized ? 'collapse' : 'monitor'} size={12}/></button>}
     <button type="button" disabled={closeDisabled} onClick={closeWindow} aria-label={`Fechar ${title}`} title="Fechar"><Icon name="close" size={12}/></button>
   </div>
   const surface = isValidElement<{ children?: ReactNode }>(children) && typeof children.type === 'string'
@@ -74,12 +80,13 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
     data-chatgpt-overlay-blocker={minimized ? undefined : 'true'}
     aria-hidden={minimized || undefined}
   >
-    <div ref={shellRef} className="internal-window-shell" onKeyDown={(event) => {
+    <div ref={shellRef} className="internal-window-shell" data-internal-window-maximizable={maximizable || undefined} data-internal-window-maximized={maximized || undefined} onKeyDown={(event) => {
       if (event.key !== 'Escape' || closeDisabled) return
       event.stopPropagation()
       closeWindow()
     }}>
       {surface}
+      <span ref={resizeGripRef} className="internal-window-resize-grip" data-internal-window-no-drag aria-label={`Redimensionar ${title}`} role="separator"/>
     </div>
   </div>
 

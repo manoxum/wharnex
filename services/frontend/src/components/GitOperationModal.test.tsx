@@ -27,6 +27,7 @@ describe('GitOperationModal', () => {
 
     const dialog = screen.getByRole('dialog', { name: 'A alternar branch' })
     expect(dialog.className).toContain('selecting')
+    expect(screen.getByRole('button', { name: 'Maximizar A alternar branch' })).toBeTruthy()
     expect(within(dialog).getByText('services/flowcore-backend-com-nome-longo')).toBeTruthy()
     expect(within(dialog).getByText('feature/com-um-nome-bastante-longo · origin/feature/com-um-nome-bastante-longo')).toBeTruthy()
     expect(within(dialog).getByLabelText('1 para enviar e 2 para receber')).toBeTruthy()
@@ -62,6 +63,7 @@ describe('GitOperationModal', () => {
     const confirm = within(dialog).getByRole('button', { name: 'Confirmar e continuar' }) as HTMLButtonElement
     const footer = confirm.closest('footer')
     expect(dialog.className).toContain('isolate')
+    expect(dialog.className).toContain('w-[min(96vw,1680px)]')
     expect(screen.getByTestId('git-diff-review').parentElement?.className).toContain('z-0')
     expect(footer?.className).toContain('z-10')
     expect(footer?.className).toContain('shrink-0')
