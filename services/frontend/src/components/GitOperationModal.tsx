@@ -58,7 +58,7 @@ export function GitOperationModal({ operation, sessionId = '', onClose }: { oper
     const previews = operation.previews || []
     const preview = previews[Math.min(activePreview, Math.max(0, previews.length - 1))]
     return <InternalWindow title={operation.title} layerClassName="git-operation-backdrop" onClose={onClose}>
-      <section className="flex h-[min(82vh,820px)] w-[min(92vw,1320px)] min-w-0 flex-col overflow-hidden rounded-xl border border-whx-border bg-whx-surface" role="dialog" aria-modal="false" aria-label={operation.title}>
+      <section className="isolate flex h-[min(82vh,820px)] w-[min(92vw,1320px)] min-w-0 flex-col overflow-hidden rounded-xl border border-whx-border bg-whx-surface" role="dialog" aria-modal="false" aria-label={operation.title}>
         <header className="flex items-center justify-between gap-3 border-b border-whx-border px-4 py-3">
           <div className="min-w-0"><span className="panel-kicker">Revisão antes de executar</span><strong className="block truncate">{operation.title}</strong><p className="m-0 truncate text-xs text-whx-muted">{operation.detail}</p></div>
           <button type="button" className="icon-button light" onClick={onClose} aria-label="Fechar revisão"><Icon name="close" size={14}/></button>
@@ -75,9 +75,9 @@ export function GitOperationModal({ operation, sessionId = '', onClose }: { oper
         {previews.length > 1 && <nav className="flex gap-1 overflow-x-auto border-b border-whx-border px-3 py-2" aria-label="Repositórios revistos">{previews.map((item, index) => <button key={`${item.repository}-${index}`} type="button" className={`rounded-md px-3 py-1.5 text-xs ${index === activePreview ? 'bg-whx-elevated text-whx-text' : 'text-whx-muted hover:bg-whx-hover'}`} onClick={() => setActivePreview(index)}>{`${item.repository || 'Projeto principal'} · ${item.to_label}`}</button>)}</nav>}
         {preview ? <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-wrap items-center gap-2 border-b border-whx-border px-4 py-2 text-xs text-whx-muted"><span className="rounded-md bg-whx-surface px-2 py-1"><b className="text-whx-text">Antes:</b> {preview.from_label}</span><Icon name="arrow-right" size={12}/><span className="rounded-md bg-whx-surface px-2 py-1"><b className="text-whx-text">Depois:</b> {preview.to_label}</span>{preview.truncated && <span className="ml-auto text-whx-warning">Diff limitado a 2 MiB</span>}</div>
-          <div className="min-h-0 flex-1 overflow-hidden"><GitDiffReview sessionId={sessionId} diff={preview.diff} emptyText="Não há diferenças de conteúdo para esta operação." fragmentOnly/></div>
+          <div className="relative z-0 min-h-0 flex-1 overflow-hidden"><GitDiffReview sessionId={sessionId} diff={preview.diff} emptyText="Não há diferenças de conteúdo para esta operação." fragmentOnly/></div>
         </div> : <div className="flex flex-1 items-center justify-center text-sm text-whx-muted">Sem alterações para rever.</div>}
-        <footer className="flex items-center justify-end gap-2 border-t border-whx-border px-4 py-3"><button type="button" className="git-action" onClick={onClose}>Cancelar</button><button type="button" className="git-action primary" onClick={() => operation.onConfirmReview?.()}>Confirmar e continuar</button></footer>
+        <footer className="relative z-10 flex shrink-0 items-center justify-end gap-2 border-t border-whx-border bg-whx-surface px-4 py-3" data-internal-window-no-drag><button type="button" className="git-action" onClick={onClose}>Cancelar</button><button type="button" className="git-action primary pointer-events-auto" onClick={() => operation.onConfirmReview?.()}>Confirmar e continuar</button></footer>
       </section>
     </InternalWindow>
   }

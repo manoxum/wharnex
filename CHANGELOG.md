@@ -6,7 +6,8 @@ _(reserved — no entries yet)_
 
 ### Chat ef96c4ab-da1d-4703-88c1-c4dac57a5db0 (2026-09-26)
 
-_(reserved — no entries yet)_
+- Corrigido o diff lado a lado nas superfícies Git estreitas para manter as colunas Antes/Depois quando esse modo está selecionado.
+- Tornada a ação Confirmar e continuar da pré-revisão Git interativa acima da superfície Monaco, cobrindo push e o fluxo partilhado por commit, pull e merge.
 
 
 ### Chat live-resume-20260925-001 (2026-09-25)

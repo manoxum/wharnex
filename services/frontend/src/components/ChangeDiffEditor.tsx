@@ -60,6 +60,7 @@ function ChangeDiffSurface({ sessionId, file, fragmentOnly = false }: ChangeDiff
       readOnly: true,
       originalEditable: false,
       renderSideBySide: true,
+      useInlineViewWhenSpaceIsLimited: false,
       enableSplitViewResizing: true,
       renderIndicators: true,
       renderOverviewRuler: true,
@@ -101,7 +102,7 @@ function ChangeDiffSurface({ sessionId, file, fragmentOnly = false }: ChangeDiff
     monaco.editor.setTheme(activeMonacoTheme())
     editor.current?.updateOptions({ fontSize: workspaceEditorFontSize(preferences) })
   }), [])
-  useEffect(() => { editor.current?.updateOptions({ renderSideBySide: sideBySide }) }, [sideBySide])
+  useEffect(() => { editor.current?.updateOptions({ renderSideBySide: sideBySide, useInlineViewWhenSpaceIsLimited: false }) }, [sideBySide])
 
   function navigate(direction: -1 | 1) {
     const instance = editor.current
