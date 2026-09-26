@@ -175,17 +175,20 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
               <div className="bootstrap-prompt-heading"><div><span>Novo projeto</span><strong>O que quer construir?</strong><small>Descreva a ideia. A primeira request usa o mesmo editor e os mesmos controlos do composer do projeto.</small></div></div>
               <form className="composer bootstrap-composer" onSubmit={submitBriefing}>
                 <div className="composer-scroll-area">
-                  <div className="bootstrap-composer-meta" aria-label="Destino do novo projeto">
-                    <button type="button" className="bootstrap-destination" onClick={() => void chooseParent('Selecionar workspace para o novo projeto')} title="Alterar workspace"><span className="bootstrap-meta-icon"><Icon name="folder" size={13}/></span><span className="bootstrap-meta-copy"><small>Workspace</small><strong>{parent ? compactPath(parent) : 'Escolher workspace'}</strong></span></button>
-                    <label className="bootstrap-project-name"><span className="bootstrap-meta-icon"><Icon name="workspace" size={13}/></span><span className="bootstrap-meta-copy"><small>Projeto</small><input aria-label="Nome do novo projeto" value={name} onChange={(event) => setName(event.target.value)} placeholder={projectSlug(briefing)} spellCheck={false}/></span></label>
-                  </div>
-                  <div className="bootstrap-entry-modes" role="group" aria-label="Modo inicial do projeto">
-                    <button type="button" className={launchOptions.entryMode === 'agent' ? 'active' : ''} aria-label="Chat" aria-pressed={launchOptions.entryMode === 'agent'} onClick={() => setLaunchOptions((current) => ({ ...current, entryMode: 'agent' }))}>
-                      <span><Icon name="agent" size={14}/></span><span><strong>Chat</strong><small>Agentic · executa a primeira request</small></span>
-                    </button>
-                    <button type="button" className={launchOptions.entryMode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" aria-pressed={launchOptions.entryMode === 'orchestrator'} onClick={() => setLaunchOptions((current) => ({ ...current, entryMode: 'orchestrator' }))}>
-                      <span><Icon name="plan" size={14}/></span><span><strong>Orchestrator</strong><small>Cria e organiza o plano e as tarefas</small></span>
-                    </button>
+                  <div className="bootstrap-composer-topline">
+                    <span className="bootstrap-composer-balance" aria-hidden="true" />
+                    <label className="bootstrap-project-name" title="Nome do novo projeto">
+                      <span className="bootstrap-project-name-icon" aria-hidden="true"><Icon name="workspace" size={13}/></span>
+                      <input aria-label="Nome do novo projeto" value={name} onChange={(event) => setName(event.target.value)} placeholder={projectSlug(briefing)} spellCheck={false}/>
+                    </label>
+                    <div className="bootstrap-entry-modes" role="group" aria-label="Modo inicial do projeto">
+                      <button type="button" className={launchOptions.entryMode === 'agent' ? 'active' : ''} aria-label="Chat" aria-pressed={launchOptions.entryMode === 'agent'} title="Iniciar em Chat" onClick={() => setLaunchOptions((current) => ({ ...current, entryMode: 'agent' }))}>
+                        <span className="bootstrap-entry-mode-icon" aria-hidden="true"><Icon name="agent" size={13}/></span><span className="bootstrap-entry-mode-label">Chat</span>
+                      </button>
+                      <button type="button" className={launchOptions.entryMode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" aria-pressed={launchOptions.entryMode === 'orchestrator'} title="Iniciar no Orchestrator" onClick={() => setLaunchOptions((current) => ({ ...current, entryMode: 'orchestrator' }))}>
+                        <span className="bootstrap-entry-mode-icon" aria-hidden="true"><Icon name="plan" size={13}/></span><span className="bootstrap-entry-mode-label">Orchestrator</span>
+                      </button>
+                    </div>
                   </div>
                   <div className="composer-editor-shell bootstrap-composer-editor">
                     <ComposerRichEditor

@@ -9821,25 +9821,21 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .bootstrap-composer { width:100%; height:322px; min-height:290px; max-height:min(440px,52vh); margin:0; border-radius:12px; border-color:color-mix(in srgb,var(--theme-border) 90%,transparent); background:color-mix(in srgb,var(--theme-surface) 96%,transparent); box-shadow:0 18px 48px color-mix(in srgb,#000 8%,transparent),0 1px 0 color-mix(in srgb,#fff 46%,transparent) inset; }
 .bootstrap-composer:focus-within { border-color:color-mix(in srgb,var(--theme-accent) 42%,var(--theme-border)); box-shadow:0 20px 54px color-mix(in srgb,#000 10%,transparent),0 0 0 2px color-mix(in srgb,var(--theme-accent) 8%,transparent); }
 .bootstrap-composer .composer-scroll-area { padding-top:0; }
-.bootstrap-composer-meta { min-width:0; padding:9px 10px 0; display:grid; grid-template-columns:minmax(0,1.35fr) minmax(220px,.65fr); gap:7px; }
-.bootstrap-destination,.bootstrap-project-name { min-width:0; height:40px; padding:0 9px; display:flex; align-items:center; gap:8px; border:1px solid var(--theme-border-soft); border-radius:8px; background:color-mix(in srgb,var(--theme-bg) 58%,var(--theme-surface)); color:var(--theme-text-muted); text-align:left; }
-.bootstrap-destination { cursor:pointer; }
-.bootstrap-destination:hover { border-color:var(--theme-border); color:var(--theme-text-soft); }
-.bootstrap-meta-icon { flex:0 0 auto; width:25px; height:25px; display:grid; place-items:center; border-radius:7px; background:var(--theme-muted); color:var(--theme-text-muted); }
-.bootstrap-meta-copy { min-width:0; flex:1; display:grid; gap:1px; }
-.bootstrap-meta-copy small { color:var(--theme-text-muted); font:700 calc(5.7px * var(--ui-font-scale))/1.1 var(--mono-font-family); letter-spacing:.07em; text-transform:uppercase; }
-.bootstrap-meta-copy strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--theme-text-soft); font:650 calc(7.5px * var(--ui-font-scale))/1.2 var(--ui-font-family); }
-.bootstrap-project-name input { min-width:0; width:100%; height:18px; padding:0; border:0; outline:0; background:transparent; color:var(--theme-text); font:650 calc(7.5px * var(--ui-font-scale))/1.2 var(--ui-font-family); }
+.bootstrap-composer-topline { min-width:0; padding:10px 10px 0; display:grid; grid-template-columns:minmax(0,1fr) minmax(240px,360px) minmax(0,1fr); align-items:center; gap:10px; }
+.bootstrap-composer-balance { min-width:0; }
+.bootstrap-project-name { min-width:0; width:100%; height:38px; padding:0 7px; justify-self:center; display:grid; grid-template-columns:26px minmax(0,1fr) 26px; align-items:center; border:1px solid var(--theme-border-soft); border-radius:999px; background:color-mix(in srgb,var(--theme-bg) 52%,var(--theme-surface)); color:var(--theme-text-muted); box-shadow:0 1px 0 color-mix(in srgb,#fff 34%,transparent) inset; transition:border-color .14s ease,box-shadow .14s ease,background .14s ease; }
+.bootstrap-project-name::after { content:''; width:26px; height:26px; }
+.bootstrap-project-name:focus-within { border-color:color-mix(in srgb,var(--theme-accent) 36%,var(--theme-border)); background:var(--theme-surface); box-shadow:0 0 0 2px color-mix(in srgb,var(--theme-accent) 7%,transparent); }
+.bootstrap-project-name-icon { width:26px; height:26px; display:grid; place-items:center; border-radius:999px; background:var(--theme-muted); color:var(--theme-text-muted); }
+.bootstrap-project-name input { min-width:0; width:100%; height:24px; padding:0 4px; border:0; outline:0; background:transparent; color:var(--theme-text); font:650 calc(8.6px * var(--ui-font-scale))/1.2 var(--ui-font-family); letter-spacing:-.01em; text-align:center; }
 .bootstrap-project-name input::placeholder { color:var(--theme-text-muted); opacity:.72; }
-.bootstrap-entry-modes { padding:7px 10px 0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
-.bootstrap-entry-modes > button { min-width:0; height:44px; padding:0 10px; display:grid; grid-template-columns:28px minmax(0,1fr); align-items:center; gap:8px; border:1px solid var(--theme-border-soft); border-radius:8px; background:color-mix(in srgb,var(--theme-bg) 46%,var(--theme-surface)); color:var(--theme-text-muted); text-align:left; cursor:pointer; transition:border-color .14s ease,background .14s ease,color .14s ease; }
-.bootstrap-entry-modes > button > span:first-child { width:28px; height:28px; display:grid; place-items:center; border-radius:7px; background:var(--theme-muted); }
-.bootstrap-entry-modes > button > span:last-child { min-width:0; display:grid; gap:1px; }
-.bootstrap-entry-modes strong { color:var(--theme-text-soft); font-size:calc(7.4px * var(--ui-font-scale)); }
-.bootstrap-entry-modes small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--theme-text-muted); font-size:calc(5.9px * var(--ui-font-scale)); }
-.bootstrap-entry-modes > button:hover { border-color:var(--theme-border); color:var(--theme-text-soft); }
-.bootstrap-entry-modes > button.active { border-color:color-mix(in srgb,var(--theme-accent) 38%,var(--theme-border)); background:color-mix(in srgb,var(--theme-accent-soft) 50%,var(--theme-surface)); }
-.bootstrap-entry-modes > button.active > span:first-child { background:var(--theme-accent-soft); color:var(--theme-accent); }
+.bootstrap-entry-modes { justify-self:end; display:inline-flex; align-items:center; gap:2px; padding:3px; border:1px solid var(--theme-border-soft); border-radius:999px; background:color-mix(in srgb,var(--theme-bg) 46%,var(--theme-surface)); box-shadow:0 1px 0 color-mix(in srgb,#fff 28%,transparent) inset; }
+.bootstrap-entry-modes > button { min-width:0; height:31px; padding:0 9px; display:inline-flex; align-items:center; gap:6px; border:0; border-radius:999px; background:transparent; color:var(--theme-text-muted); cursor:pointer; transition:background .14s ease,color .14s ease,box-shadow .14s ease; }
+.bootstrap-entry-mode-icon { width:20px; height:20px; display:grid; place-items:center; border-radius:999px; color:inherit; }
+.bootstrap-entry-mode-label { font-size:calc(6.8px * var(--ui-font-scale)); font-weight:720; line-height:1; white-space:nowrap; }
+.bootstrap-entry-modes > button:hover { background:var(--theme-muted); color:var(--theme-text-soft); }
+.bootstrap-entry-modes > button.active { background:var(--theme-surface); color:var(--theme-text); box-shadow:0 1px 4px color-mix(in srgb,#000 11%,transparent); }
+.bootstrap-entry-modes > button.active .bootstrap-entry-mode-icon { background:var(--theme-accent-soft); color:var(--theme-accent); }
 .bootstrap-composer-editor { min-height:128px; }
 .bootstrap-composer .composer-rich-editor .ql-editor { min-height:128px; padding-top:18px; font-size:calc(13px * var(--ui-font-scale)); line-height:1.58; }
 .bootstrap-composer-footer { border-radius:0 0 11px 11px; }
@@ -9923,7 +9919,6 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 @media (max-width: 900px) {
   .bootstrap-home-shell { width:min(100% - 28px,1180px); padding-top:20px; }
   .bootstrap-home-primary { margin-top:30px; }
-  .bootstrap-composer-meta { grid-template-columns:minmax(0,1fr) minmax(190px,.7fr); }
   .bootstrap-quick-actions > button { grid-template-columns:30px minmax(0,1fr); }
   .bootstrap-quick-actions > button > svg { display:none; }
   .bootstrap-project-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -9935,8 +9930,10 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
   .bootstrap-prompt-heading { padding-inline:4px; }
   .bootstrap-prompt-heading strong { font-size:calc(14px * var(--ui-font-scale)); }
   .bootstrap-composer { height:372px; }
-  .bootstrap-composer-meta { grid-template-columns:1fr; }
-  .bootstrap-entry-modes { grid-template-columns:1fr; }
+  .bootstrap-composer-topline { grid-template-columns:1fr; justify-items:center; gap:7px; padding-top:9px; }
+  .bootstrap-composer-balance { display:none; }
+  .bootstrap-project-name { width:min(100%,340px); }
+  .bootstrap-entry-modes { justify-self:center; }
   .bootstrap-quick-actions,.bootstrap-project-grid { grid-template-columns:1fr; }
   .bootstrap-start-heading { align-items:start; flex-direction:column; gap:2px; }
   .settings-workspace-picker { grid-template-columns:1fr; }
