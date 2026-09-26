@@ -8,6 +8,7 @@
 ### Chat 21ed63e0-d444-437a-aca9-9005adacb609 (2026-09-26)
 
 - O composer inicial de novos projetos agora permite escolher entre iniciar em Chat agentic ou enviar o briefing diretamente ao Orchestrator, que abre o projeto no modo de planeamento e cria a proposta de tarefas sem saltar o gate de aprovação.
+- Refinado o composer inicial: removida a faixa visível de workspace, nome do novo projeto centralizado num chip pill e seleção Chat/Orchestrator compactada num switch com ícones.
 
 
 ### Chat ef96c4ab-da1d-4703-88c1-c4dac57a5db0 (2026-09-26)

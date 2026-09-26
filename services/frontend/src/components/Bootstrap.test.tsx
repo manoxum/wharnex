@@ -44,6 +44,19 @@ describe('Bootstrap project home', () => {
     expect(onBootstrap.mock.calls[0][3]).toMatchObject({ entryMode: 'orchestrator' })
   })
 
+  it('keeps the new-project identity centered and the entry modes compact', () => {
+    const view = render(<Bootstrap busy={false} recent={['/workspace/existing']} restoring={false} onStart={vi.fn()} onCreate={vi.fn()} onClone={vi.fn()} onBootstrap={vi.fn()} />)
+    const composer = view.container.querySelector<HTMLElement>('.bootstrap-composer')
+    if (!composer) throw new Error('bootstrap composer not mounted')
+
+    expect(within(composer).queryByText('Workspace')).toBeNull()
+    expect(within(composer).getByRole('textbox', { name: 'Nome do novo projeto' })).toBeTruthy()
+    expect(within(composer).getByRole('button', { name: 'Chat' })).toBeTruthy()
+    expect(within(composer).getByRole('button', { name: 'Orchestrator' })).toBeTruthy()
+    expect(composer.querySelector('.bootstrap-composer-topline')).toBeTruthy()
+    expect(composer.querySelector('.bootstrap-entry-modes')).toBeTruthy()
+  })
+
   it('reuses project composer controls and removes the old informational cards', () => {
     render(<Bootstrap busy={false} recent={[]} restoring={false} onStart={vi.fn()} onCreate={vi.fn()} onClone={vi.fn()} onBootstrap={vi.fn()} />)
 
