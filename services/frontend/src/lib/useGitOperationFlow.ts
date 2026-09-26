@@ -5,6 +5,8 @@ import { announceGitChanged } from './gitLiveSync'
 import type { GitRepositoryOverviewEntry } from './gitProjectOverview'
 import type { GitOperation, GitOperationTarget } from '../components/GitOperationModal'
 
+export type GitOperationRunResult = { ok: boolean; error?: string }
+
 export type GitQuickCommitAction = {
   fileCount: number
   repositoryCount: number
@@ -44,12 +46,12 @@ export function useGitOperationFlow(params: Params) {
       phase = 'refreshing'; setOperation({ title, detail, phase })
       await syncAfterMutation(syncSession)
       setNotice(actionMessage); setOperation({ title, detail, phase: 'success', message: actionMessage })
-      return true
+      return { ok: true } satisfies GitOperationRunResult
     } catch (error) {
       const cause = error instanceof APIError ? error.message : error instanceof Error ? error.message : String(error)
       const message = phase === 'refreshing' && actionMessage ? `${actionMessage} Não foi possível atualizar o painel: ${cause}` : cause
       report(error); setOperation({ title, detail, phase: 'error', message, failedPhase: phase })
-      return false
+      return { ok: false, error: message } satisfies GitOperationRunResult
     } finally { setWorking(false) }
   }
 
