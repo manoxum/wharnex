@@ -2,6 +2,7 @@
 set -eu
 
 ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
+[ -f "$ROOT/.harness/env" ] && . "$ROOT/.harness/env"
 ACTION=${1:-check}
 HOST_ROOT=${WHARNESS_UP_LINK_HOST_ROOT:-}
 HELPER=/opt/wharness/libexec/wharnex-up-link-unshare
@@ -20,6 +21,22 @@ profile_target=$(host_path "$PROFILE")
 
 is_linux() {
   [ "$(uname -s 2>/dev/null || printf unknown)" = Linux ]
+}
+
+require_runtime_tools() {
+  is_linux || return 0
+  mode=$(printf '%s' "${WHARNESS_UP_LINK:-required}" | tr '[:upper:]' '[:lower:]')
+  case "$mode" in auto|off|0|false|disabled) return 0 ;; esac
+  if ! command -v pasta >/dev/null 2>&1; then
+    echo 'up-whx-link requires pasta. Install passt (Debian/Ubuntu 24.04+: sudo apt install passt), then retry.' >&2
+    return 1
+  fi
+  for tool in ip mount; do
+    command -v "$tool" >/dev/null 2>&1 || {
+      printf 'up-whx-link requires %s in PATH.\n' "$tool" >&2
+      return 1
+    }
+  done
 }
 
 restriction_enabled() {
@@ -85,6 +102,7 @@ check_installation() {
 
 install_profile() {
   is_linux || { printf 'up-whx-link host setup: not required on this platform\n'; return 0; }
+  require_runtime_tools || return 1
   if ! restriction_enabled; then
     namespace_probe || { echo 'Unprivileged network namespaces are unavailable.' >&2; return 1; }
     printf 'up-whx-link host setup: kernel does not require an AppArmor exception\n'
@@ -124,7 +142,7 @@ show_status() {
 }
 
 case "$ACTION" in
-  check) check_installation ;;
+  check) require_runtime_tools && check_installation ;;
   install) install_profile ;;
   status) show_status ;;
   *) echo 'usage: scripts/up-whx-link-host.sh [check|install|status]' >&2; exit 2 ;;

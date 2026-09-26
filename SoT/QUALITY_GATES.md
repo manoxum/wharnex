@@ -44,7 +44,9 @@ Canonical operator build command: `make build`. It must:
 - build the configured local Protected runner image;
 - install or byte-verify the Linux `up-whx-link` dedicated namespace helper
   and exact-path AppArmor profile when the host enables AppArmor's
-  unprivileged-user-namespace restriction; never disable that restriction;
+  unprivileged-user-namespace restriction; check that the required host `pasta`,
+  `ip` and `mount` tools are available with actionable package guidance; never
+  disable that restriction;
 - reconcile backend/frontend containers while preserving existing PostgreSQL/tunnel containers.
 - after the replacement backend is healthy, reclaim only ownership-proven obsolete
   temporary workspaces, context directories and unreachable project dependency
@@ -97,6 +99,8 @@ The canonical Desktop lifecycle is rooted at the repository Makefile:
 - `make stack-stop`: explicitly stop every Compose service while retaining containers and named volumes.
 - `make stack-down`: remove Compose containers/network while retaining named data volumes.
 - `make status`: report Desktop plus Compose health.
+
+The OS launcher MUST stage a source-change build before stopping the current Desktop. A failed build MUST leave the previous Desktop and Compose services available. If a successful build was previously recorded, the launcher MAY start that available runtime without marking the changed source as built; the next launch must retry the update. First installs without a previous successful build fail with the build error. Direct `make start` for a stopped Desktop still requires a current build unless the launcher explicitly selects this recovery path.
 
 Normal `make build`/`make start` MUST use `--no-recreate` for PostgreSQL and tunnel containers. Backend/frontend may roll independently with `--no-deps`; this preserves active temporary tunnel base URLs across application restart/self-evolution. First stack initialization migrates compatible PostgreSQL 17 data from the former checkout-owned PGDATA into the named volume before the new database starts. A distinct logical reconciliation marker MUST repair skipped/partial first migrations by idempotently merging the legacy PostgreSQL rows after the Compose database becomes healthy and verifying session counts before backend activation.
 Stack self-evolution MUST NOT execute its restart worker inside the backend container that will be replaced. The backend image MUST contain the local build/control toolchain required by `make build-stage`, and activation MUST be delegated to a detached supervisor container. Application rollout MUST retain the previous backend/frontend image IDs long enough to restore them on failed health checks; tunnel/database containers remain excluded from that rollback boundary.

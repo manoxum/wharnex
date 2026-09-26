@@ -112,6 +112,6 @@ test('auto mode falls back to the ordinary launch and keeps the sandbox untouche
 test('required mode refuses to start without the up-link', () => {
   assert.throws(
     () => prepareUpLink(gatewayEnv({ WHARNESS_UP_LINK: 'required', PATH: '/nonexistent' }), { runtimeDir: runtimeDir(), platform: 'linux' }),
-    /up-whx-link is required but unavailable: missing pasta/,
+    /up-whx-link is required but unavailable: missing pasta.*sudo apt install passt/,
   )
 })

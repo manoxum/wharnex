@@ -147,7 +147,8 @@ function defaultPreflight(plan, env) {
 export function prepareUpLink(env, { runtimeDir, platform = process.platform, preflight = defaultPreflight, uid = process.getuid?.(), gid = process.getgid?.(), unsharePath = UP_LINK_UNSHARE } = {}) {
   const mode = upLinkMode(env)
   const inactive = (reason) => {
-    if (mode === 'required' && reason !== 'disabled') throw new Error(`up-whx-link is required but unavailable: ${reason}`)
+    const remedy = reason.includes('pasta') ? ' (install passt; Debian/Ubuntu 24.04+: sudo apt install passt)' : ''
+    if (mode === 'required' && reason !== 'disabled') throw new Error(`up-whx-link is required but unavailable: ${reason}${remedy}`)
     return { active: false, mode, reason }
   }
   if (mode === 'off') return inactive('disabled')

@@ -4,16 +4,7 @@ set -eu
 ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
 MAKEFILE="$ROOT/Makefile"
 START="$ROOT/scripts/start.sh"
-LAUNCHER="$ROOT/scripts/launcher.sh"
-SPLASH_LIB="$ROOT/scripts/splash-lib.sh"
-SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
-SOURCE_FINGERPRINT_CHECK="$ROOT/scripts/source-fingerprint-check.sh"
-LAUNCHER_CHECK="$ROOT/scripts/launcher-check.sh"
-DOCKER_DAEMON_GUARD_CHECK="$ROOT/scripts/docker-daemon-guard-check.sh"
 TERMINAL_SERVICE_CHECK="$ROOT/scripts/terminal-service-check.sh"
-INSTALL_DEV="$ROOT/scripts/install-dev.sh"
-INSTALL_DEV_CHECK="$ROOT/scripts/install-dev-check.sh"
-STOP="$ROOT/scripts/stop.sh"
 STACK="$ROOT/scripts/stack.sh"
 LOGS="$ROOT/scripts/logs.sh"
 STORAGE_PRUNE="$ROOT/scripts/storage-prune.sh"
@@ -47,7 +38,6 @@ build_stage_unlocked_block=$(section build-stage-unlocked)
 deps_block=$(section deps)
 deps_unlocked_block=$(section deps-unlocked)
 deps_refresh_block=$(section deps-refresh)
-stop_block=$(section stop)
 
 runner_probe_image='kernl-runner:lifecycle-check'
 build_dry_run=$(make --no-print-directory -n -f "$MAKEFILE" build RUNNER_IMAGE="$runner_probe_image")
@@ -146,73 +136,7 @@ if ! grep -Fq 'build-runner: runner-deps' "$MAKEFILE"; then
   echo 'lifecycle regression: the direct Protected runner recovery target must remain available' >&2
   exit 1
 fi
-if ! grep -Fq 'install-dev:' "$MAKEFILE" || ! grep -Fq 'scripts/install-dev.sh' "$MAKEFILE" || [ ! -x "$INSTALL_DEV" ]; then
-  echo 'lifecycle regression: make install-dev must install the per-instance desktop launcher' >&2
-  exit 1
-fi
-if [ ! -x "$INSTALL_DEV_CHECK" ]; then
-  echo 'lifecycle regression: install-dev needs its Snap/XDG launcher regression check' >&2
-  exit 1
-fi
-if [ ! -x "$LAUNCHER" ] || [ ! -x "$SOURCE_FINGERPRINT" ]; then
-  echo 'lifecycle regression: desktop launcher needs splash and source-fingerprint helpers' >&2
-  exit 1
-fi
-if [ ! -x "$SOURCE_FINGERPRINT_CHECK" ] || [ ! -x "$LAUNCHER_CHECK" ]; then
-  echo 'lifecycle regression: launcher fingerprint/splash requires behavioral regression checks' >&2
-  exit 1
-fi
-WHARNESS_ROOT="$ROOT" "$SOURCE_FINGERPRINT_CHECK"
-WHARNESS_ROOT="$ROOT" "$LAUNCHER_CHECK"
-# The splash mechanics themselves now live in the shared splash-lib.sh (see
-# above), sourced by launcher.sh; what launcher.sh itself must still show is
-# that it opens that splash before a source-change build/restart.
-if ! grep -Fq 'launcher-splash.mjs' "$SPLASH_LIB" || ! grep -Fq 'WHARNESS_SPLASH_READY_FILE' "$SPLASH_LIB" || ! grep -Fq 'wharness_splash_open' "$LAUNCHER" || ! grep -Fq 'make stop && make build && make start' "$LAUNCHER"; then
-  echo 'lifecycle regression: launcher must splash before a source-change build/restart' >&2
-  exit 1
-fi
-
-# `make start` is also the normal launcher path when Desktop is already alive.
-# It must create Electron's short-lived second-instance handoff so clicking the
-# launcher restores/focuses the existing window instead of silently returning.
-if ! grep -Fq 'Requested foreground handoff to the running Desktop.' "$START" || ! grep -Fq '"$focus_electron" "$ROOT/services/desktop/main.mjs"' "$START"; then
-  echo 'lifecycle regression: an already-running Desktop must receive a foreground handoff' >&2
-  exit 1
-fi
-WHARNESS_ROOT="$ROOT" "$INSTALL_DEV_CHECK"
-if [ ! -x "$DOCKER_DAEMON_GUARD_CHECK" ]; then
-  echo 'lifecycle regression: Docker lifecycle needs an isolated daemon-start regression check' >&2
-  exit 1
-fi
-WHARNESS_ROOT="$ROOT" "$DOCKER_DAEMON_GUARD_CHECK"
-if grep -Eq 'database\.sh.*stop|stack\.sh.*(stop|down)' "$STOP" || printf '%s\n' "$stop_block" | grep -Eq 'stack-(stop|down)'; then
-  echo 'lifecycle regression: make stop must never stop the persistent Compose stack' >&2
-  exit 1
-fi
-if ! grep -Fq "Wharnex build is required" "$START" || ! grep -Fq '(cd "$ROOT" && make build)' "$START" || ! grep -Fq 'source fingerprint changed' "$START"; then
-  echo 'lifecycle regression: make start must rebuild a missing or stale application before startup' >&2
-  exit 1
-fi
-# `make start` run directly from a terminal must show the same short splash
-# as the installed OS launcher (see AGENTS.md's development-launcher splash
-# invariant) — not only when reached through launcher.sh. It must also skip
-# opening a second one when launcher.sh already owns one around this call.
-if [ ! -f "$SPLASH_LIB" ] || ! grep -Fq 'wharness_splash_open' "$SPLASH_LIB" || ! grep -Fq 'wharness_splash_close' "$SPLASH_LIB"; then
-  echo 'lifecycle regression: splash-lib.sh must exist and expose open/close helpers shared by launcher.sh and start.sh' >&2
-  exit 1
-fi
-if ! grep -Fq 'splash-lib.sh' "$START" || ! grep -Fq 'wharness_splash_open' "$START"; then
-  echo 'lifecycle regression: make start must drive its own splash, not only launcher.sh' >&2
-  exit 1
-fi
-if ! grep -Fq 'WHARNESS_LAUNCHER_SPLASH_ACTIVE' "$START"; then
-  echo 'lifecycle regression: make start must skip opening a second splash when launcher.sh already owns one' >&2
-  exit 1
-fi
-if ! grep -Fq 'WHARNESS_LAUNCHER_SPLASH_ACTIVE=1' "$LAUNCHER"; then
-  echo 'lifecycle regression: launcher.sh must tell make start a splash is already owned' >&2
-  exit 1
-fi
+WHARNESS_ROOT="$ROOT" "$ROOT/scripts/lifecycle-launcher-check.sh"
 if ! grep -Fq -- '--no-recreate database minio' "$STACK"; then
   echo 'lifecycle regression: normal stack reconciliation must preserve database and MinIO containers' >&2
   exit 1

@@ -72,7 +72,13 @@ fi
 WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
 
 build_required=''
-if [ ! -f "$BUILD_STAMP" ]; then
+if [ "${WHARNEX_BOOT_PREVIOUS:-0}" = 1 ]; then
+  if [ ! -f "$BUILD_STAMP" ] && [ ! -f "$ROOT/.harness/build-previous-success" ]; then
+    echo 'No previous successful Wharnex build is available for recovery startup.' >&2
+    exit 1
+  fi
+  echo 'Wharnex update is pending; starting the last available build.'
+elif [ ! -f "$BUILD_STAMP" ]; then
   build_required='no successful build is recorded'
 elif ! WHARNESS_ROOT="$ROOT" "$SOURCE_FINGERPRINT" matches; then
   build_required='source fingerprint changed'

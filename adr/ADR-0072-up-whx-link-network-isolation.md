@@ -63,6 +63,10 @@ The implementation is `services/desktop/up-whx-link.mjs`, called by
    to the installing uid, and loads an AppArmor profile attached to that exact
    immutable path with the `userns,` permission. It does not disable the
    system-wide restriction or weaken the profile of `/usr/bin/unshare`.
+   The installer also verifies the unprivileged `pasta`, `ip` and `mount` host
+   tools before completing a required-mode build. On Debian and Ubuntu 24.04+
+   the `passt` package provides `pasta`; a missing package is reported with an
+   installation command rather than becoming an unexplained Desktop crash.
 
 `WHARNESS_UP_LINK` selects the mode:
 
