@@ -95,7 +95,8 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
     if (!destination && isDesktop()) destination = await chooseParent('Selecionar workspace para o novo projeto')
     if (!destination) return
     setParent(destination)
-    await onBootstrap(destination, suggestedName, buildBootstrapPrompt(briefing), launchOptions)
+    const prompt = launchOptions.entryMode === 'orchestrator' ? briefing.trim() : buildBootstrapPrompt(briefing)
+    await onBootstrap(destination, suggestedName, prompt, launchOptions)
   }
 
   function updateArtifact(kind: 'context' | 'result' | 'error', selected: boolean) {
@@ -178,6 +179,14 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
                     <button type="button" className="bootstrap-destination" onClick={() => void chooseParent('Selecionar workspace para o novo projeto')} title="Alterar workspace"><span className="bootstrap-meta-icon"><Icon name="folder" size={13}/></span><span className="bootstrap-meta-copy"><small>Workspace</small><strong>{parent ? compactPath(parent) : 'Escolher workspace'}</strong></span></button>
                     <label className="bootstrap-project-name"><span className="bootstrap-meta-icon"><Icon name="workspace" size={13}/></span><span className="bootstrap-meta-copy"><small>Projeto</small><input aria-label="Nome do novo projeto" value={name} onChange={(event) => setName(event.target.value)} placeholder={projectSlug(briefing)} spellCheck={false}/></span></label>
                   </div>
+                  <div className="bootstrap-entry-modes" role="group" aria-label="Modo inicial do projeto">
+                    <button type="button" className={launchOptions.entryMode === 'agent' ? 'active' : ''} aria-label="Chat" aria-pressed={launchOptions.entryMode === 'agent'} onClick={() => setLaunchOptions((current) => ({ ...current, entryMode: 'agent' }))}>
+                      <span><Icon name="agent" size={14}/></span><span><strong>Chat</strong><small>Agentic · executa a primeira request</small></span>
+                    </button>
+                    <button type="button" className={launchOptions.entryMode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" aria-pressed={launchOptions.entryMode === 'orchestrator'} onClick={() => setLaunchOptions((current) => ({ ...current, entryMode: 'orchestrator' }))}>
+                      <span><Icon name="plan" size={14}/></span><span><strong>Orchestrator</strong><small>Cria e organiza o plano e as tarefas</small></span>
+                    </button>
+                  </div>
                   <div className="composer-editor-shell bootstrap-composer-editor">
                     <ComposerRichEditor
                       value={briefing}
@@ -213,10 +222,9 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
                       onReasoningEffort={updateReasoningEffort}
                       onChatTransportMode={updateTransport}
                     />
-                    <span className="composer-action-divider" />
-                    <ComposerPlanFirstControl requestMode={launchOptions.requestMode} onRequestMode={(requestMode) => setLaunchOptions((current) => ({ ...current, requestMode }))} />
-                  </div><button className="send-button" disabled={busy || !briefing.trim() || !onBootstrap} type="submit" aria-label="Criar projeto a partir deste prompt" title="Criar projeto e enviar a primeira request"><Icon name="send" size={15}/></button></div>
-                  <div className="composer-hint">Enter cria o projeto e inicia a request · Shift+Enter cria linha</div>
+                    {launchOptions.entryMode === 'agent' ? <><span className="composer-action-divider" /><ComposerPlanFirstControl requestMode={launchOptions.requestMode} onRequestMode={(requestMode) => setLaunchOptions((current) => ({ ...current, requestMode }))} /></> : null}
+                  </div><button className="send-button" disabled={busy || !briefing.trim() || !onBootstrap} type="submit" aria-label={launchOptions.entryMode === 'orchestrator' ? 'Criar projeto com Orchestrator' : 'Criar projeto com Chat'} title={launchOptions.entryMode === 'orchestrator' ? 'Criar projeto e enviar o objetivo ao Orchestrator' : 'Criar projeto e enviar a primeira request'}><Icon name="send" size={15}/></button></div>
+                  <div className="composer-hint">{launchOptions.entryMode === 'orchestrator' ? 'Enter cria o projeto e inicia o planeamento no Orchestrator · Shift+Enter cria linha' : 'Enter cria o projeto e inicia o chat · Shift+Enter cria linha'}</div>
                 </div>
               </form>
             </section>

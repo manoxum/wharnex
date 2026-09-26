@@ -20,7 +20,10 @@ const LEGACY_TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.
 export const TRANSPORT_OPTIONS_STORAGE_KEY = 'kernl.workspace.transport-options.v3'
 
 
+export type BootstrapEntryMode = 'agent' | 'orchestrator'
+
 export type BootstrapLaunchOptions = {
+  entryMode: BootstrapEntryMode
   artifacts: ChatArtifactSelection
   requestMode: ChatRequestMode
   automationMode: AutomationMode
@@ -30,6 +33,7 @@ export type BootstrapLaunchOptions = {
 }
 
 export const DEFAULT_BOOTSTRAP_LAUNCH_OPTIONS: BootstrapLaunchOptions = {
+  entryMode: 'agent',
   artifacts: { context: true, prompt: true, result: false, error: false },
   requestMode: 'direct',
   automationMode: 'auto',
@@ -252,6 +256,7 @@ function normalizeBootstrapLaunchOptions(value?: Partial<BootstrapLaunchOptions>
   const reasoningEffort: ReasoningEffort = value?.reasoningEffort === 'instant' || value?.reasoningEffort === 'medium' ? value.reasoningEffort : 'high'
   const chatTransportMode: ChatTransportMode = value?.chatTransportMode === 'manual' ? 'manual' : 'scraper'
   return {
+    entryMode: value?.entryMode === 'orchestrator' ? 'orchestrator' : 'agent',
     artifacts: {
       context: value?.artifacts?.context !== false,
       prompt: true,

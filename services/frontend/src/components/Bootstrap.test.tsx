@@ -15,15 +15,33 @@ describe('Bootstrap project home', () => {
     if (!editor) throw new Error('bootstrap composer editor not mounted')
     await waitFor(() => expect(editor.root.getAttribute('aria-label')).toBe('Descrever novo projeto'))
     act(() => { editor.setText('Criar um gestor de tarefas offline moderno', 'user') })
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Criar projeto a partir deste prompt' }) as HTMLButtonElement).disabled).toBe(false))
-    fireEvent.click(screen.getByRole('button', { name: 'Criar projeto a partir deste prompt' }))
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Criar projeto com Chat' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByRole('button', { name: 'Criar projeto com Chat' }))
 
     await waitFor(() => expect(onBootstrap).toHaveBeenCalledTimes(1))
     expect(onBootstrap.mock.calls[0][0]).toBe('/workspace')
     expect(onBootstrap.mock.calls[0][1]).toBe('criar-gestor-tarefas-offline')
     expect(onBootstrap.mock.calls[0][2]).toContain('Briefing inicial:')
     expect(onBootstrap.mock.calls[0][2]).toContain('Criar um gestor de tarefas offline moderno')
-    expect(onBootstrap.mock.calls[0][3]).toMatchObject({ automationMode: 'auto', effortLevel: 'high', reasoningEffort: 'high', chatTransportMode: 'scraper', requestMode: 'direct' })
+    expect(onBootstrap.mock.calls[0][3]).toMatchObject({ entryMode: 'agent', automationMode: 'auto', effortLevel: 'high', reasoningEffort: 'high', chatTransportMode: 'scraper', requestMode: 'direct' })
+  })
+
+  it('can start the prompt directly in Orchestrator planning mode', async () => {
+    const onBootstrap = vi.fn().mockResolvedValue(undefined)
+    const view = render(<Bootstrap busy={false} recent={['/workspace/existing']} restoring={false} onStart={vi.fn()} onCreate={vi.fn()} onClone={vi.fn()} onBootstrap={onBootstrap} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Orchestrator' }))
+    expect(screen.getByRole('button', { name: 'Orchestrator' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('button', { name: 'Planificar antes de alterar' })).toBeNull()
+
+    const editor = findComposerEditor(view.container)
+    if (!editor) throw new Error('bootstrap composer editor not mounted')
+    act(() => { editor.setText('Criar uma plataforma de reservas com API e painel', 'user') })
+    fireEvent.click(screen.getByRole('button', { name: 'Criar projeto com Orchestrator' }))
+
+    await waitFor(() => expect(onBootstrap).toHaveBeenCalledTimes(1))
+    expect(onBootstrap.mock.calls[0][2]).toBe('Criar uma plataforma de reservas com API e painel')
+    expect(onBootstrap.mock.calls[0][3]).toMatchObject({ entryMode: 'orchestrator' })
   })
 
   it('reuses project composer controls and removes the old informational cards', () => {
