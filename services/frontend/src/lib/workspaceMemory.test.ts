@@ -90,6 +90,7 @@ describe('workspace memory', () => {
     saveWorkspaceDirectory('/workspace')
     expect(loadWorkspaceDirectory()).toBe('/workspace')
     savePendingProjectLaunch('/workspace/demo', {
+      entryMode: 'orchestrator',
       artifacts: { context: false, prompt: true, result: false, error: false },
       requestMode: 'plan_first',
       automationMode: 'auto_approve',
@@ -98,6 +99,7 @@ describe('workspace memory', () => {
       chatTransportMode: 'manual',
     })
     expect(loadPendingProjectLaunch('/workspace/demo')).toEqual({
+      entryMode: 'orchestrator',
       artifacts: { context: false, prompt: true, result: false, error: false },
       requestMode: 'plan_first',
       automationMode: 'auto_approve',

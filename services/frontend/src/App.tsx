@@ -313,6 +313,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const bundleRoutingReadyKey = session && chats.length > 0 ? `${session.project_path}:${chats.map((chat) => `${chat.id}:${chat.sessionId}`).join(',')}` : ''
   const chatgptHumanAction = chatgptHumanActions[activeChatId]
   const activeBusy = activeChatBusy({ activeChatId, busyChats, globalBusy: busy, globalBusyOwnerChatId: busyOwnerChatId })
+  const pendingBootstrapLaunch = session ? loadPendingProjectLaunch(session.project_path) : undefined
+  const pendingBootstrapPrompt = session ? loadPendingProjectPrompt(session.project_path) : ''
+  const orchestratorBootstrapObjective = pendingBootstrapLaunch?.entryMode === 'orchestrator' ? pendingBootstrapPrompt.trim() : ''
+  const acceptOrchestratorBootstrap = useCallback(() => {
+    const projectPath = session?.project_path || ''
+    if (!projectPath) return
+    clearPendingProjectPrompt(projectPath)
+    clearPendingProjectLaunch(projectPath)
+    setBootstrapPromptRevision((value) => value + 1)
+  }, [session?.project_path])
 
   function setBusy(value: boolean) {
     setBusyState(value)
@@ -813,7 +823,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       persistChats(created.project_path, nextChats)
       setSavedChats(hydrated.saved); setArchivedChats(hydrated.archived); setSession(selectedSession); activeChatIdRef.current = selected.id; setActiveChatId(selected.id)
       setItems(chatItems.length ? chatItems : [welcomeItem(selectedSession)])
-      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode(surfaceRequest?.kind === 'editor' ? 'editor' : 'agent'); setTerminalOpen(surfaceRequest?.kind === 'terminal' ? true : initialWorkbench.bottom.open); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(projectEffortLevel); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
+      setManualPrompt(selectedSession.last_manual_prompt || ''); setEvents([]); setMode(surfaceRequest?.kind === 'editor' ? 'editor' : (pendingLaunch?.entryMode === 'orchestrator' ? 'orchestrator' : 'agent')); setTerminalOpen(surfaceRequest?.kind === 'terminal' ? true : initialWorkbench.bottom.open); setExecutionMode(projectExecutionMode); setAutomationMode(projectAutomationMode); setEffortLevel(projectEffortLevel); setChatTransportMode(selectedSession.chat_transport_mode || 'scraper')
       connectEvents(selectedSession.id, selectedSession.project_path, selected.id)
     } catch (e) { setError(messageOf(e)) } finally { setBusy(false); setRestoring(false) }
   }
@@ -1933,6 +1943,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const prompt = loadPendingProjectPrompt(projectPath)
     if (!prompt) return
     const launch = loadPendingProjectLaunch(projectPath)
+    if (launch?.entryMode === 'orchestrator') {
+      if (mode !== 'orchestrator') setMode('orchestrator')
+      return
+    }
     bootstrapPromptInFlightRef.current.add(projectPath)
     void send(
       prompt,
@@ -1947,7 +1961,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         bootstrapPromptInFlightRef.current.delete(projectPath)
       },
     ).catch(() => undefined)
-  }, [activeBusy, activeChatId, activeChatOwnsSession, bootstrapPromptRevision, send, session?.project_path])
+  }, [activeBusy, activeChatId, activeChatOwnsSession, bootstrapPromptRevision, mode, send, session?.project_path])
 
   async function adjustExecutionPlan(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) {
     await send(message, attachments, projectFiles, artifacts, 'direct', 'execution_plan_adjustment')
@@ -3947,6 +3961,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
           focusNonce={orchestratorFocusNonce}
           active={mode === 'orchestrator'}
+          bootstrapObjective={orchestratorBootstrapObjective}
+          bootstrapIncludeContext={Boolean(pendingBootstrapLaunch?.artifacts.context)}
+          onBootstrapAccepted={acceptOrchestratorBootstrap}
           onError={setError}
         />
       </div>

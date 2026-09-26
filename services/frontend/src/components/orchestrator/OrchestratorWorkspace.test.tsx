@@ -33,6 +33,32 @@ describe('OrchestratorWorkspace polling', () => {
     expect(api.orchestratorOverview).not.toHaveBeenCalled()
   })
 
+
+  it('submits a one-shot bootstrap objective when a new project starts in Orchestrator', async () => {
+    const proposal = { request_id: 'orp-bootstrap', worker_task_id: 'task-bootstrap', delivery_status: 'PENDING' }
+    const propose = vi.spyOn(api, 'proposeOrchestratorPlan').mockResolvedValue(proposal)
+    const accepted = vi.fn()
+    const props = {
+      session,
+      chatProps: {} as ComponentProps<typeof ChatPanel>,
+      active: true,
+      bootstrapObjective: 'Criar uma plataforma de reservas',
+      bootstrapIncludeContext: false,
+      onBootstrapAccepted: accepted,
+      onError: vi.fn(),
+    }
+
+    const view = render(<OrchestratorWorkspace {...props}/>)
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+
+    expect(propose).toHaveBeenCalledWith(session.id, 'Criar uma plataforma de reservas', { include_context: false })
+    expect(accepted).toHaveBeenCalledTimes(1)
+
+    view.rerender(<OrchestratorWorkspace {...props}/>)
+    await act(async () => { await Promise.resolve() })
+    expect(propose).toHaveBeenCalledTimes(1)
+  })
+
   it('polls every 5s once active, and stops again once it becomes inactive', async () => {
     const { rerender } = render(<OrchestratorWorkspace session={session} chatProps={{} as ComponentProps<typeof ChatPanel>} active onError={() => undefined}/>)
     await act(async () => { await Promise.resolve() })

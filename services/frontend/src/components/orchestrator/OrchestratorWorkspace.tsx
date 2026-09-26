@@ -1,4 +1,4 @@
-import { type ComponentProps, useCallback, useEffect, useState } from 'react'
+import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import { errorMessage } from '../../lib/errorMessage'
 import type { ChatAgentTask, OrchestratorOverview as OverviewData, OrchestratorProposalResult, OrchestratorTask, Session } from '../../types'
@@ -8,7 +8,7 @@ import { OrchestratorTasks } from './OrchestratorTasks'
 import type { ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 import { ChatPanel } from '../ChatPanel'
 
-export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToChat, focusNonce, active = true, onError }: {
+export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToChat, focusNonce, active = true, bootstrapObjective = '', bootstrapIncludeContext = true, onBootstrapAccepted, onError }: {
   session: Session
   // Minimal id/sessionId pairs only: enough to resolve a planning request's
   // owning Harness chat without threading the full workspace-chat record in.
@@ -25,6 +25,9 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
   // a network+render cost running forever for a panel the operator was not
   // looking at; only poll while it is actually the visible mode.
   active?: boolean
+  bootstrapObjective?: string
+  bootstrapIncludeContext?: boolean
+  onBootstrapAccepted?: () => void
   onError: (message?: string) => void
 }) {
   const [section, setSection] = useState<'overview' | 'tasks'>('overview')
@@ -33,6 +36,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
   const [selectedTask, setSelectedTask] = useState<OrchestratorTask>()
   const [planningTasks, setPlanningTasks] = useState<ChatAgentTask[]>([])
   const [busy, setBusy] = useState(false)
+  const bootstrapPlanningRef = useRef(new Set<string>())
 
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setBusy(true)
@@ -63,6 +67,29 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     if (!focusNonce) return
     setSection('overview')
   }, [focusNonce])
+
+
+  useEffect(() => {
+    const objective = bootstrapObjective.trim()
+    if (!active || !objective) return
+    const key = `${session.id}:${bootstrapIncludeContext ? 'context' : 'no-context'}:${objective}`
+    if (bootstrapPlanningRef.current.has(key)) return
+    bootstrapPlanningRef.current.add(key)
+    setSection('overview')
+    setBusy(true)
+    onError(undefined)
+    void api.proposeOrchestratorPlan(session.id, objective, { include_context: bootstrapIncludeContext })
+      .then(async (value) => {
+        setProposal(value)
+        onBootstrapAccepted?.()
+        await refresh(true)
+      })
+      .catch((reason) => {
+        bootstrapPlanningRef.current.delete(key)
+        onError(errorMessage(reason, 'Não foi possível iniciar o planeamento do novo projeto.'))
+      })
+      .finally(() => setBusy(false))
+  }, [active, bootstrapIncludeContext, bootstrapObjective, onBootstrapAccepted, onError, refresh, session.id])
 
   async function run<T>(action: () => Promise<T>, after?: (value: T) => void) {
     setBusy(true); onError(undefined)
