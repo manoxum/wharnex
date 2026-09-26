@@ -8,7 +8,6 @@ import (
 
 	"kernl.local/harness/backend/internal/hostrepo"
 	"kernl.local/harness/backend/internal/projectversion"
-	"kernl.local/harness/backend/internal/session"
 )
 
 type GitBranchMutationResult struct {
