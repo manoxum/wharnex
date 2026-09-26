@@ -434,3 +434,9 @@ if ! printf '%s\n' "$build_block" | grep -Fq 'up-link-host-install'; then
 fi
 [ -x "$UP_LINK_HOST_CHECK" ] || { echo 'lifecycle regression: up-whx-link host installer check is missing' >&2; exit 1; }
 WHARNESS_ROOT="$ROOT" "$UP_LINK_HOST_CHECK"
+# Lifecycle helper scripts written in Node carry their own node:test suites.
+set -- "$ROOT"/scripts/*.test.mjs
+if [ -e "$1" ]; then
+  node --test "$@" >/dev/null || { echo 'lifecycle regression: a scripts/*.test.mjs suite failed (run node --test scripts/*.test.mjs)' >&2; exit 1; }
+  echo 'Lifecycle script unit tests passed.'
+fi

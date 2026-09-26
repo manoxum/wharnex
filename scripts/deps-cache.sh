@@ -131,6 +131,13 @@ node_fingerprint() {
   } | hash_stream
 }
 
+# Both the host (glibc) and the self-evolution build container (musl) install
+# into the same node_modules; complete it with the other libc's native
+# packages so neither leaves a tree the other cannot load.
+hydrate_native_variants() {
+  node "$ROOT/scripts/hydrate-native-variants.mjs" "$1" "$NPM_CACHE" || true
+}
+
 node_ready() {
   name=$1
   service=$2
@@ -226,6 +233,7 @@ sync_node() {
 
   if [ "${WHARNESS_DEPS_FORCE:-0}" != "1" ] && stamp_matches "$stamp" "$fingerprint" && node_ready "$name" "$service"; then
     printf '[deps] %s: cache hit; npm ci skipped\n' "$name"
+    hydrate_native_variants "$service"
     return
   fi
 
@@ -249,6 +257,7 @@ sync_node() {
   if [ "$name" = desktop ]; then
     hydrate_desktop_runtime "$service"
   fi
+  hydrate_native_variants "$service"
   node_ready "$name" "$service" || {
     echo "[deps] $name: npm ci completed but required runtime files are missing" >&2
     exit 1
