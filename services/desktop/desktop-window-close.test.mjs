@@ -8,7 +8,6 @@ function fixture(projectPath = '/workspace/alpha', overrides = {}) {
   const coordinator = createDesktopWindowCloseCoordinator({
     publish: (_state, payload) => calls.push(['publish', payload]),
     background: () => calls.push(['background']),
-    closeProject: (path) => calls.push(['close-project', path]),
     closeWindow: () => calls.push(['close-window']),
     closeAll: () => calls.push(['close-all']),
     schedule: (fn) => {
@@ -34,7 +33,7 @@ test('requests an application-owned close decision for the active project', () =
 test('resolves each trusted close action once', () => {
   for (const [action, expected] of [
     ['background', ['background']],
-    ['close-project', ['close-project', '/workspace/alpha']],
+    ['close-window', ['close-window']],
     ['close-all', ['close-all']],
     ['cancel', undefined],
   ]) {
@@ -48,11 +47,11 @@ test('resolves each trusted close action once', () => {
   }
 })
 
-test('closes an empty window when no project is bound', () => {
+test('closes the whole window whether or not a project is bound', () => {
   const { coordinator, state, calls } = fixture('')
   coordinator.request(state, { preventDefault() {} })
   calls.length = 0
-  coordinator.resolve(state, 'close-project')
+  coordinator.resolve(state, 'close-window')
   assert.deepEqual(calls, [['close-window']])
 })
 
@@ -89,11 +88,11 @@ test('a renderer that never answers escalates to the native prompt instead of tr
 test('a renderer with no bridge at all cannot leave the close pending', () => {
   const { coordinator, state, calls } = fixture('/workspace/alpha', {
     publish: () => { throw new Error('renderer unreachable') },
-    fallback: () => 'close-project',
+    fallback: () => 'close-window',
   })
 
   assert.equal(coordinator.request(state, { preventDefault() {} }), true)
-  assert.deepEqual(calls, [['close-project', '/workspace/alpha']])
+  assert.deepEqual(calls, [['close-window']])
 })
 
 test('a modal the renderer reported on screen waits for the person instead of being overridden', () => {

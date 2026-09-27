@@ -1,5 +1,5 @@
 type DesktopBounds = { x: number; y: number; width: number; height: number }
-type DesktopWindowCloseAction = 'background' | 'close-project' | 'close-all' | 'cancel'
+type DesktopWindowCloseAction = 'background' | 'close-window' | 'close-all' | 'cancel'
 type DesktopWindowClosePrompt = { projectPath: string; projectName: string; hasProject: boolean }
 type DesktopChatGPTAuthMode = 'embedded' | 'external'
 type DesktopChatGPTAffinityPhase = 'unbound' | 'armed' | 'candidate' | 'bound'

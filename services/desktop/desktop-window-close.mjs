@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-const CLOSE_ACTIONS = new Set(['background', 'close-project', 'close-all', 'cancel'])
+const CLOSE_ACTIONS = new Set(['background', 'close-window', 'close-all', 'cancel'])
 // This bounds how long the renderer may take to acknowledge that it put the
 // modal on screen — never how long the person may take to decide. A human
 // reading four options routinely needs longer than any timeout worth setting,
@@ -20,7 +20,6 @@ function descriptorFor(windowState) {
 export function createDesktopWindowCloseCoordinator({
   publish,
   background,
-  closeProject,
   closeWindow,
   closeAll,
   fallback,
@@ -39,10 +38,7 @@ export function createDesktopWindowCloseCoordinator({
 
   function perform(windowState, request, action) {
     if (action === 'background') background(windowState)
-    if (action === 'close-project') {
-      if (request.projectPath) closeProject(request.projectPath)
-      else closeWindow(windowState)
-    }
+    if (action === 'close-window') closeWindow(windowState)
     if (action === 'close-all') closeAll()
   }
 
@@ -56,7 +52,7 @@ export function createDesktopWindowCloseCoordinator({
   function escalate(windowState) {
     const request = settle(windowState)
     if (!request) return
-    const action = fallback ? fallback(windowState, request.descriptor) : 'close-project'
+    const action = fallback ? fallback(windowState, request.descriptor) : 'close-window'
     if (!CLOSE_ACTIONS.has(action)) return
     perform(windowState, request, action)
   }
