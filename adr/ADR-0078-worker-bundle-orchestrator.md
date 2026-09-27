@@ -41,10 +41,18 @@ do not change.
 The native **Interagir aqui** pane resizes the same WebContentsView into a
 small responsive viewport. A running task must keep the hidden 1280×900
 automation viewport, so opening that pane during a task is refused. A Worker
-already in direct interaction skips new claims. The operator can capture a
-snapshot of a running Worker without resizing its renderer. The live follow
-viewer refreshes those user-visible, ephemeral snapshots every three seconds
-while open; it does not attach the native view to the smaller panel or enter
-direct interaction. The parked Worker bypasses compositor capture and asks its
-renderer for a viewport-only frame under a five-second deadline. Its frames
-are never parsed or persisted by the engine.
+already in direct interaction skips new claims. A hidden WebContentsView does
+not reliably deliver compositor or renderer screenshots, even under bounded
+capture deadlines. Live follow therefore attaches that same view to a
+separate user-opened 1280×900 window. The Worker keeps its conversation and
+scheduler lease, and closing the window parks it again without a navigation.
+The monitor creates no additional ChatGPT WebContents and does not read or
+persist generated output.
+The monitor closes when that Worker's task settles, and the Orchestrator panel
+tracks the task identity so it cannot keep showing a finished or reassigned
+Worker. A restored conversation may already contain its exact response ZIP
+while the saved assistant-turn count equals the live count. Artifact Workers
+therefore probe the exact file affordance independently of that count and
+retry a click only after a bounded wait if no download starts. A started
+download stops further clicks; ChatGPT's generated-file card is considered
+when locating the exact control.

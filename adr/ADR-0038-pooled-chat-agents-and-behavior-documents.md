@@ -87,7 +87,18 @@ default ceiling is six; lowering it constrains only auto-created capacity and ne
 the manually configured base down. When the due backlog clears, auto-created slots drain
 back to the configured count without preempting work already in flight. A provider suspension or 429
 cooldown never causes Auto scale growth, because extra renderers cannot make a gated
-provider available. Affinity is only a cache preference:
+provider available.
+
+When an operator suspends only named Worker task types, Auto scale counts the
+remaining claimable Worker tasks by type and may still add capacity for them.
+Suspended types do not contribute demand; a full Worker suspension leaves no
+Worker demand. The queue summary carries `due_worker_by_type` alongside its
+existing aggregate so this decision uses exact queue counts rather than a
+bounded task listing. Older Desktop clients can ignore the additive field;
+the updated Desktop and backend should be deployed together for partial
+suspension scaling.
+
+Affinity is only a cache preference:
 `chat_id -> conversation_id` is durable state, and a worker may be rebound after
 finishing its non-preemptive job. A reached conversation becomes that slot's resident
 lane for 60 seconds by default (never below 30 seconds). Resident work is preferred;

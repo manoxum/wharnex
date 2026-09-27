@@ -2,8 +2,8 @@ import { type ComponentProps, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
 import type { ChatAgentTask, ChatArtifactSelection, OrchestratorOverview as OverviewData, OrchestratorProposal, OrchestratorProposalResult, OrchestratorTask, Session } from '../../types'
 import { Icon } from '../Icon'
-import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
-import { WorkerFollowViewer } from '../WorkerFollowViewer'
+import type { ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
+import { OrchestratorPlanningQueue } from './OrchestratorPlanningQueue'
 import { ChatPanel } from '../ChatPanel'
 import { encodeChatAttachments } from '../../lib/chatAttachments'
 import { desktopBridge } from '../../lib/desktop'
@@ -29,9 +29,6 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
   onSelectTask: (task: OrchestratorTask) => void
 }) {
   const [manualJSON, setManualJSON] = useState('')
-  // Following a Worker stays right here — Orchestrator embeds its own live
-  // instance viewer instead of sending the operator to Agent · Engine.
-  const [followedInstance, setFollowedInstance] = useState<string>()
   const active = overview.tasks.filter((task) => task.status === 'DOING')
   const ready = overview.tasks.filter((task) => task.status === 'READY')
   const review = overview.tasks.filter((task) => task.status === 'REVIEW')
@@ -39,7 +36,6 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
   const draftPlan = proposal?.plan || overview.plans.find((plan) => plan.status === 'DRAFT')
   const draftTasks = draftPlan ? overview.tasks.filter((task) => task.plan_id === draftPlan.id) : []
   const planningRequests = useMemo(() => [...overview.planning_requests].sort((a, b) => b.updated_at.localeCompare(a.updated_at)), [overview.planning_requests])
-  const activePlanningCount = planningRequests.filter((item) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status)).length
   const recent = useMemo(() => [...overview.tasks].filter((task) => task.status !== 'ARCHIVED').sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 5), [overview.tasks])
 
   async function propose(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) {
@@ -144,40 +140,7 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
       </div>
     </section>
 
-    {planningRequests.length ? <section className="orchestrator-planning-queue" aria-live="polite">
-      <header>
-        <div><span>Fila durável</span><h2>Em planejamento</h2></div>
-        <strong>{activePlanningCount} ativo{activePlanningCount === 1 ? '' : 's'} · {planningRequests.length} pedido{planningRequests.length === 1 ? '' : 's'}</strong>
-      </header>
-      <div className="orchestrator-planning-list">
-        {planningRequests.map((planning) => {
-          // The planning request record itself carries no lease/chat/session
-          // fields; the durable task behind it does. Same-shape navigation as
-          // the Tarefas drawer, resolved from the same identifiers.
-          const backingTask = planningTasks.find((task) => task.task_id === planning.task_id)
-          const workerId = backingTask && ['LEASED', 'RUNNING'].includes(backingTask.status) ? extractWorkerId(backingTask.lease_owner) : undefined
-          const resolvedChatId = backingTask ? resolveTaskChatId(backingTask, chats) : undefined
-          return <article key={planning.task_id} className={`orchestrator-planning-status status-${planning.status.toLowerCase()}`}>
-            <span className="orchestrator-planning-pulse" aria-hidden="true"/>
-            <div>
-              <strong>{planning.objective || `Pedido ${planning.request_id}`}</strong>
-              <span>Request <code translate="no">{planning.request_id}</code> · prioridade máxima · tentativa {planning.attempt}/{planning.max_attempts}</span>
-              {planning.last_error ? <small>{planning.last_error}</small> : <small>{['DONE', 'CANCELLED'].includes(planning.status) ? 'Planejamento encerrado.' : 'Pode sair do Orchestrator: um Worker continuará esta entrega.'}</small>}
-              {(workerId || (resolvedChatId && onGoToChat)) && <div className="orchestrator-planning-nav">
-                {workerId ? <button type="button" aria-pressed={followedInstance === workerId} onClick={() => setFollowedInstance((current) => current === workerId ? undefined : workerId)} title="Acompanhar aqui mesmo, em tempo real, a instância do Worker que gera este plano"><Icon name="monitor" size={13}/> {followedInstance === workerId ? 'A acompanhar' : 'Acompanhar instância'}</button> : null}
-                {resolvedChatId && onGoToChat ? <button type="button" onClick={() => onGoToChat(resolvedChatId, backingTask?.session_id)} title="Abrir o chat Harness deste planeamento"><Icon name="bridge" size={13}/> Ver chat</button> : null}
-              </div>}
-            </div>
-            <div className="orchestrator-planning-actions">
-              <span className="orchestrator-planning-badge">{planning.status}</span>
-              {['FAILED', 'ATTENTION'].includes(planning.status) ? <button type="button" disabled={busy} onClick={() => void onRun(() => api.retryOrchestratorPlanning(session.id, planning.request_id))}>Retentar</button> : null}
-            </div>
-          </article>
-        })}
-      </div>
-    </section> : null}
-
-    {followedInstance && <WorkerFollowViewer agentId={followedInstance} onStop={() => setFollowedInstance(undefined)} onError={onError}/>}
+    <OrchestratorPlanningQueue requests={planningRequests} tasks={planningTasks} chats={chats} busy={busy} onGoToChat={onGoToChat} onRetry={(requestId) => { void onRun(() => api.retryOrchestratorPlanning(session.id, requestId)) }}/>
 
     {proposal?.manual_prompt && !proposal.worker_task_id && <section className="orchestrator-manual-plan">
       <header><div><strong>Planner manual</strong><span>Envie este prompt ao ChatGPT e cole abaixo apenas o JSON devolvido.</span></div><button type="button" onClick={() => void navigator.clipboard.writeText(proposal.manual_prompt || '')}><Icon name="copy" size={14}/> Copiar prompt</button></header>

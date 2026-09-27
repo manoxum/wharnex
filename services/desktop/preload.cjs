@@ -214,6 +214,8 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     pauseProvider: (pausedUntil) => invoke('wharness:agents:pause-provider', { pausedUntil: String(pausedUntil || '') }),
     resumeProvider: () => invoke('wharness:agents:resume-provider'),
     snapshot: (agentId) => invoke('wharness:agents:snapshot', { agentId: String(agentId || '') }),
+    openMonitor: (agentId) => invoke('wharness:agents:monitor-open', { agentId: String(agentId || '') }),
+    closeMonitor: (agentId) => invoke('wharness:agents:monitor-close', { agentId: String(agentId || '') }),
     openDevTools: (agentId) => invoke('wharness:agents:open-devtools', { agentId: String(agentId || '') }),
     openInteraction: (agentId, bounds) => invoke('wharness:agents:interaction-open', { agentId: String(agentId || ''), bounds }),
     setInteractionBounds: (agentId, bounds) => invoke('wharness:agents:interaction-bounds', { agentId: String(agentId || ''), bounds }),

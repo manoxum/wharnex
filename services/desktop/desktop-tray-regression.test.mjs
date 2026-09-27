@@ -56,5 +56,5 @@ test('Worker suspension stays durable when tray and Agents panel share the contr
   assert.match(workerScheduler, /workerSuspendsAllTaskTypes\(chatAgentPolicies\)\) return \{ skip: true \}/)
   assert.match(workerScheduler, /excluded_types: manualSuspension\.paused \? manualSuspension\.task_types : \[\]/)
   assert.doesNotMatch(supervisorScheduler, /workerSuspensionState\(chatAgentPolicies\)/)
-  assert.ok(scale.indexOf('reconcileChatAgentSupervisorAutoScale(queue)') < scale.indexOf('workerSuspensionState(chatAgentPolicies).paused'))
+  assert.ok(scale.indexOf('reconcileChatAgentSupervisorAutoScale(queue)') < scale.indexOf('autoScaleWorkerDemand(summary, chatAgentPolicies)'))
 })
