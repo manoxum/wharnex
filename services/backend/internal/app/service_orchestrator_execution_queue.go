@@ -28,14 +28,34 @@ func (s *Service) enqueueReadyOrchestratorTask(ctx context.Context, owner domain
 	}
 	releaseID := task.ID + ":" + strconv.FormatInt(task.UpdatedAt.UnixNano(), 10)
 	existing, err := s.store.ListChatAgentTasks(session.ChatAgentTaskFilter{
-		ProjectID: task.ProjectPath, ChatID: task.ID, RequestID: releaseID,
-		Type: "ORCHESTRATOR_EXECUTE", Limit: 1,
+		ProjectID: task.ProjectPath, ChatID: task.ID,
+		Type: "ORCHESTRATOR_EXECUTE", Limit: 200,
 	})
 	if err != nil {
 		return fmt.Errorf("inspect orchestrator execution release: %w", err)
 	}
-	if len(existing) > 0 {
-		if existing[0].Status == session.ChatAgentTaskFailed || existing[0].Status == session.ChatAgentTaskAttention || existing[0].Status == session.ChatAgentTaskCancelled {
+	var active *session.ChatAgentTask
+	var released *session.ChatAgentTask
+	for index := range existing {
+		candidate := &existing[index]
+		if candidate.RequestID == releaseID {
+			released = candidate
+		}
+		if orchestratorExecutionClaimPriority(candidate.Status) > 0 {
+			if active == nil || orchestratorExecutionClaimPriority(candidate.Status) > orchestratorExecutionClaimPriority(active.Status) ||
+				(orchestratorExecutionClaimPriority(candidate.Status) == orchestratorExecutionClaimPriority(active.Status) && candidate.CreatedAt.Before(active.CreatedAt)) {
+				active = candidate
+			}
+		}
+	}
+	if active != nil {
+		if _, err := s.store.CancelDuplicateOrchestratorExecutionTasks(task.ID, active.TaskID); err != nil {
+			return err
+		}
+		return nil
+	}
+	if released != nil {
+		if released.Status == session.ChatAgentTaskFailed || released.Status == session.ChatAgentTaskAttention || released.Status == session.ChatAgentTaskCancelled {
 			current, err := s.orchestrator.GetTask(ctx, task.ID)
 			if err != nil {
 				return err
@@ -67,6 +87,19 @@ func (s *Service) enqueueReadyOrchestratorTask(ctx context.Context, owner domain
 		return fmt.Errorf("enqueue orchestrator execution worker: %w", err)
 	}
 	return nil
+}
+
+func orchestratorExecutionClaimPriority(status string) int {
+	switch status {
+	case session.ChatAgentTaskRunning:
+		return 3
+	case session.ChatAgentTaskLeased:
+		return 2
+	case session.ChatAgentTaskPending, session.ChatAgentTaskWaiting:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func (s *Service) ensureReadyOrchestratorTasksQueued(ctx context.Context, owner domain.Session, tasks []orchestrator.Task) error {

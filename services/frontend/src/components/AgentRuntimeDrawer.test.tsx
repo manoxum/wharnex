@@ -43,6 +43,7 @@ function agentsBridge(state: DesktopAgentRuntimeState = runtime()) {
     pauseProvider: vi.fn(async (pausedUntil?: string) => ({ ...state, provider: { ...state.provider, paused: true, paused_until: pausedUntil || '' } })),
     resumeProvider: vi.fn(async () => runtime()),
     snapshot: vi.fn(async (agentId: string) => ({ agentId, dataUrl: 'data:image/png;base64,AA==', capturedAt: '2026-09-10T23:00:00Z' })),
+    openMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId })),
     openInteraction: vi.fn(async (agentId: string, bounds: DesktopBounds) => ({ ok: true, agentId, bounds })),
     setInteractionBounds: vi.fn(async (agentId: string, bounds: DesktopBounds) => ({ ok: true, agentId, bounds })),
     closeInteraction: vi.fn(async (agentId: string) => ({ ok: true, agentId, closed: true })),
@@ -251,7 +252,11 @@ describe('AgentRuntimeDrawer', () => {
   })
 
   it('opens and closes live interaction for a Worker browser', async () => {
-    const agents = agentsBridge()
+    const state = runtime()
+    const worker = state.agents.find((agent) => agent.id === 'worker-1')!
+    worker.status = 'idle'
+    worker.task = undefined
+    const agents = agentsBridge(state)
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
 
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
@@ -273,6 +278,39 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
   })
 
+  it('opens the full-size Worker window when interacting during an active task', async () => {
+    const agents = agentsBridge()
+    const listener = vi.fn()
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+    window.addEventListener('wharnex:agent-follow', listener)
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByText('Worker 1'))
+    fireEvent.click(screen.getByRole('button', { name: /Interagir aqui/ }))
+    await waitFor(() => expect(agents.openMonitor).toHaveBeenCalledWith('worker-1'))
+    expect(agents.openInteraction).not.toHaveBeenCalled()
+    await waitFor(() => expect(listener).toHaveBeenCalledTimes(1))
+    window.removeEventListener('wharnex:agent-follow', listener)
+  })
+
+  it('closes an idle inline interaction before following its Worker', async () => {
+    const state = runtime()
+    const worker = state.agents.find((agent) => agent.id === 'worker-1')!
+    worker.status = 'idle'
+    worker.task = undefined
+    const agents = agentsBridge(state)
+    const steps: string[] = []
+    agents.closeInteraction.mockImplementation(async () => { steps.push('close'); return { ok: true, agentId: 'worker-1', closed: true } })
+    agents.openMonitor.mockImplementation(async () => { steps.push('open'); return { ok: true, agentId: 'worker-1' } })
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByText('Worker 1'))
+    fireEvent.click(screen.getByRole('button', { name: /Interagir aqui/ }))
+    await waitFor(() => expect(agents.openInteraction).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: /Seguir \(flow\)/ }))
+    await waitFor(() => expect(agents.openMonitor).toHaveBeenCalledWith('worker-1'))
+    expect(steps.indexOf('close')).toBeLessThan(steps.indexOf('open'))
+  })
+
 
   it('moves a Worker into the main Engine flow when Seguir is requested', async () => {
     const agents = agentsBridge()
@@ -285,7 +323,8 @@ describe('AgentRuntimeDrawer', () => {
     fireEvent.click(await screen.findByText('Worker 1'))
     fireEvent.click(screen.getByRole('button', { name: /Seguir \(flow\)/ }))
 
-    expect(listener).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(listener).toHaveBeenCalledTimes(1))
+    expect(agents.openMonitor).toHaveBeenCalledWith('worker-1')
     expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ agentId: 'worker-1' })
     // Following a Worker must not dismiss the panel: the drawer closes only
     // when the operator asks it to.

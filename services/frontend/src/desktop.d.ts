@@ -37,7 +37,7 @@ type DesktopAgentRuntimeBrowser = { available: boolean; web_contents_id: number;
 type DesktopAgentRuntimeResidency = { slot_id: string; resident_lane: string; resident_since: string; min_resident_until: string; assignment_epoch: number; rotation_position: number; navigation_in_progress: boolean; non_preemptive: boolean }
 type DesktopAgentRuntimeAgent = {
   id: string; label: string; role: 'supervisor' | 'worker'; status: 'idle' | 'loading' | 'claimed' | 'running' | 'stopped' | 'error' | string
-  draining: boolean; loop_active?: boolean; interacting?: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; last_task?: DesktopAgentRuntimeTask; last_claim_at?: string
+  draining: boolean; loop_active?: boolean; interacting?: boolean; monitor_open?: boolean; chat_id: string; task?: DesktopAgentRuntimeTask; last_task?: DesktopAgentRuntimeTask; last_claim_at?: string
   keep_flowing?: boolean; keep_flowing_active?: boolean; error: string; browser: DesktopAgentRuntimeBrowser; memory?: { available: boolean; rss_bytes: number; os_process_id: number; shared_process: boolean }; residency?: DesktopAgentRuntimeResidency
   // Whether the slot is engaged right now, independently of whether it happens
   // to hold the lease at this instant. Supervision hands the lease back between

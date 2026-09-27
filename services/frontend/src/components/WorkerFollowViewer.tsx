@@ -11,11 +11,16 @@ export function WorkerFollowViewer({ agentId, onStop }: { agentId: string; onSto
   useEffect(() => {
     if (!bridge) return
     let active = true
+    let opened = false
     setStatus('opening')
     const opening = bridge.openMonitor(agentId)
-    void opening.then(() => { if (active) setStatus('open') }).catch(() => { if (active) setStatus('error') })
+    const off = bridge.onState((runtime) => {
+      if (active && opened && runtime.agents.find((agent) => agent.id === agentId)?.monitor_open === false) onStop()
+    })
+    void opening.then(() => { if (active) { opened = true; setStatus('open') } }).catch(() => { if (active) setStatus('error') })
     return () => {
       active = false
+      off()
       void opening.finally(() => bridge.closeMonitor(agentId)).catch(() => undefined)
     }
   }, [bridge, agentId])

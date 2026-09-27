@@ -1,10 +1,12 @@
 import { pollWorkerExpectedDownload } from './chat-agent-download-poll.mjs'
+import { postLongRunningWorkerJSON } from './chat-agent-long-request.mjs'
 
 const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000
 const POLL_MS = 2_000
 
-async function workerRequest(baseURL, sessionID, taskID, suffix, body) {
+async function workerRequest(baseURL, sessionID, taskID, suffix, body, postBundle = postLongRunningWorkerJSON) {
   const path = `/api/sessions/${encodeURIComponent(sessionID)}/orchestrator/tasks/${encodeURIComponent(taskID)}/${suffix}`
+  if (suffix === 'worker-bundle') return postBundle(baseURL, path, body)
   const response = await fetch(new URL(path, baseURL), {
     method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
@@ -96,7 +98,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
         if (outcome.error) throw outcome.error
         const result = await workerRequest(runtime.baseURL, sessionID, taskID, 'worker-bundle', {
           ...credentials, filename: current.expected_filename, content_base64: Buffer.from(outcome.value).toString('base64'),
-        })
+        }, runtime.postBundle)
         if (result.task?.status === 'REVIEW' || result.task?.status === 'COMPLETE' || result.task?.status === 'PENDING') return { status: 'done' }
         return { status: 'waiting', delayMs: 3_000, error: 'Agent continuation is ready' }
       }

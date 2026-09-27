@@ -14,7 +14,7 @@ import { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUpload
 import { orchestratorCompletionDiagnostic } from './chat-agent-orchestrator-progress.mjs'
 import { executeOrchestratorExecution } from './chat-agent-orchestrator-execution.mjs'
 import { registerOrchestratorExecutionDownload } from './chat-agent-orchestrator-execution-download.mjs'
-import { captureChatGPTAgentPage } from './chat-agent-snapshot.mjs'
+import { captureChatGPTAgentPage, captureParkedWorkerPage } from './chat-agent-snapshot.mjs'
 import { closeWorkerMonitor, closeWorkerMonitorAfterState, openWorkerMonitor } from './chat-agent-monitor.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript, chatGPTSubmittedRequestEvidenceScript } from './chatgpt-dom.mjs'
@@ -59,6 +59,7 @@ import { spellcheckContextMenuTemplate } from './spellcheck-menu.mjs'
 import { publicSupervisorId, supervisorSurfaceRoute } from './supervisor-surface-routing.mjs'
 import { createManualChatGPTTransport } from './manual-chatgpt-transport.mjs'
 import { withChatGPTNavigationDeadline } from './chatgpt-navigation-timeout.mjs'
+import { evaluateChatGPTDOMWithDeadline } from './chatgpt-dom-deadline.mjs'
 import { classifyChatGPTRequestDelivery } from './chatgpt-request-delivery.mjs'
 import { executeReleaseNotesBundleTask, registerReleaseNotesBundleDownload } from './chat-agent-release-notes.mjs'
 import { normalizeOrchestratorResultFilename, orchestratorRequestFilename, writeOrchestratorRequestBundle } from './chat-agent-orchestrator-request.mjs'
@@ -3315,6 +3316,7 @@ function chatAgentRuntimeState() {
       status: runtime.task ? (String(runtime.task.status || '').toUpperCase() === 'RUNNING' ? 'running' : 'claimed') : runtime.error ? 'error' : entry.loading ? 'loading' : runtime.active === false ? 'stopped' : chatAgentKeepFlowingActive(worker) ? 'claimed' : 'idle',
       draining: worker > desiredChatAgentWorkerSlots, loop_active: runtime.active !== false, interacting: Boolean(entry.interactionWindowId),
       occupied: Boolean(runtime.task || chatAgentKeepFlowingActive(worker)),
+      monitor_open: Boolean(entry.monitorWindow && !entry.monitorWindow.isDestroyed()),
       chat_id: String(runtime.task?.chat_id || runtime.lastTask?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(runtime.task),
       project_id: chatAgentAgentProject(runtime.task, runtime.lastTask, chatAgentKeepFlowingActive(worker)),
       last_task: publicChatAgentTask(runtime.lastTask), last_claim_at: String(runtime.lastClaimAt || ''),
@@ -3421,7 +3423,9 @@ async function chatAgentBrowserSnapshot(agentID) {
   ensureChatGPTLayoutViewport(layoutKey, entry)
   let dataUrl
   try {
-    dataUrl = await captureChatGPTAgentPage(wc, { parked: entry.role === 'worker' && !entry.interactionWindowId })
+    dataUrl = entry.role === 'worker' && !entry.interactionWindowId
+      ? await captureParkedWorkerPage(entry, BrowserWindow, { openMonitor: openWorkerMonitor, closeMonitor: closeWorkerMonitor })
+      : await captureChatGPTAgentPage(wc)
   } catch (error) {
     const category = String(error?.message || '').includes('excedeu') ? 'deadline' : 'capture-failed'
     console.warn(`[chat-agent-snapshot] agent=${id} category=${category}`)
@@ -3924,7 +3928,7 @@ async function executeChatGPTDOMScript(cacheKey, entry, stage, script) {
   const { wc } = requireOwnedChatGPTEntry(key, entry)
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      return await wc.executeJavaScript(script, true)
+      return await evaluateChatGPTDOMWithDeadline(wc, script)
     } catch (error) {
       console.warn(`[chatgpt-dom] stage=${stage} key=${key} attempt=${attempt} evaluation failed; waiting for renderer stability`)
       await wait(250)
@@ -8262,7 +8266,11 @@ function registerIPC() {
   ipcMain.handle('wharness:agents:snapshot', async (event, request) => { trustedSender(event); return chatAgentBrowserSnapshot(request?.agentId) })
   ipcMain.handle('wharness:agents:monitor-open', (event, request) => {
     trustedSender(event)
-    return openWorkerMonitor(workerEntryForAgentID(request?.agentId), BrowserWindow, publishChatAgentRuntimeState)
+    const entry = workerEntryForAgentID(request?.agentId)
+    if (entry.interactionWindowId) hideChatAgentInteractionEntry(entry)
+    const result = openWorkerMonitor(entry, BrowserWindow, publishChatAgentRuntimeState)
+    publishChatAgentRuntimeState()
+    return result
   })
   ipcMain.handle('wharness:agents:monitor-close', (event, request) => {
     trustedSender(event)

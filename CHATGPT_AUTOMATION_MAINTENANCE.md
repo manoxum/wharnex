@@ -2,7 +2,7 @@
 
 Este documento descreve o contrato atualmente implementado para a automação do ChatGPT no Desktop, como investigar mudanças estruturais da página e como validar uma correção. Use-o quando uma atualização do ChatGPT quebrar uma operação, quando houver HTTP 429/“too many requests” ou antes de aceitar uma alteração no engine.
 
-Última revisão estrutural e operacional: **2026-09-25**.
+Última revisão estrutural e operacional: **2026-09-27**.
 
 ## 1. Limites de segurança
 
@@ -121,6 +121,8 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
 - Worker oculto não pode depender de `webContents.sendInputEvent` sem viewport/hit-testing válidos. Use a operação estreita `pressChatGPTControl`; não substitua por click DOM.
 - **Interagir aqui** mostra a mesma instância num painel de 340 px de altura e muda o viewport do ChatGPT para o layout compacto. Enquanto uma tarefa corre, essa mudança interferiria com os controles que o scraper está a localizar; a abertura é recusada. **Acompanhar instância** e **Seguir (flow)** abrem a própria vista do Worker numa janela local fixa de 1280 × 900, sem navegar, focar explicitamente o conteúdo remoto ou fazer claims; fechar a janela devolve a instância ao estado oculto. A captura de imagem de uma vista oculta tem prazo de 5 s e pode falhar quando Chromium não produz frames; não é usada para acompanhar em tempo real. Um Worker já em interação não faz novos claims até a interação terminar.
 - O acompanhamento fecha a janela quando a tarefa seguida termina. Um ZIP exato já visível após retoma deve ser procurado mesmo que a contagem de turnos do assistente não avance; o Worker tenta novamente o controle de transferência após 20 s se nenhum download arrancar, e para de clicar assim que Chromium sinaliza o início.
+- **Seguir (flow)** abre imediatamente a janela nativa do Worker mesmo quando o painel de Agentes cobre a aba Engine. **Interagir aqui** usa essa janela em tamanho real quando o Worker está ocupado; a interação embutida continua disponível quando está ocioso. **Capturar imagem** apresenta temporariamente a vista do Worker em 1280 × 900 para obter um frame do compositor e depois repõe a vista oculta. Um probe DOM que não responde termina após 8 s por tentativa, sem prender uma tarefa indefinidamente.
+- A entrega de um bundle `ORCHESTRATOR_EXECUTE` ao backend pode incluir verificação e aplicação Protected. O POST local usa um cliente HTTP com prazo explícito de 29 min, inferior ao limite de escrita de 30 min do backend, e preserva `X-Wharnex-Trace`; o `fetch` padrão cortava a resposta aos cinco minutos e cancelava a execução depois de o ZIP já ter sido descarregado.
 - Todo gerador de script de conta deve entrar em `ALL_SCRIPTS` e passar por compilação com `new Function`. Regex dentro de template strings precisam preservar dupla fuga (`\\/`).
 - O composer atual pode expor três `input[type=file]`: vídeo/imagem,
   imagem e ficheiro geral sem `accept`. O upload de ZIP deve preferir o ID ou

@@ -1,6 +1,22 @@
 const COMPOSITOR_DEADLINE_MS = 1200
 const RENDERER_DEADLINE_MS = 5000
 
+// A parked Worker has no compositor frames. Present its existing full-size
+// view only for this explicit capture, then restore its parked layout.
+export async function captureParkedWorkerPage(entry, BrowserWindow, {
+  openMonitor, closeMonitor, capture = captureChatGPTAgentPage,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  const alreadyOpen = Boolean(entry.monitorWindow && !entry.monitorWindow.isDestroyed())
+  if (!alreadyOpen) openMonitor(entry, BrowserWindow)
+  try {
+    if (!alreadyOpen) await wait(200)
+    return await capture(entry.view.webContents, { parked: false, compositorDeadlineMs: 4000 })
+  } finally {
+    if (!alreadyOpen) closeMonitor(entry)
+  }
+}
+
 async function withinDeadline(operation, durationMs, stage) {
   let timer
   try {

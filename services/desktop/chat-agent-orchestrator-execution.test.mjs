@@ -33,6 +33,10 @@ test('Orchestrator Worker submits one request ZIP and delivers the exact respons
     health: async () => ({ required: false }), noteRateLimit: () => false,
     humanActionMessage: () => '', completion: async () => ({ complete: true }),
     expectedDownloadScript: (name) => name,
+    postBundle: async (baseURL, path, body) => {
+      calls.push({ url: new URL(path, baseURL).href, body })
+      return { task: { status: 'REVIEW' } }
+    },
     executeDOM: async (_key, _entry, _stage, script) => {
       assert.equal(script, expectedFilename)
       expectedDownloads.get(expectedFilename).resolve(Buffer.from('response ZIP'))
