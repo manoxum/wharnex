@@ -31,8 +31,8 @@ func claimTypes(t *testing.T, store *Store, role string, count int) []string {
 // charging a task's own bounded attempt budget.
 func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 	store := NewStore()
-	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE", "ORCHESTRATOR_PLAN"}
-	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "RELEASE_NOTES", "TITLE_DISCOVER"}
+	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE"}
+	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "RELEASE_NOTES", "ORCHESTRATOR_PLAN", "TITLE_DISCOVER"}
 	translatorTypes := []string{"TRANSLATE_MARKDOWN"}
 	allTypes := append(append(append([]string{}, supervisorTypes...), workerTypes...), translatorTypes...)
 	for index, taskType := range allTypes {

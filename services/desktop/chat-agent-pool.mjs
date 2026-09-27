@@ -26,7 +26,7 @@ export const HARD_MAX_WORKER_SLOTS = 6
 // already resident on, so routing them to a Worker would mean navigating a
 // second renderer to a page that is already loaded.
 export const SUPERVISOR_TASK_TYPES = Object.freeze([
-  'AWAIT_RESPONSE', 'BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN',
+  'AWAIT_RESPONSE', 'BOT_WRITE', 'RECOVERY_WRITE',
 ])
 
 // Everything else is Worker work: renaming, organizing, archiving, deleting

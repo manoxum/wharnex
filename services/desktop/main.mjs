@@ -54,6 +54,7 @@ import { createManualChatGPTTransport } from './manual-chatgpt-transport.mjs'
 import { withChatGPTNavigationDeadline } from './chatgpt-navigation-timeout.mjs'
 import { classifyChatGPTRequestDelivery } from './chatgpt-request-delivery.mjs'
 import { executeReleaseNotesBundleTask, registerReleaseNotesBundleDownload } from './chat-agent-release-notes.mjs'
+import { orchestratorRequestFilename, writeOrchestratorRequestBundle } from './chat-agent-orchestrator-request.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
@@ -6021,6 +6022,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
 
   let conversationUrl = checkpointURL
   let terminalCleanup = false
+  const requestPath = path.join(dir, orchestratorRequestFilename(requestId))
   try {
     let target
     let assistantBaseline
@@ -6036,22 +6038,11 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       const rateLimitDelay = pacedWorker ? chatAgentRateLimitDelayMs() : 0
       if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
       target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
-      const filled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-fill-composer', chatGPTFillComposerScript(orchestratorPlanInstruction(prompt, filename, false)))
-      if (!filled) throw new Error('ChatGPT orchestrator composer could not be populated')
-
-      const uploadPaths = []
-      let uploadBytes = 0
-      if (includeContext) {
-        const context = await fetchContextZip(sessionId)
-        const contextPath = path.join(dir, 'wharnex-project-context.zip')
-        await writeFile(contextPath, context.bytes, { mode: 0o600 })
-        uploadPaths.push(contextPath)
-        uploadBytes += context.bytes.byteLength
-      }
+      const contextBytes = includeContext ? (await fetchContextZip(sessionId)).bytes : undefined
+      const requestAttachments = []
       for (const attachment of attachments) {
         const filePath = await storedAttachmentPath(chatAttachmentRoot(), String(attachment?.storage_ref || ''))
-        uploadPaths.push(filePath)
-        uploadBytes += Math.max(0, Number(attachment?.size || 0))
+        requestAttachments.push({ name: attachment.name, path: filePath })
       }
       let generatedAttachmentBytes = 0
       for (let index = 0; index < generatedAttachments.length; index += 1) {
@@ -6066,18 +6057,16 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         if (bytes.byteLength > 2 * 1024 * 1024 || generatedAttachmentBytes > 2 * 1024 * 1024) {
           throw new Error('orchestrator generated attachment is too large')
         }
-        const attachmentDir = path.join(dir, `generated-${index + 1}`)
-        await mkdir(attachmentDir, { recursive: true, mode: 0o700 })
-        const filePath = path.join(attachmentDir, name)
-        await writeFile(filePath, bytes, { mode: 0o600 })
-        uploadPaths.push(filePath)
-        uploadBytes += bytes.byteLength
+        requestAttachments.push({ name, bytes })
       }
-      for (let index = 0; index < uploadPaths.length; index += 1) {
-        await pasteChatGPTFile(target.entry, uploadPaths[index], index + 1, uploadPaths.length, { pacedWorker })
-      }
-      if (uploadPaths.length) await wait(chatInputSettleDelay(uploadBytes, uploadPaths.length))
-      else await wait(150)
+      const request = await writeOrchestratorRequestBundle(requestPath, {
+        requestId, prompt, contextBytes, attachments: requestAttachments, createdAt: task.created_at,
+      })
+      const filled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-fill-composer', chatGPTFillComposerScript(request.bootstrap))
+      if (!filled) throw new Error('ChatGPT orchestrator composer could not be populated')
+      await pasteChatGPTFile(target.entry, requestPath, 1, 1, { pacedWorker })
+      await wait(chatInputSettleDelay((await readFile(requestPath)).byteLength, 1))
+      await executeChatGPTDOMScript(key, target.entry, 'orchestrator-refill-composer', chatGPTFillComposerScript(request.bootstrap))
       assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
       await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { rateLimitExempt: !pacedWorker })
       conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
@@ -6094,6 +6083,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
     const deadline = Date.now() + ORCHESTRATOR_PLAN_TIMEOUT_MS
     let thinkingObservedAt = 0
     let rerequests = 0
+    let downloadTriggered = false
     // Only a 404 observed after this moment means *this* request's artifact is
     // gone; an older one belongs to a turn we already replaced.
     let lastRequestedAt = Date.now()
@@ -6138,15 +6128,22 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         lastRequestedAt = Date.now()
         console.warn(`[orchestrator-worker] artifact expired task=${task.task_id} request=${requestId} re-request=${rerequests}`)
         if (pacedWorker) await paceChatGPTWorkerSubmission()
-        const refilled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-refill-composer', chatGPTFillComposerScript(orchestratorPlanInstruction(prompt, filename, true)))
+        await rm(requestPath, { force: true })
+        const redelivery = await writeOrchestratorRequestBundle(requestPath, {
+          requestId, prompt, redelivery: true, createdAt: task.created_at,
+        })
+        const refilled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-refill-composer', chatGPTFillComposerScript(redelivery.bootstrap))
         if (!refilled) throw new Error('ChatGPT orchestrator composer could not be populated for the re-request')
-        await wait(150)
+        await pasteChatGPTFile(target.entry, requestPath, 1, 1, { pacedWorker })
+        await wait(chatInputSettleDelay((await readFile(requestPath)).byteLength, 1))
+        await executeChatGPTDOMScript(key, target.entry, 'orchestrator-redelivery-refill', chatGPTFillComposerScript(redelivery.bootstrap))
         assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
         await submitChatGPTDraft(key, target.entry, conversationUrl, { ...target, conversationUrl }, { rateLimitExempt: !pacedWorker })
+        downloadTriggered = false
         continue
       }
-      if (Number(completion?.assistantCount || 0) > assistantBaseline) {
-        await executeChatGPTDOMScript(key, target.entry, 'orchestrator-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
+      if (!downloadTriggered && Number(completion?.assistantCount || 0) > assistantBaseline) {
+        downloadTriggered = Boolean(await executeChatGPTDOMScript(key, target.entry, 'orchestrator-download', chatGPTExpectedDownloadScript(filename, assistantBaseline)))
       }
     }
     // Reaching the deadline while the page is provably still producing the plan
@@ -6593,7 +6590,6 @@ async function executeChatSupervisorTask(task, { worker, owner }) {
     case 'AWAIT_RESPONSE': return superviseChatAgentResponse(task, entry, key, payload)
     case 'BOT_WRITE':
     case 'RECOVERY_WRITE': return executeChatAgentWrite(task, entry, key, payload, conversationURL, { pacedWorker: false })
-    case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan(task, entry, key, payload, owner, { pacedWorker: false })
     default: return { status: 'failed', error: `O pool de Supervisores não executa ${task.type}` }
   }
 }

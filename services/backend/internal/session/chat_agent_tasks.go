@@ -195,7 +195,7 @@ var chatAgentAccountTypes = []string{
 // small account-lifecycle or utility work that no Supervisor may take, so a
 // rename or an archive can never evict a conversation that is mid-request.
 var chatAgentSupervisorTypes = []string{
-	"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE", "ORCHESTRATOR_PLAN",
+	"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE",
 }
 
 func chatAgentTaskTypeIn(taskType string, values []string) bool {
