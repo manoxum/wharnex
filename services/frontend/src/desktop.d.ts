@@ -177,6 +177,8 @@ interface WharnessDesktopBridge {
     pauseProvider(pausedUntil?: string): Promise<DesktopAgentRuntimeState>
     resumeProvider(): Promise<DesktopAgentRuntimeState>
     snapshot(agentId: string): Promise<{ agentId: string; dataUrl: string; capturedAt: string }>
+    openMonitor(agentId: string): Promise<{ ok: boolean; agentId: string; alreadyOpen: boolean }>
+    closeMonitor(agentId: string): Promise<{ ok: boolean; agentId: string; closed: boolean }>
     openDevTools(agentId: string): Promise<{ ok: boolean; agentId: string }>
     openInteraction(agentId: string, bounds: DesktopBounds): Promise<{ ok: boolean; agentId: string; bounds: DesktopBounds }>
     setInteractionBounds(agentId: string, bounds: DesktopBounds): Promise<{ ok: boolean; agentId: string; bounds?: DesktopBounds }>

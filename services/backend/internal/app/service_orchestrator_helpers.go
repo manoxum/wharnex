@@ -23,7 +23,7 @@ func (s *Service) recalculateOrchestratorTasks(ctx context.Context, projectPath 
 		planStatus[plan.ID] = plan.Status
 	}
 	for _, task := range tasks {
-		if task.Status != orchestrator.TaskPending && task.Status != orchestrator.TaskReady {
+		if task.Status != orchestrator.TaskPending && task.Status != orchestrator.TaskWaiting && task.Status != orchestrator.TaskReady {
 			continue
 		}
 		status, condition := orchestrator.EvaluateReadiness(task, tasks, planStatus[task.PlanID])
@@ -93,7 +93,7 @@ func (s *Service) invalidateOrchestratorDependents(ctx context.Context, projectP
 			task.Status = orchestrator.TaskPending
 			task.Condition = orchestrator.ConditionStaleDependency
 		} else if task.Status != orchestrator.TaskDoing && task.Status != orchestrator.TaskArchived {
-			task.Status = orchestrator.TaskPending
+			task.Status = orchestrator.TaskWaiting
 			task.Condition = orchestrator.ConditionDependency
 		}
 		task.UpdatedAt = time.Now().UTC()

@@ -383,6 +383,27 @@ func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (o
 	if err != nil {
 		return orchestrator.Overview{}, err
 	}
+	for _, task := range tasks {
+		if task.Status == orchestrator.TaskDoing {
+			if err := s.reconcileOrchestratorWorkerRun(ctx, task.ID); err != nil {
+				return orchestrator.Overview{}, err
+			}
+		}
+	}
+	tasks, err = s.orchestrator.ListTasks(ctx, item.ProjectPath)
+	if err != nil {
+		return orchestrator.Overview{}, err
+	}
+	if err := s.ensureLegacyDoingOrchestratorTasksQueued(ctx, item, tasks); err != nil {
+		return orchestrator.Overview{}, err
+	}
+	if err := s.ensureReadyOrchestratorTasksQueued(ctx, item, tasks); err != nil {
+		return orchestrator.Overview{}, err
+	}
+	tasks, err = s.orchestrator.ListTasks(ctx, item.ProjectPath)
+	if err != nil {
+		return orchestrator.Overview{}, err
+	}
 	planningTasks, err := s.store.ListChatAgentTasks(session.ChatAgentTaskFilter{
 		ProjectID: item.ProjectPath, Type: "ORCHESTRATOR_PLAN", Limit: 200,
 	})
@@ -431,26 +452,6 @@ func orchestratorPlanningRequest(task session.ChatAgentTask) orchestrator.Planni
 		Attempt: task.Attempt, MaxAttempts: task.MaxAttempts, LastError: task.LastError,
 		CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt,
 	}
-}
-
-func (s *Service) RejectOrchestratorPlan(ctx context.Context, sessionID, planID string) (orchestrator.Overview, error) {
-	item, err := s.store.Get(sessionID)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	lock := s.orchestratorProjectLock(item.ProjectPath)
-	lock.Lock()
-	defer lock.Unlock()
-	plan, tasks, err := s.orchestratorDraftSnapshot(ctx, item.ProjectPath, planID)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	if err := s.archiveOrchestratorDraft(ctx, plan, tasks); err != nil {
-		return orchestrator.Overview{}, err
-	}
-	s.setProjectTodosByPlan(item.ProjectPath, plan.ID, domain.ProjectTodoExecutionOpen, "")
-	s.bus.Publish(sessionID, "orchestrator.plan_rejected", map[string]any{"plan_id": plan.ID, "request_id": plan.PlannerRequestID})
-	return s.OrchestratorOverview(ctx, sessionID)
 }
 
 func (s *Service) ReviseOrchestratorPlan(ctx context.Context, sessionID, planID, guidance string) (OrchestratorProposalResult, error) {
@@ -563,34 +564,4 @@ func orchestratorProposalFromStoredDraft(plan orchestrator.Plan, tasks []orchest
 		Protocol: orchestrator.ProtocolV1, Title: plan.Title, Objective: plan.Objective,
 		Assumptions: append([]string(nil), plan.Assumptions...), Tasks: proposalTasks,
 	}
-}
-
-func (s *Service) ApproveOrchestratorPlan(ctx context.Context, sessionID, planID string) (orchestrator.Overview, error) {
-	item, err := s.store.Get(sessionID)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	lock := s.orchestratorProjectLock(item.ProjectPath)
-	lock.Lock()
-	defer lock.Unlock()
-	plan, err := s.orchestrator.GetPlan(ctx, planID)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	if plan.ProjectPath != item.ProjectPath {
-		return orchestrator.Overview{}, errors.New("plan does not belong to this project")
-	}
-	if plan.Status != orchestrator.PlanDraft {
-		return orchestrator.Overview{}, errors.New("orchestrator plan approval requires a draft plan")
-	}
-	plan.Status = orchestrator.PlanActive
-	plan.UpdatedAt = time.Now().UTC()
-	if err := s.orchestrator.PutPlan(ctx, plan); err != nil {
-		return orchestrator.Overview{}, err
-	}
-	if err := s.recalculateOrchestratorTasks(ctx, item.ProjectPath); err != nil {
-		return orchestrator.Overview{}, err
-	}
-	s.bus.Publish(sessionID, "orchestrator.plan_approved", map[string]any{"plan_id": plan.ID})
-	return s.OrchestratorOverview(ctx, sessionID)
 }

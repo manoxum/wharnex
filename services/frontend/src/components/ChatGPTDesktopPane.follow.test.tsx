@@ -7,7 +7,6 @@ class TestResizeObserver { observe() {}; disconnect() {}; unobserve() {} }
 
 function followBridge() {
   const desktop = bridge()
-  desktop.agents.snapshot = vi.fn(async (agentId: string) => ({ agentId, dataUrl: 'data:image/png;base64,AA==', capturedAt: '2026-09-27T15:00:00Z' }))
   window.wharnessDesktop = desktop
   return desktop
 }
@@ -23,7 +22,7 @@ describe('ChatGPTDesktopPane Worker follow', () => {
 
     act(() => window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: 'worker-2' } })))
     expect(await screen.findByText('Seguindo Worker 2')).toBeTruthy()
-    await waitFor(() => expect(desktop.agents.snapshot).toHaveBeenCalledWith('worker-2'))
+    await waitFor(() => expect(desktop.agents.openMonitor).toHaveBeenCalledWith('worker-2'))
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalledWith('chat-1'))
     expect(desktop.agents.openInteraction).not.toHaveBeenCalled()
     expect(desktop.agents.setInteractionBounds).not.toHaveBeenCalled()
@@ -36,6 +35,7 @@ describe('ChatGPTDesktopPane Worker follow', () => {
     expect(await screen.findByText('Seguindo Worker 2')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Parar de seguir' }))
+    await waitFor(() => expect(desktop.agents.closeMonitor).toHaveBeenCalledWith('worker-2'))
     expect(desktop.agents.closeInteraction).not.toHaveBeenCalled()
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
   })
@@ -45,7 +45,7 @@ describe('ChatGPTDesktopPane Worker follow', () => {
     render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
     const selector = await screen.findByRole('combobox', { name: 'Instância do Engine' })
     fireEvent.change(selector, { target: { value: 'worker-2' } })
-    await waitFor(() => expect(desktop.agents.snapshot).toHaveBeenCalledWith('worker-2'))
+    await waitFor(() => expect(desktop.agents.openMonitor).toHaveBeenCalledWith('worker-2'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Abrir DevTools da instância atual' }))
     await waitFor(() => expect(desktop.agents.openDevTools).toHaveBeenCalledWith('worker-2'))

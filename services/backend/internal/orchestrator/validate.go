@@ -8,7 +8,7 @@ import (
 
 func ValidTaskStatus(status TaskStatus) bool {
 	switch status {
-	case TaskPending, TaskReady, TaskDoing, TaskReview, TaskComplete, TaskArchived:
+	case TaskPending, TaskWaiting, TaskReady, TaskDoing, TaskReview, TaskComplete, TaskArchived:
 		return true
 	default:
 		return false
@@ -117,13 +117,16 @@ func EvaluateReadiness(task Task, tasks []Task, plan PlanStatus) (TaskStatus, Ta
 	for _, dependency := range task.DependsOn {
 		candidate, exists := byID[dependency]
 		if !exists || candidate.Status != TaskComplete {
-			return TaskPending, ConditionDependency
+			return TaskWaiting, ConditionDependency
 		}
 	}
 	if task.Condition == ConditionManualPause || task.Condition == ConditionMissingContext || task.Condition == ConditionApproval || task.Condition == ConditionConflict || task.Condition == ConditionFailedRun || task.Condition == ConditionStaleDependency {
 		return TaskPending, task.Condition
 	}
-	return TaskReady, ConditionNone
+	if task.Status == TaskReady {
+		return TaskReady, ConditionNone
+	}
+	return TaskPending, ConditionNone
 }
 
 func validateAcyclicProposal(tasks []ProposalTask) error {

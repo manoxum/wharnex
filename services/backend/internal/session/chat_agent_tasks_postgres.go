@@ -236,6 +236,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 			OR ($4='unresident_only' AND ($3='' OR ` + laneExpr + `<>$3))
 		  )` + excludedSQL + excludedTypesSQL + projectSQL + roleSQL + providerSQL + `
 		  AND NOT ` + chatAgentBlockedByActiveTaskSQL("t") + `
+		  AND NOT ` + chatAgentOrchestratorExecutionBlockedSQL("t") + `
 		ORDER BY CASE WHEN $3<>'' AND ` + laneExpr + `=$3 THEN 0 ELSE 1 END,
 		CASE
 			WHEN t.priority<=1 THEN t.priority

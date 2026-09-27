@@ -12,7 +12,10 @@ import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard
 import { installNativeSurfaceLifecycleGuard } from './native-surface-lifecycle.mjs'
 import { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { orchestratorCompletionDiagnostic } from './chat-agent-orchestrator-progress.mjs'
+import { executeOrchestratorExecution } from './chat-agent-orchestrator-execution.mjs'
+import { registerOrchestratorExecutionDownload } from './chat-agent-orchestrator-execution-download.mjs'
 import { captureChatGPTAgentPage } from './chat-agent-snapshot.mjs'
+import { closeWorkerMonitor, closeWorkerMonitorAfterState, openWorkerMonitor } from './chat-agent-monitor.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript, chatGPTSubmittedRequestEvidenceScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
@@ -43,6 +46,8 @@ import { currentTrace, installBackendTraceHeader, traceForTask, traceId, withTra
 import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, DEFAULT_SUSPENDED_WORKER_TASK_TYPES, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes } from './chat-agent-policies.mjs'
+import { autoScaleWorkerDemand } from './chat-agent-auto-scale.mjs'
+import { chatAgentQueueDiagnostics } from './chat-agent-queue-diagnostics.mjs'
 import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 import { CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer } from './chat-agent-pacer.mjs'
@@ -57,6 +62,7 @@ import { withChatGPTNavigationDeadline } from './chatgpt-navigation-timeout.mjs'
 import { classifyChatGPTRequestDelivery } from './chatgpt-request-delivery.mjs'
 import { executeReleaseNotesBundleTask, registerReleaseNotesBundleDownload } from './chat-agent-release-notes.mjs'
 import { normalizeOrchestratorResultFilename, orchestratorRequestFilename, writeOrchestratorRequestBundle } from './chat-agent-orchestrator-request.mjs'
+import { pollWorkerExpectedDownload } from './chat-agent-download-poll.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
@@ -214,6 +220,7 @@ const expectedChatGPTTranslations = new Map()
 const expectedChatGPTReleaseNotes = new Map()
 const expectedChatGPTTodoClassifications = new Map()
 const expectedChatGPTOrchestratorPlans = new Map()
+const expectedChatGPTOrchestratorExecutions = new Map()
 // Plan artifacts that arrived while no attempt held the lease.
 //
 // ChatGPT delivers when it finishes, not when a Wharnex lease happens to be
@@ -1900,6 +1907,7 @@ function registerChatGPTMarkdownTranslationDownload(item, sourceFilename) {
     item.cancel()
     return true
   }
+  expected.downloadStarted = true
   const total = Number(item.getTotalBytes?.() || 0)
   if (total > MAX_MARKDOWN_TRANSLATION_RESULT_BYTES) {
     item.cancel()
@@ -2067,6 +2075,7 @@ function registerChatGPTOrchestratorPlanDownload(item, sourceFilename) {
   if (!expected || Date.now() - expected.armedAt > ORCHESTRATOR_PLAN_TIMEOUT_MS + 60_000) {
     return retainChatGPTOrchestratorPlanDownload(item, filename)
   }
+  expected.downloadStarted = true
   const total = Number(item.getTotalBytes?.() || 0)
   if (total > MAX_ORCHESTRATOR_PLAN_BYTES) {
     item.cancel()
@@ -2115,6 +2124,7 @@ function registerChatGPTPlanDownloads(chatSession) {
     // do not require object identity here. The strict filename + JSON protocol
     // + request_id checks below remain the authority for plan interception.
     const sourceFilename = item.getFilename()
+    if (registerOrchestratorExecutionDownload(item, sourceFilename, expectedChatGPTOrchestratorExecutions, app.getPath('temp'))) return
     if (registerChatGPTOrchestratorPlanDownload(item, sourceFilename)) return
     if (registerChatGPTMarkdownTranslationDownload(item, sourceFilename)) return
     if (registerReleaseNotesBundleDownload(item, sourceFilename, expectedChatGPTReleaseNotes, app.getPath('temp'))) return
@@ -2697,6 +2707,7 @@ function createChatGPTWorkerView(slotId, windowState) {
   wc.on('render-process-gone', (_event, details) => {
     console.error(`[chat-agent] slot=${slotId} renderer-gone reason=${details.reason} exitCode=${details.exitCode}`)
     if (entry.ownerKey) noteChatGPTRendererFault(entry.ownerKey, `worker renderer process gone: ${details.reason || 'unknown'}`)
+    closeWorkerMonitor(entry)
     if (hideChatAgentInteractionEntry(entry)) publishChatAgentRuntimeState()
   })
   console.log(`[chat-agent] worker-created slot=${slotId} wc=${wc.id}`)
@@ -2706,6 +2717,7 @@ function createChatGPTWorkerView(slotId, windowState) {
 function retireChatGPTWorkerView(entry) {
   if (!entry) return false
   chatAgentResidency.retire(entry.slotId)
+  closeWorkerMonitor(entry)
   hideChatAgentInteractionEntry(entry)
   clearTimeout(entry.affinitySettleTimer)
   const state = windowStateForEntry(entry)
@@ -2858,15 +2870,16 @@ async function reconcileChatAgentAutoScale() {
     const supervisorChanged = reconcileChatAgentSupervisorAutoScale(queue)
     // Worker suspension is intentionally narrower than the provider gate: the
     // Supervisor pool remains operational while Workers stop taking new claims.
-    if (chatAgentRateLimitDelayMs() > 0 || chatAgentRuntimeDiagnostics.provider?.paused === true || workerSuspensionState(chatAgentPolicies).paused) {
+    if (chatAgentRateLimitDelayMs() > 0 || chatAgentRuntimeDiagnostics.provider?.paused === true) {
       if (supervisorChanged) publishChatAgentRuntimeState()
       return
     }
+    const dueWorker = autoScaleWorkerDemand(summary, chatAgentPolicies)
     const grow = autoScaleTarget({
-      enabled: true, due: queue.due_worker, available: chatAgentAvailableWorkers(), current: desiredChatAgentWorkerSlots, maxWorkers: chatAgentPolicies.auto_scale_max_workers,
+      enabled: true, due: dueWorker, available: chatAgentAvailableWorkers(), current: desiredChatAgentWorkerSlots, maxWorkers: chatAgentPolicies.auto_scale_max_workers,
     })
     if (grow > desiredChatAgentWorkerSlots) {
-      console.log(`[chat-agent] auto-scale grow from=${desiredChatAgentWorkerSlots} to=${grow} due=${queue.due_worker}`)
+      console.log(`[chat-agent] auto-scale grow from=${desiredChatAgentWorkerSlots} to=${grow} due=${dueWorker}`)
       chatAgentWorkerLastGrowAt = Date.now()
       setChatAgentWorkerTarget(grow)
       publishChatAgentRuntimeState()
@@ -2877,7 +2890,7 @@ async function reconcileChatAgentAutoScale() {
       return
     }
     const drain = autoScaleDrainTarget({
-      enabled: true, due: queue.due_worker, configured: configuredChatAgentWorkerSlots, current: desiredChatAgentWorkerSlots, keepFlowingFloor: chatAgentKeepFlowingFloor(),
+      enabled: true, due: dueWorker, configured: configuredChatAgentWorkerSlots, current: desiredChatAgentWorkerSlots, keepFlowingFloor: chatAgentKeepFlowingFloor(),
     })
     if (drain < desiredChatAgentWorkerSlots) {
       console.log(`[chat-agent] auto-scale drain from=${desiredChatAgentWorkerSlots} to=${drain}`)
@@ -3041,12 +3054,13 @@ function hideChatAgentInteractionsForWindow(windowState) {
 
 function showChatAgentInteraction(agentID, rawBounds, windowState) {
   const entry = workerEntryForAgentID(agentID)
+  if (entry.monitorWindow && !entry.monitorWindow.isDestroyed()) throw new Error('Feche a janela do Worker antes de interagir aqui')
   // The drawer's live pane is only 340px high and often narrower than 500px.
   // Showing a running Worker there changes ChatGPT to its compact layout while
   // the same renderer is being scraped. Claims already wait while interaction
   // is open; close the converse race before changing the active task's viewport.
   if (chatAgentWorkerStates.get(Number(entry.slotId.slice(7)))?.task) {
-    throw new Error('Este Worker está a executar uma tarefa. Capture uma imagem ou aguarde antes de interagir diretamente.')
+    throw new Error('Este Worker está a executar uma tarefa. Acompanhe na janela do Worker ou aguarde para interagir diretamente.')
   }
   const bounds = normalizeBounds(rawBounds, windowState?.window?.getContentBounds?.())
   if (!bounds) throw new Error('Worker interaction bounds are invalid')
@@ -3149,37 +3163,6 @@ function chatAgentAgentProject(task, lastTask, engaged) {
   const current = String(task?.project_id || '').trim()
   if (current) return current
   return engaged ? String(lastTask?.project_id || '').trim() : ''
-}
-
-// Projects the backend's queue aggregate onto the runtime diagnostics shape.
-//
-// The numbers that matter operationally are `due` and `scheduled`. A task
-// deferred behind its own not_before — every bundle-retention cleanup is
-// deferred for days by design — is waiting on a clock, not on a worker, so
-// counting it as pending backlog makes a completely idle queue read as a
-// stuck one. `oldest_due_created_at` ages only claimable work for the same
-// reason: a task that is early is not late.
-function chatAgentQueueDiagnostics(summary = {}) {
-  const counts = {}
-  for (const [status, count] of Object.entries(summary?.counts || {})) {
-    counts[String(status).toUpperCase()] = Math.max(0, Number(count) || 0)
-  }
-  return {
-    queued: Math.max(0, Number(summary?.queued) || 0),
-    counts,
-    due: Math.max(0, Number(summary?.due) || 0),
-    // Role-partitioned demand. Each pool is sized from its own half: the shared
-    // total would grow the Supervisor pool because a library cleanup is queued,
-    // and grow the Worker pool because a conversation is being supervised.
-    due_supervisor_lanes: Math.max(0, Number(summary?.due_supervisor_lanes) || 0),
-    due_worker: Math.max(0, Number(summary?.due_worker) || 0),
-    due_translator: Math.max(0, Number(summary?.due_translator) || 0),
-    scheduled: Math.max(0, Number(summary?.scheduled) || 0),
-    guarded: Math.max(0, Number(summary?.guarded) || 0),
-    blocked: Math.max(0, Number(summary?.blocked) || 0),
-    oldest_due_created_at: String(summary?.oldest_due_created_at || ''),
-    next_not_before: String(summary?.next_not_before || ''),
-  }
 }
 
 async function refreshChatAgentRuntimeState() {
@@ -3862,7 +3845,7 @@ function chatAttachmentRoot() {
   return path.join(app.getPath('userData'), 'chat-attachments-v1')
 }
 
-async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], requestMetadata = {}, signal) {
+async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], requestMetadata = {}, signal, bundleChatID = cacheKey) {
   const timer = requestPreparationTimer(requestId)
   throwIfChatGPTTransportAborted(signal)
   const limits = await fetchChatTransportLimits(signal)
@@ -3884,7 +3867,7 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
   const context = eagerContext || (continuation.length ? await fetchContextZip(sessionId, signal) : undefined)
   timer.phase('inputs-loaded')
   const transport = await writeChatInputTransportArchives(dir, {
-    chatId: cacheKey, requestId, maxTotalBytes: limits.totalBytes, maxPartBytes: boundedChatInputPartBytes(limits), maxParts: limits.partLimit,
+    chatId: bundleChatID, requestId, maxTotalBytes: limits.totalBytes, maxPartBytes: boundedChatInputPartBytes(limits), maxParts: limits.partLimit,
     requestMetadata, prompt: promptText, context, knowledge, gitContext, continuation, attachments: decoded,
     artifacts: artifacts.decoded, projectFiles, signal,
   })
@@ -4760,7 +4743,7 @@ async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
     // Control geometry and the state it reported, never page content. Without
     // this the failure reads only "effort-menu-closed", which cannot separate
     // a press that missed the control from one that landed and was ignored.
-    console.log(`[chatgpt-effort] key=${key} open-attempt=${attempt + 1} visible=${String(visible)} pressed=${pressed.x},${pressed.y} rect=${JSON.stringify(before.rect)} viewport=${JSON.stringify(before.viewport || null)} hit=${JSON.stringify(before.hit || null)} hitIsControl=${before.hitIsControl === true} -> ${String(staged?.state || 'unknown')}`)
+    console.log(`[chatgpt-effort] key=${key} open-attempt=${attempt + 1} visible=${String(visible)} pressed=${pressed.x},${pressed.y} rect=${JSON.stringify(before.rect)} viewport=${JSON.stringify(before.viewport || null)} hit=${JSON.stringify(before.hit || null)} hitIsControl=${before.hitIsControl === true} focused=${staged?.triggerFocused === true} expanded=${staged?.triggerExpanded === true} sliders=${Number(staged?.sliderCount || 0)} menus=${Number(staged?.openMenuCount || 0)} -> ${String(staged?.state || 'unknown')}`)
   }
   if (!staged?.ok || staged.state !== 'effort-slider-ready') {
     throw new Error(`ChatGPT reasoning-effort slider is unavailable (${String(staged?.state || 'unknown')})`)
@@ -5798,6 +5781,34 @@ function releaseNotesWorkerRuntime() {
   }
 }
 
+function orchestratorExecutionWorkerRuntime() {
+  return {
+    baseURL: BACKEND_URL, homeURL: CHATGPT_URL, expectedDownloads: expectedChatGPTOrchestratorExecutions,
+    pace: paceChatGPTWorkerSubmission, rateLimitDelay: chatAgentRateLimitDelayMs,
+    conversationURL: canonicalChatGPTConversationURL, sameConversation: sameConversationURL,
+    loadURL: async (key, entry, url) => loadOwnedChatGPTURL(key, entry, url, 'orchestrator-agent-resume'),
+    waitSurfaceReady: waitForChatGPTSurfaceReady,
+    targetComposer: targetChatGPTComposer, normalizeEffort: normalizeChatGPTReasoningEffort,
+    buildRequest: async (key, current) => {
+      const metadata = { chat_id: current.chat_id, requested_at: new Date().toISOString() }
+      const input = await materializeChatInput(key, current.agent_session_id, current.request_id, [], [], current.prompt, true, [], metadata, undefined, current.chat_id)
+      return { ...input,
+        bootstrap: localChatInputBootstrap(current.request_id, input.archiveName, current.expected_filename, [], input.requestMetadata, input.multipart),
+        cleanup: () => rm(path.dirname(input.archivePath), { recursive: true, force: true }).catch(() => undefined),
+      }
+    },
+    fill: (key, entry, value) => executeChatGPTDOMScript(key, entry, 'orchestrator-agent-fill', chatGPTFillComposerScript(value)),
+    paste: (entry, filePath, index, total) => pasteChatGPTFile(entry, filePath, index, total, { pacedWorker: true }),
+    wait, settleDelay: chatInputSettleDelay, assistantCount: chatGPTAssistantTurnCount,
+    submit: (key, target) => submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort: false, rateLimitExempt: false }),
+    waitConversation: waitForSubmittedChatGPTConversation, checkpoint: checkpointChatAgentTask,
+    health: (key, entry) => executeChatGPTDOMScript(key, entry, 'orchestrator-agent-health', chatGPTHumanActionScript()),
+    noteRateLimit: noteChatGPTRateLimitGate, humanActionMessage: chatGPTHumanActionMessage,
+    completion: (key, entry, baseline) => executeChatGPTDOMScript(key, entry, 'orchestrator-agent-completion', chatGPTResponseCompletionScript(baseline)),
+    executeDOM: executeChatGPTDOMScript, expectedDownloadScript: chatGPTExpectedDownloadScript,
+  }
+}
+
 async function chatAgentLifecycleBlocked(task) {
   const listed = await chatAgentScheduler.list({ chat_id: task.chat_id })
   return (listed?.tasks || []).some((item) => item.task_id !== task.task_id && ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status) && ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(item.type))
@@ -6069,6 +6080,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
     const deadline = Date.now() + ORCHESTRATOR_PLAN_TIMEOUT_MS
     let thinkingObservedAt = 0
     let rerequests = 0
+    expected.assistantBaseline = assistantBaseline
     let downloadTriggered = false
     let lastCompletion
     // Only a 404 observed after this moment means *this* request's artifact is
@@ -6127,12 +6139,14 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         await executeChatGPTDOMScript(key, target.entry, 'orchestrator-redelivery-refill', chatGPTFillComposerScript(redelivery.bootstrap))
         assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
         await submitChatGPTDraft(key, target.entry, conversationUrl, { ...target, conversationUrl }, { requireReasoningEffort: false, rateLimitExempt: !pacedWorker })
+        expected.assistantBaseline = assistantBaseline
+        expected.lastClickAt = 0
         downloadTriggered = false
         continue
       }
-      if (!downloadTriggered && Number(completion?.assistantCount || 0) > assistantBaseline) {
-        downloadTriggered = Boolean(await executeChatGPTDOMScript(key, target.entry, 'orchestrator-download', chatGPTExpectedDownloadScript(filename, assistantBaseline)))
-      }
+      const clickMode = await pollWorkerExpectedDownload(expected,
+        (script) => executeChatGPTDOMScript(key, target.entry, 'orchestrator-download', script), chatGPTExpectedDownloadScript)
+      if (clickMode) downloadTriggered = true
     }
     // Reaching the deadline while the page is provably still producing the plan
     // is not a failed attempt — nothing went wrong and nothing was re-sent. The
@@ -6259,7 +6273,7 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
     // the download control on every poll tick fired a real duplicate download
     // per tick, and ChatGPT's own browser-side duplicate-name suffix on the
     // later ones was not recognised by this task's strict filename match.
-    let downloadTriggered = false
+    expected.assistantBaseline = assistantBaseline
     while (Date.now() < deadline) {
       const outcome = await Promise.race([
         download.then((value) => ({ done: true, value }), (error) => ({ done: true, error })),
@@ -6284,11 +6298,8 @@ async function executeChatAgentMarkdownTranslation(task, entry, key, payload) {
         setChatGPTHumanAction(key, kind, '', 'translation-worker')
         return { status: 'failed', error: chatGPTHumanActionMessage(kind) }
       }
-      const completion = await executeChatGPTDOMScript(key, target.entry, 'translation-completion', chatGPTResponseCompletionScript(assistantBaseline))
-      if (!downloadTriggered && Number(completion?.assistantCount || 0) > assistantBaseline) {
-        const clicked = await executeChatGPTDOMScript(key, target.entry, 'translation-download', chatGPTExpectedDownloadScript(filename, assistantBaseline))
-        if (clicked) downloadTriggered = true
-      }
+      await pollWorkerExpectedDownload(expected,
+        (script) => executeChatGPTDOMScript(key, target.entry, 'translation-download', script), chatGPTExpectedDownloadScript)
     }
     throw new Error(`ChatGPT did not provide ${filename} before the translation timeout`)
   } finally {
@@ -6669,6 +6680,7 @@ async function executeChatAgentTask(task, { worker, owner }) {
   }
   switch (task.type) {
     case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan(task, entry, key, payload, owner)
+    case 'ORCHESTRATOR_EXECUTE': return executeOrchestratorExecution(task, entry, key, payload, owner, orchestratorExecutionWorkerRuntime())
     case 'TODO_CLASSIFY': return executeChatAgentTodoClassification(task, entry, key, payload)
     case 'RELEASE_NOTES': return executeReleaseNotesBundleTask(task, entry, key, payload, releaseNotesWorkerRuntime())
     case 'AWAIT_RESPONSE': return probeChatAgentResponse(task, entry, key, payload, conversationURL)
@@ -8248,6 +8260,14 @@ function registerIPC() {
     return publishChatAgentRuntimeState()
   })
   ipcMain.handle('wharness:agents:snapshot', async (event, request) => { trustedSender(event); return chatAgentBrowserSnapshot(request?.agentId) })
+  ipcMain.handle('wharness:agents:monitor-open', (event, request) => {
+    trustedSender(event)
+    return openWorkerMonitor(workerEntryForAgentID(request?.agentId), BrowserWindow, publishChatAgentRuntimeState)
+  })
+  ipcMain.handle('wharness:agents:monitor-close', (event, request) => {
+    trustedSender(event)
+    return closeWorkerMonitor(workerEntryForAgentID(request?.agentId))
+  })
   ipcMain.handle('wharness:agents:open-devtools', (event, request) => {
     trustedSender(event)
     const entry = workerEntryForAgentID(request?.agentId)
@@ -8494,6 +8514,7 @@ app.whenReady().then(async () => {
     onState: (state) => {
       const worker = Number(state?.worker || 0)
       if (worker) {
+        closeWorkerMonitorAfterState(chatGPTWorkerEntries[worker - 1], state.kind)
         const prior = chatAgentWorkerStates.get(worker) || { active: true, task: undefined, lastTask: undefined, lastClaimAt: '', error: '' }
         if (state.kind === 'worker-started') chatAgentWorkerStates.set(worker, { ...prior, active: true })
         else if (state.kind === 'worker-stopped') chatAgentWorkerStates.set(worker, { ...prior, active: false, task: undefined })

@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { pollWorkerExpectedDownload } from './chat-agent-download-poll.mjs'
 
 export const RELEASE_NOTES_TIMEOUT_MS = 4 * 60 * 1000
 export const MAX_RELEASE_NOTES_REQUEST_BYTES = 1 * 1024 * 1024
@@ -45,6 +46,7 @@ export function registerReleaseNotesBundleDownload(item, sourceFilename, expecte
   if (!expected || Date.now() - expected.armedAt > RELEASE_NOTES_TIMEOUT_MS + 60_000) {
     item.cancel(); return true
   }
+  expected.downloadStarted = true
   if (Number(item.getTotalBytes?.() || 0) > MAX_RELEASE_NOTES_RESULT_BYTES) {
     item.cancel(); expected.reject(new Error('Release-notes bundle exceeds the 2 MiB result limit')); return true
   }
@@ -106,7 +108,7 @@ export async function executeReleaseNotesBundleTask(task, entry, key, payload, r
     conversationUrl = await runtime.waitConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT release-notes submission has no stable conversation id')
     const deadline = Date.now() + RELEASE_NOTES_TIMEOUT_MS
-    let downloadTriggered = false
+    expected.assistantBaseline = assistantBaseline
     while (Date.now() < deadline) {
       const outcome = await Promise.race([download.then((value) => ({ done: true, value }), (error) => ({ done: true, error })), runtime.wait(POLL_MS).then(() => ({ done: false }))])
       if (outcome.done) {
@@ -119,10 +121,8 @@ export async function executeReleaseNotesBundleTask(task, entry, key, payload, r
         const kind = String(health.kind || 'verification'); runtime.setHumanAction(key, kind)
         return { status: 'attention', providerWide: true, error: runtime.humanActionMessage(kind) }
       }
-      const completion = await runtime.executeDOM(key, target.entry, 'release-notes-completion', runtime.responseCompletionScript(assistantBaseline))
-      if (!downloadTriggered && Number(completion?.assistantCount || 0) > assistantBaseline) {
-        downloadTriggered = Boolean(await runtime.executeDOM(key, target.entry, 'release-notes-download', runtime.expectedDownloadScript(input.filename, assistantBaseline)))
-      }
+      await pollWorkerExpectedDownload(expected,
+        (script) => runtime.executeDOM(key, target.entry, 'release-notes-download', script), runtime.expectedDownloadScript)
     }
     throw new Error(`ChatGPT did not provide ${input.filename} before the release-notes timeout`)
   } finally {

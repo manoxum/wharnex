@@ -85,6 +85,9 @@ func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, tas
 		return orchestrator.Task{}, errors.New("a DOING task is controlled by its Agent run and cannot be moved manually")
 	}
 	if target == orchestrator.TaskReady {
+		if !orchestratorAutomaticExecutionAllowed(item) {
+			return orchestrator.Task{}, errors.New("READY execution requires Protected mode with Auto or Auto Approve")
+		}
 		tasks, err := s.orchestrator.ListTasks(ctx, item.ProjectPath)
 		if err != nil {
 			return orchestrator.Task{}, err
@@ -98,6 +101,7 @@ func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, tas
 			planStatus = plan.Status
 		}
 		probe := task
+		probe.Status = orchestrator.TaskReady
 		if probe.Condition == orchestrator.ConditionManualPause || probe.Condition == orchestrator.ConditionFailedRun || probe.Condition == orchestrator.ConditionStaleDependency {
 			probe.Condition = orchestrator.ConditionNone
 		}
@@ -111,6 +115,9 @@ func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, tas
 	task.Status = target
 	if target == orchestrator.TaskPending {
 		task.Condition = orchestrator.ConditionManualPause
+	}
+	if target == orchestrator.TaskWaiting {
+		return orchestrator.Task{}, errors.New("WAITING is entered only while dependencies are incomplete")
 	}
 	if target == orchestrator.TaskComplete || target == orchestrator.TaskReview || target == orchestrator.TaskArchived {
 		task.Condition = orchestrator.ConditionNone
@@ -130,6 +137,13 @@ func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, tas
 	updated, err := s.orchestrator.GetTask(ctx, task.ID)
 	if err == nil {
 		task = updated
+	}
+	if target == orchestrator.TaskReady {
+		if err := s.enqueueReadyOrchestratorTask(ctx, item, task); err != nil {
+			return orchestrator.Task{}, err
+		}
+	} else if task.Status != orchestrator.TaskDoing {
+		_, _ = s.store.CancelChatAgentLineage(task.ID)
 	}
 	s.bus.Publish(sessionID, "orchestrator.task_transitioned", map[string]any{"task_id": task.ID, "status": task.Status, "condition": task.Condition})
 	s.reconcileProjectTodosForOrchestratorPlan(ctx, item.ProjectPath, task.PlanID)

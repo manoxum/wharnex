@@ -747,7 +747,7 @@ export type ProjectProvision = {
 export type WorkspaceMode = 'editor' | 'agent' | 'orchestrator'
 
 export type OrchestratorPlanStatus = 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
-export type OrchestratorTaskStatus = 'PENDING' | 'READY' | 'DOING' | 'REVIEW' | 'COMPLETE' | 'ARCHIVED'
+export type OrchestratorTaskStatus = 'PENDING' | 'WAITING' | 'READY' | 'DOING' | 'REVIEW' | 'COMPLETE' | 'ARCHIVED'
 export type OrchestratorTaskCondition = 'none' | 'dependency' | 'plan_approval' | 'manual_pause' | 'missing_context' | 'approval' | 'conflict' | 'failed_run' | 'stale_dependency'
 export type OrchestratorPriority = 'low' | 'normal' | 'high' | 'urgent'
 

@@ -1,12 +1,11 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkerFollowViewer } from './WorkerFollowViewer'
 
-const capturedAt = '2026-09-27T15:00:00Z'
-
 function installBridge() {
   const agents = {
-    snapshot: vi.fn(async (agentId: string) => ({ agentId, dataUrl: 'data:image/png;base64,AA==', capturedAt })),
+    openMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, alreadyOpen: false })),
+    closeMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, closed: true })),
     openInteraction: vi.fn(),
     setInteractionBounds: vi.fn(),
     closeInteraction: vi.fn(),
@@ -18,39 +17,29 @@ function installBridge() {
 describe('WorkerFollowViewer', () => {
   afterEach(() => {
     delete window.wharnessDesktop
-    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
-  it('shows a running Worker without opening or resizing its native browser', async () => {
+  it('opens the same Worker in a full-size window without using the narrow interaction pane', async () => {
     const agents = installBridge()
-    const view = render(<WorkerFollowViewer agentId="worker-1" onStop={() => undefined}/> )
-    expect(await screen.findByRole('img', { name: /Navegador de worker-1/ })).toBeTruthy()
-    expect(agents.snapshot).toHaveBeenCalledWith('worker-1')
+    const stop = vi.fn()
+    render(<WorkerFollowViewer agentId="worker-1" onStop={stop}/>)
+    await waitFor(() => expect(agents.openMonitor).toHaveBeenCalledWith('worker-1'))
+    expect(await screen.findByText(/Janela do Worker aberta/)).toBeTruthy()
     expect(agents.openInteraction).not.toHaveBeenCalled()
     expect(agents.setInteractionBounds).not.toHaveBeenCalled()
-    expect(agents.closeInteraction).not.toHaveBeenCalled()
-    view.unmount()
+    fireEvent.click(screen.getByRole('button', { name: 'Parar de seguir' }))
+    await waitFor(() => expect(agents.closeMonitor).toHaveBeenCalledWith('worker-1'))
+    expect(stop).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps refreshing frames until the operator stops following', async () => {
+  it('offers to reopen a monitor window after a failed open', async () => {
     const agents = installBridge()
-    vi.useFakeTimers()
-    const view = render(<WorkerFollowViewer agentId="worker-2" onStop={() => undefined}/> )
-    await act(async () => { await Promise.resolve() })
-    expect(agents.snapshot).toHaveBeenCalledTimes(1)
-    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-    expect(agents.snapshot).toHaveBeenCalledTimes(2)
-    view.unmount()
-    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
-    expect(agents.snapshot).toHaveBeenCalledTimes(2)
-  })
-
-  it('retries a failed frame without closing the viewer', async () => {
-    const agents = installBridge()
-    agents.snapshot.mockRejectedValueOnce(new Error('frame unavailable'))
+    agents.openMonitor.mockRejectedValueOnce(new Error('window unavailable'))
     render(<WorkerFollowViewer agentId="worker-3" onStop={() => undefined}/> )
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('A tentar novamente'))
-    expect(agents.openInteraction).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Não foi possível abrir'))
+    fireEvent.click(screen.getByRole('button', { name: 'Reabrir janela' }))
+    await waitFor(() => expect(agents.openMonitor).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText(/Janela do Worker aberta/)).toBeTruthy()
   })
 })

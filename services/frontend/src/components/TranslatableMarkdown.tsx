@@ -14,6 +14,9 @@ export function TranslatableMarkdown({ sessionId, markdown, compact = false }: {
   const [translated, setTranslated] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [startedAt, setStartedAt] = useState(0)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [completedSeconds, setCompletedSeconds] = useState<number>()
 
   useEffect(() => {
     let alive = true
@@ -25,14 +28,23 @@ export function TranslatableMarkdown({ sessionId, markdown, compact = false }: {
     return () => { alive = false }
   }, [])
 
-  useEffect(() => { setTranslated(''); setError('') }, [markdown, sessionId, target])
+  useEffect(() => { setTranslated(''); setError(''); setCompletedSeconds(undefined) }, [markdown, sessionId, target])
+
+  useEffect(() => {
+    if (!loading || !startedAt) return
+    const timer = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1_000)
+    return () => window.clearInterval(timer)
+  }, [loading, startedAt])
 
   async function translate() {
     if (!target || loading) return
+    const start = Date.now()
+    setStartedAt(start); setElapsedSeconds(0); setCompletedSeconds(undefined)
     setLoading(true); setError('')
     try {
       const result = await api.translateMarkdown(sessionId, target, markdown)
       setTranslated(result.markdown)
+      setCompletedSeconds(Math.max(1, Math.ceil((Date.now() - start) / 1000)))
     } catch {
       setError('A tradução falhou. Tente novamente mais tarde.')
     } finally { setLoading(false) }
@@ -50,6 +62,8 @@ export function TranslatableMarkdown({ sessionId, markdown, compact = false }: {
         {translated && <button type="button" className="text-button" onClick={() => setTranslated('')}>Ver original</button>}
       </div>
     </div>
+    {loading && <div role="status" className="mb-2 rounded-lg border border-whx-border-soft bg-whx-elevated px-3 py-2 text-xs text-whx-soft">Tradução solicitada ao Translator · a aguardar o resultado há {elapsedSeconds}s</div>}
+    {translated && completedSeconds !== undefined && !loading && <div role="status" className="mb-2 rounded-lg border border-whx-success/40 bg-whx-success/10 px-3 py-2 text-xs font-semibold text-whx-success">Tradução concluída em {completedSeconds}s · {target ? languageLabel(target) : ''}</div>}
     {error && <div className="markdown-translation-error" role="alert">{error}</div>}
     <MarkdownContent markdown={translated || markdown} compact={compact}/>
   </div>

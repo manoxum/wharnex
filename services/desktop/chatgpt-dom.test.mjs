@@ -172,6 +172,38 @@ test('download candidate policy prefers exact filename and only accepts one newe
   ], 'wharness-bundle-req_12345678.zip'), { index: 8, mode: 'latest-assistant-unique' })
 })
 
+test('exact generated-file card chooses its download control over its wrapper', () => {
+  const filename = 'whx_bundle_res_orchestrator_orp_20260927T144117_72c4527aecd5dbb0.zip'
+  assert.deepEqual(chooseChatGPTDownloadCandidate([
+    { index: 0, metadata: filename, visible: true, nested: true },
+    { index: 1, metadata: `${filename} Transferir`, visible: true, downloadSemantic: true },
+    { index: 2, metadata: `${filename} Pré-visualizar`, visible: true },
+  ], filename), { index: 1, mode: 'exact' })
+  assert.match(chatGPTExpectedDownloadScript(filename, 2), /group\/resource-card/)
+})
+
+test('download DOM script finds a completed resource card when assistant count equals the saved baseline', () => {
+  const filename = 'whx_bundle_res_orchestrator_orp_20260927T144117_72c4527aecd5dbb0.zip'
+  let clicked = ''
+  const card = {
+    textContent: `${filename} Transferir`, offsetWidth: 120,
+    getAttribute: () => null, hasAttribute: () => false,
+    closest: () => card, contains: (node) => node === button,
+    click: () => { clicked = 'card' },
+  }
+  const button = {
+    textContent: 'Transferir', offsetWidth: 20,
+    getAttribute: () => null, hasAttribute: () => false,
+    closest: () => card, contains: () => false,
+    click: () => { clicked = 'download' },
+  }
+  const assistant = { contains: (node) => node === card || node === button }
+  const document = { querySelectorAll: (selector) => selector === '[data-message-author-role="assistant"]' ? [assistant] : selector === '[data-turn-id]' ? [] : [card, button] }
+  const result = new Function('document', `return ${chatGPTExpectedDownloadScript(filename, 1)}`)(document)
+  assert.equal(result, 'exact')
+  assert.equal(clicked, 'download')
+})
+
 
 test('processing duration parser accepts only allowlisted reasoning disclosure labels', () => {
   const prefixes = ['processou durante', 'thought for']

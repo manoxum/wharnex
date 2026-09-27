@@ -79,13 +79,15 @@ func chatAgentTaskSource(taskType string) string {
 		return "todo"
 	case "ORCHESTRATOR_PLAN":
 		return "orchestration"
+	case "ORCHESTRATOR_EXECUTE":
+		return "orchestration"
 	default:
 		return "chat"
 	}
 }
 
 var chatAgentPriorities = map[string]int{
-	"TRANSLATE_MARKDOWN": -1, "RELEASE_NOTES": -1, "ORCHESTRATOR_PLAN": -1,
+	"TRANSLATE_MARKDOWN": -1, "RELEASE_NOTES": -1, "ORCHESTRATOR_PLAN": -1, "ORCHESTRATOR_EXECUTE": -1,
 	"BOT_WRITE": 0, "RECOVERY_WRITE": 0,
 	"AWAIT_RESPONSE": 1,
 	"TITLE_DISCOVER": 2, "TITLE_GENERATE_TEMP": 2, "TITLE_AWAIT": 2,
@@ -176,7 +178,7 @@ func chatAgentTaskActive(status string) bool {
 }
 
 var chatAgentWriterTypes = []string{
-	"TRANSLATE_MARKDOWN", "RELEASE_NOTES", "TODO_CLASSIFY", "ORCHESTRATOR_PLAN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
+	"TRANSLATE_MARKDOWN", "RELEASE_NOTES", "TODO_CLASSIFY", "ORCHESTRATOR_PLAN", "ORCHESTRATOR_EXECUTE", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
 }
 
 var chatAgentAccountTypes = []string{

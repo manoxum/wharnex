@@ -18,7 +18,7 @@ Este documento descreve o contrato atualmente implementado para a automação do
 | Pool | Operações | Cadência normal |
 |---|---|---:|
 | Supervisor | `BOT_WRITE`, `RECOVERY_WRITE`, `AWAIT_RESPONSE` e observação do bundle esperado do chat vinculado | Não usa o pacer comum de Worker |
-| Worker | `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT`, `TODO_CLASSIFY`, `RELEASE_NOTES` e `ORCHESTRATOR_PLAN` | 30 s globais mínimos |
+| Worker | `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT`, `TODO_CLASSIFY`, `RELEASE_NOTES`, `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` | 30 s globais mínimos |
 | Translator efêmero | Somente `TRANSLATE_MARKDOWN`; cria uma instância por tarefa e destrói ao terminar | 5 s globais mínimos |
 
 `DELETE_DOUBLE` não é um tipo durável atual. A remoção de artefato duplicado/expirado é representada por `DELETE_BUNDLE`; duplicidade de tarefas é controlada por `dedupe_key`.
@@ -119,7 +119,8 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
 - Scripts de conta localizam controles e retornam o alvo. O clique final precisa ser input nativo confiável.
 - O popover de esforço pode apresentar um slider utilizável sem `aria-expanded="true"`. Um único slider definido em `effortSlider` e limitado ao composer é a evidência de menu aberto.
 - Worker oculto não pode depender de `webContents.sendInputEvent` sem viewport/hit-testing válidos. Use a operação estreita `pressChatGPTControl`; não substitua por click DOM.
-- **Interagir aqui** mostra a mesma instância num painel de 340 px de altura e muda o viewport do ChatGPT para o layout compacto. Enquanto uma tarefa corre, essa mudança interferiria com os controles que o scraper está a localizar; a abertura é recusada. **Acompanhar instância** e **Seguir (flow)** mostram imagens atualizadas da instância oculta sem alterar o viewport, navegar, focar ou fazer claims; **Capturar imagem** também continua disponível. A captura de um Worker oculto usa o renderer diretamente, com prazo de 5 s, pois esperar pelo compositor de uma vista não apresentada pode deixar o painel em “A obter imagem” indefinidamente. Um Worker já em interação não faz novos claims até a interação terminar.
+- **Interagir aqui** mostra a mesma instância num painel de 340 px de altura e muda o viewport do ChatGPT para o layout compacto. Enquanto uma tarefa corre, essa mudança interferiria com os controles que o scraper está a localizar; a abertura é recusada. **Acompanhar instância** e **Seguir (flow)** abrem a própria vista do Worker numa janela local fixa de 1280 × 900, sem navegar, focar explicitamente o conteúdo remoto ou fazer claims; fechar a janela devolve a instância ao estado oculto. A captura de imagem de uma vista oculta tem prazo de 5 s e pode falhar quando Chromium não produz frames; não é usada para acompanhar em tempo real. Um Worker já em interação não faz novos claims até a interação terminar.
+- O acompanhamento fecha a janela quando a tarefa seguida termina. Um ZIP exato já visível após retoma deve ser procurado mesmo que a contagem de turnos do assistente não avance; o Worker tenta novamente o controle de transferência após 20 s se nenhum download arrancar, e para de clicar assim que Chromium sinaliza o início.
 - Todo gerador de script de conta deve entrar em `ALL_SCRIPTS` e passar por compilação com `new Function`. Regex dentro de template strings precisam preservar dupla fuga (`\\/`).
 - O composer atual pode expor três `input[type=file]`: vídeo/imagem,
   imagem e ficheiro geral sem `accept`. O upload de ZIP deve preferir o ID ou
@@ -321,7 +322,7 @@ Para cada tipo alterado ou habilitado, crie cinco tarefas novas, isoladas e rast
 - `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP` e `TITLE_AWAIT` quando aplicáveis;
 - `TODO_CLASSIFY`;
 - `TRANSLATE_MARKDOWN`.
-- `RELEASE_NOTES` e `ORCHESTRATOR_PLAN` quando alterados.
+- `RELEASE_NOTES`, `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` quando alterados.
 
 Critérios:
 

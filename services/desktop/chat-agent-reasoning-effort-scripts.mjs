@@ -40,6 +40,9 @@ export function reasoningEffortAdjustScript(behavior) {
       return {
         ok: true, state: 'effort-menu-closed', rect: target, viewport: viewport(),
         triggerFocused: document.activeElement === button[0],
+        triggerExpanded: button[0].getAttribute('aria-expanded') === 'true',
+        sliderCount: document.querySelectorAll('[role="slider"]').length,
+        openMenuCount: document.querySelectorAll('[role="menu"][data-state="open"], [role="dialog"][data-state="open"]').length,
         hit: shape(hit), hitIsControl: Boolean(hit && (hit === button[0] || button[0].contains(hit) || hit.contains(button[0]))),
       };
     }

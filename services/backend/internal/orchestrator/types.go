@@ -17,6 +17,7 @@ type TaskStatus string
 
 const (
 	TaskPending  TaskStatus = "PENDING"
+	TaskWaiting  TaskStatus = "WAITING"
 	TaskReady    TaskStatus = "READY"
 	TaskDoing    TaskStatus = "DOING"
 	TaskReview   TaskStatus = "REVIEW"

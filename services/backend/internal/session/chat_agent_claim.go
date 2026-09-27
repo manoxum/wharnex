@@ -376,6 +376,10 @@ func chatAgentBlockedByActiveTask(candidate ChatAgentTask, tasks map[string]Chat
 		if chatAgentTaskAccount(candidate.Type) && chatAgentTaskAccount(running.Type) {
 			return true
 		}
+		if candidate.Type == "ORCHESTRATOR_EXECUTE" && running.Type == "ORCHESTRATOR_EXECUTE" &&
+			candidate.ProjectID != "" && candidate.ProjectID == running.ProjectID {
+			return true
+		}
 		if candidate.ConversationID != "" && candidate.ConversationID == running.ConversationID &&
 			(chatAgentTaskWriter(candidate.Type) || chatAgentTaskWriter(running.Type)) {
 			return true

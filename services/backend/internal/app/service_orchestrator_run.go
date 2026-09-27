@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -53,6 +54,10 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 		return OrchestratorRunResult{}, err
 	}
 	agentSession, err := s.StartSessionWithModes(ctx, task.ProjectPath, owner.ExecutionMode, owner.AutomationMode, owner.EffortLevel)
+	if err != nil {
+		return s.failOrchestratorRun(ctx, task, run, err)
+	}
+	agentSession, err = s.SetChatID(agentSession.ID, strings.ReplaceAll(task.ID, "_", "-"))
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}

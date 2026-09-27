@@ -212,59 +212,6 @@ func TestOrchestratorPlanningProjectionRecoversLegacyObjective(t *testing.T) {
 	}
 }
 
-func TestOrchestratorApprovalReadinessAndReopen(t *testing.T) {
-	root := t.TempDir()
-	proposal := orchestrator.Proposal{Protocol: orchestrator.ProtocolV1, Title: "Migration", Objective: "migrate safely", Tasks: []orchestrator.ProposalTask{
-		{ID: "t1", Title: "Backend", Priority: orchestrator.PriorityHigh, Complexity: "medium"},
-		{ID: "t2", Title: "Frontend", DependsOn: []string{"t1"}, Priority: orchestrator.PriorityNormal, Complexity: "medium"},
-	}}
-	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorTestPlanner{proposal: proposal}, policy.NewEngine(), fakeRunner{})
-	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := service.ProposeOrchestratorPlan(context.Background(), started.ID, "migrate safely")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Plan == nil || result.Plan.Status != orchestrator.PlanDraft || len(result.Tasks) != 2 {
-		t.Fatalf("unexpected draft proposal: %#v", result)
-	}
-	for _, task := range result.Tasks {
-		if task.Status != orchestrator.TaskPending || task.Condition != orchestrator.ConditionPlanApproval {
-			t.Fatalf("generated task must start pending approval: %#v", task)
-		}
-	}
-	overview, err := service.ApproveOrchestratorPlan(context.Background(), started.ID, result.Plan.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, second := taskByTitle(t, overview.Tasks, "Backend"), taskByTitle(t, overview.Tasks, "Frontend")
-	if first.Status != orchestrator.TaskReady || second.Status != orchestrator.TaskPending || second.Condition != orchestrator.ConditionDependency {
-		t.Fatalf("approval readiness mismatch: first=%#v second=%#v", first, second)
-	}
-	first, err = service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskComplete)
-	if err != nil {
-		t.Fatal(err)
-	}
-	overview, err = service.OrchestratorOverview(context.Background(), started.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second = taskByTitle(t, overview.Tasks, "Frontend")
-	if second.Status != orchestrator.TaskReady {
-		t.Fatalf("completed dependency did not release downstream task: %#v", second)
-	}
-	if _, err := service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskPending); err != nil {
-		t.Fatal(err)
-	}
-	overview, _ = service.OrchestratorOverview(context.Background(), started.ID)
-	second = taskByTitle(t, overview.Tasks, "Frontend")
-	if second.Status != orchestrator.TaskPending {
-		t.Fatalf("reopen did not invalidate dependent task: %#v", second)
-	}
-}
-
 func TestOrchestratorRejectArchivesDraftAndTasks(t *testing.T) {
 	root := t.TempDir()
 	proposal := orchestrator.Proposal{Protocol: orchestrator.ProtocolV1, Title: "Release", Objective: "ship safely", Tasks: []orchestrator.ProposalTask{

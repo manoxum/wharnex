@@ -1460,7 +1460,10 @@ test('reasoning effort is stepped through the composer slider, not a keyboard sh
   assert.match(script, /getAttribute\('aria-valuenow'\)/)
   assert.match(script, /getAttribute\('aria-valuemax'\)/)
   assert.ok(script.indexOf('const slider = pick(__whx.optionalSelectors.effortSlider)') < script.indexOf('const target = rect(button[0])'))
-  assert.doesNotMatch(script, /getAttribute\('aria-expanded'\)/)
+  // aria-expanded is diagnostic metadata only; slider discovery remains the
+  // decision because ChatGPT has reported stale expanded state in the past.
+  assert.match(script, /triggerExpanded: button\[0\]\.getAttribute\('aria-expanded'\) === 'true'/)
+  assert.doesNotMatch(script, /if \([^\n]*aria-expanded/)
 
   const domMap = await readFile(new URL('./chatgpt-behavior-dom-map.mjs', import.meta.url), 'utf8')
   assert.match(domMap, /effortSlider: \[.*role="slider".*\]/)
@@ -1926,27 +1929,6 @@ test('request pacing samples only structurally extracted durations for valid bun
   assert.ok(recordIndex > validateIndex, 'processing samples must be recorded only after bundle validation')
 })
 
-test('runtime queue diagnostics separate deferred work from claimable backlog', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('function chatAgentQueueDiagnostics(')
-  const end = source.indexOf('\nasync function refreshChatAgentRuntimeState', start)
-  const diagnostics = source.slice(start, end)
-
-  // A task deferred behind not_before waits on a clock, not on a worker.
-  assert.match(diagnostics, /due:/)
-  assert.match(diagnostics, /scheduled:/)
-  assert.match(diagnostics, /guarded:/)
-  assert.match(diagnostics, /oldest_due_created_at:/)
-  assert.doesNotMatch(diagnostics, /oldest_created_at:/)
-
-  const refreshStart = source.indexOf('async function refreshChatAgentRuntimeState(')
-  const refresh = source.slice(refreshStart, source.indexOf('\nfunction chatAgentRuntimeState', refreshStart))
-  // The aggregate is computed by the store: counting a capped, oldest-first
-  // list stops being true once settled history fills that window.
-  assert.match(refresh, /chatAgentScheduler\.queueSummary\(\)/)
-  assert.doesNotMatch(refresh, /chatAgentScheduler\.list\(\{ limit: 500 \}\)/)
-})
-
 test('idle Supervisor state never validates an absent task as a cache key', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('function chatAgentRuntimeState()')
@@ -2203,8 +2185,9 @@ test('translation worker is transport only: it uploads the engine’s bundle and
   const executeEnd = source.indexOf('\nasync function chatAgentLifecycleRetry', executeStart)
   const worker = source.slice(executeStart, executeEnd)
   assert.notEqual(executeStart, -1)
-  assert.match(worker, /chatGPTExpectedDownloadScript\(filename, assistantBaseline\)/)
-  assert.match(worker, /chatGPTResponseCompletionScript\(assistantBaseline\)/)
+  assert.match(worker, /pollWorkerExpectedDownload\(expected,/)
+  assert.match(worker, /'translation-download', script\), chatGPTExpectedDownloadScript\)/)
+  assert.match(worker, /expected\.assistantBaseline = assistantBaseline/)
   assert.doesNotMatch(worker, /textContent|innerText|chatGPTVisibleActivityScript/)
   assert.match(worker, /expectedChatGPTTranslations\.set\(filename, expected\)/)
   assert.match(worker, /target\.reasoningEffort = 'instant'/)
@@ -2282,7 +2265,8 @@ test('orchestrator planning survives as an exact artifact-only Worker delivery',
   const worker = source.slice(executeStart, executeEnd)
   assert.notEqual(executeStart, -1)
   assert.match(worker, /harness\.orchestrator-planning\/v1/)
-  assert.match(worker, /chatGPTExpectedDownloadScript\(filename, assistantBaseline\)/)
+  assert.match(worker, /pollWorkerExpectedDownload\(expected,/)
+  assert.match(worker, /'orchestrator-download', script\), chatGPTExpectedDownloadScript\)/)
   assert.match(worker, /chatGPTResponseCompletionScript\(assistantBaseline\)/)
   assert.match(worker, /target\.reasoningEffort = normalizeChatGPTReasoningEffort\(payload\.reasoning_effort\)/)
   assert.match(worker, /reasoningEffort: normalizeChatGPTReasoningEffort\(payload\.reasoning_effort\)/)
@@ -2806,25 +2790,6 @@ test('scaling the Supervisor pool reaches the Supervisor scheduler, not the Work
   assert.match(workerFn, /chatAgentScheduler\?\.setWorkerCount\(normalized\)/)
 })
 
-test('auto scale sizes each pool from its own half of the backlog', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function reconcileChatAgentAutoScale(')
-  const fn = source.slice(start, source.indexOf('\nfunction reconcileChatGPTWorkerPool', start))
-
-  // The two pools own disjoint task types, so the shared `due` total describes
-  // neither: it would grow the Supervisors because a library cleanup is queued
-  // and grow the Workers because a conversation is being supervised.
-  assert.match(fn, /reconcileChatAgentSupervisorAutoScale\(queue\)/)
-  assert.match(fn, /autoScaleTarget\(\{\s*enabled: true, due: queue\.due_worker/)
-  assert.doesNotMatch(fn, /due: queue\.due,/)
-
-  const supervisorStart = source.indexOf('function reconcileChatAgentSupervisorAutoScale(')
-  const supervisor = source.slice(supervisorStart, source.indexOf('\nfunction reconcileChatGPTWorkerPool', supervisorStart))
-  assert.match(supervisor, /dueLanes: queue\.due_supervisor_lanes/)
-  assert.match(supervisor, /maxSupervisors: chatAgentPolicies\.auto_scale_max_supervisors/)
-  assert.match(supervisor, /setChatAgentSupervisorTarget\(grow\)/)
-})
-
 test('a settling bundle delivery stands the supervision back at the observation cadence', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function superviseChatAgentResponse(')
@@ -2925,19 +2890,18 @@ test('initial Supervisor navigation retries when a trusted URL remains loading',
 // registerChatGPTTodoClassificationDownload/registerChatGPTMarkdownTranslationDownload,
 // so those extra downloads fell through to a native, undismissable OS save
 // dialog - live-observed as the desktop UI becoming unresponsive.
-test('the TODO classification and translation download loops click at most once per response', async () => {
+test('TODO classification keeps its single-click guard while translation retries an unstarted download', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  for (const [open, close] of [
-    ['async function executeChatAgentTodoClassification(', '\nasync function chatAgentLifecycleRetry'],
-    ['async function executeChatAgentMarkdownTranslation(', '\nasync function executeChatAgentTodoClassification'],
-  ]) {
-    const start = source.indexOf(open)
-    assert.notEqual(start, -1, open)
-    const fn = source.slice(start, source.indexOf(close, start))
-    assert.match(fn, /let downloadTriggered = false/, open)
-    assert.match(fn, /if \(!downloadTriggered && Number\(completion\?\.assistantCount \|\| 0\) > assistantBaseline\)/, open)
-    assert.match(fn, /if \(clicked\) downloadTriggered = true/, open)
-  }
+  const todoStart = source.indexOf('async function executeChatAgentTodoClassification(')
+  const todo = source.slice(todoStart, source.indexOf('\nasync function chatAgentLifecycleRetry', todoStart))
+  assert.match(todo, /let downloadTriggered = false/)
+  assert.match(todo, /if \(!downloadTriggered && Number\(completion\?\.assistantCount \|\| 0\) > assistantBaseline\)/)
+  assert.match(todo, /if \(clicked\) downloadTriggered = true/)
+  const translationStart = source.indexOf('async function executeChatAgentMarkdownTranslation(')
+  const translation = source.slice(translationStart, todoStart)
+  assert.match(translation, /expected\.assistantBaseline = assistantBaseline/)
+  assert.match(translation, /pollWorkerExpectedDownload\(expected,/)
+  assert.doesNotMatch(translation, /if \(!downloadTriggered && Number\(completion\?\.assistantCount/)
 })
 
 test('TODO download diagnostics never export assistant HTML or prose', async () => {

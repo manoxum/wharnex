@@ -4,7 +4,7 @@ import type { OrchestratorOverview, OrchestratorPriority, OrchestratorTask, Orch
 import { Icon } from '../Icon'
 import { Status } from './OrchestratorOverview'
 
-const statuses: OrchestratorTaskStatus[] = ['PENDING', 'READY', 'DOING', 'REVIEW', 'COMPLETE', 'ARCHIVED']
+const statuses: OrchestratorTaskStatus[] = ['PENDING', 'WAITING', 'READY', 'DOING', 'REVIEW', 'COMPLETE', 'ARCHIVED']
 type View = 'kanban' | 'table' | 'list' | 'graph'
 
 export function OrchestratorTasks({ session, overview, selectedTask, busy, onSelectedTask, onRun }: {
@@ -22,9 +22,8 @@ export function OrchestratorTasks({ session, overview, selectedTask, busy, onSel
   const tasks = useMemo(() => overview.tasks.filter((task) => !search.trim() || `${task.title} ${task.description || ''}`.toLowerCase().includes(search.trim().toLowerCase())), [overview.tasks, search])
 
   async function move(task: OrchestratorTask, target: OrchestratorTaskStatus) {
-    if (task.status === target || task.status === 'DOING') return
-    if (target === 'DOING') await onRun(() => api.startOrchestratorTask(session.id, task.id), (result) => onSelectedTask(result.task))
-    else await onRun(() => api.transitionOrchestratorTask(session.id, task.id, target), onSelectedTask)
+    if (task.status === target || task.status === 'DOING' || target === 'WAITING' || target === 'DOING') return
+    await onRun(() => api.transitionOrchestratorTask(session.id, task.id, target), onSelectedTask)
   }
 
   return <div className="orchestrator-tasks-page">
@@ -125,10 +124,10 @@ function TaskDrawer({ session, task, busy, onClose, onMove }: { session: Session
       <section><strong>Execuções</strong>{runs.length ? runs.map((run) => <div className="orchestrator-run" key={run.id}><span>{run.attempt}</span><div><strong>{run.status}</strong><small>{formatDate(run.started_at)}{run.error ? ` · ${run.error}` : ''}</small></div></div>) : <p>Nenhuma execução registrada.</p>}</section>
     </div>
     <footer className="orchestrator-task-actions">
-      {task.status === 'READY' && <button className="primary" disabled={busy} onClick={() => void onMove(task, 'DOING')}><Icon name="play" size={14}/> Iniciar no Agent</button>}
+      {task.status === 'READY' && <span role="status">A aguardar um Worker livre</span>}
       {task.status === 'REVIEW' && <button className="primary" disabled={busy} onClick={() => void onMove(task, 'COMPLETE')}><Icon name="check" size={14}/> Concluir</button>}
-      {task.status === 'PENDING' && <button disabled={busy} onClick={() => void onMove(task, 'READY')}>Tentar preparar</button>}
-      {task.status === 'READY' && <button disabled={busy} onClick={() => void onMove(task, 'PENDING')}>Pausar</button>}
+      {task.status === 'PENDING' && <button disabled={busy} onClick={() => void onMove(task, 'READY')}>Enviar para READY</button>}
+      {task.status === 'READY' && <button disabled={busy} onClick={() => void onMove(task, 'PENDING')}>Voltar a pendente</button>}
       {(task.status === 'COMPLETE' || task.status === 'ARCHIVED') && <button disabled={busy} onClick={() => void onMove(task, 'PENDING')}>Reabrir</button>}
       {task.status !== 'DOING' && task.status !== 'ARCHIVED' && <button disabled={busy} onClick={() => void onMove(task, 'ARCHIVED')}>Arquivar</button>}
     </footer>

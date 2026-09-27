@@ -222,6 +222,8 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks", a.orchestratorCreateTask)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/transition", a.orchestratorTransitionTask)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/start", a.orchestratorStartTask)
+	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/worker-start", a.orchestratorWorkerStart)
+	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/tasks/{task_id}/worker-bundle", a.orchestratorWorkerBundle)
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/tasks/{task_id}/runs", a.orchestratorTaskRuns)
 	mux.HandleFunc("GET /api/sessions/{id}/docker", a.dockerOverview)
 	mux.HandleFunc("GET /api/sessions/{id}/docker/containers/{container_id}/logs", a.dockerContainerLogs)
