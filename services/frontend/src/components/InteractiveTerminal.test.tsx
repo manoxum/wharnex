@@ -35,7 +35,7 @@ vi.mock('@xterm/xterm', () => ({
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class FitAddon { fit() {} } }))
 
 vi.mock('../lib/api', () => ({
-  APIError: class APIError extends Error {},
+  APIError: class APIError extends Error { constructor(message: string, public status: number) { super(message) } },
   api: {
     openTerminal: vi.fn(), terminalInput: vi.fn(), resizeTerminal: vi.fn(), closeTerminal: vi.fn(),
     terminalEventsURL: vi.fn(() => 'http://terminal/events'), resetTerminal: vi.fn(),
@@ -161,6 +161,21 @@ describe('InteractiveTerminal PTY', () => {
     await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(2), { timeout: 1500 })
     expect(api.openTerminal).toHaveBeenLastCalledWith('ses-terminal', expect.objectContaining({ terminal_id: 'pty_host_restart' }), 'host', true)
     await waitFor(() => expect(eventSources).toHaveLength(2))
+  })
+
+  it('reconnects after a temporary bridge disconnect', async () => {
+    render(<InteractiveTerminal session={session} height={245} onError={() => undefined} />)
+    await waitFor(() => expect(eventSources).toHaveLength(1))
+    eventSources[0].onmessage?.({ data: JSON.stringify({ type: 'exit', code: -1, message: 'host PTY bridge disconnected: EOF' }) } as MessageEvent)
+    await waitFor(() => expect(api.openTerminal).toHaveBeenCalledTimes(2), { timeout: 1500 })
+  })
+
+  it('stops reconnecting an expired PTY and clears persisted projects', async () => {
+    vi.mocked(api.openTerminal).mockRejectedValueOnce(new (await import('../lib/api')).APIError('expired', 410))
+    localStorage.setItem('whx.terminal.workspace.v1:/tmp/other', '{}')
+    render(<InteractiveTerminal session={session} height={245} terminalID="pty_old" onError={() => undefined} />)
+    await waitFor(() => expect(localStorage.getItem('whx.terminal.workspace.v1:/tmp/other')).toBeNull())
+    expect(api.openTerminal).toHaveBeenCalledTimes(1)
   })
 
   it('copies selections and pastes clipboard text through desktop shortcuts', async () => {

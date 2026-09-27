@@ -44,6 +44,10 @@ func (state *terminalSessionState) publish(frame TerminalFrame) {
 		select {
 		case subscriber <- frame:
 		default:
+			// A silent drop leaves the terminal apparently frozen or with missing
+			// output. End this stream so the client can reconnect and replay.
+			delete(state.subscribers, subscriber)
+			close(subscriber)
 		}
 	}
 	state.mu.Unlock()

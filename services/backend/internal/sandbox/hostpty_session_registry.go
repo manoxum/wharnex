@@ -7,9 +7,17 @@ import (
 
 const maxHostPTYReplayBytes = 256 * 1024
 
+var ErrTerminalExpired = errors.New("terminal session expired")
+
+type TerminalExpiredError struct{ Generation string }
+
+func (e *TerminalExpiredError) Error() string        { return ErrTerminalExpired.Error() }
+func (e *TerminalExpiredError) Is(target error) bool { return target == ErrTerminalExpired }
+
 type hostPTYRegistry struct {
-	mu       sync.Mutex
-	sessions map[string]*hostPTYSession
+	mu         sync.Mutex
+	sessions   map[string]*hostPTYSession
+	generation string
 }
 
 type hostPTYSubscriber struct {
@@ -19,6 +27,7 @@ type hostPTYSubscriber struct {
 type hostPTYSession struct {
 	mu          sync.Mutex
 	id          string
+	generation  string
 	root        string
 	terminal    InteractiveTerminal
 	subscriber  *hostPTYSubscriber
@@ -46,6 +55,9 @@ func (r *hostPTYRegistry) open(start hostPTYFrame) (*hostPTYSession, error) {
 			return existing, nil
 		}
 	}
+	if start.Reconnect {
+		return nil, &TerminalExpiredError{Generation: r.generation}
+	}
 	workspace := Workspace{Path: start.Root, SourcePath: start.Root}
 	options := TerminalOptions{ID: start.ID, Cwd: start.Cwd, Cols: start.Cols, Rows: start.Rows}
 	cmd, err := localTerminalCommand(workspace, options)
@@ -58,7 +70,7 @@ func (r *hostPTYRegistry) open(start hostPTYFrame) (*hostPTYSession, error) {
 	if options.Rows == 0 {
 		options.Rows = 24
 	}
-	session := &hostPTYSession{id: start.ID, root: start.Root}
+	session := &hostPTYSession{id: start.ID, root: start.Root, generation: r.generation}
 	started := make(chan struct{})
 	terminal, err := startProcessTerminal(cmd, options, nil, func(data []byte) {
 		<-started
@@ -86,7 +98,7 @@ func (r *hostPTYRegistry) open(start hostPTYFrame) (*hostPTYSession, error) {
 func (s *hostPTYSession) attach(send func(hostPTYFrame) error) (*hostPTYSubscriber, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := send(hostPTYFrame{Type: "started", ID: s.id}); err != nil {
+	if err := send(hostPTYFrame{Type: "started", ID: s.id, Generation: s.generation}); err != nil {
 		return nil, err
 	}
 	for _, frame := range s.backlog {

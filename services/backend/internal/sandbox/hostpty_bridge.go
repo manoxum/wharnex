@@ -11,36 +11,42 @@ import (
 )
 
 const maxHostPTYInputBytes = 64 * 1024
+const hostPTYWriteTimeout = 2 * time.Second
+
+var ErrTerminalDaemonUnavailable = errors.New("connect host PTY bridge: terminal daemon unavailable")
 
 type hostPTYFrame struct {
-	Type    string `json:"type"`
-	ID      string `json:"id,omitempty"`
-	Root    string `json:"root,omitempty"`
-	Cwd     string `json:"cwd,omitempty"`
-	Cols    uint16 `json:"cols,omitempty"`
-	Rows    uint16 `json:"rows,omitempty"`
-	Data    []byte `json:"data,omitempty"`
-	Code    int    `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
+	Type       string `json:"type"`
+	Reconnect  bool   `json:"reconnect,omitempty"`
+	Generation string `json:"generation,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Root       string `json:"root,omitempty"`
+	Cwd        string `json:"cwd,omitempty"`
+	Cols       uint16 `json:"cols,omitempty"`
+	Rows       uint16 `json:"rows,omitempty"`
+	Data       []byte `json:"data,omitempty"`
+	Code       int    `json:"code,omitempty"`
+	Message    string `json:"message,omitempty"`
 }
 
 type bridgedHostTerminal struct {
-	conn     net.Conn
-	encoder  *json.Encoder
-	writeMu  sync.Mutex
-	stateMu  sync.Mutex
-	closed   bool
-	exitOnce sync.Once
-	onExit   func(int, error)
+	conn       net.Conn
+	encoder    *json.Encoder
+	writeMu    sync.Mutex
+	stateMu    sync.Mutex
+	closed     bool
+	exitOnce   sync.Once
+	onExit     func(int, error)
+	generation string
 }
 
 func startBridgedHostTerminal(socketPath string, workspace Workspace, options TerminalOptions, onOutput func([]byte), onExit func(int, error)) (InteractiveTerminal, error) {
 	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("connect host PTY bridge %s: %w", socketPath, err)
+		return nil, fmt.Errorf("%w: %v", ErrTerminalDaemonUnavailable, err)
 	}
 	terminal := &bridgedHostTerminal{conn: conn, encoder: json.NewEncoder(conn), onExit: onExit}
-	start := hostPTYFrame{Type: "start", ID: options.ID, Root: workspace.Path, Cwd: options.Cwd, Cols: options.Cols, Rows: options.Rows}
+	start := hostPTYFrame{Type: "start", ID: options.ID, Reconnect: options.Reconnect, Root: workspace.Path, Cwd: options.Cwd, Cols: options.Cols, Rows: options.Rows}
 	if err := terminal.send(start); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("start host PTY bridge: %w", err)
@@ -58,20 +64,29 @@ func startBridgedHostTerminal(socketPath string, workspace Workspace, options Te
 		if first.Message == "" {
 			first.Message = "host PTY bridge rejected the session"
 		}
+		if first.Message == ErrTerminalExpired.Error() {
+			return nil, &TerminalExpiredError{Generation: first.Generation}
+		}
 		return nil, errors.New(first.Message)
 	}
 	if first.Type != "started" {
 		_ = conn.Close()
 		return nil, fmt.Errorf("host PTY bridge returned unexpected handshake frame %q", first.Type)
 	}
+	terminal.generation = first.Generation
 	go terminal.readFrames(decoder, onOutput)
 	return terminal, nil
 }
 
+func (t *bridgedHostTerminal) TerminalGeneration() string { return t.generation }
+
 func (t *bridgedHostTerminal) send(frame hostPTYFrame) error {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	return t.encoder.Encode(frame)
+	_ = t.conn.SetWriteDeadline(time.Now().Add(hostPTYWriteTimeout))
+	err := t.encoder.Encode(frame)
+	_ = t.conn.SetWriteDeadline(time.Time{})
+	return err
 }
 
 func (t *bridgedHostTerminal) Write(data []byte) error {
@@ -84,7 +99,11 @@ func (t *bridgedHostTerminal) Write(data []byte) error {
 	if t.isClosed() {
 		return errors.New("host PTY is closed")
 	}
-	return t.send(hostPTYFrame{Type: "input", Data: data})
+	if err := t.send(hostPTYFrame{Type: "input", Data: data}); err != nil {
+		t.finish(-1, fmt.Errorf("host PTY input transport: %w", err))
+		return err
+	}
+	return nil
 }
 
 func (t *bridgedHostTerminal) Resize(cols, rows uint16) error {
@@ -94,7 +113,11 @@ func (t *bridgedHostTerminal) Resize(cols, rows uint16) error {
 	if t.isClosed() {
 		return errors.New("host PTY is closed")
 	}
-	return t.send(hostPTYFrame{Type: "resize", Cols: cols, Rows: rows})
+	if err := t.send(hostPTYFrame{Type: "resize", Cols: cols, Rows: rows}); err != nil {
+		t.finish(-1, fmt.Errorf("host PTY resize transport: %w", err))
+		return err
+	}
+	return nil
 }
 
 func (t *bridgedHostTerminal) Close() error {

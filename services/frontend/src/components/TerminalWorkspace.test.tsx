@@ -2,9 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '../types'
 import { TerminalWorkspace } from './TerminalWorkspace'
+import { loadTerminalWorkspace, saveTerminalWorkspace } from './terminalWorkspaceState'
 
 vi.mock('./InteractiveTerminal', () => ({
-  InteractiveTerminal: ({ visible, reconnectNonce, session: terminalSession, runRequest }: { visible?: boolean; reconnectNonce?: number; session: Session; runRequest?: { command: string } }) => <div data-testid="terminal-instance" data-visible={visible ? 'yes' : 'no'} data-reconnect={reconnectNonce} data-session={terminalSession.id} data-command={runRequest?.command} />,
+  InteractiveTerminal: ({ visible, reconnectNonce, session: terminalSession, runRequest, onTerminalIDChange }: { visible?: boolean; reconnectNonce?: number; session: Session; runRequest?: { command: string }; onTerminalIDChange?: (id: string) => void }) => <div data-testid="terminal-instance" data-visible={visible ? 'yes' : 'no'} data-reconnect={reconnectNonce} data-session={terminalSession.id} data-command={runRequest?.command}><button onClick={() => onTerminalIDChange?.('')}>Expire</button></div>,
 }))
 
 const session = { id: 'ses_multi', project_path: '/tmp/project' } as Session
@@ -26,6 +27,14 @@ describe('TerminalWorkspace', () => {
 
     rerender(<TerminalWorkspace session={session} height={300} visible={false} onHeight={() => undefined} onError={() => undefined} />)
     expect(screen.getAllByTestId('terminal-instance')).toHaveLength(2)
+  })
+
+  it('clears a single expired shell and starts a fresh tab without its old history', () => {
+    saveTerminalWorkspace(session.project_path, { activeID: 1, nextID: 2, tabs: [{ id: 1, label: 'Terminal 1', terminalID: 'pty_old', cwd: '.', history: 'old shell', viewportY: 2 }] })
+    render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
+    fireEvent.click(screen.getByText('Expire'))
+    expect(screen.getByTestId('terminal-instance').getAttribute('data-reconnect')).toBe('1')
+    expect(loadTerminalWorkspace(session.project_path).tabs[0]).toMatchObject({ terminalID: '', history: '', viewportY: 0 })
   })
 
   it('closes only the requested tab and always leaves a terminal available', () => {

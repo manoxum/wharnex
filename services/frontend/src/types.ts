@@ -267,7 +267,7 @@ export type ReasoningEffort = 'instant' | 'medium' | 'high'
  *  upload. Independent of AutomationMode; Auto + Manual is valid. */
 export type ChatTransportMode = 'scraper' | 'manual'
 export type TerminalTarget = 'sandbox' | 'host'
-export type TerminalSessionDescriptor = { terminal_id: string; target: TerminalTarget }
+export type TerminalSessionDescriptor = { terminal_id: string; target: TerminalTarget; generation?: string }
 export type TerminalFrame = { type: 'ready' | 'output' | 'exit' | 'error'; data?: string; code?: number; message?: string }
 export type TerminalRunInput = { command: string; cwd: string; label?: string }
 export type TerminalRunRequest = TerminalRunInput & { id: number; target?: TerminalTarget; openNew?: boolean }

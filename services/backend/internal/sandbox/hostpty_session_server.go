@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +21,7 @@ func ServeHostPTYBridge(ctx context.Context, socketPath string) error {
 	if err != nil {
 		return err
 	}
-	registry := &hostPTYRegistry{sessions: make(map[string]*hostPTYSession)}
+	registry := &hostPTYRegistry{sessions: make(map[string]*hostPTYSession), generation: rand.Text()}
 	defer func() {
 		_ = listener.Close()
 		_ = os.Remove(socketPath)
@@ -96,7 +97,12 @@ func (r *hostPTYRegistry) handleConnection(conn net.Conn) {
 	}
 	session, err := r.open(start)
 	if err != nil {
-		_ = send(hostPTYFrame{Type: "error", Message: err.Error()})
+		frame := hostPTYFrame{Type: "error", Message: err.Error()}
+		var expired *TerminalExpiredError
+		if errors.As(err, &expired) {
+			frame.Generation = expired.Generation
+		}
+		_ = send(frame)
 		return
 	}
 	subscriber, err := session.attach(send)

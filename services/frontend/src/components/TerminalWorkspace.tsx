@@ -3,8 +3,9 @@ import type { Session, TerminalRunRequest } from '../types'
 import { workspaceDragEndedOutside } from '../lib/workspaceSurface'
 import { InteractiveTerminal, type ConnectionStatus } from './InteractiveTerminal'
 import { api } from '../lib/api'
-import { loadTerminalWorkspace, saveTerminalWorkspace, terminalTabsFromMemory, type PersistedTerminalTab } from './terminalWorkspaceState'
+import { freshTerminalTab, loadTerminalWorkspace, saveTerminalWorkspace, terminalTabsFromMemory, TERMINALS_EXPIRED_EVENT, type PersistedTerminalTab } from './terminalWorkspaceState'
 import { Icon } from './Icon'
+import { inDirectory, statusLabel } from './terminalWorkspaceHelpers'
 
 type TerminalTab = PersistedTerminalTab & { session: Session; reconnectNonce: number; status: ConnectionStatus }
 
@@ -29,6 +30,15 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
   const runTargetRef = useRef<{ requestID: number; tabID: number } | undefined>(undefined)
   const projectPathRef = useRef(session.project_path)
   const sessionIDRef = useRef(session.id)
+  useEffect(() => {
+    const expire = () => {
+      const id = nextID.current++
+      setTabs([freshTerminalTab(session, id)])
+      setActiveID(id)
+    }
+    window.addEventListener(TERMINALS_EXPIRED_EVENT, expire)
+    return () => window.removeEventListener(TERMINALS_EXPIRED_EVENT, expire)
+  }, [session])
   useEffect(() => {
     if (projectPathRef.current !== session.project_path) {
       projectPathRef.current = session.project_path
@@ -61,13 +71,13 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     }
     const id = nextID.current++
     runTargetRef.current = { requestID: runRequest.id, tabID: id }
-    setTabs((items) => [...items, { id, label: runRequest.label || `Terminal ${id}`, terminalID: '', session, reconnectNonce: 0, status: 'connecting', cwd: runRequest.cwd || '.', history: '', viewportY: 0 }])
+    setTabs((items) => [...items, freshTerminalTab(session, id, runRequest.label || `Terminal ${id}`, runRequest.cwd || '.')])
     setActiveID(id)
   }, [activeID, runRequest, session])
 
   function addTerminal() {
     const id = nextID.current++
-    setTabs((items) => [...items, { id, label: `Terminal ${id}`, terminalID: '', session, reconnectNonce: 0, status: 'connecting', cwd: '.', history: '', viewportY: 0 }])
+    setTabs((items) => [...items, freshTerminalTab(session, id)])
     setActiveID(id)
   }
 
@@ -80,7 +90,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     if (editingID === id) setEditingID(undefined)
     if (!remaining.length) {
       const replacementID = nextID.current++
-      setTabs([{ id: replacementID, label: `Terminal ${replacementID}`, terminalID: '', session, reconnectNonce: 0, status: 'connecting', cwd: '.', history: '', viewportY: 0 }])
+      setTabs([freshTerminalTab(session, replacementID)])
       setActiveID(replacementID)
       return
     }
@@ -114,7 +124,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
   }
 
   function updateTerminalID(id: number, terminalID: string) {
-    setTabs((items) => items.map((item) => item.id === id && item.terminalID !== terminalID ? { ...item, terminalID } : item))
+    setTabs((items) => items.map((item) => item.id !== id || item.terminalID === terminalID ? item : terminalID ? { ...item, terminalID } : { ...item, terminalID: '', history: '', viewportY: 0, reconnectNonce: item.reconnectNonce + 1, status: 'connecting' }))
   }
 
   const activeTab = tabs.find((item) => item.id === activeID)
@@ -187,14 +197,3 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     </div>
   </section>
 }
-
-function statusLabel(status: ConnectionStatus) {
-  return ({ connecting: 'a ligar…', connected: 'ligado', closed: 'encerrado', error: 'erro' })[status]
-}
-
-function inDirectory(cwd: string, command: string) {
-  if (!cwd || cwd === '.') return command
-  return `cd ${shellQuote(cwd)} && ${command}`
-}
-
-function shellQuote(value: string) { return `'${value.replace(/'/g, `'"'"'`)}'` }

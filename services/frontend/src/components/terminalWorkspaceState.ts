@@ -11,6 +11,27 @@ export type PersistedTerminalTab = {
 }
 
 const TERMINAL_WORKSPACE_PREFIX = 'whx.terminal.workspace.v1:'
+const TERMINAL_GENERATION_KEY = 'whx.terminal.generation.v1'
+export const TERMINALS_EXPIRED_EVENT = 'whx:terminals-expired'
+
+export function observeTerminalGeneration(generation: string, unknownIsExpired = false): boolean {
+  if (!generation) return false
+  try {
+    const previous = localStorage.getItem(TERMINAL_GENERATION_KEY)
+    localStorage.setItem(TERMINAL_GENERATION_KEY, generation)
+    return previous ? previous !== generation : unknownIsExpired
+  } catch { return false }
+}
+
+export function expireTerminalWorkspaces() {
+  try {
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index)
+      if (key?.startsWith(TERMINAL_WORKSPACE_PREFIX)) localStorage.removeItem(key)
+    }
+  } catch { /* active tabs still reset when storage is unavailable */ }
+  window.dispatchEvent(new Event(TERMINALS_EXPIRED_EVENT))
+}
 
 export function loadTerminalWorkspace(projectPath: string): { activeID: number; nextID: number; tabs: PersistedTerminalTab[] } {
   try {
@@ -29,9 +50,13 @@ export function loadTerminalWorkspace(projectPath: string): { activeID: number; 
 
 export type RestoredTerminalTab = PersistedTerminalTab & { session: Session; reconnectNonce: number; status: 'connecting' }
 
+export function freshTerminalTab(session: Session, id: number, label = `Terminal ${id}`, cwd = '.'): RestoredTerminalTab {
+  return { id, label, terminalID: '', session, reconnectNonce: 0, status: 'connecting', cwd, history: '', viewportY: 0 }
+}
+
 export function terminalTabsFromMemory(session: Session, tabs: PersistedTerminalTab[]): RestoredTerminalTab[] {
   const restored = tabs.map((tab) => ({ ...tab, session, reconnectNonce: 0, status: 'connecting' as const }))
-  return restored.length ? restored : [{ id: 1, label: 'Terminal 1', terminalID: '', session, reconnectNonce: 0, status: 'connecting', cwd: '.', history: '', viewportY: 0 }]
+  return restored.length ? restored : [freshTerminalTab(session, 1)]
 }
 
 export function saveTerminalWorkspace(projectPath: string, value: { activeID: number; nextID: number; tabs: PersistedTerminalTab[] }) {

@@ -19,16 +19,18 @@ export function createTerminalInputQueue(send: (chunk: string) => Promise<void>,
   let buffer = ''
   let ready = false
   let scheduled = false
+  let timer: ReturnType<typeof setTimeout> | undefined
   let inFlight = false
   let disposed = false
 
   const schedule = () => {
     if (disposed || !ready || scheduled || inFlight || !buffer) return
     scheduled = true
-    queueMicrotask(() => {
+    timer = setTimeout(() => {
+      timer = undefined
       scheduled = false
       void flush()
-    })
+    }, 8)
   }
 
   const flush = async () => {
@@ -56,6 +58,6 @@ export function createTerminalInputQueue(send: (chunk: string) => Promise<void>,
   return {
     push: (data) => { buffer += data; schedule() },
     setReady: (next) => { ready = next; schedule() },
-    dispose: () => { disposed = true },
+    dispose: () => { disposed = true; if (timer) clearTimeout(timer) },
   }
 }

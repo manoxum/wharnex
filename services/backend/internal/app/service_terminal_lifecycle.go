@@ -15,6 +15,9 @@ func (s *Service) SubscribeInteractiveTerminal(sessionID, terminalID string) ([]
 	channel := make(chan TerminalFrame, 64)
 	state.mu.Lock()
 	replay := append([]TerminalFrame(nil), state.frames...)
+	if len(replay) == 0 || replay[0].Type != "ready" {
+		replay = append([]TerminalFrame{{Type: "ready"}}, replay...)
+	}
 	if state.orphanTimer != nil {
 		state.orphanTimer.Stop()
 		state.orphanTimer = nil

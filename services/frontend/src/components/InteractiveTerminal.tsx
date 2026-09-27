@@ -3,13 +3,16 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { api, APIError } from '../lib/api'
-import { desktopBridge } from '../lib/desktop'
 import { openLiveEventStream, type LiveEventStream } from '../lib/liveEventStream'
 import type { Session, TerminalFrame, TerminalRunRequest } from '../types'
 import { subscribeUIPreferences, workspaceTerminalFontSize } from '../lib/uiPreferences'
 
-import { activeTerminalTheme, MAX_PERSISTED_TERMINAL_HISTORY } from './interactiveTerminalSupport'
+import { activeTerminalTheme } from './interactiveTerminalSupport'
 import { createTerminalInputQueue } from './terminalInputQueue'
+import { expireTerminalWorkspaces, observeTerminalGeneration } from './terminalWorkspaceState'
+import { createTerminalHistory } from './terminalHistory'
+import { handleExpiredTerminal, isTerminalTransportExit } from './terminalExpiration'
+import { terminalClipboardShortcut } from './terminalClipboard'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'closed' | 'error'
 
@@ -39,8 +42,6 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     let reconnectTimer = 0
     let connectInFlight = false
     let resizeTimer = 0
-    let snapshotTimer = 0
-    let history = String(initialHistory || '').slice(-MAX_PERSISTED_TERMINAL_HISTORY)
     const rememberedCwd = cwd || '.'
     const terminal = new XTerm({
       cursorBlink: true, scrollback: 10_000, allowProposedApi: false,
@@ -49,21 +50,13 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     })
     const fit = new FitAddon()
     terminal.loadAddon(fit); terminal.open(root); fitRef.current = fit; terminalRef.current = terminal
-    if (history) {
-      terminal.write(history, () => {
+    const history = createTerminalHistory(String(initialHistory || ''), rememberedCwd, () => terminal.buffer.active.viewportY, (snapshot) => onSnapshotRef.current?.(snapshot))
+    if (history.initial) {
+      terminal.write(history.initial, () => {
         try { terminal.scrollToLine(Math.max(0, initialViewportY)) } catch { /* xterm may still be sizing */ }
       })
     }
-    const emitSnapshot = () => onSnapshotRef.current?.({ cwd: rememberedCwd, history, viewportY: terminal.buffer.active.viewportY })
-    const scheduleSnapshot = () => {
-      window.clearTimeout(snapshotTimer)
-      snapshotTimer = window.setTimeout(emitSnapshot, 250)
-    }
-    const appendHistory = (data: string) => {
-      history = `${history}${data}`.slice(-MAX_PERSISTED_TERMINAL_HISTORY)
-      scheduleSnapshot()
-    }
-    const scrollDisposable = terminal.onScroll(scheduleSnapshot)
+    const scrollDisposable = terminal.onScroll(history.schedule)
 
     const setConnectionStatus = (next: ConnectionStatus) => {
       statusRef.current = next
@@ -77,24 +70,7 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     }
     const input = createTerminalInputQueue((chunk) => api.terminalInput(session.id, terminalID, chunk), () => scheduleReconnect(100))
     const inputDisposable = terminal.onData(input.push)
-    const clipboardShortcut = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase()
-      const copy = key === 'c' && ((event.ctrlKey && event.shiftKey) || event.metaKey)
-      const paste = key === 'v' && ((event.ctrlKey && event.shiftKey) || event.metaKey)
-      if (!copy && !paste) return
-      event.preventDefault()
-      event.stopPropagation()
-      const bridge = desktopBridge()
-      if (copy) {
-        const text = terminal.getSelection()
-        if (!text) return
-        if (bridge) void bridge.clipboard.writeText(text).catch(reportError)
-        else if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(text).catch(reportError)
-        return
-      }
-      const read = bridge?.clipboard.readText ? bridge.clipboard.readText() : navigator.clipboard?.readText?.()
-      if (read) void read.then((text) => { if (active && text) terminal.paste(text) }).catch(reportError)
-    }
+    const clipboardShortcut = terminalClipboardShortcut(terminal, reportError, () => active)
     root.addEventListener('keydown', clipboardShortcut, true)
     const resizeDisposable = terminal.onResize(({ cols, rows }) => {
       window.clearTimeout(resizeTimer)
@@ -126,6 +102,12 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
       try {
         const descriptor = await api.openTerminal(session.id, { terminal_id: terminalID || undefined, cwd: rememberedCwd, network: false, cols: terminal.cols || 80, rows: terminal.rows || 24 }, 'host', true)
         if (!active) return
+        if (observeTerminalGeneration(descriptor.generation || '')) {
+          await api.closeTerminal(session.id, descriptor.terminal_id).catch(() => undefined)
+          setConnectionStatus('closed')
+          expireTerminalWorkspaces()
+          return
+        }
         terminalID = descriptor.terminal_id; terminalIDRef.current = terminalID; onTerminalIDChangeRef.current?.(terminalID)
         input.setReady(true)
         void api.resizeTerminal(session.id, terminalID, terminal.cols || 80, terminal.rows || 24).catch(() => scheduleReconnect(100))
@@ -135,10 +117,11 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
           try {
             const terminalFrame = JSON.parse(event.data) as TerminalFrame
             if (terminalFrame.type === 'ready') { setConnectionStatus('connected'); terminal.focus() }
-            else if (terminalFrame.type === 'output' && terminalFrame.data) { appendHistory(terminalFrame.data); terminal.write(terminalFrame.data) }
+            else if (terminalFrame.type === 'output' && terminalFrame.data) { history.append(terminalFrame.data); terminal.write(terminalFrame.data) }
             else if (terminalFrame.type === 'exit') {
+              if (isTerminalTransportExit(terminalFrame)) { source?.close(); scheduleReconnect(250); return }
               setConnectionStatus('closed')
-              if (terminalFrame.message) { const line = `\r\n\x1b[38;2;214;165;107m${terminalFrame.message}\x1b[0m`; appendHistory(line); terminal.writeln(line) }
+              if (terminalFrame.message) { const line = `\r\n\x1b[38;2;214;165;107m${terminalFrame.message}\x1b[0m`; history.append(line); terminal.writeln(line) }
               source?.close()
             } else if (terminalFrame.type === 'error') reportError(terminalFrame.message || 'Erro no terminal')
           } catch { /* ignore malformed transport frames */ }
@@ -151,6 +134,10 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
         }
       } catch (error) {
         if (active) {
+          if (terminalID && handleExpiredTerminal(error, () => { terminalID = ''; terminalIDRef.current = ''; onTerminalIDChangeRef.current?.('') })) {
+            setConnectionStatus('closed')
+            return
+          }
           const message = messageOf(error)
           onErrorRef.current(message)
           scheduleReconnect(500)
@@ -164,8 +151,8 @@ export function InteractiveTerminal({ session, height, onError, visible = true, 
     return () => {
       active = false
       input.dispose()
-      emitSnapshot()
-      window.cancelAnimationFrame(frame); window.clearTimeout(reconnectTimer); window.clearTimeout(resizeTimer); window.clearTimeout(snapshotTimer)
+      history.flush()
+      window.cancelAnimationFrame(frame); window.clearTimeout(reconnectTimer); window.clearTimeout(resizeTimer)
       observer?.disconnect(); source?.close(); root.removeEventListener('keydown', clipboardShortcut, true); inputDisposable.dispose(); resizeDisposable.dispose(); scrollDisposable.dispose(); terminal.dispose()
       fitRef.current = null
       if (terminalRef.current === terminal) terminalRef.current = null
