@@ -24,7 +24,7 @@ test('desktop close confirmation is renderer-owned while actions stay main-proce
   assert.doesNotMatch(closeFlow, /closeProject:/)
   assert.match(preload, /ipcRenderer\.on\('wharness:windows:confirm-close', handler\)/)
   assert.match(preload, /resolveClose: \(action\) => invoke\('wharness:windows:resolve-close'/)
-  assert.match(shell, /<DesktopCloseDialogHost \/>/)
+  assert.match(shell, /<DesktopCloseDialogHost terminals=\{terminalProcesses \|\| \[\]\} \/>/)
 
   // The native prompt is a fallback for a renderer that never showed the
   // modal. The modal must therefore say that it did, end to end, or the two
