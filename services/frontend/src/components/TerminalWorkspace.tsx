@@ -6,9 +6,8 @@ import { api } from '../lib/api'
 import { freshTerminalTab, loadTerminalWorkspace, saveTerminalWorkspace, terminalTabsFromMemory, TERMINALS_EXPIRED_EVENT, type PersistedTerminalTab } from './terminalWorkspaceState'
 import { Icon } from './Icon'
 import { inDirectory, statusLabel } from './terminalWorkspaceHelpers'
-
+import { publishTerminalRuntime } from './terminalRuntime'
 type TerminalTab = PersistedTerminalTab & { session: Session; reconnectNonce: number; status: ConnectionStatus }
-
 export function TerminalWorkspace({ session, height, visible, runRequest, onHeight, onError, fill = false, onDetachTerminal, onSplitTerminal }: {
   session: Session
   height: number
@@ -57,11 +56,11 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     sessionIDRef.current = session.id
     setTabs((items) => items.map((item) => ({ ...item, session, reconnectNonce: item.reconnectNonce + 1, status: 'connecting' })))
   }, [session])
-
   useEffect(() => {
     saveTerminalWorkspace(session.project_path, { activeID, nextID: nextID.current, tabs })
   }, [activeID, session.project_path, tabs])
-
+  useEffect(() => publishTerminalRuntime(session.project_path, tabs), [session.project_path, tabs])
+  useEffect(() => () => publishTerminalRuntime(session.project_path, []), [session.project_path])
   useEffect(() => {
     if (!runRequest || runTargetRef.current?.requestID === runRequest.id) return
     if (!runRequest.openNew) {
@@ -74,7 +73,6 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
     setTabs((items) => [...items, freshTerminalTab(session, id, runRequest.label || `Terminal ${id}`, runRequest.cwd || '.')])
     setActiveID(id)
   }, [activeID, runRequest, session])
-
   function addTerminal() {
     const id = nextID.current++
     setTabs((items) => [...items, freshTerminalTab(session, id)])

@@ -1,11 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '../types'
 import { TerminalWorkspace } from './TerminalWorkspace'
 import { loadTerminalWorkspace, saveTerminalWorkspace } from './terminalWorkspaceState'
+import { publishTerminalRuntime } from './terminalRuntime'
+
+vi.mock('./terminalRuntime', () => ({ publishTerminalRuntime: vi.fn() }))
 
 vi.mock('./InteractiveTerminal', () => ({
-  InteractiveTerminal: ({ visible, reconnectNonce, session: terminalSession, runRequest, onTerminalIDChange }: { visible?: boolean; reconnectNonce?: number; session: Session; runRequest?: { command: string }; onTerminalIDChange?: (id: string) => void }) => <div data-testid="terminal-instance" data-visible={visible ? 'yes' : 'no'} data-reconnect={reconnectNonce} data-session={terminalSession.id} data-command={runRequest?.command}><button onClick={() => onTerminalIDChange?.('')}>Expire</button></div>,
+  InteractiveTerminal: ({ visible, reconnectNonce, session: terminalSession, runRequest, onTerminalIDChange, onStatusChange }: { visible?: boolean; reconnectNonce?: number; session: Session; runRequest?: { command: string }; onTerminalIDChange?: (id: string) => void; onStatusChange?: (status: 'connected') => void }) => <div data-testid="terminal-instance" data-visible={visible ? 'yes' : 'no'} data-reconnect={reconnectNonce} data-session={terminalSession.id} data-command={runRequest?.command}><button onClick={() => onTerminalIDChange?.('')}>Expire</button><button onClick={() => { onTerminalIDChange?.('pty_live'); onStatusChange?.('connected') }}>Connect</button></div>,
 }))
 
 const session = { id: 'ses_multi', project_path: '/tmp/project' } as Session
@@ -14,7 +17,13 @@ describe('TerminalWorkspace', () => {
   // Tabs persist per project in localStorage so shells survive app reloads.
   // Every test uses the same project, so each must start from an empty
   // workspace or it inherits the tabs an earlier test opened.
-  beforeEach(() => localStorage.clear())
+  beforeEach(() => { localStorage.clear(); vi.mocked(publishTerminalRuntime).mockClear() })
+
+  it('publishes live terminal identity to the parent workspace without exposing scrollback', async () => {
+    render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)
+    fireEvent.click(screen.getByText('Connect'))
+    await waitFor(() => expect(publishTerminalRuntime).toHaveBeenLastCalledWith(session.project_path, expect.arrayContaining([expect.objectContaining({ terminalID: 'pty_live', status: 'connected', session })])))
+  })
 
   it('keeps sibling instances mounted while tabs are switched or hidden', () => {
     const { rerender } = render(<TerminalWorkspace session={session} height={300} visible={true} onHeight={() => undefined} onError={() => undefined} />)

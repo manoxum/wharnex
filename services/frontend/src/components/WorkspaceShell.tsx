@@ -17,13 +17,13 @@ import { SignalCore } from './SignalCore'
 import { DesktopCloseDialogHost } from './DesktopCloseDialogHost'
 import { DesktopRecoveryDialog } from './DesktopRecoveryDialog'
 import { WorkspaceSkeleton } from './Skeleton'
-
+import { useTerminalCloseGuard } from './useTerminalCloseGuard'
+import type { TerminalRuntimeRecord } from './terminalRuntime'
 type ProjectLockResult = { ok: boolean; path: string; ownerWindowId?: string; message?: string }
 type OpenProjectWindow = { windowId: string; projectPath: string; focused: boolean }
 type ProjectWindowSnapshot = { currentWindowId: string; items: OpenProjectWindow[] }
 type ProjectRuntimeState = { selfEvolution: boolean; instanceId: string }
 type ProjectAttentionState = { total: number; urgent: number; actionable: number }
-
 const MAX_BOUND_PROJECTS = 12
 const COMPOSER_TYPING_PULSE_MS = 1600
 export function WorkspaceShell() {
@@ -44,8 +44,8 @@ export function WorkspaceShell() {
   const [readyProjects, setReadyProjects] = useState<string[]>([])
   const [error, setError] = useState<string>()
   const frames = useRef(new Map<string, HTMLIFrameElement>())
+  const terminalClose = useTerminalCloseGuard(frames, projects, unbindProject, (message) => setError(message))
   const composerTypingTimerRef = useRef<number | undefined>(undefined)
-
   const restore = useCallback(async (candidates: string[], preferred: string) => {
     const bridge = desktopBridge()
     const acquired: string[] = []
@@ -59,7 +59,6 @@ export function WorkspaceShell() {
     setProjects(acquired); setActiveProject(active); saveBoundProjects(acquired); saveBoundActiveProject(active); void syncOpenedProjectHistory(acquired)
     setBusy(false); setInitialized(true)
   }, [])
-
   useEffect(() => {
     let alive = true; void syncOpenedProjectHistory(loadRecentWorkspaces())
     async function initialize() {
@@ -85,14 +84,12 @@ export function WorkspaceShell() {
     void initialize()
     return () => { alive = false }
   }, [restore])
-
   useEffect(() => {
     if (!initialized) return
     saveBoundProjects(projects)
     saveBoundActiveProject(activeProject)
     for (const [projectPath, frame] of frames.current) publishActivation(frame, projectPath === activeProject, projects)
   }, [projects, activeProject, initialized])
-
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
@@ -146,7 +143,7 @@ export function WorkspaceShell() {
       }
       if (event.data?.type === 'wharness:unbind-project') {
         const projectPath = String(event.data.projectPath || '')
-        if (projectPath) void unbindProject(projectPath)
+        if (projectPath) terminalClose.requestProjectClose(projectPath)
       }
       // The shell disambiguates local activation, another window and a new binding.
       if (event.data?.type === 'wharness:focus-project') {
@@ -162,7 +159,6 @@ export function WorkspaceShell() {
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
   })
-
   useEffect(() => () => {
     if (composerTypingTimerRef.current !== undefined) window.clearTimeout(composerTypingTimerRef.current)
   }, [])
@@ -183,9 +179,9 @@ export function WorkspaceShell() {
     const windows = desktopBridge()?.windows
     if (!windows?.onCloseProject) return
     return windows.onCloseProject((payload) => {
-      if (projects.includes(payload.projectPath)) void unbindProject(payload.projectPath)
+      if (projects.includes(payload.projectPath)) terminalClose.requestProjectClose(payload.projectPath)
     })
-  }, [projects, busy, activeProject])
+  }, [projects, busy, activeProject, terminalClose])
 
   // Keep iframe URLs stable across project switches. Hidden frames remain mounted so in-flight
   // work and page/UI state are preserved instead of being reloaded on activation.
@@ -303,7 +299,7 @@ export function WorkspaceShell() {
     } catch (reason) { setError(messageOf(reason)); setBusy(false) }
   }
 
-  const chrome = <ShellChrome projects={projects} recent={recent} activeProject={activeProject} composerTypingProject={composerTypingProject} activeSessionID={projectSessions[activeProject] || ''} activeRuntime={projectRuntime[activeProject]} activeAttention={projectAttention[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onAttention={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-attention' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={(projectPath) => void unbindProject(projectPath)} onLinkProject={(projectPath) => void bindProject(projectPath)} onOpenProject={(projectPath) => void openProjectWindow(projectPath)} onForgetProject={forgetRecent} onBrowseLink={() => void chooseAndBind()} onBrowseOpen={() => void chooseAndOpenWindow()} onNewWindow={() => void desktopBridge()?.windows.open()} />
+  const chrome = <ShellChrome projects={projects} recent={recent} activeProject={activeProject} composerTypingProject={composerTypingProject} activeSessionID={projectSessions[activeProject] || ''} terminalProcesses={terminalClose.windowTerminals} activeRuntime={projectRuntime[activeProject]} activeAttention={projectAttention[activeProject]} mode={projectModes[activeProject] || 'agent'} busy={busy} onActivate={setActiveProject} onMode={(mode) => sendToProject(frames.current.get(activeProject), { type: 'wharness:set-workspace-mode', mode })} onGitSync={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:refresh-session' })} onAttention={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-attention' })} onSettings={() => sendToProject(frames.current.get(activeProject), { type: 'wharness:open-project-settings' })} onUnbind={terminalClose.requestProjectClose} onLinkProject={(projectPath) => void bindProject(projectPath)} onOpenProject={(projectPath) => void openProjectWindow(projectPath)} onForgetProject={forgetRecent} onBrowseLink={() => void chooseAndBind()} onBrowseOpen={() => void chooseAndOpenWindow()} onNewWindow={() => void desktopBridge()?.windows.open()} />
   const recoveryModal = pendingRecovery ? <DesktopRecoveryDialog
     projects={pendingRecovery.projects}
     busy={busy}
@@ -317,12 +313,14 @@ export function WorkspaceShell() {
 
   if (!projects.length) return <div className="desktop-shell-root">
     {chrome}
+    {terminalClose.dialog}
     {recoveryModal}
     <Bootstrap config={config} busy={busy} error={error} recent={recent} restoring={busy} onStart={async (projectPath) => { await bindProject(projectPath) }} onCreate={async (parentPath, name) => { await createProject(parentPath, name) }} onClone={async (repositoryURL, parentPath, directory) => { await cloneProject(repositoryURL, parentPath, directory) }} onBootstrap={bootstrapProject} onRecentChanged={() => setRecent(loadRecentWorkspaces())} />
   </div>
 
   return <main className="desktop-shell-root">
     {chrome}
+    {terminalClose.dialog}
     <ErrorToast open={Boolean(error)} message={error} shell onDismiss={() => setError(undefined)} />
     <section className="bound-project-stage">
       {projects.map((projectPath) => <iframe
@@ -341,8 +339,8 @@ export function WorkspaceShell() {
   </main>
 }
 
-export function ShellChrome({ projects, recent = [], activeProject, composerTypingProject, activeSessionID, activeRuntime, activeAttention, mode, busy, onActivate, onMode, onGitSync, onAttention, onSettings, onUnbind, onLinkProject, onOpenProject, onForgetProject, onBrowseLink, onBrowseOpen, onNewWindow }: {
-  projects: string[]; recent?: string[]; activeProject: string; composerTypingProject?: string; activeSessionID?: string; activeRuntime?: ProjectRuntimeState; activeAttention?: ProjectAttentionState; busy: boolean
+export function ShellChrome({ projects, recent = [], activeProject, composerTypingProject, activeSessionID, terminalProcesses, activeRuntime, activeAttention, mode, busy, onActivate, onMode, onGitSync, onAttention, onSettings, onUnbind, onLinkProject, onOpenProject, onForgetProject, onBrowseLink, onBrowseOpen, onNewWindow }: {
+  projects: string[]; recent?: string[]; activeProject: string; composerTypingProject?: string; activeSessionID?: string; terminalProcesses?: TerminalRuntimeRecord[]; activeRuntime?: ProjectRuntimeState; activeAttention?: ProjectAttentionState; busy: boolean
   mode: WorkspaceMode
   onActivate: (projectPath: string) => void; onMode: (mode: WorkspaceMode) => void; onGitSync?: () => void; onAttention?: () => void; onSettings: () => void; onUnbind: (projectPath: string) => void
   onLinkProject?: (projectPath: string) => void; onOpenProject?: (projectPath: string) => void; onForgetProject?: (projectPath: string) => void; onBrowseLink?: () => void; onBrowseOpen?: () => void; onBind?: () => void; onNewWindow: () => void
@@ -416,7 +414,7 @@ export function ShellChrome({ projects, recent = [], activeProject, composerTypi
   const orderedProjects = activeProject ? [activeProject, ...projects.filter((projectPath) => projectPath !== activeProject)] : projects
 
   return <header className="multi-project-bar" data-window-titlebar="true">
-    <DesktopCloseDialogHost />
+    <DesktopCloseDialogHost terminals={terminalProcesses || []} />
     <div className="multi-project-brand"><SignalCore size="compact" /></div>
     <nav className="project-quick-switch" aria-label="Projetos vinculados">
       {orderedProjects.map((projectPath) => {
