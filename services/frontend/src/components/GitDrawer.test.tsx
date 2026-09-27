@@ -231,16 +231,29 @@ describe('GitDrawer', () => {
     expect((await screen.findByRole('textbox', { name: 'Notas de release geradas pelo GPT' }) as HTMLTextAreaElement).value).toContain('Novidades')
   })
 
-  it('lists changed worktree files and opens their current diff in auto-commit or manual mode', async () => {
-    vi.mocked(api.gitOverview).mockResolvedValue(overview({ commit_mode: 'auto', pending: [] }))
+  it('opens worktree diffs with the changed-file sidebar and keeps the clicked file selected', async () => {
+    vi.mocked(api.gitOverview).mockResolvedValue(overview({
+      commit_mode: 'auto', pending: [],
+      working: { clean: false, stageable_count: 2, files: [
+        { path: 'app.go', kind: 'change', status: 'modified', additions: 4, deletions: 1 },
+        { path: 'new.ts', kind: 'change', status: 'added', additions: 8, deletions: 0 },
+      ] },
+    }))
+    vi.mocked(api.gitFileDiff).mockImplementation(async (_id, path) => ({ path, diff: `diff --git a/${path} b/${path}\n+changed` }))
     render(<GitDrawer session={session} busy={false} onClose={vi.fn()}/>)
     expect(await screen.findByText('Alterações locais')).toBeTruthy()
-    expect(screen.getByText('app.go')).toBeTruthy()
-    const diffButton = screen.getByRole('button', { name: 'Abrir diff de app.go' })
-    fireEvent.click(diffButton)
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir diff de app.go' }))
     await waitFor(() => expect(api.gitFileDiff).toHaveBeenCalledWith('ses_1', 'app.go', ''))
-    expect(await screen.findByRole('dialog', { name: 'Diff de app.go' })).toBeTruthy()
+
+    const dialog = await screen.findByRole('dialog', { name: 'Diff de app.go' })
+    const sidebar = within(dialog).getByRole('complementary', { name: 'Ficheiros alterados' })
+    expect(within(sidebar).getByRole('button', { name: 'Abrir app.go no diff do worktree' }).className).toContain('active')
+    expect(within(sidebar).getByRole('button', { name: 'Abrir new.ts no diff do worktree' })).toBeTruthy()
     expect(screen.getByTestId('change-diff-editor').textContent).toContain('app.go')
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Abrir new.ts no diff do worktree' }))
+    await waitFor(() => expect(api.gitFileDiff).toHaveBeenCalledWith('ses_1', 'new.ts', ''))
+    await waitFor(() => expect(screen.getByTestId('change-diff-editor').textContent).toContain('new.ts'))
   })
 
   it('manually commits selected worktree files even when auto-commit is enabled', async () => {

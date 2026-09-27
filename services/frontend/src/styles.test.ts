@@ -677,6 +677,14 @@ describe('Git workbench CSS', () => {
     expect(css).toContain('@keyframes git-operation-progress')
   })
 
+  it('lets generic Git diff windows use the viewport width and keeps the worktree file rail visible', () => {
+    const modal = lastRule('.git-diff-modal')
+    const worktreeReview = firstRule('.git-worktree-diff-review')
+
+    expect(modal).toContain('width: min(1680px, calc(100vw - clamp(16px, 4vw, 48px)))')
+    expect(worktreeReview).toContain('grid-template-columns: minmax(240px, 24%) minmax(0, 1fr)')
+  })
+
   it('gives branch-history commit diffs a dedicated review hierarchy', () => {
     const modal = firstRule('.git-history-commit-modal')
     const header = firstRule('.git-history-commit-modal > .git-history-commit-header')
