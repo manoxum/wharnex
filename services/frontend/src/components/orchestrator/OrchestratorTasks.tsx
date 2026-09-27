@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
 import type { OrchestratorOverview, OrchestratorPriority, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session } from '../../types'
 import { Icon } from '../Icon'
-import { Status } from './OrchestratorOverview'
+import { Status } from './OrchestratorStatus'
 
 const statuses: OrchestratorTaskStatus[] = ['PENDING', 'WAITING', 'READY', 'DOING', 'REVIEW', 'COMPLETE', 'ARCHIVED']
 type View = 'kanban' | 'table' | 'list' | 'graph'

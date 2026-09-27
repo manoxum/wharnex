@@ -65,6 +65,34 @@ afterEach(() => {
 })
 
 describe('OrchestratorOverview planning queue', () => {
+  it('keeps a failed execution visible and selectable beyond the five recent tasks', () => {
+    const failed = {
+      id: 'otk-failed', project_path: session.project_path, title: 'Recompor cards', status: 'PENDING' as const,
+      condition: 'failed_run' as const, priority: 'normal' as const, parallelizable: false,
+      created_at: '2026-09-12T14:00:00.000Z', updated_at: '2026-09-12T14:01:00.000Z',
+    }
+    const newer = Array.from({ length: 6 }, (_, index) => ({
+      ...failed, id: `otk-${index}`, title: `Tarefa ${index}`, condition: 'none' as const,
+      updated_at: `2026-09-12T15:0${index}:00.000Z`,
+    }))
+    const onSelectTask = vi.fn()
+    render(<OrchestratorOverview
+      session={session}
+      overview={{ plans: [], tasks: [failed, ...newer], planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 }}
+      chatProps={chatProps()}
+      busy={false}
+      onProposal={vi.fn()}
+      onRun={runAction}
+      onOpenTasks={vi.fn()}
+      onSelectTask={onSelectTask}
+    />)
+
+    const attention = screen.getByRole('region', { name: 'Tarefas que requerem atenção' })
+    expect(attention.textContent).toContain('1 tarefa falhou')
+    fireEvent.click(screen.getByRole('button', { name: /Recompor cards/ }))
+    expect(onSelectTask).toHaveBeenCalledWith(failed)
+  })
+
   it('keeps every submitted objective visible while another draft exists', () => {
     const overview = {
       plans: [{ id: 'opl-1', project_path: session.project_path, title: 'Existing draft', objective: 'First result', status: 'DRAFT', created_at: '2026-09-12T14:58:00.000Z', updated_at: '2026-09-12T14:59:00.000Z' }],

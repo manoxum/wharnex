@@ -1059,14 +1059,15 @@ test('two Supervisor slots double-buffer renderer IPC while bounded workers stay
   assert.match(source, /publishPlanDownload\(\{ cacheKey: sourceCacheKey, filename/)
 })
 
-test('agent browser snapshots park hidden workers into a real layout viewport', async () => {
+test('agent browser snapshots present hidden workers at full size for capture', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function chatAgentBrowserSnapshot(agentID)')
   const end = source.indexOf('\nfunction retireChatGPTSupervisorSurface', start)
   assert.notEqual(start, -1)
   const snapshot = source.slice(start, end)
   assert.match(snapshot, /ensureChatGPTLayoutViewport\(layoutKey, entry\)/)
-  assert.match(snapshot, /await captureChatGPTAgentPage\(wc, \{ parked: entry\.role === 'worker' && !entry\.interactionWindowId \}\)/)
+  assert.match(snapshot, /entry\.role === 'worker' && !entry\.interactionWindowId/)
+  assert.match(snapshot, /await captureParkedWorkerPage\(entry, BrowserWindow, \{ openMonitor: openWorkerMonitor, closeMonitor: closeWorkerMonitor \}\)/)
   assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor' \? supervisorKey/)
 })
 

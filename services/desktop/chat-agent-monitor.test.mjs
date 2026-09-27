@@ -83,7 +83,12 @@ test('a settled Worker task closes its follow window and returns the view to par
 test('monitor IPC remains a trusted, named Worker-only bridge', async () => {
   const main = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
-  assert.match(main, /ipcMain\.handle\('wharness:agents:monitor-open', \(event, request\) => \{\s*trustedSender\(event\)\s*return openWorkerMonitor\(workerEntryForAgentID\(request\?\.agentId\)/)
+  const open = main.slice(main.indexOf("ipcMain.handle('wharness:agents:monitor-open'"), main.indexOf("ipcMain.handle('wharness:agents:monitor-close'"))
+  assert.match(open, /trustedSender\(event\)/)
+  assert.match(open, /const entry = workerEntryForAgentID\(request\?\.agentId\)/)
+  assert.match(open, /if \(entry\.interactionWindowId\) hideChatAgentInteractionEntry\(entry\)/)
+  assert.match(open, /openWorkerMonitor\(entry, BrowserWindow, publishChatAgentRuntimeState\)/)
+  assert.match(open, /publishChatAgentRuntimeState\(\)/)
   assert.match(main, /ipcMain\.handle\('wharness:agents:monitor-close', \(event, request\) => \{\s*trustedSender\(event\)\s*return closeWorkerMonitor\(workerEntryForAgentID\(request\?\.agentId\)\)/)
   assert.match(preload, /openMonitor: \(agentId\) => invoke\('wharness:agents:monitor-open'/)
   assert.match(preload, /closeMonitor: \(agentId\) => invoke\('wharness:agents:monitor-close'/)

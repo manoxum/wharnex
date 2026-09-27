@@ -30,7 +30,7 @@ describe('ChatGPTDesktopPane Worker follow', () => {
     const blocker = document.createElement('div')
     blocker.setAttribute('data-chatgpt-overlay-blocker', 'true')
     document.body.appendChild(blocker)
-    await waitFor(() => expect(screen.queryByText('Seguindo Worker 2')).toBeNull())
+    expect(screen.getByText('Seguindo Worker 2')).toBeTruthy()
     blocker.remove()
     expect(await screen.findByText('Seguindo Worker 2')).toBeTruthy()
 
@@ -38,6 +38,35 @@ describe('ChatGPTDesktopPane Worker follow', () => {
     await waitFor(() => expect(desktop.agents.closeMonitor).toHaveBeenCalledWith('worker-2'))
     expect(desktop.agents.closeInteraction).not.toHaveBeenCalled()
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
+  })
+
+  it('opens a Worker window while the Agents drawer blocks the embedded Supervisor', async () => {
+    const desktop = followBridge()
+    const blocker = document.createElement('div')
+    blocker.setAttribute('data-chatgpt-overlay-blocker', 'true')
+    document.body.appendChild(blocker)
+    try {
+      render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+      act(() => window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: 'worker-2' } })))
+      await waitFor(() => expect(desktop.agents.openMonitor).toHaveBeenCalledWith('worker-2'))
+      expect(screen.getByText('Seguindo Worker 2')).toBeTruthy()
+    } finally {
+      blocker.remove()
+    }
+  })
+
+  it('clears the follow panel when Desktop closes the Worker window after the task', async () => {
+    const desktop = followBridge()
+    let publish: ((state: DesktopAgentRuntimeState) => void) | undefined
+    vi.mocked(desktop.agents.onState).mockImplementation((listener) => { publish = listener; return () => undefined })
+    const runtime = await desktop.agents.state()
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+    act(() => window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: 'worker-2' } })))
+    await waitFor(() => expect(desktop.agents.openMonitor).toHaveBeenCalledWith('worker-2'))
+    expect(screen.getByText('Seguindo Worker 2')).toBeTruthy()
+    await screen.findByText('Janela do Worker aberta. A automação continua na mesma instância.')
+    act(() => publish?.({ ...runtime, agents: runtime.agents.map((agent) => agent.id === 'worker-2' ? { ...agent, monitor_open: false } : agent) }))
+    await waitFor(() => expect(screen.queryByText('Seguindo Worker 2')).toBeNull())
   })
 
   it('keeps Worker DevTools and conversation link tied to the selected instance', async () => {

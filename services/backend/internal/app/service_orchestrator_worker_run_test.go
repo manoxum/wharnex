@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -18,6 +19,45 @@ type orchestratorExecutionManualPlanner struct{}
 
 func (orchestratorExecutionManualPlanner) Plan(_ context.Context, _ planner.Request) (planner.Result, error) {
 	return planner.Result{ManualPrompt: "Return the exact requested response ZIP"}, nil
+}
+
+func TestReadyOrchestratorReconcilesDuplicateWorkerClaims(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorExecutionManualPlanner{}, policy.NewEngine(), fakeRunner{})
+	owner, err := service.StartSessionWithModes(ctx, t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := service.CreateOrchestratorTask(ctx, owner.ID, OrchestratorTaskInput{Title: "One execution"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.TransitionOrchestratorTask(ctx, owner.ID, task.ID, orchestrator.TaskReady); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnqueueChatAgentTask(session.ChatAgentTask{
+		Type: "ORCHESTRATOR_EXECUTE", ProjectID: owner.ProjectPath, ChatID: task.ID, SessionID: owner.ID,
+		DedupeKey: "old-version-duplicate", Payload: json.RawMessage(`{"protocol":"harness.orchestrator-execution/v1"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.OrchestratorOverview(ctx, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := store.ListChatAgentTasks(session.ChatAgentTaskFilter{Type: "ORCHESTRATOR_EXECUTE", ChatID: task.ID})
+	if err != nil || len(claims) != 2 {
+		t.Fatalf("duplicate claims=%#v err=%v", claims, err)
+	}
+	active := 0
+	for _, claim := range claims {
+		if claim.Status == session.ChatAgentTaskPending {
+			active++
+		}
+	}
+	if active != 1 {
+		t.Fatalf("one READY task has %d active Worker claims: %#v", active, claims)
+	}
 }
 
 func TestReadyOrchestratorTaskIsClaimedOnceByWorker(t *testing.T) {
