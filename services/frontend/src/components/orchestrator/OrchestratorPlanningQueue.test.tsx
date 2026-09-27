@@ -23,6 +23,7 @@ it('stops following the task and closes its window when the task completes', asy
   const agents = {
     openMonitor: vi.fn(async () => ({ ok: true, agentId: 'worker-2', alreadyOpen: false })),
     closeMonitor: vi.fn(async () => ({ ok: true, agentId: 'worker-2', closed: true })),
+    onState: vi.fn(() => () => undefined),
   }
   window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
   const props = { requests: [request], tasks: [task], chats: [], busy: false, onRetry: vi.fn() }

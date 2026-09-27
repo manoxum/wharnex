@@ -434,3 +434,27 @@ Também execute `npm run build` no frontend quando a aba Políticas for alterada
 - [ ] Leituras de sessão repetidas não regravam a sessão nem geram eventos.
 - [ ] Falhas atribuídas contra o baseline, com cada suíte corrida isoladamente.
 - [ ] Regressões focadas, build aplicável e gates sem regressão nova foram concluídos.
+
+## 12. Rodada controlada de 2026-09-27
+
+Todas as entradas abaixo pertencem à fixture do projeto Wharnex, chegaram ao bundle exato, terminaram em `DONE` na primeira tentativa e não produziram HTTP 429. Horários em UTC. A resposta de tradução e o corpo das release notes foram validados pelo backend; o diagnóstico não leu prosa remota.
+
+| Tipo | Task ID | Criada | Concluída |
+|---|---|---|---|
+| `ORCHESTRATOR_PLAN` | `cat_6e8ea96dc9fd74bcc416` | 21:14:22 | 21:30:49 |
+| `ORCHESTRATOR_EXECUTE` | `cat_36d16632653cd9877fd2` | 21:31:28 | 21:45:12 |
+| `ORCHESTRATOR_EXECUTE` | `cat_befe96d25867f3473c9c` | 21:41:08 | 21:55:35 |
+| `TRANSLATE_MARKDOWN` | `cat_3da439e3265d5d4d1b7a` | 22:02:24 | 22:03:44 |
+| `TRANSLATE_MARKDOWN` | `cat_d34dca51825c57e48d18` | 22:07:21 | 22:08:38 |
+| `TRANSLATE_MARKDOWN` | `cat_825559372b7592adc84d` | 22:20:10 | 22:21:28 |
+| `TRANSLATE_MARKDOWN` | `cat_d63a1b7a2ef4b5065c9e` | 22:28:58 | 22:30:10 |
+| `TRANSLATE_MARKDOWN` | `cat_1d6aadf2181f47470527` | 22:32:25 | 22:34:02 |
+| `RELEASE_NOTES` | `cat_103cf5844800e744ac73` | 22:39:39 | 22:41:44 |
+| `RELEASE_NOTES` | `cat_b532b0f17d7c5d5be0db` | 22:45:29 | 22:47:36 |
+| `RELEASE_NOTES` | `cat_7619b85acf49f6d2d72d` | 22:49:24 | 22:51:01 |
+| `RELEASE_NOTES` | `cat_a7e73939108318b62970` | 22:51:55 | 22:53:32 |
+| `RELEASE_NOTES` | `cat_2e31a0af9c27f7cb559e` | 22:56:06 | 22:58:20 |
+
+A tradução `cat_0159bb49b339548bf400` (23:14:33–23:15:58 UTC) foi uma sexta amostra diagnóstica, também `DONE` na primeira tentativa. O plano de teste passou `DRAFT → ACTIVE → COMPLETED`; as tarefas passaram `READY → DOING → REVIEW → COMPLETE` e `WAITING → READY → DOING → REVIEW → COMPLETE`. A promoção da segunda ocorreu sem ação manual. Os dois ficheiros de teste foram removidos após a confirmação.
+
+A aceitação 4/5 de transporte foi atingida para `TRANSLATE_MARKDOWN` e `RELEASE_NOTES`. A pedido do operador, esta rodada usou uma única orchestration de raiz; `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` têm respetivamente uma e duas amostras, abaixo das cinco exigidas para aceitação estatística por tipo. O esforço `instant` das tarefas utilitárias e da segunda tarefa do Orchestrator permaneceu **não confirmado** no ChatGPT: na vista Worker oculta, o botão estava ativo, tinha geometria válida e recebia hover, mas as tentativas nativas não abriram o slider. O backend guardou corretamente o esforço pedido; o nível aplicado pelo provedor não pode ser afirmado. A tentativa antes do upload, o fallback de ponteiro e o ajuste do evento de teclado foram testados e retirados por não corrigirem a falha.
