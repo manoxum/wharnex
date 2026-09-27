@@ -2,7 +2,7 @@ import type { OrchestratorTask } from '../../types'
 import { Icon } from '../Icon'
 
 export function OrchestratorTaskAttention({ tasks, onSelectTask }: { tasks: OrchestratorTask[]; onSelectTask: (task: OrchestratorTask) => void }) {
-  const failed = tasks.filter((task) => task.condition === 'failed_run' && task.status !== 'ARCHIVED')
+  const failed = tasks.filter((task) => task.status === 'FAILED' && task.condition === 'failed_run')
   if (!failed.length) return null
 
   return <section aria-label="Tarefas que requerem atenção" className="mx-auto mt-5 w-full max-w-[1100px] rounded-xl border border-[var(--theme-danger)] bg-[var(--theme-surface)] p-4 text-[var(--theme-text)]">

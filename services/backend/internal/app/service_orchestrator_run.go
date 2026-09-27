@@ -53,6 +53,10 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 		_ = s.orchestrator.PutTask(ctx, task)
 		return OrchestratorRunResult{}, err
 	}
+	effort := domain.ReasoningEffort(task.ReasoningEffort)
+	if !domain.ValidReasoningEffort(effort) {
+		effort = normalizeReasoningEffort(owner.ReasoningEffort)
+	}
 	agentSession, err := s.StartSessionWithModes(ctx, task.ProjectPath, owner.ExecutionMode, owner.AutomationMode, owner.EffortLevel)
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
@@ -61,7 +65,7 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}
-	agentSession, err = s.SetReasoningEffort(agentSession.ID, normalizeReasoningEffort(owner.ReasoningEffort))
+	agentSession, err = s.SetReasoningEffort(agentSession.ID, effort)
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}
@@ -90,7 +94,7 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 		run.Status = "failed"
 		run.Error = agentSession.LastRepairError
 		run.CompletedAt = &completed
-		task.Status = orchestrator.TaskPending
+		task.Status = orchestrator.TaskFailed
 		task.Condition = orchestrator.ConditionFailedRun
 	default:
 		if manualPrompt != "" || agentSession.State == "awaiting_plan" {
@@ -129,7 +133,7 @@ func (s *Service) failOrchestratorRun(ctx context.Context, task orchestrator.Tas
 	run.Status = "failed"
 	run.Error = cause.Error()
 	run.CompletedAt = &completed
-	task.Status = orchestrator.TaskPending
+	task.Status = orchestrator.TaskFailed
 	task.Condition = orchestrator.ConditionFailedRun
 	task.UpdatedAt = completed
 	_ = s.orchestrator.PutTask(ctx, task)

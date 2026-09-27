@@ -199,6 +199,12 @@ func cloneTask(task Task) Task {
 	task.ImpactFiles = append([]string(nil), task.ImpactFiles...)
 	task.ReadFiles = append([]string(nil), task.ReadFiles...)
 	task.BarrierFiles = append([]string(nil), task.BarrierFiles...)
+	if task.RetryContext != nil {
+		context := *task.RetryContext
+		context.ProjectFiles = append([]string(nil), context.ProjectFiles...)
+		context.Attachments = append([]TaskAttachment(nil), context.Attachments...)
+		task.RetryContext = &context
+	}
 	return task
 }
 

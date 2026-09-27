@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type ComponentProps, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
-import type { OrchestratorOverview, OrchestratorPriority, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session } from '../../types'
+import type { OrchestratorOverview, OrchestratorPriority, OrchestratorTask, OrchestratorTaskStatus, Session } from '../../types'
 import { Icon } from '../Icon'
 import { Status } from './OrchestratorStatus'
+import { ChatPanel } from '../ChatPanel'
+import { OrchestratorTaskDrawer } from './OrchestratorTaskDrawer'
 
-const statuses: OrchestratorTaskStatus[] = ['PENDING', 'WAITING', 'READY', 'DOING', 'REVIEW', 'COMPLETE', 'ARCHIVED']
+const statuses: OrchestratorTaskStatus[] = ['PENDING', 'WAITING', 'READY', 'DOING', 'REVIEW', 'FAILED', 'COMPLETE']
 type View = 'kanban' | 'table' | 'list' | 'graph'
 
-export function OrchestratorTasks({ session, overview, selectedTask, busy, onSelectedTask, onRun }: {
+export function OrchestratorTasks({ session, overview, chatProps, selectedTask, busy, onSelectedTask, onRun }: {
   session: Session
   overview: OrchestratorOverview
+  chatProps?: ComponentProps<typeof ChatPanel>
   selectedTask?: OrchestratorTask
   busy: boolean
   onSelectedTask: (task?: OrchestratorTask) => void
@@ -22,7 +25,7 @@ export function OrchestratorTasks({ session, overview, selectedTask, busy, onSel
   const tasks = useMemo(() => overview.tasks.filter((task) => !search.trim() || `${task.title} ${task.description || ''}`.toLowerCase().includes(search.trim().toLowerCase())), [overview.tasks, search])
 
   async function move(task: OrchestratorTask, target: OrchestratorTaskStatus) {
-    if (task.status === target || task.status === 'DOING' || target === 'WAITING' || target === 'DOING') return
+    if (task.status === target || task.status === 'DOING' || target === 'DOING' || target === 'REVIEW' || target === 'FAILED') return
     await onRun(() => api.transitionOrchestratorTask(session.id, task.id, target), onSelectedTask)
   }
 
@@ -37,7 +40,7 @@ export function OrchestratorTasks({ session, overview, selectedTask, busy, onSel
     </header>
 
     <div className={`orchestrator-task-surface view-${view}`}>
-      {view === 'kanban' && <Kanban tasks={tasks} dragTask={dragTask} onDrag={setDragTask} onDrop={(status) => {
+      {view === 'kanban' && <Kanban tasks={tasks.filter((task) => task.status !== 'ARCHIVED')} dragTask={dragTask} onDrag={setDragTask} onDrop={(status) => {
         const task = tasks.find((item) => item.id === dragTask); setDragTask(undefined); if (task) void move(task, status)
       }} onSelect={onSelectedTask} />}
       {view === 'table' && <TaskTable tasks={tasks} onSelect={onSelectedTask} />}
@@ -46,7 +49,7 @@ export function OrchestratorTasks({ session, overview, selectedTask, busy, onSel
     </div>
 
     {newTaskOpen && <NewTaskDrawer session={session} overview={overview} busy={busy} onClose={() => setNewTaskOpen(false)} onRun={onRun} />}
-    {selectedTask && <TaskDrawer session={session} task={overview.tasks.find((item) => item.id === selectedTask.id) || selectedTask} busy={busy} onClose={() => onSelectedTask(undefined)} onMove={move} />}
+    {selectedTask && <OrchestratorTaskDrawer session={session} task={overview.tasks.find((item) => item.id === selectedTask.id) || selectedTask} tasks={overview.tasks} chatProps={chatProps} busy={busy} onClose={() => onSelectedTask(undefined)} onMove={move} onRun={onRun} onSelectedTask={onSelectedTask} />}
   </div>
 }
 
@@ -54,7 +57,7 @@ function Kanban({ tasks, dragTask, onDrag, onDrop, onSelect }: { tasks: Orchestr
   return <div className="orchestrator-kanban">
     {statuses.map((status) => {
       const grouped = tasks.filter((task) => task.status === status)
-      return <section key={status} onDragOver={(event) => event.preventDefault()} onDrop={() => onDrop(status)}>
+      return <section key={status} onDragOver={(event) => { if (status === 'PENDING' || status === 'WAITING' || status === 'READY') event.preventDefault() }} onDrop={() => { if (status === 'PENDING' || status === 'WAITING' || status === 'READY') onDrop(status) }}>
         <header><Status status={status}/><span>{grouped.length}</span></header>
         <div className="orchestrator-kanban-stack">
           {grouped.map((task) => <article key={task.id} draggable={task.status !== 'DOING'} className={dragTask === task.id ? 'dragging' : ''} onDragStart={() => onDrag(task.id)} onDragEnd={() => onDrag(undefined)} onClick={() => onSelect(task)}>
@@ -108,29 +111,6 @@ function NewTaskDrawer({ session, overview, busy, onClose, onRun }: { session: S
       <fieldset><legend>Dependências</legend>{overview.tasks.filter((task) => !planID || task.plan_id === planID).filter((task) => task.status !== 'ARCHIVED').map((task) => <label key={task.id} className="orchestrator-check"><input type="checkbox" checked={dependencies.includes(task.id)} onChange={(event) => setDependencies((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))}/><span>{task.title}</span><Status status={task.status}/></label>)}</fieldset>
     </div>
     <footer><button onClick={onClose}>Cancelar</button><button className="primary" disabled={busy || !title.trim()} onClick={() => void create()}>Criar Task</button></footer>
-  </aside></div>
-}
-
-function TaskDrawer({ session, task, busy, onClose, onMove }: { session: Session; task: OrchestratorTask; busy: boolean; onClose: () => void; onMove: (task: OrchestratorTask, target: OrchestratorTaskStatus) => Promise<void> }) {
-  const [runs, setRuns] = useState<OrchestratorTaskRun[]>([])
-  useEffect(() => { let alive = true; void api.orchestratorTaskRuns(session.id, task.id).then((value) => { if (alive) setRuns(value.runs) }).catch(() => undefined); return () => { alive = false } }, [session.id, task.id, task.updated_at])
-  return <div className="orchestrator-drawer-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer task-detail">
-    <header><div><span>{task.id}</span><strong>{task.title}</strong></div><button onClick={onClose} aria-label="Fechar"><Icon name="close" size={16}/></button></header>
-    <div className="orchestrator-task-detail-body">
-      <div className="orchestrator-task-detail-badges"><Status status={task.status}/><span className={`priority priority-${task.priority}`}>{task.priority}</span>{task.condition !== 'none' && <span className="condition">{task.condition.replaceAll('_', ' ')}</span>}</div>
-      <p>{task.description || 'Sem descrição adicional.'}</p>
-      {task.acceptance_criteria?.length ? <section><strong>Critérios de conclusão</strong><ul>{task.acceptance_criteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul></section> : null}
-      <section><strong>Dependências</strong><p>{task.depends_on?.length ? task.depends_on.join(', ') : 'Nenhuma dependência.'}</p></section>
-      <section><strong>Execuções</strong>{runs.length ? runs.map((run) => <div className="orchestrator-run" key={run.id}><span>{run.attempt}</span><div><strong>{run.status}</strong><small>{formatDate(run.started_at)}{run.error ? ` · ${run.error}` : ''}</small></div></div>) : <p>Nenhuma execução registrada.</p>}</section>
-    </div>
-    <footer className="orchestrator-task-actions">
-      {task.status === 'READY' && <span role="status">A aguardar um Worker livre</span>}
-      {task.status === 'REVIEW' && <button className="primary" disabled={busy} onClick={() => void onMove(task, 'COMPLETE')}><Icon name="check" size={14}/> Concluir</button>}
-      {task.status === 'PENDING' && <button disabled={busy} onClick={() => void onMove(task, 'READY')}>Enviar para READY</button>}
-      {task.status === 'READY' && <button disabled={busy} onClick={() => void onMove(task, 'PENDING')}>Voltar a pendente</button>}
-      {(task.status === 'COMPLETE' || task.status === 'ARCHIVED') && <button disabled={busy} onClick={() => void onMove(task, 'PENDING')}>Reabrir</button>}
-      {task.status !== 'DOING' && task.status !== 'ARCHIVED' && <button disabled={busy} onClick={() => void onMove(task, 'ARCHIVED')}>Arquivar</button>}
-    </footer>
   </aside></div>
 }
 

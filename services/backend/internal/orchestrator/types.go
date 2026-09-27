@@ -21,6 +21,7 @@ const (
 	TaskReady    TaskStatus = "READY"
 	TaskDoing    TaskStatus = "DOING"
 	TaskReview   TaskStatus = "REVIEW"
+	TaskFailed   TaskStatus = "FAILED"
 	TaskComplete TaskStatus = "COMPLETE"
 	TaskArchived TaskStatus = "ARCHIVED"
 )
@@ -56,29 +57,46 @@ type Plan struct {
 	Status           PlanStatus `json:"status"`
 	PlannerRequestID string     `json:"planner_request_id,omitempty"`
 	Assumptions      []string   `json:"assumptions,omitempty"`
+	ReasoningEffort  string     `json:"reasoning_effort,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 type Task struct {
-	ID                 string        `json:"id"`
-	ProjectPath        string        `json:"project_path"`
-	PlanID             string        `json:"plan_id,omitempty"`
-	Title              string        `json:"title"`
-	Description        string        `json:"description,omitempty"`
-	AcceptanceCriteria []string      `json:"acceptance_criteria,omitempty"`
-	Status             TaskStatus    `json:"status"`
-	Condition          TaskCondition `json:"condition"`
-	Priority           Priority      `json:"priority"`
-	DependsOn          []string      `json:"depends_on,omitempty"`
-	Capability         string        `json:"capability,omitempty"`
-	Complexity         string        `json:"complexity,omitempty"`
-	Parallelizable     bool          `json:"parallelizable"`
-	ImpactFiles        []string      `json:"impact_files,omitempty"`
-	ReadFiles          []string      `json:"read_files,omitempty"`
-	BarrierFiles       []string      `json:"barrier_files,omitempty"`
-	CreatedAt          time.Time     `json:"created_at"`
-	UpdatedAt          time.Time     `json:"updated_at"`
+	ID                 string            `json:"id"`
+	ProjectPath        string            `json:"project_path"`
+	PlanID             string            `json:"plan_id,omitempty"`
+	Title              string            `json:"title"`
+	Description        string            `json:"description,omitempty"`
+	AcceptanceCriteria []string          `json:"acceptance_criteria,omitempty"`
+	Status             TaskStatus        `json:"status"`
+	Condition          TaskCondition     `json:"condition"`
+	Priority           Priority          `json:"priority"`
+	DependsOn          []string          `json:"depends_on,omitempty"`
+	Capability         string            `json:"capability,omitempty"`
+	Complexity         string            `json:"complexity,omitempty"`
+	Parallelizable     bool              `json:"parallelizable"`
+	ImpactFiles        []string          `json:"impact_files,omitempty"`
+	ReadFiles          []string          `json:"read_files,omitempty"`
+	BarrierFiles       []string          `json:"barrier_files,omitempty"`
+	ReasoningEffort    string            `json:"reasoning_effort,omitempty"`
+	RetryContext       *TaskRetryContext `json:"retry_context,omitempty"`
+	CreatedAt          time.Time         `json:"created_at"`
+	UpdatedAt          time.Time         `json:"updated_at"`
+}
+
+type TaskAttachment struct {
+	Name       string `json:"name"`
+	Size       int64  `json:"size"`
+	MIME       string `json:"mime"`
+	StorageRef string `json:"storage_ref"`
+}
+
+type TaskRetryContext struct {
+	Guidance           string           `json:"guidance,omitempty"`
+	ProjectFiles       []string         `json:"project_files,omitempty"`
+	AttachmentCacheKey string           `json:"attachment_cache_key,omitempty"`
+	Attachments        []TaskAttachment `json:"attachments,omitempty"`
 }
 
 type TaskRun struct {

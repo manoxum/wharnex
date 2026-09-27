@@ -142,7 +142,7 @@ func TestTerminalOrchestratorClaimDoesNotRequeueWithoutNewRelease(t *testing.T) 
 		t.Fatalf("terminal release requeued: %#v err=%v", items, err)
 	}
 	updated, err := service.orchestrator.GetTask(ctx, task.ID)
-	if err != nil || updated.Status != orchestrator.TaskPending || updated.Condition != orchestrator.ConditionFailedRun {
+	if err != nil || updated.Status != orchestrator.TaskFailed || updated.Condition != orchestrator.ConditionFailedRun {
 		t.Fatalf("terminal release stayed silently READY: %#v err=%v", updated, err)
 	}
 }

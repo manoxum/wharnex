@@ -13,6 +13,7 @@ import { installNativeSurfaceLifecycleGuard } from './native-surface-lifecycle.m
 import { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { orchestratorCompletionDiagnostic } from './chat-agent-orchestrator-progress.mjs'
 import { executeOrchestratorExecution } from './chat-agent-orchestrator-execution.mjs'
+import { orchestratorRetryInput } from './chat-agent-orchestrator-retry-input.mjs'
 import { registerOrchestratorExecutionDownload } from './chat-agent-orchestrator-execution-download.mjs'
 import { captureChatGPTAgentPage, captureParkedWorkerPage } from './chat-agent-snapshot.mjs'
 import { closeWorkerMonitor, closeWorkerMonitorAfterState, openWorkerMonitor } from './chat-agent-monitor.mjs'
@@ -5795,7 +5796,8 @@ function orchestratorExecutionWorkerRuntime() {
     targetComposer: targetChatGPTComposer, normalizeEffort: normalizeChatGPTReasoningEffort,
     buildRequest: async (key, current) => {
       const metadata = { chat_id: current.chat_id, requested_at: new Date().toISOString() }
-      const input = await materializeChatInput(key, current.agent_session_id, current.request_id, [], [], current.prompt, true, [], metadata, undefined, current.chat_id)
+      const retry = await orchestratorRetryInput(current.task, (ref) => readStoredAttachment(chatAttachmentRoot(), ref))
+      const input = await materializeChatInput(key, current.agent_session_id, current.request_id, retry.attachments, [], current.prompt, true, retry.projectFiles, metadata, undefined, current.chat_id)
       return { ...input,
         bootstrap: localChatInputBootstrap(current.request_id, input.archiveName, current.expected_filename, [], input.requestMetadata, input.multipart),
         cleanup: () => rm(path.dirname(input.archivePath), { recursive: true, force: true }).catch(() => undefined),

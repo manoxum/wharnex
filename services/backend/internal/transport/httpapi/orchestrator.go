@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"kernl.local/harness/backend/internal/app"
+	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/orchestrator"
 )
 
@@ -164,6 +165,34 @@ func (a *API) orchestratorTransitionTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+func (a *API) orchestratorTaskEffort(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ReasoningEffort domain.ReasoningEffort `json:"reasoning_effort"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	task, err := a.service.SetOrchestratorTaskEffort(r.Context(), r.PathValue("id"), r.PathValue("task_id"), body.ReasoningEffort)
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_effort_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (a *API) orchestratorRetryTask(w http.ResponseWriter, r *http.Request) {
+	var input orchestrator.TaskRetryContext
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	task, err := a.service.RetryOrchestratorTask(r.Context(), r.PathValue("id"), r.PathValue("task_id"), input)
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_retry_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
 }
 
 func (a *API) orchestratorStartTask(w http.ResponseWriter, r *http.Request) {

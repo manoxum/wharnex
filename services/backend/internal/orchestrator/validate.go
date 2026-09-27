@@ -8,7 +8,7 @@ import (
 
 func ValidTaskStatus(status TaskStatus) bool {
 	switch status {
-	case TaskPending, TaskWaiting, TaskReady, TaskDoing, TaskReview, TaskComplete, TaskArchived:
+	case TaskPending, TaskWaiting, TaskReady, TaskDoing, TaskReview, TaskFailed, TaskComplete, TaskArchived:
 		return true
 	default:
 		return false
@@ -104,7 +104,7 @@ func ValidateTaskGraph(tasks []Task) error {
 }
 
 func EvaluateReadiness(task Task, tasks []Task, plan PlanStatus) (TaskStatus, TaskCondition) {
-	if task.Status == TaskArchived || task.Status == TaskDoing || task.Status == TaskReview || task.Status == TaskComplete {
+	if task.Status == TaskArchived || task.Status == TaskDoing || task.Status == TaskReview || task.Status == TaskComplete || task.Status == TaskFailed {
 		return task.Status, task.Condition
 	}
 	if task.PlanID != "" && plan != PlanActive && plan != PlanCompleted {
@@ -114,16 +114,19 @@ func EvaluateReadiness(task Task, tasks []Task, plan PlanStatus) (TaskStatus, Ta
 	for _, candidate := range tasks {
 		byID[candidate.ID] = candidate
 	}
-	for _, dependency := range task.DependsOn {
-		candidate, exists := byID[dependency]
-		if !exists || candidate.Status != TaskComplete {
-			return TaskWaiting, ConditionDependency
-		}
-	}
 	if task.Condition == ConditionManualPause || task.Condition == ConditionMissingContext || task.Condition == ConditionApproval || task.Condition == ConditionConflict || task.Condition == ConditionFailedRun || task.Condition == ConditionStaleDependency {
 		return TaskPending, task.Condition
 	}
-	if task.Status == TaskReady {
+	if task.Status == TaskPending && task.Condition == ConditionNone {
+		return TaskPending, ConditionNone
+	}
+	for _, dependency := range task.DependsOn {
+		candidate, exists := byID[dependency]
+		if !exists || (candidate.Status != TaskReview && candidate.Status != TaskComplete) {
+			return TaskWaiting, ConditionDependency
+		}
+	}
+	if task.Status == TaskReady || task.Status == TaskWaiting || task.Condition == ConditionPlanApproval {
 		return TaskReady, ConditionNone
 	}
 	return TaskPending, ConditionNone

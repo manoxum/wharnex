@@ -134,6 +134,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     /> : <OrchestratorTasks
       session={session}
       overview={overview}
+      chatProps={chatProps}
       selectedTask={selectedTask}
       busy={busy}
       onSelectedTask={setSelectedTask}

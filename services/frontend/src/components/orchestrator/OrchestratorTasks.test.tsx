@@ -39,3 +39,18 @@ it('releases PENDING explicitly and shows READY as waiting for a Worker', async 
   expect(screen.getByText('A aguardar um Worker livre')).not.toBeNull()
   expect(screen.queryByRole('button', { name: 'Iniciar no Agent' })).toBeNull()
 })
+
+it('hides archived cards in Kanban and offers a failed task retry with effort control', async () => {
+  const failed = { ...task('Failed', 'FAILED'), condition: 'failed_run' as const }
+  const archived = task('Archived', 'ARCHIVED')
+  const overview: OrchestratorOverview = { plans: [], tasks: [failed, archived], planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 }
+  const retry = vi.spyOn(api, 'retryOrchestratorTask').mockResolvedValue({ ...failed, status: 'READY' })
+  const setEffort = vi.spyOn(api, 'setOrchestratorTaskEffort').mockResolvedValue({ ...failed, reasoning_effort: 'medium' })
+  vi.spyOn(api, 'orchestratorTaskRuns').mockResolvedValue({ runs: [] })
+  render(<OrchestratorTasks session={session} overview={overview} selectedTask={failed} busy={false} onSelectedTask={vi.fn()} onRun={async <T,>(action: () => Promise<T>) => action()}/>)
+  expect(screen.queryByText('Archived')).toBeNull()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Nível de raciocínio da tarefa' }), { target: { value: 'medium' } })
+  await waitFor(() => expect(setEffort).toHaveBeenCalledWith(session.id, failed.id, 'medium'))
+  fireEvent.click(screen.getByRole('button', { name: 'Reenviar sem contexto' }))
+  await waitFor(() => expect(retry).toHaveBeenCalledWith(session.id, failed.id, { guidance: '', project_files: [], attachment_cache_key: undefined, attachments: undefined }))
+})

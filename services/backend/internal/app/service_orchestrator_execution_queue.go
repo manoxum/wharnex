@@ -61,7 +61,7 @@ func (s *Service) enqueueReadyOrchestratorTask(ctx context.Context, owner domain
 				return err
 			}
 			if current.Status == orchestrator.TaskReady && current.UpdatedAt.Equal(task.UpdatedAt) {
-				current.Status = orchestrator.TaskPending
+				current.Status = orchestrator.TaskFailed
 				current.Condition = orchestrator.ConditionFailedRun
 				current.UpdatedAt = time.Now().UTC()
 				return s.orchestrator.PutTask(ctx, current)
