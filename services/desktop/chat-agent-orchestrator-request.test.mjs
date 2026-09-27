@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { orchestratorRequestBootstrap, orchestratorRequestFilename, writeOrchestratorRequestBundle } from './chat-agent-orchestrator-request.mjs'
+import { normalizeOrchestratorResultFilename, orchestratorRequestBootstrap, orchestratorRequestFilename, writeOrchestratorRequestBundle } from './chat-agent-orchestrator-request.mjs'
 
 const requestId = 'orp_20260927T120000_0123456789abcdef'
 
@@ -57,4 +57,11 @@ test('orchestrator request rejects unsafe attachment names and mismatched output
     }), /attachment name is invalid/)
     assert.throws(() => orchestratorRequestBootstrap(requestId, 'other.zip'), /result filename/)
   } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('orchestrator result capture tolerates only Chromium duplicate ZIP suffixes', () => {
+  const name = 'whx_bundle_res_orchestrator_' + requestId + '.zip'
+  assert.equal(normalizeOrchestratorResultFilename(name), name)
+  assert.equal(normalizeOrchestratorResultFilename(name.replace('.zip', ' (2).zip')), name)
+  assert.notEqual(normalizeOrchestratorResultFilename(name.replace('.zip', ' (0).zip')), name)
 })

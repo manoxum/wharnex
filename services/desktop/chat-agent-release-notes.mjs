@@ -90,7 +90,7 @@ export async function executeReleaseNotesBundleTask(task, entry, key, payload, r
   download.catch(() => undefined)
   const expected = { taskId: task.task_id, key, filename: input.filename, armedAt: Date.now(), resolve: resolveDownload, reject: rejectDownload }
   runtime.expectedDownloads.set(input.filename, expected); runtime.reconcile(key, entry)
-  if (Number(task.attempt || 0) > 0) {
+  if (Number(task.attempt || 0) > 1) {
     const { wc } = runtime.requireEntry(key, entry); await runtime.pace(); wc.reload(); await runtime.waitSurfaceReady(key, entry)
   }
   let conversationUrl = ''
