@@ -31,19 +31,27 @@ export function QuickSwitcher({ compact = true }: { compact?: boolean }) {
   useEffect(() => subscribeUIPreferences(setPreferences), [])
   useEffect(() => subscribeOtherHeaderPopover('appearance', () => setOpen(false)), [])
   useEffect(() => {
+    const closePopup = () => setOpen(false)
+    const insideSwitcher = (target: EventTarget | null) => target instanceof Node && Boolean(rootRef.current?.contains(target))
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.altKey && event.key.toLowerCase() === 'q') {
         event.preventDefault()
         if (!open) announceHeaderPopover('appearance')
         setOpen((current) => !current)
-      } else if (event.key === 'Escape') setOpen(false)
+      } else if (event.key === 'Escape') closePopup()
     }
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false)
+    const onPointerDown = (event: PointerEvent) => { if (!insideSwitcher(event.target)) closePopup() }
+    const onFocusIn = (event: FocusEvent) => { if (!insideSwitcher(event.target)) closePopup() }
+    window.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('focusin', onFocusIn, true)
+    window.addEventListener('blur', closePopup)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('focusin', onFocusIn, true)
+      window.removeEventListener('blur', closePopup)
     }
-    window.addEventListener('keydown', onKeyDown)
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => { window.removeEventListener('keydown', onKeyDown); document.removeEventListener('pointerdown', onPointerDown) }
   }, [open])
 
   function update(next: Partial<UIPreferences>) { setPreferences(saveUIPreferences({ ...preferences, ...next })) }

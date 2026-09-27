@@ -10,15 +10,20 @@ const item: AttentionItem = {
 describe('AttentionPopover', () => {
   it('dismisses on Escape and outside pointer presses without treating the bell trigger as outside', () => {
     const onClose = vi.fn()
-    const view = render(<><button data-attention-trigger="true">Bell</button><AttentionPopover items={[item]} activeChatId="chat-1" busy={false} onOpen={async () => undefined} onAction={async () => undefined} onOpenAll={vi.fn()} onClose={onClose}/><button>Outside</button></>)
+    const view = render(<><button data-attention-trigger="true">Bell</button><AttentionPopover items={[item]} activeChatId="chat-1" busy={false} onOpen={async () => undefined} onAction={async () => undefined} onOpenAll={vi.fn()} onClose={onClose}/><button onPointerDown={(event) => event.stopPropagation()}>Outside</button></>)
+    const outside = screen.getByRole('button', { name: 'Outside' })
 
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Bell' }))
     expect(onClose).not.toHaveBeenCalled()
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }))
+    fireEvent.pointerDown(outside)
     expect(onClose).toHaveBeenCalledTimes(1)
+    fireEvent.focusIn(outside)
+    expect(onClose).toHaveBeenCalledTimes(2)
+    fireEvent(window, new Event('blur'))
+    expect(onClose).toHaveBeenCalledTimes(3)
 
     view.rerender(<AttentionPopover items={[item]} activeChatId="chat-1" busy={false} onOpen={async () => undefined} onAction={async () => undefined} onOpenAll={vi.fn()} onClose={onClose}/>)
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(onClose).toHaveBeenCalledTimes(2)
+    expect(onClose).toHaveBeenCalledTimes(4)
   })
 })
