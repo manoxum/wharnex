@@ -54,7 +54,7 @@ import { createManualChatGPTTransport } from './manual-chatgpt-transport.mjs'
 import { withChatGPTNavigationDeadline } from './chatgpt-navigation-timeout.mjs'
 import { classifyChatGPTRequestDelivery } from './chatgpt-request-delivery.mjs'
 import { executeReleaseNotesBundleTask, registerReleaseNotesBundleDownload } from './chat-agent-release-notes.mjs'
-import { orchestratorRequestFilename, writeOrchestratorRequestBundle } from './chat-agent-orchestrator-request.mjs'
+import { normalizeOrchestratorResultFilename, orchestratorRequestFilename, writeOrchestratorRequestBundle } from './chat-agent-orchestrator-request.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_INSTANCE = process.env.WHARNESS_INSTANCE_ID
@@ -2056,7 +2056,7 @@ async function takeRetainedChatGPTOrchestratorPlan(filename) {
 }
 
 function registerChatGPTOrchestratorPlanDownload(item, sourceFilename) {
-  const filename = path.basename(String(sourceFilename || ''))
+  const filename = normalizeOrchestratorResultFilename(sourceFilename)
   const expected = expectedChatGPTOrchestratorPlans.get(filename)
   const parsedBundle = parseBundleName(filename)
   const looksInternal = /^whx_orchestrator_plan_cat_[a-f0-9]{20}\.json$/.test(filename)
@@ -3039,6 +3039,13 @@ function hideChatAgentInteractionsForWindow(windowState) {
 
 function showChatAgentInteraction(agentID, rawBounds, windowState) {
   const entry = workerEntryForAgentID(agentID)
+  // The drawer's live pane is only 340px high and often narrower than 500px.
+  // Showing a running Worker there changes ChatGPT to its compact layout while
+  // the same renderer is being scraped. Claims already wait while interaction
+  // is open; close the converse race before changing the active task's viewport.
+  if (chatAgentWorkerStates.get(Number(entry.slotId.slice(7)))?.task) {
+    throw new Error('Este Worker está a executar uma tarefa. Capture uma imagem ou aguarde antes de interagir diretamente.')
+  }
   const bounds = normalizeBounds(rawBounds, windowState?.window?.getContentBounds?.())
   if (!bounds) throw new Error('Worker interaction bounds are invalid')
   const active = String(windowState.activeAgentInteractionId || '')

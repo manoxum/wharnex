@@ -774,7 +774,8 @@ test('the two pools partition the durable queue: Supervisors take chat-bound wor
   // remains checked above and after navigation, but no Worker pacer is touched.
   assert.doesNotMatch(execute, /paceChatGPTWorker(?:Navigation|Submission)/)
   assert.match(execute, /executeChatAgentWrite\(task, entry, key, payload, conversationURL, \{ pacedWorker: false \}\)/)
-  assert.match(execute, /executeChatAgentOrchestratorPlan\(task, entry, key, payload, owner, \{ pacedWorker: false \}\)/)
+  assert.doesNotMatch(execute, /executeChatAgentOrchestratorPlan/)
+  assert.match(source, /case 'ORCHESTRATOR_PLAN': return executeChatAgentOrchestratorPlan\(task, entry, key, payload, owner\)/)
   // Every slot still finishing a request is a free wait, never a charged attempt.
   assert.match(execute, /status: 'waiting', delayMs: CHAT_SUPERVISOR_SLOT_WAIT_MS, observation: true/)
 })
@@ -1067,6 +1068,16 @@ test('agent browser snapshots park hidden workers into a real layout viewport', 
   assert.match(snapshot, /ensureChatGPTLayoutViewport\(layoutKey, entry\)/)
   assert.match(snapshot, /await captureChatGPTAgentPage\(wc\)/)
   assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor' \? supervisorKey/)
+})
+
+test('a running Worker cannot be resized into the narrow interaction pane', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('function showChatAgentInteraction(')
+  const interaction = source.slice(start, source.indexOf('\nfunction setChatAgentInteractionBounds(', start))
+  assert.match(interaction, /chatAgentWorkerStates\.get\(Number\(entry\.slotId\.slice\(7\)\)\)\?\.task/)
+  assert.match(interaction, /throw new Error/)
+  const claim = source.slice(source.indexOf('claimOptions: (worker) => {'), source.indexOf('    onIdle: (worker) => {'))
+  assert.match(claim, /entry\.interactionWindowId/)
 })
 
 // capturePage() reads the compositor's last presented frame, and a view that
@@ -2709,11 +2720,9 @@ test('an expired ChatGPT artifact is re-requested instead of clicked forever', a
   // so exhaustion clears the checkpoint and the next attempt starts fresh
   // instead of resuming the same dead conversation until the budget runs out.
   assert.match(worker, /conversation_url: '', expected_filename: '', assistant_baseline: 0/)
-  assert.match(worker, /orchestratorPlanInstruction\(prompt, filename, true\)/)
-  const instruction = source.slice(source.indexOf('function orchestratorPlanInstruction('), source.indexOf('\n// Validate and import one orchestrator plan artifact'))
-  assert.match(instruction, /Do not re-plan and do not change the plan/)
-  // One definition, so a re-request cannot ask for something else.
-  assert.match(worker, /orchestratorPlanInstruction\(prompt, filename, false\)/)
+  assert.match(worker, /writeOrchestratorRequestBundle\(requestPath, \{/)
+  assert.match(worker, /redelivery: true/)
+  assert.match(worker, /pasteChatGPTFile\(target\.entry, requestPath, 1, 1/)
 })
 
 test('orchestrator planning delivers the project standard response bundle', async () => {
@@ -2738,9 +2747,9 @@ test('orchestrator planning delivers the project standard response bundle', asyn
   assert.match(upload.slice(0, 900), /'Content-Type': 'application\/zip'/)
   assert.doesNotMatch(worker, /JSZip|unzip|inflate/i)
 
-  const instruction = source.slice(source.indexOf('function orchestratorPlanInstruction('), source.indexOf('\n// Validate and import one orchestrator plan artifact'))
-  assert.match(instruction, /BUNDLE ONLY/)
-  assert.match(instruction, /single UTF-8 entry named exactly plan\.json/)
+  const request = await readFile(new URL('./chat-agent-orchestrator-request.mjs', import.meta.url), 'utf8')
+  assert.match(request, /BUNDLE ONLY/)
+  assert.match(request, /one UTF-8 plan\.json/)
 })
 
 test('orchestrator planning carries shared-composer context and attachments into ChatGPT', async () => {
@@ -2751,11 +2760,11 @@ test('orchestrator planning carries shared-composer context and attachments into
   assert.match(worker, /const includeContext = payload\.include_context === true/)
   assert.match(worker, /storedAttachmentPath\(chatAttachmentRoot\(\), String\(attachment\?\.storage_ref \|\| ''\)\)/)
   assert.match(worker, /const generatedAttachments = Array\.isArray\(payload\.generated_attachments\)/)
-  assert.match(worker, /const attachmentDir = path\.join\(dir, `generated-\$\{index \+ 1\}`\)/)
-  assert.match(worker, /const filePath = path\.join\(attachmentDir, name\)/)
+  assert.match(worker, /requestAttachments\.push\(\{ name, bytes \}\)/)
   assert.match(worker, /generatedAttachmentBytes > 2 \* 1024 \* 1024/)
-  assert.match(worker, /const context = await fetchContextZip\(sessionId\)/)
-  assert.match(worker, /await pasteChatGPTFile\(target\.entry, uploadPaths\[index\], index \+ 1, uploadPaths\.length, \{ pacedWorker \}\)/)
+  assert.match(worker, /contextBytes = includeContext \? \(await fetchContextZip\(sessionId\)\)\.bytes/)
+  assert.match(worker, /writeOrchestratorRequestBundle\(requestPath, \{/)
+  assert.match(worker, /await pasteChatGPTFile\(target\.entry, requestPath, 1, 1, \{ pacedWorker \}\)/)
   assert.match(worker, /removeStoredChatAttachments\(chatAttachmentRoot\(\), attachmentCacheKey\)/)
 })
 
