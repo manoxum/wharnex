@@ -300,7 +300,8 @@ func (s *Service) RetryOrchestratorPlanning(sessionID, requestID string) (orches
 		return orchestrator.PlanningRequest{}, fmt.Errorf("decode orchestrator planning request: %w", err)
 	}
 	payload["session_id"] = sessionID
-	payload["reasoning_effort"] = string(normalizeReasoningEffort(item.ReasoningEffort))
+	// A retry belongs to the original planning request and retains its selected
+	// effort even if the operator later changes the session default.
 	// The checkpoint belongs to the attempt that wrote it, not to the request.
 	// Its expected filename is derived from that task's own id, so carrying it
 	// into a retry makes the new task fail its own filename check immediately
@@ -326,48 +327,6 @@ func (s *Service) RetryOrchestratorPlanning(sessionID, requestID string) (orches
 		"project_path": item.ProjectPath, "request_id": requestID, "worker_task_id": retried.TaskID,
 	})
 	return orchestratorPlanningRequest(retried), nil
-}
-
-func (s *Service) persistOrchestratorProposal(ctx context.Context, sessionID, projectPath, requestID string, proposal orchestrator.Proposal) (OrchestratorProposalResult, error) {
-	if err := orchestrator.ValidateProposal(proposal); err != nil {
-		return OrchestratorProposalResult{}, err
-	}
-	now := time.Now().UTC()
-	plan := orchestrator.Plan{
-		ID: ids.New("opl"), ProjectPath: projectPath, Title: strings.TrimSpace(proposal.Title),
-		Objective: strings.TrimSpace(proposal.Objective), Status: orchestrator.PlanDraft,
-		PlannerRequestID: requestID, Assumptions: append([]string(nil), proposal.Assumptions...), CreatedAt: now, UpdatedAt: now,
-	}
-	idMap := make(map[string]string, len(proposal.Tasks))
-	for _, candidate := range proposal.Tasks {
-		idMap[candidate.ID] = ids.New("otk")
-	}
-	tasks := make([]orchestrator.Task, 0, len(proposal.Tasks))
-	for _, candidate := range proposal.Tasks {
-		dependencies := make([]string, 0, len(candidate.DependsOn))
-		for _, dependency := range candidate.DependsOn {
-			dependencies = append(dependencies, idMap[dependency])
-		}
-		priority := candidate.Priority
-		if priority == "" {
-			priority = orchestrator.PriorityNormal
-		}
-		tasks = append(tasks, orchestrator.Task{
-			ID: idMap[candidate.ID], ProjectPath: projectPath, PlanID: plan.ID,
-			Title: candidate.Title, Description: candidate.Description,
-			AcceptanceCriteria: append([]string(nil), candidate.AcceptanceCriteria...),
-			Status:             orchestrator.TaskPending, Condition: orchestrator.ConditionPlanApproval,
-			Priority: priority, DependsOn: dependencies, Capability: candidate.Capability,
-			Complexity: candidate.Complexity, Parallelizable: candidate.Parallelizable,
-			ImpactFiles: append([]string(nil), candidate.ImpactFiles...), ReadFiles: append([]string(nil), candidate.ReadFiles...),
-			BarrierFiles: append([]string(nil), candidate.BarrierFiles...), CreatedAt: now, UpdatedAt: now,
-		})
-	}
-	if err := s.orchestrator.CreatePlan(ctx, plan, tasks); err != nil {
-		return OrchestratorProposalResult{}, err
-	}
-	s.bus.Publish(sessionID, "orchestrator.plan_proposed", map[string]any{"project_path": projectPath, "plan_id": plan.ID, "request_id": requestID, "tasks": len(tasks)})
-	return OrchestratorProposalResult{RequestID: requestID, Plan: &plan, Tasks: tasks}, nil
 }
 
 func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (orchestrator.Overview, error) {

@@ -1,6 +1,6 @@
-# Wharness Domain
+# Wharnex Domain
 
-Wharness coordinates durable AI-assisted project work while keeping planning, execution, and host mutation explicitly separated.
+Wharnex coordinates durable AI-assisted project work while keeping planning, execution, and host mutation explicitly separated.
 
 ## Language
 
@@ -27,3 +27,15 @@ _Avoid_: Retry, random follow-up
 **Retained ChangeSet Conflict**:
 A conflict raised when a previously verified Protected candidate can no longer be replayed onto the current project baseline.
 _Avoid_: Planner failure, generic repair failure
+
+**Orchestrator Task**:
+A durable unit of planned project work with explicit dependencies and its own run history.
+_Avoid_: Browser Worker lease, Main Request
+
+**Orchestrator Readiness**:
+`PENDING` is a manual hold, `WAITING` has an unmet dependency, and `READY` may be claimed by a Worker.
+_Avoid_: Treating a queued Worker lease as task readiness
+
+**Orchestrator Failure**:
+`FAILED` is a terminal run outcome that retains its error until the user explicitly retries the task.
+_Avoid_: Returning a failed run to `PENDING`

@@ -102,6 +102,9 @@ func (s *Service) SubmitOrchestratorWorkerBundle(ctx context.Context, sessionID,
 	if err := s.reconcileOrchestratorWorkerRun(ctx, taskID); err != nil {
 		return OrchestratorWorkerRequest{}, err
 	}
+	if _, err := s.OrchestratorOverview(ctx, sessionID); err != nil {
+		return OrchestratorWorkerRequest{}, err
+	}
 	return s.orchestratorWorkerRequest(ctx, taskID)
 }
 
@@ -126,15 +129,36 @@ func (s *Service) reconcileOrchestratorWorkerRun(ctx context.Context, taskID str
 	case "applied", "verified", "restart_pending", "ready":
 		task.Status, task.Condition, run.Status = orchestrator.TaskReview, orchestrator.ConditionNone, "review"
 	case "failed", "blocked", "cancelled":
-		task.Status, task.Condition, run.Status = orchestrator.TaskPending, orchestrator.ConditionFailedRun, "failed"
+		task.Status, task.Condition, run.Status = orchestrator.TaskFailed, orchestrator.ConditionFailedRun, "failed"
 		run.Error = agent.LastRepairError
 	default:
-		return nil
+		workers, listErr := s.store.ListChatAgentTasks(session.ChatAgentTaskFilter{ProjectID: task.ProjectPath, ChatID: task.ID, Type: "ORCHESTRATOR_EXECUTE", Limit: 100})
+		if listErr != nil {
+			return listErr
+		}
+		var failed *session.ChatAgentTask
+		for index := range workers {
+			candidate := &workers[index]
+			if orchestratorExecutionClaimPriority(candidate.Status) > 0 {
+				return nil
+			}
+			if candidate.Status == session.ChatAgentTaskFailed && (failed == nil || candidate.CreatedAt.After(failed.CreatedAt)) {
+				failed = candidate
+			}
+		}
+		if failed == nil {
+			return nil
+		}
+		task.Status, task.Condition, run.Status = orchestrator.TaskFailed, orchestrator.ConditionFailedRun, "failed"
+		run.Error = failed.LastError
 	}
 	now := time.Now().UTC()
 	task.UpdatedAt, run.CompletedAt = now, &now
 	if err := s.orchestrator.PutTask(ctx, task); err != nil {
 		return err
 	}
-	return s.orchestrator.AppendRun(ctx, run)
+	if err := s.orchestrator.AppendRun(ctx, run); err != nil {
+		return err
+	}
+	return s.recalculateOrchestratorTasks(ctx, task.ProjectPath)
 }

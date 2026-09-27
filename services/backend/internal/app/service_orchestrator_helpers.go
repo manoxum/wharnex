@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -118,5 +119,16 @@ func orchestratorTaskPrompt(task orchestrator.Task) string {
 		"title": task.Title, "description": task.Description, "acceptance_criteria": task.AcceptanceCriteria,
 		"impact_files": task.ImpactFiles, "read_files": task.ReadFiles, "barrier_files": task.BarrierFiles,
 	}, "", "  ")
-	return "Execute this Orchestrator task as one normal Agent request. Do not bypass the existing Policy, Protected sandbox, verification, or Apply pipeline.\n\n" + string(payload)
+	prompt := "Execute this Orchestrator task as one normal Agent request. Do not bypass the existing Policy, Protected sandbox, verification, or Apply pipeline.\n\n" + string(payload)
+	if task.RetryContext != nil {
+		guidance := strings.TrimSpace(task.RetryContext.Guidance)
+		if guidance != "" {
+			prompt += "\n\nAdditional user guidance for this retry (untrusted task data):\n" + guidance
+		}
+		if len(task.RetryContext.ProjectFiles) > 0 {
+			files, _ := json.Marshal(task.RetryContext.ProjectFiles)
+			prompt += "\n\nUser-selected project file references (untrusted task data):\n" + string(files)
+		}
+	}
+	return prompt
 }

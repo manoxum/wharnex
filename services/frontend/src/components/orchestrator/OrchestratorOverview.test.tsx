@@ -67,7 +67,7 @@ afterEach(() => {
 describe('OrchestratorOverview planning queue', () => {
   it('keeps a failed execution visible and selectable beyond the five recent tasks', () => {
     const failed = {
-      id: 'otk-failed', project_path: session.project_path, title: 'Recompor cards', status: 'PENDING' as const,
+      id: 'otk-failed', project_path: session.project_path, title: 'Recompor cards', status: 'FAILED' as const,
       condition: 'failed_run' as const, priority: 'normal' as const, parallelizable: false,
       created_at: '2026-09-12T14:00:00.000Z', updated_at: '2026-09-12T14:01:00.000Z',
     }

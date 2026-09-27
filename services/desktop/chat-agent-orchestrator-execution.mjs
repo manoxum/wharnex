@@ -60,7 +60,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
   const taskID = String(payload.task_id || '')
   const credentials = { worker_task_id: task.task_id, owner }
   const current = await workerRequest(runtime.baseURL, sessionID, taskID, 'worker-start', credentials)
-  if (current.task?.status === 'REVIEW' || current.task?.status === 'COMPLETE') return { status: 'done' }
+  if (current.task?.status === 'REVIEW' || current.task?.status === 'COMPLETE' || current.task?.status === 'FAILED') return { status: 'done' }
   if (!activeRequest(current)) return { status: 'waiting', delayMs: 30_000, observation: true, error: `Agent state ${String(current.agent_state || 'unknown')}` }
   if (!current.prompt) return { status: 'waiting', delayMs: 30_000, observation: true, error: 'Agent request is awaiting another boundary' }
 
@@ -99,7 +99,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
         const result = await workerRequest(runtime.baseURL, sessionID, taskID, 'worker-bundle', {
           ...credentials, filename: current.expected_filename, content_base64: Buffer.from(outcome.value).toString('base64'),
         }, runtime.postBundle)
-        if (result.task?.status === 'REVIEW' || result.task?.status === 'COMPLETE' || result.task?.status === 'PENDING') return { status: 'done' }
+        if (result.task?.status === 'REVIEW' || result.task?.status === 'COMPLETE' || result.task?.status === 'FAILED') return { status: 'done' }
         return { status: 'waiting', delayMs: 3_000, error: 'Agent continuation is ready' }
       }
       const health = await runtime.health(key, target.entry)

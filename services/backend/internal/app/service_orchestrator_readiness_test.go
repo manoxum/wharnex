@@ -41,15 +41,14 @@ func TestOrchestratorApprovalReadinessAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, second := taskByTitle(t, overview.Tasks, "Backend"), taskByTitle(t, overview.Tasks, "Frontend")
-	if first.Status != orchestrator.TaskPending || first.Condition != orchestrator.ConditionNone || second.Status != orchestrator.TaskWaiting || second.Condition != orchestrator.ConditionDependency {
+	if first.Status != orchestrator.TaskReady || first.Condition != orchestrator.ConditionNone || second.Status != orchestrator.TaskWaiting || second.Condition != orchestrator.ConditionDependency {
 		t.Fatalf("approval readiness mismatch: first=%#v second=%#v", first, second)
 	}
-	first, err = service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskReady)
-	if err != nil || first.Status != orchestrator.TaskReady {
-		t.Fatalf("manual release did not make task claimable: %#v %v", first, err)
+	first.Status, first.Condition = orchestrator.TaskReview, orchestrator.ConditionNone
+	if err := service.orchestrator.PutTask(context.Background(), first); err != nil {
+		t.Fatal(err)
 	}
-	first, err = service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskComplete)
-	if err != nil {
+	if err := service.recalculateOrchestratorTasks(context.Background(), started.ProjectPath); err != nil {
 		t.Fatal(err)
 	}
 	overview, err = service.OrchestratorOverview(context.Background(), started.ID)
@@ -57,12 +56,11 @@ func TestOrchestratorApprovalReadinessAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	second = taskByTitle(t, overview.Tasks, "Frontend")
-	if second.Status != orchestrator.TaskPending || second.Condition != orchestrator.ConditionNone {
-		t.Fatalf("completed dependency did not release downstream task: %#v", second)
+	if second.Status != orchestrator.TaskReady || second.Condition != orchestrator.ConditionNone {
+		t.Fatalf("successful reviewed dependency did not release downstream task: %#v", second)
 	}
-	second, err = service.TransitionOrchestratorTask(context.Background(), started.ID, second.ID, orchestrator.TaskReady)
-	if err != nil || second.Status != orchestrator.TaskReady {
-		t.Fatalf("downstream task could not be released: %#v %v", second, err)
+	if _, err := service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskComplete); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskPending); err != nil {
 		t.Fatal(err)
