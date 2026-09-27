@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { desktopBridge } from '../lib/desktop'
 import { Icon } from './Icon'
 
-type CloseAction = 'background' | 'close-project' | 'close-all' | 'cancel'
+type CloseAction = 'background' | 'close-window' | 'close-all' | 'cancel'
 type ClosePrompt = { projectPath: string; projectName: string; hasProject: boolean }
 
 export function DesktopCloseDialogHost() {
@@ -74,9 +74,9 @@ export function DesktopCloseDialogHost() {
           <span><strong>Continuar em background</strong><small>Mantém projetos e agentes ativos no ícone da área de notificação.</small></span>
           <em>Recomendado</em>
         </button>
-        <button type="button" className="desktop-close-option" aria-label={prompt.hasProject ? 'Fechar projeto atual' : 'Fechar esta janela'} disabled={busy} onClick={() => void choose('close-project')}>
+        <button type="button" className="desktop-close-option" aria-label="Fechar esta janela" disabled={busy} onClick={() => void choose('close-window')}>
           <span className="desktop-close-option-icon"><Icon name="workspace" size={18}/></span>
-          <span><strong>{prompt.hasProject ? 'Fechar projeto atual' : 'Fechar esta janela'}</strong><small>{prompt.hasProject ? 'Liberta este workspace sem encerrar os outros projetos.' : 'Fecha somente esta janela do Wharnex.'}</small></span>
+          <span><strong>Fechar esta janela</strong><small>{prompt.hasProject ? 'Fecha a janela e liberta todos os projetos vinculados a ela.' : 'Fecha somente esta janela do Wharnex.'}</small></span>
           <Icon name="chevron-right" size={15}/>
         </button>
         <button type="button" className="desktop-close-option danger" aria-label="Guardar sessão e sair" disabled={busy} onClick={() => void choose('close-all')}>

@@ -41,13 +41,13 @@ describe('DesktopCloseDialogHost', () => {
     expect(dialog.getAttribute('aria-modal')).toBe('true')
     expect(dialog.parentElement?.getAttribute('data-chatgpt-overlay-blocker')).toBe('true')
     expect(dialog.textContent).toContain('Continuar em background')
-    expect(dialog.textContent).toContain('Fechar projeto atual')
+    expect(dialog.textContent).toContain('Fechar esta janela')
     expect(dialog.textContent).toContain('Guardar sessão e sair')
   })
 
   it.each([
     ['Continuar em background', 'background'],
-    ['Fechar projeto atual', 'close-project'],
+    ['Fechar esta janela', 'close-window'],
     ['Guardar sessão e sair', 'close-all'],
     ['Cancelar', 'cancel'],
   ])('sends %s through the trusted close channel', async (label, action) => {

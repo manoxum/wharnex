@@ -16,7 +16,7 @@ test('desktop tray owns background lifecycle, project controls and recoverable s
   assert.match(tray, /label: `Túneis/)
 
   const closePrompt = await readFile(new URL('./desktop-window-close-prompt.mjs', import.meta.url), 'utf8')
-  assert.match(closePrompt, /buttons: \['Enviar para background', subject \? 'Fechar projeto atual' : 'Fechar janela', 'Fechar todos os projetos', 'Abortar operação'\]/)
+  assert.match(closePrompt, /buttons: \['Enviar para background', 'Fechar esta janela', 'Fechar todos os projetos', 'Abortar operação'\]/)
   assert.match(source, /fallback: \(windowState, descriptor\) => nativeWindowCloseChoice\(dialog, windowState\.window, descriptor\)/)
   assert.match(source, /persistDesktopRecoverySession\(\)/)
 

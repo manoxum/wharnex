@@ -888,7 +888,6 @@ const desktopWindowClose = createDesktopWindowCloseCoordinator({
     windowState.window.hide()
     ensureDesktopTray()
   },
-  closeProject: (projectPath) => requestProjectClose(projectPath),
   closeWindow: (windowState) => windowState.window.destroy(),
   closeAll: () => setTimeout(() => { void requestFullDesktopQuit() }, 0),
 })
