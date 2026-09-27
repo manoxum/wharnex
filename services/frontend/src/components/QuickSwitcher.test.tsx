@@ -29,6 +29,24 @@ describe('QuickSwitcher', () => {
     expect(preferences.contentScheme).toBe('light')
     expect(preferences.density).toBe('compact')
   })
+  it('dismisses on captured outside interaction, focus changes and window blur', () => {
+    render(<><button type="button" data-testid="outside" onPointerDown={(event) => event.stopPropagation()}>Outside</button><QuickSwitcher /></>)
+    const trigger = screen.getByRole('button', { name: 'Aparência rápida' })
+    const outside = screen.getByTestId('outside')
+
+    fireEvent.click(trigger)
+    fireEvent.pointerDown(outside)
+    expect(screen.queryByRole('dialog', { name: 'Aparência rápida' })).toBeNull()
+
+    fireEvent.click(trigger)
+    fireEvent.focusIn(outside)
+    expect(screen.queryByRole('dialog', { name: 'Aparência rápida' })).toBeNull()
+
+    fireEvent.click(trigger)
+    fireEvent(window, new Event('blur'))
+    expect(screen.queryByRole('dialog', { name: 'Aparência rápida' })).toBeNull()
+  })
+
   it('closes when another header popover is opened', () => {
     render(<QuickSwitcher />)
     fireEvent.click(screen.getByRole('button', { name: 'Aparência rápida' }))

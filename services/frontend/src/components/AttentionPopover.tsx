@@ -26,16 +26,21 @@ export function AttentionPopover({ items, activeChatId, busy, position, onOpen, 
   // the bell trigger is exempt so its own click can deterministically toggle it.
   useEffect(() => {
     closeRef.current?.focus()
-    const outside = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof Element)) return
-      if (rootRef.current?.contains(target) || target.closest('[data-attention-trigger="true"]')) return
-      onClose()
-    }
+    const insideAttention = (target: EventTarget | null) => target instanceof Element && (
+      Boolean(rootRef.current?.contains(target)) || Boolean(target.closest('[data-attention-trigger="true"]'))
+    )
+    const outside = (event: PointerEvent | FocusEvent) => { if (!insideAttention(event.target)) onClose() }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    document.addEventListener('pointerdown', outside)
-    document.addEventListener('keydown', escape)
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
+    document.addEventListener('pointerdown', outside, true)
+    document.addEventListener('focusin', outside, true)
+    document.addEventListener('keydown', escape, true)
+    window.addEventListener('blur', onClose)
+    return () => {
+      document.removeEventListener('pointerdown', outside, true)
+      document.removeEventListener('focusin', outside, true)
+      document.removeEventListener('keydown', escape, true)
+      window.removeEventListener('blur', onClose)
+    }
   }, [onClose])
 
   return <section ref={rootRef} id="agent-attention-popover" className="agent-attention-popover" style={position} role="dialog" aria-modal="false" aria-label="Alertas ativos" aria-describedby="agent-attention-popover-description" data-chatgpt-overlay-blocker="true">

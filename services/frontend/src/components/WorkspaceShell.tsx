@@ -374,15 +374,25 @@ export function ShellChrome({ projects, recent = [], activeProject, composerTypi
 
   useEffect(() => {
     if (!projectActionsOpen && !projectWindowOpen) return
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { setProjectActionsOpen(false); setProjectWindowOpen(false) } }
-    const onPointerDown = (event: PointerEvent) => {
-      if (!(event.target instanceof Node)) return
-      if (projectActionsRef.current?.contains(event.target) || projectWindowRef.current?.contains(event.target) || activeProjectButtonRef.current?.contains(event.target)) return
-      setProjectActionsOpen(false); setProjectWindowOpen(false)
+    const closePopups = () => { setProjectActionsOpen(false); setProjectWindowOpen(false) }
+    const insideProjectPopup = (target: EventTarget | null) => target instanceof Node && (
+      Boolean(projectActionsRef.current?.contains(target)) ||
+      Boolean(projectWindowRef.current?.contains(target)) ||
+      Boolean(activeProjectButtonRef.current?.contains(target))
+    )
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') closePopups() }
+    const onPointerDown = (event: PointerEvent) => { if (!insideProjectPopup(event.target)) closePopups() }
+    const onFocusIn = (event: FocusEvent) => { if (!insideProjectPopup(event.target)) closePopups() }
+    document.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('focusin', onFocusIn, true)
+    window.addEventListener('blur', closePopups)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('focusin', onFocusIn, true)
+      window.removeEventListener('blur', closePopups)
     }
-    document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => { document.removeEventListener('keydown', onKeyDown); document.removeEventListener('pointerdown', onPointerDown) }
   }, [projectActionsOpen, projectWindowOpen])
 
   async function toggleProjectWindowMenu(button: HTMLButtonElement) {
