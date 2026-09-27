@@ -1066,7 +1066,7 @@ test('agent browser snapshots park hidden workers into a real layout viewport', 
   assert.notEqual(start, -1)
   const snapshot = source.slice(start, end)
   assert.match(snapshot, /ensureChatGPTLayoutViewport\(layoutKey, entry\)/)
-  assert.match(snapshot, /await captureChatGPTAgentPage\(wc\)/)
+  assert.match(snapshot, /await captureChatGPTAgentPage\(wc, \{ parked: entry\.role === 'worker' && !entry\.interactionWindowId \}\)/)
   assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor' \? supervisorKey/)
 })
 
@@ -1078,32 +1078,6 @@ test('a running Worker cannot be resized into the narrow interaction pane', asyn
   assert.match(interaction, /throw new Error/)
   const claim = source.slice(source.indexOf('claimOptions: (worker) => {'), source.indexOf('    onIdle: (worker) => {'))
   assert.match(claim, /entry\.interactionWindowId/)
-})
-
-// capturePage() reads the compositor's last presented frame, and a view that
-// is never visible never presents one: Viz answers UnknownVizError, which is
-// every hidden Worker and every non-painted Supervisor - exactly the agents an
-// operator asks to see when one looks stuck. Forcing a frame by showing the
-// view is forbidden (a parked surface carries layout-only bounds at the window
-// origin and would paint over the workspace - see the parked-surface
-// invariant), so the fallback rasterizes through the renderer instead.
-test('an agent snapshot of a never-painted view rasterizes instead of forcing it visible', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function captureChatGPTAgentPage(wc)')
-  assert.notEqual(start, -1)
-  const capture = source.slice(start, source.indexOf('\nasync function chatAgentBrowserSnapshot', start))
-
-  // Fast path first: a visible surface still comes straight from the compositor.
-  assert.match(capture, /await wc\.capturePage\(\)/)
-  assert.match(capture, /Page\.captureScreenshot/)
-  assert.match(capture, /captureBeyondViewport: true/)
-  // The debugger is borrowed, never left attached, and never taken from a
-  // caller that already owns it.
-  assert.match(capture, /const attachedHere = !wc\.debugger\.isAttached\(\)/)
-  assert.match(capture, /if \(attachedHere\) wc\.debugger\.attach/)
-  assert.match(capture, /finally \{\s*if \(attachedHere\) try \{ wc\.debugger\.detach\(\)/)
-  // Never resorts to showing the surface or moving its bounds.
-  assert.doesNotMatch(capture, /setVisible\(true\)|setBounds\(/)
 })
 
 test('agent runtime reconciles Worker occupancy from durable lease owners', async () => {
@@ -2310,6 +2284,9 @@ test('orchestrator planning survives as an exact artifact-only Worker delivery',
   assert.match(worker, /harness\.orchestrator-planning\/v1/)
   assert.match(worker, /chatGPTExpectedDownloadScript\(filename, assistantBaseline\)/)
   assert.match(worker, /chatGPTResponseCompletionScript\(assistantBaseline\)/)
+  assert.match(worker, /target\.reasoningEffort = normalizeChatGPTReasoningEffort\(payload\.reasoning_effort\)/)
+  assert.match(worker, /reasoningEffort: normalizeChatGPTReasoningEffort\(payload\.reasoning_effort\)/)
+  assert.equal((worker.match(/requireReasoningEffort: false/g) || []).length, 2)
   // One import path for the live download, a retained artifact and both
   // deliveries, so nothing reaches the backend through a weaker check.
   assert.match(worker, /importOrchestratorPlanArtifact\(sessionId, requestId, delivery, outcome\.value\)/)

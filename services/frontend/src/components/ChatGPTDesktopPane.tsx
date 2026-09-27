@@ -8,6 +8,7 @@ import { errorMessage } from '../lib/errorMessage'
 import { supervisorInstanceLabel } from '../lib/engineInstanceLabel'
 import { observeChatGPTOverlayBlockers } from '../lib/chatGPTOverlay'
 import { EngineInstanceSelector } from './EngineInstanceSelector'
+import { WorkerFollowViewer } from './WorkerFollowViewer'
 import { ManualChatGPTToolbar } from './ManualChatGPTToolbar'
 import { chatgptWriteInProgressNotice } from '../lib/chatgptWriteProgress'
 
@@ -160,10 +161,9 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     // cover a modal or even the next selected workspace surface.
     if (blocked) {
       void bridge?.chatgpt.hide(chatIdRef.current)
-      if (followedAgentId) void bridge?.agents.closeInteraction(followedAgentId).catch(() => {})
     }
     setOverlayBlocked(blocked)
-  }), [bridge, followedAgentId])
+  }), [bridge])
 
   useEffect(() => {
     const agents = bridge?.agents
@@ -182,49 +182,6 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     window.addEventListener(AGENT_FOLLOW_EVENT, onFollow)
     return () => window.removeEventListener(AGENT_FOLLOW_EVENT, onFollow)
   }, [])
-
-  useEffect(() => {
-    const agents = bridge?.agents
-    const host = hostRef.current
-    if (!agents || !host || !followedAgentId) return
-    // A trusted overlay/suspension always wins over a followed Worker: like
-    // the Supervisor pane below, its WebContentsView paints above React and
-    // must be closed — not merely resized behind the blocker — while one is
-    // active, and reopened once it clears.
-    if (suspended || overlayBlocked || externalAuth) {
-      void agents.closeInteraction(followedAgentId).catch(() => {})
-      return
-    }
-    let active = true
-    let frame = 0
-    const sync = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        if (active && hostRef.current) void agents.setInteractionBounds(followedAgentId, elementBounds(hostRef.current)).catch(() => {})
-      })
-    }
-    void bridge.chatgpt.hide(chatIdRef.current)
-    void agents.openInteraction(followedAgentId, elementBounds(host)).catch((error) => {
-      if (!active) return
-      setFollowedAgentId('')
-      setNotice(error instanceof Error ? error.message : 'Não foi possível seguir o Worker')
-    })
-    const observer = new ResizeObserver(sync)
-    observer.observe(host)
-    window.addEventListener('resize', sync)
-    window.addEventListener('scroll', sync, true)
-    return () => {
-      active = false
-      cancelAnimationFrame(frame)
-      observer.disconnect()
-      window.removeEventListener('resize', sync)
-      window.removeEventListener('scroll', sync, true)
-      void agents.closeInteraction(followedAgentId).catch(() => {})
-      // Supervisor visibility itself is fully owned by the show/hide effect
-      // below, which reacts to this same set of flags — re-showing it here
-      // too would race that effect using this render's now-stale values.
-    }
-  }, [bridge, followedAgentId, suspended, overlayBlocked, externalAuth])
 
   useEffect(() => {
     if (!bridge || !hostRef.current) return
@@ -484,8 +441,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
 
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa; a vinculação permanente não será alterada.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button></div>}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
-    {followedAgentId && <div className="desktop-chatgpt-follow"><div><Icon name="monitor" size={13}/><strong>Seguindo {followedAgentId.replace('worker-', 'Worker ')}</strong><small>Instância real do Worker em tempo real; o scheduler continua proprietário.</small></div><button type="button" className="text-button" onClick={() => setFollowedAgentId('')}>Parar de seguir</button></div>}
-    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharnex retomará esta vista automaticamente.</span></div> : overlayBlocked ? <div className="desktop-chatgpt-suspended"><Icon name="chatgpt" size={24}/><strong>ChatGPT preservado</strong><span>A vista regressa ao fechar esta camada, na mesma conversa e posição.</span></div> : state.loading ? <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div> : null}</div>
+    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{followedAgentId && !suspended && !overlayBlocked && !externalAuth ? <WorkerFollowViewer agentId={followedAgentId} onStop={() => setFollowedAgentId('')}/> : state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharnex retomará esta vista automaticamente.</span></div> : overlayBlocked ? <div className="desktop-chatgpt-suspended"><Icon name="chatgpt" size={24}/><strong>ChatGPT preservado</strong><span>A vista regressa ao fechar esta camada, na mesma conversa e posição.</span></div> : state.loading ? <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div> : null}</div>
   </div>
 }
 

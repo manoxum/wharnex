@@ -404,12 +404,6 @@ body.terminal-resizing { cursor: ns-resize; user-select: none; }
 .desktop-action-card.result { gap: 6px; }
 .desktop-bundle-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 7px; border: 1px solid #d9ddd3; border-radius: 6px; background: #fff; color: #6a7166; font-size: calc(7px * var(--ui-font-scale)); }
 .desktop-chatgpt-notice { flex: 0 0 auto; padding: 6px 11px; background: #e5edd9; color: #536b33; border-bottom: 1px solid #cbd7ba; font-size: calc(9px * var(--ui-font-scale)); line-height: 1.45; }
-.desktop-chatgpt-follow { min-height:38px; padding:6px 9px; display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom:1px solid var(--theme-border); background:color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface)); }
-.desktop-chatgpt-follow > div { min-width:0; display:grid; gap:2px; }
-.desktop-chatgpt-follow strong { color:var(--theme-text); font-size:calc(7.8px * var(--ui-font-scale)); }
-.desktop-chatgpt-follow small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(6.5px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
-.desktop-chatgpt-follow button { flex:0 0 auto; min-height:26px; padding:0 8px; border:1px solid var(--theme-border); border-radius:6px; background:var(--theme-bg); color:var(--theme-text); font-size:calc(6.8px * var(--ui-font-scale)); cursor:pointer; }
-.desktop-chatgpt-follow button:hover { background:var(--theme-hover); }
 .desktop-chatgpt-host { flex: 1; min-height: 230px; position: relative; background: #fff; overflow: hidden; }
 .desktop-chatgpt-loading { position: absolute; inset: 0; display: grid; place-items: center; color: #969b91; font-size: calc(10px * var(--ui-font-scale)); }
 .desktop-chatgpt-deferred { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 28px; background: #f3f5ef; color: #30352d; text-align: center; }
@@ -2538,15 +2532,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-proposal-card > header button, .orchestrator-manual-plan .primary, .orchestrator-tasks-toolbar > .primary, .orchestrator-drawer .primary { min-height:34px; padding:0 13px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:8px; background:var(--theme-accent); color:var(--theme-accent-contrast, #fff); font-size:calc(9px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
 .orchestrator-proposal-card > header button:disabled, .orchestrator-manual-plan .primary:disabled, .orchestrator-drawer .primary:disabled { opacity:.48; cursor:default; }
 
-.orchestrator-manual-plan, .orchestrator-planning-queue, .orchestrator-proposal-card, .orchestrator-cockpit, .worker-follow-viewer { width:min(1100px,100%); margin:0 auto 22px; border:1px solid var(--theme-border-soft); border-radius:14px; background:var(--theme-surface); box-shadow:0 8px 24px color-mix(in srgb, var(--theme-shadow) 26%, transparent); }
-.worker-follow-viewer { overflow:hidden; }
-.worker-follow-viewer-banner { min-height:44px; padding:9px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--theme-border-soft); background:color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface)); }
-.worker-follow-viewer-banner > div { min-width:0; display:flex; align-items:center; gap:8px; color:var(--theme-accent); }
-.worker-follow-viewer-banner strong { display:block; color:var(--theme-text); font-size:calc(8px * var(--ui-font-scale)); }
-.worker-follow-viewer-banner small { color:var(--theme-text-muted); font-size:calc(6.8px * var(--ui-font-scale)); }
-.worker-follow-viewer-banner button { flex:0 0 auto; min-height:28px; padding:0 10px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-elevated); color:var(--theme-text); font-size:calc(7px * var(--ui-font-scale)); font-weight:600; cursor:pointer; }
-.worker-follow-viewer-banner button:hover { background:var(--theme-hover); }
-.worker-follow-viewer-host { width:100%; height:460px; background:#fff; }
+.orchestrator-manual-plan, .orchestrator-planning-queue, .orchestrator-proposal-card, .orchestrator-cockpit { width:min(1100px,100%); margin:0 auto 22px; border:1px solid var(--theme-border-soft); border-radius:14px; background:var(--theme-surface); box-shadow:0 8px 24px color-mix(in srgb, var(--theme-shadow) 26%, transparent); }
 .orchestrator-planning-queue { overflow:hidden; }
 .orchestrator-planning-queue > header { min-height:62px; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-elevated); }
 .orchestrator-planning-queue > header > div { display:grid; gap:2px; }

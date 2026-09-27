@@ -20,6 +20,15 @@ expired artifact is another bounded request ZIP in the same conversation.
 and response ZIPs. This change does not grant any of these tasks command,
 patch, or Apply authority.
 
+Workers attempt the requested reasoning level before submit. The hidden
+renderer can leave the native effort menu closed despite a bounded press on
+the structurally located control. Utility and Orchestrator Workers then record
+the level as unconfirmed and may submit at the current account level; the
+strict response ZIP validator remains mandatory. Agent Supervisors retain
+their verified-effort precondition. The release-notes HTTP waiter covers its
+three bounded Worker attempts, including claim and pacing before each
+response window.
+
 ## Compatibility
 
 An Orchestrator task checkpointed under the historical JSON result contract
@@ -33,4 +42,9 @@ The native **Interagir aqui** pane resizes the same WebContentsView into a
 small responsive viewport. A running task must keep the hidden 1280×900
 automation viewport, so opening that pane during a task is refused. A Worker
 already in direct interaction skips new claims. The operator can capture a
-snapshot of a running Worker without resizing its renderer.
+snapshot of a running Worker without resizing its renderer. The live follow
+viewer refreshes those user-visible, ephemeral snapshots every three seconds
+while open; it does not attach the native view to the smaller panel or enter
+direct interaction. The parked Worker bypasses compositor capture and asks its
+renderer for a viewport-only frame under a five-second deadline. Its frames
+are never parsed or persisted by the engine.

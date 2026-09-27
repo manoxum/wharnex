@@ -11,6 +11,8 @@ import { ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPoi
 import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
 import { installNativeSurfaceLifecycleGuard } from './native-surface-lifecycle.mjs'
 import { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
+import { orchestratorCompletionDiagnostic } from './chat-agent-orchestrator-progress.mjs'
+import { captureChatGPTAgentPage } from './chat-agent-snapshot.mjs'
 import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript, chatGPTSubmittedRequestEvidenceScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
@@ -3427,37 +3429,6 @@ function resumeChatAgentWorkers() {
 }
 
 // Captures an agent's page even when nothing is painting it.
-//
-// `capturePage()` asks Chromium's Viz compositor for the view's last presented
-// frame. A view that is not visible never presents one, so Viz answers
-// `UnknownVizError` - "Não foi possível capturar o navegador" - and that is
-// every hidden Worker and every non-painted Supervisor, i.e. exactly the
-// agents an operator asks to see when something looks stuck. A granted layout
-// viewport does not help: it gives the renderer a size, not a presented frame.
-//
-// Showing the view to force a frame is not an option: a parked surface carries
-// layout-only bounds at the window origin, so showing it would paint ChatGPT
-// over the operator's workspace - the invariant `chatGPTSurfaceShouldBeVisible`
-// exists to prevent exactly that. `Page.captureScreenshot` over the
-// WebContents' own debugger asks the *renderer* to rasterize instead of
-// reading the compositor's presented frame, so it needs no visibility and no
-// bounds change. The debugger is attached only for the capture and detached
-// immediately, and it stays entirely in the main process - nothing about it
-// reaches the renderer or widens what IPC exposes.
-async function captureChatGPTAgentPage(wc) {
-  try { return (await wc.capturePage()).toDataURL() } catch { /* not presenting a frame; rasterize instead */ }
-  const attachedHere = !wc.debugger.isAttached()
-  if (attachedHere) wc.debugger.attach('1.3')
-  try {
-    await wc.debugger.sendCommand('Page.enable')
-    const shot = await wc.debugger.sendCommand('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
-    if (!shot?.data) throw new Error('ChatGPT renderer returned no screenshot data')
-    return `data:image/png;base64,${shot.data}`
-  } finally {
-    if (attachedHere) try { wc.debugger.detach() } catch { /* already detached */ }
-  }
-}
-
 async function chatAgentBrowserSnapshot(agentID) {
   const id = String(agentID || '').trim()
   const entry = id === 'supervisor' ? supervisorEntry() : /^supervisor-[1-9][0-9]?$/.test(id) ? supervisorEntryForSlot(id) : chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
@@ -3465,7 +3436,14 @@ async function chatAgentBrowserSnapshot(agentID) {
   if (!wc || wc.isDestroyed()) throw new Error('Agent browser instance is not available')
   const layoutKey = entry.ownerKey || (entry.role === 'supervisor' ? supervisorKey(windowStateForEntry(entry)) : entry.slotId || id)
   ensureChatGPTLayoutViewport(layoutKey, entry)
-  const dataUrl = await captureChatGPTAgentPage(wc)
+  let dataUrl
+  try {
+    dataUrl = await captureChatGPTAgentPage(wc, { parked: entry.role === 'worker' && !entry.interactionWindowId })
+  } catch (error) {
+    const category = String(error?.message || '').includes('excedeu') ? 'deadline' : 'capture-failed'
+    console.warn(`[chat-agent-snapshot] agent=${id} category=${category}`)
+    throw error
+  }
   return { agentId: id, dataUrl, capturedAt: new Date().toISOString() }
 }
 
@@ -6037,7 +6015,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       const { wc } = requireOwnedChatGPTEntry(key, entry)
       if (!sameConversationURL(wc.getURL(), checkpointURL)) await loadOwnedChatGPTURL(key, entry, checkpointURL, 'orchestrator-checkpoint')
       await waitForChatGPTSurfaceReady(key, entry)
-      target = { entry, wc }
+      target = { entry, wc, reasoningEffort: normalizeChatGPTReasoningEffort(payload.reasoning_effort) }
       assistantBaseline = Number.isFinite(checkpointBaseline) && checkpointBaseline >= 0 ? checkpointBaseline : await chatGPTAssistantTurnCount(wc)
       console.log(`[orchestrator-worker] resumed task=${task.task_id} request=${requestId} conversation=${sanitizeDiagnosticURL(checkpointURL)}`)
     } else {
@@ -6045,6 +6023,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       const rateLimitDelay = pacedWorker ? chatAgentRateLimitDelayMs() : 0
       if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
       target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
+      target.reasoningEffort = normalizeChatGPTReasoningEffort(payload.reasoning_effort)
       const contextBytes = includeContext ? (await fetchContextZip(sessionId)).bytes : undefined
       const requestAttachments = []
       for (const attachment of attachments) {
@@ -6075,7 +6054,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       await wait(chatInputSettleDelay((await readFile(requestPath)).byteLength, 1))
       await executeChatGPTDOMScript(key, target.entry, 'orchestrator-refill-composer', chatGPTFillComposerScript(request.bootstrap))
       assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-      await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { rateLimitExempt: !pacedWorker })
+      await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort: false, rateLimitExempt: !pacedWorker })
       conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
       if (!conversationUrl) throw new Error('ChatGPT orchestrator submission has no stable conversation id')
       await checkpointChatAgentTask(task.task_id, owner, {
@@ -6091,6 +6070,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
     let thinkingObservedAt = 0
     let rerequests = 0
     let downloadTriggered = false
+    let lastCompletion
     // Only a 404 observed after this moment means *this* request's artifact is
     // gone; an older one belongs to a turn we already replaced.
     let lastRequestedAt = Date.now()
@@ -6115,6 +6095,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(kind) }
       }
       const completion = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-completion', chatGPTResponseCompletionScript(assistantBaseline))
+      lastCompletion = completion
       if (completion?.thinking === true) thinkingObservedAt = Date.now()
       // A card whose artifact ChatGPT has collected answers every click with a
       // 404 and never fires a download. Clicking it until the deadline is the
@@ -6145,7 +6126,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         await wait(chatInputSettleDelay((await readFile(requestPath)).byteLength, 1))
         await executeChatGPTDOMScript(key, target.entry, 'orchestrator-redelivery-refill', chatGPTFillComposerScript(redelivery.bootstrap))
         assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
-        await submitChatGPTDraft(key, target.entry, conversationUrl, { ...target, conversationUrl }, { rateLimitExempt: !pacedWorker })
+        await submitChatGPTDraft(key, target.entry, conversationUrl, { ...target, conversationUrl }, { requireReasoningEffort: false, rateLimitExempt: !pacedWorker })
         downloadTriggered = false
         continue
       }
@@ -6164,6 +6145,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         error: `ChatGPT is still producing ${filename}`,
       }
     }
+    console.warn(`[orchestrator-worker] response deadline task=${task.task_id} request=${requestId} structure=${JSON.stringify(orchestratorCompletionDiagnostic(lastCompletion, assistantBaseline, downloadTriggered))}`)
     throw new Error(`ChatGPT did not provide ${filename} before the orchestrator planning timeout`)
   } finally {
     if (expectedChatGPTOrchestratorPlans.get(filename) === expected) { expectedChatGPTOrchestratorPlans.delete(filename); reconcileChatGPTThrottleForKey(key, entry) }
