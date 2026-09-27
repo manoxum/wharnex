@@ -26,6 +26,8 @@ Field names carrying merge evidence avoid the substring `token`, which the audit
 
 ## Canonical execution-failure evidence (v1.3.6+)
 
+Startup integration cleanup MUST publish `integration.branch_cleanup_deferred` only when a persisted project root is objectively absent and a live Host Apply candidate still depends on it. This warning means no Git cleanup was attempted: the candidate stays durable until the operator restores the project root or explicitly discards it. It is not a patch/model defect, not evidence of a global Git failure, and MUST NOT authorize automatic candidate disposal. Missing roots without live candidates are skipped silently and rechecked on later startups so a restored project returns to normal reconciliation.
+
 A failed execution has one engine-owned `failure_kind` for the round. The attribution is result-aware: structured failed-command evidence outranks generic outer cancellation, specific runner/self-evolution sentinels outrank `context.Canceled`, and cancellation is used only as a fallback. Every durable or live surface for that same round — `execution.error_recorded`, `execution.failed`, `automation.infrastructure_blocked`, and the attempt ledger — MUST expose the same classification rather than re-deriving it from event-local prose.
 
 `execution.errors_resolved` is host-integration evidence, not sandbox-verification evidence. For Protected corrections it MUST be emitted only after `host.applied`; self-evolution emits it only after the host build has succeeded and the durable state is `restart_pending`. A restart may replay the durable `LastAppliedChanges` proof to finish this bookkeeping, but already-solved rows MUST NOT produce duplicate resolution events.

@@ -1,7 +1,7 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 ### Chat d6fa2696-bd5e-4005-b421-9c068109cedf (2026-09-27)
 
-_(reserved — no entries yet)_
+- Corrigida a reconciliação Git de arranque para ignorar roots de projeto ausentes sem candidatos vivos, preservar candidatos pendentes com um evento `integration.branch_cleanup_deferred` acionável e continuar a reportar falhas reais em repositórios existentes.
 
 
 ### Chat 81629095-2924-4bcd-9725-03f88637ad78 (2026-09-27)
