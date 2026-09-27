@@ -10,6 +10,7 @@ import { InternalWindow } from './InternalWindow'
 import { ContentSkeleton } from './Skeleton'
 import { GitUnpushedSection } from './GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
+import { ChangeDiffEditor } from './ChangeDiffEditor'
 import { GitOperationModal, type GitOperationTarget } from './GitOperationModal'
 import { GitContributorsSection } from './GitContributorsSection'
 import { GitRepositorySummary } from './GitRepositorySummary'
@@ -23,6 +24,8 @@ import { useGitConflictReview } from '../lib/useGitConflictReview'
 
 type GitTab = 'changes' | 'history' | 'contributors' | 'branches' | 'settings'
 type GitChangesTab = 'working' | 'pending'
+type WorktreeDiffTarget = { repository: string; repositoryLabel: string; file: GitOverview['working']['files'][number] }
+type WorktreeDiffState = { initialFile: GitFileDiff; initialTarget: WorktreeDiffTarget; targets: WorktreeDiffTarget[] }
 
 export function GitDrawer({ session, busy, onClose, onError, onSession, onResolveConflictWithGPT, onOpenGitConflictChat }: {
   session: Session
@@ -41,7 +44,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   const [notice, setNotice] = useState('')
   const [noticeError, setNoticeError] = useState(false)
   const [openDiff, setOpenDiff] = useState<GitPendingCommit | null>(null)
-  const [worktreeDiff, setWorktreeDiff] = useState<GitFileDiff | null>(null)
+  const [worktreeDiff, setWorktreeDiff] = useState<WorktreeDiffState | null>(null)
   const [mergeRef, setMergeRef] = useState('')
   const [remoteMergeTarget, setRemoteMergeTarget] = useState('')
   const [remoteMergeSources, setRemoteMergeSources] = useState<string[]>([])
@@ -256,7 +259,17 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             })}
             onCommit={() => void commitWorktree()}
             onOpenDiff={(repositoryPath, path) => void (async () => {
-              try { setWorktreeDiff(await api.gitFileDiff(session.id, path, repositoryPath)) } catch (error) { report(error) }
+              try {
+                const targets = repositoryEntries.flatMap((entry) => (entry.overview?.working.files || []).map((file) => ({
+                  repository: entry.repository.path,
+                  repositoryLabel: repositoryLabel(entry),
+                  file,
+                })))
+                const initialTarget = targets.find((target) => target.repository === repositoryPath && target.file.path === path)
+                if (!initialTarget) throw new Error(`Não foi possível localizar ${path} no worktree atual.`)
+                const initialFile = await api.gitFileDiff(session.id, path, repositoryPath)
+                setWorktreeDiff({ initialFile, initialTarget, targets })
+              } catch (error) { report(error) }
             })()}
           />}
           {activeChangesTab === 'pending' && availableEntries.map((entry) => {
@@ -456,7 +469,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     </>}
 
     {openDiff && <DiffModal sessionId={session.id} record={openDiff} onClose={() => setOpenDiff(null)} />}
-    {worktreeDiff && <WorktreeDiffModal sessionId={session.id} file={worktreeDiff} onClose={() => setWorktreeDiff(null)}/>}
+    {worktreeDiff && <WorktreeDiffModal sessionId={session.id} state={worktreeDiff} onClose={() => setWorktreeDiff(null)}/>}
     {operation && <GitOperationModal operation={operation} sessionId={session.id} onClose={closeOperation}/>}
     {conflictReview && <ConflictResolverModal session={conflictReview.session} initialWorkbench={conflictReview.workbench} strategy={conflictReview.strategy} busy={busy || working} onClose={() => void closeConflictReview()} onSession={(updated) => onSession?.(updated)} onDelegateToGPT={async (updated) => { await onResolveConflictWithGPT?.(updated) }}/>}
   </section>
@@ -907,12 +920,60 @@ function formatCommitDate(value: string) {
 }
 
 
-function WorktreeDiffModal({ sessionId, file, onClose }: { sessionId: string; file: GitFileDiff; onClose: () => void }) {
-  return createPortal(<InternalWindow title={`Diff de ${file.path}`} onClose={onClose} layerClassName="git-diff-backdrop">
-    <div className="git-diff-modal" role="dialog" aria-modal="false" aria-label={`Diff de ${file.path}`}>
-      <header><div><span className="panel-kicker">Alteração no worktree</span><strong>{file.path}</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
-      <GitDiffReview sessionId={sessionId} diff={file.diff} emptyText="Sem diferenças de conteúdo para apresentar."/>
-      {file.truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
+function WorktreeDiffModal({ sessionId, state, onClose }: { sessionId: string; state: WorktreeDiffState; onClose: () => void }) {
+  const [selectedTarget, setSelectedTarget] = useState(state.initialTarget)
+  const [selectedFile, setSelectedFile] = useState<GitFileDiff | null>(state.initialFile)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const requestSequence = useRef(0)
+  const showOrigin = new Set(state.targets.map((target) => target.repository)).size > 1
+  const selectedStats = selectedTarget.file
+
+  async function selectTarget(target: WorktreeDiffTarget) {
+    if (target.repository === selectedTarget.repository && target.file.path === selectedTarget.file.path) return
+    if (target.file.kind === 'submodule' || target.file.kind === 'embedded_repository') return
+    const sequence = ++requestSequence.current
+    setSelectedTarget(target)
+    setSelectedFile(null)
+    setLoading(true)
+    setError('')
+    try {
+      const next = await api.gitFileDiff(sessionId, target.file.path, target.repository)
+      if (sequence === requestSequence.current) setSelectedFile(next)
+    } catch (cause) {
+      if (sequence === requestSequence.current) setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      if (sequence === requestSequence.current) setLoading(false)
+    }
+  }
+
+  return createPortal(<InternalWindow title={`Diff de ${selectedTarget.file.path}`} onClose={onClose} layerClassName="git-diff-backdrop" maximizable>
+    <div className="git-diff-modal git-worktree-diff-modal" role="dialog" aria-modal="false" aria-label={`Diff de ${selectedTarget.file.path}`}>
+      <header><div><span className="panel-kicker">Alteração no worktree</span><strong>{selectedTarget.file.path}</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar diff"><Icon name="close" size={13}/></button></header>
+      <div className="git-diff-review git-worktree-diff-review">
+        <aside className="git-diff-review-files" aria-label="Ficheiros alterados">
+          <div className="git-diff-review-files-toolbar"><strong>Ficheiros</strong><span className="git-section-count">{state.targets.length}</span></div>
+          <div className="git-diff-review-file-list">
+            {state.targets.map((target) => {
+              const active = target.repository === selectedTarget.repository && target.file.path === selectedTarget.file.path
+              const diffable = target.file.kind !== 'submodule' && target.file.kind !== 'embedded_repository'
+              const label = showOrigin ? `${target.file.path} · ${target.repositoryLabel}` : target.file.path
+              return <button key={`${target.repository}:${target.file.kind}:${target.file.path}`} type="button" className={active ? 'active' : ''} disabled={!diffable || loading && active} aria-label={`Abrir ${target.file.path} no diff do worktree`} title={diffable ? label : `${label} · sem diff inline`} onClick={() => void selectTarget(target)}>
+                <Icon name={target.file.kind === 'unmerged' ? 'alert' : 'file'} size={12}/>
+                <span>{label}</span>
+                <small><b>+{target.file.additions || 0}</b><i>−{target.file.deletions || 0}</i></small>
+              </button>
+            })}
+          </div>
+        </aside>
+        <section className="git-diff-review-main">
+          <header className="git-diff-review-file-heading"><strong>{selectedTarget.file.path}</strong><span><b>+{selectedStats.additions || 0}</b><i>−{selectedStats.deletions || 0}</i></span></header>
+          {loading && <div className="git-worktree-diff-state"><ContentSkeleton label={`A carregar diff de ${selectedTarget.file.path}`} rows={5}/></div>}
+          {!loading && error && <div className="git-worktree-diff-state"><p className="git-notice error-card" role="alert">{error}</p></div>}
+          {!loading && !error && selectedFile && <ChangeDiffEditor sessionId={sessionId} file={{ path: selectedFile.path, diff: selectedFile.diff, additions: selectedStats.additions || 0, deletions: selectedStats.deletions || 0 }}/>}
+        </section>
+      </div>
+      {selectedFile?.truncated && <p className="git-hint">O diff foi truncado apenas para apresentação.</p>}
     </div>
   </InternalWindow>, document.body)
 }

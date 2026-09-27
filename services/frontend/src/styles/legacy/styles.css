@@ -6917,7 +6917,7 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
   position: relative;
   inset: auto;
   z-index: 1;
-  width: min(1680px, 100%);
+  width: min(1680px, calc(100vw - clamp(16px, 4vw, 48px)));
   height: min(900px, calc(100dvh - clamp(16px, 4vw, 48px)));
   max-width: none;
   max-height: none;
@@ -6956,6 +6956,14 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
   min-height: 0;
   border: 0;
   border-radius: 0;
+}
+.git-worktree-diff-review { grid-template-columns: minmax(240px, 24%) minmax(0, 1fr); }
+.git-worktree-diff-review .git-diff-review-files-toolbar > .git-section-count { margin-left: auto; }
+.git-worktree-diff-review .git-diff-review-file-list > button:disabled { opacity: .52; cursor: not-allowed; }
+.git-worktree-diff-state { min-width: 0; min-height: 0; padding: 12px; overflow: auto; background: var(--theme-bg); }
+@media (max-width: 760px) {
+  .git-worktree-diff-review { grid-template-columns: 1fr; grid-template-rows: minmax(112px, 28%) minmax(0, 1fr); }
+  .git-worktree-diff-review .git-diff-review-files { border-right: 0; border-bottom: 1px solid var(--theme-border-soft); }
 }
 .git-diff-review.single-file { grid-template-columns: minmax(0, 1fr); }
 .git-diff-modal > .git-hint { margin: 0; padding: 6px 12px; border-top: 1px solid var(--theme-border-soft); }
@@ -7007,7 +7015,7 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
   .git-unpushed-summary .git-action,
   .git-unpushed-actions .git-action { align-self: flex-start; }
   .git-diff-backdrop { padding: 8px; }
-  .git-diff-modal { height: calc(100dvh - 16px); border-radius: 9px; }
+  .git-diff-modal { width: min(1680px, calc(100vw - clamp(16px, 4vw, 48px))); height: calc(100dvh - 16px); border-radius: 9px; }
   .git-commit-detail-meta { grid-template-columns: 1fr; }
 }
 
