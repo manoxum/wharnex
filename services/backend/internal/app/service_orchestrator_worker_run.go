@@ -125,10 +125,10 @@ func (s *Service) reconcileOrchestratorWorkerRun(ctx context.Context, taskID str
 		return err
 	}
 	task, run := current.Task, current.Run
-	switch agent.State {
-	case "applied", "verified", "restart_pending", "ready":
+	switch orchestratorAgentOutcome(agent.State) {
+	case "review":
 		task.Status, task.Condition, run.Status = orchestrator.TaskReview, orchestrator.ConditionNone, "review"
-	case "failed", "blocked", "cancelled":
+	case "failed":
 		task.Status, task.Condition, run.Status = orchestrator.TaskFailed, orchestrator.ConditionFailedRun, "failed"
 		run.Error = agent.LastRepairError
 	default:

@@ -82,14 +82,14 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	}
 	run.Status = "running"
 	manualPrompt := result.ManualPrompt
-	switch agentSession.State {
-	case "applied", "verified", "restart_pending", "ready":
+	switch orchestratorAgentOutcome(agentSession.State) {
+	case "review":
 		completed := time.Now().UTC()
 		run.Status = "review"
 		run.CompletedAt = &completed
 		task.Status = orchestrator.TaskReview
 		task.Condition = orchestrator.ConditionNone
-	case "failed", "repair_pending":
+	case "failed":
 		completed := time.Now().UTC()
 		run.Status = "failed"
 		run.Error = agentSession.LastRepairError
