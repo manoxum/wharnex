@@ -3,6 +3,7 @@
 
 - Corrige o fecho dos popups de projetos recentes, projetos abertos, aparência e alertas quando o clique/foco sai da superfície, incluindo interações capturadas e perda de foco para o workspace embutido.
 - Corrige o fechamento de janelas Desktop para encerrar a própria janela e libertar os projetos vinculados, mantendo a ação da tray de fechar apenas um projeto separada.
+- Ao fechar uma janela ou desvincular um projeto com terminais Host ativos, pergunta se os processos devem continuar em background para tentativa de recuperação posterior ou ser encerrados antes do fechamento.
 
 
 ### Chat d6fa2696-bd5e-4005-b421-9c068109cedf (2026-09-27)

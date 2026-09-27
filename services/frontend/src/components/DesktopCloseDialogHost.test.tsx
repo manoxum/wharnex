@@ -1,16 +1,20 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DesktopCloseDialogHost } from './DesktopCloseDialogHost'
+import { api } from '../lib/api'
+import type { TerminalRuntimeRecord } from './terminalRuntime'
 
 type Prompt = { projectPath: string; projectName: string; hasProject: boolean }
 
 let publishPrompt: (payload: Prompt) => void = () => {}
 const resolveClose = vi.fn(async (action: string) => ({ ok: true, action }))
 const acknowledgeClose = vi.fn(async () => ({ ok: true }))
+const closeTerminal = vi.spyOn(api, 'closeTerminal').mockResolvedValue(undefined)
 
 beforeEach(() => {
   resolveClose.mockClear()
   acknowledgeClose.mockClear()
+  closeTerminal.mockClear()
   Object.defineProperty(window, 'wharnessDesktop', {
     configurable: true,
     value: {
@@ -28,8 +32,8 @@ afterEach(() => {
   Object.defineProperty(window, 'wharnessDesktop', { configurable: true, value: undefined })
 })
 
-async function openDialog() {
-  render(<DesktopCloseDialogHost />)
+async function openDialog(terminals: TerminalRuntimeRecord[] = []) {
+  render(<DesktopCloseDialogHost terminals={terminals} />)
   act(() => publishPrompt({ projectPath: '/workspace/alpha', projectName: 'alpha', hasProject: true }))
   expect(screen.getByRole('alertdialog').textContent).toContain('O que deseja fazer com alpha?')
 }
@@ -55,6 +59,25 @@ describe('DesktopCloseDialogHost', () => {
     fireEvent.click(screen.getByRole('button', { name: label }))
     await waitFor(() => expect(resolveClose).toHaveBeenCalledWith(action))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  })
+
+
+  it('asks what to do with running terminals before closing the window', async () => {
+    await openDialog([{ projectPath: '/workspace/alpha', sessionID: 'ses-alpha', terminalID: 'pty_alpha', status: 'connected' }])
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar esta janela' }))
+    expect(screen.getByRole('alertdialog').textContent).toContain('Há 1 processo em execução')
+    expect(resolveClose).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /Manter em background/ }))
+    await waitFor(() => expect(resolveClose).toHaveBeenCalledWith('close-window'))
+    expect(closeTerminal).not.toHaveBeenCalled()
+  })
+
+  it('terminates every reported terminal before resolving a window close when requested', async () => {
+    await openDialog([{ projectPath: '/workspace/alpha', sessionID: 'ses-alpha', terminalID: 'pty_alpha', status: 'connected' }])
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar esta janela' }))
+    fireEvent.click(screen.getByRole('button', { name: /Encerrar processos de terminal/ }))
+    await waitFor(() => expect(closeTerminal).toHaveBeenCalledWith('ses-alpha', 'pty_alpha'))
+    await waitFor(() => expect(resolveClose).toHaveBeenCalledWith('close-window'))
   })
 
   it('reports that it is on screen so the native fallback prompt stands down', async () => {
