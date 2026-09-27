@@ -1,4 +1,9 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat 81629095-2924-4bcd-9725-03f88637ad78 (2026-09-27)
+
+_(reserved — no entries yet)_
+
+
 ### Chat b637e555-721d-4126-a949-c4dea1d3f99d (2026-09-26)
 
 - Corrige a publicação de releases para manter os erros da operação visíveis no próprio formulário, evitando que a ação pareça inerte quando a criação da tag/release falha.
