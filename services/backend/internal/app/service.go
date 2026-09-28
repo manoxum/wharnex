@@ -3463,7 +3463,12 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 			// file/build-artifact snapshots, but knows nothing about Git
 			// refs, so HEAD would otherwise keep pointing at the merge
 			// commit while the working tree no longer matches it.
-			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true)); revertErr != nil {
+			// Commits made after this integration's last merge are kept.
+			integrationTip := ""
+			if n := len(mergedIntegrationBranches); n > 0 {
+				integrationTip = mergedIntegrationBranches[n-1].afterSHA
+			}
+			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true), integrationTip); revertErr != nil {
 				cause = localApplyRecoveryFailure(fmt.Errorf("%w; git revert also failed: %v", cause, revertErr))
 			}
 			if selfEvolution {

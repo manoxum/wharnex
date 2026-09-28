@@ -313,13 +313,17 @@ func (s *Service) publishSubmoduleSync(sessionID, planID, phase string, sync hos
 // revertHostMerge undoes this Apply's merges and reports the submodule
 // realignment that undo required, so a revert leaves a host that is genuinely
 // back where it started rather than one Git reports as permanently modified.
-func (s *Service) revertHostMerge(ctx context.Context, sessionID, planID, projectPath, preMergeSHA string, integrations []domain.RepositoryIntegration) error {
+func (s *Service) revertHostMerge(ctx context.Context, sessionID, planID, projectPath, preMergeSHA string, integrations []domain.RepositoryIntegration, integrationTipSHA ...string) error {
 	var sync hostrepo.SyncResult
 	var err error
 	if len(integrations) > 0 {
 		sync, err = sandbox.RevertRepositoryTreeMerge(ctx, projectPath, preMergeSHA, integrations)
 	} else {
-		sync, err = sandbox.RevertHostMerge(ctx, projectPath, preMergeSHA)
+		tip := ""
+		if len(integrationTipSHA) > 0 {
+			tip = integrationTipSHA[0]
+		}
+		sync, err = sandbox.RevertHostMergeKeepingLater(ctx, projectPath, preMergeSHA, tip)
 	}
 	s.publishSubmoduleSync(sessionID, planID, "revert", sync)
 	return err
