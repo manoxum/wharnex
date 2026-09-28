@@ -41,6 +41,8 @@ Return ONLY one UTF-8 JSON object using protocol %s with this exact top-level sh
 
 Rules: 1..128 tasks; unique ids; no self-dependencies; every dependency names another task in the same response; no cycles; never include commands or patch text.
 
+Tasks without a dependency path between them run concurrently on separate Workers, each in its own isolated copy, and integrate into the project independently. Therefore: a task that validates, stabilizes, fixes a baseline for, reviews, or builds on the result of other tasks MUST list every one of them in depends_on — never rely on it waiting or failing while they still run. Two tasks that edit the same file or contract MUST be ordered by depends_on; parallelizable tasks declare disjoint impact_files.
+
 REQUEST ID: %s
 OBJECTIVE:
 %s
