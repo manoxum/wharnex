@@ -13,27 +13,45 @@ const TASK = { task_id: 'cat_0123456789abcdef0123', chat_id: 'otk_abc', session_
 const PAYLOAD = { protocol: 'harness.orchestrator-execution/v1', task_id: 'otk_abc' }
 const entry = { view: { webContents: { getURL: () => 'https://chatgpt.com/' } } }
 
-async function drive({ start = REQUEST, supervision = { state: 'none' }, payload = PAYLOAD, adopt = false, stored = '' } = {}) {
+function affinityError(message) {
+  return Object.assign(new Error(message), { orchestratorConversationMismatch: true })
+}
+
+async function drive({ start = REQUEST, supervision = { state: 'none' }, payload = PAYLOAD, adopt = false,
+  stored = '', observed = '', ensureError = undefined, bindError = '' } = {}) {
   const previousFetch = globalThis.fetch
   const calls = []
   const actions = []
   globalThis.fetch = async (url, options) => {
     const body = JSON.parse(options.body)
     calls.push({ url: String(url), body })
-    const response = String(url).endsWith('/worker-start') ? start : { conversation_url: stored || body.conversation_url }
-    return { ok: true, json: async () => response }
+    if (String(url).endsWith('/worker-start')) return { ok: true, json: async () => start }
+    actions.push(['bind', body.conversation_url])
+    if (bindError) {
+      return { ok: false, status: 409, json: async () => ({ error: { message: bindError } }) }
+    }
+    return { ok: true, json: async () => ({ conversation_url: stored || body.conversation_url }) }
   }
   const runtime = {
     baseURL: 'http://127.0.0.1:6969', homeURL: 'https://chatgpt.com/',
     pace: async () => actions.push('pace'), rateLimitDelay: () => 0,
     needsNavigation: (_entry, url) => url !== 'https://chatgpt.com/',
     conversationURL: (value) => value || '',
+    ensureConversation: async (_key, _entry, url) => {
+      actions.push(['ensure', url])
+      if (ensureError) throw ensureError
+      return url
+    },
     checkpoint: async (_id, _owner, value) => actions.push(['checkpoint', value]),
     supervision: async () => supervision,
-    adopt: async () => { actions.push('adopt'); return adopt },
-    sendMainRequest: async (_key, _entry, current, url) => {
+    adopt: async (_key, _entry, _current, url) => { actions.push(['adopt', url]); return adopt },
+    sendMainRequest: async (_key, _entry, current, url, bindSubmittedConversation) => {
       actions.push(['send', current.request_id, url])
-      return { conversationUrl: url || 'https://chatgpt.com/c/new' }
+      const submittedURL = observed || url || 'https://chatgpt.com/c/new'
+      const boundURL = await bindSubmittedConversation(submittedURL)
+      // Followups only exist after durable affinity binding succeeds.
+      actions.push(['followups', boundURL])
+      return { conversationUrl: boundURL }
     },
   }
   try {
@@ -44,23 +62,84 @@ async function drive({ start = REQUEST, supervision = { state: 'none' }, payload
   }
 }
 
-test('a pending Agent request is sent through the agentic pipeline and its conversation kept', async () => {
+test('the first submit binds its observed conversation before followups and checkpointing', async () => {
   const { result, calls, actions } = await drive()
   assert.equal(result.status, 'waiting')
   assert.equal(result.observation, true)
   assert.deepEqual(actions.find((item) => item[0] === 'send'), ['send', REQUEST.request_id, ''])
   assert.match(calls[1].url, /worker-conversation$/)
   assert.equal(calls[1].body.conversation_url, 'https://chatgpt.com/c/new')
-  const checkpoint = actions.find((item) => item[0] === 'checkpoint')[1]
-  assert.equal(checkpoint.active_request_id, REQUEST.request_id)
-  assert.equal(checkpoint.conversation_url, 'https://chatgpt.com/c/new')
+  const bindIndex = actions.findIndex((item) => item[0] === 'bind')
+  const followupIndex = actions.findIndex((item) => item[0] === 'followups')
+  const checkpointIndex = actions.findIndex((item) => item[0] === 'checkpoint')
+  assert.ok(bindIndex >= 0 && bindIndex < followupIndex && followupIndex < checkpointIndex)
+  assert.equal(actions[checkpointIndex][1].conversation_url, 'https://chatgpt.com/c/new')
 })
 
-test('every round continues in the task conversation', async () => {
-  const { actions } = await drive({ start: { ...REQUEST, conversation_url: 'https://chatgpt.com/c/task' } })
-  assert.deepEqual(actions.find((item) => item[0] === 'send'), ['send', REQUEST.request_id, 'https://chatgpt.com/c/task'])
-  // A different page needs its paced navigation before the send.
-  assert.equal(actions[0], 'pace')
+test('a bound task loads only its definitive backend conversation before preparing a request', async () => {
+  const definitive = 'https://chatgpt.com/c/task'
+  const { actions } = await drive({ start: { ...REQUEST, conversation_url: definitive } })
+  assert.deepEqual(actions[0], ['ensure', definitive])
+  assert.deepEqual(actions.find((item) => item[0] === 'send'), ['send', REQUEST.request_id, definitive])
+  assert.equal(actions.includes('pace'), false)
+  assert.equal(actions.some((item) => Array.isArray(item) && item[1] === 'https://chatgpt.com/'), false)
+})
+
+test('restart reclaim adopts the same durable task conversation even with a stale checkpoint URL', async () => {
+  const definitive = 'https://chatgpt.com/c/definitive'
+  const payload = {
+    ...PAYLOAD,
+    active_request_id: REQUEST.request_id,
+    conversation_url: 'https://chatgpt.com/c/stale-checkpoint',
+    assistant_baseline: 4,
+  }
+  const reclaimed = await drive({ start: { ...REQUEST, conversation_url: definitive }, payload, adopt: true })
+  assert.deepEqual(reclaimed.actions[0], ['ensure', definitive])
+  assert.deepEqual(reclaimed.actions.find((item) => item[0] === 'adopt'), ['adopt', definitive])
+  assert.equal(reclaimed.actions.some((item) => item[0] === 'send'), false)
+  assert.equal(reclaimed.result.observation, true)
+})
+
+test('surface drift fails closed before submit', async () => {
+  const definitive = 'https://chatgpt.com/c/task'
+  const drift = affinityError(`expected ${definitive}, observed https://chatgpt.com/c/other`)
+  const { result, actions } = await drive({ start: { ...REQUEST, conversation_url: definitive }, ensureError: drift })
+  assert.equal(result.status, 'failed')
+  assert.match(result.error, /observed/)
+  assert.equal(actions.filter((item) => item[0] === 'send').length, 0)
+})
+
+test('post-submit URL drift fails closed without binding, followups, checkpoint or second submit', async () => {
+  const definitive = 'https://chatgpt.com/c/task'
+  const { result, actions, calls } = await drive({
+    start: { ...REQUEST, conversation_url: definitive },
+    observed: 'https://chatgpt.com/c/other',
+  })
+  assert.equal(result.status, 'failed')
+  assert.match(result.error, /changed|mudou|conversation/i)
+  assert.equal(actions.filter((item) => item[0] === 'send').length, 1)
+  assert.equal(actions.some((item) => item[0] === 'bind'), false)
+  assert.equal(actions.some((item) => item[0] === 'followups'), false)
+  assert.equal(actions.some((item) => item[0] === 'checkpoint'), false)
+  assert.equal(calls.length, 1, 'only worker-start may reach the backend when observed URL already drifted')
+})
+
+test('a backend affinity disagreement after first submit fails closed before any continuation is scheduled', async () => {
+  const { result, actions } = await drive({ stored: 'https://chatgpt.com/c/different' })
+  assert.equal(result.status, 'failed')
+  assert.match(result.error, /backend reported a different/i)
+  assert.equal(actions.filter((item) => item[0] === 'send').length, 1)
+  assert.equal(actions.filter((item) => item[0] === 'bind').length, 1)
+  assert.equal(actions.some((item) => item[0] === 'followups'), false)
+  assert.equal(actions.some((item) => item[0] === 'checkpoint'), false)
+})
+
+test('backend rejection is terminal for the execution task and never retries submit in the same lease', async () => {
+  const { result, actions } = await drive({ bindError: 'task is already bound to another conversation' })
+  assert.equal(result.status, 'failed')
+  assert.match(result.error, /backend rejected/i)
+  assert.equal(actions.filter((item) => item[0] === 'send').length, 1)
+  assert.equal(actions.some((item) => item[0] === 'followups'), false)
 })
 
 test('a request the agentic supervision owns or delivered is only observed', async () => {
@@ -69,14 +148,20 @@ test('a request the agentic supervision owns or delivered is only observed', asy
     assert.equal(result.status, 'waiting')
     assert.equal(result.observation, true)
     assert.equal(actions.some((item) => item[0] === 'send'), false)
+    assert.equal(actions.some((item) => item[0] === 'ensure'), false)
   }
 })
 
-test('stalled supervision is answered by resending the request, then ends the run', async () => {
+test('stalled supervision is answered by resending the request in the same conversation, then ends the run', async () => {
   const ended = { state: 'ended', error: 'ChatGPT deixou de dar sinal estrutural' }
-  const first = await drive({ supervision: ended, payload: { ...PAYLOAD, active_request_id: REQUEST.request_id, conversation_url: 'https://chatgpt.com/c/task' }, adopt: true })
+  const first = await drive({
+    start: { ...REQUEST, conversation_url: 'https://chatgpt.com/c/task' },
+    supervision: ended,
+    payload: { ...PAYLOAD, active_request_id: REQUEST.request_id, conversation_url: 'https://chatgpt.com/c/task' },
+    adopt: true,
+  })
   // A resend never adopts: it sends the same request again in the same conversation.
-  assert.equal(first.actions.includes('adopt'), false)
+  assert.equal(first.actions.some((item) => item[0] === 'adopt'), false)
   assert.deepEqual(first.actions.find((item) => item[0] === 'send'), ['send', REQUEST.request_id, 'https://chatgpt.com/c/task'])
   assert.equal(first.actions.find((item) => item[0] === 'checkpoint')[1].resend_count, 1)
   const second = await drive({ supervision: ended, payload: { ...PAYLOAD, resent_request_id: REQUEST.request_id, resend_count: 1 } })
@@ -89,15 +174,6 @@ test('stalled supervision is answered by resending the request, then ends the ru
   assert.equal(next.result.status, 'waiting')
 })
 
-test('a request an earlier attempt submitted is adopted instead of sent twice', async () => {
-  const payload = { ...PAYLOAD, active_request_id: REQUEST.request_id, conversation_url: 'https://chatgpt.com/c/task', assistant_baseline: 4 }
-  const adopted = await drive({ payload, adopt: true })
-  assert.deepEqual(adopted.actions, ['adopt'])
-  assert.equal(adopted.result.observation, true)
-  const missing = await drive({ payload, adopt: false })
-  assert.ok(missing.actions.some((item) => item[0] === 'send'))
-})
-
 test('a settled task ends the driver and an idle Agent is observed for free', async () => {
   assert.equal((await drive({ start: { task: { status: 'REVIEW' } } })).result.status, 'done')
   const idle = await drive({ start: { ...REQUEST, request_id: '', agent_state: 'executing' } })
@@ -107,19 +183,11 @@ test('a settled task ends the driver and an idle Agent is observed for free', as
 })
 
 test('a conversation ChatGPT cannot load returns the attempt as a free wait', async () => {
-  const previousFetch = globalThis.fetch
-  globalThis.fetch = async () => ({ ok: true, json: async () => REQUEST })
   const unavailable = Object.assign(new Error('ChatGPT could not load this conversation'), { conversationUnavailable: true, delayMs: 120_000 })
-  try {
-    const result = await executeOrchestratorExecution(TASK, entry, 'otk_abc', PAYLOAD, 'worker-1', {
-      baseURL: 'http://127.0.0.1:6969', homeURL: 'https://chatgpt.com/', supervision: async () => { throw unavailable },
-    })
-    assert.equal(result.status, 'waiting')
-    assert.equal(result.observation, true)
-    assert.equal(result.delayMs, 120_000)
-  } finally {
-    globalThis.fetch = previousFetch
-  }
+  const result = await drive({ start: { ...REQUEST, conversation_url: 'https://chatgpt.com/c/task' }, ensureError: unavailable })
+  assert.equal(result.result.status, 'waiting')
+  assert.equal(result.result.observation, true)
+  assert.equal(result.result.delayMs, 120_000)
 })
 
 test('the driver has no transport of its own', async () => {

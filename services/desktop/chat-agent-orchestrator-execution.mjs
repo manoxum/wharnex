@@ -32,14 +32,78 @@ function observe(error, delayMs = OBSERVE_MS) {
   return { status: 'waiting', delayMs, observation: true, error }
 }
 
+function affinityFailure(message, cause = undefined) {
+  const error = new Error(String(message || 'Orchestrator task conversation affinity failed closed'), cause ? { cause } : undefined)
+  error.orchestratorConversationMismatch = true
+  return error
+}
+
+function sameConversation(runtime, left, right) {
+  const a = runtime.conversationURL(left)
+  const b = runtime.conversationURL(right)
+  return Boolean(a && b && a === b)
+}
+
+export function createOrchestratorConversationGuard(runtime) {
+  const ensureConversation = async (key, entry, conversationURL) => {
+    const expected = runtime.conversationURL(conversationURL)
+    if (!expected) throw affinityFailure('A bound Orchestrator task has no concrete ChatGPT conversation URL.')
+    const before = runtime.currentURL(entry)
+    if (!sameConversation(runtime, before, expected)) {
+      await runtime.pace()
+      await runtime.load(key, entry, expected)
+    }
+    await runtime.waitReady(key, entry)
+    const raw = runtime.currentURL(entry)
+    const observed = runtime.conversationURL(raw)
+    if (!observed || !sameConversation(runtime, observed, expected)) {
+      throw affinityFailure(`The Orchestrator task is bound to ${expected}, but the Worker observed ${observed || raw || 'no conversation'}; the request was not resent.`)
+    }
+    return observed
+  }
+
+  const submissionHooks = (conversationURL, bindSubmittedConversation) => ({
+    onTargetConversation(observedURL) {
+      if (!conversationURL) return
+      const observed = runtime.conversationURL(observedURL)
+      if (!observed || !sameConversation(runtime, observed, conversationURL)) {
+        throw affinityFailure(`The Orchestrator task is bound to ${conversationURL}, but the send surface opened ${observed || 'another page'}; the request was not submitted.`)
+      }
+    },
+    async onSubmittedConversation(observedURL) {
+      const observed = runtime.conversationURL(observedURL)
+      if (!observed) throw affinityFailure('The Orchestrator submit did not produce a concrete ChatGPT conversation.')
+      if (conversationURL && !sameConversation(runtime, observed, conversationURL)) {
+        throw affinityFailure(`After submit ChatGPT moved the Orchestrator task from ${conversationURL} to ${observed}; execution ended without resending.`)
+      }
+      if (typeof bindSubmittedConversation !== 'function') throw affinityFailure('The Orchestrator Worker did not receive its durable conversation binder.')
+      const bound = runtime.conversationURL(await bindSubmittedConversation(observed))
+      if (!bound || !sameConversation(runtime, bound, observed)) {
+        throw affinityFailure(`The backend did not confirm the same Orchestrator conversation observed after submit (${observed}).`)
+      }
+      return bound
+    },
+  })
+
+  return { ensureConversation, submissionHooks }
+}
+
 export async function executeOrchestratorExecution(task, entry, key, payload, owner, runtime) {
   try {
     return await driveOrchestratorRound(task, entry, key, payload, owner, runtime)
   } catch (error) {
     // A conversation ChatGPT refuses to load reached nothing that can be
     // charged: the attempt comes back as a free wait.
-    if (error?.conversationUnavailable !== true) throw error
-    return observe(String(error.message || 'ChatGPT could not load this conversation'), Math.max(0, Number(error.delayMs) || 0))
+    if (error?.conversationUnavailable === true) {
+      return observe(String(error.message || 'ChatGPT could not load this conversation'), Math.max(0, Number(error.delayMs) || 0))
+    }
+    // Affinity divergence is not a transient transport failure. Retrying could
+    // submit the same Main Request into a second conversation, so fail the
+    // execution task immediately and leave the concrete diagnostic visible.
+    if (error?.orchestratorConversationMismatch === true) {
+      return { status: 'failed', error: String(error.message || 'Orchestrator task conversation affinity diverged') }
+    }
+    throw error
   }
 }
 
@@ -70,20 +134,60 @@ async function driveOrchestratorRound(task, entry, key, payload, owner, runtime)
   }
   const resend = supervision.state === 'ended'
 
-  const conversationURL = runtime.conversationURL(current.conversation_url || payload.conversation_url || '')
+  // worker-start is the authoritative task affinity. A checkpoint from an old
+  // request may still carry another URL after retry/reclaim; it is deliberately
+  // ignored once the backend has a definitive task conversation.
+  const definitiveURL = runtime.conversationURL(current.conversation_url || '')
+  const checkpointURL = runtime.conversationURL(payload.conversation_url || '')
+  const conversationURL = definitiveURL || checkpointURL
+
+  // A bound task never prepares content on home or on whichever conversation
+  // happens to be resident in the Worker. Load the definitive URL and verify
+  // that ChatGPT actually rendered that same conversation before adoption or
+  // submission can inspect/fill the composer.
+  if (conversationURL) await runtime.ensureConversation(key, entry, conversationURL)
+
   // A request an earlier attempt already submitted is handed to the agentic
   // supervision, never sent twice.
   if (!resend && payload.active_request_id === current.request_id && conversationURL &&
       await runtime.adopt(key, entry, current, conversationURL, Number(payload.assistant_baseline || 0))) {
     return observe('submitted request adopted by agentic supervision')
   }
-  if (runtime.needsNavigation(entry, conversationURL || runtime.homeURL)) await runtime.pace()
+  if (!conversationURL && runtime.needsNavigation(entry, runtime.homeURL)) await runtime.pace()
   const delay = runtime.rateLimitDelay()
   if (delay > 0) return observe('ChatGPT rate-limit cooldown is active', delay)
-  const sent = await runtime.sendMainRequest(key, entry, current, conversationURL)
-  const stored = await workerRequest(runtime.baseURL, sessionID, taskID, 'worker-conversation', { ...credentials, conversation_url: sent.conversationUrl })
+
+  // Binding runs from inside PREPARE_PROMPT immediately after ChatGPT exposes
+  // the concrete post-submit URL and before any follow-up/supervision task is
+  // enqueued. This closes the only window where a restart could lose the
+  // conversation and later resend the same Main Request somewhere else.
+  const bindSubmittedConversation = async (observedURL) => {
+    const observed = runtime.conversationURL(observedURL || '')
+    if (!observed) throw affinityFailure('ChatGPT submitted the Orchestrator request without a concrete conversation URL; no retry was attempted.')
+    if (definitiveURL && !sameConversation(runtime, observed, definitiveURL)) {
+      throw affinityFailure(`ChatGPT changed the Orchestrator task conversation from ${definitiveURL} to ${observed}; execution stopped before any resend.`)
+    }
+    let stored
+    try {
+      stored = await workerRequest(runtime.baseURL, sessionID, taskID, 'worker-conversation', { ...credentials, conversation_url: observed })
+    } catch (error) {
+      throw affinityFailure(`The backend rejected Orchestrator conversation ${observed}; execution stopped before any resend. ${String(error?.message || error)}`, error)
+    }
+    const storedURL = runtime.conversationURL(stored?.conversation_url || '')
+    if (!storedURL || !sameConversation(runtime, storedURL, observed) || (definitiveURL && !sameConversation(runtime, storedURL, definitiveURL))) {
+      throw affinityFailure(`The backend reported a different Orchestrator conversation after submit; expected ${definitiveURL || observed} and received ${storedURL || 'none'}.`)
+    }
+    return storedURL
+  }
+
+  const sent = await runtime.sendMainRequest(key, entry, current, conversationURL, bindSubmittedConversation)
+  const boundURL = runtime.conversationURL(sent?.conversationUrl || '')
+  if (!boundURL) throw affinityFailure('Orchestrator Main Request finished submission without a bound conversation URL.')
+  if (conversationURL && !sameConversation(runtime, boundURL, conversationURL)) {
+    throw affinityFailure(`Orchestrator submission returned ${boundURL} instead of the definitive task conversation ${conversationURL}.`)
+  }
   await runtime.checkpoint(task.task_id, owner, {
-    active_request_id: current.request_id, conversation_url: stored.conversation_url || sent.conversationUrl,
+    active_request_id: current.request_id, conversation_url: boundURL,
     expected_filename: current.expected_filename, submitted_at: new Date().toISOString(),
     ...(resend ? { resent_request_id: current.request_id, resend_count: resends + 1 } : {}),
   })
