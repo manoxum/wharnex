@@ -212,6 +212,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/terminal/sessions/{terminal_id}/resize", a.interactiveTerminalResize)
 	mux.HandleFunc("DELETE /api/sessions/{id}/terminal/sessions/{terminal_id}", a.closeInteractiveTerminal)
 	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/overview", a.orchestratorOverview)
+	mux.HandleFunc("GET /api/sessions/{id}/orchestrator/tasks", a.orchestratorTasks)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/propose", a.orchestratorProposePlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/import", a.orchestratorImportPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/orchestrator/plans/import-bundle", a.orchestratorImportPlanBundle)
