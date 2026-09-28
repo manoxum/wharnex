@@ -1,9 +1,4 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
-### Chat a6557b36-502e-4b16-89da-1a12612cc330 (2026-09-27)
-
-_(reserved — no entries yet)_
-
-
 ### Chat 263284aa-461b-40c1-b165-36d9560539c4 (2026-09-27)
 
 - Corrige o fecho dos popups de projetos recentes, projetos abertos, aparência e alertas quando o clique/foco sai da superfície, incluindo interações capturadas e perda de foco para o workspace embutido.
