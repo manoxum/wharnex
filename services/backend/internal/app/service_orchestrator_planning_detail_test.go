@@ -59,6 +59,9 @@ func TestOrchestratorPlanningDetailPreservesScopeWithoutStorageReferences(t *tes
 	if err := orchestratorStore.AppendRun(ctx, orchestrator.TaskRun{ID: "run-good", TaskID: first.ID, ProjectPath: owner.ProjectPath, PlanID: "exec-plan-1", Status: "review", StartedAt: now}); err != nil {
 		t.Fatal(err)
 	}
+	if err := orchestratorStore.AppendRun(ctx, orchestrator.TaskRun{ID: "run-good-2", TaskID: first.ID, ProjectPath: owner.ProjectPath, PlanID: "exec-plan-2", Status: "running", StartedAt: now.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
 	if err := orchestratorStore.AppendRun(ctx, orchestrator.TaskRun{ID: "run-foreign", TaskID: first.ID, ProjectPath: "/other/project", PlanID: imported.Plan.ID, Status: "failed", StartedAt: now}); err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +71,10 @@ func TestOrchestratorPlanningDetailPreservesScopeWithoutStorageReferences(t *tes
 		t.Fatal(err)
 	}
 	if err := orchestratorStore.AppendRun(ctx, orchestrator.TaskRun{ID: "run-other-task", TaskID: otherTask.ID, ProjectPath: owner.ProjectPath, PlanID: "exec-plan-other", Status: "running", StartedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	foreignPlan := orchestrator.Plan{ID: "foreign-plan", ProjectPath: "/other/project", Title: "Foreign", Objective: "foreign", Status: orchestrator.PlanActive, PlannerRequestID: queued.RequestID, CreatedAt: now, UpdatedAt: now.Add(time.Minute)}
+	if err := orchestratorStore.CreatePlan(ctx, foreignPlan, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,8 +92,15 @@ func TestOrchestratorPlanningDetailPreservesScopeWithoutStorageReferences(t *tes
 		if task.Task.ID == otherTask.ID || task.Task.PlanID != imported.Plan.ID || task.Task.RetryContext != nil {
 			t.Fatalf("planning detail leaked an unrelated or unsafe task: %#v", task.Task)
 		}
-		if task.Task.ID == first.ID && (len(task.Runs) != 1 || task.Runs[0].ID != "run-good") {
-			t.Fatalf("task runs were not scoped to the related project: %#v", task.Runs)
+		if task.Task.ID == first.ID {
+			if len(task.Runs) != 2 {
+				t.Fatalf("task run aggregation lost or leaked runs: %#v", task.Runs)
+			}
+			for _, run := range task.Runs {
+				if run.ProjectPath != owner.ProjectPath || run.ID == "run-foreign" {
+					t.Fatalf("task runs escaped the owner project: %#v", task.Runs)
+				}
+			}
 		}
 	}
 	encoded, err := json.Marshal(detail)
@@ -102,17 +116,25 @@ func TestOrchestratorPlanningDetailPreservesScopeWithoutStorageReferences(t *tes
 
 func TestOrchestratorPlanningDetailAllowsIncompleteHistory(t *testing.T) {
 	ctx := context.Background()
-	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorManualTestPlanner{}, policy.NewEngine(), fakeRunner{})
+	queue := session.NewStore()
+	service := NewService(queue, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorManualTestPlanner{}, policy.NewEngine(), fakeRunner{})
 	owner, err := service.StartSessionWithModes(ctx, t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto)
 	if err != nil {
 		t.Fatal(err)
 	}
-	detail, err := service.OrchestratorPlanningRequestDetail(ctx, owner.ID, "orp-missing")
+	legacy, err := queue.EnqueueChatAgentTask(session.ChatAgentTask{
+		TaskID: "cat-legacy", Type: "ORCHESTRATOR_PLAN", ProjectID: owner.ProjectPath, ChatID: "orp-legacy",
+		SessionID: owner.ID, RequestID: "orp-legacy", Payload: json.RawMessage(`{"objective":"legacy objective"}`),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.RequestID != "orp-missing" || detail.Plan != nil || detail.TaskID != "" ||
-		len(detail.Attempts) != 0 || len(detail.ProjectFiles) != 0 || len(detail.Attachments) != 0 || len(detail.Tasks) != 0 {
-		t.Fatalf("incomplete planning history should stay empty and readable: %#v", detail)
+	detail, err := service.OrchestratorPlanningRequestDetail(ctx, owner.ID, "orp-legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.RequestID != "orp-legacy" || detail.TaskID != legacy.TaskID || detail.Objective != "legacy objective" ||
+		detail.Plan != nil || len(detail.Attempts) != 1 || len(detail.ProjectFiles) != 0 || len(detail.Attachments) != 0 || len(detail.Tasks) != 0 {
+		t.Fatalf("incomplete planning history should stay readable: %#v", detail)
 	}
 }

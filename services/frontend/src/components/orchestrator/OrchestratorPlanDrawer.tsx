@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
-import { ORCHESTRATOR_TASK_STATUSES, type ChatAgentTask, type OrchestratorPlanningDetail, type OrchestratorPlanningRequest, type OrchestratorTask } from '../../types'
+import { type ChatAgentTask, type OrchestratorPlanningDetail, type OrchestratorPlanningRequest, type OrchestratorTask } from '../../types'
 import { Icon } from '../Icon'
 import { WorkerFollowViewer } from '../WorkerFollowViewer'
 import { OrchestratorPlanFilesTab, OrchestratorPlanTab } from './OrchestratorPlanDetailTabs'
+import { OrchestratorPlanExecutionsTab, OrchestratorPlanProgressSummary } from './OrchestratorPlanRunSummary'
 
 type DetailTab = 'summary' | 'files' | 'plan' | 'tasks' | 'executions'
 
@@ -35,6 +36,7 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
 }) {
   const [tab, setTab] = useState<DetailTab>('summary')
   const [followedWorker, setFollowedWorker] = useState<string>()
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
   const planID = detail?.plan?.id
   const requestStatus = detail?.status || request.status
   const workerID = planningTask && ['LEASED', 'RUNNING'].includes(planningTask.status) ? extractWorkerId(planningTask.lease_owner) : undefined
@@ -42,7 +44,13 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
   const canRetry = ['FAILED', 'ATTENTION'].includes(requestStatus)
   const canDecideDraft = detail?.plan?.status === 'DRAFT'
 
-  useEffect(() => { setTab('summary'); setFollowedWorker(undefined) }, [request.request_id])
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+    setTab('summary')
+    setFollowedWorker(undefined)
+    closeButtonRef.current?.focus()
+    return () => { if (previousFocus?.isConnected) previousFocus.focus() }
+  }, [request.request_id])
   useEffect(() => {
     if (followedWorker && followedWorker !== workerID) setFollowedWorker(undefined)
   }, [followedWorker, workerID])
@@ -52,11 +60,18 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
     data-chatgpt-overlay-blocker="true"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
   >
-    <aside className="grid h-full w-[min(460px,92vw)] grid-rows-[auto_minmax(0,1fr)] border-l border-[var(--theme-border)] bg-[var(--theme-surface)] shadow-[-20px_0_55px_var(--theme-shadow)]" aria-label={`Detalhe do planeamento ${request.request_id}`}>
+    <aside
+      className="grid h-full w-full max-w-[460px] grid-rows-[auto_minmax(0,1fr)] border-l border-[var(--theme-border)] bg-[var(--theme-surface)] shadow-[-20px_0_55px_var(--theme-shadow)]"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="orchestrator-plan-detail-title"
+      aria-label={`Detalhe do planeamento ${request.request_id}`}
+      onKeyDown={(event) => handleDialogKeyDown(event, onClose)}
+    >
       <header className="flex min-h-[62px] items-start justify-between gap-3 border-b border-[var(--theme-border-soft)] px-3.5 py-2.5">
         <div className="grid min-w-0 gap-0.5">
           <span className="truncate font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">{request.request_id}</span>
-          <strong className="truncate text-lg">{detail?.plan?.title || request.objective || 'Detalhe do planeamento'}</strong>
+          <strong id="orchestrator-plan-detail-title" className="truncate text-lg">{detail?.plan?.title || request.objective || 'Detalhe do planeamento'}</strong>
           <span className="mt-1 flex flex-wrap items-center gap-2">
             <span className="inline-flex min-h-[23px] items-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2 font-mono text-sm font-bold leading-none tracking-[0.04em]">{requestStatus}</span>
             <span className="text-sm text-[var(--theme-text-muted)]">Tentativa {detail?.attempt ?? request.attempt}/{detail?.max_attempts ?? request.max_attempts}</span>
@@ -66,11 +81,11 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
         </div>
         <span className="flex items-center gap-1">
           <button className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)]" type="button" disabled={loading || busy} onClick={onRefresh} aria-label="Atualizar detalhe do planeamento" title="Atualizar"><Icon name="refresh" size={15}/></button>
-          <button className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)]" type="button" onClick={onClose} aria-label="Fechar detalhe do planeamento" title="Fechar"><Icon name="close" size={16}/></button>
+          <button ref={closeButtonRef} className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)]" type="button" onClick={onClose} aria-label="Fechar detalhe do planeamento" title="Fechar"><Icon name="close" size={16}/></button>
         </span>
       </header>
 
-      <div className="min-h-0 overflow-auto p-4">
+      <div className="min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4" data-testid="orchestrator-plan-detail-scroll">
         <section className="mb-3 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] p-3" aria-label="Ações do planeamento">
           <div className="flex flex-wrap gap-2">
             <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => void copyIdentifier(request.request_id)}><Icon name="copy" size={13}/> Copiar request_id</button>
@@ -113,7 +128,7 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
           {tab === 'files' ? <OrchestratorPlanFilesTab detail={detail}/> : null}
           {tab === 'plan' ? <OrchestratorPlanTab detail={detail}/> : null}
           {tab === 'tasks' ? <TasksTab detail={detail}/> : null}
-          {tab === 'executions' ? <ExecutionsTab detail={detail} onSelectTask={onSelectTask}/> : null}
+          {tab === 'executions' ? <OrchestratorPlanExecutionsTab detail={detail} onSelectTask={onSelectTask}/> : null}
         </div>}
       </div>
     </aside>
@@ -127,7 +142,7 @@ function StateMessage({ kind, message }: { kind: 'loading' | 'empty' | 'info'; m
 function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest; detail: OrchestratorPlanningDetail }) {
   const objective = detail.objective || request.objective
   return <div className="grid gap-3">
-    <ProgressSummary detail={detail}/>
+    <OrchestratorPlanProgressSummary detail={detail}/>
     <section>
       <strong className="text-base">Objetivo</strong>
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-text-muted)]">{objective || 'Sem objetivo registrado.'}</p>
@@ -147,112 +162,22 @@ function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest;
   </div>
 }
 
-function ProgressSummary({ detail }: { detail: OrchestratorPlanningDetail }) {
-  const summary = useMemo(() => {
-    const taskCounts = Object.fromEntries(ORCHESTRATOR_TASK_STATUSES.map((status) => [status, 0])) as Record<(typeof ORCHESTRATOR_TASK_STATUSES)[number], number>
-    const runCounts: Record<string, number> = {}
-    const attemptCounts: Record<string, number> = {}
-    let runs = 0
-    detail.tasks.forEach(({ task, runs: taskRuns }) => {
-      taskCounts[task.status] += 1
-      taskRuns.forEach((run) => {
-        runs += 1
-        const status = String(run.status || 'UNKNOWN').toUpperCase()
-        runCounts[status] = (runCounts[status] || 0) + 1
-      })
-    })
-    detail.attempts.forEach((attempt) => {
-      const status = String(attempt.status || 'UNKNOWN').toUpperCase()
-      attemptCounts[status] = (attemptCounts[status] || 0) + 1
-    })
-    return { taskCounts, runCounts, attemptCounts, runs }
-  }, [detail])
-
-  return <section className="rounded-lg border border-[var(--theme-border)] p-3" aria-label="Resumo de progresso do plano">
-    <div className="flex flex-wrap items-baseline justify-between gap-2">
-      <strong className="text-base">Progresso</strong>
-      <span className="text-sm text-[var(--theme-text-muted)]">{detail.tasks.length} task{detail.tasks.length === 1 ? '' : 's'} · {summary.runs === 1 ? '1 execução' : `${summary.runs} execuções`} · {detail.attempts.length} tentativa{detail.attempts.length === 1 ? '' : 's'} de planeamento</span>
-    </div>
-    <p className="mb-0 mt-1 text-sm text-[var(--theme-text-soft)]">Uma task só entra em concluídas quando o estado é COMPLETE; REVIEW continua separado até essa transição.</p>
-    <StatusCounts label="Tasks por status" entries={ORCHESTRATOR_TASK_STATUSES.map((status) => [status, summary.taskCounts[status]] as [string, number])}/>
-    <StatusCounts label="Execuções por status" entries={Object.entries(summary.runCounts)}/>
-    <StatusCounts label="Tentativas por status" entries={Object.entries(summary.attemptCounts)}/>
-  </section>
-}
-
-function StatusCounts({ label, entries }: { label: string; entries: Array<[string, number]> }) {
-  const visible = entries.filter(([, count]) => count > 0)
-  return <div className="mt-3">
-    <span className="text-sm font-semibold text-[var(--theme-text-muted)]">{label}</span>
-    {visible.length ? <div className="mt-1 flex flex-wrap gap-1.5">{visible.map(([status, count]) => <span key={status} className="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] px-2 py-1 font-mono text-sm"><strong>{count}</strong> {status}</span>)}</div> : <p className="mb-0 mt-1 text-sm text-[var(--theme-text-soft)]">Sem registos.</p>}
-  </div>
-}
-
 function TasksTab({ detail }: { detail: OrchestratorPlanningDetail }) {
   const count = detail.tasks.length
   if (!count) return <StateMessage kind="empty" message="Nenhuma task foi criada para este plano."/>
   return <StateMessage kind="info" message={`${count} task${count === 1 ? '' : 's'} ${count === 1 ? 'disponível' : 'disponíveis'} para este plano.`}/>
 }
 
-function ExecutionsTab({ detail, onSelectTask }: { detail: OrchestratorPlanningDetail; onSelectTask?: (task: OrchestratorTask) => void }) {
-  if (!detail.tasks.length) return <StateMessage kind="empty" message="Ainda não existem execuções registradas para este pedido."/>
 
-  const groups = detail.tasks.map((item) => ({
-    task: item.task,
-    runs: item.runs.filter((run) => run.task_id === item.task.id),
-  }))
-  const count = groups.reduce((total, item) => total + item.runs.length, 0)
-
-  return <div className="grid gap-3">
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] px-3 py-2">
-      <strong className="text-base">Execuções das tasks deste plano</strong>
-      <span className="font-mono text-sm text-[var(--theme-text-muted)]">{count === 1 ? '1 execução' : `${count} execuções`}</span>
-    </div>
-    {groups.map(({ task, runs }) => <section key={task.id} className="rounded-lg border border-[var(--theme-border)] p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <strong className="block truncate text-base">{task.title}</strong>
-          <span className="font-mono text-sm text-[var(--theme-text-soft)]">{task.id}</span>
-        </div>
-        <button
-          type="button"
-          className="shrink-0 rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold text-[var(--theme-text)] disabled:cursor-default disabled:opacity-60"
-          disabled={!onSelectTask}
-          onClick={() => onSelectTask?.(task)}
-          aria-label={`Abrir task ${task.title}`}
-        >Abrir task</button>
-      </div>
-      <div className="mt-2 flex items-center gap-2 text-sm text-[var(--theme-text-muted)]">
-        <span>{task.status}</span>
-        <span aria-hidden="true">·</span>
-        <span>{runs.length === 1 ? '1 execução' : `${runs.length} execuções`}</span>
-      </div>
-      {!runs.length ? <div className="mt-3 rounded-md border border-dashed border-[var(--theme-border)] px-3 py-2 text-sm text-[var(--theme-text-muted)]">Nenhuma execução registrada para esta task.</div> : <div className="mt-3 grid gap-2">
-        {runs.map((run) => <article key={run.id} className="rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface)] p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <strong className="text-base">Tentativa {run.attempt}</strong>
-            <span className="rounded-full border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2 py-1 font-mono text-sm font-bold">{run.status}</span>
-          </div>
-          <p className="mb-0 mt-2 text-sm text-[var(--theme-text-muted)]">Início {formatDate(run.started_at)} · {run.completed_at ? `Fim ${formatDate(run.completed_at)}` : 'Ainda em execução'}</p>
-          <dl className="mb-0 mt-2 grid gap-1 text-sm">
-            <ExecutionIdentifier label="run_id" value={run.id}/>
-            <ExecutionIdentifier label="execution_plan_id" value={run.execution_plan_id}/>
-            <ExecutionIdentifier label="request_id" value={run.request_id}/>
-            <ExecutionIdentifier label="session_id" value={run.session_id}/>
-          </dl>
-          {run.error ? <div className="mt-2 rounded-md border border-[color-mix(in_srgb,var(--theme-danger)_35%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-danger)_8%,transparent)] px-3 py-2">
-            <strong className="text-sm text-[var(--theme-danger)]">Erro</strong>
-            <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-danger)]">{run.error}</p>
-          </div> : null}
-        </article>)}
-      </div>}
-    </section>)}
-  </div>
-}
-
-function ExecutionIdentifier({ label, value }: { label: string; value?: string }) {
-  if (!value) return null
-  return <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2"><dt className="text-[var(--theme-text-soft)]">{label}</dt><dd className="m-0 break-all font-mono text-[var(--theme-text-muted)]">{value}</dd></div>
+function handleDialogKeyDown(event: KeyboardEvent<HTMLElement>, onClose: () => void) {
+  if (event.key === 'Escape') { onClose(); return }
+  if (event.key !== 'Tab') return
+  const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+  if (!focusable.length) return
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
 }
 
 async function copyIdentifier(value: string) {
