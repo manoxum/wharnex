@@ -6,7 +6,7 @@ import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError 
 import { isAutomaticAutomationMode, isAutoApproveAutomationMode } from './lib/automationMode'
 import { knowledgeConsolidationPending, requestChainActive } from './lib/requestActivity'
 import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, EvolutionKnowledgeRef, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
-import type { ReasoningEffort } from './types'
+import type { OrchestratorTaskConclusion, ReasoningEffort } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
 import { ChatPanel } from './components/ChatPanel'
@@ -14,6 +14,8 @@ import { WorkspaceSideRail, type Drawer } from './components/WorkspaceSideRail'
 import { TerminalWorkspace } from './components/TerminalWorkspace'
 import { executionQueueActiveCount, executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, visibleExecutionQueueItems, type ExecutionFIFOItem } from './lib/executionQueueView'
 import { collectAttentionItems, summarizeAttention, type AttentionItem, type AttentionTarget } from './lib/attentionCenter'
+import { mergeAttentionItems } from './lib/attentionItems'
+import { normalizeWorkspaceAttentionPayload, orchestratorConclusionAttentionItems, shouldPublishNativeAttentionAfterBaseline } from './lib/orchestratorAttention'
 import { acknowledgeCompletedAttention, filterActiveAttentionItems, loadCompletedAttentionHistory } from './lib/attentionHistory'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
 import { DeferredEditorWorkspace } from './components/DeferredEditorWorkspace'
@@ -162,6 +164,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [transportProgress, setTransportProgress] = useState('')
   const [chatgptHumanActions, setChatgptHumanActions] = useState<Record<string, DesktopChatGPTHumanAction>>({})
   const [attentionSessions, setAttentionSessions] = useState<Record<string, Session | undefined>>({})
+  const [orchestratorConclusionState, setOrchestratorConclusionState] = useState<{ projectPath: string; items: OrchestratorTaskConclusion[] }>({ projectPath: '', items: [] })
   const [chatgptAttentionNonce, setChatgptAttentionNonce] = useState(0)
   const [inspectorAttention, setInspectorAttention] = useState<{ tab: AttentionTarget; nonce: number }>({ tab: 'terminal', nonce: 0 })
   const [attentionPreviewOpen, setAttentionPreviewOpen] = useState(false)
@@ -369,8 +372,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }, [activeChatId, activeChatOwnsSession, session])
 
   useEffect(() => {
-    if (!session || !chats.length) {
-      if (!chats.length) setAttentionSessions({})
+    if (!session) {
+      setAttentionSessions({})
+      setOrchestratorConclusionState({ projectPath: '', items: [] })
       return
     }
     let cancelled = false
@@ -384,11 +388,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         // patches, artifact inventories), so a workspace with many chats pulled
         // and parsed tens of megabytes per poll — enough to block the
         // renderer's main thread until the window was killed and restarted.
-        let records: AttentionRecord[] = []
-        try { records = (await api.workspaceAttention(session.project_path)).records }
+        let snapshot: ReturnType<typeof normalizeWorkspaceAttentionPayload>
+        try { snapshot = normalizeWorkspaceAttentionPayload(await api.workspaceAttention(session.project_path)) }
         catch { return }
         if (cancelled) return
-        const bySession = new Map(records.map((record) => [record.session_id, record]))
+        const bySession = new Map(snapshot.records.map((record) => [record.session_id, record]))
         const entries = chats.map((chat) => {
           if (chat.id === activeChatId && chat.sessionId === session.id) return [chat.id, session] as const
           const record = bySession.get(chat.sessionId)
@@ -396,7 +400,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         })
         if (!cancelled) {
           setAttentionSessions(Object.fromEntries(entries))
-          setOrchestratorRestart(orchestratorRestartChats(records, chats, (record) => attentionSessionFrom(record, session.project_path)))
+          setOrchestratorConclusionState({ projectPath: session.project_path, items: snapshot.orchestratorConclusions })
+          setOrchestratorRestart(orchestratorRestartChats(snapshot.records, chats, (record) => attentionSessionFrom(record, session.project_path)))
         }
       } finally { refreshing = false }
     }
@@ -3516,12 +3521,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   submitBundleFileRef.current = submitBundleFile
 
-  // Orchestrator tasks contribute only their restart alert; every other alert
-  // about a task belongs to the Orchestrator views.
-  const allAttentionItems = [
-    ...collectAttentionItems(chats, attentionSessions, chatgptHumanActions),
-    ...collectAttentionItems(orchestratorRestart.chats, orchestratorRestart.sessions).filter((item) => item.kind === 'restart-pending'),
-  ]
+  const orchestratorConclusions = orchestratorConclusionState.projectPath === session?.project_path ? orchestratorConclusionState.items : []
+  // Ordinary chat attention, self-evolution restart decisions and successful
+  // Orchestrator runs share one project-level list. Merge by semantic id so a
+  // conclusion stays singular across polls and REVIEW → COMPLETE → ARCHIVED.
+  const allAttentionItems = mergeAttentionItems(
+    collectAttentionItems(chats, attentionSessions, chatgptHumanActions),
+    collectAttentionItems(orchestratorRestart.chats, orchestratorRestart.sessions).filter((item) => item.kind === 'restart-pending'),
+    orchestratorConclusionAttentionItems(orchestratorConclusions),
+  )
   const attentionHistory = attentionHistoryState.projectPath === session?.project_path ? attentionHistoryState.items : []
   const attentionItems = filterActiveAttentionItems(allAttentionItems, attentionHistory)
   const attentionSummary = summarizeAttention(attentionItems)
@@ -3531,8 +3539,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     for (const entry of attentionItems) {
       if (!entry.kind || !entry.occurredAt || nativeNotificationIdsRef.current.has(entry.id)) continue
       nativeNotificationIdsRef.current.add(entry.id)
-      const occurredAt = Date.parse(entry.occurredAt)
-      if (entry.kind === 'task-completed' && Number.isFinite(occurredAt) && occurredAt < nativeCompletionBaselineRef.current - 1_000) continue
+      if (!shouldPublishNativeAttentionAfterBaseline(entry, nativeCompletionBaselineRef.current)) continue
       void notifications.publish({
         id: entry.id,
         projectPath: session.project_path,

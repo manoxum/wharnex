@@ -11,12 +11,21 @@ describe('App global attention session refresh', () => {
     // every six seconds grew the renderer until it was killed once a workspace
     // held many chats (see App.attentionMemory.test.ts).
     expect(source).toMatch(/await api\.workspaceAttention\(session\.project_path\)/)
+    expect(source).toContain('setOrchestratorConclusionState({ projectPath: session.project_path, items: snapshot.orchestratorConclusions })')
     expect(source).toMatch(/window\.setInterval\(\(\) => void refresh\(\), ATTENTION_REFRESH_INTERVAL_MS\)/)
     // The shell collects the attention list, because the top-chrome preview
     // and the full side drawer are two views of one project-wide list.
     expect(source).toMatch(/collectAttentionItems\(chats, attentionSessions, chatgptHumanActions\)/)
+    expect(source).toContain('orchestratorConclusionAttentionItems(orchestratorConclusions)')
+    expect(source).toContain('const allAttentionItems = mergeAttentionItems(')
     expect(source).toMatch(/attentionItems=\{attentionItems\}/)
-    expect(source).toMatch(/collectAttentionItems\(chats, attentionSessions, chatgptHumanActions\)/)
+  })
+
+  it('publishes only post-baseline completion notifications while keeping restart notifications unchanged', () => {
+    expect(source).toContain('nativeNotificationIdsRef.current.has(entry.id)')
+    expect(source).toContain('nativeNotificationIdsRef.current.add(entry.id)')
+    expect(source).toContain('shouldPublishNativeAttentionAfterBaseline(entry, nativeCompletionBaselineRef.current)')
+    expect(source).toContain("collectAttentionItems(orchestratorRestart.chats, orchestratorRestart.sessions).filter((item) => item.kind === 'restart-pending')")
   })
 
   it('acknowledges clicked task completions and keeps them outside the active alert count', () => {
