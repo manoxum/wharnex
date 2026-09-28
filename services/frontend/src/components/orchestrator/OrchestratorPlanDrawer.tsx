@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
-import type { OrchestratorPlanningDetail, OrchestratorPlanningRequest, OrchestratorTask } from '../../types'
+import { useEffect, useMemo, useState } from 'react'
+import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
+import { ORCHESTRATOR_TASK_STATUSES, type ChatAgentTask, type OrchestratorPlanningDetail, type OrchestratorPlanningRequest, type OrchestratorTask } from '../../types'
 import { Icon } from '../Icon'
+import { WorkerFollowViewer } from '../WorkerFollowViewer'
 import { OrchestratorPlanFilesTab, OrchestratorPlanTab } from './OrchestratorPlanDetailTabs'
 
 type DetailTab = 'summary' | 'files' | 'plan' | 'tasks' | 'executions'
@@ -13,20 +15,37 @@ const tabs: Array<{ id: DetailTab; label: string }> = [
   { id: 'executions', label: 'Execuções' },
 ]
 
-export function OrchestratorPlanDrawer({ request, detail, loading, error, onClose, onRefresh, onSelectTask, onOpenTasks }: {
+export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = [], loading, busy = false, error, onClose, onRefresh, onSelectTask, onOpenTasks, onGoToChat, onRetry, onApprove, onReject, onRevise }: {
   request: OrchestratorPlanningRequest
   detail?: OrchestratorPlanningDetail
+  planningTask?: ChatAgentTask
+  chats?: ChatAgentTaskChatRef[]
   loading: boolean
+  busy?: boolean
   error?: string
   onClose: () => void
   onRefresh: () => void
   onSelectTask?: (task: OrchestratorTask) => void
   onOpenTasks?: (planID: string) => void
+  onGoToChat?: (chatId?: string, sessionId?: string) => void
+  onRetry?: () => void
+  onApprove?: (planID: string) => void
+  onReject?: (planID: string) => void
+  onRevise?: (planID: string) => void
 }) {
   const [tab, setTab] = useState<DetailTab>('summary')
+  const [followedWorker, setFollowedWorker] = useState<string>()
   const planID = detail?.plan?.id
+  const requestStatus = detail?.status || request.status
+  const workerID = planningTask && ['LEASED', 'RUNNING'].includes(planningTask.status) ? extractWorkerId(planningTask.lease_owner) : undefined
+  const resolvedChatID = planningTask ? resolveTaskChatId(planningTask, chats) : undefined
+  const canRetry = ['FAILED', 'ATTENTION'].includes(requestStatus)
+  const canDecideDraft = detail?.plan?.status === 'DRAFT'
 
-  useEffect(() => { setTab('summary') }, [request.request_id])
+  useEffect(() => { setTab('summary'); setFollowedWorker(undefined) }, [request.request_id])
+  useEffect(() => {
+    if (followedWorker && followedWorker !== workerID) setFollowedWorker(undefined)
+  }, [followedWorker, workerID])
 
   return <div
     className="fixed inset-0 z-[1240] flex justify-end bg-[color-mix(in_srgb,var(--theme-backdrop)_65%,transparent)]"
@@ -39,20 +58,37 @@ export function OrchestratorPlanDrawer({ request, detail, loading, error, onClos
           <span className="truncate font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">{request.request_id}</span>
           <strong className="truncate text-lg">{detail?.plan?.title || request.objective || 'Detalhe do planeamento'}</strong>
           <span className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="inline-flex min-h-[23px] items-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2 font-mono text-sm font-bold leading-none tracking-[0.04em]">{detail?.status || request.status}</span>
+            <span className="inline-flex min-h-[23px] items-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2 font-mono text-sm font-bold leading-none tracking-[0.04em]">{requestStatus}</span>
             <span className="text-sm text-[var(--theme-text-muted)]">Tentativa {detail?.attempt ?? request.attempt}/{detail?.max_attempts ?? request.max_attempts}</span>
           </span>
           <span className="text-sm text-[var(--theme-text-soft)]">Criado {formatDate(request.created_at)} · Atualizado {formatDate(request.updated_at)}</span>
           {detail?.plan ? <span className="truncate text-sm text-[var(--theme-text-soft)]"><span className="font-mono">{detail.plan.id}</span> · {detail.plan.title}</span> : null}
         </div>
         <span className="flex items-center gap-1">
-          <button className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)]" type="button" disabled={loading} onClick={onRefresh} aria-label="Atualizar detalhe do planeamento" title="Atualizar"><Icon name="refresh" size={15}/></button>
+          <button className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)]" type="button" disabled={loading || busy} onClick={onRefresh} aria-label="Atualizar detalhe do planeamento" title="Atualizar"><Icon name="refresh" size={15}/></button>
           <button className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)]" type="button" onClick={onClose} aria-label="Fechar detalhe do planeamento" title="Fechar"><Icon name="close" size={16}/></button>
         </span>
       </header>
 
       <div className="min-h-0 overflow-auto p-4">
-        {planID && onOpenTasks ? <div className="mb-2 flex justify-end"><button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => onOpenTasks(planID)}>Ver tasks</button></div> : null}
+        <section className="mb-3 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] p-3" aria-label="Ações do planeamento">
+          <div className="flex flex-wrap gap-2">
+            <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => void copyIdentifier(request.request_id)}><Icon name="copy" size={13}/> Copiar request_id</button>
+            {planID ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => void copyIdentifier(planID)}><Icon name="copy" size={13}/> Copiar plan_id</button> : null}
+            {resolvedChatID && onGoToChat ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => onGoToChat(resolvedChatID, planningTask?.session_id)}><Icon name="bridge" size={13}/> Abrir chat</button> : null}
+            {workerID ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" aria-pressed={followedWorker === workerID} onClick={() => setFollowedWorker((current) => current === workerID ? undefined : workerID)}><Icon name="monitor" size={13}/> {followedWorker === workerID ? 'A acompanhar Worker' : 'Acompanhar Worker'}</button> : null}
+            {planID && onOpenTasks ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => onOpenTasks(planID)}>Ver tasks</button> : null}
+            {canRetry && onRetry ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={onRetry}><Icon name="refresh" size={13}/> Retentar planeamento</button> : null}
+          </div>
+          {canDecideDraft && planID ? <div className="mt-2 flex flex-wrap gap-2 border-t border-[var(--theme-border-soft)] pt-2">
+            {onReject ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold text-[var(--theme-danger)]" type="button" disabled={busy} onClick={() => onReject(planID)}><Icon name="close" size={13}/> Rejeitar plano</button> : null}
+            {onRevise ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onRevise(planID)}><Icon name="refresh" size={13}/> Revisar plano</button> : null}
+            {onApprove ? <button className="primary rounded-md px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onApprove(planID)}><Icon name="check" size={13}/> Aprovar plano</button> : null}
+          </div> : null}
+        </section>
+
+        {followedWorker ? <WorkerFollowViewer agentId={followedWorker} onStop={() => setFollowedWorker(undefined)}/> : null}
+
         <div className="mt-1 flex gap-4 overflow-x-auto border-b border-[var(--theme-border-soft)]" role="tablist" aria-label="Detalhe do planeamento">
           {tabs.map((item) => <button
             key={item.id}
@@ -91,6 +127,7 @@ function StateMessage({ kind, message }: { kind: 'loading' | 'empty' | 'info'; m
 function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest; detail: OrchestratorPlanningDetail }) {
   const objective = detail.objective || request.objective
   return <div className="grid gap-3">
+    <ProgressSummary detail={detail}/>
     <section>
       <strong className="text-base">Objetivo</strong>
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-text-muted)]">{objective || 'Sem objetivo registrado.'}</p>
@@ -107,6 +144,47 @@ function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest;
       <strong className="text-base">Último erro</strong>
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-danger)]">{detail.last_error || request.last_error}</p>
     </section> : null}
+  </div>
+}
+
+function ProgressSummary({ detail }: { detail: OrchestratorPlanningDetail }) {
+  const summary = useMemo(() => {
+    const taskCounts = Object.fromEntries(ORCHESTRATOR_TASK_STATUSES.map((status) => [status, 0])) as Record<(typeof ORCHESTRATOR_TASK_STATUSES)[number], number>
+    const runCounts: Record<string, number> = {}
+    const attemptCounts: Record<string, number> = {}
+    let runs = 0
+    detail.tasks.forEach(({ task, runs: taskRuns }) => {
+      taskCounts[task.status] += 1
+      taskRuns.forEach((run) => {
+        runs += 1
+        const status = String(run.status || 'UNKNOWN').toUpperCase()
+        runCounts[status] = (runCounts[status] || 0) + 1
+      })
+    })
+    detail.attempts.forEach((attempt) => {
+      const status = String(attempt.status || 'UNKNOWN').toUpperCase()
+      attemptCounts[status] = (attemptCounts[status] || 0) + 1
+    })
+    return { taskCounts, runCounts, attemptCounts, runs }
+  }, [detail])
+
+  return <section className="rounded-lg border border-[var(--theme-border)] p-3" aria-label="Resumo de progresso do plano">
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <strong className="text-base">Progresso</strong>
+      <span className="text-sm text-[var(--theme-text-muted)]">{detail.tasks.length} task{detail.tasks.length === 1 ? '' : 's'} · {summary.runs === 1 ? '1 execução' : `${summary.runs} execuções`} · {detail.attempts.length} tentativa{detail.attempts.length === 1 ? '' : 's'} de planeamento</span>
+    </div>
+    <p className="mb-0 mt-1 text-sm text-[var(--theme-text-soft)]">Uma task só entra em concluídas quando o estado é COMPLETE; REVIEW continua separado até essa transição.</p>
+    <StatusCounts label="Tasks por status" entries={ORCHESTRATOR_TASK_STATUSES.map((status) => [status, summary.taskCounts[status]] as [string, number])}/>
+    <StatusCounts label="Execuções por status" entries={Object.entries(summary.runCounts)}/>
+    <StatusCounts label="Tentativas por status" entries={Object.entries(summary.attemptCounts)}/>
+  </section>
+}
+
+function StatusCounts({ label, entries }: { label: string; entries: Array<[string, number]> }) {
+  const visible = entries.filter(([, count]) => count > 0)
+  return <div className="mt-3">
+    <span className="text-sm font-semibold text-[var(--theme-text-muted)]">{label}</span>
+    {visible.length ? <div className="mt-1 flex flex-wrap gap-1.5">{visible.map(([status, count]) => <span key={status} className="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] px-2 py-1 font-mono text-sm"><strong>{count}</strong> {status}</span>)}</div> : <p className="mb-0 mt-1 text-sm text-[var(--theme-text-soft)]">Sem registos.</p>}
   </div>
 }
 
@@ -175,6 +253,10 @@ function ExecutionsTab({ detail, onSelectTask }: { detail: OrchestratorPlanningD
 function ExecutionIdentifier({ label, value }: { label: string; value?: string }) {
   if (!value) return null
   return <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2"><dt className="text-[var(--theme-text-soft)]">{label}</dt><dd className="m-0 break-all font-mono text-[var(--theme-text-muted)]">{value}</dd></div>
+}
+
+async function copyIdentifier(value: string) {
+  try { await navigator.clipboard?.writeText(value) } catch { /* clipboard is a convenience action; keep the detail usable if unavailable */ }
 }
 
 function formatDate(value: string) {

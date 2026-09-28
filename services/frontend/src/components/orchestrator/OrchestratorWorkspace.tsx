@@ -1,6 +1,7 @@
 import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import { errorMessage } from '../../lib/errorMessage'
+import { promptDialog } from '../../lib/appDialog'
 import { emptyOrchestratorTaskCounts, invalidateChangedOrchestratorTerminalPages, isOrchestratorTask, mergeOrchestratorTaskPages, reconcileOrchestratorTerminalPages } from '../../lib/orchestratorApi'
 import { ORCHESTRATOR_TERMINAL_STATUSES, type ChatAgentTask, type OrchestratorOverview as OverviewData, type OrchestratorProposalResult, type OrchestratorTask, type OrchestratorTaskPageQuery, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus, type Session } from '../../types'
 import { Icon } from '../Icon'
@@ -135,6 +136,29 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     } finally { setBusy(false) }
   }
 
+  async function runPlanningAction<T>(action: () => Promise<T>, after?: (value: T) => void) {
+    const value = await run(action, after)
+    if (value !== undefined) planningDetail.refresh()
+    return value
+  }
+
+  async function revisePlanningDetail(planID: string) {
+    if (busy) return
+    const guidance = await promptDialog({
+      title: 'Pedir alteração do plano',
+      message: 'Descreva o que deve mudar. O Wharnex enviará o plano proposto atual como anexo para o Planner gerar uma nova versão.',
+      inputLabel: 'Alteração pretendida',
+      placeholder: 'Ex.: dividir a tarefa de migração e acrescentar uma etapa de rollback',
+      confirmLabel: 'Pedir alteração',
+      validate: (value) => value.trim() ? undefined : 'Descreva a alteração pretendida.',
+    })
+    if (guidance === undefined) return
+    await runPlanningAction(
+      () => api.reviseOrchestratorPlan(session.id, planID, guidance.trim()),
+      (value) => setProposal(value),
+    )
+  }
+
   const navButtonClass = 'flex min-h-[30px] items-center gap-2 rounded-md border-0 bg-transparent px-3.5 text-base text-[var(--theme-text-muted)] cursor-pointer'
 
   return <section className="orchestrator-workspace">
@@ -182,10 +206,18 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     {planningDetail.request ? <OrchestratorPlanDrawer
       request={planningDetail.request}
       detail={planningDetail.detail}
+      planningTask={planningTasks.find((task) => task.task_id === (planningDetail.detail?.task_id || planningDetail.request?.task_id))}
+      chats={chats}
       loading={planningDetail.loading}
+      busy={busy}
       error={planningDetail.error}
       onClose={planningDetail.close}
       onRefresh={planningDetail.refresh}
+      onGoToChat={onGoToChat}
+      onRetry={() => { void runPlanningAction(() => api.retryOrchestratorPlanning(session.id, planningDetail.request!.request_id)) }}
+      onApprove={(planID) => { void runPlanningAction(() => api.approveOrchestratorPlan(session.id, planID), () => { if (proposal?.plan?.id === planID) setProposal(undefined) }) }}
+      onReject={(planID) => { void runPlanningAction(() => api.rejectOrchestratorPlan(session.id, planID), () => { if (proposal?.plan?.id === planID) setProposal(undefined) }) }}
+      onRevise={(planID) => { void revisePlanningDetail(planID) }}
       onSelectTask={(task) => { planningDetail.close(); setPlanFilter(undefined); setSelectedTask(task); setSection('tasks') }}
       onOpenTasks={(planID) => {
         setPlanFilter(planID)
