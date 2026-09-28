@@ -55,3 +55,6 @@ Each Worker publishes the phase of its current task as a closed code:
 `submitting`, `processing`, `downloading` or `validating`. The runtime drawer
 shows that phase instead of inferring one from the task type. The phase
 carries no page content and clears when the task settles.
+The drawer colours group these phases into five situations only (Livre,
+Em tarefa, GPT a responder, Em pausa, Com erro), and each row keeps the exact
+phase as its text, so the legend stays short without losing precision.
