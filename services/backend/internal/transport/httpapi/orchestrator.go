@@ -127,6 +127,19 @@ func (a *API) orchestratorImportPlanBundle(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, result)
 }
 
+func (a *API) orchestratorPlanningDetail(w http.ResponseWriter, r *http.Request) {
+	detail, err := a.service.OrchestratorPlanningRequestDetail(r.Context(), r.PathValue("id"), r.PathValue("request_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_planning_detail_failed", err.Error())
+		return
+	}
+	if detail.TaskID == "" && detail.Plan == nil && len(detail.Attempts) == 0 {
+		writeError(w, http.StatusNotFound, "orchestrator_planning_not_found", "orchestrator planning request was not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
 func (a *API) orchestratorRetryPlan(w http.ResponseWriter, r *http.Request) {
 	result, err := a.service.RetryOrchestratorPlanning(r.PathValue("id"), r.PathValue("request_id"))
 	if err != nil {

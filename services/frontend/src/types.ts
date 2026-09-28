@@ -744,6 +744,49 @@ export type ProjectProvision = {
   submodules?: string
 }
 
+export type OrchestratorPlanningAttachment = {
+  name: string
+  size?: number
+  mime?: string
+  generated?: boolean
+}
+
+export type OrchestratorPlanningAttempt = {
+  task_id: string
+  status: string
+  attempt: number
+  max_attempts: number
+  last_error?: string
+  created_at: string
+  updated_at: string
+}
+
+export type OrchestratorPlanningInput = {
+  objective?: string
+  prompt?: string
+  include_context: boolean
+  project_files: string[]
+  attachments: OrchestratorPlanningAttachment[]
+  reasoning_effort?: ReasoningEffort
+}
+
+export type OrchestratorPlanningTaskDetail = {
+  task: import('./types/orchestrator').OrchestratorTask
+  runs: import('./types/orchestrator').OrchestratorTaskRun[]
+}
+
+export type OrchestratorPlanningDetail = OrchestratorPlanningInput & {
+  request_id: string
+  task_id?: string
+  status?: string
+  attempt?: number
+  max_attempts?: number
+  last_error?: string
+  attempts: OrchestratorPlanningAttempt[]
+  plan?: import('./types/orchestrator').OrchestratorPlan
+  tasks: OrchestratorPlanningTaskDetail[]
+}
+
 export type WorkspaceMode = 'editor' | 'agent' | 'orchestrator'
 
 export { ORCHESTRATOR_TASK_STATUSES, ORCHESTRATOR_TERMINAL_STATUSES } from './types/orchestrator'
