@@ -7615,7 +7615,6 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .project-task-tabs button:hover { background:var(--theme-hover); color:var(--theme-text-soft); }
 .project-task-tabs button[aria-selected='true'] { border-color:var(--theme-border); background:var(--theme-accent-soft); color:var(--theme-text); }
 .project-task-tabs b { min-width:18px; padding:3px 5px; border-radius:999px; background:var(--theme-muted); font:700 calc(6.8px * var(--ui-font-scale))/1 var(--mono-font-family); text-align:center; }
-.project-task-list { min-height:0; overflow:auto; padding:8px 9px 12px; display:grid; align-content:start; gap:8px; }
 .project-task-details { min-width:0; border-top:1px solid var(--theme-border-soft); }
 .project-task-details > summary { min-height:28px; padding-top:6px; display:flex; align-items:center; justify-content:space-between; color:var(--theme-text-muted); cursor:pointer; font-size:calc(7.2px * var(--ui-font-scale)); font-weight:700; list-style:none; }
 .project-task-details > summary::-webkit-details-marker { display:none; }
@@ -8096,10 +8095,6 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
   box-shadow: inset 2px 0 var(--theme-accent);
 }
 
-.project-task-list {
-  padding: 4px 8px 10px;
-  gap: 0;
-}
 
 .database-connection-section {
   border: 0;
@@ -9725,7 +9720,6 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .project-task-toolbar > select { min-width:0; height:31px; padding:0 26px 0 9px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-surface); color:var(--theme-text-soft); font-size:calc(8px * var(--ui-font-scale)); }
 .project-task-tabs { padding:7px 10px; border-bottom:1px solid var(--theme-border-soft); background:transparent; }
 .project-task-tabs button { min-height:29px; border-radius:8px; }
-.project-task-list { padding:10px; gap:9px; background:transparent; }
 .project-task-source { width:max-content; max-width:100%; padding:3px 6px; display:inline-flex; align-items:center; gap:4px; border:1px solid var(--theme-border-soft); border-radius:999px; color:var(--theme-text-muted); background:color-mix(in srgb,var(--theme-bg) 65%,transparent); font-size:calc(6.7px * var(--ui-font-scale)); font-weight:760; text-transform:uppercase; letter-spacing:.045em; }
 .project-task-source.source-chat { color:var(--theme-accent); border-color:color-mix(in srgb,var(--theme-accent) 22%,var(--theme-border-soft)); }
 .project-task-source.source-worker,.project-task-source.source-orchestrator { color:var(--info); border-color:color-mix(in srgb,var(--info) 22%,var(--theme-border-soft)); }
