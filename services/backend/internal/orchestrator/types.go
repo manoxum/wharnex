@@ -187,6 +187,46 @@ type PlanningRequest struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type PlanningAttempt struct {
+	TaskID      string    `json:"task_id"`
+	Status      string    `json:"status"`
+	Attempt     int       `json:"attempt"`
+	MaxAttempts int       `json:"max_attempts"`
+	LastError   string    `json:"last_error,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type PlanningAttachment struct {
+	Name      string `json:"name"`
+	Size      int64  `json:"size,omitempty"`
+	MIME      string `json:"mime,omitempty"`
+	Generated bool   `json:"generated,omitempty"`
+}
+
+type PlanningTaskDetail struct {
+	Task Task      `json:"task"`
+	Runs []TaskRun `json:"runs"`
+}
+
+type PlanningRequestDetail struct {
+	RequestID       string               `json:"request_id"`
+	TaskID          string               `json:"task_id,omitempty"`
+	Objective       string               `json:"objective,omitempty"`
+	Prompt          string               `json:"prompt,omitempty"`
+	Status          string               `json:"status,omitempty"`
+	Attempt         int                  `json:"attempt,omitempty"`
+	MaxAttempts     int                  `json:"max_attempts,omitempty"`
+	LastError       string               `json:"last_error,omitempty"`
+	IncludeContext  bool                 `json:"include_context"`
+	ProjectFiles    []string             `json:"project_files"`
+	Attachments     []PlanningAttachment `json:"attachments"`
+	ReasoningEffort string               `json:"reasoning_effort,omitempty"`
+	Attempts        []PlanningAttempt    `json:"attempts"`
+	Plan            *Plan                `json:"plan,omitempty"`
+	Tasks           []PlanningTaskDetail `json:"tasks"`
+}
+
 func orchestratorPriorityRank(priority Priority) int {
 	switch priority {
 	case PriorityUrgent:

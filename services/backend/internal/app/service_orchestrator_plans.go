@@ -26,28 +26,6 @@ type OrchestratorProposalResult struct {
 
 const orchestratorPlanningWorkerProtocol = "harness.orchestrator-planning/v1"
 
-type OrchestratorPlanningAttachment struct {
-	Name       string `json:"name"`
-	Size       int64  `json:"size"`
-	MIME       string `json:"mime"`
-	StorageRef string `json:"storage_ref"`
-}
-
-type OrchestratorGeneratedAttachment struct {
-	Name    string `json:"name"`
-	MIME    string `json:"mime"`
-	Content string `json:"content"`
-}
-
-type OrchestratorComposerContext struct {
-	IncludeContext       bool                              `json:"include_context,omitempty"`
-	ProjectFiles         []string                          `json:"project_files,omitempty"`
-	AttachmentCacheKey   string                            `json:"attachment_cache_key,omitempty"`
-	Attachments          []OrchestratorPlanningAttachment  `json:"attachments,omitempty"`
-	TodoIDs              []string                          `json:"todo_ids,omitempty"`
-	GeneratedAttachments []OrchestratorGeneratedAttachment `json:"-"`
-}
-
 type OrchestratorTaskInput struct {
 	PlanID             string                `json:"plan_id,omitempty"`
 	Title              string                `json:"title"`
@@ -106,22 +84,10 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 	}
 	if result.OrchestratorPlan == nil {
 		if result.ManualPrompt != "" {
-			payload, marshalErr := json.Marshal(struct {
-				Protocol             string                            `json:"protocol"`
-				SessionID            string                            `json:"session_id"`
-				RequestID            string                            `json:"request_id"`
-				Objective            string                            `json:"objective"`
-				Prompt               string                            `json:"prompt"`
-				IncludeContext       bool                              `json:"include_context,omitempty"`
-				AttachmentCacheKey   string                            `json:"attachment_cache_key,omitempty"`
-				Attachments          []OrchestratorPlanningAttachment  `json:"attachments,omitempty"`
-				GeneratedAttachments []OrchestratorGeneratedAttachment `json:"generated_attachments,omitempty"`
-				ReasoningEffort      string                            `json:"reasoning_effort"`
-			}{
-				Protocol: orchestratorPlanningWorkerProtocol, SessionID: sessionID, RequestID: requestID, Objective: objective, Prompt: result.ManualPrompt,
-				IncludeContext: input.IncludeContext || len(input.ProjectFiles) > 0, AttachmentCacheKey: input.AttachmentCacheKey, Attachments: input.Attachments,
-				GeneratedAttachments: input.GeneratedAttachments, ReasoningEffort: string(normalizeReasoningEffort(item.ReasoningEffort)),
-			})
+			payload, marshalErr := encodeOrchestratorPlanningWorkerPayload(
+				sessionID, requestID, objective, result.ManualPrompt, input,
+				string(normalizeReasoningEffort(item.ReasoningEffort)),
+			)
 			if marshalErr != nil {
 				s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, marshalErr.Error())
 				return OrchestratorProposalResult{}, fmt.Errorf("encode orchestrator planning worker: %w", marshalErr)
