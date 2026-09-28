@@ -10,21 +10,6 @@ import (
 	"kernl.local/harness/backend/internal/session"
 )
 
-type OrchestratorWorkerRequest struct {
-	Task             orchestrator.Task    `json:"task"`
-	Run              orchestrator.TaskRun `json:"run"`
-	AgentSessionID   string               `json:"agent_session_id"`
-	RequestID        string               `json:"request_id"`
-	Prompt           string               `json:"prompt,omitempty"`
-	ExpectedFilename string               `json:"expected_filename,omitempty"`
-	ChatID           string               `json:"chat_id,omitempty"`
-	ReasoningEffort  string               `json:"reasoning_effort,omitempty"`
-	AgentState       string               `json:"agent_state"`
-	// ConversationURL is the task's permanent ChatGPT conversation, empty
-	// until its first request is submitted.
-	ConversationURL string `json:"conversation_url,omitempty"`
-}
-
 func (s *Service) orchestratorWorkerLease(workerTaskID, owner, taskID, sessionID string) error {
 	claim, err := s.store.GetChatAgentTask(workerTaskID)
 	if err != nil {
@@ -53,9 +38,10 @@ func (s *Service) StartOrchestratorWorkerTask(ctx context.Context, sessionID, ta
 		return OrchestratorWorkerRequest{}, errors.New("orchestrator task does not belong to this project")
 	}
 	if orchestrator.TaskHasCompleted(task) {
-		return OrchestratorWorkerRequest{Task: task, AgentState: "settled"}, nil
+		return settledOrchestratorWorkerRequest(task), nil
 	}
-	if _, err := s.adoptOrchestratorTaskConversation(ctx, task); err != nil {
+	task, err = s.adoptOrchestratorTaskConversation(ctx, task)
+	if err != nil {
 		return OrchestratorWorkerRequest{}, err
 	}
 	if task.Status == orchestrator.TaskReady {
@@ -67,7 +53,7 @@ func (s *Service) StartOrchestratorWorkerTask(ctx context.Context, sessionID, ta
 		// this attempt was queued. Report its status so the Worker settles the
 		// attempt; an error here returned it to the queue to be claimed again
 		// and again, each claim spending a paced slot and an attempt.
-		return OrchestratorWorkerRequest{Task: task, AgentState: "settled"}, nil
+		return settledOrchestratorWorkerRequest(task), nil
 	}
 	return s.orchestratorWorkerRequest(ctx, taskID)
 }
@@ -91,7 +77,7 @@ func (s *Service) orchestratorWorkerRequest(ctx context.Context, taskID string) 
 	}
 	result := OrchestratorWorkerRequest{Task: task, Run: run, AgentSessionID: run.SessionID,
 		AgentState: agent.State, ChatID: sessionChatID(agent), ReasoningEffort: string(agent.ReasoningEffort),
-		ConversationURL: task.ConversationURL}
+		ConversationURL: task.ConversationURL, ConversationID: task.ConversationID}
 	// Only a request still awaiting its response is the Worker's to deliver.
 	// Once its bundle is accepted the Agent executes locally; reporting the old
 	// request kept the Worker reopening the conversation to wait for a ZIP it

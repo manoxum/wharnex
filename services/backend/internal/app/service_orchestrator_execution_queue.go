@@ -76,12 +76,16 @@ func (s *Service) enqueueReadyOrchestratorTask(ctx context.Context, owner domain
 		"protocol": orchestratorExecutionWorkerProtocol,
 		"task_id":  task.ID,
 	}
-	// A task keeps one ChatGPT conversation for every attempt, so a retry
-	// after a failure continues where the earlier attempts left their
-	// context. Only the link carries over: the new attempt submits its own
-	// request instead of resuming the old one.
-	if conversation := orchestratorTaskConversationURL(existing); conversation != "" {
-		fields["conversation_url"] = conversation
+	// Retry/reclaim affinity comes from the durable task, never from an
+	// earlier Worker's checkpoint. The new attempt submits its own request in
+	// that one conversation instead of inheriting ephemeral request state.
+	affinity, err := taskConversationAffinity(task)
+	if err != nil {
+		return err
+	}
+	if affinity.ConversationURL != "" {
+		fields["conversation_url"] = affinity.ConversationURL
+		fields["conversation_id"] = affinity.ConversationID
 	}
 	payload, err := json.Marshal(fields)
 	if err != nil {
@@ -90,7 +94,7 @@ func (s *Service) enqueueReadyOrchestratorTask(ctx context.Context, owner domain
 	_, err = s.store.EnqueueChatAgentTask(session.ChatAgentTask{
 		Type: "ORCHESTRATOR_EXECUTE", ProjectID: task.ProjectPath,
 		ChatID: task.ID, SessionID: owner.ID, RequestID: releaseID, RootRequestID: task.ID,
-		PlanID: task.PlanID, Title: task.Title,
+		ConversationID: affinity.ConversationID, PlanID: task.PlanID, Title: task.Title,
 		DedupeKey: "orchestrator-execute:" + releaseID,
 		Payload:   payload, MaxAttempts: 30,
 	})
@@ -98,25 +102,6 @@ func (s *Service) enqueueReadyOrchestratorTask(ctx context.Context, owner domain
 		return fmt.Errorf("enqueue orchestrator execution worker: %w", err)
 	}
 	return nil
-}
-
-// orchestratorTaskConversationURL is the ChatGPT conversation the task's
-// most recent attempt used.
-func orchestratorTaskConversationURL(attempts []session.ChatAgentTask) string {
-	latest := ""
-	var latestAt time.Time
-	for _, attempt := range attempts {
-		var payload struct {
-			ConversationURL string `json:"conversation_url"`
-		}
-		if json.Unmarshal(attempt.Payload, &payload) != nil || payload.ConversationURL == "" {
-			continue
-		}
-		if latest == "" || attempt.UpdatedAt.After(latestAt) {
-			latest, latestAt = payload.ConversationURL, attempt.UpdatedAt
-		}
-	}
-	return latest
 }
 
 func orchestratorExecutionClaimPriority(status string) int {
@@ -177,15 +162,24 @@ func (s *Service) ensureLegacyDoingOrchestratorTasksQueued(ctx context.Context, 
 		if err != nil || len(remote) > 0 {
 			continue
 		}
-		payload, err := json.Marshal(map[string]string{"protocol": orchestratorExecutionWorkerProtocol, "task_id": task.ID})
+		affinity, err := taskConversationAffinity(task)
+		if err != nil {
+			return err
+		}
+		fields := map[string]string{"protocol": orchestratorExecutionWorkerProtocol, "task_id": task.ID}
+		if affinity.ConversationURL != "" {
+			fields["conversation_url"] = affinity.ConversationURL
+			fields["conversation_id"] = affinity.ConversationID
+		}
+		payload, err := json.Marshal(fields)
 		if err != nil {
 			return err
 		}
 		_, err = s.store.EnqueueChatAgentTask(session.ChatAgentTask{
 			Type: "ORCHESTRATOR_EXECUTE", ProjectID: task.ProjectPath, ChatID: task.ID,
 			SessionID: owner.ID, RequestID: task.ID + ":run:" + run.ID, RootRequestID: task.ID,
-			PlanID: task.PlanID, Title: task.Title, DedupeKey: "orchestrator-execute:run:" + run.ID,
-			Payload: payload, MaxAttempts: 30,
+			ConversationID: affinity.ConversationID, PlanID: task.PlanID, Title: task.Title,
+			DedupeKey: "orchestrator-execute:run:" + run.ID, Payload: payload, MaxAttempts: 30,
 		})
 		if err != nil {
 			return err
