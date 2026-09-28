@@ -122,7 +122,7 @@ func EvaluateReadiness(task Task, tasks []Task, plan PlanStatus) (TaskStatus, Ta
 	}
 	for _, dependency := range task.DependsOn {
 		candidate, exists := byID[dependency]
-		if !exists || (candidate.Status != TaskReview && candidate.Status != TaskComplete) {
+		if !exists || !TaskSatisfiesDependency(candidate) {
 			return TaskWaiting, ConditionDependency
 		}
 	}

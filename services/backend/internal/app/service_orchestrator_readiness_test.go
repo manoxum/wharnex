@@ -13,7 +13,7 @@ import (
 	"kernl.local/harness/backend/internal/session"
 )
 
-func TestOrchestratorApprovalReadinessAndReopen(t *testing.T) {
+func TestOrchestratorApprovalReadinessAndTerminalCompletion(t *testing.T) {
 	root := t.TempDir()
 	proposal := orchestrator.Proposal{Protocol: orchestrator.ProtocolV1, Title: "Migration", Objective: "migrate safely", Tasks: []orchestrator.ProposalTask{
 		{ID: "t1", Title: "Backend", Priority: orchestrator.PriorityHigh, Complexity: "medium"},
@@ -59,16 +59,21 @@ func TestOrchestratorApprovalReadinessAndReopen(t *testing.T) {
 	if second.Status != orchestrator.TaskReady || second.Condition != orchestrator.ConditionNone {
 		t.Fatalf("successful reviewed dependency did not release downstream task: %#v", second)
 	}
-	if _, err := service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskComplete); err != nil {
-		t.Fatal(err)
+	completed, err := service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskComplete)
+	if err != nil || !completed.WasCompleted {
+		t.Fatalf("completion marker was not persisted: %#v %v", completed, err)
 	}
-	if _, err := service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskPending); err != nil {
-		t.Fatal(err)
+	if _, err := service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskPending); err == nil {
+		t.Fatal("completed task was reopened")
+	}
+	archived, err := service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskArchived)
+	if err != nil || !archived.WasCompleted {
+		t.Fatalf("completed task did not retain evidence after archive: %#v %v", archived, err)
 	}
 	overview, _ = service.OrchestratorOverview(context.Background(), started.ID)
 	second = taskByTitle(t, overview.Tasks, "Frontend")
-	if second.Status != orchestrator.TaskWaiting || second.Condition != orchestrator.ConditionDependency {
-		t.Fatalf("reopen did not invalidate dependent task: %#v", second)
+	if second.Status != orchestrator.TaskReady || second.Condition != orchestrator.ConditionNone {
+		t.Fatalf("archived completed dependency stopped satisfying downstream task: %#v", second)
 	}
 }
 

@@ -41,6 +41,9 @@ func (s *Service) RetryOrchestratorTask(ctx context.Context, sessionID, taskID s
 	if err != nil {
 		return orchestrator.Task{}, err
 	}
+	if orchestrator.TaskHasCompleted(task) {
+		return orchestrator.Task{}, errors.New("completed task cannot be retried")
+	}
 	if task.ProjectPath != owner.ProjectPath || task.Status != orchestrator.TaskFailed {
 		return orchestrator.Task{}, errors.New("only a FAILED task in this project can be retried")
 	}
