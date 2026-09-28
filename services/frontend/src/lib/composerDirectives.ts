@@ -23,7 +23,7 @@ import { seeDirectiveAvailable as seeDirectiveAvailableFromSources, seeSuggestio
 // Keep this in step with the Go parser: it is the same language, and the half
 // that renders chips must agree with the half that resolves them.
 
-export type DirectiveKind = 'file' | 'ref' | 'attach' | 'see' | 'chat' | 'lib' | 'todo'
+export type DirectiveKind = 'file' | 'ref' | 'attach' | 'see' | 'chat' | 'lib' | 'todo' | 'task'
 
 /**
  * The typed vocabulary: one canonical keyword per kind, plus the alternate
@@ -39,19 +39,17 @@ export const KEYWORDS: { kind: DirectiveKind; keyword: string; label: string; al
   { kind: 'chat', keyword: 'chat', label: 'Ficheiro deste chat', aliases: [] },
   { kind: 'lib', keyword: 'lib', label: 'Ficheiro da biblioteca', aliases: ['library'] },
   { kind: 'todo', keyword: 'todo', label: 'TODO do projeto', aliases: ['TODO'] },
+  { kind: 'task', keyword: 'task', label: 'Task concluída do Orchestrator', aliases: [] },
 ]
-
 const KIND_ALIASES: Record<string, DirectiveKind> = Object.fromEntries(
   KEYWORDS.flatMap((entry) => [entry.keyword, ...entry.aliases].map((word) => [word, entry.kind])),
 )
-
 function typedKeywordAlternation() {
   // Longest first for readability. Correctness does not depend on order: a
   // short alias whose following letters do not complete a `:` simply fails to
   // match the surrounding pattern, whichever alternative is tried.
   return Object.keys(KIND_ALIASES).sort((a, b) => b.length - a.length).join('|')
 }
-
 /**
  * What an `@attach` directive says should travel when it points at a directory.
  *
@@ -61,7 +59,6 @@ function typedKeywordAlternation() {
  * operator should not have to learn a second model for it.
  */
 export type AttachRules = { autoExclude: boolean; include: string[]; includeOverrides: string[]; exclude: string[] }
-
 export const defaultAttachRules = (): AttachRules => ({ autoExclude: true, include: [], includeOverrides: [], exclude: [] })
 
 export function attachRulesAreDefault(rules: AttachRules) {
@@ -90,7 +87,7 @@ const PROJECT_NAME = /^[A-Za-z0-9._-]+$/
 // group accepts every alias; the bracketed canonical form accepts only the
 // three real kind names, since nothing ever writes an alias into it.
 const VALUE_CHARS = '[^\\s<>{}(),;:!?"\'`]*'
-const DIRECTIVE = new RegExp(`@\\{\\[(file|ref|attach|see|chat|lib|todo)\\]([^{}\\n]*)\\}|@(${typedKeywordAlternation()}):(?:<<([^<>\\n]*)>>|(${VALUE_CHARS}))`, 'g')
+const DIRECTIVE = new RegExp(`@\\{\\[(file|ref|attach|see|chat|lib|todo|task)\\]([^{}\\n]*)\\}|@(${typedKeywordAlternation()}):(?:<<([^<>\\n]*)>>|(${VALUE_CHARS}))`, 'g')
 
 export function validProjectName(name: string) {
   const trimmed = name.trim()
@@ -194,7 +191,7 @@ function build(kind: DirectiveKind, raw: string): Omit<ComposerDirective, 'start
   }
   if (kind === 'chat') return buildChatValue(raw.trim())
   if (kind === 'lib') return buildLibraryValue(raw.trim())
-  if (kind === 'todo') return /^[A-Za-z0-9._-]+$/.test(value) ? { kind, value, project: '', path: value } : undefined
+  if (kind === 'todo' || kind === 'task') return /^[A-Za-z0-9._-]+$/.test(value) ? { kind, value, project: '', path: value } : undefined
   const separator = value.indexOf('/')
   const project = separator >= 0 ? value.slice(0, separator) : value
   let path = separator >= 0 ? value.slice(separator + 1).trim() : ''
@@ -448,6 +445,7 @@ export function directiveSuggestions(
   chatFiles: ArtifactDirectiveCandidate[] = [],
   libraryFiles: ArtifactDirectiveCandidate[] = [],
   todoItems: ArtifactDirectiveCandidate[] = [],
+  taskItems: ArtifactDirectiveCandidate[] = [],
   indexedDirectives?: ComposerDirective[],
 ): DirectiveSuggestion[] {
   // An attachment names a path outside every project, so there is nothing for
@@ -457,6 +455,7 @@ export function directiveSuggestions(
   if (query.kind === 'chat') return rankArtifactCandidates(chatFiles, query.query)
   if (query.kind === 'lib') return rankArtifactCandidates(libraryFiles, query.query)
   if (query.kind === 'todo') return rankArtifactCandidates(todoItems, query.query)
+  if (query.kind === 'task') return rankArtifactCandidates(taskItems, query.query)
   if (query.kind === 'file') {
     return matchingVisiblePaths(projectFiles, query.query).map((target) => ({
       value: target.path,
@@ -609,6 +608,7 @@ export function directiveChipLabel(directive: Pick<ComposerDirective, 'kind' | '
   if (directive.kind === 'chat') return directive.path.split('/').pop() || directive.path
   if (directive.kind === 'lib') return `Biblioteca · ${directive.path}`
   if (directive.kind === 'todo') return `TODO · ${directive.path}`
+  if (directive.kind === 'task') return `Task · ${directive.path}`
   if (!directive.path) return directive.project
   return `${directive.project}/${directive.path.split('/').pop()}`
 }

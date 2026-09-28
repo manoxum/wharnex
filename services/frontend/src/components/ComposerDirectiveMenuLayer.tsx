@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import type { DirectiveSuggestion } from '../lib/composerDirectives'
+import { Icon } from './Icon'
 
 const VIEWPORT_GUTTER = 12
 const ANCHOR_GAP = 8
@@ -92,4 +94,20 @@ export function ComposerDirectiveMenuLayer({ anchorRef, className, ariaLabel, ch
     </div>,
     document.body,
   )
+}
+
+
+export function ComposerDirectiveOptionRows({ suggestions, selectedIndex, onSelect, loading = false, hasMore = false, onLoadMore }: {
+  suggestions: DirectiveSuggestion[]
+  selectedIndex: number
+  onSelect: (suggestion: DirectiveSuggestion) => void
+  loading?: boolean
+  hasMore?: boolean
+  onLoadMore?: () => void
+}) {
+  return <>
+    {suggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === selectedIndex} key={`${suggestion.value}:${suggestion.label}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onSelect(suggestion)}><Icon name={suggestion.sourceIcon || (suggestion.continues ? 'workspace' : 'file')} size={12}/><span>{suggestion.label}</span>{suggestion.detail && <em>{suggestion.detail}</em>}{suggestion.continues && suggestion.attached === false && <small className="unattached">ainda não anexado</small>}{index === selectedIndex && <kbd>Enter</kbd>}</button>)}
+    {loading && <p className="composer-attachment-empty">A procurar tarefas…</p>}
+    {!loading && hasMore && <button type="button" className="text-button" onMouseDown={(event) => event.preventDefault()} onClick={onLoadMore}>Carregar mais</button>}
+  </>
 }

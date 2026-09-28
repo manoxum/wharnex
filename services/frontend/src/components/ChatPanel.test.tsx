@@ -1168,9 +1168,9 @@ describe('ChatPanel', () => {
     const view = render(
       <ChatPanel ref={ref} session={session} items={[]} chats={[]} activeChatId="summary-test" busy={false} onSend={async () => undefined} {...chatActions} />,
     )
-    const references = 'usa @{[file]src/App.tsx} @{[ref]flowcore} @{[attach]/srv/contracts} @{[see]upload|mock.png} @{[chat]artifact|artifact-1} @{[lib]session|ses-a|artifact-b} @{[todo]todo_1}'
+    const references = 'usa @{[file]src/App.tsx} @{[ref]flowcore} @{[attach]/srv/contracts} @{[see]upload|mock.png} @{[chat]artifact|artifact-1} @{[lib]session|ses-a|artifact-b} @{[todo]todo_1} @{[task]otk_done}'
     typeInComposer(ref, references, references.length)
-    for (const kind of ['file', 'ref', 'attach', 'chat', 'lib', 'todo']) expect(view.container.querySelector(`.composer-reference-thumbnail.${kind}`)).toBeTruthy()
+    for (const kind of ['file', 'ref', 'attach', 'chat', 'lib', 'todo', 'task']) expect(view.container.querySelector(`.composer-reference-thumbnail.${kind}`)).toBeTruthy()
     expect(view.container.querySelector('.composer-reference-thumbnail.see')).toBeNull()
     expect(view.container.querySelector('.composer-directive-chip.file')).toBeTruthy()
 

@@ -7,10 +7,11 @@ function transitionLabel(status: OrchestratorTaskStatus) {
   return `Mover para ${status}`
 }
 
-export function OrchestratorTaskActions({ task, disabled = false, onOpen, onTransition }: {
+export function OrchestratorTaskActions({ task, disabled = false, onOpen, onOpenChat, onTransition }: {
   task: OrchestratorTask
   disabled?: boolean
   onOpen: () => void
+  onOpenChat?: () => Promise<unknown> | unknown
   onTransition: (status: OrchestratorTaskStatus) => Promise<unknown> | unknown
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -19,6 +20,7 @@ export function OrchestratorTaskActions({ task, disabled = false, onOpen, onTran
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const transitions = task.allowed_transitions || []
+  const chatAvailable = task.status === 'COMPLETE' || (task.status === 'ARCHIVED' && task.was_completed === true)
 
   useEffect(() => {
     if (!open) return
@@ -65,6 +67,15 @@ export function OrchestratorTaskActions({ task, disabled = false, onOpen, onTran
     items[next]?.focus()
   }
 
+
+  async function openChat() {
+    if (!onOpenChat) return
+    setPending(true); setError('')
+    try { await onOpenChat(); setOpen(false) }
+    catch { setError('Não foi possível abrir o novo chat.') }
+    finally { setPending(false) }
+  }
+
   async function transition(status: OrchestratorTaskStatus) {
     setPending(true)
     setError('')
@@ -82,6 +93,7 @@ export function OrchestratorTaskActions({ task, disabled = false, onOpen, onTran
     <button type="button" aria-label={`Ações de ${task.title}`} aria-haspopup="menu" aria-expanded={open} disabled={disabled || pending} onClick={() => { setError(''); setOpen((value) => !value) }} onKeyDown={triggerKeyDown} className="grid size-7 place-items-center rounded-md border border-transparent text-lg leading-none text-[var(--theme-text-muted)] outline-none hover:border-[var(--theme-border)] hover:bg-[var(--theme-hover)] focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)] disabled:opacity-50"><span aria-hidden="true">⋯</span></button>
     {open && <div role="menu" aria-label={`Ações de ${task.title}`} onKeyDown={menuKeyDown} className="absolute right-0 top-8 z-30 min-w-44 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-elevated)] p-1 shadow-xl">
       <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpen() }} className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-[var(--theme-text)] outline-none hover:bg-[var(--theme-hover)] focus-visible:bg-[var(--theme-hover)]">Abrir detalhe</button>
+      {chatAvailable && onOpenChat && <button type="button" role="menuitem" disabled={pending} onClick={() => void openChat()} className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-[var(--theme-text)] outline-none hover:bg-[var(--theme-hover)] focus-visible:bg-[var(--theme-hover)] disabled:opacity-50">Abrir chat</button>}
       {transitions.map((status) => <button key={status} type="button" role="menuitem" disabled={pending} onClick={() => void transition(status)} className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-[var(--theme-text)] outline-none hover:bg-[var(--theme-hover)] focus-visible:bg-[var(--theme-hover)] disabled:opacity-50">{transitionLabel(status)}</button>)}
       {error && <p role="alert" className="m-1 text-xs text-[var(--theme-danger)]">{error}</p>}
     </div>}

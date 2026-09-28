@@ -114,6 +114,7 @@ describe('directiveChipBadge', () => {
     expect(directiveChipBadge('see')).toBe('SEE')
     expect(directiveChipBadge('chat')).toBe('CHAT')
     expect(directiveChipBadge('lib')).toBe('LIB')
+    expect(directiveChipBadge('task')).toBe('TASK')
     expect(directiveChipBadge('todo')).toBe('TODO')
   })
 })

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { AttachmentInspection, ChatFileRecord, ManagedArtifact, ProjectTodo, Session } from '../types'
+import type { AttachmentInspection, ChatFileRecord, ManagedArtifact, OrchestratorTask, ProjectTodo, Session } from '../types'
 import { api } from '../lib/api'
 import { canonicalDirective, directiveChipLabel, directiveKindLabel, type ComposerDirective } from '../lib/composerDirectives'
 import { formatBytes } from '../lib/desktop'
@@ -17,6 +17,7 @@ type Props = {
   chatFiles: ChatFileRecord[]
   libraryArtifacts: ManagedArtifact[]
   projectTodos: ProjectTodo[]
+  orchestratorTasks: OrchestratorTask[]
   onRemove: () => void
 }
 
@@ -27,9 +28,10 @@ type ArtifactTarget = {
   item: ArtifactViewerItem
 }
 
-export function ComposerReferenceThumbnail({ session, directive, attachments, chatFiles, libraryArtifacts, projectTodos, onRemove }: Props) {
+export function ComposerReferenceThumbnail({ session, directive, attachments, chatFiles, libraryArtifacts, projectTodos, orchestratorTasks, onRemove }: Props) {
   const [viewerOpen, setViewerOpen] = useState(false)
-  const label = directiveChipLabel(directive)
+  const task = directive.kind === 'task' ? orchestratorTasks.find((item) => item.id === directive.value) : undefined
+  const label = task?.title || directiveChipLabel(directive)
   return <Fragment>
     <span className={`composer-reference-thumbnail ${directive.kind}`} title={canonicalDirective(directive)}>
       <button type="button" className="composer-reference-open" onClick={() => setViewerOpen(true)} aria-label={`Visualizar referência @${directive.kind} ${label}`}>
@@ -38,11 +40,11 @@ export function ComposerReferenceThumbnail({ session, directive, attachments, ch
       </button>
       <button type="button" className="composer-reference-remove" aria-label={`Remover referência @${directive.kind} ${label}`} onClick={onRemove}>×</button>
     </span>
-    {viewerOpen && <ComposerReferenceViewer session={session} directive={directive} attachments={attachments} chatFiles={chatFiles} libraryArtifacts={libraryArtifacts} projectTodos={projectTodos} onClose={() => setViewerOpen(false)}/>}
+    {viewerOpen && <ComposerReferenceViewer session={session} directive={directive} attachments={attachments} chatFiles={chatFiles} libraryArtifacts={libraryArtifacts} projectTodos={projectTodos} orchestratorTasks={orchestratorTasks} onClose={() => setViewerOpen(false)}/>}
   </Fragment>
 }
 
-function ComposerReferenceViewer({ session, directive, attachments, chatFiles, libraryArtifacts, projectTodos, onClose }: Omit<Props, 'onRemove'> & { onClose: () => void }) {
+function ComposerReferenceViewer({ session, directive, attachments, chatFiles, libraryArtifacts, projectTodos, orchestratorTasks, onClose }: Omit<Props, 'onRemove'> & { onClose: () => void }) {
   const artifactTarget = useMemo(() => resolveArtifactTarget(session, directive, chatFiles, libraryArtifacts), [chatFiles, directive, libraryArtifacts, session])
   const uploadedFile = useMemo(() => directive.kind === 'see' && directive.project === 'upload' ? attachments.find((file) => file.name === directive.path) : undefined, [attachments, directive])
 
@@ -51,10 +53,10 @@ function ComposerReferenceViewer({ session, directive, attachments, chatFiles, l
   }
   if (uploadedFile) return <ChatAttachmentViewer source={{ file: uploadedFile }} onClose={onClose}/>
 
-  return <ReferenceDetailModal session={session} directive={directive} todo={directive.kind === 'todo' ? projectTodos.find((item) => item.id === directive.value) : undefined} onClose={onClose}/>
+  return <ReferenceDetailModal session={session} directive={directive} todo={directive.kind === 'todo' ? projectTodos.find((item) => item.id === directive.value) : undefined} task={directive.kind === 'task' ? orchestratorTasks.find((item) => item.id === directive.value) : undefined} onClose={onClose}/>
 }
 
-function ReferenceDetailModal({ session, directive, todo, onClose }: { session: Session; directive: ComposerDirective; todo?: ProjectTodo; onClose: () => void }) {
+function ReferenceDetailModal({ session, directive, todo, task, onClose }: { session: Session; directive: ComposerDirective; todo?: ProjectTodo; task?: OrchestratorTask; onClose: () => void }) {
   const [inspection, setInspection] = useState<AttachmentInspection>()
   const [inspectionError, setInspectionError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -78,7 +80,7 @@ function ReferenceDetailModal({ session, directive, todo, onClose }: { session: 
     return () => { alive = false }
   }, [inspectionRequest, session.id])
 
-  const title = directiveChipLabel(directive)
+  const title = task?.title || directiveChipLabel(directive)
   const body = <InternalWindow title={`Referência ${title}`} onClose={onClose} layerClassName="artifact-viewer-backdrop">
     <section className={`artifact-viewer composer-reference-viewer ${directive.kind}`} role="dialog" aria-modal="false" aria-label={`Visualizar referência @${directive.kind} ${title}`}>
       <header>
@@ -91,13 +93,15 @@ function ReferenceDetailModal({ session, directive, todo, onClose }: { session: 
       <div className="artifact-viewer-notices"><code className="composer-reference-marker">{canonicalDirective(directive)}</code></div>
       <div className="artifact-viewer-stage is-text composer-reference-stage">
         {directive.kind === 'todo' ? <TodoReference todo={todo} id={directive.value}/> : null}
+        {directive.kind === 'task' ? <TaskReference task={task} id={directive.value}/> : null}
         {projectFile && projectPath ? <ArtifactPreview sessionId={session.id} path={projectPath} url={api.filePreviewURL(session.id, projectPath)} size={projectFile.size}/> : null}
         {!projectFile && projectDirectoryEntries.length > 0 ? <ReferenceEntryList title={`${projectDirectoryEntries.length} ficheiro(s) no diretório`} entries={projectDirectoryEntries.map((file) => ({ path: file.path, size: file.size, status: 'included' }))}/> : null}
         {loading ? <div className="artifact-preview-empty"><span className="spinner"/>A resolver a referência…</div> : null}
         {inspectionError ? <div className="artifact-preview-empty composer-error"><Icon name="alert" size={22}/><strong>Referência indisponível</strong><span>{inspectionError}</span></div> : null}
         {inspection ? <InspectionReference inspection={inspection}/> : null}
         {!todo && directive.kind === 'todo' ? <ReferenceUnavailable text={`O TODO ${directive.value} já não está disponível no snapshot do projeto.`}/> : null}
-        {!loading && !inspection && !inspectionError && !projectFile && !projectDirectoryEntries.length && directive.kind !== 'todo' ? <ReferenceUnavailable text={referenceFallback(directive)}/> : null}
+        {!task && directive.kind === 'task' ? <ReferenceUnavailable text={`A task ${directive.value} não está no índice local; o backend valida a referência no envio.`}/> : null}
+        {!loading && !inspection && !inspectionError && !projectFile && !projectDirectoryEntries.length && directive.kind !== 'todo' && directive.kind !== 'task' ? <ReferenceUnavailable text={referenceFallback(directive)}/> : null}
       </div>
     </section>
   </InternalWindow>
@@ -113,6 +117,18 @@ function TodoReference({ todo, id }: { todo?: ProjectTodo; id: string }) {
     {todo.pre_plan?.length ? <><h4>Pré-plano</h4><ul>{todo.pre_plan.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></> : null}
     {todo.project_files?.length ? <><h4>Ficheiros do projeto</h4><ul>{todo.project_files.map((path) => <li key={path}><code>{path}</code></li>)}</ul></> : null}
     {todo.attachments?.length ? <><h4>Anexos</h4><ul>{todo.attachments.map((attachment) => <li key={attachment.storage_ref}>{attachment.name} · {formatBytes(attachment.size)}</li>)}</ul></> : null}
+  </div>
+}
+
+
+function TaskReference({ task, id }: { task?: OrchestratorTask; id: string }) {
+  if (!task) return null
+  return <div className="composer-reference-detail task-detail">
+    <div className="composer-reference-facts"><span><b>Estado</b>{task.status === 'ARCHIVED' ? 'Arquivada após conclusão' : 'Concluída'}</span><span><b>ID</b>{id}</span>{task.plan_id && <span><b>Plano</b>{task.plan_id}</span>}<span><b>Atualizada</b>{new Date(task.updated_at).toLocaleString('pt-PT')}</span></div>
+    <h3>{task.title}</h3>
+    {task.description && <p>{task.description}</p>}
+    {task.acceptance_criteria?.length ? <><h4>Critérios de aceitação</h4><ul>{task.acceptance_criteria.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></> : null}
+    {task.depends_on?.length ? <><h4>Dependências</h4><ul>{task.depends_on.map((item) => <li key={item}><code>{item}</code></li>)}</ul></> : null}
   </div>
 }
 
@@ -180,6 +196,7 @@ function projectPreviewPath(directive: ComposerDirective) {
 function referenceFallback(directive: ComposerDirective) {
   if (directive.kind === 'chat') return 'O artefacto referido já não está indexado neste chat.'
   if (directive.kind === 'lib') return 'O artefacto referido já não está disponível na biblioteca carregada.'
+  if (directive.kind === 'task') return `Task ${directive.value}`
   if (directive.kind === 'see' && directive.project === 'upload') return 'O upload referido já não está presente no composer.'
   if (directive.kind === 'see') return `Fonte ${directive.project || 'desconhecida'} · ${directive.path}`
   if (directive.kind === 'file') return `O caminho ${directive.path} não está presente no manifesto atual.`
@@ -193,12 +210,13 @@ function directiveBadge(kind: ComposerDirective['kind']) {
   if (kind === 'see') return 'SEE'
   if (kind === 'chat') return 'CHAT'
   if (kind === 'lib') return 'LIB'
+  if (kind === 'task') return 'TASK'
   return 'TODO'
 }
 
 function directiveIcon(kind: ComposerDirective['kind']): Parameters<typeof Icon>[0]['name'] {
   if (kind === 'attach') return 'folder'
-  if (kind === 'todo') return 'check'
+  if (kind === 'todo' || kind === 'task') return 'check'
   if (kind === 'file') return 'file'
   if (kind === 'see') return 'link'
   if (kind === 'chat') return 'history'

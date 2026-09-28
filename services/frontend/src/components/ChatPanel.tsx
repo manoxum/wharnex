@@ -35,7 +35,7 @@ import { ComposerDirectiveConfigPopover, type DirectivePopoverAnchor } from './C
 import { ComposerRichEditor, type CaretRequest, type ComposerRichEditorHandle } from './ComposerRichEditor'
 import { directiveChipBadge } from '../lib/composerRichText'
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel'
-import { ComposerDirectiveMenuLayer } from './ComposerDirectiveMenuLayer'
+import { ComposerDirectiveMenuLayer, ComposerDirectiveOptionRows } from './ComposerDirectiveMenuLayer'
 import { ComposerReferenceThumbnail } from './ComposerReferenceThumbnail'
 import { desktopBridge } from '../lib/desktop'
 import { api } from '../lib/api'
@@ -50,6 +50,7 @@ import { ARTIFACT_INDEX_EVENT, artifactIndexMarker, type ArtifactIndexRequest } 
 import { projectTodoPrePlanAttachment, storedAttachmentFile } from '../lib/projectTodoForwarding'
 import { loadUIPreferences } from '../lib/uiPreferences'
 import { composerDirectiveState } from '../lib/composerDirectiveIndex'
+import { useComposerTaskDirectiveSuggestions } from '../lib/composerTaskDirectives'
 
 const COMPOSER_TYPING_ATTENTION_MS = 1600
 const LONG_CHAT_MARKDOWN_CHARS = 1400
@@ -57,19 +58,15 @@ const LONG_CHAT_MARKDOWN_LINES = 18
 const LONG_USER_PROMPT_CHARS = 900
 const LONG_USER_PROMPT_LINES = 12
 const CHANGE_DIFF_PREVIEW_COUNT = 4
-
 function clampComposerHeight(height: number) {
   return Math.min(COMPOSER_MAX_HEIGHT, Math.max(COMPOSER_MIN_HEIGHT, Math.round(height)))
 }
-
 function chatItemSource(item: ChatItem) {
   return item.source || (item.role === 'user' ? 'user' : item.turnKind ? 'chatgpt' : 'wharness')
 }
-
 function isWhxNotice(item: ChatItem) {
   return (item.presentation || 'message') === 'notice' && chatItemSource(item) === 'wharness'
 }
-
 function indexWhxNoticeRuns(items: ChatItem[]) {
   const hiddenIds = new Set<string>()
   const previousByLatestId = new Map<string, ChatItem[]>()
@@ -186,7 +183,7 @@ export type ChatPanelProps = {
 	 onResendPendingRequest?: (requestId: string) => Promise<void>
 	 onCancelPendingRequest?: (requestId: string) => Promise<void>
   onExportChat?: () => Promise<void>
-  onNewChat: () => Promise<void>
+  onNewChat: (initialMessage?: string) => Promise<void>
   onSelectChat: (chatId: string) => Promise<void>
   onSaveChat?: (chatId: string) => Promise<void>
   onArchiveChat: (chatId: string) => Promise<void>
@@ -435,7 +432,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }), [chatFiles, promptIndexByRequest])
   const libraryFileCandidates = useMemo(() => libraryArtifacts.map((item) => ({ value: `session|${item.session_id}|${item.artifact.id}`, label: item.artifact.name, detail: `${item.project_path} · ${item.artifact.kind}` })), [libraryArtifacts])
   const todoCandidates = useMemo(() => projectTodos.filter((todo) => todo.status === 'open').map((todo) => ({ value: todo.id, label: todo.body.slice(0, 90), detail: todo.execution_status === 'processing' ? 'Em execução' : todo.id })), [projectTodos])
-  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates, canonicalReferenceDirectives) : [], [projectFileCandidates, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates, canonicalReferenceDirectives])
+  const taskSearch = useComposerTaskDirectiveSuggestions(session.id, fileQuery?.kind === 'task' ? fileQuery.query : undefined)
+  const fileSuggestions = useMemo(() => fileQuery ? directiveSuggestions(fileQuery, projectFileCandidates, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates, taskSearch.suggestions, canonicalReferenceDirectives) : [], [projectFileCandidates, fileQuery, referenceableProjects, attachmentNames, attachedPathFiles, chatFileCandidates, libraryFileCandidates, todoCandidates, taskSearch.suggestions, canonicalReferenceDirectives])
   const kindSuggestions = useMemo(() => kindQuery ? directiveKindSuggestions(kindQuery.query) : [], [kindQuery])
   const activeSuggestionCount = kindQuery
     ? kindSuggestions.length
@@ -1092,7 +1090,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       {planAdjustment && <div className="plan-adjustment-context"><span className="plan-adjustment-icon"><Icon name="plan" size={13}/></span><div><strong>Ajustar plano de execução</strong><small>{planAdjustment.summary}</small><code>{planAdjustment.fileName}</code></div><button type="button" aria-label="Cancelar ajuste do plano" title="Cancelar ajuste" onClick={() => { persistAttachments(attachments.filter((file) => file.name !== planAdjustment.fileName)); setPlanAdjustment(undefined) }}><Icon name="close" size={12}/></button></div>}
       {(attachments.length || canonicalReferenceDirectives.length) ? <div className="composer-attachments composer-reference-tray" aria-label="Conteúdo e referências da próxima iteração">
         {attachments.map((file) => <ComposerAttachmentChip key={`${file.name}-${file.size}-${file.lastModified}`} file={file} onRemove={() => persistAttachments(attachments.filter((item) => item !== file))}/>)}
-        {canonicalReferenceDirectives.map((directive) => <ComposerReferenceThumbnail key={`${directive.kind}-${directive.start}-${directive.end}-${directive.value}`} session={session} directive={directive} attachments={attachments} chatFiles={chatFiles} libraryArtifacts={libraryArtifacts} projectTodos={projectTodos} onRemove={() => removeDirectiveChip(directive)}/>)}
+        {canonicalReferenceDirectives.map((directive) => <ComposerReferenceThumbnail key={`${directive.kind}-${directive.start}-${directive.end}-${directive.value}`} session={session} directive={directive} attachments={attachments} chatFiles={chatFiles} libraryArtifacts={libraryArtifacts} projectTodos={projectTodos} orchestratorTasks={taskSearch.knownTasks} onRemove={() => removeDirectiveChip(directive)}/>)}
       </div> : null}
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       {bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
@@ -1135,7 +1133,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </button>) : <p className="composer-attachment-empty">Nenhuma diretiva corresponde.</p>}
         </ComposerDirectiveMenuLayer>}
         {fileQuery && fileQuery.kind === 'attach' && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className="attach" ariaLabel="Anexar caminho externo"><header><span>@attach</span><small>Escolha um ficheiro ou pasta fora do projeto</small></header><button type="button" role="option" aria-selected={selectedSuggestionIndex === 0} onMouseDown={(event) => event.preventDefault()} onClick={() => void pickAttachment()}><Icon name="folder" size={12}/><span>Escolher pasta…</span><kbd>Enter</kbd></button>{fileQuery.query.startsWith('/') && <button type="button" role="option" aria-selected={selectedSuggestionIndex === 1} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective({ value: fileQuery.query, label: fileQuery.query })}><Icon name="file" size={12}/><span>Usar {fileQuery.query}</span></button>}</ComposerDirectiveMenuLayer>}
-        {fileQuery && fileQuery.kind !== 'attach' && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className={fileQuery.kind} ariaLabel={fileQuery.kind === 'ref' ? 'Referenciar outro projeto' : fileQuery.kind === 'see' ? 'Escolher fonte para destacar ficheiro ou diretório' : fileQuery.kind === 'todo' ? 'Referenciar TODO do projeto' : 'Localizar ficheiro do projeto'}><header><span>@{fileQuery.kind}</span><small>{directiveMenuHint(fileQuery, fileSuggestions.length, referenceableProjects.length)}</small></header>{fileSuggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === selectedSuggestionIndex} key={`${suggestion.value}:${suggestion.label}`} onMouseDown={(event) => event.preventDefault()} onClick={() => selectDirective(suggestion)}><Icon name={suggestion.sourceIcon || (suggestion.continues ? 'workspace' : 'file')} size={12}/><span>{suggestion.label}</span>{suggestion.detail && <em>{suggestion.detail}</em>}{suggestion.continues && suggestion.attached === false && <small className="unattached">ainda não anexado</small>}{index === selectedSuggestionIndex && <kbd>Enter</kbd>}</button>)}</ComposerDirectiveMenuLayer>}
+        {fileQuery && fileQuery.kind !== 'attach' && <ComposerDirectiveMenuLayer anchorRef={editorShellRef} className={fileQuery.kind} ariaLabel={fileQuery.kind === 'ref' ? 'Referenciar outro projeto' : fileQuery.kind === 'see' ? 'Escolher fonte para destacar ficheiro ou diretório' : fileQuery.kind === 'todo' ? 'Referenciar TODO do projeto' : fileQuery.kind === 'task' ? 'Referenciar task concluída do Orchestrator' : 'Localizar ficheiro do projeto'}><header><span>@{fileQuery.kind}</span><small>{directiveMenuHint(fileQuery, fileSuggestions.length, referenceableProjects.length)}</small></header><ComposerDirectiveOptionRows suggestions={fileSuggestions} selectedIndex={selectedSuggestionIndex} onSelect={selectDirective} loading={fileQuery.kind === 'task' && taskSearch.loading} hasMore={fileQuery.kind === 'task' && taskSearch.hasMore} onLoadMore={() => void taskSearch.loadMore()}/></ComposerDirectiveMenuLayer>}
       </div>
       {openDirective && <ComposerDirectiveConfigPopover
         directive={openDirective.directive} anchor={openDirective.anchor}
@@ -1425,10 +1423,12 @@ function directiveMenuHint(query: DirectiveQuery, results: number, knownProjects
     if (query.kind === 'ref') return 'Escolha um projeto já trabalhado ou um ficheiro dele'
     if (query.kind === 'see') return query.query.includes('|') ? 'Escolha o alvo dentro desta referência já indexada' : 'Escolha uma fonte já indexada no composer'
     if (query.kind === 'todo') return 'Escolha um TODO do projeto; pode referenciar vários no mesmo pedido'
+    if (query.kind === 'task') return 'Escolha uma task concluída; o ID distingue títulos semelhantes'
     return 'Escolha um ficheiro do contexto'
   }
   if (query.kind === 'file') return 'Nenhum ficheiro elegível encontrado'
   if (query.kind === 'todo') return 'Nenhum TODO corresponde'
+  if (query.kind === 'task') return 'Nenhuma task concluída corresponde'
   if (query.kind === 'see') return query.query.includes('|') ? 'Nenhum alvo desta referência corresponde' : 'Indexe primeiro um anexo ou referência no composer'
   if (!knownProjects) return 'Nenhum outro projeto conhecido por este Wharnex'
   return 'Nenhum projeto ou ficheiro corresponde'
@@ -1437,7 +1437,7 @@ function directiveMenuHint(query: DirectiveQuery, results: number, knownProjects
 /** Icon used for each directive kind in the insertion menu. */
 function directiveKindIcon(kind: ComposerDirective['kind']) {
   if (kind === 'attach') return 'folder'
-  if (kind === 'todo') return 'check'
+  if (kind === 'todo' || kind === 'task') return 'check'
   if (kind === 'file') return 'file'
   if (kind === 'see') return 'link'
   return 'workspace'

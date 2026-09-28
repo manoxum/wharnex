@@ -59,8 +59,8 @@ func TestResolveOrchestratorTaskReferencesAcceptsOnlyCompletedSameProjectTasks(t
 		t.Fatalf("read-only resolution mutated task: %#v err=%v", stored, err)
 	}
 	runs, err := store.ListRuns(ctx, complete.ID)
-	if err != nil || len(runs) != 1 || runs[0].ID != "run-1" {
-		t.Fatalf("read-only resolution changed run history: %#v err=%v", runs, err)
+	if err != nil || len(runs) != 1 || runs[0].ID != "run-1" || runs[0].CompletedAt == nil || !runs[0].CompletedAt.Equal(completedAt) {
+		t.Fatalf("read-only resolution changed run history or completed_at: %#v err=%v", runs, err)
 	}
 }
 

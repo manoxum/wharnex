@@ -100,6 +100,15 @@ it('searches terminal tasks through the paginated backend loader and appends the
   expect(await screen.findByText('Needle two')).not.toBeNull()
 })
 
+it('opens a new chat with the canonical completed-task directive', async () => {
+  const complete = { ...task('reuse-task', 'COMPLETE'), title: 'Reuse me', was_completed: true }
+  const onNewChat = vi.fn(async () => undefined)
+  render(<OrchestratorTasks session={session} overview={overview([complete])} chatProps={{ onNewChat } as never} busy={false} onSelectedTask={vi.fn()} onRun={run}/>)
+  fireEvent.click(screen.getByRole('button', { name: 'Ações de Reuse me' }))
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Abrir chat' }))
+  await waitFor(() => expect(onNewChat).toHaveBeenCalledWith('@{[task]reuse-task}'))
+})
+
 it('uses the backend transition when a card is dropped after horizontal navigation', async () => {
   const ready = task('Drag me', 'READY')
   const transitioned = vi.spyOn(api, 'transitionOrchestratorTask').mockResolvedValue({ ...ready, status: 'PENDING' })

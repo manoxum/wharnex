@@ -1,5 +1,6 @@
 import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
+import { canonicalTaskDirective } from '../../lib/composerTaskDirectives'
 import { combineOrchestratorTasks, mergeOrchestratorTaskPages } from '../../lib/orchestratorApi'
 import { ORCHESTRATOR_TERMINAL_STATUSES, type EffortLevel, type OrchestratorOverview, type OrchestratorPriority, type OrchestratorTask, type OrchestratorTaskPage, type OrchestratorTaskPageQuery, type OrchestratorTaskStatus, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus, type Session } from '../../types'
 import { Icon } from '../Icon'
@@ -94,7 +95,7 @@ export function OrchestratorTasks({ session, overview, terminalPages = {}, chatP
     <div className={`orchestrator-task-surface view-${view}`}>
       {view === 'kanban' && <OrchestratorKanban tasks={tasks} taskCounts={overview.task_counts} terminalPages={displayPages} searching={Boolean(query)} session={session} busy={busy} dragTask={dragTask} loadingStatus={loadingStatus} onEffort={changeEffort} onDrag={setDragTask} onDrop={(status) => {
         const task = loadedTasks.find((item) => item.id === dragTask); setDragTask(undefined); if (task) void move(task, status)
-      }} onLoadMore={(status) => void loadMore(status)} onSelect={onSelectedTask} />}
+      }} onLoadMore={(status) => void loadMore(status)} onSelect={onSelectedTask} onOpenChat={chatProps ? (task) => chatProps.onNewChat(canonicalTaskDirective(task.id)) : undefined} />}
       {view === 'table' && <TaskTable tasks={tasks} onSelect={onSelectedTask} />}
       {view === 'list' && <TaskList tasks={tasks} onSelect={onSelectedTask} />}
       {view === 'graph' && <TaskGraph tasks={tasks} onSelect={onSelectedTask} />}

@@ -876,7 +876,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setEvents([]); setManualPrompt(''); setItems([]); setPreparedDrafts({}); setFailedPromptDeliveries({}); setError(undefined); setRecent(loadRecentWorkspaces())
   }
 
-  async function newChat() {
+  async function newChat(initialMessage = '') {
     // Deliberately does not gate on the shared `busy` flag: that flag also
     // covers unrelated in-flight work in OTHER chats (send, apply, retry,
     // ...), and blocking new-chat creation on those left "Novo chat"
@@ -898,11 +898,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const created = await api.createSession(session.project_path, executionMode, automationMode, chatId, effortLevel)
       const chat = newWorkspaceChat(created.id, 'Novo chat', chatId)
       await api.saveWorkspaceChat(durableWorkspaceChat(created.project_path, chat))
+      if (initialMessage.trim()) saveComposerDraft(created.project_path, chat.id, { message: initialMessage.trim(), height: 156 })
       const next = [chat, ...chats]
       persistChats(created.project_path, next)
       transcriptReadyRef.current.add(chat.id)
       activeChatIdRef.current = chat.id; setActiveChatId(chat.id); setSession(created); setItems([welcomeItem(created)])
-      setEvents([]); setManualPrompt(''); setChatTransportMode(created.chat_transport_mode || 'scraper'); connectEvents(created.id, created.project_path, chat.id)
+      setEvents([]); setManualPrompt(''); setChatTransportMode(created.chat_transport_mode || 'scraper'); if (initialMessage.trim()) setMode('agent'); connectEvents(created.id, created.project_path, chat.id)
     } catch (e) { setError(messageOf(e)) } finally { creatingChatRef.current = false }
   }
 
