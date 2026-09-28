@@ -3068,12 +3068,21 @@ test('every class that extends another is declared after its base', async () => 
 
 test('conversation load failures across threads cool Worker conversation reads down', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  assert.match(source, /chatGPTConversationReadFailures\.size >= 2/)
+  assert.match(source, /chatGPTConversationReadFailures\.size >= 2 \|\| chatGPTConversationReadStreak > 0/)
   const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner })'))
-  assert.match(execute.slice(0, 1500), /chatGPTConversationReadCooldownMs\(\)[\s\S]{0,200}observation: true/)
+  assert.match(execute.slice(0, 1500), /chatGPTConversationReadGateMs\(task\.task_id\)[\s\S]{0,200}observation: true/)
   // Only a rendered conversation clears its backoff; "no failure seen" does not.
   const recover = source.slice(source.indexOf('async function recoverChatGPTConversationLoadFailure('))
-  assert.match(recover.slice(0, 900), /if \(first\?\.loaded\) chatGPTConversationLoadFailures\.delete\(conversation\)/)
+  assert.match(recover.slice(0, 900), /if \(!result\?\.loaded\) return\n\s+chatGPTConversationLoadFailures\.delete\(conversation\)\n\s+if \(chatGPTConversationID\(wc\.getURL\(\)\)\) noteChatGPTConversationReadHealthy\(\)/)
+})
+
+test('after a read cooldown one task probes alone and a failed probe doubles the cooldown', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const gate = source.slice(source.indexOf('function chatGPTConversationReadGateMs('))
+  assert.match(gate.slice(0, 700), /if \(cooldown > 0 \|\| chatGPTConversationReadStreak === 0\) return cooldown/)
+  assert.match(gate.slice(0, 700), /chatGPTConversationReadProbe\.taskId !== taskId\) return CHATGPT_CONVERSATION_READ_PROBE_WAIT_MS/)
+  assert.match(source, /CHATGPT_CONVERSATION_READ_COOLDOWN_MS \* 2 \*\* \(chatGPTConversationReadStreak - 1\), CHATGPT_CONVERSATION_READ_COOLDOWN_MAX_MS/)
+  assert.match(source, /releaseChatGPTConversationReadProbe\(task\.task_id\)/)
 })
 
 test('a hidden Worker whose conversation failed to load is parked off it after the attempt', async () => {
@@ -3084,7 +3093,7 @@ test('a hidden Worker whose conversation failed to load is parked off it after t
   assert.match(park.slice(0, 900), /entry\.interactionWindowId/)
   assert.match(park.slice(0, 900), /chatAgentResidency\.releaseResidentLane\(entry\.slotId\)/)
   assert.match(park.slice(0, 900), /wc\.loadURL\('about:blank'\)/)
-  assert.match(source, /executeChatAgentTask\(task, context\)\)\)\n\s+\.finally\(\(\) => parkChatGPTWorkerAfterLoadFailure\(workerEntryForIndex\(context\?\.worker\)\)\)/)
+  assert.match(source, /executeChatAgentTask\(task, context\)\)\)\n\s+\.finally\(\(\) => \{\n\s+parkChatGPTWorkerAfterLoadFailure\(workerEntryForIndex\(context\?\.worker\)\)/)
 })
 
 test('an Orchestrator execution claim does not open its conversation before the executor needs it', async () => {

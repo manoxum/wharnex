@@ -4564,24 +4564,59 @@ let chatGPTConversationReadCooldownUntil = 0
 function chatGPTConversationReadCooldownMs() {
   return Math.max(0, chatGPTConversationReadCooldownUntil - Date.now())
 }
+// When a cooldown ended, every waiting task reopened its conversation at once;
+// each opening is several refused reads, so the burst renewed the throttle and
+// the cooldown re-armed forever with every Worker idle. After a cooldown one
+// task probes alone, a failed probe re-arms a doubled cooldown, and only a
+// conversation that actually renders lets the others through.
+const CHATGPT_CONVERSATION_READ_COOLDOWN_MAX_MS = 24 * 60_000
+const CHATGPT_CONVERSATION_READ_PROBE_MS = 3 * 60_000
+const CHATGPT_CONVERSATION_READ_PROBE_WAIT_MS = 30_000
+let chatGPTConversationReadStreak = 0
+let chatGPTConversationReadProbe = { taskId: '', until: 0 }
+function chatGPTConversationReadGateMs(taskId) {
+  const cooldown = chatGPTConversationReadCooldownMs()
+  if (cooldown > 0 || chatGPTConversationReadStreak === 0) return cooldown
+  const now = Date.now()
+  if (chatGPTConversationReadProbe.until > now && chatGPTConversationReadProbe.taskId !== taskId) return CHATGPT_CONVERSATION_READ_PROBE_WAIT_MS
+  if (chatGPTConversationReadProbe.until <= now) chatGPTConversationReadProbe = { taskId, until: now + CHATGPT_CONVERSATION_READ_PROBE_MS }
+  return 0
+}
+function releaseChatGPTConversationReadProbe(taskId) {
+  if (chatGPTConversationReadProbe.taskId === taskId) chatGPTConversationReadProbe = { taskId: '', until: 0 }
+}
+function noteChatGPTConversationReadHealthy() {
+  if (chatGPTConversationReadStreak > 0) console.log(`[chatgpt-load] conversation-reads-healthy after_cooldowns=${chatGPTConversationReadStreak}`)
+  chatGPTConversationReadStreak = 0
+  chatGPTConversationReadProbe = { taskId: '', until: 0 }
+}
 function noteChatGPTConversationReadFailure(conversation) {
   const now = Date.now()
   chatGPTConversationReadFailures.set(conversation, now)
   for (const [key, at] of chatGPTConversationReadFailures) if (now - at > CHATGPT_CONVERSATION_READ_WINDOW_MS) chatGPTConversationReadFailures.delete(key)
-  if (chatGPTConversationReadFailures.size >= 2 && now >= chatGPTConversationReadCooldownUntil) {
-    chatGPTConversationReadCooldownUntil = now + CHATGPT_CONVERSATION_READ_COOLDOWN_MS
-    console.warn(`[chatgpt-load] conversation-read-cooldown conversations=${chatGPTConversationReadFailures.size} until=${new Date(chatGPTConversationReadCooldownUntil).toISOString()}`)
+  if ((chatGPTConversationReadFailures.size >= 2 || chatGPTConversationReadStreak > 0) && now >= chatGPTConversationReadCooldownUntil) {
+    chatGPTConversationReadStreak += 1
+    const cooldownMs = Math.min(CHATGPT_CONVERSATION_READ_COOLDOWN_MS * 2 ** (chatGPTConversationReadStreak - 1), CHATGPT_CONVERSATION_READ_COOLDOWN_MAX_MS)
+    chatGPTConversationReadCooldownUntil = now + cooldownMs
+    chatGPTConversationReadProbe = { taskId: '', until: 0 }
+    console.warn(`[chatgpt-load] conversation-read-cooldown conversations=${chatGPTConversationReadFailures.size} streak=${chatGPTConversationReadStreak} until=${new Date(chatGPTConversationReadCooldownUntil).toISOString()}`)
   }
 }
 async function recoverChatGPTConversationLoadFailure(cacheKey, entry, wc, settle) {
   const probe = (click) => wc.executeJavaScript(chatGPTConversationLoadFailureScript(click), true).catch(() => null)
   const conversation = canonicalChatGPTConversationURL(wc.getURL()) || cacheKey
+  // Only a rendered conversation proves reads work; the home composer does not.
+  const noteLoaded = (result) => {
+    if (!result?.loaded) return
+    chatGPTConversationLoadFailures.delete(conversation)
+    if (chatGPTConversationID(wc.getURL())) noteChatGPTConversationReadHealthy()
+  }
   const first = await probe(false)
-  if (first?.loaded) chatGPTConversationLoadFailures.delete(conversation)
+  noteLoaded(first)
   if (!first?.failed) return
   await wait(2_000)
   const confirmed = await probe(false)
-  if (confirmed?.loaded) chatGPTConversationLoadFailures.delete(conversation)
+  noteLoaded(confirmed)
   if (!confirmed?.failed) return
   if (entry.role === 'worker') await paceChatGPTWorkerNavigation()
   const retried = confirmed.retryable ? await probe(true) : null
@@ -4591,6 +4626,7 @@ async function recoverChatGPTConversationLoadFailure(cacheKey, entry, wc, settle
   if (!(await probe(false))?.failed) {
     console.log(`[chatgpt-load] conversation-load-recovered key=${cacheKey} action=${retried?.clicked ? 'retry' : 'reload'}`)
     chatGPTConversationLoadFailures.delete(conversation)
+    noteChatGPTConversationReadHealthy()
     return
   }
   const failures = (chatGPTConversationLoadFailures.get(conversation) || 0) + 1
@@ -6735,8 +6771,8 @@ async function executeChatAgentTask(task, { worker, owner }) {
   if (initialRateLimitDelay > 0) {
     return { status: 'waiting', delayMs: initialRateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
   }
-  const readCooldown = chatGPTConversationReadCooldownMs()
-  if (readCooldown > 0 && (task.type === 'ORCHESTRATOR_EXECUTE' || task.type === 'ORCHESTRATOR_PLAN')) {
+  const readCooldown = task.type === 'ORCHESTRATOR_EXECUTE' || task.type === 'ORCHESTRATOR_PLAN' ? chatGPTConversationReadGateMs(task.task_id) : 0
+  if (readCooldown > 0) {
     return { status: 'waiting', delayMs: readCooldown, observation: true, error: 'ChatGPT conversation reads are cooling down' }
   }
   const payload = chatAgentTaskPayload(task)
@@ -8568,7 +8604,10 @@ app.whenReady().then(async () => {
   const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
   chatAgentScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: (task, context) => withTrace(traceForTask(task), () => chatAgentWorkerActivity.run(`worker-${Number(context?.worker) || 0}`, task.task_id, () => executeChatAgentTask(task, context)))
-      .finally(() => parkChatGPTWorkerAfterLoadFailure(workerEntryForIndex(context?.worker))),
+      .finally(() => {
+        parkChatGPTWorkerAfterLoadFailure(workerEntryForIndex(context?.worker))
+        releaseChatGPTConversationReadProbe(task.task_id)
+      }),
     // The Worker pool takes only small account-lifecycle and utility work. The
     // durable claim enforces that partition, so no attempt is charged to reject
     // a chat-bound task this pool must never navigate to.
