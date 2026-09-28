@@ -47,6 +47,56 @@ test('failed hidden effort opening clears focus emulation and debugger attachmen
   assert.deepEqual(commands.slice(-2), ['Emulation.setFocusEmulationEnabled:false', 'detach'])
 })
 
+test('an opened effort menu is observed, never pressed again', async () => {
+  const { wc, entry } = fakeControl(true)
+  let presses = 0
+  let probes = 0
+  const keys = []
+  await stepChatGPTEffort({
+    key: 'owned-worker', entry, wanted: 'instant', behavior: {},
+    executeDOM: async (_key, _entry, operation) => {
+      if (operation === 'reasoning-effort-state') return { ok: true, effort: 'high' }
+      probes += 1
+      if (!presses) return { ok: true, state: 'effort-menu-closed', rect: { x: 10, y: 20 } }
+      // Open, but the slider only becomes usable on the third look.
+      return probes < 4 ? { ok: true, state: 'effort-menu-open-no-slider', triggerExpanded: true } : { ok: true, state: 'effort-slider-ready' }
+    },
+    requireOwned: () => ({ wc }),
+    press: async () => { presses += 1; return { x: 10, y: 20 } },
+    pressKey: async (_entry, _wc, key) => { keys.push(key) },
+    wait: async () => {}, settleMs: 0, reopenAttempts: 3, log: () => {},
+  })
+  assert.equal(presses, 1)
+  assert.deepEqual(keys, ['Left', 'Escape'])
+})
+
+test('an opened menu whose slider never appears is closed once and reported', async () => {
+  const { wc, entry } = fakeControl(true)
+  let presses = 0
+  const keys = []
+  await assert.rejects(stepChatGPTEffort({
+    key: 'owned-worker', entry, wanted: 'instant', behavior: {},
+    executeDOM: async (_key, _entry, operation) => operation === 'reasoning-effort-state'
+      ? { ok: true, effort: 'high' }
+      : presses ? { ok: true, state: 'effort-menu-open-no-slider', triggerExpanded: true, sliders: [] }
+        : { ok: true, state: 'effort-menu-closed', rect: { x: 10, y: 20 } },
+    requireOwned: () => ({ wc }),
+    press: async () => { presses += 1; return { x: 10, y: 20 } },
+    pressKey: async (_entry, _wc, key) => { keys.push(key) },
+    wait: async () => {}, settleMs: 0, reopenAttempts: 3, log: () => {},
+  }), /effort-menu-open-no-slider/)
+  assert.equal(presses, 1)
+  assert.deepEqual(keys, ['Escape'])
+})
+
+test('the adjust script finds the slider inside the menu its open trigger controls', async () => {
+  const source = await readFile(new URL('./chat-agent-reasoning-effort-scripts.mjs', import.meta.url), 'utf8')
+  assert.match(source, /getAttribute\('data-state'\) === 'open'/)
+  assert.match(source, /getAttribute\('aria-controls'\)/)
+  assert.match(source, /if \(!slider && expanded\)/)
+  assert.match(source, /if \(expanded\) return \{ ok: true, state: 'effort-menu-open-no-slider'/)
+})
+
 test('effort control scripts stay composer-scoped and do not synthesize clicks', async () => {
   const source = await readFile(new URL('./chat-agent-reasoning-effort-scripts.mjs', import.meta.url), 'utf8')
   assert.match(source, /button\[0\]\.focus\(\)/)

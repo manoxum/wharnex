@@ -46,7 +46,16 @@ export async function stepChatGPTEffort({ key, entry, wanted, behavior, executeD
       }
       log(`[chatgpt-effort] key=${key} open-attempt=${attempt + 1} visible=${String(visible)} pressed=${pressed.x},${pressed.y} rect=${JSON.stringify(before.rect)} viewport=${JSON.stringify(before.viewport || null)} hit=${JSON.stringify(before.hit || null)} hitIsControl=${before.hitIsControl === true} focused=${staged?.triggerFocused === true} expanded=${staged?.triggerExpanded === true} disabled=${staged?.triggerDisabled === true} dataState=${String(staged?.triggerState || '')} pointerEvents=${String(staged?.triggerPointerEvents || '')} sliders=${Number(staged?.sliderCount || 0)} menus=${Number(staged?.openMenuCount || 0)} -> ${String(staged?.state || 'unknown')}`)
     }
+    // The menu is open but its slider is not usable yet (still animating in, or
+    // a shape the map does not know). Pressing again would close it, so only
+    // observe; if it never becomes usable, close the menu once and report.
+    for (let attempt = 0; attempt < reopenAttempts && staged?.state === 'effort-menu-open-no-slider'; attempt += 1) {
+      await wait(settleMs)
+      staged = await executeDOM(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(behavior))
+    }
     if (!staged?.ok || staged.state !== 'effort-slider-ready') {
+      log(`[chatgpt-effort] key=${key} slider-unavailable state=${String(staged?.state || 'unknown')} controlled=${staged?.controlled === true} scopes=${Number(staged?.scopes || 0)} sliders=${JSON.stringify(staged?.sliders || [])}`)
+      if (staged?.triggerExpanded === true) await pressKey(entry, wc, 'Escape')
       throw new Error(`ChatGPT reasoning-effort slider is unavailable (${String(staged?.state || 'unknown')})`)
     }
     await pressKey(entry, wc, direction)
