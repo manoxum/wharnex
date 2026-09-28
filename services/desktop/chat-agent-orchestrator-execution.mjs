@@ -6,6 +6,8 @@
 // ones, served by the Worker pinned to the task (adr/ADR-0082). Every round,
 // repair and retry continues in the task's one conversation.
 const OBSERVE_MS = 30_000
+// How many times the driver may resend one request after its supervision gave up.
+const MAX_REQUEST_RESENDS = 2
 
 async function workerRequest(baseURL, sessionID, taskID, suffix, body) {
   const path = `/api/sessions/${encodeURIComponent(sessionID)}/orchestrator/tasks/${encodeURIComponent(taskID)}/${suffix}`
@@ -58,14 +60,20 @@ async function driveOrchestratorRound(task, entry, key, payload, owner, runtime)
   const supervision = await runtime.supervision(key, current.request_id)
   if (supervision.state === 'active') return observe('agentic supervision owns this request')
   if (supervision.state === 'delivered') return observe('the Agent is ingesting the delivered bundle')
-  // Supervision gave up (no bundle after its bounded recovery): like an
-  // agentic Main Request waiting for a person, a task's run ends here.
-  if (supervision.state === 'ended') return { status: 'failed', error: supervision.error || `ChatGPT did not deliver ${current.expected_filename}` }
+  // Supervision gave up (no bundle after its bounded recovery). In a chat a
+  // person now presses "Retomar pedido"; a task has nobody, so the driver
+  // does it: the same request again in the same conversation, a bounded
+  // number of times, before the run ends.
+  const resends = payload.resent_request_id === current.request_id ? Number(payload.resend_count || 0) : 0
+  if (supervision.state === 'ended' && resends >= MAX_REQUEST_RESENDS) {
+    return { status: 'failed', error: supervision.error || `ChatGPT did not deliver ${current.expected_filename}` }
+  }
+  const resend = supervision.state === 'ended'
 
   const conversationURL = runtime.conversationURL(current.conversation_url || payload.conversation_url || '')
   // A request an earlier attempt already submitted is handed to the agentic
   // supervision, never sent twice.
-  if (payload.active_request_id === current.request_id && conversationURL &&
+  if (!resend && payload.active_request_id === current.request_id && conversationURL &&
       await runtime.adopt(key, entry, current, conversationURL, Number(payload.assistant_baseline || 0))) {
     return observe('submitted request adopted by agentic supervision')
   }
@@ -77,6 +85,7 @@ async function driveOrchestratorRound(task, entry, key, payload, owner, runtime)
   await runtime.checkpoint(task.task_id, owner, {
     active_request_id: current.request_id, conversation_url: stored.conversation_url || sent.conversationUrl,
     expected_filename: current.expected_filename, submitted_at: new Date().toISOString(),
+    ...(resend ? { resent_request_id: current.request_id, resend_count: resends + 1 } : {}),
   })
-  return observe('Main Request round submitted; agentic supervision owns the response')
+  return observe(resend ? `request resent after stalled supervision (${resends + 1}/${MAX_REQUEST_RESENDS})` : 'Main Request round submitted; agentic supervision owns the response')
 }

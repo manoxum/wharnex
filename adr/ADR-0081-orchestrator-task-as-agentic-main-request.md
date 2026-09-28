@@ -104,5 +104,11 @@ A chat can hold many Main Requests; a task is exactly one.
 - A request the previous executor had already submitted is handed to the
   agentic supervision (adopted) when its exact request ZIP is in the
   conversation; otherwise the driver sends it again.
+- When the agentic supervision gives up on a request (ATTENTION, such as no
+  structural sign after its keep-continue), a chat waits for a person to press
+  "Retomar pedido". A task has nobody, so the driver resends that same
+  request in the same conversation, at most twice per request, before the
+  run fails. The durable queue, not the in-memory expectation that stays
+  armed after ATTENTION, decides whether supervision still owns a request.
 - Still open: a headless round driver for human chats, which the renderer
   drives today.

@@ -3156,3 +3156,16 @@ test('an Orchestrator task round travels on the agentic Main Request transport',
   assert.match(deliver.slice(0, 4000), /enqueueChatAgentTask\('RECOVERY_WRITE'/)
   assert.match(deliver.slice(0, 4000), /postOrchestratorTask\(taskId, 'fail-run'/)
 })
+
+test('a task request whose supervision raised attention reads as ended, not as still owned', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const supervision = source.slice(source.indexOf('async function orchestratorRequestSupervision('))
+  const body = supervision.slice(0, supervision.indexOf('\n}\n'))
+  // The durable queue is read before the in-memory expectation.
+  assert.ok(body.indexOf('chatAgentScheduler.list') < body.indexOf('expectedChatGPTBundles.get'))
+  assert.match(body, /if \(latest && latest\.status !== 'DONE'\) return \{ state: 'ended'/)
+  const send = source.slice(source.indexOf('async function sendOrchestratorMainRequest('))
+  assert.match(send.slice(0, 600), /disarmExpectedChatGPTBundle\(key, current\.request_id\)\n\s+clearChatGPTHumanAction\(key,/)
+  // A task has no workspace chat to update.
+  assert.match(source, /if \(key\.startsWith\('otk_'\)\) return ''/)
+})

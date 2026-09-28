@@ -5542,6 +5542,8 @@ function durableWorkspaceChatID(cacheKey, requestedChatID = '') {
   // Legacy releases created `_cf_` auxiliary surfaces. Never project one into
   // durable chat affinity while old queued work drains after an upgrade.
   if (key.includes('_cf_')) return ''
+  // An Orchestrator task is a Main Request without a workspace chat.
+  if (key.startsWith('otk_')) return ''
   const requested = String(requestedChatID || '').trim()
   if (!requested) return key
   const durableID = sanitizeChatCacheKey(requested)
@@ -6039,14 +6041,18 @@ function orchestratorExecutionWorkerRuntime() {
 async function orchestratorRequestSupervision(key, requestId) {
   const id = String(requestId || '')
   if (pendingChatGPTBundleDeliveries.has(id) || recentlyDeliveredChatGPTBundleRequestId(id) || chatGPTBundleAlreadyValidated(id)) return { state: 'delivered' }
-  if (expectedChatGPTBundles.get(sanitizeChatCacheKey(key))?.requestId === id) return { state: 'active' }
+  // The durable queue decides first. An expectation stays armed in memory
+  // after supervision raised ATTENTION (a chat waits there for "Retomar
+  // pedido"), so reading memory first kept a task observing forever.
   const listed = await chatAgentScheduler.list({ request_id: id })
   const tasks = (listed?.tasks || []).filter((item) => ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(item.type))
   if (tasks.some((item) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status))) return { state: 'active' }
   const latest = tasks.filter((item) => item.type === 'AWAIT_RESPONSE').sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0]
-  if (!latest) return { state: 'none' }
-  if (latest.status === 'DONE') return { state: 'delivered' }
-  return { state: 'ended', error: String(latest.last_error || '').slice(0, 500) }
+  if (latest && latest.status !== 'DONE') return { state: 'ended', error: String(latest.last_error || '').slice(0, 500) }
+  if (latest) return { state: 'delivered' }
+  // Armed but not yet durable: the submission is still scheduling its supervision.
+  if (expectedChatGPTBundles.get(sanitizeChatCacheKey(key))?.requestId === id) return { state: 'active' }
+  return { state: 'none' }
 }
 
 // A request the previous executor already submitted keeps its conversation:
@@ -6076,6 +6082,12 @@ async function adoptOrchestratorRequest(key, entry, current, conversationURL, as
 
 // One round of a task's Main Request, through the pipeline a chat uses.
 async function sendOrchestratorMainRequest(key, entry, current, conversationURL) {
+  // A resend after supervision gave up starts from a clean expectation and
+  // clears the human-attention notice that supervision left on the page.
+  if (expectedChatGPTBundles.get(sanitizeChatCacheKey(key))?.requestId === current.request_id) {
+    disarmExpectedChatGPTBundle(key, current.request_id)
+    clearChatGPTHumanAction(key, 'pedido reenviado pelo Orchestrator')
+  }
   const retry = await orchestratorRetryInput(current.task, (ref) => readStoredAttachment(chatAttachmentRoot(), ref))
   const projectPath = String(current.task?.project_path || '')
   const prepared = await withChatGPTTransportPreparation(key, entry, current.request_id, () => preparePromptForChatGPT({

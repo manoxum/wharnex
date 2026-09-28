@@ -72,10 +72,21 @@ test('a request the agentic supervision owns or delivered is only observed', asy
   }
 })
 
-test('supervision that gave up ends the run', async () => {
-  const { result } = await drive({ supervision: { state: 'ended', error: 'ChatGPT did not provide the ZIP after 2 delivery continuations' } })
-  assert.equal(result.status, 'failed')
-  assert.match(result.error, /delivery continuations/)
+test('stalled supervision is answered by resending the request, then ends the run', async () => {
+  const ended = { state: 'ended', error: 'ChatGPT deixou de dar sinal estrutural' }
+  const first = await drive({ supervision: ended, payload: { ...PAYLOAD, active_request_id: REQUEST.request_id, conversation_url: 'https://chatgpt.com/c/task' }, adopt: true })
+  // A resend never adopts: it sends the same request again in the same conversation.
+  assert.equal(first.actions.includes('adopt'), false)
+  assert.deepEqual(first.actions.find((item) => item[0] === 'send'), ['send', REQUEST.request_id, 'https://chatgpt.com/c/task'])
+  assert.equal(first.actions.find((item) => item[0] === 'checkpoint')[1].resend_count, 1)
+  const second = await drive({ supervision: ended, payload: { ...PAYLOAD, resent_request_id: REQUEST.request_id, resend_count: 1 } })
+  assert.equal(second.actions.find((item) => item[0] === 'checkpoint')[1].resend_count, 2)
+  const exhausted = await drive({ supervision: ended, payload: { ...PAYLOAD, resent_request_id: REQUEST.request_id, resend_count: 2 } })
+  assert.equal(exhausted.result.status, 'failed')
+  assert.match(exhausted.result.error, /sinal estrutural/)
+  // A new request starts its own resend budget.
+  const next = await drive({ supervision: ended, payload: { ...PAYLOAD, resent_request_id: 'req_other', resend_count: 2 } })
+  assert.equal(next.result.status, 'waiting')
 })
 
 test('a request an earlier attempt submitted is adopted instead of sent twice', async () => {
