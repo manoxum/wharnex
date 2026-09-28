@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import { api } from '../../lib/api'
@@ -73,4 +73,61 @@ describe('OrchestratorWorkspace polling', () => {
     await act(async () => { vi.advanceTimersByTime(20_000) })
     expect(api.orchestratorOverview).toHaveBeenCalledTimes(callsWhenDeactivated)
   })
+
+  it('opens, refreshes, closes and reopens planning detail without leaving Overview', async () => {
+    const planningRequest = {
+      request_id: 'orp-detail',
+      task_id: 'cat-detail',
+      objective: 'Detalhar pedido',
+      status: 'RUNNING',
+      attempt: 1,
+      max_attempts: 8,
+      created_at: '2026-09-28T01:00:00Z',
+      updated_at: '2026-09-28T01:05:00Z',
+    }
+    vi.mocked(api.orchestratorOverview).mockResolvedValue({
+      plans: [],
+      tasks: [],
+      task_counts: emptyOrchestratorTaskCounts(),
+      planning_requests: [planningRequest],
+      mutation_slots: 1,
+      mutation_slots_used: 0,
+    })
+    const detail = {
+      request_id: planningRequest.request_id,
+      task_id: planningRequest.task_id,
+      status: planningRequest.status,
+      attempt: planningRequest.attempt,
+      max_attempts: planningRequest.max_attempts,
+      objective: planningRequest.objective,
+      include_context: false,
+      project_files: [],
+      attachments: [],
+      attempts: [],
+      tasks: [],
+    }
+    const loadDetail = vi.spyOn(api, 'orchestratorPlanningDetail').mockResolvedValue(detail)
+
+    render(<OrchestratorWorkspace session={session} chatProps={{} as ComponentProps<typeof ChatPanel>} active onError={() => undefined}/>)
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir detalhe de Detalhar pedido' }))
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    expect(loadDetail).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('tab', { name: 'Resumo' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar detalhe do planeamento' }))
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    expect(loadDetail).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar detalhe do planeamento' }))
+    expect(screen.queryByRole('tab', { name: 'Resumo' })).toBeNull()
+    expect(screen.getByText('Em planejamento')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir detalhe de Detalhar pedido' }))
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    expect(loadDetail).toHaveBeenCalledTimes(3)
+    expect(screen.getByRole('tab', { name: 'Resumo' })).toBeTruthy()
+  })
+
 })
