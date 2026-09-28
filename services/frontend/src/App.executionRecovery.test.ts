@@ -31,7 +31,7 @@ describe('interrupted execution recovery', () => {
     expect(railSource).toMatch(/executionFIFO=\{executionFIFO\}/)
     expect(railSource).not.toMatch(/Fila FIFO de execução/)
     expect(taskSource).toMatch(/Execução FIFO/)
-    expect(taskSource).toMatch(/projectTasks\(projectPath, 500\)/)
+    expect(taskSource).toMatch(/projectTasks\(projectPath, \{ scope: 'active' \}\)/)
   })
 
   it('routes evidence analysis through a dedicated self-evolution chat', () => {
