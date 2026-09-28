@@ -28,8 +28,12 @@ export function chooseChatGPTDownloadCandidate(candidates, expectedFilename) {
   return { index: -1, mode: '' }
 }
 
-export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0, freshOnly = false) {
+// exactOnly accepts only a control naming the exact file: used when the whole
+// conversation is searched, where an unnamed "only file in the last answer"
+// could belong to another request.
+export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0, freshOnly = false, exactOnly = false) {
   const expected = encode(filename)
+  const requireExact = exactOnly === true
   const baseline = Math.max(0, Number(assistantBaseline) || 0)
   const requireFreshAssistant = freshOnly === true
   const choose = chooseChatGPTDownloadCandidate.toString()
@@ -74,6 +78,7 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0, f
     });
     const decision = choose(candidates, expected);
     if (!Number.isInteger(decision.index) || decision.index < 0 || !nodes[decision.index]) return '';
+    if (${requireExact} && decision.mode !== 'exact') return '';
     nodes[decision.index].click();
     return decision.mode || 'exact';
   })()`

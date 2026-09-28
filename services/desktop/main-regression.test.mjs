@@ -3183,3 +3183,12 @@ test('supervision reads an idle reloaded conversation whose last turn is the ans
   // A task's pinned Worker returns to its conversation instead of standing back forever.
   assert.match(body, /if \(orchestratorTaskChat\(task\)\) \{\n\s+await paceChatGPTWorkerNavigation\(\)\n\s+await loadOwnedChatGPTURL\(key, entry, conversationURL, 'orchestrator-task-return'\)/)
 })
+
+test('before judging a page silent, supervision looks for the exact response ZIP anywhere', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const probe = source.slice(source.indexOf('async function probeChatAgentResponse('))
+  const body = probe.slice(0, probe.indexOf('\nasync function ', 10))
+  const search = body.indexOf('chatGPTExpectedDownloadScript(expected.filename, 0, false, true)')
+  assert.ok(search > 0 && search < body.indexOf('AWAIT_STALL_ATTENTION_MS'))
+  assert.match(body, /\[chatgpt-supervision\] stall key=/)
+})

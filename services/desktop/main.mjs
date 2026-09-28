@@ -5833,11 +5833,27 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
   }
   if (completion?.complete !== true) {
     expected.settledAt = 0
+    // Neither generating nor complete. The exact response ZIP may still be in
+    // the conversation, delivered earlier in a turn this reloaded page counts
+    // differently: its name carries the request id, so it is looked for
+    // anywhere before the page is judged silent (adr/ADR-0078).
+    if (!expected.downloadInFlight && completion?.thinking !== true && now - Number(expected.lastDOMClick || 0) >= DOM_DOWNLOAD_RETRY_MS) {
+      const anywhere = await entry.view.webContents.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, 0, false, true), true)
+      if (anywhere) {
+        expected.downloadInFlight = true
+        expected.lastDOMClick = now
+        expected.progressAt = now
+        recentExpectedDownload = { key, requestId: expected.requestId, at: now }
+        console.warn(`[chatgpt-supervision] exact-bundle-found key=${key} request=${expected.requestId} rendered=${Number(completion?.assistantCount || 0)} baseline=${Number(expected.assistantBaseline || 0)}`)
+        return { status: 'waiting', delayMs: DOM_DOWNLOAD_RETRY_MS, observation: true }
+      }
+    }
     // Neither generating nor complete. This is a passive read of an ambiguous
     // page, not an attempt, so it must not spend the budget either — but it is
     // also the one state that carries no evidence of progress, so it is bounded
     // by its own stall deadline instead of supervising indefinitely.
     if (now - Number(expected.progressAt || now) >= AWAIT_STALL_ATTENTION_MS) {
+      console.warn(`[chatgpt-supervision] stall key=${key} request=${expected.requestId} rendered=${Number(completion?.assistantCount || 0)} baseline=${Number(expected.assistantBaseline || 0)} lastRole=${String(completion?.lastRole || '-')} thinking=${completion?.thinking === true} failed=${completion?.failed === true} composerReady=${completion?.composerReady === true} onConversation=${sameConversationURL(entry.view.webContents.getURL(), conversationURL)}`)
       return {
         status: 'attention',
         error: `ChatGPT deixou de dar sinal estrutural para ${expected.filename} durante ${Math.round(AWAIT_STALL_ATTENTION_MS / 60_000)} minutos; a conversa precisa de verificação humana.`,

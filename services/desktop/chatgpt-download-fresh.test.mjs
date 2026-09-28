@@ -38,3 +38,9 @@ test('Worker download poll carries the fresh-turn requirement after repair', asy
   await pollWorkerExpectedDownload(expected, async () => '', (...values) => { args.push(values); return '' }, 100_000)
   assert.deepEqual(args, [[expected.filename, 1, true]])
 })
+
+test('a whole-conversation search clicks only a control naming the exact file', () => {
+  const exactOnly = chatGPTExpectedDownloadScript('whx_bundle_res_otk-a_req_1.zip', 0, false, true)
+  assert.match(exactOnly, /if \(true && decision\.mode !== 'exact'\) return ''/)
+  assert.match(chatGPTExpectedDownloadScript('whx_bundle_res_otk-a_req_1.zip'), /if \(false && decision\.mode !== 'exact'\) return ''/)
+})
