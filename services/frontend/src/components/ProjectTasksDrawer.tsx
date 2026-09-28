@@ -19,7 +19,7 @@ import { ContentSkeleton } from './Skeleton'
 import { PlanView, TerminalView } from './Inspector'
 import { ChatAgentTaskTimeline } from './ChatAgentTaskTimeline'
 import { ProjectTaskCardShell } from './ProjectTaskCardShell'
-
+import { ProjectTaskListPanel } from './ProjectTaskListPanel'
 const ACTIVE = new Set(['PENDING', 'LEASED', 'RUNNING', 'WAITING', 'READY', 'DOING', 'REVIEW'])
 const FAILED = new Set(['FAILED', 'ATTENTION'])
 const REQUEST_TASK_TYPES = new Set(['AWAIT_RESPONSE', 'BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN'])
@@ -140,10 +140,10 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
       <TaskTab id="completed" label="Concluídas" icon="check" count={counts.completed} active={tab === 'completed'} onClick={() => setTab('completed')}/>
       <TaskTab id="archived" label="Arquivadas" icon="archive" count={counts.archived} active={tab === 'archived'} onClick={() => setTab('archived')}/>
     </nav>
-    <div id="project-task-panel" className="project-task-list" role="tabpanel">
+    <ProjectTaskListPanel>
       {tab === 'queue' ? <IntegratedExecutionQueue items={executionFIFO} onError={onError}/> : null}
       {loading && !tasks.length ? <ContentSkeleton label="A carregar tarefas, planos e histórico" rows={6}/> : visible.length ? visible.map((item) => <ProjectTaskCard key={item.key} item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents} onGoToChat={onGoToChat}/>) : <div className="agent-drawer-empty"><strong>{query || sourceFilter !== 'all' ? 'Nenhuma tarefa corresponde ao filtro.' : emptyTitle(tab)}</strong><span>{query || sourceFilter !== 'all' ? 'Altere a pesquisa ou a origem para ampliar os resultados.' : emptyDetail(tab)}</span></div>}
-    </div>
+    </ProjectTaskListPanel>
   </section>
 }
 

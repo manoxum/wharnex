@@ -63,15 +63,15 @@ export function ProjectTaskCardShell({
   const [opened, setOpened] = useState(false)
   const tone: TaskTone = failed ? 'failed' : disposition
 
-  return <article data-project-task-card className="group relative grid min-w-0 gap-2 overflow-hidden rounded-xl border border-whx-border-soft bg-whx-surface p-3 pl-4 transition-[border-color,background-color,transform] duration-150 hover:-translate-y-px hover:border-whx-border hover:bg-whx-hover">
+  return <article data-project-task-card className="group relative grid h-auto min-w-0 self-start content-start gap-2 rounded-xl border border-whx-border-soft bg-whx-surface p-3 pl-4 transition-[border-color,background-color,transform] duration-150 hover:-translate-y-px hover:border-whx-border hover:bg-whx-hover">
     <span aria-hidden="true" className={`absolute inset-y-3 left-0 w-0.5 rounded-r-full ${RAIL_TONE[tone]}`}/>
     <header className="grid min-w-0 gap-2">
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className={`inline-flex max-w-full items-center gap-1 rounded-full border border-whx-border-soft bg-whx-bg px-1.5 py-0.5 text-xs font-bold uppercase tracking-[0.045em] ${SOURCE_TONE[source]}`}>{sourceIcon}{sourceLabel}</span>
-          <span className={`inline-flex max-w-full items-center gap-1 rounded-full border border-whx-border-soft bg-whx-bg px-1.5 py-0.5 text-xs font-bold uppercase tracking-[0.045em] ${STATE_TONE[tone]}`}><i aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current"/>{stateLabel}</span>
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <span className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-whx-border-soft bg-whx-bg px-1.5 py-0.5 text-xs font-bold uppercase tracking-[0.045em] [overflow-wrap:anywhere] ${SOURCE_TONE[source]}`}>{sourceIcon}{sourceLabel}</span>
+          <span className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-whx-border-soft bg-whx-bg px-1.5 py-0.5 text-xs font-bold uppercase tracking-[0.045em] [overflow-wrap:anywhere] ${STATE_TONE[tone]}`}><i aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current"/>{stateLabel}</span>
         </div>
-        <time className="shrink-0 pt-0.5 text-right font-mono text-xs font-semibold text-whx-faint" dateTime={updatedAt}>{updatedLabel}</time>
+        <time className="ml-auto shrink-0 whitespace-nowrap pt-0.5 text-right font-mono text-xs font-semibold text-whx-faint" dateTime={updatedAt}>{updatedLabel}</time>
       </div>
       <strong className="min-w-0 overflow-hidden text-base font-semibold leading-[1.3] text-whx-text [display:-webkit-box] [overflow-wrap:anywhere] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{title}</strong>
     </header>

@@ -1,6 +1,7 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import legacyCss from '../styles/legacy/styles.css?raw'
+import { ProjectTaskListPanel } from './ProjectTaskListPanel'
 import { ProjectTaskCardShell } from './ProjectTaskCardShell'
 
 describe('ProjectTaskCardShell', () => {
@@ -10,6 +11,10 @@ describe('ProjectTaskCardShell', () => {
 
     expect(card?.className).toContain('rounded-xl')
     expect(card?.className).toContain('border-whx-border-soft')
+    expect(card?.className).toContain('h-auto')
+    expect(card?.className).toContain('self-start')
+    expect(card?.className).toContain('content-start')
+    expect(card?.className).not.toContain('overflow-hidden')
     expect(view.getByText('Na fila').className).toContain('text-whx-warning')
     expect(view.getByText('Resumo legível da tarefa').className).toContain('bg-whx-bg')
   })
@@ -26,8 +31,12 @@ describe('ProjectTaskCardShell', () => {
     const request = view.getByText(requestId)
     const meta = view.getByText(metadata)
     const header = heading.closest('header')
+    const chrome = header?.firstElementChild
+    const timestamp = view.getByText('27/09, 19:57')
 
     expect(header?.className).toContain('grid')
+    expect(chrome?.className).toContain('flex-wrap')
+    expect(timestamp.className).toContain('whitespace-nowrap')
     expect(heading.className).not.toContain('truncate')
     expect(heading.className).toContain('[-webkit-line-clamp:2]')
     expect(heading.className).toContain('[overflow-wrap:anywhere]')
@@ -37,7 +46,19 @@ describe('ProjectTaskCardShell', () => {
     expect(meta.parentElement?.className).toContain('[&>span]:break-words')
   })
 
-  it('removes the migrated legacy project-task-card selectors', () => {
+  it('keeps list scrolling outside intrinsic-height task cards', () => {
+    const view = render(<ProjectTaskListPanel><span>Tarefa</span></ProjectTaskListPanel>)
+    const panelClasses = view.getByRole('tabpanel').className
+
+    expect(panelClasses).toContain('auto-rows-max')
+    expect(panelClasses).toContain('content-start')
+    expect(panelClasses).toContain('items-start')
+    expect(panelClasses).toContain('overflow-y-auto')
+    expect(panelClasses).toContain('overflow-x-hidden')
+  })
+
+  it('removes the migrated legacy project task selectors', () => {
     expect(legacyCss).not.toMatch(/\.project-task-card(?:[\s.{:#]|$)/)
+    expect(legacyCss).not.toMatch(/\.project-task-list(?:[\s.{:#]|$)/)
   })
 })
