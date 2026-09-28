@@ -110,12 +110,19 @@ export const api = {
   // exists to answer whether *this* project is stuck (see adr/ADR-0044).
   chatAgentTasks: (activeOnly = false, projectPath = '', limit = 0) =>
     request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks${chatAgentQuery(activeOnly, projectPath, limit)}`),
-  projectTasks: (projectPath = '', limit = 500) => {
+  projectTasks: (projectPath = '', options: number | { scope: 'active' | 'history'; limit?: number; cursor?: string; status?: string } = 500) => {
     const query = new URLSearchParams()
     if (projectPath) query.set('project_id', projectPath)
-    if (limit > 0) query.set('limit', String(limit))
+    if (typeof options === 'number') {
+      if (options > 0) query.set('limit', String(options))
+    } else {
+      query.set('scope', options.scope)
+      if (options.limit && options.limit > 0) query.set('limit', String(options.limit))
+      if (options.cursor) query.set('cursor', options.cursor)
+      if (options.status) query.set('status', options.status)
+    }
     const encoded = query.toString()
-    return request<{ tasks: ChatAgentTask[] }>(`/api/tasks${encoded ? `?${encoded}` : ''}`)
+    return request<{ tasks: ChatAgentTask[]; next_cursor?: string; has_more?: boolean }>(`/api/tasks${encoded ? `?${encoded}` : ''}`)
   },
   chatAgentTasksForRequest: (requestID: string) => request<{ tasks: ChatAgentTask[] }>(`/api/chat-agent/tasks?request_id=${encodeURIComponent(requestID)}&limit=50`),
   chatAgentTaskSummary: (projectPath = '') =>
