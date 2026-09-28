@@ -2469,7 +2469,7 @@ test('submission pacing widens after rate-limit pressure and decays back on its 
   assert.match(pace, /chatGPTWorkerPacer\.pace\(measureGapMs, \{ minimumGapMs, priority \}\)/)
   assert.match(source, /CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer/) 
   const pacerModule = await readFile(new URL('./chat-agent-pacer.mjs', import.meta.url), 'utf8')
-  assert.match(pacerModule, /CHAT_AGENT_WORKER_ACTION_GAP_MS = 30_000/)
+  assert.match(pacerModule, /CHAT_AGENT_WORKER_ACTION_GAP_MS = 10_000/)
   assert.match(pacerModule, /CHAT_AGENT_TRANSLATION_ACTION_GAP_MS = 5_000/)
   assert.match(pace, /paceChatGPTWorkerNavigation\(\)[\s\S]*paceChatGPTWorkerRequest\(chatAgentNavigationGapMs\)/)
   assert.match(pace, /paceChatGPTWorkerSubmission\(\{ translation = false \} = \{\}\)[\s\S]*CHAT_AGENT_TRANSLATION_ACTION_GAP_MS/)

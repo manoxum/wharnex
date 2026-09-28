@@ -2,15 +2,15 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer } from './chat-agent-pacer.mjs'
 
-test('all ordinary Worker actions share a 30-second global cadence', async () => {
+test('all ordinary Worker actions share a 10-second global cadence', async () => {
   let now = 1
   const started = []
   const pacer = new ChatAgentGlobalPacer({ now: () => now, wait: async (ms) => { now += ms } })
   await Promise.all([0, 1, 2].map(async () => {
     started.push(await pacer.pace(() => 0))
   }))
-  assert.deepEqual(started, [1, 30_001, 60_001])
-  assert.equal(CHAT_AGENT_WORKER_ACTION_GAP_MS, 30_000)
+  assert.deepEqual(started, [1, 10_001, 20_001])
+  assert.equal(CHAT_AGENT_WORKER_ACTION_GAP_MS, 10_000)
 })
 
 test('translation Worker actions retain their separately bounded five-second cadence', async () => {
@@ -45,7 +45,7 @@ test('an in-flight task action takes the next slot ahead of queued new-task acti
   ]
   await Promise.all(queued)
   // Priority reorders only; the shared gap between any two actions is unchanged.
-  assert.deepEqual(order, [['upload', 30_001], ['new-a', 60_001], ['new-b', 90_001]])
+  assert.deepEqual(order, [['upload', 10_001], ['new-a', 20_001], ['new-b', 30_001]])
 })
 
 test('a higher-priority action arriving during a wait is served before the older waiter', async () => {
@@ -62,5 +62,5 @@ test('a higher-priority action arriving during a wait is served before the older
   await first
   await new Promise((resolve) => setImmediate(resolve))
   assert.deepEqual(order.map(([name]) => name), ['upload', 'new'])
-  assert.equal(order[1][1] - order[0][1], 30_000)
+  assert.equal(order[1][1] - order[0][1], 10_000)
 })

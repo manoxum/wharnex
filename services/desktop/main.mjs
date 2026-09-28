@@ -4671,7 +4671,7 @@ function chatAgentSubmissionGapMs() {
 async function paceChatGPTWorkerSubmission({ translation = false } = {}) {
   // Translation remains a bounded, artifact-only utility and may run at its
   // explicitly smaller cadence. Every other Worker task, including TODO and
-  // lifecycle work, uses the 30-second account-wide floor.
+  // lifecycle work, uses the 10-second account-wide floor, widened by 429 pressure.
   await paceChatGPTWorkerRequest(
     translation ? () => CHAT_AGENT_TRANSLATION_ACTION_GAP_MS : chatAgentSubmissionGapMs,
     translation ? CHAT_AGENT_TRANSLATION_ACTION_GAP_MS : CHAT_AGENT_WORKER_ACTION_GAP_MS,

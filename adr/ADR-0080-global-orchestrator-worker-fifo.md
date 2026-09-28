@@ -41,7 +41,8 @@ settings are metadata for any future authorized run and do not restart work.
 ## Pacing order and Worker phase
 
 Concurrent claims do not raise provider throughput: every ordinary Worker
-action still waits for the shared 30-second pacing gap. Served first-come,
+action still waits for the shared pacing gap (10 seconds on a healthy
+account, widened by durable 429 pressure). Served first-come,
 the gate spent every slot on new-task navigation before any claimed task
 uploaded, so all Workers read as busy while none had submitted. Waiters are
 therefore ordered, never spaced differently: an action of a task that already

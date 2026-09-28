@@ -10,7 +10,8 @@
 // before any of them uploaded, so none reached ChatGPT for minutes. An action
 // of a task that already reached the provider (priority 1) now takes the next
 // slot, then first-come order among equals.
-export const CHAT_AGENT_WORKER_ACTION_GAP_MS = 30_000
+// Healthy-account floor; durable 429 pressure widens it (see main.mjs).
+export const CHAT_AGENT_WORKER_ACTION_GAP_MS = 10_000
 export const CHAT_AGENT_TRANSLATION_ACTION_GAP_MS = 5_000
 
 export class ChatAgentGlobalPacer {

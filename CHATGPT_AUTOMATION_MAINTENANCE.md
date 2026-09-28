@@ -18,7 +18,7 @@ Este documento descreve o contrato atualmente implementado para a automação do
 | Pool | Operações | Cadência normal |
 |---|---|---:|
 | Supervisor | `BOT_WRITE`, `RECOVERY_WRITE`, `AWAIT_RESPONSE` e observação do bundle esperado do chat vinculado | Não usa o pacer comum de Worker |
-| Worker | `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT`, `TODO_CLASSIFY`, `RELEASE_NOTES`, `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` | 30 s globais mínimos |
+| Worker | `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT`, `TODO_CLASSIFY`, `RELEASE_NOTES`, `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` | 10 s globais mínimos (alargados por pressão de 429) |
 | Translator efêmero | Somente `TRANSLATE_MARKDOWN`; cria uma instância por tarefa e destrói ao terminar | 5 s globais mínimos |
 
 `DELETE_DOUBLE` não é um tipo durável atual. A remoção de artefato duplicado/expirado é representada por `DELETE_BUNDLE`; duplicidade de tarefas é controlada por `dedupe_key`.
@@ -29,10 +29,10 @@ Por padrão ficam seletivamente suspensos `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHI
 
 ## 3. Cadência global dos Workers
 
-- Navegação, reload, tentativa de upload, submit e operação de conta de qualquer Worker compartilham o mesmo relógio global de 30 segundos por perfil.
-- A fila desse relógio dá a vez primeiro às ações de tarefas que já chegaram ao ChatGPT (upload e submit) e só depois a novas navegações; o intervalo de 30 segundos não muda. A aba Agentes mostra a fase de cada Worker (na fila de envio, a abrir conversa, a preparar, a carregar ZIP, a submeter, GPT a processar, a descarregar, a validar).
+- Navegação, reload, tentativa de upload, submit e operação de conta de qualquer Worker compartilham o mesmo relógio global de 10 segundos por perfil com a conta saudável; a pressão durável de 429 alarga esse intervalo até 60 segundos.
+- A fila desse relógio dá a vez primeiro às ações de tarefas que já chegaram ao ChatGPT (upload e submit) e só depois a novas navegações; o intervalo mínimo não muda. A aba Agentes mostra a fase de cada Worker (na fila de envio, a abrir conversa, a preparar, a carregar ZIP, a submeter, GPT a processar, a descarregar, a validar).
 - `TRANSLATE_MARKDOWN` entra primeiro num Worker persistente elegível e livre. Um scheduler dedicado mantém um loop temporário por tradução que excede a capacidade livre, cria um `Translator` por tarefa reivindicada e destrói a instância no fim. O limite dos Workers persistentes não limita as traduções; os IDs canónicos `translator-N` admitem até 64 instâncias simultâneas.
-- O `Translator` usa o relógio global de tradução, com mínimo normativo de 5 segundos; ele não aguarda a cadência de 30 segundos dos Workers comuns.
+- O `Translator` usa o relógio global de tradução, com mínimo normativo de 5 segundos; ele não aguarda a cadência de 10 segundos dos Workers comuns.
 - A tarefa de tradução tem `max_attempts=1`. Autenticação, gate humano, timeout ou falha de transporte terminam a operação sem retry e a interface mostra **“A tradução falhou. Tente novamente mais tarde.”**
 - A cadência é aplicada também aos retries que realmente podem alcançar o ChatGPT.
 - Antes da última ação de navegação, upload ou submit, o engine consulta novamente a suspensão. Se ela começou enquanto a operação aguardava o pacer, a ação é adiada sem alcançar o provedor.
@@ -420,7 +420,7 @@ Também execute `npm run build` no frontend quando a aba Políticas for alterada
 ## 11. Checklist final
 
 - [ ] Política configurável aparece em **Agentes → Políticas** e persiste o valor normalizado.
-- [ ] Cadência global é 30 s para Worker comum e 5 s para tradução.
+- [ ] Cadência global é 10 s para Worker comum (alargada por 429) e 5 s para tradução.
 - [ ] Supervisores e Translator ignoram a suspensão automática dos Workers; evidência 429 observada por eles ainda atualiza o cooldown durável dos Workers.
 - [ ] Suspensão manual seletiva impede claims apenas dos tipos escolhidos e não incrementa `attempt`.
 - [ ] Nenhum diagnóstico contém prosa remota, DOM bruto, cookies ou credenciais.
