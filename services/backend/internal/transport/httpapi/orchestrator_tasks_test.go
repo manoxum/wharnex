@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"kernl.local/harness/backend/internal/orchestrator"
@@ -26,5 +28,15 @@ func TestOrchestratorClientOverviewOmitsTerminalTasksButKeepsCounts(t *testing.T
 	}
 	if len(overview.Tasks) != 3 {
 		t.Fatal("client projection mutated the source overview slice")
+	}
+}
+
+func TestOrchestratorTasksRejectsInvalidPageLimitBeforeServiceAccess(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/api/sessions/ses/orchestrator/tasks?limit=0", nil)
+	request.SetPathValue("id", "ses")
+	response := httptest.NewRecorder()
+	(&API{}).orchestratorTasks(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }

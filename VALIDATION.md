@@ -1,3 +1,12 @@
+## 2026-09-28 — Orchestrator terminal-flow and visual regression closure
+
+- Frontend focused: `cd services/frontend && npm test -- --run src/components/orchestrator/OrchestratorWorkspace.test.tsx src/components/orchestrator/OrchestratorTasks.test.tsx src/components/orchestrator/OrchestratorKanban.test.tsx src/components/orchestrator/OrchestratorTaskActions.test.tsx src/components/orchestrator/OrchestratorTypography.test.tsx`.
+- Browser regression (CI/browser-capable): `cd services/frontend && npm run e2e -- e2e/orchestrator.spec.ts`; the spec runs at 640 px with reduced motion, keeps all eight columns on one horizontal track, exercises edge navigation and drag/drop, paginates COMPLETE and ARCHIVED, keeps both terminal histories visible, opens a new conversation from COMPLETE with the canonical `@{[task]...}` draft, and attaches the tracked before-image plus the current screenshot. This retry intentionally does not execute Playwright in Protected because its offline sandbox has no browser binary; Vitest/Go plus typecheck/lint/build are the executable validation gates here.
+- Backend focused: `cd services/backend && go test ./internal/app -run 'TestOrchestrator(AcceptanceTerminalLifecycleAndPagination|CompletionIsTerminalAcrossArchive|OverviewExposesTaskCountsForTerminalHistory|TransitionCapabilities)' && go test ./internal/transport/httpapi -run 'TestOrchestrator'`.
+- Required broad gates: `cd services/backend && gofmt -l . && go vet ./... && go test ./... && go test -race ./...`; `cd services/frontend && npm run typecheck && npm run lint && npm test -- --run && npm run build`; then `make file-size-check` and `git diff --check`.
+- Accessibility evidence covers named regions and controls, keyboard focus/menu dismissal, semantic menu/region roles, reduced-motion horizontal navigation, and keyboard-reachable cards/columns. The E2E verifies COMPLETE shares the same y-band as the active columns and records the current screenshot beside `docs/orchestrator-test/kanban-before.png`; no new visual fixture is committed.
+- Scope remains Orchestrator-only: no production styling outside that surface is changed by this validation task.
+
 ## 2026-09-20 — `keep continue` is a one-shot wake-up
 
 - `node --check services/desktop/main.mjs`

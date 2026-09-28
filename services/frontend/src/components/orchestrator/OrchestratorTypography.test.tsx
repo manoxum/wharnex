@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
@@ -15,6 +15,10 @@ function orchestratorLegacyCss() {
 }
 
 describe('Orchestrator typography migration', () => {
+  it('keeps the tracked visual baseline available for review evidence', () => {
+    expect(existsSync(resolve(process.cwd(), '../../docs/orchestrator-test/kanban-before.png'))).toBe(true)
+  })
+
   it('keeps Tailwind typography tokens attached to the persisted UI scale', () => {
     expect(tailwindCss).toContain('--text-sm: calc(9px * var(--ui-font-scale));')
     expect(tailwindCss).toContain('--text-base: calc(11px * var(--ui-font-scale));')
