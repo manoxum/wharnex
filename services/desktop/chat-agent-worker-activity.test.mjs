@@ -51,6 +51,15 @@ test('a waiting phase restores the previous one and marks the task as in flight'
   assert.equal(activity.pacePriority(), 0)
 })
 
+test('an ephemeral task runs above every Worker action at the pacer', async () => {
+  const activity = new WorkerActivity()
+  await activity.run('ephemeral-cat_d', 'cat_d', async () => {
+    assert.equal(activity.pacePriority(), 2)
+    activity.markProviderAction()
+    assert.equal(activity.pacePriority(), 2)
+  }, { priority: 2 })
+})
+
 test('unknown phases are rejected so the UI never shows free text', async () => {
   const activity = new WorkerActivity()
   await activity.run('worker-1', 'cat_d', async () => {

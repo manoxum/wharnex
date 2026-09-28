@@ -213,9 +213,9 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	case ChatAgentRoleSupervisor:
 		roleSQL = " AND (t.assigned_worker<>'' OR " + chatAgentTaskSupervisorSQL("t.type") + ")"
 	case ChatAgentRoleWorker:
-		roleSQL = " AND (t.assigned_worker<>'' OR NOT " + chatAgentTaskSupervisorSQL("t.type") + ")"
+		roleSQL = " AND (t.assigned_worker<>'' OR NOT (" + chatAgentTaskSupervisorSQL("t.type") + " OR " + chatAgentTaskEphemeralSQL("t.type") + "))"
 	case ChatAgentRoleTranslator:
-		roleSQL = " AND (t.assigned_worker<>'' OR t.type='TRANSLATE_MARKDOWN')"
+		roleSQL = " AND (t.assigned_worker<>'' OR " + chatAgentTaskEphemeralSQL("t.type") + ")"
 	}
 	providerSQL := ""
 	if workerRateLimitApplies {

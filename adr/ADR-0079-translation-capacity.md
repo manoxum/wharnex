@@ -1,6 +1,6 @@
 # ADR-0079 — Translation capacity follows due work
 
-- Status: Accepted
+- Status: Accepted; amended by `adr/ADR-0082` (Workers no longer claim translations; the utility pool never counts free Workers as capacity)
 - Related: `adr/ADR-0036`, `adr/ADR-0052`, `SoT/ARCHITECTURE.md`.
 
 ## Context

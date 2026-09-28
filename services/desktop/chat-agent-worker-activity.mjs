@@ -17,9 +17,11 @@ export class WorkerActivity {
     this.slots = new Map()
   }
 
-  run(slotId, taskId, fn) {
+  // `priority` raises a whole task above ordinary Worker actions at the pacer;
+  // ephemeral utility Workers (translation, planning, release notes) use it.
+  run(slotId, taskId, fn, { priority = 0 } = {}) {
     const id = String(slotId || '')
-    const context = { slotId: id, taskId: String(taskId || ''), providerActions: 0 }
+    const context = { slotId: id, taskId: String(taskId || ''), providerActions: 0, priority: Math.max(0, Number(priority) || 0) }
     this.record(context, 'claimed')
     const clear = () => {
       if (this.slots.get(id)?.task_id === context.taskId) {
@@ -80,7 +82,8 @@ export class WorkerActivity {
 
   // A task that already reached ChatGPT finishes before new tasks start.
   pacePriority() {
-    return (this.current()?.providerActions || 0) > 0 ? 1 : 0
+    const context = this.current()
+    return Math.max(context?.priority || 0, (context?.providerActions || 0) > 0 ? 1 : 0)
   }
 
   snapshot(slotId) {

@@ -1,6 +1,6 @@
 # ADR-0080 — Global Worker FIFO for Orchestrator tasks
 
-- Status: Accepted
+- Status: Accepted; amended by `adr/ADR-0082` (translation and planning left the Worker queue; execution Workers stay pinned to their task)
 - Supersedes: the single Orchestrator mutation slot in `SoT/EXECUTION_MODEL.md` v1.4.
 - Related: `adr/ADR-0025`, `adr/ADR-0049`, `adr/ADR-0079`.
 

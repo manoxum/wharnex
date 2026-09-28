@@ -32,8 +32,8 @@ func claimTypes(t *testing.T, store *Store, role string, count int) []string {
 func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 	store := NewStore()
 	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE"}
-	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "RELEASE_NOTES", "ORCHESTRATOR_PLAN", "TITLE_DISCOVER"}
-	translatorTypes := []string{"TRANSLATE_MARKDOWN"}
+	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "ORCHESTRATOR_EXECUTE", "TITLE_DISCOVER"}
+	translatorTypes := []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES"}
 	allTypes := append(append(append([]string{}, supervisorTypes...), workerTypes...), translatorTypes...)
 	for index, taskType := range allTypes {
 		task := testChatAgentTask(taskType, "chat-"+taskType, "conv-"+taskType, taskType+":"+string(rune('a'+index)))
@@ -48,27 +48,29 @@ func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 		}
 	}
 	for _, taskType := range claimTypes(t, store, ChatAgentRoleTranslator, len(allTypes)) {
-		if taskType != "TRANSLATE_MARKDOWN" {
-			t.Fatalf("Translator claimed foreign work %q", taskType)
+		if !chatAgentTaskEphemeral(taskType) {
+			t.Fatalf("ephemeral pool claimed foreign work %q", taskType)
 		}
 	}
 	for _, taskType := range claimTypes(t, store, ChatAgentRoleWorker, len(workerTypes)+len(supervisorTypes)) {
-		if chatAgentTaskSupervisor(taskType) {
-			t.Fatalf("Worker pool claimed chat-bound Supervisor work %q", taskType)
+		if chatAgentTaskSupervisor(taskType) || chatAgentTaskEphemeral(taskType) {
+			t.Fatalf("Worker pool claimed work of another pool %q", taskType)
 		}
 	}
 }
 
-func TestIdleWorkerMayClaimHighestPriorityTranslation(t *testing.T) {
+// Translation, planning and release notes never borrow an idle Orchestrator
+// execution Worker: they always get their own ephemeral browser.
+func TestIdleWorkerNeverClaimsEphemeralWork(t *testing.T) {
 	store := NewStore()
-	for _, taskType := range []string{"ORCHESTRATOR_PLAN", "TRANSLATE_MARKDOWN"} {
+	for _, taskType := range []string{"ORCHESTRATOR_PLAN", "TRANSLATE_MARKDOWN", "RELEASE_NOTES"} {
 		if _, err := store.EnqueueChatAgentTask(testChatAgentTask(taskType, "chat-"+taskType, "", "borrow:"+taskType)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	claimed, err := store.ClaimChatAgentTaskWithOptions("worker-1", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1"})
-	if err != nil || claimed == nil || claimed.Type != "TRANSLATE_MARKDOWN" {
-		t.Fatalf("Worker translation claim=%#v err=%v", claimed, err)
+	if err != nil || claimed != nil {
+		t.Fatalf("Worker claimed ephemeral work %#v err=%v", claimed, err)
 	}
 }
 

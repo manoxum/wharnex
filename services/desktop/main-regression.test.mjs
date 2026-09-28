@@ -734,7 +734,7 @@ test('the Supervisor bound to a chat owns its expected-bundle observation whethe
   assert.match(claimOptions, /const supervisorLanes = chatSupervisorBoundLanes\(\)/)
   assert.match(claimOptions, /releaseResidentLane\(entry\.slotId, residentLane\)/)
   assert.match(claimOptions, /fallback_mode: 'any', excluded_lanes: \[\]/)
-  assert.match(claimOptions, /excluded_lanes: \[\.\.\.new Set\(\[\.\.\.\(fifo\.excluded_lanes \|\| \[\]\), \.\.\.supervisorLanes\]\)\]\.slice\(0, 32\)/)
+  assert.match(claimOptions, /excluded_lanes: \[\.\.\.new Set\(\[\.\.\.pinnedElsewhere, \.\.\.\(fifo\.excluded_lanes \|\| \[\]\), \.\.\.supervisorLanes\]\)\]\.slice\(0, 32\)/)
 
   const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
   const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', pollStart)
@@ -1117,7 +1117,7 @@ test('autonomous workers pace chat switches, wait for page settle, and pause on 
   const paceStart = source.indexOf('async function paceChatGPTWorkerRequest(')
   const paceEnd = source.indexOf('\nasync function pasteChatGPTFile', paceStart)
   const pacing = source.slice(paceStart, paceEnd)
-  const executeStart = source.indexOf('async function executeChatAgentTask(task, { worker, owner })')
+  const executeStart = source.indexOf('async function executeChatAgentTask(task, { worker, owner, entry: ephemeralEntry })')
   const executeEnd = source.indexOf('\n\nfunction chatGPTCommentFingerprint', executeStart)
   const execute = source.slice(executeStart, executeEnd)
   const statusStart = source.indexOf('function noteChatGPTHTTPStatus(details)')
@@ -2294,8 +2294,8 @@ test('an empty claim releases a resident lane that has run dry', async () => {
 
   // Without this the pool degraded to one effective worker: a resident slot can
   // only claim its own lane, so it could never be rebound by claiming elsewhere.
-  assert.match(scheduler.slice(0, 5000), /onIdle: \(worker\) => \{/)
-  assert.match(scheduler.slice(0, 5000), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
+  assert.match(scheduler.slice(0, 7000), /onIdle: \(worker\) => \{/)
+  assert.match(scheduler.slice(0, 7000), /chatAgentResidency\.noteIdleClaim\(entry\.slotId\)/)
 })
 
 test('a conversation still producing a response is never concluded without evidence it ran', async () => {
@@ -3069,7 +3069,7 @@ test('every class that extends another is declared after its base', async () => 
 test('conversation load failures across threads cool Worker conversation reads down', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /chatGPTConversationReadFailures\.size >= 2 \|\| chatGPTConversationReadStreak > 0/)
-  const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner })'))
+  const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner, entry: ephemeralEntry })'))
   assert.match(execute.slice(0, 1500), /chatGPTConversationReadGateMs\(task\.task_id\)[\s\S]{0,200}observation: true/)
   // Only a rendered conversation clears its backoff; "no failure seen" does not.
   const recover = source.slice(source.indexOf('async function recoverChatGPTConversationLoadFailure('))
@@ -3093,12 +3093,41 @@ test('a hidden Worker whose conversation failed to load is parked off it after t
   assert.match(park.slice(0, 900), /entry\.interactionWindowId/)
   assert.match(park.slice(0, 900), /chatAgentResidency\.releaseResidentLane\(entry\.slotId\)/)
   assert.match(park.slice(0, 900), /wc\.loadURL\('about:blank'\)/)
-  assert.match(source, /executeChatAgentTask\(task, context\)\)\)\n\s+\.finally\(\(\) => \{\n\s+parkChatGPTWorkerAfterLoadFailure\(workerEntryForIndex\(context\?\.worker\)\)/)
+  assert.match(source, /\.finally\(\(\) => \{\n\s+parkChatGPTWorkerAfterLoadFailure\(workerEntryForIndex\(context\?\.worker\)\)/)
+  // The ephemeral utility Worker parks and releases the same way.
+  const ephemeral = source.slice(source.indexOf('async function executeEphemeralWorkerTask('))
+  assert.match(ephemeral.slice(0, 2500), /parkChatGPTWorkerAfterLoadFailure\(kept\.entry\)/)
+})
+
+test('an Orchestrator execution Worker stays pinned to its task and others stay off that lane', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
+  assert.match(scheduler.slice(0, 1200), /\.then\(\(result\) => \{ noteOrchestrationTaskPin\(context\?\.worker, task, result\); return result \}/)
+  const claimOptions = scheduler.slice(scheduler.indexOf('claimOptions: (worker)'), scheduler.indexOf('onIdle:'))
+  assert.match(claimOptions, /if \(pinnedLane\) return \{ \.\.\.scope, preferred_lane: pinnedLane, fallback_mode: 'resident_only', excluded_lanes: \[\] \}/)
+  assert.match(claimOptions, /const pinnedElsewhere = orchestrationTaskPins\.lanesHeldByOthers\(entry\.slotId\)/)
+  const onIdle = scheduler.slice(scheduler.indexOf('onIdle: (worker)'), scheduler.indexOf('onState:'))
+  assert.match(onIdle, /if \(orchestrationTaskPins\.lane\(entry\.slotId\)\) \{/)
+  // A pinned Worker is not free capacity for auto scale.
+  const available = source.slice(source.indexOf('function chatAgentAvailableWorkers('))
+  assert.match(available.slice(0, 900), /if \(orchestrationTaskPins\.lane\(entry\.slotId\)\) continue/)
+})
+
+test('translation, planning and release notes run on their own ephemeral Workers', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const EPHEMERAL_WORKER_TASK_TYPES = new Set\(\['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES'\]\)/)
+  const ephemeral = source.slice(source.indexOf('async function executeEphemeralWorkerTask('))
+  // A WAITING observation keeps the view on its conversation; anything else retires it.
+  assert.match(ephemeral.slice(0, 2500), /if \(String\(result\?\.status \|\| ''\) !== 'waiting'\) retireEphemeralWorkerView/)
+  assert.match(ephemeral.slice(0, 2500), /\{ priority: EPHEMERAL_WORKER_PACE_PRIORITY \}/)
+  const scheduler = source.slice(source.indexOf('chatTranslatorScheduler = new ChatAgentSchedulerClient('))
+  assert.match(scheduler.slice(0, 1500), /skip: !\[\.\.\.desktopWindows\.values\(\)\]\.some\(\(state\) => state\.window && !state\.window\.isDestroyed\(\)\) \|\| dueChatTranslations === 0,/)
+  assert.doesNotMatch(source, /chatAgentTranslationWorkersAvailable/)
 })
 
 test('an Orchestrator execution claim does not open its conversation before the executor needs it', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner })'))
+  const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner, entry: ephemeralEntry })'))
   assert.match(execute, /const executorNavigates = task\.type === 'ORCHESTRATOR_EXECUTE'/)
   assert.match(execute, /if \(conversationURL && !executorNavigates && !sameConversationURL/)
   // The executor's own resume navigation takes a paced slot, as the claim did.

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestGlobalWorkerQueuePrioritizesPlanningThenFIFOExecution(t *testing.T) {
+func TestGlobalWorkerQueueRunsExecutionFIFOAndLeavesPlanningToEphemeralPool(t *testing.T) {
 	store := NewStore()
 	first := testChatAgentTask("ORCHESTRATOR_EXECUTE", "task-a", "", "fifo:a")
 	first.ProjectID = "/project-a"
@@ -20,11 +20,18 @@ func TestGlobalWorkerQueuePrioritizesPlanningThenFIFOExecution(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	for index, want := range []string{"plan-c", "task-a", "task-b"} {
+	for index, want := range []string{"task-a", "task-b"} {
 		claimed, err := store.ClaimChatAgentTaskWithOptions("worker-owner", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1"})
 		if err != nil || claimed == nil || claimed.ChatID != want {
 			t.Fatalf("claim %d=%#v err=%v want %s", index, claimed, err, want)
 		}
+	}
+	if claimed, err := store.ClaimChatAgentTaskWithOptions("worker-owner", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1"}); err != nil || claimed != nil {
+		t.Fatalf("Worker claimed planning %#v err=%v", claimed, err)
+	}
+	claimed, err := store.ClaimChatAgentTaskWithOptions("translator-owner", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleTranslator, WorkerID: "translator-1"})
+	if err != nil || claimed == nil || claimed.ChatID != "plan-c" {
+		t.Fatalf("ephemeral claim=%#v err=%v want plan-c", claimed, err)
 	}
 }
 

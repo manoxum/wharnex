@@ -27,8 +27,9 @@ func TestChatAgentQueueSummaryCountsRunnableWorkerDemandByType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]int{"ORGANIZE_CHAT": 1, "ORCHESTRATOR_PLAN": 2}
-	if summary.DueWorker != 3 || !reflect.DeepEqual(summary.DueWorkerByType, want) {
-		t.Fatalf("due_worker=%d by_type=%v want 3/%v", summary.DueWorker, summary.DueWorkerByType, want)
+	// Planning runs on its own ephemeral browsers, so it is no Worker demand.
+	want := map[string]int{"ORGANIZE_CHAT": 1}
+	if summary.DueWorker != 1 || !reflect.DeepEqual(summary.DueWorkerByType, want) || summary.DueTranslator != 2 {
+		t.Fatalf("due_worker=%d by_type=%v due_translator=%d want 1/%v/2", summary.DueWorker, summary.DueWorkerByType, summary.DueTranslator, want)
 	}
 }

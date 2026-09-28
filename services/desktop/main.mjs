@@ -49,6 +49,7 @@ import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLO
 import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, DEFAULT_SUSPENDED_WORKER_TASK_TYPES, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes } from './chat-agent-policies.mjs'
 import { autoScaleWorkerDemand } from './chat-agent-auto-scale.mjs'
 import { MAX_TRANSLATOR_SLOTS, translatorCapacityTarget } from './chat-agent-translator-capacity.mjs'
+import { OrchestrationTaskPins } from './chat-agent-orchestration-pins.mjs'
 import { chatAgentQueueDiagnostics } from './chat-agent-queue-diagnostics.mjs'
 import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
@@ -245,6 +246,7 @@ let pollingChatGPTVisibleActivity = false
 const chatGPTTransportTails = new Map()
 const chatGPTTransportAbortControllers = new Map()
 const chatAgentResidency = new ChatAgentResidency({ minResidenceMs: Number(process.env.WHARNESS_CHAT_AGENT_RESIDENCY_MS || 30_000) })
+const orchestrationTaskPins = new OrchestrationTaskPins()
 const chatGPTWorkerPacer = new ChatAgentGlobalPacer()
 // Phase changes can come several per second from one task; coalesce them into
 // the runtime-state broadcast instead of recomputing it for each.
@@ -2835,6 +2837,8 @@ function chatAgentAvailableWorkers() {
     const runtime = chatAgentWorkerStates.get(worker)
     if (!entry || runtime?.active === false || runtime?.task || chatAgentKeepFlowingActive(worker)) continue
     if (entry.interactionWindowId || entry.accountOperationActive || entry.transportPreparationCount > 0 || entry.loading) continue
+    // A Worker pinned to an Orchestrator task serves only that task.
+    if (orchestrationTaskPins.lane(entry.slotId)) continue
     available += 1
   }
   return available
@@ -2931,17 +2935,13 @@ async function reconcileChatAgentAutoScale() {
 function reconcileChatTranslatorCapacity(summary) {
   if (!chatTranslatorScheduler) return
   dueChatTranslations = Math.max(0, Number(summary?.due_translator) || 0)
+  // Orchestrator execution Workers are never counted as capacity here: an
+  // ephemeral task gets its own browser instead of waiting for one of them.
   const target = translatorCapacityTarget({
     due: dueChatTranslations,
     active: activeChatTranslatorSlots.size,
-    availableWorkers: chatAgentTranslationWorkersAvailable(),
   })
   chatTranslatorScheduler.setWorkerCount(target)
-}
-
-function chatAgentTranslationWorkersAvailable() {
-  if (workerSuspendsAllTaskTypes(chatAgentPolicies) || chatAgentRateLimitResumeBlocked()) return 0
-  return chatAgentAvailableWorkers()
 }
 
 // Auto scale for the Supervisor pool.
@@ -4636,6 +4636,13 @@ async function recoverChatGPTConversationLoadFailure(cacheKey, entry, wc, settle
   console.warn(`[chatgpt-load] conversation-load-failed key=${cacheKey} failures=${failures} action=${retried?.clicked ? 'retry' : 'reload'} backoff_ms=${delayMs}`)
   if (entry.role === 'worker') entry.parkAfterLoadFailure = true
   throw new ChatGPTConversationUnavailable(delayMs)
+}
+
+function noteOrchestrationTaskPin(worker, task, result) {
+  const entry = workerEntryForIndex(worker)
+  if (!entry) return
+  const outcome = orchestrationTaskPins.note(entry.slotId, task, result)
+  if (outcome) console.log(`[chat-agent] orchestration-pin slot=${entry.slotId} task=${String(task?.chat_id || '')} ${outcome} status=${String(result?.status || '')}`)
 }
 
 // A page left on a conversation that failed to load keeps re-reading it every
@@ -6763,8 +6770,70 @@ async function executeChatTranslatorTask(task, { entry: borrowedEntry } = {}) {
   }
 }
 
-async function executeChatAgentTask(task, { worker, owner }) {
-  const entry = workerEntryForIndex(worker)
+// Translation, Orchestrator planning and release notes never wait behind the
+// Orchestrator execution Workers, and never take one of their slots. Each
+// such task gets its own browser that lives until the task settles: a WAITING
+// observation (a plan still being generated) keeps the page on its
+// conversation, so the next observation does not reopen it. The configured
+// Worker count and auto scale apply to Orchestrator execution only.
+const EPHEMERAL_WORKER_TASK_TYPES = new Set(['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES'])
+const EPHEMERAL_WORKER_IDLE_RETIRE_MS = 20 * 60_000
+const EPHEMERAL_WORKER_PACE_PRIORITY = 2
+const ephemeralWorkerViews = new Map()
+
+function retireEphemeralWorkerView(taskId, reason) {
+  const kept = ephemeralWorkerViews.get(taskId)
+  if (!kept) return
+  ephemeralWorkerViews.delete(taskId)
+  const index = chatGPTWorkerEntries.indexOf(kept.entry)
+  if (index >= 0) chatGPTWorkerEntries.splice(index, 1)
+  retireChatGPTWorkerView(kept.entry)
+  console.log(`[ephemeral-worker] destroyed task=${taskId} reason=${reason}`)
+}
+
+// A kept view whose task never came back (cancelled, retried elsewhere) must
+// not stay open forever.
+setInterval(() => {
+  const now = Date.now()
+  for (const [taskId, kept] of ephemeralWorkerViews) {
+    if (!kept.running && now - kept.lastUsed > EPHEMERAL_WORKER_IDLE_RETIRE_MS) retireEphemeralWorkerView(taskId, 'idle')
+  }
+}, 60_000).unref?.()
+
+async function executeEphemeralWorkerTask(task, context = {}) {
+  if (!EPHEMERAL_WORKER_TASK_TYPES.has(task?.type)) return { status: 'failed', error: `Ephemeral Worker does not run ${String(task?.type || '')}` }
+  if (task.type === 'TRANSLATE_MARKDOWN') {
+    return chatAgentWorkerActivity.run(`translator-${task.task_id}`, task.task_id, () => executeChatTranslatorTask(task, {}), { priority: EPHEMERAL_WORKER_PACE_PRIORITY })
+  }
+  const host = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+  if (!host) return { status: 'failed', error: 'Ephemeral Worker has no host window' }
+  let kept = ephemeralWorkerViews.get(task.task_id)
+  if (kept && kept.entry.view.webContents.isDestroyed()) {
+    retireEphemeralWorkerView(task.task_id, 'destroyed')
+    kept = undefined
+  }
+  if (!kept) {
+    kept = { entry: createChatGPTWorkerView(`ephemeral-${task.task_id}`, host), lastUsed: Date.now(), running: false }
+    ephemeralWorkerViews.set(task.task_id, kept)
+    console.log(`[ephemeral-worker] created task=${task.task_id} type=${task.type}`)
+  }
+  kept.running = true
+  let result
+  try {
+    result = await chatAgentWorkerActivity.run(kept.entry.slotId, task.task_id,
+      () => executeChatAgentTask(task, { ...context, entry: kept.entry }), { priority: EPHEMERAL_WORKER_PACE_PRIORITY })
+    return result
+  } finally {
+    kept.running = false
+    kept.lastUsed = Date.now()
+    parkChatGPTWorkerAfterLoadFailure(kept.entry)
+    releaseChatGPTConversationReadProbe(task.task_id)
+    if (String(result?.status || '') !== 'waiting') retireEphemeralWorkerView(task.task_id, String(result?.status || 'error'))
+  }
+}
+
+async function executeChatAgentTask(task, { worker, owner, entry: ephemeralEntry }) {
+  const entry = ephemeralEntry || workerEntryForIndex(worker)
   if (!entry) return { status: 'attention', providerWide: true, error: 'Autonomous worker browser is unavailable' }
   if (task.type === 'TRANSLATE_MARKDOWN') return executeChatTranslatorTask(task, { entry })
   const initialRateLimitDelay = chatAgentRateLimitDelayMs()
@@ -8604,6 +8673,8 @@ app.whenReady().then(async () => {
   const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
   chatAgentScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: (task, context) => withTrace(traceForTask(task), () => chatAgentWorkerActivity.run(`worker-${Number(context?.worker) || 0}`, task.task_id, () => executeChatAgentTask(task, context)))
+      .then((result) => { noteOrchestrationTaskPin(context?.worker, task, result); return result },
+        (error) => { noteOrchestrationTaskPin(context?.worker, task, { status: 'error' }); throw error })
       .finally(() => {
         parkChatGPTWorkerAfterLoadFailure(workerEntryForIndex(context?.worker))
         releaseChatGPTConversationReadProbe(task.task_id)
@@ -8646,12 +8717,18 @@ app.whenReady().then(async () => {
         excluded_types: manualSuspension.paused ? manualSuspension.task_types : [],
       }
       if (options.skip) return { ...options, ...scope }
+      // A Worker pinned to an Orchestrator task claims only that task's lane,
+      // and the lanes other Workers are pinned to are closed to everyone else.
+      orchestrationTaskPins.retain(chatGPTWorkerEntries.map((candidate) => candidate.slotId))
+      const pinnedLane = orchestrationTaskPins.lane(entry.slotId)
+      if (pinnedLane) return { ...scope, preferred_lane: pinnedLane, fallback_mode: 'resident_only', excluded_lanes: [] }
+      const pinnedElsewhere = orchestrationTaskPins.lanesHeldByOthers(entry.slotId)
       // Residency protects only a live response or an explicit operator pin.
       // Ordinary queued work is global FIFO within its priority band; a warm
       // conversation is an optimization, not a reason to skip older work.
       const fifo = chatAgentSupervisingLiveResponse(worker) || keepFlowing
         ? options : { preferred_lane: '', fallback_mode: 'any', excluded_lanes: [] }
-      return { ...fifo, ...scope, excluded_lanes: [...new Set([...(fifo.excluded_lanes || []), ...supervisorLanes])].slice(0, 32) }
+      return { ...fifo, ...scope, excluded_lanes: [...new Set([...pinnedElsewhere, ...(fifo.excluded_lanes || []), ...supervisorLanes])].slice(0, 32) }
     },
     // An empty claim is the only proof a resident lane has run dry. Without it
     // residency never expired, so a slot stayed bound to a chat that had been
@@ -8666,6 +8743,13 @@ app.whenReady().then(async () => {
       // would reload a page the model is still writing into — the very
       // interruption the resident probe exists to avoid.
       if (chatAgentSupervisingLiveResponse(worker) || chatAgentKeepFlowingActive(worker)) return
+      if (orchestrationTaskPins.lane(entry.slotId)) {
+        const pinnedTask = orchestrationTaskPins.taskId(entry.slotId)
+        if (!orchestrationTaskPins.noteIdle(entry.slotId)) return
+        console.log(`[chat-agent] orchestration-pin-released slot=${entry.slotId} task=${pinnedTask} reason=idle`)
+        publishChatAgentRuntimeState()
+        return
+      }
       let released = chatAgentResidency.noteIdleClaim(entry.slotId)
       if (released) console.log(`[chat-agent] residency-released slot=${entry.slotId} reason=idle-lane`)
       // A claim that reaches the backend and finds nothing is proof the
@@ -8704,20 +8788,20 @@ app.whenReady().then(async () => {
     chatAgentScheduler.start()
   }, CHAT_AGENT_STARTUP_DELAY_MS)
 
-  // Translation has its own one-shot consumer. It never borrows a persistent
-  // Worker slot: claiming a translation creates a Translator WebContents,
-  // executes that single request, and destroys the WebContents immediately.
+  // Translation, Orchestrator planning and release notes have their own
+  // ephemeral consumer (the backend's "translator" role). It never borrows a
+  // persistent Worker slot and never waits for one: claiming such a task
+  // creates its own WebContents, which lives until that task settles.
   chatTranslatorScheduler = new ChatAgentSchedulerClient({
     baseURL: BACKEND_URL, workerCount: 1, maxWorkers: MAX_TRANSLATOR_SLOTS,
-    execute: (task, context) => withTrace(traceForTask(task), () => executeChatTranslatorTask(task, context)), role: 'translator', agentID: (index) => `translator-${index}`,
+    execute: (task, context) => withTrace(traceForTask(task), () => executeEphemeralWorkerTask(task, context)), role: 'translator', agentID: (index) => `translator-${index}`,
     idleMs: 100, taskCooldownMs: 0,
     claimOptions: () => ({
-      // Unlike persistent pools, the Translator claims after a cooldown's
-      // durable deadline even while the Desktop still awaits its health
-      // confirmation. Its executor then fails locally at the resume gate,
-      // which gives the caller an immediate terminal answer without touching
-      // ChatGPT or leaving the request queued behind the probe.
-      skip: ![...desktopWindows.values()].some((state) => state.window && !state.window.isDestroyed()) || dueChatTranslations === 0 || chatAgentTranslationWorkersAvailable() >= dueChatTranslations,
+      // Unlike persistent pools, the ephemeral consumer claims after a
+      // cooldown's durable deadline even while the Desktop still awaits its
+      // health confirmation. Its executor then answers locally at the resume
+      // gate without touching ChatGPT.
+      skip: ![...desktopWindows.values()].some((state) => state.window && !state.window.isDestroyed()) || dueChatTranslations === 0,
       project_scoped: true, open_projects: projectWindowRegistry.openProjects(),
     }),
     onState: (state) => {

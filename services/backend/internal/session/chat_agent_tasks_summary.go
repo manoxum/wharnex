@@ -123,7 +123,7 @@ func (s *Store) ChatAgentQueueSummary(projectID string) (ChatAgentQueueSummary, 
 		case task.NotBefore.After(now):
 			summary.Scheduled++
 			summary.NextNotBefore = earliest(summary.NextNotBefore, task.NotBefore)
-		case providerGuarded && !chatAgentTaskSupervisor(task.Type) && task.Type != "TRANSLATE_MARKDOWN":
+		case providerGuarded && !chatAgentTaskSupervisor(task.Type) && !chatAgentTaskEphemeral(task.Type):
 			summary.Guarded++
 		case chatAgentBlockedByActiveTask(task, s.chatAgentTasks, now):
 			summary.Guarded++
@@ -131,7 +131,7 @@ func (s *Store) ChatAgentQueueSummary(projectID string) (ChatAgentQueueSummary, 
 			summary.Due++
 			if chatAgentTaskSupervisor(task.Type) {
 				supervisorLanes[chatAgentTaskLaneKey(task)] = struct{}{}
-			} else if task.Type == "TRANSLATE_MARKDOWN" {
+			} else if chatAgentTaskEphemeral(task.Type) {
 				summary.DueTranslator++
 			} else {
 				summary.DueWorker++

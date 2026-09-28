@@ -22,9 +22,11 @@ const (
 const (
 	ChatAgentRoleSupervisor = "supervisor"
 	ChatAgentRoleWorker     = "worker"
-	// Translator is an ephemeral utility browser. It uses the same hardened
-	// browser transport as a Worker, but may claim only TRANSLATE_MARKDOWN and
-	// is destroyed as soon as that one task settles.
+	// Translator is the ephemeral utility pool. It uses the same hardened
+	// browser transport as a Worker, but claims only translation, Orchestrator
+	// planning and release notes (chatAgentEphemeralTypes); each claimed task
+	// gets its own browser, destroyed as soon as that task settles. Workers
+	// never claim these types.
 	ChatAgentRoleTranslator = "translator"
 )
 
@@ -184,9 +186,9 @@ func chatAgentClaimRoleAllows(task ChatAgentTask, options ChatAgentClaimOptions)
 		return chatAgentTaskSupervisor(task.Type)
 	}
 	if options.Role == ChatAgentRoleTranslator {
-		return task.Type == "TRANSLATE_MARKDOWN"
+		return chatAgentTaskEphemeral(task.Type)
 	}
-	return !chatAgentTaskSupervisor(task.Type)
+	return !chatAgentTaskSupervisor(task.Type) && !chatAgentTaskEphemeral(task.Type)
 }
 
 func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {

@@ -2,6 +2,9 @@
 
 ## Decision
 
+> Amended by `adr/ADR-0082`: `ORCHESTRATOR_PLAN` and `RELEASE_NOTES` now run on
+> the ephemeral utility pool, not on persistent Workers.
+
 `ORCHESTRATOR_PLAN` belongs to the persistent Worker pool. The durable claim
 partition routes it there before an attempt is charged. The Agent's
 `BOT_WRITE`, `RECOVERY_WRITE`, and `AWAIT_RESPONSE` remain on chat-bound
