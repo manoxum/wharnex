@@ -72,3 +72,14 @@ therefore probe the exact file affordance independently of that count and
 retry a click only after a bounded wait if no download starts. A started
 download stops further clicks; ChatGPT's generated-file card is considered
 when locating the exact control.
+
+## Attempt accounting for execution tasks
+
+An execution attempt whose Orchestrator task is no longer READY or DOING —
+already in REVIEW, FAILED, moved back or archived — settles when it starts.
+`worker-start` reports that status instead of an error, because an error
+returned the attempt to the queue to be claimed again indefinitely.
+After an accepted response bundle leaves the task DOING, the Agent's next
+round (workflow evidence, repair, continuation) is bounded by the task's
+effort level exactly as in an agentic Main Request. Reaching it is an
+observation and does not spend the Worker's transport attempt budget.

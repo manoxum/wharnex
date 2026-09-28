@@ -65,7 +65,9 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
   const taskID = String(payload.task_id || '')
   const credentials = { worker_task_id: task.task_id, owner }
   const current = await workerRequest(runtime.baseURL, sessionID, taskID, 'worker-start', credentials)
-  if (current.task?.status === 'REVIEW' || current.task?.status === 'COMPLETE' || current.task?.status === 'FAILED') return { status: 'done' }
+  // Only a READY or DOING task can use this attempt. Any other status means
+  // the task left execution while the attempt was queued, so it settles.
+  if (current.task?.status !== 'READY' && current.task?.status !== 'DOING') return { status: 'done' }
   if (!activeRequest(current)) return { status: 'waiting', delayMs: 30_000, observation: true, error: `Agent state ${String(current.agent_state || 'unknown')}` }
   if (!current.prompt) return { status: 'waiting', delayMs: 30_000, observation: true, error: 'Agent request is awaiting another boundary' }
 
@@ -133,8 +135,11 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
           deadline = Date.now() + RESPONSE_TIMEOUT_MS
           continue
         }
-        if (result.task?.status === 'REVIEW' || result.task?.status === 'COMPLETE' || result.task?.status === 'FAILED') return { status: 'done' }
-        return { status: 'waiting', delayMs: 3_000, error: 'Agent continuation is ready' }
+        if (result.task?.status !== 'DOING') return { status: 'done' }
+        // The Agent accepted the bundle and prepared its next round. That round
+        // is bounded by the task's effort level, like any agentic Main Request,
+        // so reaching it must not spend the Worker's transport attempts.
+        return { status: 'waiting', delayMs: 3_000, observation: true, error: 'Agent continuation is ready' }
       }
       const health = await runtime.health(key, target.entry)
       if (runtime.noteRateLimit(key, health)) return { status: 'waiting', delayMs: runtime.rateLimitDelay(), observation: true, error: 'ChatGPT rate-limit gate is active' }

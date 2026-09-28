@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"kernl.local/harness/backend/internal/orchestrator"
@@ -54,7 +53,11 @@ func (s *Service) StartOrchestratorWorkerTask(ctx context.Context, sessionID, ta
 			return OrchestratorWorkerRequest{}, err
 		}
 	} else if task.Status != orchestrator.TaskDoing {
-		return OrchestratorWorkerRequest{}, fmt.Errorf("orchestrator task is %s, not READY or DOING", task.Status)
+		// The task left execution (REVIEW, FAILED, moved back, archived) while
+		// this attempt was queued. Report its status so the Worker settles the
+		// attempt; an error here returned it to the queue to be claimed again
+		// and again, each claim spending a paced slot and an attempt.
+		return OrchestratorWorkerRequest{Task: task, AgentState: "settled"}, nil
 	}
 	return s.orchestratorWorkerRequest(ctx, taskID)
 }

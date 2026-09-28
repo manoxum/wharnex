@@ -156,3 +156,53 @@ test('a fresh request paces only when its composer must navigate', async () => {
     globalThis.fetch = previousFetch
   }
 })
+
+test('an attempt whose task left execution settles instead of returning to the queue', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ task: { status: 'REVIEW' }, agent_state: 'settled' }) })
+  try {
+    const entry = { view: { webContents: { getURL: () => 'https://chatgpt.com/' } } }
+    const task = { task_id: 'cat_0123456789abcdef0123', chat_id: 'otk_abc', session_id: 'ses-owner' }
+    const result = await executeOrchestratorExecution(task, entry, 'otk_abc', { protocol: 'harness.orchestrator-execution/v1', task_id: 'otk_abc' }, 'worker-1', { baseURL: 'http://127.0.0.1:6969' })
+    assert.deepEqual(result, { status: 'done' })
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('an Agent continuation after an accepted bundle does not spend a Worker attempt', async () => {
+  const previousFetch = globalThis.fetch
+  const expectedFilename = 'whx_bundle_res_otk-abc_req_20260927T170000_0123456789abcdef.zip'
+  const request = {
+    task: { status: 'DOING' }, run: { id: 'run-1' }, agent_session_id: 'ses-agent',
+    request_id: 'req_20260927T170000_0123456789abcdef', prompt: 'Backend-authored prompt',
+    expected_filename: expectedFilename, chat_id: 'otk-abc', reasoning_effort: 'high', agent_state: 'awaiting_plan',
+  }
+  globalThis.fetch = async () => ({ ok: true, json: async () => request })
+  try {
+    const entry = { view: { webContents: { getURL: () => 'https://chatgpt.com/' } } }
+    const expectedDownloads = new Map()
+    const runtime = {
+      baseURL: 'http://127.0.0.1:6969', homeURL: 'https://chatgpt.com/', expectedDownloads,
+      pace: async () => undefined, rateLimitDelay: () => 0, needsNavigation: () => false,
+      conversationURL: (value) => value || '', sameConversation: () => false,
+      targetComposer: async () => ({ entry, wc: entry.view.webContents, conversationUrl: '' }),
+      normalizeEffort: (value) => value,
+      buildRequest: async () => ({ uploadPaths: ['/tmp/request.zip'], bytes: 1, archiveName: 'request.zip', bootstrap: 'Use request.zip', cleanup: async () => undefined }),
+      fill: async () => true, paste: async () => undefined,
+      wait: async () => undefined, settleDelay: () => 0, assistantCount: async () => 0,
+      submit: async () => undefined, waitConversation: async () => 'https://chatgpt.com/c/owned',
+      checkpoint: async () => undefined, health: async () => ({ required: false }), noteRateLimit: () => false,
+      humanActionMessage: () => '', completion: async () => ({ complete: true }), expectedDownloadScript: (name) => name,
+      // The Agent took the bundle and is still DOING: its next round is ready.
+      postBundle: async () => ({ task: { status: 'DOING' } }),
+      executeDOM: async () => { expectedDownloads.get(expectedFilename).resolve(Buffer.from('zip')); return 'exact' },
+    }
+    const task = { task_id: 'cat_0123456789abcdef0123', chat_id: 'otk_abc', session_id: 'ses-owner' }
+    const result = await executeOrchestratorExecution(task, entry, 'otk_abc', { protocol: 'harness.orchestrator-execution/v1', task_id: 'otk_abc' }, 'worker-1', runtime)
+    assert.equal(result.status, 'waiting')
+    assert.equal(result.observation, true)
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
