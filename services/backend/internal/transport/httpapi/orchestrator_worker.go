@@ -62,12 +62,12 @@ func (a *API) orchestratorWorkerConversation(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	url, err := a.service.RecordOrchestratorWorkerConversation(r.Context(), r.PathValue("id"), r.PathValue("task_id"), body.WorkerTaskID, body.Owner, body.ConversationURL)
+	affinity, err := a.service.RecordOrchestratorWorkerConversationAffinity(r.Context(), r.PathValue("id"), r.PathValue("task_id"), body.WorkerTaskID, body.Owner, body.ConversationURL)
 	if err != nil {
 		writeError(w, http.StatusConflict, "orchestrator_worker_conversation_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"conversation_url": url})
+	writeJSON(w, http.StatusOK, affinity)
 }
 
 // orchestratorTaskBundle receives a task's response bundle from the agentic
