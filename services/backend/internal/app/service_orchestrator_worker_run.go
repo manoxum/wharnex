@@ -102,6 +102,12 @@ func (s *Service) SubmitOrchestratorWorkerBundle(ctx context.Context, sessionID,
 	if _, err := s.SubmitExecutionBundle(ctx, current.AgentSessionID, filename, raw); err != nil {
 		return OrchestratorWorkerRequest{}, err
 	}
+	// An accepted bundle is the provider-health evidence an agentic Main
+	// Request records on delivery; without it the rate-limit level of an
+	// account serving only Orchestrator tasks never returned to its floor.
+	if _, err := s.store.RecordChatAgentValidBundle(current.RequestID, "", 0); err != nil {
+		s.bus.Publish(sessionID, "chat_agent.valid_bundle_unrecorded", map[string]any{"task_id": taskID, "error": err.Error()})
+	}
 	if err := s.reconcileOrchestratorWorkerRun(ctx, taskID); err != nil {
 		return OrchestratorWorkerRequest{}, err
 	}
