@@ -53,6 +53,7 @@ import { chatAgentQueueDiagnostics } from './chat-agent-queue-diagnostics.mjs'
 import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 import { CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer } from './chat-agent-pacer.mjs'
+import { WorkerActivity } from './chat-agent-worker-activity.mjs'
 import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
 import { chatAgentLiveBundlePending } from './chat-agent-live-bundle-residency.mjs'
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
@@ -244,6 +245,18 @@ const chatGPTTransportTails = new Map()
 const chatGPTTransportAbortControllers = new Map()
 const chatAgentResidency = new ChatAgentResidency({ minResidenceMs: Number(process.env.WHARNESS_CHAT_AGENT_RESIDENCY_MS || 30_000) })
 const chatGPTWorkerPacer = new ChatAgentGlobalPacer()
+// Phase changes can come several per second from one task; coalesce them into
+// the runtime-state broadcast instead of recomputing it for each.
+let chatAgentWorkerActivityPublishTimer
+const chatAgentWorkerActivity = new WorkerActivity({
+  onChange: () => {
+    if (chatAgentWorkerActivityPublishTimer) return
+    chatAgentWorkerActivityPublishTimer = setTimeout(() => {
+      chatAgentWorkerActivityPublishTimer = undefined
+      publishChatAgentRuntimeState()
+    }, 250)
+  },
+})
 let chatGPTRateLimitUntil = 0
 let chatGPTRateLimitResumeProbeRequired = false
 let chatGPTRateLimitResumeProbe
@@ -2131,6 +2144,11 @@ function registerChatGPTPlanDownloads(chatSession) {
     // do not require object identity here. The strict filename + JSON protocol
     // + request_id checks below remain the authority for plan interception.
     const sourceFilename = item.getFilename()
+    const downloadingWorker = chatGPTWorkerEntries.find((candidate) => {
+      const wc = candidate?.view?.webContents
+      return wc && !wc.isDestroyed() && (sourceWebContents === wc || sourceWebContents?.hostWebContents === wc)
+    })
+    if (downloadingWorker) chatAgentWorkerActivity.setFor(downloadingWorker.slotId, 'downloading')
     if (registerOrchestratorExecutionDownload(item, sourceFilename, expectedChatGPTOrchestratorExecutions, app.getPath('temp'))) return
     if (registerChatGPTOrchestratorPlanDownload(item, sourceFilename)) return
     if (registerChatGPTMarkdownTranslationDownload(item, sourceFilename)) return
@@ -2561,6 +2579,7 @@ async function waitForChatGPTNavigationSettle(wc, timeoutMs = 5_000) {
 }
 
 async function loadOwnedChatGPTURL(cacheKey, entry, value, reason = 'navigate') {
+  chatAgentWorkerActivity.set('navigating')
   const key = sanitizeChatCacheKey(cacheKey)
   const target = requireTrustedChatGPTURL(value)
   const { wc } = requireOwnedChatGPTEntry(key, entry)
@@ -3344,6 +3363,7 @@ function chatAgentRuntimeState() {
       project_id: chatAgentAgentProject(runtime.task, runtime.lastTask, chatAgentKeepFlowingActive(worker)),
       last_task: publicChatAgentTask(runtime.lastTask), last_claim_at: String(runtime.lastClaimAt || ''),
       error: String(runtime.error || ''), browser: publicAgentBrowser(entry), residency: chatAgentResidency.snapshot(entry.slotId),
+      activity: runtime.task ? chatAgentWorkerActivity.snapshot(entry.slotId) : null,
       keep_flowing: chatAgentKeepFlowingConfigured(worker), keep_flowing_active: chatAgentKeepFlowingActive(worker), suspended: workerSuspendsAllTaskTypes(chatAgentPolicies),
     }
   })
@@ -3873,6 +3893,7 @@ function chatAttachmentRoot() {
 }
 
 async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], requestMetadata = {}, signal, bundleChatID = cacheKey) {
+  chatAgentWorkerActivity.set('preparing')
   const timer = requestPreparationTimer(requestId)
   throwIfChatGPTTransportAborted(signal)
   const limits = await fetchChatTransportLimits(signal)
@@ -4623,7 +4644,11 @@ class ChatGPTRateLimitDeferral extends Error {
 }
 
 async function paceChatGPTWorkerRequest(measureGapMs, minimumGapMs = CHAT_AGENT_WORKER_ACTION_GAP_MS) {
-  await chatGPTWorkerPacer.pace(measureGapMs, { minimumGapMs })
+  // A task that already reached ChatGPT takes the next slot; the gap between
+  // any two Worker actions is unchanged.
+  const priority = chatAgentWorkerActivity.pacePriority()
+  await chatAgentWorkerActivity.during('waiting_turn', () => chatGPTWorkerPacer.pace(measureGapMs, { minimumGapMs, priority }))
+  chatAgentWorkerActivity.markProviderAction()
 }
 
 async function paceChatGPTWorkerNavigation() {
@@ -4691,6 +4716,7 @@ async function pasteChatGPTFile(entry, filePath, index, count, { translation = f
         const suspension = chatAgentRateLimitDelayMs()
         if (suspension > 0) throw new ChatGPTRateLimitDeferral(suspension)
       }
+      chatAgentWorkerActivity.set('uploading')
       await waitForChatGPTSurfaceReady(key, entry)
       const ready = await wc.executeJavaScript(chatGPTComposerReadyScript(), true)
       if (!ready) throw new Error('ChatGPT composer DOM was not found before upload')
@@ -4732,6 +4758,7 @@ async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
 // Automatic flows dispatch once when observation is ambiguous, then supervise
 // the armed request instead of replaying a potentially duplicate submission.
 async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true, rateLimitExempt = true, beforeDispatch = undefined } = {}) {
+  chatAgentWorkerActivity.set('submitting')
   const target = preparedTarget || await targetChatGPTComposer(key, '', false, entryOverride)
   const wc = target.wc
   const reasoningEffort = normalizeChatGPTReasoningEffort(target.reasoningEffort || target.entry.reasoningEffort || 'high')
@@ -4792,6 +4819,7 @@ async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = 
   } else {
     console.warn(`[chatgpt-submit] dispatched-unconfirmed key=${key} method=${method} error=${result.observationError || 'network observation timeout'}; continuing supervision without replay`)
   }
+  chatAgentWorkerActivity.set('processing')
   return result
 }
 
@@ -8432,7 +8460,7 @@ app.whenReady().then(async () => {
 
   const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
   chatAgentScheduler = new ChatAgentSchedulerClient({
-    baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: (task, context) => withTrace(traceForTask(task), () => executeChatAgentTask(task, context)),
+    baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: (task, context) => withTrace(traceForTask(task), () => chatAgentWorkerActivity.run(`worker-${Number(context?.worker) || 0}`, task.task_id, () => executeChatAgentTask(task, context))),
     // The Worker pool takes only small account-lifecycle and utility work. The
     // durable claim enforces that partition, so no attempt is charged to reject
     // a chat-bound task this pool must never navigate to.

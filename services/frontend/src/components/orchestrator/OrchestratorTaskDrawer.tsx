@@ -3,7 +3,8 @@ import { api } from '../../lib/api'
 import { desktopBridge } from '../../lib/desktop'
 import { encodeChatAttachments } from '../../lib/chatAttachments'
 import { errorMessage } from '../../lib/errorMessage'
-import type { ChatArtifactSelection, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, ReasoningEffort, Session } from '../../types'
+import { TASK_EFFORT_LEVELS, taskEffortLevel } from '../../lib/orchestratorEffort'
+import type { ChatArtifactSelection, EffortLevel, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, ReasoningEffort, Session } from '../../types'
 import { ChatPanel } from '../ChatPanel'
 import { Icon } from '../Icon'
 import { Status } from './OrchestratorStatus'
@@ -29,6 +30,10 @@ export function OrchestratorTaskDrawer({ session, task, tasks, chatProps, busy, 
 
   async function setEffort(value: ReasoningEffort) {
     await onRun(() => api.setOrchestratorTaskEffort(session.id, task.id, value), onSelectedTask)
+  }
+
+  async function setEffortLevel(value: EffortLevel) {
+    await onRun(() => api.setOrchestratorTaskEffortLevel(session.id, task.id, value), onSelectedTask)
   }
 
   async function retry(guidance: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) {
@@ -61,6 +66,7 @@ export function OrchestratorTaskDrawer({ session, task, tasks, chatProps, busy, 
       <p>{task.description || 'Sem descrição adicional.'}</p>
       {task.acceptance_criteria?.length ? <section><strong>Critérios de conclusão</strong><ul>{task.acceptance_criteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul></section> : null}
       <section><strong>Dependências</strong><p>{task.depends_on?.length ? task.depends_on.join(', ') : 'Nenhuma dependência.'}</p></section>
+      <section><strong>Esforço</strong><select aria-label="Nível de esforço da tarefa" title="Tentativas automáticas antes de a task falhar" className="mt-2 rounded-md border border-[var(--theme-border)] bg-[var(--theme-surface)] px-2 py-1 text-[var(--theme-text)]" value={taskEffortLevel(task, session)} disabled={busy} onChange={(event) => void setEffortLevel(event.target.value as EffortLevel)}>{TASK_EFFORT_LEVELS.map((level) => <option key={level.value} value={level.value}>{level.label}</option>)}</select>{task.status === 'DOING' && <small className="mt-1 block text-[var(--theme-muted)]">Aplica-se ao orçamento restante desta execução.</small>}</section>
       <section><strong>Nível de raciocínio</strong><select aria-label="Nível de raciocínio da tarefa" className="mt-2 rounded-md border border-[var(--theme-border)] bg-[var(--theme-surface)] px-2 py-1 text-[var(--theme-text)]" value={task.reasoning_effort || session.reasoning_effort || 'high'} disabled={busy} onChange={(event) => void setEffort(event.target.value as ReasoningEffort)}><option value="instant">Instantâneo</option><option value="medium">Médio</option><option value="high">Elevado</option></select>{task.status === 'DOING' && <small className="mt-1 block text-[var(--theme-muted)]">Aplica-se ao próximo pedido desta tarefa.</small>}</section>
       <section><strong>Execuções</strong>{runs.length ? runs.map((run) => <div className="orchestrator-run" key={run.id}><span>{run.attempt}</span><div><strong>{run.status}</strong><small>{formatDate(run.started_at)}{run.error ? ` · ${run.error}` : ''}</small></div></div>) : <p>Nenhuma execução registrada.</p>}</section>
       {task.status === 'FAILED' && retryOpen && chatProps && <section className="rounded-lg border border-[var(--theme-border)] p-2"><strong>Contexto para reenviar</strong><ChatPanel {...chatProps} session={session} activeChatId={`orchestrator-retry-${task.id}`} busy={busy} embedded hideSwitcher composerOnly taskInFlight={false} composerPlaceholder="Descreva o que pode ajudar nesta nova tentativa…" composerSendLabel="Reenviar tarefa" onSend={retry}/></section>}

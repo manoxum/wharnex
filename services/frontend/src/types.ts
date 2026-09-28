@@ -761,6 +761,7 @@ export type OrchestratorTask = {
   status: OrchestratorTaskStatus; condition: OrchestratorTaskCondition; priority: OrchestratorPriority; depends_on?: string[]
   capability?: string; complexity?: string; parallelizable: boolean; impact_files?: string[]; read_files?: string[]; barrier_files?: string[]
   reasoning_effort?: ReasoningEffort
+  effort_level?: EffortLevel
   retry_context?: OrchestratorTaskRetryContext
   created_at: string; updated_at: string
 }

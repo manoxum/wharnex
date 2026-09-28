@@ -1,6 +1,7 @@
 import { type ComponentProps, useMemo, useState } from 'react'
 import { api } from '../../lib/api'
-import type { OrchestratorOverview, OrchestratorPriority, OrchestratorTask, OrchestratorTaskStatus, ReasoningEffort, Session } from '../../types'
+import { TASK_EFFORT_LEVELS, taskEffortLevel } from '../../lib/orchestratorEffort'
+import type { EffortLevel, OrchestratorOverview, OrchestratorPriority, OrchestratorTask, OrchestratorTaskStatus, Session } from '../../types'
 import { Icon } from '../Icon'
 import { Status } from './OrchestratorStatus'
 import { ChatPanel } from '../ChatPanel'
@@ -29,8 +30,8 @@ export function OrchestratorTasks({ session, overview, chatProps, selectedTask, 
     await onRun(() => api.transitionOrchestratorTask(session.id, task.id, target), onSelectedTask)
   }
 
-  function changeEffort(task: OrchestratorTask, effort: ReasoningEffort) {
-    void onRun(() => api.setOrchestratorTaskEffort(session.id, task.id, effort))
+  function changeEffort(task: OrchestratorTask, level: EffortLevel) {
+    void onRun(() => api.setOrchestratorTaskEffortLevel(session.id, task.id, level))
   }
 
   return <div className="orchestrator-tasks-page">
@@ -44,7 +45,7 @@ export function OrchestratorTasks({ session, overview, chatProps, selectedTask, 
     </header>
 
     <div className={`orchestrator-task-surface view-${view}`}>
-      {view === 'kanban' && <Kanban tasks={tasks.filter((task) => task.status !== 'ARCHIVED')} fallbackEffort={session.reasoning_effort || 'high'} busy={busy} onEffort={changeEffort} dragTask={dragTask} onDrag={setDragTask} onDrop={(status) => {
+      {view === 'kanban' && <Kanban tasks={tasks.filter((task) => task.status !== 'ARCHIVED')} session={session} busy={busy} onEffort={changeEffort} dragTask={dragTask} onDrag={setDragTask} onDrop={(status) => {
         const task = tasks.find((item) => item.id === dragTask); setDragTask(undefined); if (task) void move(task, status)
       }} onSelect={onSelectedTask} />}
       {view === 'table' && <TaskTable tasks={tasks} onSelect={onSelectedTask} />}
@@ -57,7 +58,7 @@ export function OrchestratorTasks({ session, overview, chatProps, selectedTask, 
   </div>
 }
 
-function Kanban({ tasks, fallbackEffort, busy, onEffort, dragTask, onDrag, onDrop, onSelect }: { tasks: OrchestratorTask[]; fallbackEffort: ReasoningEffort; busy: boolean; onEffort: (task: OrchestratorTask, effort: ReasoningEffort) => void; dragTask?: string; onDrag: (id?: string) => void; onDrop: (status: OrchestratorTaskStatus) => void; onSelect: (task: OrchestratorTask) => void }) {
+function Kanban({ tasks, session, busy, onEffort, dragTask, onDrag, onDrop, onSelect }: { tasks: OrchestratorTask[]; session: Session; busy: boolean; onEffort: (task: OrchestratorTask, level: EffortLevel) => void; dragTask?: string; onDrag: (id?: string) => void; onDrop: (status: OrchestratorTaskStatus) => void; onSelect: (task: OrchestratorTask) => void }) {
   return <div className="orchestrator-kanban">
     {statuses.map((status) => {
       const grouped = tasks.filter((task) => task.status === status)
@@ -68,7 +69,7 @@ function Kanban({ tasks, fallbackEffort, busy, onEffort, dragTask, onDrag, onDro
             <div><span className={`priority priority-${task.priority}`}>{task.priority}</span>{task.parallelizable && <span className="parallel">parallel</span>}</div>
             <strong>{task.title}</strong>
             <p>{task.description || 'Sem descrição adicional.'}</p>
-            <label className="mt-2 flex items-center justify-between gap-2 text-xs text-[var(--theme-muted)]" onClick={(event) => event.stopPropagation()}>Esforço<select aria-label={`Esforço de ${task.title}`} className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-surface)] px-2 py-1 text-[var(--theme-text)]" value={task.reasoning_effort || fallbackEffort} disabled={busy} onChange={(event) => onEffort(task, event.target.value as ReasoningEffort)}><option value="instant">Instantâneo</option><option value="medium">Médio</option><option value="high">Elevado</option></select></label>
+            <label className="mt-2 flex items-center justify-between gap-2 text-xs text-[var(--theme-muted)]" title="Nível de esforço · tentativas automáticas antes de a task falhar" onClick={(event) => event.stopPropagation()}>Esforço<select aria-label={`Esforço de ${task.title}`} className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-surface)] px-2 py-1 text-[var(--theme-text)]" value={taskEffortLevel(task, session)} disabled={busy} onChange={(event) => onEffort(task, event.target.value as EffortLevel)}>{TASK_EFFORT_LEVELS.map((level) => <option key={level.value} value={level.value}>{level.label}</option>)}</select></label>
             <footer><span>{task.depends_on?.length || 0} deps</span><span>{task.capability || task.complexity || 'task'}</span></footer>
           </article>)}
           {!grouped.length && <div className="orchestrator-column-empty">Arraste uma task para aqui</div>}

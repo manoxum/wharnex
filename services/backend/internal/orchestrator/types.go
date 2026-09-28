@@ -63,26 +63,29 @@ type Plan struct {
 }
 
 type Task struct {
-	ID                 string            `json:"id"`
-	ProjectPath        string            `json:"project_path"`
-	PlanID             string            `json:"plan_id,omitempty"`
-	Title              string            `json:"title"`
-	Description        string            `json:"description,omitempty"`
-	AcceptanceCriteria []string          `json:"acceptance_criteria,omitempty"`
-	Status             TaskStatus        `json:"status"`
-	Condition          TaskCondition     `json:"condition"`
-	Priority           Priority          `json:"priority"`
-	DependsOn          []string          `json:"depends_on,omitempty"`
-	Capability         string            `json:"capability,omitempty"`
-	Complexity         string            `json:"complexity,omitempty"`
-	Parallelizable     bool              `json:"parallelizable"`
-	ImpactFiles        []string          `json:"impact_files,omitempty"`
-	ReadFiles          []string          `json:"read_files,omitempty"`
-	BarrierFiles       []string          `json:"barrier_files,omitempty"`
-	ReasoningEffort    string            `json:"reasoning_effort,omitempty"`
-	RetryContext       *TaskRetryContext `json:"retry_context,omitempty"`
-	CreatedAt          time.Time         `json:"created_at"`
-	UpdatedAt          time.Time         `json:"updated_at"`
+	ID                 string        `json:"id"`
+	ProjectPath        string        `json:"project_path"`
+	PlanID             string        `json:"plan_id,omitempty"`
+	Title              string        `json:"title"`
+	Description        string        `json:"description,omitempty"`
+	AcceptanceCriteria []string      `json:"acceptance_criteria,omitempty"`
+	Status             TaskStatus    `json:"status"`
+	Condition          TaskCondition `json:"condition"`
+	Priority           Priority      `json:"priority"`
+	DependsOn          []string      `json:"depends_on,omitempty"`
+	Capability         string        `json:"capability,omitempty"`
+	Complexity         string        `json:"complexity,omitempty"`
+	Parallelizable     bool          `json:"parallelizable"`
+	ImpactFiles        []string      `json:"impact_files,omitempty"`
+	ReadFiles          []string      `json:"read_files,omitempty"`
+	BarrierFiles       []string      `json:"barrier_files,omitempty"`
+	ReasoningEffort    string        `json:"reasoning_effort,omitempty"`
+	// EffortLevel bounds the autonomous attempts of the task's Agent run
+	// before it fails. Empty inherits the owning session's level.
+	EffortLevel  string            `json:"effort_level,omitempty"`
+	RetryContext *TaskRetryContext `json:"retry_context,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
 type TaskAttachment struct {
