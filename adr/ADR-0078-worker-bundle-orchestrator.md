@@ -89,3 +89,10 @@ Worker sends the agentic delivery continuation in the same conversation, at
 most twice, before raising attention. An attempt that ends in ATTENTION holds
 no lease and delivers nothing further, so it ends the task's run like FAILED:
 the task leaves DOING with that error instead of staying there unserved.
+
+A task's Worker is offered only a request still pending in the Agent Session;
+once its bundle is accepted the Agent executes locally and the Worker waits
+without reopening the conversation. An agentic chat asks a person to resume
+or discard an execution a restart interrupted; a task has no chat and nobody
+to answer, so reconciliation resumes an approved Protected interruption of
+the task's current run on its own.

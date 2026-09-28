@@ -84,8 +84,14 @@ func (s *Service) orchestratorWorkerRequest(ctx context.Context, taskID string) 
 		return OrchestratorWorkerRequest{}, err
 	}
 	result := OrchestratorWorkerRequest{Task: task, Run: run, AgentSessionID: run.SessionID,
-		RequestID: agent.LastRequestID, Prompt: agent.LastManualPrompt, AgentState: agent.State,
-		ChatID: sessionChatID(agent), ReasoningEffort: string(agent.ReasoningEffort)}
+		AgentState: agent.State, ChatID: sessionChatID(agent), ReasoningEffort: string(agent.ReasoningEffort)}
+	// Only a request still awaiting its response is the Worker's to deliver.
+	// Once its bundle is accepted the Agent executes locally; reporting the old
+	// request kept the Worker reopening the conversation to wait for a ZIP it
+	// had already delivered.
+	if containsString(agent.PendingManualRequestIDs, agent.LastRequestID) {
+		result.RequestID, result.Prompt = agent.LastRequestID, agent.LastManualPrompt
+	}
 	if result.RequestID != "" {
 		result.ExpectedFilename = expectedResponseBundleFilename(agent, result.RequestID)
 	}
