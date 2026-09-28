@@ -1088,3 +1088,74 @@ func TestReleaseRefusesATransactionThatIsStillWorking(t *testing.T) {
 		t.Fatal("a live transaction must not be releasable")
 	}
 }
+
+// A failed host build rolled the source back while HEAD kept the integration
+// merge, so the worktree read as reverting a change that HEAD claimed and the
+// next task saw an unstable baseline. When only Wharnex's own integration
+// commits lie after the baseline, rollback moves HEAD back with the files.
+func TestRollbackReturnsHeadToBaselineOverOwnIntegrationCommits(t *testing.T) {
+	root := fakeGitRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline")
+
+	manager := New(root)
+	tx, err := manager.Prepare("ses-own", "plan-own", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Wharnex", "-c", "user.email=wharness@localhost", "commit", "-qm", "feat: verified candidate")
+	mustGitCommand(t, root, "-c", "user.name=WHX - Operator", "-c", "user.email=op@example.invalid", "commit", "--allow-empty", "-qm", "Merge branch 'whx/req_x'")
+	// The state observed on 2026-09-28: HEAD carries the integration while the
+	// source on disk is back at the captured baseline.
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+
+	if err := tx.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, filepath.Join(root, "hello.txt"), "before\n")
+	if head := gitOutput(t, root, "rev-parse", "HEAD"); head != tx.PreTransactionSHA {
+		t.Fatalf("HEAD=%s, want baseline %s", head, tx.PreTransactionSHA)
+	}
+	if status := gitOutput(t, root, "status", "--porcelain", "--", ".", ":!.harness"); status != "" {
+		t.Fatalf("worktree not clean after rollback:\n%s", status)
+	}
+}
+
+func TestRollbackKeepsHeadWhenAPersonCommittedAfterTheBaseline(t *testing.T) {
+	root := fakeGitRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline")
+
+	manager := New(root)
+	tx, err := manager.Prepare("ses-mixed", "plan-mixed", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	mustWrite(t, filepath.Join(root, "other.txt"), "human\n", 0o644)
+	mustGitCommand(t, root, "add", "other.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "human work")
+	head := gitOutput(t, root, "rev-parse", "HEAD")
+
+	if err := tx.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOutput(t, root, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("rollback moved HEAD past a human commit: %s -> %s", head, got)
+	}
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(output))
+}

@@ -989,6 +989,38 @@ func (tx Transaction) Rollback(ctx context.Context) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("rollback failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	return tx.rewindOwnIntegrationCommits(ctx)
+}
+
+// rewindOwnIntegrationCommits returns HEAD to the transaction's baseline when
+// every commit after it is Wharnex's own integration bookkeeping. Restoring the
+// source alone left HEAD on the failed integration merge, so the worktree read
+// as reverting a change HEAD claimed and the next request saw an unstable
+// baseline. A mixed reset keeps the restored files and any pre-transaction
+// uncommitted work as they are; a commit by anyone else leaves HEAD untouched.
+func (tx Transaction) rewindOwnIntegrationCommits(ctx context.Context) error {
+	if tx.PreTransactionSHA == "" {
+		return nil
+	}
+	current, err := sandbox.CurrentHeadSHA(ctx, tx.Root)
+	if err != nil || current == tx.PreTransactionSHA {
+		return nil
+	}
+	if exec.CommandContext(ctx, "git", "-C", tx.Root, "merge-base", "--is-ancestor", tx.PreTransactionSHA, current).Run() != nil {
+		return nil
+	}
+	authors, err := exec.CommandContext(ctx, "git", "-C", tx.Root, "log", "--format=%an", tx.PreTransactionSHA+".."+current).Output()
+	if err != nil {
+		return nil
+	}
+	for _, author := range strings.Split(strings.TrimSpace(string(authors)), "\n") {
+		if author != "Wharnex" && !strings.HasPrefix(author, "WHX - ") {
+			return nil
+		}
+	}
+	if output, err := exec.CommandContext(ctx, "git", "-C", tx.Root, "reset", "-q", "--mixed", tx.PreTransactionSHA).CombinedOutput(); err != nil {
+		return fmt.Errorf("rewind failed integration commits to %s: %w: %s", tx.PreTransactionSHA, err, strings.TrimSpace(string(output)))
+	}
 	return nil
 }
 
