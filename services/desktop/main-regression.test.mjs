@@ -3198,3 +3198,13 @@ test('a Worker pinned to a task is published as occupied by it between rounds', 
   assert.match(source, /const pinnedTaskId = orchestrationTaskPins\.taskId\(entry\.slotId\)/)
   assert.match(source, /occupied: Boolean\(runtime\.task \|\| chatAgentKeepFlowingActive\(worker\) \|\| pinnedTaskId\),\n\s+pinned_task_id: pinnedTaskId,/)
 })
+
+test('a follow window stays open while its Worker is pinned to the same task', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('))
+  const onState = scheduler.slice(scheduler.indexOf('onState: (state) =>'), scheduler.indexOf('onState: (state) =>') + 1200)
+  assert.match(onState, /const heldByTask = Boolean\(monitored && orchestrationTaskPins\.lane\(monitored\.slotId\)\) && \(state\.kind === 'settled' \|\| state\.kind === 'task-error'\)/)
+  assert.match(onState, /if \(!heldByTask\) closeWorkerMonitorAfterState\(monitored, state\.kind\)/)
+  // The monitored entry is the slot's own, never an index into a list that also holds ephemeral browsers.
+  assert.doesNotMatch(onState, /closeWorkerMonitorAfterState\(chatGPTWorkerEntries\[worker - 1\]/)
+})

@@ -8961,7 +8961,13 @@ app.whenReady().then(async () => {
     onState: (state) => {
       const worker = Number(state?.worker || 0)
       if (worker) {
-        closeWorkerMonitorAfterState(chatGPTWorkerEntries[worker - 1], state.kind)
+        // A Worker pinned to a task keeps following it across rounds: its
+        // monitor closes when the pin is released (the task ended), not when
+        // one round's claim settles. Closing on every round made an opened
+        // follow window vanish while the Worker was still on the same task.
+        const monitored = workerEntryForIndex(worker)
+        const heldByTask = Boolean(monitored && orchestrationTaskPins.lane(monitored.slotId)) && (state.kind === 'settled' || state.kind === 'task-error')
+        if (!heldByTask) closeWorkerMonitorAfterState(monitored, state.kind)
         const prior = chatAgentWorkerStates.get(worker) || { active: true, task: undefined, lastTask: undefined, lastClaimAt: '', error: '' }
         if (state.kind === 'worker-started') chatAgentWorkerStates.set(worker, { ...prior, active: true })
         else if (state.kind === 'worker-stopped') chatAgentWorkerStates.set(worker, { ...prior, active: false, task: undefined })

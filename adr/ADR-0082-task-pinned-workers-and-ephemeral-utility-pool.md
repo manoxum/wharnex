@@ -49,7 +49,9 @@ conversation yet starts from the home page.
 The runtime drawer shows a pinned Worker as held by its task ("Preso à
 tarefa") between rounds, including after its bundle is delivered and while
 the Agent runs the task locally, exactly as a Supervisor shows its chat
-between observations. It becomes free only when the pin is released.
+between observations. It becomes free only when the pin is released. A follow
+window opened on a pinned Worker stays open across rounds and closes when
+the pin is released, not when one round's claim settles.
 
 The configured Worker count and auto scale apply to Orchestrator execution,
 plus the account-lifecycle and classification work that is still on this pool.
