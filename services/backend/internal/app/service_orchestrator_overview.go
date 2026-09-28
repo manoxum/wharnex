@@ -61,13 +61,26 @@ func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (o
 	for _, candidate := range planningByRequest {
 		planning = append(planning, candidate)
 	}
+	counts := map[orchestrator.TaskStatus]int{
+		orchestrator.TaskPending: 0, orchestrator.TaskWaiting: 0, orchestrator.TaskReady: 0, orchestrator.TaskDoing: 0,
+		orchestrator.TaskReview: 0, orchestrator.TaskFailed: 0, orchestrator.TaskComplete: 0, orchestrator.TaskArchived: 0,
+	}
 	used := 0
 	for _, task := range tasks {
+		counts[task.Status]++
 		if task.Status == orchestrator.TaskDoing {
 			used++
 		}
 	}
-	return orchestrator.Overview{Plans: plans, Tasks: tasks, PlanningRequests: planning, MutationSlots: s.executionQueue.currentCapacity(), MutationSlotsUsed: used}, nil
+	return orchestrator.Overview{Plans: plans, Tasks: tasks, TaskCounts: counts, PlanningRequests: planning, MutationSlots: s.executionQueue.currentCapacity(), MutationSlotsUsed: used}, nil
+}
+
+func (s *Service) OrchestratorTasksPage(ctx context.Context, sessionID string, filter orchestrator.TaskPageFilter) (orchestrator.TaskPage, error) {
+	item, err := s.store.Get(sessionID)
+	if err != nil {
+		return orchestrator.TaskPage{}, err
+	}
+	return s.orchestrator.ListTaskPage(ctx, item.ProjectPath, filter)
 }
 
 func orchestratorPlanningRequest(task session.ChatAgentTask) orchestrator.PlanningRequest {

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 )
 
 func (s *Store) postgresListTasks(ctx context.Context, projectPath string) ([]Task, error) {
@@ -34,6 +36,84 @@ func (s *Store) postgresListTasks(ctx context.Context, projectPath string) ([]Ta
 		tasks = append(tasks, task)
 	}
 	return tasks, rows.Err()
+}
+
+func (s *Store) postgresListTaskPage(ctx context.Context, projectPath string, filter TaskPageFilter, cursor *taskPageCursor) (TaskPage, error) {
+	where, args := postgresTaskPageWhere(projectPath, filter)
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM harness_tasks WHERE `+where, args...).Scan(&total); err != nil {
+		return TaskPage{}, fmt.Errorf("count orchestrator terminal tasks: %w", err)
+	}
+
+	pageWhere := where
+	pageArgs := append([]any(nil), args...)
+	if cursor != nil {
+		updatedArg := len(pageArgs) + 1
+		idArg := updatedArg + 1
+		pageWhere += fmt.Sprintf(" AND (updated_at < $%d OR (updated_at = $%d AND task_id < $%d))", updatedArg, updatedArg, idArg)
+		pageArgs = append(pageArgs, cursor.UpdatedAt, cursor.TaskID)
+	}
+	limitArg := len(pageArgs) + 1
+	query := `SELECT payload,updated_at,task_id FROM harness_tasks WHERE ` + pageWhere + fmt.Sprintf(" ORDER BY updated_at DESC,task_id DESC LIMIT $%d", limitArg)
+	pageArgs = append(pageArgs, filter.Limit+1)
+	rows, err := s.db.QueryContext(ctx, query, pageArgs...)
+	if err != nil {
+		return TaskPage{}, fmt.Errorf("list orchestrator terminal task page: %w", err)
+	}
+	defer rows.Close()
+
+	tasks := make([]Task, 0, filter.Limit+1)
+	for rows.Next() {
+		var payload []byte
+		var updatedAt time.Time
+		var taskID string
+		if err := rows.Scan(&payload, &updatedAt, &taskID); err != nil {
+			return TaskPage{}, err
+		}
+		var task Task
+		if err := json.Unmarshal(payload, &task); err != nil {
+			return TaskPage{}, fmt.Errorf("decode orchestrator task: %w", err)
+		}
+		task.ID = taskID
+		task.UpdatedAt = updatedAt
+		dependencies, err := s.postgresDependencies(ctx, task.ID)
+		if err != nil {
+			return TaskPage{}, err
+		}
+		task.DependsOn = dependencies
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return TaskPage{}, err
+	}
+
+	hasMore := len(tasks) > filter.Limit
+	if hasMore {
+		tasks = tasks[:filter.Limit]
+	}
+	page := TaskPage{Tasks: tasks, Total: total, HasMore: hasMore}
+	if hasMore && len(tasks) > 0 {
+		page.NextCursor, err = encodeTaskPageCursor(tasks[len(tasks)-1])
+		if err != nil {
+			return TaskPage{}, err
+		}
+	}
+	return page, nil
+}
+
+func postgresTaskPageWhere(projectPath string, filter TaskPageFilter) (string, []any) {
+	where := "source='orchestrator' AND project_id=$1 AND status IN ('COMPLETE','ARCHIVED')"
+	args := []any{projectPath}
+	if filter.Status != "" {
+		args = append(args, filter.Status)
+		where += fmt.Sprintf(" AND status=$%d", len(args))
+	}
+	if filter.Search != "" {
+		args = append(args, strings.ToLower(filter.Search))
+		searchArg := len(args)
+		where += fmt.Sprintf(" AND (position($%d in lower(title)) > 0 OR position($%d in lower(description)) > 0)", searchArg, searchArg)
+	}
+	return where, args
 }
 
 func (s *Store) postgresGetTask(ctx context.Context, id string) (Task, error) {

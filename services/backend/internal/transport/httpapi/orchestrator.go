@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"kernl.local/harness/backend/internal/app"
@@ -21,7 +22,40 @@ func (a *API) orchestratorOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "orchestrator_overview_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, overview)
+	writeJSON(w, http.StatusOK, orchestratorClientOverview(overview))
+}
+
+func (a *API) orchestratorTasks(w http.ResponseWriter, r *http.Request) {
+	limit := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			writeError(w, http.StatusBadRequest, "orchestrator_tasks_invalid", "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+	page, err := a.service.OrchestratorTasksPage(r.Context(), r.PathValue("id"), orchestrator.TaskPageFilter{
+		Status: orchestrator.TaskStatus(strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("status")))),
+		Search: r.URL.Query().Get("q"), Limit: limit, Cursor: r.URL.Query().Get("cursor"),
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_tasks_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+func orchestratorClientOverview(overview orchestrator.Overview) orchestrator.Overview {
+	active := make([]orchestrator.Task, 0, len(overview.Tasks))
+	for _, task := range overview.Tasks {
+		if task.Status == orchestrator.TaskComplete || task.Status == orchestrator.TaskArchived {
+			continue
+		}
+		active = append(active, task)
+	}
+	overview.Tasks = active
+	return overview
 }
 
 func (a *API) orchestratorProposePlan(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +142,7 @@ func (a *API) orchestratorApprovePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "orchestrator_approve_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, overview)
+	writeJSON(w, http.StatusOK, orchestratorClientOverview(overview))
 }
 
 func (a *API) orchestratorRejectPlan(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +151,7 @@ func (a *API) orchestratorRejectPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "orchestrator_reject_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, overview)
+	writeJSON(w, http.StatusOK, orchestratorClientOverview(overview))
 }
 
 func (a *API) orchestratorRevisePlan(w http.ResponseWriter, r *http.Request) {

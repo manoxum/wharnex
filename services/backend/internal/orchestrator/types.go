@@ -139,12 +139,27 @@ type ProposalTask struct {
 	BarrierFiles       []string `json:"barrier_files"`
 }
 
+type TaskPageFilter struct {
+	Status TaskStatus
+	Search string
+	Limit  int
+	Cursor string
+}
+
+type TaskPage struct {
+	Tasks      []Task `json:"tasks"`
+	Total      int    `json:"total"`
+	NextCursor string `json:"next_cursor,omitempty"`
+	HasMore    bool   `json:"has_more"`
+}
+
 type Overview struct {
-	Plans             []Plan            `json:"plans"`
-	Tasks             []Task            `json:"tasks"`
-	PlanningRequests  []PlanningRequest `json:"planning_requests"`
-	MutationSlots     int               `json:"mutation_slots"`
-	MutationSlotsUsed int               `json:"mutation_slots_used"`
+	Plans             []Plan             `json:"plans"`
+	Tasks             []Task             `json:"tasks"`
+	TaskCounts        map[TaskStatus]int `json:"task_counts"`
+	PlanningRequests  []PlanningRequest  `json:"planning_requests"`
+	MutationSlots     int                `json:"mutation_slots"`
+	MutationSlotsUsed int                `json:"mutation_slots_used"`
 }
 
 type PlanningRequest struct {
