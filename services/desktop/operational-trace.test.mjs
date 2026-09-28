@@ -41,9 +41,11 @@ test('only calls to the local backend carry the trace header', async () => {
 
 test('main traces every scheduler attempt and every transport preparation', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  for (const executor of ['executeChatAgentTask', 'executeChatTranslatorTask', 'executeChatSupervisorTask']) {
+  for (const executor of ['executeChatTranslatorTask', 'executeChatSupervisorTask']) {
     assert.match(source, new RegExp(`execute: \\(task, context\\) => withTrace\\(traceForTask\\(task\\), \\(\\) => ${executor}\\(task, context\\)\\)`))
   }
+  // Worker attempts are traced first, then scoped for their activity phase.
+  assert.match(source, /execute: \(task, context\) => withTrace\(traceForTask\(task\), \(\) => chatAgentWorkerActivity\.run\([^\n]*executeChatAgentTask\(task, context\)\)\)/)
   assert.match(source, /return await withTrace\(traceId\('prepare', requestId \|\| key, Date\.now\(\)\.toString\(36\)\), operation\)/)
   assert.match(source, /installConsoleCapture\(console, operationalLog, \{ trace: currentTrace \}\)\ninstallBackendTraceHeader\(globalThis, BACKEND_URL\)/)
 })

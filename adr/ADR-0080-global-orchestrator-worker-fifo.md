@@ -37,3 +37,20 @@ during DOING applies to the task's Agent Session: the effort level to the
 remaining budget, the reasoning effort to the next provider request; a request
 already submitted retains the reasoning effort it used. A terminal task's
 settings are metadata for any future authorized run and do not restart work.
+
+## Pacing order and Worker phase
+
+Concurrent claims do not raise provider throughput: every ordinary Worker
+action still waits for the shared 30-second pacing gap. Served first-come,
+the gate spent every slot on new-task navigation before any claimed task
+uploaded, so all Workers read as busy while none had submitted. Waiters are
+therefore ordered, never spaced differently: an action of a task that already
+performed a paced provider action takes the next slot, then first-come order
+among equals. A fresh execution paces a composer navigation only when the page
+is not already at its destination; the upload that follows is paced anyway.
+
+Each Worker publishes the phase of its current task as a closed code:
+`claimed`, `waiting_turn`, `navigating`, `preparing`, `uploading`,
+`submitting`, `processing`, `downloading` or `validating`. The runtime drawer
+shows that phase instead of inferring one from the task type. The phase
+carries no page content and clears when the task settles.

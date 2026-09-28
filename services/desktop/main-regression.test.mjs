@@ -751,7 +751,7 @@ test('the two pools partition the durable queue: Supervisors take chat-bound wor
 
   const workerPool = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('), source.indexOf('chatAgentScheduler.start()'))
   assert.match(workerPool, /role: 'worker'/)
-  assert.match(workerPool, /execute: \(task, context\) => withTrace\(traceForTask\(task\), \(\) => executeChatAgentTask\(task, context\)\)/)
+  assert.match(workerPool, /execute: \(task, context\) => withTrace\(traceForTask\(task\), \(\) => chatAgentWorkerActivity\.run\(`worker-\$\{Number\(context\?\.worker\) \|\| 0\}`, task\.task_id, \(\) => executeChatAgentTask\(task, context\)\)\)/)
 
   const supervisorPool = source.slice(source.indexOf('chatSupervisorScheduler = new ChatAgentSchedulerClient('), source.indexOf('chatSupervisorScheduler.start()'))
   assert.match(supervisorPool, /role: 'supervisor'/)
@@ -2466,7 +2466,7 @@ test('submission pacing widens after rate-limit pressure and decays back on its 
   // first one through earns the 429, and a value captured on entry would spend
   // the old narrow width for everyone still queued behind it - which is how
   // the burst that caused the rate limit carried straight on through the gate.
-  assert.match(pace, /chatGPTWorkerPacer\.pace\(measureGapMs, \{ minimumGapMs \}\)/)
+  assert.match(pace, /chatGPTWorkerPacer\.pace\(measureGapMs, \{ minimumGapMs, priority \}\)/)
   assert.match(source, /CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer/) 
   const pacerModule = await readFile(new URL('./chat-agent-pacer.mjs', import.meta.url), 'utf8')
   assert.match(pacerModule, /CHAT_AGENT_WORKER_ACTION_GAP_MS = 30_000/)

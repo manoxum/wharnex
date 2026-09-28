@@ -2579,7 +2579,6 @@ async function waitForChatGPTNavigationSettle(wc, timeoutMs = 5_000) {
 }
 
 async function loadOwnedChatGPTURL(cacheKey, entry, value, reason = 'navigate') {
-  chatAgentWorkerActivity.set('navigating')
   const key = sanitizeChatCacheKey(cacheKey)
   const target = requireTrustedChatGPTURL(value)
   const { wc } = requireOwnedChatGPTEntry(key, entry)
@@ -2590,6 +2589,7 @@ async function loadOwnedChatGPTURL(cacheKey, entry, value, reason = 'navigate') 
   }
   if (wc.isDestroyed()) throw new Error('ChatGPT renderer is unavailable')
   if (wc.getURL() === target || sameConversationURL(wc.getURL(), target)) return currentChatGPTState(key, windowStateForEntry(entry))
+  chatAgentWorkerActivity.set('navigating')
   let operation
   operation = (async () => {
     entry.navigationTarget = target
@@ -5790,6 +5790,11 @@ function orchestratorExecutionWorkerRuntime() {
   return {
     baseURL: BACKEND_URL, homeURL: CHATGPT_URL, expectedDownloads: expectedChatGPTOrchestratorExecutions,
     pace: paceChatGPTWorkerSubmission, rateLimitDelay: chatAgentRateLimitDelayMs,
+    needsNavigation: (entry, url) => {
+      const current = entry.view.webContents.getURL()
+      return !(current === requireTrustedChatGPTURL(url) || sameConversationURL(current, url))
+    },
+    phase: (value) => chatAgentWorkerActivity.set(value),
     conversationURL: canonicalChatGPTConversationURL, sameConversation: sameConversationURL,
     loadURL: async (key, entry, url) => loadOwnedChatGPTURL(key, entry, url, 'orchestrator-agent-resume'),
     waitSurfaceReady: waitForChatGPTSurfaceReady,

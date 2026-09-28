@@ -24,11 +24,15 @@ function activeRequest(value) {
 }
 
 async function submitRequest(task, entry, key, current, payload, owner, runtime) {
-  await runtime.pace()
+  const previousURL = runtime.conversationURL(payload.conversation_url || '')
+  const destination = previousURL || runtime.homeURL
+  // Only a navigation needs its own paced slot here; the upload below is
+  // paced anyway. Pacing a page that is already in place spent one 30-second
+  // slot per task doing nothing while every other Worker queued behind it.
+  if (!runtime.needsNavigation || runtime.needsNavigation(entry, destination)) await runtime.pace()
   const delay = runtime.rateLimitDelay()
   if (delay > 0) return { wait: { status: 'waiting', delayMs: delay, observation: true, error: 'ChatGPT rate-limit cooldown is active' } }
-  const previousURL = runtime.conversationURL(payload.conversation_url || '')
-  const target = await runtime.targetComposer(key, previousURL || runtime.homeURL, Boolean(previousURL), entry)
+  const target = await runtime.targetComposer(key, destination, Boolean(previousURL), entry)
   target.reasoningEffort = runtime.normalizeEffort(current.reasoning_effort)
   const input = await runtime.buildRequest(key, current)
   try {
@@ -73,6 +77,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
   if (resume) {
     if (!runtime.sameConversation(target.wc.getURL(), conversationURL)) await runtime.loadURL(key, entry, conversationURL)
     await runtime.waitSurfaceReady(key, entry)
+    runtime.phase?.('processing')
   } else {
     const submitted = await submitRequest(task, entry, key, current, payload, owner, runtime)
     if (submitted.wait) return submitted.wait
@@ -98,6 +103,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
       ])
       if (outcome.done) {
         if (outcome.error) throw outcome.error
+        runtime.phase?.('validating')
         let result
         try {
           result = await workerRequest(runtime.baseURL, sessionID, taskID, 'worker-bundle', {

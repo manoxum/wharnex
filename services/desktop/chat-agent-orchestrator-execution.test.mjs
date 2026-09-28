@@ -111,3 +111,48 @@ test('schema rejection asks for a corrected ZIP in the same conversation', async
     globalThis.fetch = previousFetch
   }
 })
+
+test('a fresh request paces only when its composer must navigate', async () => {
+  const previousFetch = globalThis.fetch
+  const expectedFilename = 'whx_bundle_res_otk-abc_req_20260927T170000_0123456789abcdef.zip'
+  const request = {
+    task: { status: 'DOING' }, run: { id: 'run-1' }, agent_session_id: 'ses-agent',
+    request_id: 'req_20260927T170000_0123456789abcdef', prompt: 'Backend-authored prompt',
+    expected_filename: expectedFilename, chat_id: 'otk-abc', reasoning_effort: 'high', agent_state: 'awaiting_plan',
+  }
+  globalThis.fetch = async (url) => ({ ok: true, json: async () => String(url).endsWith('/worker-start') ? request : { task: { status: 'REVIEW' } } })
+  const run = async (needsNavigation) => {
+    const entry = { view: { webContents: { getURL: () => 'https://chatgpt.com/' } } }
+    const expectedDownloads = new Map()
+    const actions = []
+    const runtime = {
+      baseURL: 'http://127.0.0.1:6969', homeURL: 'https://chatgpt.com/', expectedDownloads,
+      pace: async () => actions.push('pace'), rateLimitDelay: () => 0, needsNavigation: () => needsNavigation,
+      phase: (value) => actions.push(`phase:${value}`),
+      conversationURL: (value) => value || '', sameConversation: () => false,
+      targetComposer: async () => ({ entry, wc: entry.view.webContents, conversationUrl: '' }),
+      normalizeEffort: (value) => value,
+      buildRequest: async () => ({ uploadPaths: ['/tmp/request.zip'], bytes: 1, archiveName: 'request.zip', bootstrap: 'Use request.zip', cleanup: async () => undefined }),
+      fill: async () => true, paste: async () => actions.push('paste'),
+      wait: async () => undefined, settleDelay: () => 0, assistantCount: async () => 0,
+      submit: async () => actions.push('submit'), waitConversation: async () => 'https://chatgpt.com/c/owned',
+      checkpoint: async () => undefined, health: async () => ({ required: false }), noteRateLimit: () => false,
+      humanActionMessage: () => '', completion: async () => ({ complete: true }), expectedDownloadScript: (name) => name,
+      postBundle: async () => ({ task: { status: 'REVIEW' } }),
+      executeDOM: async () => { expectedDownloads.get(expectedFilename).resolve(Buffer.from('zip')); return 'exact' },
+    }
+    const task = { task_id: 'cat_0123456789abcdef0123', chat_id: 'otk_abc', session_id: 'ses-owner' }
+    const result = await executeOrchestratorExecution(task, entry, 'otk_abc', { protocol: 'harness.orchestrator-execution/v1', task_id: 'otk_abc' }, 'worker-1', runtime)
+    assert.equal(result.status, 'done')
+    return actions
+  }
+  try {
+    const inPlace = await run(false)
+    assert.equal(inPlace.filter((item) => item === 'pace').length, 0)
+    assert.ok(inPlace.includes('phase:validating'))
+    const navigating = await run(true)
+    assert.deepEqual(navigating.slice(0, 2), ['pace', 'paste'])
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})

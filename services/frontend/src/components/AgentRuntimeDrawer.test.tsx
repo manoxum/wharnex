@@ -117,6 +117,27 @@ describe('AgentRuntimeDrawer', () => {
     }
   })
 
+  it('shows the phase a Worker reports instead of inferring it from the task type', async () => {
+    const state = runtime()
+    const plan = { ...state.agents[3].task!, type: 'ORCHESTRATOR_PLAN', status: 'RUNNING' }
+    const since = '2026-09-28T01:44:13.000Z'
+    state.agents = [
+      { ...state.agents[3], id: 'worker-queued', label: 'Worker queued', status: 'running', task: plan, activity: { phase: 'waiting_turn', since, task_id: plan.task_id } },
+      { ...state.agents[3], id: 'worker-uploading', label: 'Worker uploading', status: 'running', task: plan, activity: { phase: 'uploading', since, task_id: plan.task_id } },
+      { ...state.agents[3], id: 'worker-processing', label: 'Worker processing', status: 'running', task: plan, activity: { phase: 'processing', since, task_id: plan.task_id } },
+      { ...state.agents[3], id: 'worker-downloading', label: 'Worker downloading', status: 'running', task: plan, activity: { phase: 'downloading', since, task_id: plan.task_id } },
+    ]
+    window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
+
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+
+    // Without the phase, every one of these read "A escrever".
+    expect(await screen.findByText('Worker · Na fila de envio')).toBeTruthy()
+    expect(screen.getByText('Worker · A carregar ZIP')).toBeTruthy()
+    expect(screen.getByText('Worker · GPT a processar')).toBeTruthy()
+    expect(screen.getByText('Worker · A descarregar resposta')).toBeTruthy()
+  })
+
   it('groups policy controls into readable operational sections', async () => {
     window.wharnessDesktop = { agents: agentsBridge() } as unknown as WharnessDesktopBridge
 
