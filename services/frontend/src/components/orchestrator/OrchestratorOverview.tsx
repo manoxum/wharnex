@@ -120,9 +120,9 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
     <OrchestratorTaskAttention tasks={overview.tasks} onSelectTask={onSelectTask}/>
     <section className="orchestrator-goal-stage">
       <div className="orchestrator-goal-copy">
-        <span>Planeie o resultado, não os cliques</span>
-        <h1>O que pretende realizar neste projeto?</h1>
-        <p>Descreva o objetivo. O Planner transforma-o em tarefas, dependências e critérios de conclusão antes de qualquer execução.</p>
+        <span className="mb-[9px] block text-sm font-extrabold uppercase tracking-[0.09em] text-[var(--theme-accent)]">Planeie o resultado, não os cliques</span>
+        <h1 className="m-0 text-2xl font-bold leading-[1.08] tracking-[-0.035em] text-[var(--theme-text)]">O que pretende realizar neste projeto?</h1>
+        <p className="mx-auto mt-[13px] w-full max-w-[620px] text-base leading-[1.65] text-[var(--theme-text-muted)]">Descreva o objetivo. O Planner transforma-o em tarefas, dependências e critérios de conclusão antes de qualquer execução.</p>
       </div>
       <div className="orchestrator-composer-shell">
         <ChatPanel
@@ -147,32 +147,32 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
     <OrchestratorPlanningQueue requests={planningRequests} tasks={planningTasks} chats={chats} busy={busy} onGoToChat={onGoToChat} onRetry={(requestId) => { void onRun(() => api.retryOrchestratorPlanning(session.id, requestId)) }}/>
 
     {proposal?.manual_prompt && !proposal.worker_task_id && <section className="orchestrator-manual-plan">
-      <header><div><strong>Planner manual</strong><span>Envie este prompt ao ChatGPT e cole abaixo apenas o JSON devolvido.</span></div><button type="button" onClick={() => void navigator.clipboard.writeText(proposal.manual_prompt || '')}><Icon name="copy" size={14}/> Copiar prompt</button></header>
-      <details><summary>Ver prompt</summary><pre>{proposal.manual_prompt}</pre></details>
-      <textarea value={manualJSON} onChange={(event) => setManualJSON(event.target.value)} placeholder='{"protocol":"harness.orchestrator-plan/v1", ...}' rows={7}/>
-      <button className="primary" type="button" disabled={busy || !manualJSON.trim()} onClick={() => void importManual()}>Importar plano estruturado</button>
+      <header><div><strong className="text-base">Planner manual</strong><span className="text-sm text-[var(--theme-text-muted)]">Envie este prompt ao ChatGPT e cole abaixo apenas o JSON devolvido.</span></div><button type="button" onClick={() => void navigator.clipboard.writeText(proposal.manual_prompt || '')}><Icon name="copy" size={14}/> Copiar prompt</button></header>
+      <details><summary className="text-sm">Ver prompt</summary><pre className="font-mono text-sm leading-[1.5]">{proposal.manual_prompt}</pre></details>
+      <textarea className="font-mono text-base leading-[1.55]" value={manualJSON} onChange={(event) => setManualJSON(event.target.value)} placeholder='{"protocol":"harness.orchestrator-plan/v1", ...}' rows={7}/>
+      <button className="primary text-base font-bold" type="button" disabled={busy || !manualJSON.trim()} onClick={() => void importManual()}>Importar plano estruturado</button>
     </section>}
 
     {draftPlan && <section className="orchestrator-proposal-card">
       <header>
-        <div><span>Plano proposto · {draftTasks.length} tarefas</span><h2>{draftPlan.title}</h2><p>{draftPlan.objective}</p></div>
+        <div><span className="text-sm font-extrabold uppercase tracking-[0.06em] text-[var(--theme-accent)]">Plano proposto · {draftTasks.length} tarefas</span><h2 className="mb-[3px] mt-1 text-lg">{draftPlan.title}</h2><p className="m-0 text-base leading-[1.5] text-[var(--theme-text-muted)]">{draftPlan.objective}</p></div>
         <div className="orchestrator-proposal-actions">
-          <button type="button" className="secondary danger" disabled={busy} onClick={() => void rejectDraftPlan()}><Icon name="close" size={14}/> Recusar</button>
-          <button type="button" className="secondary" disabled={busy} onClick={() => void reviseDraftPlan()}><Icon name="refresh" size={14}/> Pedir alteração</button>
-          <button type="button" disabled={busy} onClick={() => void onRun(() => api.approveOrchestratorPlan(session.id, draftPlan.id), () => onProposal(undefined))}><Icon name="check" size={15}/> Aprovar e enviar ao fluxo</button>
+          <button type="button" className="secondary danger text-base font-bold" disabled={busy} onClick={() => void rejectDraftPlan()}><Icon name="close" size={14}/> Recusar</button>
+          <button type="button" className="secondary text-base font-bold" disabled={busy} onClick={() => void reviseDraftPlan()}><Icon name="refresh" size={14}/> Pedir alteração</button>
+          <button type="button" className="text-base font-bold" disabled={busy} onClick={() => void onRun(() => api.approveOrchestratorPlan(session.id, draftPlan.id), () => onProposal(undefined))}><Icon name="check" size={15}/> Aprovar e enviar ao fluxo</button>
         </div>
       </header>
       <div className="orchestrator-proposal-flow">
         {draftTasks.map((task, index) => <button key={task.id} type="button" onClick={() => onSelectTask(task)}>
-          <span className="step">{String(index + 1).padStart(2, '0')}</span>
-          <span><strong>{task.title}</strong><small>{task.depends_on?.length ? `${task.depends_on.length} dependência(s)` : 'Sem dependências'} · {task.priority}</small></span>
+          <span className="step font-mono text-sm leading-none text-[var(--theme-text-soft)]">{String(index + 1).padStart(2, '0')}</span>
+          <span><strong className="text-base">{task.title}</strong><small className="text-sm text-[var(--theme-text-muted)]">{task.depends_on?.length ? `${task.depends_on.length} dependência(s)` : 'Sem dependências'} · {task.priority}</small></span>
           <Icon name="chevron-right" size={14}/>
         </button>)}
       </div>
     </section>}
 
     <section className="orchestrator-cockpit">
-      <header><div><span>Visão operacional</span><strong>Fluxo do projeto</strong></div><button type="button" onClick={onOpenTasks}>Abrir todas as Tasks <Icon name="arrow-right" size={14}/></button></header>
+      <header><div><span className="text-sm uppercase tracking-[0.07em] text-[var(--theme-text-muted)]">Visão operacional</span><strong className="text-lg">Fluxo do projeto</strong></div><button className="text-base" type="button" onClick={onOpenTasks}>Abrir todas as Tasks <Icon name="arrow-right" size={14}/></button></header>
       <div className="orchestrator-metrics">
         <Metric label="Em execução" value={active.length} note={`${overview.mutation_slots_used}/${overview.mutation_slots} slot de mutação`} />
         <Metric label="Prontas" value={ready.length} note="elegíveis para o próximo slot" />
@@ -180,9 +180,9 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
         <Metric label="Concluídas" value={completed.length} note="dependências liberadas" />
       </div>
       <div className="orchestrator-active-strip">
-        <div className="orchestrator-slot"><span className={overview.mutation_slots_used ? 'busy' : 'free'}/><strong>Mutation slot</strong><small>{overview.mutation_slots_used ? active[0]?.title || 'Ocupado' : 'Livre para a próxima tarefa READY'}</small></div>
+        <div className="orchestrator-slot"><span className={overview.mutation_slots_used ? 'busy' : 'free'}/><strong className="text-base">Mutation slot</strong><small className="text-sm text-[var(--theme-text-muted)]">{overview.mutation_slots_used ? active[0]?.title || 'Ocupado' : 'Livre para a próxima tarefa READY'}</small></div>
         <div className="orchestrator-recent">
-          {recent.length ? recent.map((task) => <button key={task.id} onClick={() => onSelectTask(task)}><Status status={task.status}/><span><strong>{task.title}</strong><small>{task.condition !== 'none' ? task.condition.replaceAll('_', ' ') : task.plan_id ? 'Plano orquestrado' : 'Tarefa manual'}</small></span><Icon name="chevron-right" size={14}/></button>) : <div className="orchestrator-empty">Ainda não existem tarefas. Gere um plano ou crie uma Task manual.</div>}
+          {recent.length ? recent.map((task) => <button key={task.id} onClick={() => onSelectTask(task)}><Status status={task.status}/><span><strong className="text-base">{task.title}</strong><small className="text-sm text-[var(--theme-text-muted)]">{task.condition !== 'none' ? task.condition.replaceAll('_', ' ') : task.plan_id ? 'Plano orquestrado' : 'Tarefa manual'}</small></span><Icon name="chevron-right" size={14}/></button>) : <div className="orchestrator-empty text-base">Ainda não existem tarefas. Gere um plano ou crie uma Task manual.</div>}
         </div>
       </div>
     </section>
@@ -190,5 +190,5 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
 }
 
 function Metric({ label, value, note }: { label: string; value: number; note: string }) {
-  return <div><span>{label}</span><strong>{value}</strong><small>{note}</small></div>
+  return <div><span className="text-sm text-[var(--theme-text-muted)]">{label}</span><strong className="text-2xl leading-none tracking-[-0.04em]">{value}</strong><small className="text-sm text-[var(--theme-text-soft)]">{note}</small></div>
 }
