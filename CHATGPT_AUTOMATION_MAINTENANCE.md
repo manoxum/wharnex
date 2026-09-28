@@ -30,7 +30,7 @@ Por padrão ficam seletivamente suspensos `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHI
 ## 3. Cadência global dos Workers
 
 - Navegação, reload, tentativa de upload, submit e operação de conta de qualquer Worker compartilham o mesmo relógio global de 30 segundos por perfil.
-- `TRANSLATE_MARKDOWN` não entra no pool persistente de Workers. Um scheduler dedicado reivindica somente esse tipo, cria o `Translator`, dispara automaticamente a operação e destrói a instância no fim.
+- `TRANSLATE_MARKDOWN` entra primeiro num Worker persistente elegível e livre. Um scheduler dedicado mantém um loop temporário por tradução que excede a capacidade livre, cria um `Translator` por tarefa reivindicada e destrói a instância no fim. O limite dos Workers persistentes não limita as traduções; os IDs canónicos `translator-N` admitem até 64 instâncias simultâneas.
 - O `Translator` usa o relógio global de tradução, com mínimo normativo de 5 segundos; ele não aguarda a cadência de 30 segundos dos Workers comuns.
 - A tarefa de tradução tem `max_attempts=1`. Autenticação, gate humano, timeout ou falha de transporte terminam a operação sem retry e a interface mostra **“A tradução falhou. Tente novamente mais tarde.”**
 - A cadência é aplicada também aos retries que realmente podem alcançar o ChatGPT.

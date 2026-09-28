@@ -48,6 +48,7 @@ import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstra
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, DEFAULT_SUSPENDED_WORKER_TASK_TYPES, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes } from './chat-agent-policies.mjs'
 import { autoScaleWorkerDemand } from './chat-agent-auto-scale.mjs'
+import { MAX_TRANSLATOR_SLOTS, translatorCapacityTarget } from './chat-agent-translator-capacity.mjs'
 import { chatAgentQueueDiagnostics } from './chat-agent-queue-diagnostics.mjs'
 import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
@@ -193,6 +194,8 @@ const chatAgentWorkerStates = new Map()
 const chatSupervisorStates = new Map()
 let chatSupervisorScheduler
 let chatTranslatorScheduler
+const activeChatTranslatorSlots = new Set()
+let dueChatTranslations = 0
 let configuredChatAgentSupervisorSlots = DEFAULT_SUPERVISOR_SLOTS
 let desiredChatAgentSupervisorSlots = DEFAULT_SUPERVISOR_SLOTS
 let configuredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS
@@ -2863,9 +2866,11 @@ function setChatAgentWorkerTarget(target, windowState) {
 }
 
 async function reconcileChatAgentAutoScale() {
-  if (!chatAgentScheduler || chatAgentPolicies.auto_scale !== true) return
+  if (!chatAgentScheduler) return
   try {
     const summary = await chatAgentScheduler.queueSummary()
+    reconcileChatTranslatorCapacity(summary)
+    if (chatAgentPolicies.auto_scale !== true) return
     const queue = chatAgentQueueDiagnostics(summary)
     chatAgentRuntimeDiagnostics = { ...chatAgentRuntimeDiagnostics, queue }
     // Both pools are reconciled on the same tick and from the same reading, but
@@ -2904,6 +2909,22 @@ async function reconcileChatAgentAutoScale() {
     }
     if (supervisorChanged) publishChatAgentRuntimeState()
   } catch (error) { console.warn(`[chat-agent] auto-scale poll failed: ${error instanceof Error ? error.message : String(error)}`) }
+}
+
+function reconcileChatTranslatorCapacity(summary) {
+  if (!chatTranslatorScheduler) return
+  dueChatTranslations = Math.max(0, Number(summary?.due_translator) || 0)
+  const target = translatorCapacityTarget({
+    due: dueChatTranslations,
+    active: activeChatTranslatorSlots.size,
+    availableWorkers: chatAgentTranslationWorkersAvailable(),
+  })
+  chatTranslatorScheduler.setWorkerCount(target)
+}
+
+function chatAgentTranslationWorkersAvailable() {
+  if (workerSuspendsAllTaskTypes(chatAgentPolicies) || chatAgentRateLimitResumeBlocked()) return 0
+  return chatAgentAvailableWorkers()
 }
 
 // Auto scale for the Supervisor pool.
@@ -6554,12 +6575,12 @@ async function executeChatSupervisorTask(task, { worker, owner }) {
 // Run one translation in a provider-facing browser instance that exists only
 // for that task. The lightweight scheduler remains alive to notice durable
 // queue work; the Chromium WebContents named Translator does not.
-async function executeChatTranslatorTask(task) {
+async function executeChatTranslatorTask(task, { entry: borrowedEntry } = {}) {
   if (task?.type !== 'TRANSLATE_MARKDOWN') return { status: 'failed', error: 'Translator accepts only TRANSLATE_MARKDOWN' }
   const host = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
   if (!host) return { status: 'failed', error: 'Translator has no host window' }
 
-  const entry = createChatGPTWorkerView(`translator-${task.task_id}`, host)
+  const entry = borrowedEntry || createChatGPTWorkerView(`translator-${task.task_id}`, host)
   let assigned
   try {
     const payload = chatAgentTaskPayload(task)
@@ -6572,16 +6593,20 @@ async function executeChatTranslatorTask(task) {
     if (assigned) chatAgentResidency.cancelAssignment(entry.slotId, assigned.assignment.epoch)
     return { status: 'failed', error: error instanceof Error ? error.message : String(error) }
   } finally {
-    const index = chatGPTWorkerEntries.indexOf(entry)
-    if (index >= 0) chatGPTWorkerEntries.splice(index, 1)
-    retireChatGPTWorkerView(entry)
-    console.log(`[translator] destroyed task=${task.task_id}`)
+    if (borrowedEntry) chatAgentResidency.releaseResidentLane(entry.slotId)
+    else {
+      const index = chatGPTWorkerEntries.indexOf(entry)
+      if (index >= 0) chatGPTWorkerEntries.splice(index, 1)
+      retireChatGPTWorkerView(entry)
+      console.log(`[translator] destroyed task=${task.task_id}`)
+    }
   }
 }
 
 async function executeChatAgentTask(task, { worker, owner }) {
   const entry = workerEntryForIndex(worker)
   if (!entry) return { status: 'attention', providerWide: true, error: 'Autonomous worker browser is unavailable' }
+  if (task.type === 'TRANSLATE_MARKDOWN') return executeChatTranslatorTask(task, { entry })
   const initialRateLimitDelay = chatAgentRateLimitDelayMs()
   if (initialRateLimitDelay > 0) {
     return { status: 'waiting', delayMs: initialRateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
@@ -8445,8 +8470,13 @@ app.whenReady().then(async () => {
         open_projects: projectWindowRegistry.openProjects(),
         excluded_types: manualSuspension.paused ? manualSuspension.task_types : [],
       }
-      if (options.skip || supervisorLanes.size === 0) return { ...options, ...scope }
-      return { ...options, ...scope, excluded_lanes: [...new Set([...(options.excluded_lanes || []), ...supervisorLanes])].slice(0, 32) }
+      if (options.skip) return { ...options, ...scope }
+      // Residency protects only a live response or an explicit operator pin.
+      // Ordinary queued work is global FIFO within its priority band; a warm
+      // conversation is an optimization, not a reason to skip older work.
+      const fifo = chatAgentSupervisingLiveResponse(worker) || keepFlowing
+        ? options : { preferred_lane: '', fallback_mode: 'any', excluded_lanes: [] }
+      return { ...fifo, ...scope, excluded_lanes: [...new Set([...(fifo.excluded_lanes || []), ...supervisorLanes])].slice(0, 32) }
     },
     // An empty claim is the only proof a resident lane has run dry. Without it
     // residency never expired, so a slot stayed bound to a chat that had been
@@ -8503,8 +8533,8 @@ app.whenReady().then(async () => {
   // Worker slot: claiming a translation creates a Translator WebContents,
   // executes that single request, and destroys the WebContents immediately.
   chatTranslatorScheduler = new ChatAgentSchedulerClient({
-    baseURL: BACKEND_URL, workerCount: 1, maxWorkers: 1,
-    execute: (task, context) => withTrace(traceForTask(task), () => executeChatTranslatorTask(task, context)), role: 'translator', agentID: () => 'translator-1',
+    baseURL: BACKEND_URL, workerCount: 1, maxWorkers: MAX_TRANSLATOR_SLOTS,
+    execute: (task, context) => withTrace(traceForTask(task), () => executeChatTranslatorTask(task, context)), role: 'translator', agentID: (index) => `translator-${index}`,
     idleMs: 100, taskCooldownMs: 0,
     claimOptions: () => ({
       // Unlike persistent pools, the Translator claims after a cooldown's
@@ -8512,10 +8542,12 @@ app.whenReady().then(async () => {
       // confirmation. Its executor then fails locally at the resume gate,
       // which gives the caller an immediate terminal answer without touching
       // ChatGPT or leaving the request queued behind the probe.
-      skip: ![...desktopWindows.values()].some((state) => state.window && !state.window.isDestroyed()),
+      skip: ![...desktopWindows.values()].some((state) => state.window && !state.window.isDestroyed()) || dueChatTranslations === 0 || chatAgentTranslationWorkersAvailable() >= dueChatTranslations,
       project_scoped: true, open_projects: projectWindowRegistry.openProjects(),
     }),
     onState: (state) => {
+      if (state?.kind === 'running') activeChatTranslatorSlots.add(state.worker)
+      if (state?.kind === 'settled' || state?.kind === 'task-error' || state?.kind === 'worker-stopped') activeChatTranslatorSlots.delete(state.worker)
       if (state?.kind === 'task-error' || state?.kind === 'worker-error') {
         console.warn(`[translator] ${state.kind}: ${String(state?.error?.message || state?.error || 'unknown failure')}`)
       }

@@ -47,15 +47,28 @@ func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 			t.Fatalf("Supervisor pool claimed small Worker work %q", taskType)
 		}
 	}
-	for _, taskType := range claimTypes(t, store, ChatAgentRoleWorker, len(workerTypes)+len(supervisorTypes)) {
-		if chatAgentTaskSupervisor(taskType) || taskType == "TRANSLATE_MARKDOWN" {
-			t.Fatalf("Worker pool claimed chat-bound Supervisor work %q", taskType)
-		}
-	}
 	for _, taskType := range claimTypes(t, store, ChatAgentRoleTranslator, len(allTypes)) {
 		if taskType != "TRANSLATE_MARKDOWN" {
 			t.Fatalf("Translator claimed foreign work %q", taskType)
 		}
+	}
+	for _, taskType := range claimTypes(t, store, ChatAgentRoleWorker, len(workerTypes)+len(supervisorTypes)) {
+		if chatAgentTaskSupervisor(taskType) {
+			t.Fatalf("Worker pool claimed chat-bound Supervisor work %q", taskType)
+		}
+	}
+}
+
+func TestIdleWorkerMayClaimHighestPriorityTranslation(t *testing.T) {
+	store := NewStore()
+	for _, taskType := range []string{"ORCHESTRATOR_PLAN", "TRANSLATE_MARKDOWN"} {
+		if _, err := store.EnqueueChatAgentTask(testChatAgentTask(taskType, "chat-"+taskType, "", "borrow:"+taskType)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claimed, err := store.ClaimChatAgentTaskWithOptions("worker-1", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1"})
+	if err != nil || claimed == nil || claimed.Type != "TRANSLATE_MARKDOWN" {
+		t.Fatalf("Worker translation claim=%#v err=%v", claimed, err)
 	}
 }
 

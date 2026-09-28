@@ -113,7 +113,7 @@ The managed-context SHA-256 is provenance and cache identity, not a global proje
 
 Protected execution reconstructs a stale request from its exact immutable base, applies and verifies the protocol-v1 patch there, then materializes a canonical ChangeSet containing Wharness-derived mutations and base/result blob hashes. Every actual patch, declared read, and barrier path MUST exist in the retained archive before that archive is authoritative. Because the model context may intentionally omit safe source files after conservative content filtering, Wharness completes only missing, non-authoritative verification dependencies from the current safe project copy; it never overwrites archived historical files. `impact_files` is only a scheduling forecast. `read_files` records semantic dependencies and `barrier_files` records inputs whose movement requires broader verification.
 
-All Agent plan execution, whether started manually or by either automatic mode, MUST pass through one FIFO execution queue keyed by canonical project root. At most one plan may execute for a project at a time; different projects may execute concurrently. A queued session MUST be re-read after admission before policy, duplicate-plan, baseline, sandbox, or host-direct work proceeds. Queue admission and release MUST be cancellation-safe and observable through `execution.queued` and `execution.dequeued` events. This execution queue does not serialize ChatGPT planning or transport.
+All Agent plan execution, whether started manually or by either automatic mode, MUST pass through one FIFO execution queue keyed by canonical project root. Protected execution admits up to five plans for one project by default, bounded by the configured project capacity; isolated sandbox copies and guarded host integration protect concurrent work. Host-direct modes retain their explicit approval and safety boundaries. Different projects may execute concurrently. A queued session MUST be re-read after admission before policy, duplicate-plan, baseline, sandbox, or host-direct work proceeds. Queue admission and release MUST be cancellation-safe and observable through `execution.queued` and `execution.dequeued` events. This execution queue does not serialize ChatGPT planning or transport.
 
 One durable interrupted-execution intent owns a `plan_id` at a time. If bundle delivery, recovery, or renderer reconciliation triggers Auto again while that same intent is running or awaiting recovery, the later trigger MUST join the recorded execution and publish `automation.execution_joined`; it MUST NOT report `automation.execution_failed`, consume a repair round, or start a second runner.
 
@@ -334,7 +334,7 @@ against.
 
 ## Execution concurrency (v1.3.2)
 
-Per-project execution concurrency defaults to one and is adjustable at runtime
+Per-project Protected execution concurrency defaults to five and is adjustable at runtime
 from the workspace queue view or through
 `WHARNESS_PROJECT_EXECUTION_CONCURRENCY`. Lowering it never interrupts work
 already running: the project admits nothing new until it drains under the new
@@ -354,7 +354,7 @@ Orchestrator tasks use the persisted lifecycle `PENDING -> READY -> DOING -> REV
 
 Generated tasks are persisted as `PENDING` until their plan is approved. The backend readiness evaluator, never the frontend, promotes an unblocked dependency-satisfied task to `READY`. `DOING` can only be entered by the Orchestrator Start action; a running task cannot be manually moved while its Agent run owns it.
 
-V1 has one real mutation slot per project. Start fails while another project task is `DOING`. The created Agent Session also enters the existing canonical-project execution FIFO, so Orchestrator does not weaken ADR-0025 admission, Policy, sandbox, verification, integration, Apply or recovery semantics. `parallelizable` is advisory planning metadata in V1 and does not increase execution concurrency.
+Orchestrator READY tasks enter a global browser Worker queue. After higher-priority translations and planning requests, execution claims are FIFO by durable creation time across all open projects, including multiple tasks in the same project. Up to the configured Worker pool capacity may enter DOING together. Every resulting Agent Session still uses the bounded Protected execution queue and preserves Policy, isolated verification, serialized host integration, Apply and recovery. `parallelizable` remains advisory; dependency readiness, not that flag, determines eligibility.
 
 ## Interactive v2 execution (see `adr/ADR-0063`)
 

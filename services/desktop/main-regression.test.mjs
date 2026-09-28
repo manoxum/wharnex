@@ -733,7 +733,8 @@ test('the Supervisor bound to a chat owns its expected-bundle observation whethe
   const claimOptions = scheduler.slice(scheduler.indexOf('claimOptions: (worker)'), scheduler.indexOf('onIdle:'))
   assert.match(claimOptions, /const supervisorLanes = chatSupervisorBoundLanes\(\)/)
   assert.match(claimOptions, /releaseResidentLane\(entry\.slotId, residentLane\)/)
-  assert.match(claimOptions, /excluded_lanes: \[\.\.\.new Set\(\[\.\.\.\(options\.excluded_lanes \|\| \[\]\), \.\.\.supervisorLanes\]\)\]\.slice\(0, 32\)/)
+  assert.match(claimOptions, /fallback_mode: 'any', excluded_lanes: \[\]/)
+  assert.match(claimOptions, /excluded_lanes: \[\.\.\.new Set\(\[\.\.\.\(fifo\.excluded_lanes \|\| \[\]\), \.\.\.supervisorLanes\]\)\]\.slice\(0, 32\)/)
 
   const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
   const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', pollStart)
@@ -2145,13 +2146,15 @@ test('translation worker is transport only: it uploads the engine’s bundle and
   assert.match(download, /\^whx_translation_res_cat_\[a-f0-9\]\{20\}\\\.zip\$/)
 })
 
-test('translation uses a dedicated one-shot Translator instead of a persistent Worker', async () => {
+test('translation borrows an idle Worker or creates a one-shot Translator', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const executeStart = source.indexOf('async function executeChatTranslatorTask(')
   const executeEnd = source.indexOf('\nasync function executeChatAgentTask(', executeStart)
   const execute = source.slice(executeStart, executeEnd)
   assert.notEqual(executeStart, -1)
   assert.match(execute, /task\?\.type !== 'TRANSLATE_MARKDOWN'/)
+  assert.match(execute, /borrowedEntry \|\| createChatGPTWorkerView/)
+  assert.match(execute, /if \(borrowedEntry\) chatAgentResidency\.releaseResidentLane/)
   assert.match(execute, /createChatGPTWorkerView\(`translator-\$\{task\.task_id\}`/)
   assert.match(execute, /finally \{[\s\S]*chatGPTWorkerEntries\.splice\(index, 1\)[\s\S]*retireChatGPTWorkerView\(entry\)/)
 
@@ -2160,8 +2163,10 @@ test('translation uses a dedicated one-shot Translator instead of a persistent W
   const scheduler = source.slice(schedulerStart, schedulerEnd)
   assert.notEqual(schedulerStart, -1)
   assert.match(scheduler, /role: 'translator'/)
-  assert.match(scheduler, /agentID: \(\) => 'translator-1'/)
+  assert.match(scheduler, /agentID: \(index\) => `translator-\$\{index\}`/)
+  assert.match(scheduler, /maxWorkers: MAX_TRANSLATOR_SLOTS/)
   assert.match(scheduler, /idleMs: 100, taskCooldownMs: 0/)
+  assert.match(source, /if \(task\.type === 'TRANSLATE_MARKDOWN'\) return executeChatTranslatorTask\(task, \{ entry \}\)/)
 })
 
 

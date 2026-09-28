@@ -86,17 +86,6 @@ func chatAgentTaskSource(taskType string) string {
 	}
 }
 
-var chatAgentPriorities = map[string]int{
-	"TRANSLATE_MARKDOWN": -1, "RELEASE_NOTES": -1, "ORCHESTRATOR_PLAN": -1, "ORCHESTRATOR_EXECUTE": -1,
-	"BOT_WRITE": 0, "RECOVERY_WRITE": 0,
-	"AWAIT_RESPONSE": 1,
-	"TITLE_DISCOVER": 2, "TITLE_GENERATE_TEMP": 2, "TITLE_AWAIT": 2,
-	"ORGANIZE_CHAT": 2, "RENAME_CHAT": 2,
-	"ARCHIVE_CHAT": 3, "DELETE_CHAT": 3,
-	"DELETE_BUNDLE": 4, "DELETE_TEMP_CHAT": 4,
-	"TODO_CLASSIFY": 5,
-}
-
 // NewChatAgentTaskID mints an id before the task is enqueued.
 //
 // A protocol whose artifact filenames are derived from the task id has to know
@@ -269,18 +258,6 @@ func chatAgentTaskSupervisorSQL(column string) string {
 
 var chatAgentQuietTypes = []string{
 	"ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "TITLE_DISCOVER", "TITLE_GENERATE_TEMP",
-}
-
-func chatAgentEffectivePriority(task ChatAgentTask, now time.Time) int {
-	if task.Priority <= 1 {
-		return task.Priority
-	}
-	aged := int(now.Sub(task.CreatedAt) / (15 * time.Minute))
-	value := task.Priority - aged
-	if value < 1 {
-		return 1
-	}
-	return value
 }
 
 func (s *Store) chatAgentFallback() map[string]ChatAgentTask {

@@ -12,7 +12,7 @@ import (
 // execution. It preserves FIFO ordering within one project while allowing
 // unrelated projects to execute independently.
 //
-// Capacity is one by default, which is the historical behavior. Protected
+// Capacity is five by default for parallel Protected work. Protected
 // verification itself does not need exclusivity — it runs in an isolated
 // temporary clone, and the only host-facing write (pushing the verified
 // integration branch into the host .git) is serialized separately under the
@@ -33,9 +33,8 @@ type projectExecutionQueueState struct {
 	waiters []*executionQueueWaiter
 }
 
-// defaultProjectExecutionConcurrency preserves the original strict FIFO
-// behavior. WHARNESS_PROJECT_EXECUTION_CONCURRENCY raises it.
-const defaultProjectExecutionConcurrency = 1
+// WHARNESS_PROJECT_EXECUTION_CONCURRENCY may tune this for the host.
+const defaultProjectExecutionConcurrency = 5
 
 func projectExecutionConcurrency() int {
 	raw := os.Getenv("WHARNESS_PROJECT_EXECUTION_CONCURRENCY")

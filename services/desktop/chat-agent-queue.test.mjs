@@ -34,6 +34,17 @@ test('markdown translation outranks ordinary chat writes', async () => {
   await Promise.all([write, translation])
 })
 
+test('global utility bands put translation before planning before execution', async () => {
+  const queue = new ChatAgentQueue()
+  const execution = queue.enqueueTask({ type: 'ORCHESTRATOR_EXECUTE', chatId: 'execute' })
+  const planning = queue.enqueueTask({ type: 'ORCHESTRATOR_PLAN', chatId: 'plan' })
+  const translation = queue.enqueueTask({ type: 'TRANSLATE_MARKDOWN', chatId: 'translate' })
+  const claimed = [queue.take(), queue.take(), queue.take()]
+  assert.deepEqual(claimed.map((task) => task?.type), ['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'ORCHESTRATOR_EXECUTE'])
+  claimed.forEach((task) => settleJob(task, null, true))
+  await Promise.all([execution, planning, translation])
+})
+
 test('orchestrator planning is highest priority and dedupes one durable request', async () => {
   const queue = new ChatAgentQueue()
   const write = queue.enqueueTask({ type: 'BOT_WRITE', chatId: 'write' })

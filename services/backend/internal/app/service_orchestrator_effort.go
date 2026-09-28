@@ -52,11 +52,17 @@ func (s *Service) SetOrchestratorTaskEffort(ctx context.Context, sessionID, task
 	if task.ProjectPath != owner.ProjectPath {
 		return orchestrator.Task{}, errors.New("task does not belong to this project")
 	}
-	if task.Status == orchestrator.TaskDoing || task.Status == orchestrator.TaskReview || task.Status == orchestrator.TaskComplete || task.Status == orchestrator.TaskArchived {
-		return orchestrator.Task{}, errors.New("reasoning effort can change only before a task run")
-	}
 	if task.ReasoningEffort == string(effort) {
 		return task, nil
+	}
+	if task.Status == orchestrator.TaskDoing {
+		runs, runErr := s.orchestrator.ListRuns(ctx, task.ID)
+		if runErr != nil || len(runs) == 0 || runs[len(runs)-1].SessionID == "" {
+			return orchestrator.Task{}, errors.New("active task has no Agent session for the next effort setting")
+		}
+		if _, runErr = s.SetReasoningEffort(runs[len(runs)-1].SessionID, effort); runErr != nil {
+			return orchestrator.Task{}, runErr
+		}
 	}
 	task.ReasoningEffort = string(effort)
 	task.UpdatedAt = time.Now().UTC()

@@ -77,7 +77,7 @@ func TestManualOrchestratorProposalQueuesDurableUrgentWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queued.Type != "ORCHESTRATOR_PLAN" || queued.Priority != -1 || queued.ProjectID != started.ProjectPath || queued.SessionID != started.ID || queued.RequestID != result.RequestID || queued.MaxAttempts != 8 {
+	if queued.Type != "ORCHESTRATOR_PLAN" || queued.Priority != -2 || queued.ProjectID != started.ProjectPath || queued.SessionID != started.ID || queued.RequestID != result.RequestID || queued.MaxAttempts != 8 {
 		t.Fatalf("unexpected orchestrator worker task: %#v", queued)
 	}
 	var payload map[string]string
@@ -283,28 +283,6 @@ func TestOrchestratorRevisionAttachesPreviousProposalAndSupersedesDraft(t *testi
 	}
 	if !strings.Contains(plannerStub.request.Message, "split backend migration") || !strings.Contains(plannerStub.request.Message, payload.GeneratedAttachments[0].Name) {
 		t.Fatalf("revision guidance did not reach the planner: %q", plannerStub.request.Message)
-	}
-}
-
-func TestOrchestratorRefusesSecondProjectMutationSlot(t *testing.T) {
-	root := t.TempDir()
-	store := orchestrator.NewMemoryStore()
-	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorTestPlanner{}, policy.NewEngine(), fakeRunner{})
-	service.SetOrchestratorStore(store)
-	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	if err := store.PutTask(context.Background(), orchestrator.Task{ID: "running", ProjectPath: started.ProjectPath, Title: "Running", Status: orchestrator.TaskDoing, Priority: orchestrator.PriorityNormal, CreatedAt: now, UpdatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.PutTask(context.Background(), orchestrator.Task{ID: "next", ProjectPath: started.ProjectPath, Title: "Next", Status: orchestrator.TaskReady, Priority: orchestrator.PriorityNormal, CreatedAt: now, UpdatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	_, err = service.StartOrchestratorTask(context.Background(), started.ID, "next")
-	if err == nil || !strings.Contains(err.Error(), "mutation slot") {
-		t.Fatalf("expected occupied mutation slot error, got %v", err)
 	}
 }
 

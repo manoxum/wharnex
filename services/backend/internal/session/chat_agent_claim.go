@@ -186,7 +186,7 @@ func chatAgentClaimRoleAllows(task ChatAgentTask, options ChatAgentClaimOptions)
 	if options.Role == ChatAgentRoleTranslator {
 		return task.Type == "TRANSLATE_MARKDOWN"
 	}
-	return !chatAgentTaskSupervisor(task.Type) && task.Type != "TRANSLATE_MARKDOWN"
+	return !chatAgentTaskSupervisor(task.Type)
 }
 
 func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {
@@ -301,7 +301,7 @@ func (s *Store) ClaimChatAgentTaskWithOptions(owner string, lease time.Duration,
 		eligible = append(eligible, task)
 	}
 	sort.Slice(eligible, func(i, j int) bool {
-		if options.PreferredLane != "" {
+		if options.Role == ChatAgentRoleSupervisor && options.PreferredLane != "" {
 			iPreferred := chatAgentTaskLane(eligible[i]) == options.PreferredLane
 			jPreferred := chatAgentTaskLane(eligible[j]) == options.PreferredLane
 			if iPreferred != jPreferred {
@@ -374,10 +374,6 @@ func chatAgentBlockedByActiveTask(candidate ChatAgentTask, tasks map[string]Chat
 			continue
 		}
 		if chatAgentTaskAccount(candidate.Type) && chatAgentTaskAccount(running.Type) {
-			return true
-		}
-		if candidate.Type == "ORCHESTRATOR_EXECUTE" && running.Type == "ORCHESTRATOR_EXECUTE" &&
-			candidate.ProjectID != "" && candidate.ProjectID == running.ProjectID {
 			return true
 		}
 		if candidate.ConversationID != "" && candidate.ConversationID == running.ConversationID &&

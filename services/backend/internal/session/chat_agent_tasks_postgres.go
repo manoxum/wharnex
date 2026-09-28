@@ -213,7 +213,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	case ChatAgentRoleSupervisor:
 		roleSQL = " AND (t.assigned_worker<>'' OR " + chatAgentTaskSupervisorSQL("t.type") + ")"
 	case ChatAgentRoleWorker:
-		roleSQL = " AND (t.assigned_worker<>'' OR (NOT " + chatAgentTaskSupervisorSQL("t.type") + " AND t.type<>'TRANSLATE_MARKDOWN'))"
+		roleSQL = " AND (t.assigned_worker<>'' OR NOT " + chatAgentTaskSupervisorSQL("t.type") + ")"
 	case ChatAgentRoleTranslator:
 		roleSQL = " AND (t.assigned_worker<>'' OR t.type='TRANSLATE_MARKDOWN')"
 	}
@@ -224,6 +224,10 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 			WHERE p.provider='chatgpt' AND p.paused=true
 			  AND (p.paused_until IS NULL OR p.paused_until>now())
 		  )`
+	}
+	affinityOrder := ""
+	if options.Role == ChatAgentRoleSupervisor {
+		affinityOrder = "CASE WHEN $3<>'' AND " + laneExpr + "=$3 THEN 0 ELSE 1 END, "
 	}
 	query := `WITH candidate AS (
 		SELECT t.task_id FROM harness_chat_agent_tasks t
@@ -236,12 +240,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 			OR ($4='unresident_only' AND ($3='' OR ` + laneExpr + `<>$3))
 		  )` + excludedSQL + excludedTypesSQL + projectSQL + roleSQL + providerSQL + `
 		  AND NOT ` + chatAgentBlockedByActiveTaskSQL("t") + `
-		  AND NOT ` + chatAgentOrchestratorExecutionBlockedSQL("t") + `
-		ORDER BY CASE WHEN $3<>'' AND ` + laneExpr + `=$3 THEN 0 ELSE 1 END,
-		CASE
-			WHEN t.priority<=1 THEN t.priority
-			ELSE GREATEST(1, t.priority-LEAST(t.priority-1, FLOOR(EXTRACT(EPOCH FROM (now()-t.created_at))/900)::int))
-		END, t.created_at, t.task_id
+		ORDER BY ` + affinityOrder + chatAgentEffectivePrioritySQL("t") + `, t.created_at, t.task_id
 		FOR UPDATE SKIP LOCKED LIMIT 1
 	)
 	UPDATE harness_chat_agent_tasks t

@@ -26,15 +26,6 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	if task.ProjectPath != owner.ProjectPath || task.Status != orchestrator.TaskReady {
 		return OrchestratorRunResult{}, errors.New("task is not READY in this project")
 	}
-	tasks, err := s.orchestrator.ListTasks(ctx, owner.ProjectPath)
-	if err != nil {
-		return OrchestratorRunResult{}, err
-	}
-	for _, candidate := range tasks {
-		if candidate.Status == orchestrator.TaskDoing {
-			return OrchestratorRunResult{}, errors.New("the project mutation slot is already occupied")
-		}
-	}
 	runs, err := s.orchestrator.ListRuns(ctx, task.ID)
 	if err != nil {
 		return OrchestratorRunResult{}, err

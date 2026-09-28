@@ -18,7 +18,7 @@ func (s *Store) postgresChatAgentQueueSummary(projectID string) (ChatAgentQueueS
 				SELECT 1 FROM harness_chat_agent_provider_state p
 				WHERE p.provider='chatgpt' AND p.paused=true
 				  AND (p.paused_until IS NULL OR p.paused_until>now())
-			)) OR `+chatAgentBlockedByActiveTaskSQL("t")+` OR `+chatAgentOrchestratorExecutionBlockedSQL("t")+`) AS guarded
+			)) OR `+chatAgentBlockedByActiveTaskSQL("t")+`) AS guarded
 		FROM harness_chat_agent_tasks t
 		WHERE t.status IN ('PENDING','LEASED','RUNNING','WAITING')
 	)
@@ -102,7 +102,7 @@ func (s *Store) postgresChatAgentDueByRole(projectID string) (int, int, int, map
 			SELECT 1 FROM harness_chat_agent_provider_state p
 			WHERE p.provider='chatgpt' AND p.paused=true
 			  AND (p.paused_until IS NULL OR p.paused_until>now())
-		  )) OR `+chatAgentBlockedByActiveTaskSQL("t")+` OR `+chatAgentOrchestratorExecutionBlockedSQL("t")+`)
+		  )) OR `+chatAgentBlockedByActiveTaskSQL("t")+`)
 	)
 		SELECT
 			count(DISTINCT CASE WHEN `+chatAgentTaskSupervisorSQL("type")+`

@@ -111,8 +111,8 @@ func TestReadyOrchestratorTaskIsClaimedOnceByWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	other, err := store.ClaimChatAgentTaskWithOptions("worker-2", time.Minute, session.ChatAgentClaimOptions{Role: session.ChatAgentRoleWorker})
-	if err != nil || other != nil {
-		t.Fatalf("second Worker claimed occupied project slot: %#v err=%v", other, err)
+	if err != nil || other == nil || other.ChatID != second.ID {
+		t.Fatalf("second Worker must claim READY work in the same project: %#v err=%v", other, err)
 	}
 }
 

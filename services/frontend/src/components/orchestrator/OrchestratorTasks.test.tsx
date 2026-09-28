@@ -54,3 +54,14 @@ it('hides archived cards in Kanban and offers a failed task retry with effort co
   fireEvent.click(screen.getByRole('button', { name: 'Reenviar sem contexto' }))
   await waitFor(() => expect(retry).toHaveBeenCalledWith(session.id, failed.id, { guidance: '', project_files: [], attachment_cache_key: undefined, attachments: undefined }))
 })
+
+it('changes effort on a Kanban card without opening the task drawer', async () => {
+  const ready = task('Parallel change', 'READY')
+  const overview: OrchestratorOverview = { plans: [], tasks: [ready], planning_requests: [], mutation_slots: 5, mutation_slots_used: 0 }
+  const selected = vi.fn()
+  const setEffort = vi.spyOn(api, 'setOrchestratorTaskEffort').mockResolvedValue({ ...ready, reasoning_effort: 'instant' })
+  render(<OrchestratorTasks session={session} overview={overview} busy={false} onSelectedTask={selected} onRun={async <T,>(action: () => Promise<T>) => action()}/>)
+  fireEvent.change(screen.getByRole('combobox', { name: 'Esforço de Parallel change' }), { target: { value: 'instant' } })
+  await waitFor(() => expect(setEffort).toHaveBeenCalledWith(session.id, ready.id, 'instant'))
+  expect(selected).not.toHaveBeenCalled()
+})

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
 import { autoScaleWorkerDemand } from './chat-agent-auto-scale.mjs'
+import { translatorCapacityTarget } from './chat-agent-translator-capacity.mjs'
 import { autoScaleDrainTarget, autoScaleTarget } from './chat-agent-policies.mjs'
 
 test('Auto scale sizes each pool from its own claimable backlog', async () => {
@@ -35,6 +36,7 @@ test('Auto scale reconciler grows for permitted due work under partial suspensio
   const end = source.indexOf('\n// Auto scale for the Supervisor pool.', start)
   assert.ok(start >= 0 && end > start)
   const fn = source.slice(start, end)
+  const warnings = []
   const context = {
     chatAgentScheduler: { queueSummary: async () => ({ due_worker: 3, due_worker_by_type: { ORGANIZE_CHAT: 1, ORCHESTRATOR_PLAN: 2 } }) },
     chatAgentPolicies: { auto_scale: true, auto_scale_max_workers: 6, workers_suspended: true, workers_suspended_types: ['ORGANIZE_CHAT'] },
@@ -44,7 +46,12 @@ test('Auto scale reconciler grows for permitted due work under partial suspensio
     chatAgentRateLimitDelayMs: () => 0,
     workerSuspensionState: () => ({ paused: true, task_types: ['ORGANIZE_CHAT'] }),
     chatAgentAvailableWorkers: () => 0,
+    workerSuspendsAllTaskTypes: () => false,
+    chatAgentRateLimitResumeBlocked: () => false,
     autoScaleWorkerDemand,
+    translatorCapacityTarget,
+    activeChatTranslatorSlots: new Set(),
+    chatTranslatorScheduler: { setWorkerCount: () => {} },
     autoScaleTarget,
     autoScaleDrainTarget,
     desiredChatAgentWorkerSlots: 2,
@@ -54,8 +61,9 @@ test('Auto scale reconciler grows for permitted due work under partial suspensio
     chatAgentKeepFlowingFloor: () => 0,
     setChatAgentWorkerTarget: (count) => { context.desiredChatAgentWorkerSlots = count },
     publishChatAgentRuntimeState: () => {},
-    console: { log() {}, warn() {} },
+    console: { log() {}, warn(message) { warnings.push(message) } },
   }
   await vm.runInNewContext(`${fn}; reconcileChatAgentAutoScale()`, context)
+  assert.deepEqual(warnings, [])
   assert.equal(context.desiredChatAgentWorkerSlots, 4)
 })
