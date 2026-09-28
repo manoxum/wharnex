@@ -48,6 +48,9 @@ func (s *Service) StartOrchestratorWorkerTask(ctx context.Context, sessionID, ta
 	if err != nil || task.ProjectPath != ownerSession.ProjectPath {
 		return OrchestratorWorkerRequest{}, errors.New("orchestrator task does not belong to this project")
 	}
+	if orchestrator.TaskHasCompleted(task) {
+		return OrchestratorWorkerRequest{Task: task, AgentState: "settled"}, nil
+	}
 	if task.Status == orchestrator.TaskReady {
 		if _, err := s.StartOrchestratorTask(ctx, sessionID, taskID); err != nil {
 			return OrchestratorWorkerRequest{}, err

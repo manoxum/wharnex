@@ -23,6 +23,9 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	if err != nil {
 		return OrchestratorRunResult{}, err
 	}
+	if orchestrator.TaskHasCompleted(task) {
+		return OrchestratorRunResult{}, errors.New("completed task cannot be executed again")
+	}
 	if task.ProjectPath != owner.ProjectPath || task.Status != orchestrator.TaskReady {
 		return OrchestratorRunResult{}, errors.New("task is not READY in this project")
 	}

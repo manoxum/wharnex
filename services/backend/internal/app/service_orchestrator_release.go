@@ -44,13 +44,16 @@ func (s *Service) releaseOrchestratorChain(ctx context.Context, projectPath, tas
 		index := byID[id]
 		for _, dependencyID := range tasks[index].DependsOn {
 			dependency := tasks[byID[dependencyID]]
-			if dependency.Status == orchestrator.TaskPending || dependency.Status == orchestrator.TaskWaiting {
+			if !orchestrator.TaskHasCompleted(dependency) && (dependency.Status == orchestrator.TaskPending || dependency.Status == orchestrator.TaskWaiting) {
 				if err := release(dependencyID); err != nil {
 					return err
 				}
 			}
 		}
 		current := tasks[index]
+		if orchestrator.TaskHasCompleted(current) {
+			return errors.New("completed orchestrator task cannot be released")
+		}
 		if current.Status != orchestrator.TaskPending && current.Status != orchestrator.TaskWaiting && current.Status != orchestrator.TaskReady && !(id == taskID && current.Status == orchestrator.TaskFailed) {
 			return nil
 		}

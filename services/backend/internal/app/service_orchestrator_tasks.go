@@ -56,11 +56,15 @@ func (s *Service) CreateOrchestratorTask(ctx context.Context, sessionID string, 
 		return orchestrator.Task{}, err
 	}
 	created, err := s.orchestrator.GetTask(ctx, task.ID)
-	if err == nil {
-		task = created
+	if err != nil {
+		return orchestrator.Task{}, err
+	}
+	task, err = s.projectOrchestratorTask(ctx, item, created)
+	if err != nil {
+		return orchestrator.Task{}, err
 	}
 	s.bus.Publish(sessionID, "orchestrator.task_created", map[string]any{"task_id": task.ID, "plan_id": task.PlanID})
-	return task, err
+	return task, nil
 }
 
 func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, taskID string, target orchestrator.TaskStatus) (orchestrator.Task, error) {
@@ -81,34 +85,32 @@ func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, tas
 	if !orchestrator.ValidTaskStatus(target) {
 		return orchestrator.Task{}, fmt.Errorf("unsupported task status %q", target)
 	}
-	if target == orchestrator.TaskDoing || target == orchestrator.TaskReview || target == orchestrator.TaskFailed {
-		return orchestrator.Task{}, errors.New("DOING, REVIEW and FAILED are controlled by Orchestrator execution")
+	tasks, err := s.orchestrator.ListTasks(ctx, item.ProjectPath)
+	if err != nil {
+		return orchestrator.Task{}, err
 	}
-	if task.Status == orchestrator.TaskDoing {
-		return orchestrator.Task{}, errors.New("a DOING task is controlled by its Agent run and cannot be moved manually")
+	plans, err := s.orchestrator.ListPlans(ctx, item.ProjectPath)
+	if err != nil {
+		return orchestrator.Task{}, err
 	}
-	if target == orchestrator.TaskReady || target == orchestrator.TaskWaiting {
-		if !orchestratorAutomaticExecutionAllowed(item) {
-			return orchestrator.Task{}, errors.New("READY execution requires Protected mode with Auto or Auto Approve")
-		}
+	decision := evaluateOrchestratorTaskTransition(item, task, target, tasks, orchestratorPlanStatuses(plans))
+	if !decision.allowed {
+		return orchestrator.Task{}, errors.New(decision.reason)
+	}
+	if decision.release {
 		if err := s.releaseOrchestratorChain(ctx, item.ProjectPath, task.ID); err != nil {
 			return orchestrator.Task{}, err
 		}
 	} else {
-		if target == orchestrator.TaskComplete && task.Status != orchestrator.TaskReview {
-			return orchestrator.Task{}, errors.New("only a reviewed task can be completed")
+		wasSuccessful := orchestrator.TaskSatisfiesDependency(task)
+		if orchestrator.TaskHasCompleted(task) || decision.status == orchestrator.TaskComplete {
+			task.WasCompleted = true
 		}
-		wasSuccessful := task.Status == orchestrator.TaskReview || task.Status == orchestrator.TaskComplete
-		task.Status, task.UpdatedAt = target, time.Now().UTC()
-		if target == orchestrator.TaskPending {
-			task.Condition = orchestrator.ConditionManualPause
-		} else {
-			task.Condition = orchestrator.ConditionNone
-		}
+		task.Status, task.Condition, task.UpdatedAt = decision.status, decision.condition, time.Now().UTC()
 		if err := s.orchestrator.PutTask(ctx, task); err != nil {
 			return orchestrator.Task{}, err
 		}
-		if wasSuccessful && target != orchestrator.TaskComplete {
+		if wasSuccessful && !orchestrator.TaskSatisfiesDependency(task) {
 			if err := s.invalidateOrchestratorDependents(ctx, item.ProjectPath, task.ID); err != nil {
 				return orchestrator.Task{}, err
 			}
@@ -118,10 +120,11 @@ func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, tas
 		return orchestrator.Task{}, err
 	}
 	updated, err := s.orchestrator.GetTask(ctx, task.ID)
-	if err == nil {
-		task = updated
+	if err != nil {
+		return orchestrator.Task{}, err
 	}
-	if target == orchestrator.TaskReady || target == orchestrator.TaskWaiting || target == orchestrator.TaskComplete {
+	task = updated
+	if decision.release || task.Status == orchestrator.TaskComplete {
 		all, err := s.orchestrator.ListTasks(ctx, item.ProjectPath)
 		if err != nil {
 			return orchestrator.Task{}, err
@@ -132,7 +135,11 @@ func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, tas
 	} else if task.Status != orchestrator.TaskDoing {
 		_, _ = s.store.CancelChatAgentLineage(task.ID)
 	}
+	task, err = s.projectOrchestratorTask(ctx, item, task)
+	if err != nil {
+		return orchestrator.Task{}, err
+	}
 	s.bus.Publish(sessionID, "orchestrator.task_transitioned", map[string]any{"task_id": task.ID, "status": task.Status, "condition": task.Condition})
 	s.reconcileProjectTodosForOrchestratorPlan(ctx, item.ProjectPath, task.PlanID)
-	return task, err
+	return task, nil
 }

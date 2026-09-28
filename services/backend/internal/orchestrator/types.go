@@ -80,12 +80,25 @@ type Task struct {
 	ReadFiles          []string      `json:"read_files,omitempty"`
 	BarrierFiles       []string      `json:"barrier_files,omitempty"`
 	ReasoningEffort    string        `json:"reasoning_effort,omitempty"`
+	// WasCompleted is durable lifecycle evidence. Older records omit it; a task
+	// currently in COMPLETE still counts as completed and persists the marker
+	// when it is later archived.
+	WasCompleted       bool          `json:"was_completed,omitempty"`
+	AllowedTransitions *[]TaskStatus `json:"allowed_transitions,omitempty"`
 	// EffortLevel bounds the autonomous attempts of the task's Agent run
 	// before it fails. Empty inherits the owning session's level.
 	EffortLevel  string            `json:"effort_level,omitempty"`
 	RetryContext *TaskRetryContext `json:"retry_context,omitempty"`
 	CreatedAt    time.Time         `json:"created_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
+}
+
+func TaskHasCompleted(task Task) bool {
+	return task.WasCompleted || task.Status == TaskComplete
+}
+
+func TaskSatisfiesDependency(task Task) bool {
+	return task.Status == TaskReview || TaskHasCompleted(task)
 }
 
 type TaskAttachment struct {

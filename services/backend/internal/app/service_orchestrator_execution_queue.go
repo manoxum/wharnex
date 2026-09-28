@@ -23,6 +23,9 @@ func (s *Service) enqueueReadyOrchestratorTask(ctx context.Context, owner domain
 	if task.Status != orchestrator.TaskReady || task.ProjectPath != owner.ProjectPath {
 		return nil
 	}
+	if orchestrator.TaskHasCompleted(task) {
+		return errors.New("completed orchestrator task cannot be queued again")
+	}
 	if !orchestratorAutomaticExecutionAllowed(owner) {
 		return errors.New("READY execution requires Protected mode with Auto or Auto Approve")
 	}

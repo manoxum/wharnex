@@ -44,6 +44,11 @@ func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (o
 	if err != nil {
 		return orchestrator.Overview{}, err
 	}
+	plans, err = s.orchestrator.ListPlans(ctx, item.ProjectPath)
+	if err != nil {
+		return orchestrator.Overview{}, err
+	}
+	tasks = projectOrchestratorTaskTransitions(item, tasks, plans)
 	planningTasks, err := s.store.ListChatAgentTasks(session.ChatAgentTaskFilter{
 		ProjectID: item.ProjectPath, Type: "ORCHESTRATOR_PLAN", Limit: 200,
 	})
@@ -80,7 +85,15 @@ func (s *Service) OrchestratorTasksPage(ctx context.Context, sessionID string, f
 	if err != nil {
 		return orchestrator.TaskPage{}, err
 	}
-	return s.orchestrator.ListTaskPage(ctx, item.ProjectPath, filter)
+	page, err := s.orchestrator.ListTaskPage(ctx, item.ProjectPath, filter)
+	if err != nil {
+		return orchestrator.TaskPage{}, err
+	}
+	// Terminal pages contain only COMPLETE/ARCHIVED tasks, whose allowed
+	// transitions are independent of plan/dependency state. Still use the same
+	// lifecycle decision function as mutations so the API cannot drift.
+	page.Tasks = projectOrchestratorTaskTransitions(item, page.Tasks, nil)
+	return page, nil
 }
 
 func orchestratorPlanningRequest(task session.ChatAgentTask) orchestrator.PlanningRequest {
