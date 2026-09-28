@@ -812,6 +812,10 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		return planner.Result{}, domain.Session{}, err
 	}
 	requestID := ids.New("req")
+	taskRefs, err := s.resolveOrchestratorTaskReferences(ctx, item.ProjectPath, orchestratorTaskIDsFromMessage(operatorMessage))
+	if err != nil {
+		return planner.Result{}, item, err
+	}
 	linkedTodos, err := s.resolveProjectTodos(item.ProjectPath, projectTodoIDsFromMessage(message))
 	if err != nil {
 		return planner.Result{}, item, err
@@ -846,6 +850,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	message = messageWithRelatedProjects(message, item.ProjectPath, item.Context.RelatedProjects, crossproject.GrantedPaths(crossGrant))
 	message = messageWithCrossProjectGrant(message, crossGrant, unresolvedRefs, s.openGrantedProjects(crossGrant))
 	message = messageWithAttachments(message, item.Context.Attachments, refusedAttachments)
+	message = messageWithOrchestratorTaskReferences(message, taskRefs)
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
 	if parentRequestID == "" {
