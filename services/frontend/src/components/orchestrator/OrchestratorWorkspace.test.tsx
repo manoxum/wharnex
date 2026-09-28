@@ -2,6 +2,7 @@ import { act, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import { api } from '../../lib/api'
+import { emptyOrchestratorTaskCounts } from '../../lib/orchestratorApi'
 import type { Session } from '../../types'
 import { ChatPanel } from '../ChatPanel'
 import { OrchestratorWorkspace } from './OrchestratorWorkspace'
@@ -19,7 +20,7 @@ const session = {
 describe('OrchestratorWorkspace polling', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    vi.spyOn(api, 'orchestratorOverview').mockResolvedValue({ plans: [], tasks: [], planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 })
+    vi.spyOn(api, 'orchestratorOverview').mockResolvedValue({ plans: [], tasks: [], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 })
     vi.spyOn(api, 'chatAgentTasks').mockResolvedValue({ tasks: [] })
   })
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
