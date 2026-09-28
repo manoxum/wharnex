@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/orchestrator"
 	"kernl.local/harness/backend/internal/session"
 )
@@ -136,6 +137,18 @@ func (s *Service) reconcileOrchestratorWorkerRun(ctx context.Context, taskID str
 	if err != nil {
 		return err
 	}
+	// In an agentic chat a person answers "resume or discard" for an execution
+	// a restart interrupted. A task has no chat and nobody to answer, so its
+	// current run resumes an approved Protected interruption on its own;
+	// otherwise the task stayed DOING indefinitely with a verified plan.
+	if orchestratorShouldResumeInterrupted(agent) {
+		if _, resumeErr := s.ResumeInterruptedExecution(agent.ID); resumeErr != nil {
+			s.bus.Publish(agent.ID, "orchestrator.execution_resume_failed", map[string]any{"task_id": taskID, "error": resumeErr.Error()})
+		} else {
+			s.bus.Publish(agent.ID, "orchestrator.execution_resumed", map[string]any{"task_id": taskID, "plan_id": agent.InterruptedExecution.PlanID})
+		}
+		return nil
+	}
 	task, run := current.Task, current.Run
 	switch orchestratorAgentOutcome(agent.State) {
 	case "review":
@@ -176,4 +189,10 @@ func (s *Service) reconcileOrchestratorWorkerRun(ctx context.Context, taskID str
 		return err
 	}
 	return s.recalculateOrchestratorTasks(ctx, task.ProjectPath)
+}
+
+func orchestratorShouldResumeInterrupted(agent domain.Session) bool {
+	intent := agent.InterruptedExecution
+	return intent != nil && intent.Approved && intent.Status == "awaiting_decision" &&
+		agent.ExecutionMode == domain.ExecutionModeProtected
 }
