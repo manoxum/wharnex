@@ -63,7 +63,7 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	run.SessionID = agentSession.ID
 	run.Status = "planning"
 	_ = s.orchestrator.AppendRun(ctx, run)
-	result, agentSession, err := s.SubmitMessage(ctx, agentSession.ID, orchestratorTaskPrompt(task))
+	result, agentSession, err := s.SubmitMessage(ctx, agentSession.ID, s.orchestratorTaskMessage(ctx, task))
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}
