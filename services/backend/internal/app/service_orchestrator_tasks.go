@@ -143,3 +143,33 @@ func (s *Service) TransitionOrchestratorTask(ctx context.Context, sessionID, tas
 	s.reconcileProjectTodosForOrchestratorPlan(ctx, item.ProjectPath, task.PlanID)
 	return task, nil
 }
+
+func (s *Service) orchestratorPlanningTasksWithRuns(ctx context.Context, projectPath, planID string) ([]orchestrator.PlanningTaskDetail, error) {
+	details := make([]orchestrator.PlanningTaskDetail, 0)
+	if strings.TrimSpace(planID) == "" {
+		return details, nil
+	}
+	tasks, err := s.orchestrator.ListTasks(ctx, projectPath)
+	if err != nil {
+		return nil, err
+	}
+	for _, task := range tasks {
+		if task.ProjectPath != projectPath || task.PlanID != planID {
+			continue
+		}
+		runs, err := s.orchestrator.ListRuns(ctx, task.ID)
+		if err != nil {
+			return nil, err
+		}
+		filteredRuns := make([]orchestrator.TaskRun, 0, len(runs))
+		for _, run := range runs {
+			if run.TaskID != task.ID || (run.ProjectPath != "" && run.ProjectPath != projectPath) {
+				continue
+			}
+			filteredRuns = append(filteredRuns, run)
+		}
+		task.RetryContext = nil
+		details = append(details, orchestrator.PlanningTaskDetail{Task: task, Runs: filteredRuns})
+	}
+	return details, nil
+}
