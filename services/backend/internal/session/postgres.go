@@ -235,15 +235,10 @@ DROP INDEX IF EXISTS harness_chat_agent_tasks_request_idx;
 DROP INDEX IF EXISTS harness_chat_agent_tasks_terminal_idx;
 CREATE INDEX IF NOT EXISTS harness_tasks_ready_idx
     ON harness_tasks (status, not_before, priority, created_at);
-CREATE INDEX IF NOT EXISTS harness_tasks_project_idx
-    ON harness_tasks (project_id, source, updated_at DESC, task_id);
 CREATE INDEX IF NOT EXISTS harness_tasks_conversation_idx
     ON harness_tasks (conversation_id, status);
 CREATE INDEX IF NOT EXISTS harness_tasks_request_idx
     ON harness_tasks (root_request_id, request_id, status);
-CREATE INDEX IF NOT EXISTS harness_tasks_terminal_idx
-    ON harness_tasks (updated_at)
-    WHERE status IN ('DONE','FAILED','CANCELLED','COMPLETE','ARCHIVED');
 DROP INDEX IF EXISTS harness_chat_agent_tasks_dedupe_active_idx;
 DROP INDEX IF EXISTS harness_chat_agent_tasks_dedupe_active_v2_idx;
 WITH ranked_active_tasks AS (
@@ -316,6 +311,10 @@ func NewPostgresStore(ctx context.Context, databaseURL, legacyPath string) (*Sto
 	if _, err := db.ExecContext(ctx, postgresSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize PostgreSQL session schema: %w", err)
+	}
+	if err := ensureUnifiedTaskLedgerIndexes(ctx, db); err != nil {
+		db.Close()
+		return nil, err
 	}
 	if err := ensureOperationalLogSchema(ctx, db); err != nil {
 		db.Close()
