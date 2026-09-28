@@ -183,6 +183,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       error={planningDetail.error}
       onClose={planningDetail.close}
       onRefresh={planningDetail.refresh}
+      onSelectTask={(task) => { planningDetail.close(); setSelectedTask(task); setSection('tasks') }}
     /> : null}
   </section>
 }
