@@ -69,10 +69,18 @@ func (s *Service) enqueueReadyOrchestratorTask(ctx context.Context, owner domain
 		}
 		return nil
 	}
-	payload, err := json.Marshal(map[string]string{
+	fields := map[string]string{
 		"protocol": orchestratorExecutionWorkerProtocol,
 		"task_id":  task.ID,
-	})
+	}
+	// A task keeps one ChatGPT conversation for every attempt, so a retry
+	// after a failure continues where the earlier attempts left their
+	// context. Only the link carries over: the new attempt submits its own
+	// request instead of resuming the old one.
+	if conversation := orchestratorTaskConversationURL(existing); conversation != "" {
+		fields["conversation_url"] = conversation
+	}
+	payload, err := json.Marshal(fields)
 	if err != nil {
 		return fmt.Errorf("encode orchestrator execution worker: %w", err)
 	}
@@ -87,6 +95,25 @@ func (s *Service) enqueueReadyOrchestratorTask(ctx context.Context, owner domain
 		return fmt.Errorf("enqueue orchestrator execution worker: %w", err)
 	}
 	return nil
+}
+
+// orchestratorTaskConversationURL is the ChatGPT conversation the task's
+// most recent attempt used.
+func orchestratorTaskConversationURL(attempts []session.ChatAgentTask) string {
+	latest := ""
+	var latestAt time.Time
+	for _, attempt := range attempts {
+		var payload struct {
+			ConversationURL string `json:"conversation_url"`
+		}
+		if json.Unmarshal(attempt.Payload, &payload) != nil || payload.ConversationURL == "" {
+			continue
+		}
+		if latest == "" || attempt.UpdatedAt.After(latestAt) {
+			latest, latestAt = payload.ConversationURL, attempt.UpdatedAt
+		}
+	}
+	return latest
 }
 
 func orchestratorExecutionClaimPriority(status string) int {

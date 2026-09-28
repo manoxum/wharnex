@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -49,5 +50,78 @@ func TestReadyOrchestratorKeepsRunningClaimWhenPendingDuplicateAppears(t *testin
 	cancelled, _ := store.GetChatAgentTask(duplicate.TaskID)
 	if kept.Status != session.ChatAgentTaskRunning || cancelled.Status != session.ChatAgentTaskCancelled {
 		t.Fatalf("running claim=%s duplicate=%s", kept.Status, cancelled.Status)
+	}
+}
+
+// Every attempt of one task continues the same ChatGPT conversation, so a
+// retry after a failure keeps the context of what was already tried.
+func TestOrchestratorRetryAttemptReusesTheTaskConversation(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorExecutionManualPlanner{}, policy.NewEngine(), fakeRunner{})
+	owner, err := service.StartSessionWithModes(ctx, t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := service.CreateOrchestratorTask(ctx, owner.ID, OrchestratorTaskInput{Title: "Retried execution"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.TransitionOrchestratorTask(ctx, owner.ID, task.ID, orchestrator.TaskReady); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store.ClaimChatAgentTaskWithOptions("worker-1", time.Minute, session.ChatAgentClaimOptions{WorkerID: "worker-1", Role: session.ChatAgentRoleWorker})
+	if err != nil || claim == nil {
+		t.Fatalf("expected READY claim, got %#v: %v", claim, err)
+	}
+	if _, err := store.StartChatAgentTask(claim.TaskID, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	const conversation = "https://chatgpt.com/c/6ab9c881-0da0-83ea-a7f5-635202bbebc5"
+	if _, err := store.CheckpointChatAgentTask(claim.TaskID, "worker-1", []byte(`{"conversation_url":"`+conversation+`","active_request_id":"req_old"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FailChatAgentTask(claim.TaskID, "worker-1", "no response bundle", false); err != nil {
+		t.Fatal(err)
+	}
+	current, err := service.orchestrator.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.Status = orchestrator.TaskReady
+	current.UpdatedAt = time.Now().UTC().Add(time.Second)
+	if err := service.orchestrator.PutTask(ctx, current); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.enqueueReadyOrchestratorTask(ctx, owner, current); err != nil {
+		t.Fatal(err)
+	}
+	workers, err := store.ListChatAgentTasks(session.ChatAgentTaskFilter{ChatID: task.ID, Type: "ORCHESTRATOR_EXECUTE", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retry *session.ChatAgentTask
+	for index := range workers {
+		if workers[index].TaskID != claim.TaskID {
+			retry = &workers[index]
+		}
+	}
+	if retry == nil {
+		t.Fatalf("no retry attempt was enqueued: %#v", workers)
+	}
+	var payload struct {
+		ConversationURL string `json:"conversation_url"`
+		ActiveRequestID string `json:"active_request_id"`
+	}
+	if err := json.Unmarshal(retry.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ConversationURL != conversation {
+		t.Fatalf("retry conversation=%q, want %q", payload.ConversationURL, conversation)
+	}
+	// The retry sends a new request into that conversation; it must not
+	// resume the failed attempt's request.
+	if payload.ActiveRequestID != "" {
+		t.Fatalf("retry inherited the failed request %q", payload.ActiveRequestID)
 	}
 }
