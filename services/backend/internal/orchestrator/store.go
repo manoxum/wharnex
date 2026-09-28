@@ -280,6 +280,11 @@ func (s *Store) PutTask(ctx context.Context, task Task) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var previous *Task
+	if current, ok := s.tasks[task.ID]; ok {
+		previous = &current
+	}
+	task = taskWithFirstDoingEvidence(task, previous, time.Now().UTC())
 	s.tasks[task.ID] = cloneTask(task)
 	return nil
 }
@@ -319,6 +324,10 @@ func clonePlan(plan Plan) Plan {
 }
 
 func cloneTask(task Task) Task {
+	if task.FirstDoingAt != nil {
+		firstDoingAt := *task.FirstDoingAt
+		task.FirstDoingAt = &firstDoingAt
+	}
 	task.AcceptanceCriteria = append([]string(nil), task.AcceptanceCriteria...)
 	task.DependsOn = append([]string(nil), task.DependsOn...)
 	task.ImpactFiles = append([]string(nil), task.ImpactFiles...)
@@ -329,6 +338,19 @@ func cloneTask(task Task) Task {
 		context.ProjectFiles = append([]string(nil), context.ProjectFiles...)
 		context.Attachments = append([]TaskAttachment(nil), context.Attachments...)
 		task.RetryContext = &context
+	}
+	return task
+}
+
+func taskWithFirstDoingEvidence(task Task, previous *Task, now time.Time) Task {
+	if previous != nil && previous.FirstDoingAt != nil {
+		firstDoingAt := *previous.FirstDoingAt
+		task.FirstDoingAt = &firstDoingAt
+		return task
+	}
+	if task.FirstDoingAt == nil && task.Status == TaskDoing {
+		firstDoingAt := now.UTC()
+		task.FirstDoingAt = &firstDoingAt
 	}
 	return task
 }
