@@ -3171,3 +3171,15 @@ test('a task request whose supervision raised attention reads as ended, not as s
   // A task has no workspace chat to update.
   assert.match(source, /if \(key\.startsWith\('otk_'\)\) return ''/)
 })
+
+test('supervision reads an idle reloaded conversation whose last turn is the answer as complete', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const probe = source.slice(source.indexOf('async function probeChatAgentResponse('))
+  const body = probe.slice(0, probe.indexOf('\nasync function ', 10))
+  assert.match(body, /completion\.lastRole === 'assistant'[\s\S]{0,200}<= Number\(expected\.assistantBaseline \|\| 0\)/)
+  assert.match(body, /expected\.assistantBaseline = Number\(completion\.assistantCount\) - 1\n\s+completion\.complete = true/)
+  // The rebase happens before the thinking/stall decisions read the completion.
+  assert.ok(body.indexOf('baseline-rebased') < body.indexOf('if (completion?.thinking === true)'))
+  // A task's pinned Worker returns to its conversation instead of standing back forever.
+  assert.match(body, /if \(orchestratorTaskChat\(task\)\) \{\n\s+await paceChatGPTWorkerNavigation\(\)\n\s+await loadOwnedChatGPTURL\(key, entry, conversationURL, 'orchestrator-task-return'\)/)
+})

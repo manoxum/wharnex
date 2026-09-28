@@ -192,7 +192,12 @@ export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
     const failed = document.querySelector('[data-testid="conversation-turn-error"] button,button[data-testid="retry-button"],[data-testid="message-error"] button');
     ${composerLookupSource()}
     const composerReady = Boolean(composer);
-    return { assistantCount, thinking: Boolean(stop), failed: Boolean(failed), composerReady, complete: Boolean(assistantCount > baseline && !stop && !failed && composerReady) };
+    // A reloaded long conversation renders only its latest turns, so the count
+    // can fall to or below the baseline taken at submit. The author of the last
+    // rendered turn still tells whether the answer to the latest user turn is there.
+    const turns = document.querySelectorAll('[data-message-author-role]');
+    const lastRole = turns.length ? String(turns[turns.length - 1].getAttribute('data-message-author-role') || '') : '';
+    return { assistantCount, lastRole, thinking: Boolean(stop), failed: Boolean(failed), composerReady, complete: Boolean(assistantCount > baseline && !stop && !failed && composerReady) };
   })()`
 }
 

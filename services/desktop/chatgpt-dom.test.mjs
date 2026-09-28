@@ -213,3 +213,9 @@ test('processing duration parser accepts only allowlisted reasoning disclosure l
   assert.equal(parseChatGPTProcessingDuration('Processou durante', prefixes), 0)
   assert.match(chatGPTProcessingDurationScript(prefixes, 2), /button\[aria-expanded\]/)
 })
+
+test('completion reports the author of the last rendered turn', () => {
+  const completion = chatGPTResponseCompletionScript(4)
+  assert.match(completion, /querySelectorAll\('\[data-message-author-role\]'\)/)
+  assert.match(completion, /lastRole/)
+})

@@ -57,7 +57,7 @@ import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-schedul
 import { CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer } from './chat-agent-pacer.mjs'
 import { WorkerActivity } from './chat-agent-worker-activity.mjs'
 import { chatGPTConversationLoadFailureScript } from './chatgpt-conversation-load.mjs'
-import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
+import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane, orchestratorTaskChat } from './chat-agent-residency.mjs'
 import { chatAgentLiveBundlePending } from './chat-agent-live-bundle-residency.mjs'
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
 import { reasoningEffortStateScript } from './chat-agent-scripts.mjs'
@@ -5762,10 +5762,18 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
     return { status: 'done' }
   }
   if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
-    // Nothing was attempted: the slot simply was not where this probe needed it.
-    // Charging the attempt budget for a scheduling artefact is what retired 23
-    // healthy supervisions with "exhausted maximum attempts while waiting".
-    return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true, error: 'resident worker is no longer on the expected conversation' }
+    // A Worker pinned to an Orchestrator task plays that task's Supervisor
+    // (adr/ADR-0081): when it is not on the task's conversation (a new or
+    // parked page) it returns to it, as a Supervisor never leaves its own.
+    if (orchestratorTaskChat(task)) {
+      await paceChatGPTWorkerNavigation()
+      await loadOwnedChatGPTURL(key, entry, conversationURL, 'orchestrator-task-return')
+    } else {
+      // Nothing was attempted: the slot simply was not where this probe needed it.
+      // Charging the attempt budget for a scheduling artefact is what retired 23
+      // healthy supervisions with "exhausted maximum attempts while waiting".
+      return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true, error: 'resident worker is no longer on the expected conversation' }
+    }
   }
   // AWAIT_RESPONSE is deliberately passive: observe the already-resident page,
   // never focus the composer, reload, or navigate a healthy conversation.
@@ -5787,6 +5795,18 @@ async function probeChatAgentResponse(task, entry, key, payload, conversationURL
   }
   const completion = await entry.view.webContents.executeJavaScript(chatGPTResponseCompletionScript(expected.assistantBaseline), true)
   const now = Date.now()
+  // A reloaded long conversation renders fewer turns than it had at submit, so
+  // the count stays at or below the baseline and the answer never read as
+  // complete: supervision declared "no structural sign" and the request was
+  // sent again. When the page is idle and its last rendered turn is the
+  // assistant's, the answer is there; the baseline follows the rendered page.
+  if (completion && completion.thinking !== true && completion.failed !== true && completion.composerReady === true &&
+      completion.lastRole === 'assistant' && Number(completion.assistantCount || 0) > 0 &&
+      Number(completion.assistantCount || 0) <= Number(expected.assistantBaseline || 0)) {
+    expected.assistantBaseline = Number(completion.assistantCount) - 1
+    completion.complete = true
+    console.warn(`[chatgpt-supervision] baseline-rebased key=${key} request=${expected.requestId} rendered=${completion.assistantCount}`)
+  }
   // While the page is provably still generating, this lease observed healthy
   // progress rather than attempting anything, so it must not spend the attempt
   // budget. Supervision is bounded by evidence of trouble, never by a clock
