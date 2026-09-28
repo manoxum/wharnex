@@ -119,3 +119,60 @@ it('uses the backend transition when a card is dropped after horizontal navigati
   fireEvent.drop(screen.getByRole('region', { name: /Coluna PENDING/ }))
   await waitFor(() => expect(transitioned).toHaveBeenCalledWith(session.id, ready.id, 'PENDING'))
 })
+
+it('filters every task view by plan and composes the plan filter with search', () => {
+  const planReady = { ...task('Plan ready', 'READY'), plan_id: 'opl-selected', description: 'alpha change' }
+  const planReview = { ...task('Plan review', 'REVIEW'), plan_id: 'opl-selected', description: 'beta change' }
+  const planComplete = { ...task('Plan complete', 'COMPLETE'), plan_id: 'opl-selected', description: 'beta terminal' }
+  const otherPlan = { ...task('Other plan', 'READY'), plan_id: 'opl-other', description: 'beta change' }
+  const manual = { ...task('Manual task', 'READY'), description: 'beta change' }
+  const otherComplete = { ...task('Other complete', 'COMPLETE'), plan_id: 'opl-other', description: 'beta terminal' }
+  const manualComplete = { ...task('Manual complete', 'COMPLETE'), description: 'beta terminal' }
+  const clearFilter = vi.fn()
+  const props = {
+    session,
+    overview: {
+      ...overview([planReady, planReview, otherPlan, manual]),
+      plans: [{ id: 'opl-selected', project_path: session.project_path, title: 'Plano selecionado', objective: 'Filtrar tasks', status: 'ACTIVE' as const, created_at: '2026-09-27T18:00:00Z', updated_at: '2026-09-27T18:00:00Z' }],
+    },
+    terminalPages: { COMPLETE: { tasks: [planComplete, otherComplete, manualComplete], total: 3, has_more: false } },
+    planFilter: 'opl-selected',
+    busy: false,
+    onSelectedTask: vi.fn(),
+    onPlanFilterChange: clearFilter,
+    onRun: run,
+  }
+  render(<OrchestratorTasks {...props}/>)
+
+  expect(screen.getByRole('status').textContent).toContain('Plano selecionado')
+  expect(screen.getByText('Plan ready')).not.toBeNull()
+  expect(screen.getByText('Plan review')).not.toBeNull()
+  expect(screen.getByText('Plan complete')).not.toBeNull()
+  expect(screen.queryByText('Other plan')).toBeNull()
+  expect(screen.queryByText('Manual task')).toBeNull()
+  expect(screen.queryByText('Other complete')).toBeNull()
+  expect(screen.queryByText('Manual complete')).toBeNull()
+
+  for (const view of ['Tabela', 'Lista', 'Grafo']) {
+    fireEvent.click(screen.getByRole('button', { name: view }))
+    expect(screen.getByText('Plan ready')).not.toBeNull()
+    expect(screen.getByText('Plan review')).not.toBeNull()
+    expect(screen.getByText('Plan complete')).not.toBeNull()
+    expect(screen.queryByText('Other plan')).toBeNull()
+    expect(screen.queryByText('Manual task')).toBeNull()
+    expect(screen.queryByText('Other complete')).toBeNull()
+    expect(screen.queryByText('Manual complete')).toBeNull()
+  }
+
+  fireEvent.change(screen.getByPlaceholderText('Pesquisar tasks'), { target: { value: 'beta' } })
+  expect(screen.queryByText('Plan ready')).toBeNull()
+  expect(screen.getByText('Plan review')).not.toBeNull()
+  expect(screen.getByText('Plan complete')).not.toBeNull()
+  expect(screen.queryByText('Other plan')).toBeNull()
+  expect(screen.queryByText('Manual task')).toBeNull()
+  expect(screen.queryByText('Other complete')).toBeNull()
+  expect(screen.queryByText('Manual complete')).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Limpar filtro e ver todas as tasks' }))
+  expect(clearFilter).toHaveBeenCalledWith(undefined)
+})

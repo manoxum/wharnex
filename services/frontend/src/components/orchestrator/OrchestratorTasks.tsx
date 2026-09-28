@@ -12,14 +12,16 @@ import { OrchestratorTaskDrawer } from './OrchestratorTaskDrawer'
 type View = 'kanban' | 'table' | 'list' | 'graph'
 type TerminalQuery = Omit<OrchestratorTaskPageQuery, 'status' | 'limit'>
 
-export function OrchestratorTasks({ session, overview, terminalPages = {}, chatProps, selectedTask, busy, onSelectedTask, onLoadTerminalPage, onRun }: {
+export function OrchestratorTasks({ session, overview, terminalPages = {}, chatProps, selectedTask, planFilter, busy, onSelectedTask, onPlanFilterChange, onLoadTerminalPage, onRun }: {
   session: Session
   overview: OrchestratorOverview
   terminalPages?: OrchestratorTerminalTaskPages
   chatProps?: ComponentProps<typeof ChatPanel>
   selectedTask?: OrchestratorTask
+  planFilter?: string
   busy: boolean
   onSelectedTask: (task?: OrchestratorTask) => void
+  onPlanFilterChange?: (planID?: string) => void
   onLoadTerminalPage?: (status: OrchestratorTerminalTaskStatus, query?: TerminalQuery) => Promise<OrchestratorTaskPage | undefined>
   onRun: <T>(action: () => Promise<T>, after?: (value: T) => void) => Promise<T | undefined>
 }) {
@@ -49,18 +51,36 @@ export function OrchestratorTasks({ session, overview, terminalPages = {}, chatP
   }, [onLoadTerminalPage, query])
 
   const displayPages = query && onLoadTerminalPage ? searchPages : terminalPages
+  const visiblePages = useMemo(() => {
+    if (!planFilter) return displayPages
+    return ORCHESTRATOR_TERMINAL_STATUSES.reduce<OrchestratorTerminalTaskPages>((pages, status) => {
+      const page = displayPages[status]
+      if (!page) return pages
+      const filtered = page.tasks.filter((task) => task.plan_id === planFilter)
+      pages[status] = { ...page, tasks: filtered, total: filtered.length }
+      return pages
+    }, {})
+  }, [displayPages, planFilter])
   const tasks = useMemo(() => {
     const needle = query.toLowerCase()
+    const matches = (task: OrchestratorTask) => (!planFilter || task.plan_id === planFilter)
+      && (!needle || `${task.title} ${task.description || ''}`.toLowerCase().includes(needle))
     const result = new Map<string, OrchestratorTask>()
-    overview.tasks.forEach((task) => {
-      if (!needle || `${task.title} ${task.description || ''}`.toLowerCase().includes(needle)) result.set(task.id, task)
-    })
-    ORCHESTRATOR_TERMINAL_STATUSES.forEach((status) => displayPages[status]?.tasks.forEach((task) => {
-      if (query && !onLoadTerminalPage && !`${task.title} ${task.description || ''}`.toLowerCase().includes(needle)) return
+    overview.tasks.forEach((task) => { if (matches(task)) result.set(task.id, task) })
+    ORCHESTRATOR_TERMINAL_STATUSES.forEach((status) => visiblePages[status]?.tasks.forEach((task) => {
+      if (query && !onLoadTerminalPage && !matches(task)) return
       result.set(task.id, task)
     }))
     return [...result.values()]
-  }, [displayPages, onLoadTerminalPage, overview.tasks, query])
+  }, [onLoadTerminalPage, overview.tasks, planFilter, query, visiblePages])
+  const filteredTaskCounts = useMemo(() => {
+    if (!planFilter) return overview.task_counts
+    const counts = { ...overview.task_counts }
+    Object.keys(counts).forEach((status) => { counts[status as OrchestratorTaskStatus] = 0 })
+    tasks.forEach((task) => { counts[task.status] += 1 })
+    return counts
+  }, [overview.task_counts, planFilter, tasks])
+  const activePlan = planFilter ? overview.plans.find((plan) => plan.id === planFilter) : undefined
 
   async function move(task: OrchestratorTask, target: OrchestratorTaskStatus) {
     if (task.status === target || task.status === 'DOING' || target === 'DOING' || target === 'REVIEW' || target === 'FAILED') return
@@ -81,10 +101,11 @@ export function OrchestratorTasks({ session, overview, terminalPages = {}, chatP
     } finally { setLoadingStatus(undefined) }
   }
 
-  const totalTasks = Object.values(overview.task_counts).reduce((total, count) => total + count, 0)
+  const totalTasks = planFilter ? tasks.length : Object.values(overview.task_counts).reduce((total, count) => total + count, 0)
   return <div className="orchestrator-tasks-page">
     <header className="orchestrator-tasks-toolbar">
-      <div><strong className="text-lg">Tasks</strong><span className="text-sm text-[var(--theme-text-muted)]">{totalTasks} no projeto · {overview.task_counts.DOING} em execução</span></div>
+      <div><strong className="text-lg">Tasks</strong><span className="text-sm text-[var(--theme-text-muted)]">{planFilter ? `${totalTasks} no plano` : `${totalTasks} no projeto`} · {filteredTaskCounts.DOING} em execução</span></div>
+      {planFilter && <div className="flex items-center gap-2 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2.5 py-1.5 text-sm" role="status"><span className="truncate">Filtro: <strong>{activePlan?.title || 'Plano'}</strong> · <span className="font-mono text-[var(--theme-text-soft)]">{planFilter}</span></span><button className="shrink-0 font-semibold" type="button" onClick={() => onPlanFilterChange?.(undefined)} aria-label="Limpar filtro e ver todas as tasks">Ver todas</button></div>}
       <label className="orchestrator-search"><Icon name="search" size={14}/><input className="text-base" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar tasks" /></label>
       <div className="orchestrator-view-switch" role="group" aria-label="Vista de tasks">
         {(['kanban', 'table', 'list', 'graph'] as View[]).map((item) => <button key={item} className={`${view === item ? 'active ' : ''}text-base`} onClick={() => setView(item)}>{item === 'kanban' ? 'Kanban' : item === 'table' ? 'Tabela' : item === 'list' ? 'Lista' : 'Grafo'}</button>)}
@@ -93,7 +114,7 @@ export function OrchestratorTasks({ session, overview, terminalPages = {}, chatP
     </header>
 
     <div className={`orchestrator-task-surface view-${view}`}>
-      {view === 'kanban' && <OrchestratorKanban tasks={tasks} taskCounts={overview.task_counts} terminalPages={displayPages} searching={Boolean(query)} session={session} busy={busy} dragTask={dragTask} loadingStatus={loadingStatus} onEffort={changeEffort} onDrag={setDragTask} onDrop={(status) => {
+      {view === 'kanban' && <OrchestratorKanban tasks={tasks} taskCounts={filteredTaskCounts} terminalPages={visiblePages} searching={Boolean(query || planFilter)} session={session} busy={busy} dragTask={dragTask} loadingStatus={loadingStatus} onEffort={changeEffort} onDrag={setDragTask} onDrop={(status) => {
         const task = loadedTasks.find((item) => item.id === dragTask); setDragTask(undefined); if (task) void move(task, status)
       }} onLoadMore={(status) => void loadMore(status)} onSelect={onSelectedTask} onOpenChat={chatProps ? (task) => chatProps.onNewChat(canonicalTaskDirective(task.id)) : undefined} />}
       {view === 'table' && <TaskTable tasks={tasks} onSelect={onSelectedTask} />}

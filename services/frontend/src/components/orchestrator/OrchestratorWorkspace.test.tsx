@@ -130,4 +130,61 @@ describe('OrchestratorWorkspace polling', () => {
     expect(screen.getByRole('tab', { name: 'Resumo' })).toBeTruthy()
   })
 
+
+  it('opens Tasks from planning detail with the selected plan filter active', async () => {
+    const planningRequest = {
+      request_id: 'orp-filter',
+      task_id: 'cat-filter',
+      objective: 'Filtrar dashboard',
+      status: 'COMPLETE',
+      attempt: 1,
+      max_attempts: 8,
+      created_at: '2026-09-28T02:00:00Z',
+      updated_at: '2026-09-28T02:05:00Z',
+    }
+    const plan = {
+      id: 'opl-selected',
+      project_path: session.project_path,
+      title: 'Plano selecionado',
+      objective: 'Filtrar tasks',
+      status: 'ACTIVE' as const,
+      created_at: '2026-09-28T02:01:00Z',
+      updated_at: '2026-09-28T02:06:00Z',
+    }
+    const selected = { id: 'Selected task', project_path: session.project_path, plan_id: plan.id, title: 'Selected task', status: 'READY' as const, condition: 'none' as const, priority: 'normal' as const, parallelizable: false, created_at: '2026-09-28T02:02:00Z', updated_at: '2026-09-28T02:06:00Z' }
+    const other = { ...selected, id: 'Other task', title: 'Other task', plan_id: 'opl-other' }
+    const manual = { ...selected, id: 'Manual task', title: 'Manual task', plan_id: undefined }
+    const counts = emptyOrchestratorTaskCounts()
+    counts.READY = 3
+    vi.mocked(api.orchestratorOverview).mockResolvedValue({ plans: [plan], tasks: [selected, other, manual], task_counts: counts, planning_requests: [planningRequest], mutation_slots: 1, mutation_slots_used: 0 })
+    vi.spyOn(api, 'orchestratorPlanningDetail').mockResolvedValue({
+      request_id: planningRequest.request_id,
+      task_id: planningRequest.task_id,
+      status: planningRequest.status,
+      attempt: planningRequest.attempt,
+      max_attempts: planningRequest.max_attempts,
+      objective: planningRequest.objective,
+      include_context: false,
+      project_files: [],
+      attachments: [],
+      attempts: [],
+      plan,
+      tasks: [],
+    })
+    vi.spyOn(api, 'orchestratorTasks').mockResolvedValue({ tasks: [], total: 0, has_more: false })
+
+    render(<OrchestratorWorkspace session={session} chatProps={{} as ComponentProps<typeof ChatPanel>} active onError={() => undefined}/>)
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir detalhe de Filtrar dashboard' }))
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    fireEvent.click(screen.getByRole('button', { name: 'Ver tasks' }))
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+    expect(screen.getByRole('status').textContent).toContain('Plano selecionado')
+    expect(screen.getByText('Selected task')).toBeTruthy()
+    expect(screen.queryByText('Other task')).toBeNull()
+    expect(screen.queryByText('Manual task')).toBeNull()
+  })
+
 })

@@ -57,6 +57,7 @@ it('keeps all detail tabs available across loading, error and empty states', () 
 it('shows plan identity and delegates close and refresh actions', () => {
   const onClose = vi.fn()
   const onRefresh = vi.fn()
+  const onOpenTasks = vi.fn()
   const detail: OrchestratorPlanningDetail = {
     ...emptyDetail,
     plan: {
@@ -69,7 +70,7 @@ it('shows plan identity and delegates close and refresh actions', () => {
       updated_at: '2026-09-28T01:06:00Z',
     },
   }
-  render(<OrchestratorPlanDrawer request={request} detail={detail} loading={false} onClose={onClose} onRefresh={onRefresh}/>)
+  render(<OrchestratorPlanDrawer request={request} detail={detail} loading={false} onClose={onClose} onRefresh={onRefresh} onOpenTasks={onOpenTasks}/>)
 
   expect(screen.getByText(request.request_id)).toBeTruthy()
   expect(screen.getByText(request.status)).toBeTruthy()
@@ -78,8 +79,10 @@ it('shows plan identity and delegates close and refresh actions', () => {
   expect(screen.getByText('opl-detail')).toBeTruthy()
   expect(screen.getByText('Plano detalhado')).toBeTruthy()
 
+  fireEvent.click(screen.getByRole('button', { name: 'Ver tasks' }))
   fireEvent.click(screen.getByRole('button', { name: 'Atualizar detalhe do planeamento' }))
   fireEvent.click(screen.getByRole('button', { name: 'Fechar detalhe do planeamento' }))
+  expect(onOpenTasks).toHaveBeenCalledWith('opl-detail')
   expect(onRefresh).toHaveBeenCalledTimes(1)
   expect(onClose).toHaveBeenCalledTimes(1)
 })
