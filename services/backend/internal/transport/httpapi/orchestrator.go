@@ -182,6 +182,21 @@ func (a *API) orchestratorTaskEffort(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, task)
 }
 
+func (a *API) orchestratorTaskEffortLevel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		EffortLevel domain.EffortLevel `json:"effort_level"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	task, err := a.service.SetOrchestratorTaskEffortLevel(r.Context(), r.PathValue("id"), r.PathValue("task_id"), body.EffortLevel)
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_effort_level_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
 func (a *API) orchestratorRetryTask(w http.ResponseWriter, r *http.Request) {
 	var input orchestrator.TaskRetryContext
 	if !decodeJSON(w, r, &input) {

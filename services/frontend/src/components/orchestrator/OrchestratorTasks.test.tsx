@@ -59,9 +59,18 @@ it('changes effort on a Kanban card without opening the task drawer', async () =
   const ready = task('Parallel change', 'READY')
   const overview: OrchestratorOverview = { plans: [], tasks: [ready], planning_requests: [], mutation_slots: 5, mutation_slots_used: 0 }
   const selected = vi.fn()
-  const setEffort = vi.spyOn(api, 'setOrchestratorTaskEffort').mockResolvedValue({ ...ready, reasoning_effort: 'instant' })
+  const setEffort = vi.spyOn(api, 'setOrchestratorTaskEffortLevel').mockResolvedValue({ ...ready, effort_level: 'ultra' })
   render(<OrchestratorTasks session={session} overview={overview} busy={false} onSelectedTask={selected} onRun={async <T,>(action: () => Promise<T>) => action()}/>)
-  fireEvent.change(screen.getByRole('combobox', { name: 'Esforço de Parallel change' }), { target: { value: 'instant' } })
-  await waitFor(() => expect(setEffort).toHaveBeenCalledWith(session.id, ready.id, 'instant'))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Esforço de Parallel change' }), { target: { value: 'ultra' } })
+  await waitFor(() => expect(setEffort).toHaveBeenCalledWith(session.id, ready.id, 'ultra'))
   expect(selected).not.toHaveBeenCalled()
+})
+
+it('offers the bounded composer effort levels on a card, never Loop', () => {
+  const ready = task('Bounded', 'READY')
+  const overview: OrchestratorOverview = { plans: [], tasks: [ready], planning_requests: [], mutation_slots: 5, mutation_slots_used: 0 }
+  render(<OrchestratorTasks session={{ ...session, effort_level: 'loop' }} overview={overview} busy={false} onSelectedTask={vi.fn()} onRun={async <T,>(action: () => Promise<T>) => action()}/>)
+  const select = screen.getByRole('combobox', { name: 'Esforço de Bounded' }) as HTMLSelectElement
+  expect([...select.options].map((option) => option.value)).toEqual(['low', 'medium', 'high', 'extra_high', 'max', 'ultra'])
+  expect(select.value).toBe('ultra')
 })

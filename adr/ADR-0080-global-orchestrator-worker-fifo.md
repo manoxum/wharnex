@@ -27,7 +27,13 @@ is five per project and remains operator adjustable. Verification runs in
 isolated copies; host integration retains its project lock and conflict checks.
 Dependency readiness and strict bundle validation still apply to every task.
 
-Every Orchestrator card exposes its reasoning effort. An update during DOING
-also updates the task's Agent Session for its next provider request; a request
-already submitted retains the effort it used. Terminal-task effort is metadata
-for any future authorized run and does not restart work by itself.
+Every Orchestrator card exposes its effort level: the composer's autonomous
+attempt budget (Low · 3 through Ultra · 50) that the task's Agent run may
+spend before the task fails. Loop is not a task level, because a task must
+end in FAILED once its budget is spent; a task without its own level inherits
+the owning session's, with Loop bounded to Ultra. The task drawer also keeps
+the separate per-request reasoning effort (intelligence). An update of either
+during DOING applies to the task's Agent Session: the effort level to the
+remaining budget, the reasoning effort to the next provider request; a request
+already submitted retains the reasoning effort it used. A terminal task's
+settings are metadata for any future authorized run and do not restart work.

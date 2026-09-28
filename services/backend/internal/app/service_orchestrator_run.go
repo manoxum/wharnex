@@ -48,7 +48,7 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	if !domain.ValidReasoningEffort(effort) {
 		effort = normalizeReasoningEffort(owner.ReasoningEffort)
 	}
-	agentSession, err := s.StartSessionWithModes(ctx, task.ProjectPath, owner.ExecutionMode, owner.AutomationMode, owner.EffortLevel)
+	agentSession, err := s.StartSessionWithModes(ctx, task.ProjectPath, owner.ExecutionMode, owner.AutomationMode, orchestratorTaskEffortLevel(task, owner))
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}
