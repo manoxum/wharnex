@@ -5,16 +5,10 @@ import { confirmDialog } from '../lib/appDialog'
 import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
 import { GitReleaseRichText } from './GitReleaseRichText'
+import { releaseTagName } from './GitReleaseTag'
 
 export type GitReleaseDraftInput = { branch: string; tag_suffix: string; title: string; body: string }
 export type GitReleasePublishResult = { ok: boolean; error?: string }
-
-export function releaseTagName(version: string, suffix: string) {
-  const base = version.trim()
-  const trimmedSuffix = suffix.trim().replace(/^-+/, '')
-  if (!base) return ''
-  return trimmedSuffix ? `${base}-${trimmedSuffix}` : base
-}
 
 export function GitReleasePanel({ tags, branches, projectVersion, disabled, onCopyTag, onGenerateReleaseNotes, onCreateRelease }: {
   tags: GitOverview['tags']; branches: GitBranch[]; projectVersion: string; disabled: boolean
