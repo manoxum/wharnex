@@ -34,3 +34,44 @@ it('stops following the task and closes its window when the task completes', asy
   await waitFor(() => expect(screen.queryByText('Seguindo Worker 2')).toBeNull())
   await waitFor(() => expect(agents.closeMonitor).toHaveBeenCalledWith('worker-2'))
 })
+
+
+it('opens a planning request from the card without leaking action clicks into detail selection', async () => {
+  const agents = {
+    openMonitor: vi.fn(async () => ({ ok: true, agentId: 'worker-2', alreadyOpen: false })),
+    closeMonitor: vi.fn(async () => ({ ok: true, agentId: 'worker-2', closed: true })),
+    onState: vi.fn(() => () => undefined),
+  }
+  window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+
+  const onSelect = vi.fn()
+  const onRetry = vi.fn()
+  const onGoToChat = vi.fn()
+  const failed = { ...request, status: 'FAILED' }
+  const failedTask = { ...task, chat_id: request.request_id, session_id: 'ses-planning' }
+  render(<OrchestratorPlanningQueue
+    requests={[failed]}
+    tasks={[failedTask]}
+    chats={[{ id: 'chat-planning', sessionId: 'ses-planning' }]}
+    busy={false}
+    onSelect={onSelect}
+    onRetry={onRetry}
+    onGoToChat={onGoToChat}
+  />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Abrir detalhe de Testar plano' }))
+  expect(onSelect).toHaveBeenCalledTimes(1)
+  expect(onSelect).toHaveBeenLastCalledWith(failed)
+
+  onSelect.mockClear()
+  fireEvent.click(screen.getByRole('button', { name: 'Acompanhar instância' }))
+  expect(onSelect).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Ver chat' }))
+  expect(onGoToChat).toHaveBeenCalledWith('chat-planning', 'ses-planning')
+  expect(onSelect).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Retentar' }))
+  expect(onRetry).toHaveBeenCalledWith(request.request_id)
+  expect(onSelect).not.toHaveBeenCalled()
+})

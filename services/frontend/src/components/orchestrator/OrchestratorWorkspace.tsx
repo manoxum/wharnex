@@ -6,6 +6,8 @@ import { ORCHESTRATOR_TERMINAL_STATUSES, type ChatAgentTask, type OrchestratorOv
 import { Icon } from '../Icon'
 import { OrchestratorOverview } from './OrchestratorOverview'
 import { OrchestratorTasks } from './OrchestratorTasks'
+import { OrchestratorPlanDrawer } from './OrchestratorPlanDrawer'
+import { useOrchestratorPlanningDetail } from './useOrchestratorPlanningDetail'
 import type { ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 import { ChatPanel } from '../ChatPanel'
 
@@ -61,6 +63,8 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     } catch (reason) { if (!quiet) onError(errorMessage(reason)) }
     finally { if (!quiet) setBusy(false) }
   }, [onError, session.id, session.project_path])
+
+  const planningDetail = useOrchestratorPlanningDetail(session.id, overview.planning_requests)
 
   useEffect(() => {
     if (!active) return
@@ -159,6 +163,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       onRun={run}
       onOpenTasks={() => setSection('tasks')}
       onSelectTask={(task) => { setSelectedTask(task); setSection('tasks') }}
+      onSelectPlanningRequest={planningDetail.open}
     /> : <OrchestratorTasks
       session={session}
       overview={overview}
@@ -170,5 +175,14 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       onLoadTerminalPage={loadTerminalPage}
       onRun={run}
     />}
+
+    {planningDetail.request ? <OrchestratorPlanDrawer
+      request={planningDetail.request}
+      detail={planningDetail.detail}
+      loading={planningDetail.loading}
+      error={planningDetail.error}
+      onClose={planningDetail.close}
+      onRefresh={planningDetail.refresh}
+    /> : null}
   </section>
 }
