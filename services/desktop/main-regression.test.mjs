@@ -180,7 +180,7 @@ test('background planner continuations use hidden Workers and cannot focus or re
 
   const executionStart = source.indexOf('async function executeChatAgentTask(')
   const execution = source.slice(executionStart, source.indexOf('\n  switch \(task\.type\)', executionStart))
-  assert.match(execution, /\(!conversationURL \|\| executorNavigates\) && !isTrustedChatGPTOrigin[\s\S]*CHATGPT_URL/)
+  assert.match(execution, /!conversationURL && !isTrustedChatGPTOrigin[\s\S]*CHATGPT_URL/)
 
   const submitStart = source.indexOf('async function submitChatGPTDraft(')
   const submit = source.slice(submitStart, source.indexOf('\nasync function preparePromptForChatGPT', submitStart))
@@ -2485,7 +2485,7 @@ test('submission pacing widens after rate-limit pressure and decays back on its 
   assert.ok(deferralIndex > 0 && loadIndex > deferralIndex, 'the deferral must be checked before the navigation')
 
   const execute = source.slice(source.indexOf('async function executeChatAgentTask('))
-  assert.match(execute.slice(0, 4000), /error instanceof ChatGPTRateLimitDeferral[\s\S]*observation: true/)
+  assert.match(execute.slice(0, 5000), /error instanceof ChatGPTRateLimitDeferral[\s\S]*observation: true/)
 })
 
 test('task-scoped Keep flowing survives WAITING and ends when that task is terminal', async () => {
@@ -3135,7 +3135,9 @@ test('an Orchestrator execution claim does not open its conversation before the 
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner, entry: ephemeralEntry })'))
   assert.match(execute, /const executorNavigates = task\.type === 'ORCHESTRATOR_EXECUTE'/)
-  assert.match(execute, /if \(conversationURL && !executorNavigates && !sameConversationURL/)
+  // It never bootstraps a blank page on the home surface either: the driver
+  // goes straight to the task's own conversation.
+  assert.match(execute, /if \(executorNavigates\) \{[\s\S]{0,400}settleAssignment\(entry\.slotId, assigned\.assignment\.epoch, assigned\.lane\)[\s\S]{0,120}\} else if \(conversationURL && !sameConversationURL/)
   // The round driver's own navigations take a paced slot, as the claim did.
   const adopt = source.slice(source.indexOf('async function adoptOrchestratorRequest('))
   assert.match(adopt.slice(0, 600), /await paceChatGPTWorkerNavigation\(\)\n\s+await loadOwnedChatGPTURL\(key, entry, conversationURL, 'orchestrator-agent-adopt'\)/)

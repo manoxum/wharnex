@@ -41,6 +41,11 @@ the next attempt reopens the same conversation. Auto scale never drains the
 pool below its highest pinned Worker: draining one destroyed its conversation,
 and the next claim grew the pool again and reopened ChatGPT from its home page
 in a loop.
+Like a Supervisor, the pinned Worker stays on the task's conversation between
+rounds and navigates only when a round needs the page. From a blank page (a
+new Worker, or one parked after a failed load) it goes straight to the task's
+conversation, never to the home page first; only a task without a
+conversation yet starts from the home page.
 
 The configured Worker count and auto scale apply to Orchestrator execution,
 plus the account-lifecycle and classification work that is still on this pool.

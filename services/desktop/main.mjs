@@ -7010,9 +7010,14 @@ async function executeChatAgentTask(task, { worker, owner, entry: ephemeralEntry
   const executorNavigates = task.type === 'ORCHESTRATOR_EXECUTE'
   try {
     if (assigned.assignment.rebind) {
-      if (conversationURL && !executorNavigates && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
+      if (executorNavigates) {
+        // A task's round driver opens the task's own conversation itself, and
+        // only when a round needs the page. A blank page is never sent to the
+        // home surface first: that cost a second full load on every start.
+        if (!chatAgentResidency.settleAssignment(entry.slotId, assigned.assignment.epoch, assigned.lane)) throw new Error('stale worker assignment before execution')
+      } else if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
         await loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, `chat-agent-${String(task.type || '').toLowerCase()}`, assigned.assignment)
-      } else if ((!conversationURL || executorNavigates) && !isTrustedChatGPTOrigin(entry.view.webContents.getURL())) {
+      } else if (!conversationURL && !isTrustedChatGPTOrigin(entry.view.webContents.getURL())) {
         // A fresh hidden Worker starts on about:blank. Background continuations
         // without a bound conversation must bootstrap it on the home surface.
         await loadAndSettleChatGPTWorkerConversation(key, entry, CHATGPT_URL, `chat-agent-${String(task.type || '').toLowerCase()}-bootstrap`, assigned.assignment)
