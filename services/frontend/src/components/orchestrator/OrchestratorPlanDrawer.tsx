@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { OrchestratorPlanningDetail, OrchestratorPlanningRequest, OrchestratorTask } from '../../types'
 import { Icon } from '../Icon'
+import { OrchestratorPlanFilesTab, OrchestratorPlanTab } from './OrchestratorPlanDetailTabs'
 
 type DetailTab = 'summary' | 'files' | 'plan' | 'tasks' | 'executions'
 
@@ -70,8 +71,8 @@ export function OrchestratorPlanDrawer({ request, detail, loading, error, onClos
 
         {!detail || (error && !loading) ? null : <div className="mt-3" role="tabpanel">
           {tab === 'summary' ? <SummaryTab request={request} detail={detail}/> : null}
-          {tab === 'files' ? <FilesTab detail={detail}/> : null}
-          {tab === 'plan' ? <PlanTab detail={detail}/> : null}
+          {tab === 'files' ? <OrchestratorPlanFilesTab detail={detail}/> : null}
+          {tab === 'plan' ? <OrchestratorPlanTab detail={detail}/> : null}
           {tab === 'tasks' ? <TasksTab detail={detail}/> : null}
           {tab === 'executions' ? <ExecutionsTab detail={detail} onSelectTask={onSelectTask}/> : null}
         </div>}
@@ -104,17 +105,6 @@ function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest;
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-danger)]">{detail.last_error || request.last_error}</p>
     </section> : null}
   </div>
-}
-
-function FilesTab({ detail }: { detail: OrchestratorPlanningDetail }) {
-  const count = detail.project_files.length + detail.attachments.length
-  if (!count) return <StateMessage kind="empty" message="Este pedido não possui ficheiros ou anexos associados."/>
-  return <StateMessage kind="info" message={`${count} ficheiro${count === 1 ? '' : 's'} ${count === 1 ? 'disponível' : 'disponíveis'} para este pedido.`}/>
-}
-
-function PlanTab({ detail }: { detail: OrchestratorPlanningDetail }) {
-  if (!detail.plan) return <StateMessage kind="empty" message="O plano ainda não foi persistido para este request."/>
-  return <StateMessage kind="info" message={`Plano ${detail.plan.id} disponível para este pedido.`}/>
 }
 
 function TasksTab({ detail }: { detail: OrchestratorPlanningDetail }) {

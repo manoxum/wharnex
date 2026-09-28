@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
-import type { OrchestratorPlanningDetail, OrchestratorPlanningRequest } from '../../types'
+import type { OrchestratorPlanningDetail, OrchestratorPlanningRequest, OrchestratorTask } from '../../types'
 import { OrchestratorPlanDrawer } from './OrchestratorPlanDrawer'
 
 const request: OrchestratorPlanningRequest = {
@@ -45,7 +45,7 @@ it('keeps all detail tabs available across loading, error and empty states', () 
   expect(screen.getByText('Este pedido não possui ficheiros ou anexos associados.')).toBeTruthy()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Plano' }))
-  expect(screen.getByText('O plano ainda não foi persistido para este request.')).toBeTruthy()
+  expect(screen.getByText(/Planeamento ainda não concluído\/importado/)).toBeTruthy()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Tasks' }))
   expect(screen.getByText('Nenhuma task foi criada para este plano.')).toBeTruthy()
@@ -83,3 +83,93 @@ it('shows plan identity and delegates close and refresh actions', () => {
   expect(onRefresh).toHaveBeenCalledTimes(1)
   expect(onClose).toHaveBeenCalledTimes(1)
 })
+
+
+it('separates request inputs from deduplicated planned file scope and searches both', () => {
+  const unsafeAttachment = { name: 'notes.md', size: 12, mime: 'text/markdown', storage_ref: 'secret/cache/ref' }
+  const detail: OrchestratorPlanningDetail = {
+    ...emptyDetail,
+    project_files: ['src/input.ts'],
+    attachments: [unsafeAttachment],
+    plan: planFixture(),
+    tasks: [
+      { task: taskFixture('task-a', 'Preparar base', [], { impact_files: ['src/shared.ts'], read_files: ['src/read.ts'] }), runs: [] },
+      { task: taskFixture('task-b', 'Consumir base', ['task-a'], { impact_files: ['src/shared.ts'], barrier_files: ['src/shared.ts', 'src/barrier.ts'] }), runs: [] },
+    ],
+  }
+  render(<OrchestratorPlanDrawer request={request} detail={detail} loading={false} onClose={vi.fn()} onRefresh={vi.fn()}/>)
+  fireEvent.click(screen.getByRole('tab', { name: 'Ficheiros' }))
+
+  expect(screen.getByText('Entrada do utilizador')).toBeTruthy()
+  expect(screen.getByText('src/input.ts')).toBeTruthy()
+  expect(screen.getByText('notes.md')).toBeTruthy()
+  expect(screen.getByText('text/markdown')).toBeTruthy()
+  expect(screen.getByText('12 B')).toBeTruthy()
+  expect(screen.queryByText('secret/cache/ref')).toBeNull()
+  expect(screen.getByText('Escopo previsto pelo Planner')).toBeTruthy()
+  expect(screen.getAllByText('src/shared.ts')).toHaveLength(1)
+  expect(screen.getByText('Impacto')).toBeTruthy()
+  expect(screen.getAllByText('Barreira')).toHaveLength(2)
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Pesquisar ficheiros e escopo' }), { target: { value: 'src/read.ts' } })
+  expect(screen.getByText('src/read.ts')).toBeTruthy()
+  expect(screen.queryByText('src/barrier.ts')).toBeNull()
+})
+
+it('shows plan metadata, assumptions and searchable task dependencies', () => {
+  const detail: OrchestratorPlanningDetail = {
+    ...emptyDetail,
+    plan: { ...planFixture(), assumptions: ['API de detalhe já disponível'] },
+    tasks: [
+      { task: taskFixture('task-a', 'Preparar base'), runs: [] },
+      { task: taskFixture('task-b', 'Consumir base', ['task-a']), runs: [] },
+    ],
+  }
+  render(<OrchestratorPlanDrawer request={request} detail={detail} loading={false} onClose={vi.fn()} onRefresh={vi.fn()}/>)
+  fireEvent.click(screen.getByRole('tab', { name: 'Plano' }))
+
+  expect(screen.getAllByText('Plano detalhado').length).toBeGreaterThan(0)
+  expect(screen.getByText('Executar o plano')).toBeTruthy()
+  expect(screen.getByText('ACTIVE')).toBeTruthy()
+  expect(screen.getByText('API de detalhe já disponível')).toBeTruthy()
+  expect(screen.getByText('Ponto de entrada · sem dependências')).toBeTruthy()
+  expect(screen.getByText('← Preparar base')).toBeTruthy()
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Pesquisar tasks e dependências' }), { target: { value: 'Consumir' } })
+  expect(screen.getByText('Consumir base')).toBeTruthy()
+  expect(screen.queryByText('Preparar base')).toBeNull()
+})
+
+function planFixture() {
+  return {
+    id: 'opl-detail',
+    project_path: '/workspace/demo',
+    title: 'Plano detalhado',
+    objective: 'Executar o plano',
+    status: 'ACTIVE' as const,
+    created_at: '2026-09-28T01:01:00Z',
+    updated_at: '2026-09-28T01:06:00Z',
+  }
+}
+
+function taskFixture(
+  id: string,
+  title: string,
+  dependsOn: string[] = [],
+  files: Partial<Pick<OrchestratorTask, 'impact_files' | 'read_files' | 'barrier_files'>> = {},
+): OrchestratorTask {
+  return {
+    id,
+    project_path: '/workspace/demo',
+    plan_id: 'opl-detail',
+    title,
+    status: 'READY',
+    condition: dependsOn.length ? 'dependency' : 'none',
+    priority: 'normal',
+    depends_on: dependsOn,
+    parallelizable: true,
+    created_at: '2026-09-28T01:01:00Z',
+    updated_at: '2026-09-28T01:06:00Z',
+    ...files,
+  }
+}
