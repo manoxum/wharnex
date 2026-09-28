@@ -33,4 +33,12 @@ describe('orchestratorRestartChats', () => {
     ], [ordinary], toSession)
     expect(result.chats).toEqual([])
   })
+
+  it('keeps one entry per task, the run applied most recently', () => {
+    const older = record({ session_id: 'ses_old', self_evolution: true, self_evolution_activation: 'restart_pending', last_host_applied_at: '2026-09-27T21:54:21Z' })
+    const newer = record({ session_id: 'ses_new', self_evolution: true, self_evolution_activation: 'restart_pending', last_host_applied_at: '2026-09-28T01:56:27Z' })
+    const result = orchestratorRestartChats([older, newer], [], toSession)
+    expect(result.chats.map((chat) => chat.sessionId)).toEqual(['ses_new'])
+    expect(result.sessions[newer.chat_id]?.id).toBe('ses_new')
+  })
 })
