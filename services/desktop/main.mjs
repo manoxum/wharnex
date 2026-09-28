@@ -2824,9 +2824,16 @@ function chatAgentKeepFlowingRequestActive(requestId) {
   return false
 }
 
+// The pool never drains below a Worker that must keep its page: a keep-flowing
+// sponsor, or a Worker pinned to an Orchestrator task. Draining a pinned Worker
+// destroyed it with its conversation, and the next claim grew the pool again,
+// reopening ChatGPT from its home page every cycle.
 function chatAgentKeepFlowingFloor() {
   let floor = 0
-  for (let worker = 1; worker <= chatGPTWorkerEntries.length; worker += 1) if (chatAgentKeepFlowingActive(worker)) floor = worker
+  for (let worker = 1; worker <= chatGPTWorkerEntries.length; worker += 1) {
+    const entry = workerEntryForIndex(worker)
+    if (chatAgentKeepFlowingActive(worker) || (entry && orchestrationTaskPins.lane(entry.slotId))) floor = worker
+  }
   return floor
 }
 

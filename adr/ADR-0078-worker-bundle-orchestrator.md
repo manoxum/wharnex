@@ -29,6 +29,13 @@ carries only that bounded field name and the exact expected filename, never
 bytes or prose from the rejected bundle. A corrected download must come from
 a newer assistant turn. The validator stays strict; a field the plan schema
 allows MUST also be accepted by the decoder, or no correction can succeed.
+The same bounded correction covers the knowledge catalog rules: an entry whose
+`file` is not `knowledge/<id>.md`, an entry whose file is missing, or an
+empty entry. The prompt carries only the validated id and path. A 409
+rejection outside these rules (for example a stale command plan that cannot
+be reconciled) rejects the same ZIP every time, so it ends the run as FAILED
+instead of re-submitting it on every attempt; a mismatch with the active
+request is not terminal.
 
 `TRANSLATE_MARKDOWN` remains on its one-task Translator Worker, and
 `RELEASE_NOTES` remains on a persistent Worker; both already exchange request

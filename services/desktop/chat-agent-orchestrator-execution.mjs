@@ -1,6 +1,6 @@
 import { pollWorkerExpectedDownload } from './chat-agent-download-poll.mjs'
 import { postLongRunningWorkerJSON } from './chat-agent-long-request.mjs'
-import { orchestratorBundleRepairPrompt } from './chat-agent-orchestrator-bundle-repair.mjs'
+import { orchestratorBundleRejectionTerminal, orchestratorBundleRepairPrompt } from './chat-agent-orchestrator-bundle-repair.mjs'
 import { chatGPTDeliveryContinuationPrompt } from './chatgpt-recovery.mjs'
 
 const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000
@@ -169,7 +169,10 @@ async function runOrchestratorExecution(task, entry, key, payload, owner, runtim
           }, runtime.postBundle)
         } catch (error) {
           const correction = orchestratorBundleRepairPrompt(error, current.expected_filename)
-          if (!correction) throw error
+          if (!correction) {
+            if (orchestratorBundleRejectionTerminal(error)) return { status: 'failed', error: String(error.message).slice(0, 500) }
+            throw error
+          }
           if (repairCount >= 3) return { status: 'failed', error: `Orchestrator response bundle rejected after ${repairCount} schema repairs: ${String(error.message).slice(0, 300)}` }
           await runtime.pace()
           const delay = runtime.rateLimitDelay()

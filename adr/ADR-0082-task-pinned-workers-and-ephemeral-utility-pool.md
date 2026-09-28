@@ -37,7 +37,10 @@ the run and releases the pin. So does a lane that stays silent for 15 minutes,
 for example when its queue entry was cancelled or used up its attempts in the
 backend. A pin never survives the Worker slot that holds it. A Worker that
 parks on `about:blank` after a conversation failed to load stays pinned, and
-the next attempt reopens the same conversation.
+the next attempt reopens the same conversation. Auto scale never drains the
+pool below its highest pinned Worker: draining one destroyed its conversation,
+and the next claim grew the pool again and reopened ChatGPT from its home page
+in a loop.
 
 The configured Worker count and auto scale apply to Orchestrator execution,
 plus the account-lifecycle and classification work that is still on this pool.

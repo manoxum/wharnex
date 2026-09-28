@@ -3113,6 +3113,12 @@ test('an Orchestrator execution Worker stays pinned to its task and others stay 
   assert.match(available.slice(0, 900), /if \(orchestrationTaskPins\.lane\(entry\.slotId\)\) continue/)
 })
 
+test('auto scale never drains below a Worker pinned to an Orchestrator task', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const floor = source.slice(source.indexOf('function chatAgentKeepFlowingFloor('))
+  assert.match(floor.slice(0, 500), /chatAgentKeepFlowingActive\(worker\) \|\| \(entry && orchestrationTaskPins\.lane\(entry\.slotId\)\)/)
+})
+
 test('translation, planning and release notes run on their own ephemeral Workers', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   assert.match(source, /const EPHEMERAL_WORKER_TASK_TYPES = new Set\(\['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES'\]\)/)
