@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"sort"
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/orchestrator"
 )
 
 // Compact attention projection.
@@ -61,11 +63,15 @@ type AttentionInterrupted struct {
 	Status string `json:"status"`
 }
 
-// WorkspaceAttention returns one compact record per session of a project.
-func (s *Service) WorkspaceAttention(projectPath string) ([]AttentionRecord, error) {
+const workspaceOrchestratorConclusionLimit = 32
+
+// WorkspaceAttention returns the compact attention inputs for one project.
+// Orchestrator conclusions come from the durable task/run store directly so
+// global polling never needs to build the much heavier Orchestrator overview.
+func (s *Service) WorkspaceAttention(ctx context.Context, projectPath string) ([]AttentionRecord, []orchestrator.TaskConclusion, error) {
 	project, err := normalizeProjectPath(projectPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sessions := s.store.List()
 
@@ -77,7 +83,11 @@ func (s *Service) WorkspaceAttention(projectPath string) ([]AttentionRecord, err
 		records = append(records, attentionRecordFor(item))
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].SessionID > records[j].SessionID })
-	return records, nil
+	conclusions, err := s.orchestrator.ListTaskConclusions(ctx, project, workspaceOrchestratorConclusionLimit)
+	if err != nil {
+		return nil, nil, err
+	}
+	return records, conclusions, nil
 }
 
 func attentionRecordFor(item domain.Session) AttentionRecord {
