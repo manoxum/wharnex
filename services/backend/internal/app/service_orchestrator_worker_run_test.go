@@ -95,13 +95,14 @@ func TestReadyOrchestratorTaskIsClaimedOnceByWorker(t *testing.T) {
 		t.Fatal("a Worker without the lease started the Agent")
 	}
 	request, err := service.StartOrchestratorWorkerTask(ctx, owner.ID, first.ID, claimed.TaskID, "worker-1")
-	if err != nil || request.Task.Status != orchestrator.TaskDoing || request.Run.SessionID == "" ||
+	if err != nil || request.Task.Status != orchestrator.TaskDoing || request.Task.FirstDoingAt == nil || request.Run.SessionID == "" ||
 		request.Prompt == "" || request.ExpectedFilename == "" || request.ChatID == "system" {
 		t.Fatalf("Worker start=%#v err=%v", request, err)
 	}
+	firstDoingAt := *request.Task.FirstDoingAt
 	retried, err := service.StartOrchestratorWorkerTask(ctx, owner.ID, first.ID, claimed.TaskID, "worker-1")
-	if err != nil || retried.Run.ID != request.Run.ID || retried.RequestID != request.RequestID {
-		t.Fatalf("Worker restart created another Agent request: %#v err=%v", retried, err)
+	if err != nil || retried.Run.ID != request.Run.ID || retried.RequestID != request.RequestID || retried.Task.FirstDoingAt == nil || !retried.Task.FirstDoingAt.Equal(firstDoingAt) {
+		t.Fatalf("Worker restart changed execution history: %#v err=%v", retried, err)
 	}
 	second, err := service.CreateOrchestratorTask(ctx, owner.ID, OrchestratorTaskInput{Title: "Next change"})
 	if err != nil {

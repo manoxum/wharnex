@@ -34,6 +34,9 @@ func evaluateOrchestratorTaskTransition(owner domain.Session, task orchestrator.
 	if target == orchestrator.TaskDoing || target == orchestrator.TaskReview || target == orchestrator.TaskFailed {
 		return deny("DOING, REVIEW and FAILED are controlled by Orchestrator execution")
 	}
+	if (target == orchestrator.TaskReady || target == orchestrator.TaskPending) && orchestrator.TaskHasEnteredDoing(task) {
+		return deny("task already entered DOING and cannot be manually moved to READY or PENDING; use explicit retry for FAILED tasks or create a new task after completion/archive")
+	}
 	if task.Status == orchestrator.TaskDoing {
 		return deny("a DOING task is controlled by its Agent run and cannot be moved manually")
 	}

@@ -80,6 +80,10 @@ type Task struct {
 	ReadFiles          []string      `json:"read_files,omitempty"`
 	BarrierFiles       []string      `json:"barrier_files,omitempty"`
 	ReasoningEffort    string        `json:"reasoning_effort,omitempty"`
+	// FirstDoingAt is monotonic lifecycle evidence. Once a task has been
+	// persisted in DOING, stores preserve the original timestamp across every
+	// later status, including retries and archival.
+	FirstDoingAt *time.Time `json:"first_doing_at,omitempty"`
 	// WasCompleted is durable lifecycle evidence. Older records omit it; a task
 	// currently in COMPLETE still counts as completed and persists the marker
 	// when it is later archived.
@@ -99,6 +103,13 @@ type Task struct {
 
 func TaskHasCompleted(task Task) bool {
 	return task.WasCompleted || task.Status == TaskComplete
+}
+
+// TaskHasEnteredDoing keeps transition policy safe for both records written
+// after FirstDoingAt was introduced and legacy records whose current status
+// proves that execution has already owned the task.
+func TaskHasEnteredDoing(task Task) bool {
+	return task.FirstDoingAt != nil || task.Status == TaskDoing || task.Status == TaskReview || task.Status == TaskFailed || TaskHasCompleted(task)
 }
 
 func TaskSatisfiesDependency(task Task) bool {

@@ -69,7 +69,7 @@ func TestOrchestratorCompletionIsTerminalAcrossArchive(t *testing.T) {
 	}
 }
 
-func TestCompletedDependentIsNotRewrittenByUpstreamRegression(t *testing.T) {
+func TestCompletedDependentRemainsStableWhenUpstreamRegressionIsRejected(t *testing.T) {
 	ctx := context.Background()
 	service := newOrchestratorLifecycleTestService()
 	owner, err := service.StartSessionWithModes(ctx, t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto)
@@ -89,8 +89,8 @@ func TestCompletedDependentIsNotRewrittenByUpstreamRegression(t *testing.T) {
 	if _, err := service.TransitionOrchestratorTask(ctx, owner.ID, downstream.ID, orchestrator.TaskComplete); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.TransitionOrchestratorTask(ctx, owner.ID, upstream.ID, orchestrator.TaskPending); err != nil {
-		t.Fatal(err)
+	if _, err := service.TransitionOrchestratorTask(ctx, owner.ID, upstream.ID, orchestrator.TaskPending); err == nil {
+		t.Fatal("reviewed upstream was manually reopened after execution")
 	}
 	stored, err := service.orchestrator.GetTask(ctx, downstream.ID)
 	if err != nil {

@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/orchestrator"
@@ -89,6 +91,87 @@ func assertAllowedTransitions(t *testing.T, task orchestrator.Task, want ...orch
 	for index := range want {
 		if got[index] != want[index] {
 			t.Fatalf("task %s transitions=%v want=%v", task.ID, got, want)
+		}
+	}
+}
+
+func TestOrchestratorManualRegressionIsBlockedAfterDoing(t *testing.T) {
+	ctx := context.Background()
+	service := newOrchestratorLifecycleTestService()
+	owner, err := service.StartSessionWithModes(ctx, t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	assertRegressionBlocked := func(taskID string) {
+		t.Helper()
+		for _, target := range []orchestrator.TaskStatus{orchestrator.TaskReady, orchestrator.TaskPending} {
+			_, err := service.TransitionOrchestratorTask(ctx, owner.ID, taskID, target)
+			if err == nil || !strings.Contains(err.Error(), "already entered DOING") {
+				t.Fatalf("manual %s after DOING returned %v", target, err)
+			}
+		}
+	}
+
+	completed, err := service.CreateOrchestratorTask(ctx, owner.ID, OrchestratorTaskInput{Title: "completed history"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed.Status = orchestrator.TaskReview
+	completed.FirstDoingAt = &now
+	if err := service.orchestrator.PutTask(ctx, completed); err != nil {
+		t.Fatal(err)
+	}
+	assertRegressionBlocked(completed.ID)
+	completed, err = service.TransitionOrchestratorTask(ctx, owner.ID, completed.ID, orchestrator.TaskComplete)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRegressionBlocked(completed.ID)
+	historicalRun := orchestrator.TaskRun{ID: "run-history", TaskID: completed.ID, ProjectPath: owner.ProjectPath, SessionID: "ses-history", RequestID: "req-history", Attempt: 1, Status: "review", StartedAt: now}
+	if err := service.orchestrator.AppendRun(ctx, historicalRun); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := service.TransitionOrchestratorTask(ctx, owner.ID, completed.ID, orchestrator.TaskArchived)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.FirstDoingAt == nil || !archived.FirstDoingAt.Equal(now) {
+		t.Fatalf("archive lost execution evidence: %#v", archived)
+	}
+	runs, err := service.orchestrator.ListRuns(ctx, archived.ID)
+	if err != nil || len(runs) != 1 || runs[0].SessionID != historicalRun.SessionID || runs[0].RequestID != historicalRun.RequestID {
+		t.Fatalf("archive lost run history or affinity: %#v err=%v", runs, err)
+	}
+	assertRegressionBlocked(archived.ID)
+
+	failed, err := service.CreateOrchestratorTask(ctx, owner.ID, OrchestratorTaskInput{Title: "failed retry"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed.Status = orchestrator.TaskFailed
+	failed.Condition = orchestrator.ConditionFailedRun
+	failed.FirstDoingAt = &now
+	if err := service.orchestrator.PutTask(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	assertRegressionBlocked(failed.ID)
+	retried, err := service.RetryOrchestratorTask(ctx, owner.ID, failed.ID, orchestrator.TaskRetryContext{Guidance: "retry through the dedicated backend path"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.Status != orchestrator.TaskReady || retried.FirstDoingAt == nil || !retried.FirstDoingAt.Equal(now) {
+		t.Fatalf("explicit retry did not preserve lifecycle evidence: %#v", retried)
+	}
+	assertRegressionBlocked(retried.ID)
+
+	fresh, err := service.CreateOrchestratorTask(ctx, owner.ID, OrchestratorTaskInput{Title: "backend-owned states"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []orchestrator.TaskStatus{orchestrator.TaskDoing, orchestrator.TaskReview, orchestrator.TaskFailed} {
+		if _, err := service.TransitionOrchestratorTask(ctx, owner.ID, fresh.ID, target); err == nil {
+			t.Fatalf("manual transition to %s was accepted", target)
 		}
 	}
 }

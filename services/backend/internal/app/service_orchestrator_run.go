@@ -35,6 +35,10 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	}
 	now := time.Now().UTC()
 	run := orchestrator.TaskRun{ID: ids.New("orun"), TaskID: task.ID, ProjectPath: task.ProjectPath, Attempt: len(runs) + 1, Status: "starting", StartedAt: now}
+	if task.FirstDoingAt == nil {
+		firstDoingAt := now
+		task.FirstDoingAt = &firstDoingAt
+	}
 	task.Status = orchestrator.TaskDoing
 	task.Condition = orchestrator.ConditionNone
 	task.UpdatedAt = now
