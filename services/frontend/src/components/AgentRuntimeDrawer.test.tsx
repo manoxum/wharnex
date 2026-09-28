@@ -2,6 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentRuntimeDrawer } from './AgentRuntimeDrawer'
 
+const dialog = vi.hoisted(() => ({ confirm: vi.fn(async () => true) }))
+vi.mock('../lib/appDialog', () => ({ confirmDialog: dialog.confirm }))
+
 class TestResizeObserver {
   observe() {}
   disconnect() {}
@@ -423,6 +426,23 @@ describe('AgentRuntimeDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retomar Workers' }))
     await waitFor(() => expect(pausedAgents.resumeWorkers).toHaveBeenCalledTimes(1))
     expect(pausedAgents.resumeProvider).not.toHaveBeenCalled()
+  })
+
+  it('releases an active rate-limit suspension only after confirmation', async () => {
+    const limited = runtime()
+    limited.provider = { ...limited.provider, paused: true, paused_until: '2026-09-28T02:30:00.000Z' }
+    const agents = agentsBridge(limited)
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
+
+    dialog.confirm.mockResolvedValueOnce(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Libertar suspensão por rate limit' }))
+    await waitFor(() => expect(dialog.confirm).toHaveBeenCalledTimes(1))
+    expect(agents.resumeProvider).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Libertar suspensão por rate limit' }))
+    await waitFor(() => expect(agents.resumeProvider).toHaveBeenCalledTimes(1))
   })
 
   it('suspends only the selected Worker task types', async () => {

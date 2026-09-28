@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../lib/desktop'
 import { api } from '../lib/api'
+import { confirmDialog } from '../lib/appDialog'
 import { observeChatGPTOverlayBlockers } from '../lib/chatGPTOverlay'
 import type { ChatAgentTask } from '../types'
 import { Icon } from './Icon'
@@ -364,6 +365,20 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
     try { setRuntime(await bridge.pauseWorkers(pausedUntil, workerPauseScope === 'types' ? workerPauseTaskTypes : [])) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível suspender os Workers') } finally { setBusy(false) }
   }
 
+  // Releasing early skips the cooldown that protects the account, so it is an
+  // explicit, confirmed operator decision.
+  const releaseRateLimit = async () => {
+    if (!bridge) return
+    const confirmed = await confirmDialog({
+      title: 'Libertar suspensão por rate limit?',
+      message: 'Os Workers voltam a enviar pedidos ao ChatGPT antes do fim do cooldown. Se a conta ainda estiver limitada, um novo HTTP 429 abre outra suspensão.',
+      tone: 'warning', confirmLabel: 'Libertar agora', cancelLabel: 'Manter suspensão',
+    })
+    if (!confirmed) return
+    setBusy(true)
+    try { setRuntime(await bridge.resumeProvider()) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível libertar a suspensão por rate limit') } finally { setBusy(false) }
+  }
+
   const resumeWorkers = async () => {
     if (!bridge) return
     setBusy(true)
@@ -497,7 +512,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
               </>}
             </div>
             <div className={`agent-runtime-scale-card agent-runtime-rate-limit-policy agent-runtime-policy-wide${runtime.provider?.paused ? ' is-paused' : ''}`}>
-              <div><strong>Suspensão automática por rate limit</strong><small>Após HTTP 429 ou gate estrutural, apenas os Workers entram em cooldown; Supervisores e Translator permanecem ativos.</small>{runtime.provider?.paused && <span className="agent-runtime-inline-status">Rate limit ativo · {runtime.provider.paused_until ? `retoma em ${timeLabel(runtime.provider.paused_until)}` : short(runtime.provider.reason, 'aguarda liberação do provider')}</span>}</div>
+              <div><strong>Suspensão automática por rate limit</strong><small>Após HTTP 429 ou gate estrutural, apenas os Workers entram em cooldown; Supervisores e Translator permanecem ativos.</small>{runtime.provider?.paused && <span className="agent-runtime-inline-status">Rate limit ativo · {runtime.provider.paused_until ? `retoma em ${timeLabel(runtime.provider.paused_until)}` : short(runtime.provider.reason, 'aguarda liberação do provider')}</span>}{runtime.provider?.paused && <button type="button" className="agent-runtime-icon-button tone-success" disabled={busy} onClick={() => void releaseRateLimit()} aria-label="Libertar suspensão por rate limit" title="Libertar suspensão por rate limit agora"><Icon name="play" size={14}/></button>}</div>
               <label className="agent-runtime-number-policy"><input key={runtime.policies.rate_limit_cooldown_minutes} aria-label="Minutos de suspensão automática por rate limit" type="number" min="1" max="60" step="0.5" defaultValue={runtime.policies.rate_limit_cooldown_minutes} disabled={busy} onBlur={(event) => { const minutes = Number(event.currentTarget.value); if (!Number.isFinite(minutes) || minutes < 1 || minutes > 60) { event.currentTarget.value = String(runtime.policies.rate_limit_cooldown_minutes); onError?.('Defina a suspensão automática entre 1 e 60 minutos.'); return } void updatePolicies({ rate_limit_cooldown_minutes: minutes }) }}/><span>min</span></label>
             </div>
           </div>
