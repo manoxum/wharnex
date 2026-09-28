@@ -1,13 +1,15 @@
-import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import { errorMessage } from '../../lib/errorMessage'
-import { combineOrchestratorTasks, emptyOrchestratorTaskCounts, invalidateChangedOrchestratorTerminalPages, isOrchestratorTask, reconcileOrchestratorTerminalPages } from '../../lib/orchestratorApi'
-import { ORCHESTRATOR_TERMINAL_STATUSES, type ChatAgentTask, type OrchestratorOverview as OverviewData, type OrchestratorProposalResult, type OrchestratorTask, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus, type Session } from '../../types'
+import { emptyOrchestratorTaskCounts, invalidateChangedOrchestratorTerminalPages, isOrchestratorTask, mergeOrchestratorTaskPages, reconcileOrchestratorTerminalPages } from '../../lib/orchestratorApi'
+import { ORCHESTRATOR_TERMINAL_STATUSES, type ChatAgentTask, type OrchestratorOverview as OverviewData, type OrchestratorProposalResult, type OrchestratorTask, type OrchestratorTaskPageQuery, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus, type Session } from '../../types'
 import { Icon } from '../Icon'
 import { OrchestratorOverview } from './OrchestratorOverview'
 import { OrchestratorTasks } from './OrchestratorTasks'
 import type { ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 import { ChatPanel } from '../ChatPanel'
+
+const TERMINAL_TASK_PAGE_SIZE = 24
 
 export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToChat, focusNonce, active = true, bootstrapObjective = '', bootstrapIncludeContext = true, onBootstrapAccepted, onError }: {
   session: Session
@@ -39,8 +41,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
   const [planningTasks, setPlanningTasks] = useState<ChatAgentTask[]>([])
   const [busy, setBusy] = useState(false)
   const bootstrapPlanningRef = useRef(new Set<string>())
-  const terminalLoadingRef = useRef(new Set<OrchestratorTerminalTaskStatus>())
-  const taskOverview = useMemo(() => ({ ...overview, tasks: combineOrchestratorTasks(overview.tasks, terminalPages) }), [overview, terminalPages])
+  const terminalLoadingRef = useRef(new Set<string>())
 
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setBusy(true)
@@ -73,14 +74,19 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     setSection('overview')
   }, [focusNonce])
 
-  const loadTerminalPage = useCallback(async (status: OrchestratorTerminalTaskStatus) => {
-    if (terminalLoadingRef.current.has(status)) return
-    terminalLoadingRef.current.add(status)
+  const loadTerminalPage = useCallback(async (status: OrchestratorTerminalTaskStatus, query: Omit<OrchestratorTaskPageQuery, 'status' | 'limit'> = {}) => {
+    const key = `${status}:${query.q?.trim() || ''}:${query.cursor || ''}`
+    if (terminalLoadingRef.current.has(key)) return undefined
+    terminalLoadingRef.current.add(key)
     try {
-      const page = await api.orchestratorTasks(session.id, { status, limit: 50 })
-      setTerminalPages((current) => ({ ...current, [status]: page }))
-    } catch (reason) { onError(errorMessage(reason)) }
-    finally { terminalLoadingRef.current.delete(status) }
+      const page = await api.orchestratorTasks(session.id, { status, limit: TERMINAL_TASK_PAGE_SIZE, ...query })
+      if (!query.q?.trim()) setTerminalPages((current) => ({
+        ...current,
+        [status]: query.cursor ? mergeOrchestratorTaskPages(current[status], page) : page,
+      }))
+      return page
+    } catch (reason) { onError(errorMessage(reason)); return undefined }
+    finally { terminalLoadingRef.current.delete(key) }
   }, [onError, session.id])
 
   useEffect(() => {
@@ -155,11 +161,13 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       onSelectTask={(task) => { setSelectedTask(task); setSection('tasks') }}
     /> : <OrchestratorTasks
       session={session}
-      overview={taskOverview}
+      overview={overview}
+      terminalPages={terminalPages}
       chatProps={chatProps}
       selectedTask={selectedTask}
       busy={busy}
       onSelectedTask={setSelectedTask}
+      onLoadTerminalPage={loadTerminalPage}
       onRun={run}
     />}
   </section>
