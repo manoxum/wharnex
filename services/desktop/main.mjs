@@ -29,7 +29,7 @@ import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
 import { chatGPTDeliveryContinuationPrompt, chooseChatGPTRecoveryAction, classifyChatGPTConversationTransport, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress, reconcileChatGPTConversationTransport, recordChatGPTConversationTransport } from './chatgpt-recovery.mjs'
 import { claimNetworkFaultReloadSlot, isNetworkRecoveryFault } from './chatgpt-transport-backoff.mjs'
-import { RATE_LIMIT_GATE, classifyChatGPTRateLimit, isChatGPTBackendAPIURL } from './chatgpt-rate-limit.mjs'
+import { RATE_LIMIT_GATE, classifyChatGPTRateLimit } from './chatgpt-rate-limit.mjs'
 import { chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory } from './managed-browser-auth.mjs'
 import { ProjectWindowRegistry, canonicalProjectPath } from './project-window-registry.mjs'
 import { desktopInstanceName, desktopWindowTitle } from './desktop-identity.mjs'
@@ -1763,16 +1763,13 @@ function noteChatGPTHTTPStatus(details) {
   const [key, entry] = match
   const status = Number(details?.statusCode || 0)
   const conversationTransport = isChatGPTConversationTransportURL(details?.url)
-  // Any refusal from a trusted ChatGPT backend endpoint is evidence about the
-  // account, not about one conversation. Scoping this to the main frame and the
-  // four conversation endpoints is what let a submission burst refuse on a
-  // sibling endpoint without the pool ever pausing.
-  if (status === 429 && (details?.resourceType === 'mainFrame' || isChatGPTBackendAPIURL(details?.url))) {
-    applyChatGPTRateLimit(key, {
-      source: details?.resourceType === 'mainFrame' ? 'main_frame' : conversationTransport ? 'conversation_transport' : 'backend_api',
-    })
-    return true
-  }
+  // An HTTP 429 is recorded by the [chatgpt-http] log and nothing more. Every
+  // open ChatGPT page makes its own background calls, and ChatGPT refuses some
+  // of them (the sidebar conversation list above all) while the account keeps
+  // submitting normally: 48 such refusals suspended every Worker 19 times in
+  // one evening with no limit ever shown. Only the limit control ChatGPT
+  // renders in its surface is rate-limit evidence (noteChatGPTRateLimitGate).
+  if (status === 429) return false
   // A generated file ChatGPT no longer serves. Recorded per conversation so the
   // task that owns it stops clicking a dead card and asks for the file again.
   if (status === 404) {

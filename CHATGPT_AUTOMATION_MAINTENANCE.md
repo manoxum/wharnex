@@ -45,11 +45,9 @@ Implementação principal: `services/desktop/chat-agent-pacer.mjs` e os limites 
 
 ### 4.1 Detecção
 
-Qualquer uma destas evidências abre a suspensão dos Workers:
+Só o controle estrutural de rate limit exposto pela página do ChatGPT (DOM) abre a suspensão dos Workers.
 
-- HTTP 429 observado num endpoint backend confiável de `chatgpt.com`;
-- controle estrutural de rate limit exposto pela página;
-- repetição de recusas classificada como gate da conta.
+Um HTTP 429, de qualquer endpoint e mesmo repetido, é apenas registado no log `[chatgpt-http]`. As páginas do ChatGPT fazem pedidos de fundo próprios, e o ChatGPT recusa alguns (sobretudo a lista de conversas da barra lateral) enquanto a conta continua a submeter normalmente. Numa noite, 48 recusas desse tipo suspenderam os Workers 19 vezes sem qualquer limite visível.
 
 A detecção é estrutural e independente do idioma. Não use texto localizado da página para decidir.
 
@@ -85,7 +83,7 @@ O fim de `paused_until` não libera a fila por si só:
 4. Depois de `reload()`, o engine aguarda o início real da navegação e a estabilização do carregamento/rede.
 5. O engine executa `chatGPTHumanActionScript()` e exige um objeto estrutural válido com `rateLimited === false`.
 6. Autenticação, CAPTCHA, acesso negado, resultado ausente ou página ambígua mantêm a fila bloqueada e reagendam a confirmação.
-7. Um 429 durante o reload, ou um gate ainda presente, abre outra suspensão completa usando a política atual.
+7. Um gate de limite ainda presente no DOM abre outra suspensão completa usando a política atual; um 429 durante o reload é só registado.
 8. O backend pode limpar o estado temporal expirado ao ser consultado, mas o bloqueio local de retomada dos Workers permanece. Somente a confirmação saudável permite novos claims de Worker.
 
 O log de sucesso esperado é:

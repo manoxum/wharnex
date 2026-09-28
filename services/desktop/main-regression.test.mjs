@@ -1134,11 +1134,9 @@ test('autonomous workers pace chat switches, wait for page settle, and pause on 
   const applyStart = source.indexOf('function applyChatGPTRateLimit(')
   const apply = source.slice(applyStart, source.indexOf('\nfunction noteChatGPTRateLimitGate(', applyStart))
 
-  assert.match(httpStatus, /status === 429/)
-  // Widened from the main frame plus four conversation endpoints: a refusal on
-  // any trusted backend endpoint is evidence about the account.
-  assert.match(httpStatus, /details\?\.resourceType === 'mainFrame' \|\| isChatGPTBackendAPIURL\(details\?\.url\)/)
-  assert.match(httpStatus, /applyChatGPTRateLimit\(key/)
+  // An HTTP 429 is only recorded: ChatGPT's own limit control in the DOM is
+  // the sole evidence that suspends Workers.
+  assert.doesNotMatch(httpStatus, /applyChatGPTRateLimit\(/)
   assert.match(apply, /chatGPTRateLimitUntil = Math\.max\(chatGPTRateLimitUntil, localUntil\)/)
   assert.match(apply, /recordRateLimit\(source, classification\.kind, Math\.round\(configuredCooldownMs \/ 1000\)\)/)
   // The durable pause the backend persisted still wins over the local mirror.
@@ -2355,14 +2353,16 @@ test('legacy auxiliary conflict tasks cannot overwrite durable chat affinity', a
   assert.match(resume, /sessionId: request\?\.sessionId, workspaceChatId/)
 })
 
-test('any trusted ChatGPT backend 429 is provider-wide evidence, not just the conversation endpoints', async () => {
+test('only ChatGPT\'s own limit control in the DOM suspends Workers; an HTTP 429 alone never does', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('function noteChatGPTHTTPStatus(')
   const handler = source.slice(start, source.indexOf('\nfunction settleChatGPTAffinityAfterSubmit', start))
-  // The narrow predicate is what let a submission burst refuse on a sibling
-  // endpoint while the pool never paused.
-  assert.match(handler, /status === 429 && \(details\?\.resourceType === 'mainFrame' \|\| isChatGPTBackendAPIURL\(details\?\.url\)\)/)
-  assert.match(handler, /applyChatGPTRateLimit\(key, \{/)
+  // 48 refusals of the sidebar conversation list suspended every Worker 19
+  // times in one evening while the account submitted normally.
+  assert.doesNotMatch(handler, /applyChatGPTRateLimit\(/)
+  const callers = [...source.matchAll(/applyChatGPTRateLimit\(([^)]*)\)/g)].map((match) => match[1])
+  assert.deepEqual(callers.filter((args) => !args.startsWith('cacheKey, {')), [])
+  assert.match(source, /applyChatGPTRateLimit\(cacheKey, \{ source: 'dom_gate', domGate: true \}\)/)
 })
 
 test('an account-wide rate-limit gate suspends Workers for the configured window', async () => {
