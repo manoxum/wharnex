@@ -3208,3 +3208,10 @@ test('a follow window stays open while its Worker is pinned to the same task', a
   // The monitored entry is the slot's own, never an index into a list that also holds ephemeral browsers.
   assert.doesNotMatch(onState, /closeWorkerMonitorAfterState\(chatGPTWorkerEntries\[worker - 1\]/)
 })
+
+test('a task bundle is delivered on the long-running request, never on a five-minute fetch', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /^import \{ postLongRunningWorkerJSON \} from '\.\/chat-agent-long-request\.mjs'$/m)
+  const post = source.slice(source.indexOf('async function postOrchestratorTask('))
+  assert.match(post.slice(0, 1200), /if \(suffix === 'bundle'\) \{[\s\S]{0,500}await postLongRunningWorkerJSON\(BACKEND_URL, path, body\)/)
+})

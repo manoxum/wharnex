@@ -51,6 +51,7 @@ import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervis
 import { autoScaleWorkerDemand } from './chat-agent-auto-scale.mjs'
 import { MAX_TRANSLATOR_SLOTS, translatorCapacityTarget } from './chat-agent-translator-capacity.mjs'
 import { OrchestrationTaskPins } from './chat-agent-orchestration-pins.mjs'
+import { postLongRunningWorkerJSON } from './chat-agent-long-request.mjs'
 import { chatAgentQueueDiagnostics } from './chat-agent-queue-diagnostics.mjs'
 import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
