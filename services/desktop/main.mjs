@@ -5865,7 +5865,10 @@ function orchestratorExecutionWorkerRuntime() {
     submittedEvidence: (key, entry, chatId, requestId) => executeChatGPTDOMScript(key, entry, 'orchestrator-agent-evidence',
       chatGPTSubmittedRequestEvidenceScript(chatInputArchiveFilename(chatId, requestId))),
     conversationURL: canonicalChatGPTConversationURL, sameConversation: sameConversationURL,
-    loadURL: async (key, entry, url) => loadOwnedChatGPTURL(key, entry, url, 'orchestrator-agent-resume'),
+    loadURL: async (key, entry, url) => {
+      await paceChatGPTWorkerNavigation()
+      return loadOwnedChatGPTURL(key, entry, url, 'orchestrator-agent-resume')
+    },
     waitSurfaceReady: waitForChatGPTSurfaceReady,
     targetComposer: targetChatGPTComposer, normalizeEffort: normalizeChatGPTReasoningEffort,
     buildRequest: async (key, current) => {
@@ -6726,11 +6729,16 @@ async function executeChatAgentTask(task, { worker, owner }) {
   const assigned = assignChatGPTWorker(entry, { ...task, payload })
   const key = assigned.key
   const conversationURL = taskConversationURL || assigned.conversationURL
+  // An Orchestrator execution opens its conversation itself, and only when the
+  // attempt needs it: to resume a live request or to submit a new one. Opening
+  // it at every claim spent a throttled conversation read on attempts that
+  // only observed the Agent executing locally.
+  const executorNavigates = task.type === 'ORCHESTRATOR_EXECUTE'
   try {
     if (assigned.assignment.rebind) {
-      if (conversationURL && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
+      if (conversationURL && !executorNavigates && !sameConversationURL(entry.view.webContents.getURL(), conversationURL)) {
         await loadAndSettleChatGPTWorkerConversation(key, entry, conversationURL, `chat-agent-${String(task.type || '').toLowerCase()}`, assigned.assignment)
-      } else if (!conversationURL && !isTrustedChatGPTOrigin(entry.view.webContents.getURL())) {
+      } else if ((!conversationURL || executorNavigates) && !isTrustedChatGPTOrigin(entry.view.webContents.getURL())) {
         // A fresh hidden Worker starts on about:blank. Background continuations
         // without a bound conversation must bootstrap it on the home surface.
         await loadAndSettleChatGPTWorkerConversation(key, entry, CHATGPT_URL, `chat-agent-${String(task.type || '').toLowerCase()}-bootstrap`, assigned.assignment)

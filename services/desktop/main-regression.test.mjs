@@ -180,7 +180,7 @@ test('background planner continuations use hidden Workers and cannot focus or re
 
   const executionStart = source.indexOf('async function executeChatAgentTask(')
   const execution = source.slice(executionStart, source.indexOf('\n  switch \(task\.type\)', executionStart))
-  assert.match(execution, /!conversationURL && !isTrustedChatGPTOrigin[\s\S]*CHATGPT_URL/)
+  assert.match(execution, /\(!conversationURL \|\| executorNavigates\) && !isTrustedChatGPTOrigin[\s\S]*CHATGPT_URL/)
 
   const submitStart = source.indexOf('async function submitChatGPTDraft(')
   const submit = source.slice(submitStart, source.indexOf('\nasync function preparePromptForChatGPT', submitStart))
@@ -3074,4 +3074,13 @@ test('conversation load failures across threads cool Worker conversation reads d
   // Only a rendered conversation clears its backoff; "no failure seen" does not.
   const recover = source.slice(source.indexOf('async function recoverChatGPTConversationLoadFailure('))
   assert.match(recover.slice(0, 900), /if \(first\?\.loaded\) chatGPTConversationLoadFailures\.delete\(conversation\)/)
+})
+
+test('an Orchestrator execution claim does not open its conversation before the executor needs it', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner })'))
+  assert.match(execute, /const executorNavigates = task\.type === 'ORCHESTRATOR_EXECUTE'/)
+  assert.match(execute, /if \(conversationURL && !executorNavigates && !sameConversationURL/)
+  // The executor's own resume navigation takes a paced slot, as the claim did.
+  assert.match(source, /loadURL: async \(key, entry, url\) => \{\n\s+await paceChatGPTWorkerNavigation\(\)\n\s+return loadOwnedChatGPTURL\(key, entry, url, 'orchestrator-agent-resume'\)/)
 })
