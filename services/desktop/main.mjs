@@ -4598,7 +4598,26 @@ async function recoverChatGPTConversationLoadFailure(cacheKey, entry, wc, settle
   noteChatGPTConversationReadFailure(conversation)
   const delayMs = Math.max(chatGPTConversationReadCooldownMs(), CHATGPT_CONVERSATION_LOAD_BACKOFF_MS[Math.min(failures, CHATGPT_CONVERSATION_LOAD_BACKOFF_MS.length) - 1])
   console.warn(`[chatgpt-load] conversation-load-failed key=${cacheKey} failures=${failures} action=${retried?.clicked ? 'retry' : 'reload'} backoff_ms=${delayMs}`)
+  if (entry.role === 'worker') entry.parkAfterLoadFailure = true
   throw new ChatGPTConversationUnavailable(delayMs)
+}
+
+// A page left on a conversation that failed to load keeps re-reading it every
+// few seconds on its own. Each refused read renews the account's read throttle
+// for this browser, so two or three parked Workers kept every conversation
+// failing inside Wharnex indefinitely while the same URL loaded elsewhere.
+// Once its attempt has ended, a hidden Worker gives its lane back and leaves
+// the page on about:blank; the next claim opens the conversation again.
+function parkChatGPTWorkerAfterLoadFailure(entry) {
+  if (!entry?.parkAfterLoadFailure) return
+  entry.parkAfterLoadFailure = false
+  const wc = entry.view?.webContents
+  if (!wc || wc.isDestroyed() || entry.interactionWindowId || entry.transportPreparationCount > 0) return
+  chatAgentResidency.releaseResidentLane(entry.slotId)
+  entry.ownerKey = ''
+  entry.affinity = createChatGPTAffinityTracker()
+  console.warn(`[chatgpt-load] worker-parked slot=${entry.slotId} reason=conversation-load-failed`)
+  void wc.loadURL('about:blank').catch(() => undefined)
 }
 
 function chatAgentRateLimitDelayMs() {
@@ -8469,7 +8488,10 @@ app.whenReady().then(async () => {
     chatGPTUploads.onCompleted(details)
     noteChatGPTHTTPStatus(details)
     if (details.statusCode >= 400) {
-      console.error(`[chatgpt-http] ${details.method} ${sanitizeDiagnosticURL(details.url)} status=${details.statusCode}`)
+      // The WebContents id and Retry-After tell which page keeps re-reading a
+      // throttled resource and for how long the provider asked it to stop.
+      const retryAfter = Object.entries(details.responseHeaders || {}).find(([name]) => name.toLowerCase() === 'retry-after')?.[1]?.[0]
+      console.error(`[chatgpt-http] ${details.method} ${sanitizeDiagnosticURL(details.url)} status=${details.statusCode} wc=${details.webContentsId ?? '-'}${retryAfter ? ` retry_after=${String(retryAfter).slice(0, 32)}` : ''}`)
     }
   })
 
@@ -8545,7 +8567,8 @@ app.whenReady().then(async () => {
 
   const workerHost = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
   chatAgentScheduler = new ChatAgentSchedulerClient({
-    baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: (task, context) => withTrace(traceForTask(task), () => chatAgentWorkerActivity.run(`worker-${Number(context?.worker) || 0}`, task.task_id, () => executeChatAgentTask(task, context))),
+    baseURL: BACKEND_URL, workerCount: desiredChatAgentWorkerSlots, maxWorkers: HARD_MAX_WORKER_SLOTS, execute: (task, context) => withTrace(traceForTask(task), () => chatAgentWorkerActivity.run(`worker-${Number(context?.worker) || 0}`, task.task_id, () => executeChatAgentTask(task, context)))
+      .finally(() => parkChatGPTWorkerAfterLoadFailure(workerEntryForIndex(context?.worker))),
     // The Worker pool takes only small account-lifecycle and utility work. The
     // durable claim enforces that partition, so no attempt is charged to reject
     // a chat-bound task this pool must never navigate to.

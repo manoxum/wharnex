@@ -3076,6 +3076,17 @@ test('conversation load failures across threads cool Worker conversation reads d
   assert.match(recover.slice(0, 900), /if \(first\?\.loaded\) chatGPTConversationLoadFailures\.delete\(conversation\)/)
 })
 
+test('a hidden Worker whose conversation failed to load is parked off it after the attempt', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const recover = source.slice(source.indexOf('async function recoverChatGPTConversationLoadFailure('))
+  assert.match(recover.slice(0, recover.indexOf('throw new ChatGPTConversationUnavailable')), /if \(entry\.role === 'worker'\) entry\.parkAfterLoadFailure = true/)
+  const park = source.slice(source.indexOf('function parkChatGPTWorkerAfterLoadFailure('))
+  assert.match(park.slice(0, 900), /entry\.interactionWindowId/)
+  assert.match(park.slice(0, 900), /chatAgentResidency\.releaseResidentLane\(entry\.slotId\)/)
+  assert.match(park.slice(0, 900), /wc\.loadURL\('about:blank'\)/)
+  assert.match(source, /executeChatAgentTask\(task, context\)\)\)\n\s+\.finally\(\(\) => parkChatGPTWorkerAfterLoadFailure\(workerEntryForIndex\(context\?\.worker\)\)\)/)
+})
+
 test('an Orchestrator execution claim does not open its conversation before the executor needs it', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner })'))
