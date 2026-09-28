@@ -22,6 +22,25 @@ describe('completed attention history', () => {
     expect(loadCompletedAttentionHistory('/project/a')).toEqual([completed])
   })
 
+  it('keeps an acknowledged Orchestrator run hidden after task status transitions', () => {
+    const orchestrator: AttentionItem = {
+      id: 'orchestrator:task-completed:run-1',
+      chatId: 'orchestrator:otk-task-1',
+      chatTitle: 'Orchestrator',
+      title: 'Task concluída: Integrar conclusões no centro global',
+      detail: 'A task Integrar conclusões no centro global terminou com sucesso.',
+      tone: 'success',
+      kind: 'task-completed',
+      occurredAt: '2026-09-28T15:20:00.000Z',
+      orchestratorTaskId: 'otk-task-1',
+      orchestratorRunId: 'run-1',
+    }
+    const history = acknowledgeCompletedAttention('/project/a', orchestrator, [])
+    const archivedProjection = { ...orchestrator }
+    expect(filterActiveAttentionItems([archivedProjection], history)).toEqual([])
+    expect(loadCompletedAttentionHistory('/project/a')).toEqual([orchestrator])
+  })
+
   it('does not hide a newer completion or non-completion attention', () => {
     const history = acknowledgeCompletedAttention('/project/a', completed, [])
     const newer = { ...completed, id: 'chat-1:task-completed:2026-09-23T11:10:00.000Z', occurredAt: '2026-09-23T11:10:00.000Z' }

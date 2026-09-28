@@ -3,6 +3,7 @@ import type { WorkspaceChat } from './workspaceMemory'
 import { executionNeedsAttention, sessionCanExecutePlan, sessionNeedsExecutionConsent } from './executionRecovery'
 import { PLANNER_GUIDANCE_REQUIRED, plannerDeclaredNonRetryable } from './plannerRecovery'
 import { hostApplyAttention } from './hostApplyAttention'
+import { compareAttentionItems, mergeAttentionItems } from './attentionItems'
 
 export type AttentionTone = 'danger' | 'warning' | 'success'
 export type AttentionKind = 'task-completed' | 'restart-pending'
@@ -29,6 +30,8 @@ export type AttentionItem = {
   requestId?: string
   kind?: AttentionKind
   occurredAt?: string
+  orchestratorTaskId?: string
+  orchestratorRunId?: string
 }
 
 export type AttentionSummary = {
@@ -69,9 +72,7 @@ export function collectAttentionItems(
   // alert count or render duplicate React keys. The semantic alert id is the
   // stable consolidation boundary: distinct problems in one chat remain
   // distinct, while duplicate projections collapse to one card.
-  const unique = new Map<string, AttentionItem>()
-  for (const entry of items) if (!unique.has(entry.id)) unique.set(entry.id, entry)
-  return [...unique.values()].sort(compareAttentionItems)
+  return mergeAttentionItems(items)
 }
 
 export function summarizeAttention(items: AttentionItem[]): AttentionSummary {
@@ -250,16 +251,4 @@ export function attentionItemsForChat(chat: WorkspaceChat, session?: Session, hu
 
 function item(chat: WorkspaceChat, suffix: string, tone: AttentionTone, title: string, detail: string, target?: AttentionTarget, action?: AttentionAction, requestId?: string, kind?: AttentionKind, occurredAt?: string): AttentionItem {
   return { id: `${chat.id}:${suffix}`, chatId: chat.id, chatTitle: chat.title, title, detail, tone, target, action, requestId, kind, occurredAt }
-}
-
-function attentionRank(tone: AttentionTone) {
-  if (tone === 'danger') return 0
-  if (tone === 'warning') return 1
-  return 2
-}
-
-function compareAttentionItems(left: AttentionItem, right: AttentionItem) {
-  return attentionRank(left.tone) - attentionRank(right.tone)
-    || left.chatTitle.localeCompare(right.chatTitle)
-    || left.title.localeCompare(right.title)
 }
