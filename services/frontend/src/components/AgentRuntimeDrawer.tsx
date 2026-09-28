@@ -49,6 +49,23 @@ const workerTaskTypeGroups: readonly WorkerTaskTypeGroup[] = [
   },
 ]
 
+// One entry per colour the list can show. A running task can be in several
+// of them (preparing, sending, waiting for ChatGPT), so each entry names the
+// phases it covers rather than the durable task status.
+const stateLegend: { key: OperationalState; label: string; hint: string }[] = [
+  { key: 'idle', label: 'Ocioso', hint: 'Sem tarefa' },
+  { key: 'waiting', label: 'Na fila / a aguardar', hint: 'Na fila de envio do ritmo global, ou tarefa em espera' },
+  { key: 'loading', label: 'A abrir conversa', hint: 'A navegar ou a carregar a página do ChatGPT' },
+  { key: 'working', label: 'A preparar / validar', hint: 'A iniciar, a preparar o pedido, a descarregar ou a validar a resposta' },
+  { key: 'writing', label: 'A enviar ao GPT', hint: 'A carregar o ZIP, a submeter ou a escrever no chat' },
+  { key: 'listening', label: 'GPT a processar', hint: 'Pedido submetido; o ChatGPT está a gerar a resposta' },
+  { key: 'chat-empty', label: 'Chat sem jobs', hint: 'Supervisor com chat mas sem trabalho' },
+  { key: 'paused', label: 'Suspenso', hint: 'Workers suspensos pela política' },
+  { key: 'error', label: 'Com erro', hint: 'A última tentativa falhou' },
+  { key: 'stopped', label: 'Parado', hint: 'Loop do agente parado' },
+  { key: 'draining', label: 'A terminar', hint: 'A sair do pool após reduzir o número de agentes' },
+]
+
 // What a Worker is actually doing inside its task, reported by the Desktop.
 // Inferring it from the task type showed a Worker still waiting its turn at
 // the shared pacer as already writing to ChatGPT.
@@ -512,7 +529,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       </div>}
       {activeTab === 'agents' && <div className="agent-runtime-tab-panel agents" role="tabpanel">
       <div className="agent-runtime-state-legend" aria-label="Legenda dos estados dos agentes">
-        {([['idle', 'Ocioso'], ['paused', 'Suspenso'], ['writing', 'A escrever'], ['listening', 'A escutar'], ['waiting', 'A aguardar'], ['chat-empty', 'Chat sem jobs']] as const).map(([key, label]) => <span key={key}><i className={`agent-runtime-dot state-${key}`} aria-hidden="true"/>{label}</span>)}
+        {stateLegend.map(({ key, label, hint }) => <span key={key} title={hint}><i className={`agent-runtime-dot state-${key}`} aria-hidden="true"/>{label}</span>)}
       </div>
       <div className="agent-runtime-body">
         <div className="agent-runtime-list" role="list" aria-label="Instâncias de agentes">{runtime.agents.map((agent) => { const foreign = foreignProject(agent, projectPath); const operational = agentOperationalState(agent); return <button type="button" role="listitem" key={agent.id} className={`${selected?.id === agent.id ? 'active ' : ''}state-${operational.key}${foreign ? ' foreign-project' : ''}`} onClick={() => { setSelectedId(agent.id); setInteractionId(undefined); setSnapshot(undefined) }}>

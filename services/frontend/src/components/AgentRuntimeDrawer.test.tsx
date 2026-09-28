@@ -136,6 +136,14 @@ describe('AgentRuntimeDrawer', () => {
     expect(screen.getByText('Worker · A carregar ZIP')).toBeTruthy()
     expect(screen.getByText('Worker · GPT a processar')).toBeTruthy()
     expect(screen.getByText('Worker · A descarregar resposta')).toBeTruthy()
+
+    // Every colour a row can take has a legend entry.
+    const legend = screen.getByLabelText('Legenda dos estados dos agentes')
+    for (const stateName of ['idle', 'waiting', 'loading', 'working', 'writing', 'listening', 'chat-empty', 'paused', 'error', 'stopped', 'draining']) {
+      expect(legend.querySelector(`.agent-runtime-dot.state-${stateName}`)).toBeTruthy()
+    }
+    expect(legend.textContent).toContain('GPT a processar')
+    expect(legend.textContent).toContain('A preparar / validar')
   })
 
   it('groups policy controls into readable operational sections', async () => {
