@@ -46,7 +46,8 @@ async function submitRequest(task, entry, key, current, payload, owner, runtime)
     await runtime.wait(runtime.settleDelay(input.bytes, input.uploadPaths.length))
     if (!(await runtime.fill(key, target.entry, input.bootstrap))) throw new Error('Orchestrator Agent composer changed during upload')
     const baseline = await runtime.assistantCount(target.wc)
-    await runtime.submit(key, target)
+    const dispatched = await runtime.submit(key, target)
+    await confirmSubmitted(runtime, key, target, current, dispatched)
     const conversationURL = await runtime.waitConversation(key, target.entry, target.conversationUrl)
     if (!conversationURL) throw new Error('Orchestrator Agent submission has no stable conversation id')
     await runtime.checkpoint(task.task_id, owner, {
@@ -63,6 +64,25 @@ async function submitRequest(task, entry, key, current, payload, owner, runtime)
 // A conversation ChatGPT refuses to load (its "could not load" surface, backed
 // by a throttled conversation read) reached nothing that can be charged: the
 // attempt comes back as a free wait, long enough for the throttle to pass.
+// The send click is only a request to ChatGPT. As in an agentic Main Request,
+// an unconfirmed dispatch is judged by the conversation itself: the user turn
+// carrying this request's exact ZIP. Missing, the request is sent once more;
+// still missing, the attempt fails before any checkpoint claims a live request.
+async function requestInConversation(runtime, key, target, current) {
+  if (typeof runtime.submittedEvidence !== 'function') return true
+  const evidence = await runtime.submittedEvidence(key, target.entry, current.chat_id, current.request_id)
+  return evidence?.submitted === true
+}
+
+async function confirmSubmitted(runtime, key, target, current, dispatched) {
+  if (dispatched?.accepted === true || typeof runtime.submittedEvidence !== 'function') return
+  await runtime.wait(3_000)
+  if (await requestInConversation(runtime, key, target, current)) return
+  try { await runtime.submit(key, target) } catch { /* the composer may already be empty */ }
+  await runtime.wait(3_000)
+  if (!(await requestInConversation(runtime, key, target, current))) throw new Error('Orchestrator request was not submitted to ChatGPT')
+}
+
 export async function executeOrchestratorExecution(task, entry, key, payload, owner, runtime) {
   try {
     return await runOrchestratorExecution(task, entry, key, payload, owner, runtime)
@@ -92,12 +112,16 @@ async function runOrchestratorExecution(task, entry, key, payload, owner, runtim
   let deliveryCount = Math.max(0, Number(payload.delivery_continuation_count) || 0)
   const now = () => (typeof runtime.now === 'function' ? runtime.now() : Date.now())
   let target = { entry, wc: entry.view.webContents, conversationUrl: conversationURL }
-  const resume = payload.active_request_id === current.request_id && payload.expected_filename === current.expected_filename && conversationURL
+  let resume = payload.active_request_id === current.request_id && payload.expected_filename === current.expected_filename && conversationURL
   if (resume) {
     if (!runtime.sameConversation(target.wc.getURL(), conversationURL)) await runtime.loadURL(key, entry, conversationURL)
     await runtime.waitSurfaceReady(key, entry)
-    runtime.phase?.('processing')
-  } else {
+    // A checkpoint written after an unconfirmed send does not prove the
+    // request reached ChatGPT; waiting for its ZIP would wait for nothing.
+    resume = await requestInConversation(runtime, key, target, current)
+    if (resume) runtime.phase?.('processing')
+  }
+  if (!resume) {
     const submitted = await submitRequest(task, entry, key, current, payload, owner, runtime)
     if (submitted.wait) return submitted.wait
     ;({ conversationURL, baseline, target } = submitted)
@@ -178,6 +202,9 @@ async function runOrchestratorExecution(task, entry, key, payload, owner, runtim
     // The turn ended without the file. As in an agentic Main Request, a short
     // continuation in the same conversation asks ChatGPT to finish and deliver
     // it, a bounded number of times, before a person is asked to look.
+    if (!(await requestInConversation(runtime, key, target, current))) {
+      throw new Error('Orchestrator request is not in the ChatGPT conversation; the next attempt submits it again')
+    }
     if (deliveryCount >= MAX_DELIVERY_CONTINUATIONS) {
       return { status: 'attention', error: `ChatGPT did not provide ${current.expected_filename} after ${deliveryCount} delivery continuations` }
     }

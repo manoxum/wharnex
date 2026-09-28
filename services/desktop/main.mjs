@@ -5839,6 +5839,8 @@ function orchestratorExecutionWorkerRuntime() {
       return !(current === requireTrustedChatGPTURL(url) || sameConversationURL(current, url))
     },
     phase: (value) => chatAgentWorkerActivity.set(value),
+    submittedEvidence: (key, entry, chatId, requestId) => executeChatGPTDOMScript(key, entry, 'orchestrator-agent-evidence',
+      chatGPTSubmittedRequestEvidenceScript(chatInputArchiveFilename(chatId, requestId))),
     conversationURL: canonicalChatGPTConversationURL, sameConversation: sameConversationURL,
     loadURL: async (key, entry, url) => loadOwnedChatGPTURL(key, entry, url, 'orchestrator-agent-resume'),
     waitSurfaceReady: waitForChatGPTSurfaceReady,

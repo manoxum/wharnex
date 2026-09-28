@@ -268,3 +268,67 @@ test('a request that never delivers gets bounded delivery continuations before a
     globalThis.fetch = previousFetch
   }
 })
+
+function evidenceRuntime({ accepted, evidence, actions, payloadURL = '' }) {
+  const expectedFilename = 'whx_bundle_res_otk-abc_req_20260927T170000_0123456789abcdef.zip'
+  const entry = { view: { webContents: { getURL: () => payloadURL || 'https://chatgpt.com/' } } }
+  const expectedDownloads = new Map()
+  let evidenceCalls = 0
+  const runtime = {
+    baseURL: 'http://127.0.0.1:6969', homeURL: 'https://chatgpt.com/', expectedDownloads,
+    pace: async () => undefined, rateLimitDelay: () => 0, needsNavigation: () => false,
+    conversationURL: (value) => value || '', sameConversation: () => true,
+    loadURL: async () => undefined, waitSurfaceReady: async () => undefined,
+    targetComposer: async () => ({ entry, wc: entry.view.webContents, conversationUrl: '' }),
+    normalizeEffort: (value) => value,
+    buildRequest: async () => ({ uploadPaths: ['/tmp/request.zip'], bytes: 1, archiveName: 'request.zip', bootstrap: 'Use request.zip', cleanup: async () => undefined }),
+    fill: async () => true, paste: async () => actions.push('paste'),
+    wait: async () => undefined, settleDelay: () => 0, assistantCount: async () => 0,
+    submit: async () => { actions.push('submit'); return { accepted } },
+    submittedEvidence: async () => { evidenceCalls += 1; return { submitted: evidence(evidenceCalls) } },
+    waitConversation: async () => 'https://chatgpt.com/c/owned',
+    checkpoint: async () => actions.push('checkpoint'), health: async () => ({ required: false }), noteRateLimit: () => false,
+    humanActionMessage: () => '', completion: async () => ({ complete: true }), expectedDownloadScript: (name) => name,
+    postBundle: async () => ({ task: { status: 'REVIEW' } }),
+    executeDOM: async () => { expectedDownloads.get(expectedFilename)?.resolve(Buffer.from('zip')); return 'exact' },
+  }
+  return { runtime, entry, expectedFilename }
+}
+
+test('an unconfirmed submit with no request in the conversation is sent again, as agentic mode resends', async () => {
+  const previousFetch = globalThis.fetch
+  const request = { task: { status: 'DOING' }, run: { id: 'run-1' }, agent_session_id: 'ses-agent', request_id: 'req_20260927T170000_0123456789abcdef', prompt: 'p', expected_filename: 'whx_bundle_res_otk-abc_req_20260927T170000_0123456789abcdef.zip', chat_id: 'otk-abc', agent_state: 'awaiting_plan' }
+  globalThis.fetch = async () => ({ ok: true, json: async () => request })
+  try {
+    const actions = []
+    const { runtime, entry } = evidenceRuntime({ accepted: false, evidence: (call) => call > 1, actions })
+    const task = { task_id: 'cat_0123456789abcdef0123', chat_id: 'otk_abc', session_id: 'ses-owner' }
+    const result = await executeOrchestratorExecution(task, entry, 'otk_abc', { protocol: 'harness.orchestrator-execution/v1', task_id: 'otk_abc' }, 'worker-1', runtime)
+    assert.equal(result.status, 'done')
+    assert.deepEqual(actions.filter((item) => item === 'submit'), ['submit', 'submit'])
+    // Never submitted at all: the attempt fails before any checkpoint claims a live request.
+    const failed = []
+    const never = evidenceRuntime({ accepted: false, evidence: () => false, actions: failed })
+    await assert.rejects(executeOrchestratorExecution(task, never.entry, 'otk_abc', { protocol: 'harness.orchestrator-execution/v1', task_id: 'otk_abc' }, 'worker-1', never.runtime), /not submitted/)
+    assert.equal(failed.includes('checkpoint'), false)
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('resuming a request that is not in the conversation submits it instead of waiting for its ZIP', async () => {
+  const previousFetch = globalThis.fetch
+  const request = { task: { status: 'DOING' }, run: { id: 'run-1' }, agent_session_id: 'ses-agent', request_id: 'req_20260927T170000_0123456789abcdef', prompt: 'p', expected_filename: 'whx_bundle_res_otk-abc_req_20260927T170000_0123456789abcdef.zip', chat_id: 'otk-abc', agent_state: 'awaiting_plan' }
+  globalThis.fetch = async () => ({ ok: true, json: async () => request })
+  try {
+    const actions = []
+    const { runtime, entry } = evidenceRuntime({ accepted: true, evidence: () => false, actions, payloadURL: 'https://chatgpt.com/c/owned' })
+    const task = { task_id: 'cat_0123456789abcdef0123', chat_id: 'otk_abc', session_id: 'ses-owner' }
+    const payload = { protocol: 'harness.orchestrator-execution/v1', task_id: 'otk_abc', active_request_id: request.request_id, expected_filename: request.expected_filename, conversation_url: 'https://chatgpt.com/c/owned' }
+    const result = await executeOrchestratorExecution(task, entry, 'otk_abc', payload, 'worker-1', runtime)
+    assert.equal(result.status, 'done')
+    assert.deepEqual(actions.slice(0, 2), ['paste', 'submit'])
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
