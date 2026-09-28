@@ -98,6 +98,7 @@ import { canonicalizeDirectives, projectFileReferenceSuffix, requiresProjectCont
 import { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './lib/chatgptPromptDelivery'
 import { activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest, sessionOwnsRequest } from './lib/pendingRequest'
 import { isRestartConfirmationReady, isRestartPending, type RestartReport } from './lib/restartConfirmation'
+import { orchestratorRestartChats } from './lib/orchestratorRestart'
 import { hasRecordedRequest } from './lib/requestDispatch'
 import { executionNeedsAttention, sessionNeedsExecutionConsent } from './lib/executionRecovery'
 import { errorMessage as messageOf } from './lib/errorMessage'
@@ -193,6 +194,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false)
   const [restartModalOpen, setRestartModalOpen] = useState(false)
   const [restartReports, setRestartReports] = useState<RestartReport[]>([])
+  // Orchestrator task sessions awaiting self-evolution activation, projected as chats.
+  const [orchestratorRestart, setOrchestratorRestart] = useState<{ chats: WorkspaceChat[]; sessions: Record<string, Session> }>({ chats: [], sessions: {} })
   const [interruptedExecutions, setInterruptedExecutions] = useState<Array<{ chat: WorkspaceChat; session: Session }>>([])
   const [executionFIFO, setExecutionFIFO] = useState<FrontendExecutionQueueItem[]>([])
   const [editorOpenPath, setEditorOpenPath] = useState<string | undefined>(surfaceRequest?.kind === 'editor' ? surfaceRequest.path : undefined)
@@ -391,7 +394,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           const record = bySession.get(chat.sessionId)
           return [chat.id, record ? attentionSessionFrom(record, session.project_path) : undefined] as const
         })
-        if (!cancelled) setAttentionSessions(Object.fromEntries(entries))
+        if (!cancelled) {
+          setAttentionSessions(Object.fromEntries(entries))
+          setOrchestratorRestart(orchestratorRestartChats(records, chats, (record) => attentionSessionFrom(record, session.project_path)))
+        }
       } finally { refreshing = false }
     }
     void refresh()
@@ -3139,8 +3145,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   async function refreshRestartReports(focusChatId = '', openWhenReady = false) {
     if (!session) return [] as RestartReport[]
-    const candidates = chats.filter((chat) => {
-      const projected = chat.id === activeChatId && chat.sessionId === session.id ? session : attentionSessions[chat.id]
+    const candidates = [...chats, ...orchestratorRestart.chats].filter((chat) => {
+      const projected = chat.id === activeChatId && chat.sessionId === session.id ? session : attentionSessions[chat.id] || orchestratorRestart.sessions[chat.id]
       return chat.id === focusChatId || isRestartConfirmationReady(projected)
     })
     const reports = (await Promise.all(candidates.map(async (chat): Promise<RestartReport | undefined> => {
@@ -3178,12 +3184,13 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const reports = [...restartReports]
     const targetReport = reports.find((report) => report.chatId === activeChatId) || reports[0]
     const targetChat = chats.find((chat) => chat.id === targetReport.chatId)
-    if (!targetChat) return
+    // An Orchestrator task has no workspace chat; its session is activated the same way.
+    if (!targetChat && !orchestratorRestart.chats.some((chat) => chat.id === targetReport.chatId)) return
     setBusy(true); setError(undefined)
     try {
       const updated = await api.restartSelfEvolution(targetReport.sessionId)
       const canonicalImpacts = updated.self_evolution_impacts?.length ? updated.self_evolution_impacts : impacts
-      acceptSessionForChat(targetChat, updated)
+      if (targetChat) acceptSessionForChat(targetChat, updated)
       setRestartModalOpen(false); setRestartReports([])
       await desktopBridge()?.windows.activateSelfEvolution(canonicalImpacts)
       const detail = canonicalImpacts.length ? canonicalImpacts.join(', ') : 'nenhum serviço em execução'
@@ -3508,7 +3515,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   submitBundleFileRef.current = submitBundleFile
 
-  const allAttentionItems = collectAttentionItems(chats, attentionSessions, chatgptHumanActions)
+  // Orchestrator tasks contribute only their restart alert; every other alert
+  // about a task belongs to the Orchestrator views.
+  const allAttentionItems = [
+    ...collectAttentionItems(chats, attentionSessions, chatgptHumanActions),
+    ...collectAttentionItems(orchestratorRestart.chats, orchestratorRestart.sessions).filter((item) => item.kind === 'restart-pending'),
+  ]
   const attentionHistory = attentionHistoryState.projectPath === session?.project_path ? attentionHistoryState.items : []
   const attentionItems = filterActiveAttentionItems(allAttentionItems, attentionHistory)
   const attentionSummary = summarizeAttention(attentionItems)
