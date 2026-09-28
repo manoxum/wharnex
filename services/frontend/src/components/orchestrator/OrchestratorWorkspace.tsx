@@ -40,6 +40,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
   const [terminalPages, setTerminalPages] = useState<OrchestratorTerminalTaskPages>({})
   const [proposal, setProposal] = useState<OrchestratorProposalResult>()
   const [selectedTask, setSelectedTask] = useState<OrchestratorTask>()
+  const [planFilter, setPlanFilter] = useState<string>()
   const [planningTasks, setPlanningTasks] = useState<ChatAgentTask[]>([])
   const [busy, setBusy] = useState(false)
   const bootstrapPlanningRef = useRef(new Set<string>())
@@ -161,8 +162,8 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       busy={busy}
       onProposal={setProposal}
       onRun={run}
-      onOpenTasks={() => setSection('tasks')}
-      onSelectTask={(task) => { setSelectedTask(task); setSection('tasks') }}
+      onOpenTasks={() => { setPlanFilter(undefined); setSection('tasks') }}
+      onSelectTask={(task) => { setPlanFilter(undefined); setSelectedTask(task); setSection('tasks') }}
       onSelectPlanningRequest={planningDetail.open}
     /> : <OrchestratorTasks
       session={session}
@@ -170,8 +171,10 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       terminalPages={terminalPages}
       chatProps={chatProps}
       selectedTask={selectedTask}
+      planFilter={planFilter}
       busy={busy}
       onSelectedTask={setSelectedTask}
+      onPlanFilterChange={setPlanFilter}
       onLoadTerminalPage={loadTerminalPage}
       onRun={run}
     />}
@@ -183,7 +186,13 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       error={planningDetail.error}
       onClose={planningDetail.close}
       onRefresh={planningDetail.refresh}
-      onSelectTask={(task) => { planningDetail.close(); setSelectedTask(task); setSection('tasks') }}
+      onSelectTask={(task) => { planningDetail.close(); setPlanFilter(undefined); setSelectedTask(task); setSection('tasks') }}
+      onOpenTasks={(planID) => {
+        setPlanFilter(planID)
+        setSelectedTask(undefined)
+        setSection('tasks')
+        planningDetail.close()
+      }}
     /> : null}
   </section>
 }
