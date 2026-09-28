@@ -20,6 +20,9 @@ type OrchestratorWorkerRequest struct {
 	ChatID           string               `json:"chat_id,omitempty"`
 	ReasoningEffort  string               `json:"reasoning_effort,omitempty"`
 	AgentState       string               `json:"agent_state"`
+	// ConversationURL is the task's permanent ChatGPT conversation, empty
+	// until its first request is submitted.
+	ConversationURL string `json:"conversation_url,omitempty"`
 }
 
 func (s *Service) orchestratorWorkerLease(workerTaskID, owner, taskID, sessionID string) error {
@@ -51,6 +54,9 @@ func (s *Service) StartOrchestratorWorkerTask(ctx context.Context, sessionID, ta
 	}
 	if orchestrator.TaskHasCompleted(task) {
 		return OrchestratorWorkerRequest{Task: task, AgentState: "settled"}, nil
+	}
+	if _, err := s.adoptOrchestratorTaskConversation(ctx, task); err != nil {
+		return OrchestratorWorkerRequest{}, err
 	}
 	if task.Status == orchestrator.TaskReady {
 		if _, err := s.StartOrchestratorTask(ctx, sessionID, taskID); err != nil {
@@ -84,7 +90,8 @@ func (s *Service) orchestratorWorkerRequest(ctx context.Context, taskID string) 
 		return OrchestratorWorkerRequest{}, err
 	}
 	result := OrchestratorWorkerRequest{Task: task, Run: run, AgentSessionID: run.SessionID,
-		AgentState: agent.State, ChatID: sessionChatID(agent), ReasoningEffort: string(agent.ReasoningEffort)}
+		AgentState: agent.State, ChatID: sessionChatID(agent), ReasoningEffort: string(agent.ReasoningEffort),
+		ConversationURL: task.ConversationURL}
 	// Only a request still awaiting its response is the Worker's to deliver.
 	// Once its bundle is accepted the Agent executes locally; reporting the old
 	// request kept the Worker reopening the conversation to wait for a ZIP it

@@ -123,13 +123,13 @@ func (s *Store) ChatAgentQueueSummary(projectID string) (ChatAgentQueueSummary, 
 		case task.NotBefore.After(now):
 			summary.Scheduled++
 			summary.NextNotBefore = earliest(summary.NextNotBefore, task.NotBefore)
-		case providerGuarded && !chatAgentTaskSupervisor(task.Type) && !chatAgentTaskEphemeral(task.Type):
+		case providerGuarded && !chatAgentTaskForSupervisor(task) && !chatAgentTaskEphemeral(task.Type):
 			summary.Guarded++
 		case chatAgentBlockedByActiveTask(task, s.chatAgentTasks, now):
 			summary.Guarded++
 		default:
 			summary.Due++
-			if chatAgentTaskSupervisor(task.Type) {
+			if chatAgentTaskForSupervisor(task) {
 				supervisorLanes[chatAgentTaskLaneKey(task)] = struct{}{}
 			} else if chatAgentTaskEphemeral(task.Type) {
 				summary.DueTranslator++

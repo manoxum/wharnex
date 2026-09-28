@@ -132,7 +132,7 @@ test('a prepared upload is submitted atomically without retargeting or reloading
 
   assert.match(submit, /preparedTarget/)
   assert.match(submit, /preparedTarget \|\| await targetChatGPTComposer/)
-  assert.match(prepare, /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ rateLimitExempt: !pacedWorker \}\)/)
+  assert.match(prepare, /submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ rateLimitExempt: !pacedWorker, requireReasoningEffort: !orchestratorTask \}\)/)
 })
 
 test('manual retry through a Supervisor is never deferred by the Worker rate-limit cooldown', async () => {
@@ -1440,7 +1440,7 @@ test('expected bundle supervision is armed only around submissions that can leav
   assert.notEqual(prepareStart, -1)
   assert.notEqual(prepareEnd, -1)
   const prepare = source.slice(prepareStart, prepareEnd)
-  const submitCount = (prepare.match(/await submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ rateLimitExempt: !pacedWorker \}\)/g) || []).length
+  const submitCount = (prepare.match(/await submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ rateLimitExempt: !pacedWorker, requireReasoningEffort: !orchestratorTask \}\)/g) || []).length
   const disarmCount = (prepare.match(/disarmExpectedChatGPTBundle\(key, requestId\)/g) || []).length
   assert.equal(submitCount, 1, 'the mandatory ZIP autoSubmit path calls submitChatGPTDraft once')
   // One disarm for a failed submitChatGPTDraft, one for a failed durable
@@ -3136,6 +3136,23 @@ test('an Orchestrator execution claim does not open its conversation before the 
   const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner, entry: ephemeralEntry })'))
   assert.match(execute, /const executorNavigates = task\.type === 'ORCHESTRATOR_EXECUTE'/)
   assert.match(execute, /if \(conversationURL && !executorNavigates && !sameConversationURL/)
-  // The executor's own resume navigation takes a paced slot, as the claim did.
-  assert.match(source, /loadURL: async \(key, entry, url\) => \{\n\s+await paceChatGPTWorkerNavigation\(\)\n\s+return loadOwnedChatGPTURL\(key, entry, url, 'orchestrator-agent-resume'\)/)
+  // The round driver's own navigations take a paced slot, as the claim did.
+  const adopt = source.slice(source.indexOf('async function adoptOrchestratorRequest('))
+  assert.match(adopt.slice(0, 600), /await paceChatGPTWorkerNavigation\(\)\n\s+await loadOwnedChatGPTURL\(key, entry, conversationURL, 'orchestrator-agent-adopt'\)/)
+  assert.match(source, /pace: paceChatGPTWorkerNavigation, rateLimitDelay: chatAgentRateLimitDelayMs,/)
+})
+
+test('an Orchestrator task round travels on the agentic Main Request transport', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const send = source.slice(source.indexOf('async function sendOrchestratorMainRequest('))
+  assert.match(send.slice(0, 1600), /preparePromptForChatGPT\(\{\n\s+orchestratorTask: true, bundleChatId: current\.chat_id,/)
+  // Its bundle goes straight to the backend: a task has no renderer.
+  const publish = source.slice(source.indexOf('function publishBundleDownload('))
+  assert.match(publish.slice(0, 400), /const orchestratorTaskId = orchestratorTaskIdForBundle\(payload\)\n\s+if \(orchestratorTaskId\) \{\n\s+void deliverOrchestratorTaskBundle/)
+  const deliver = source.slice(source.indexOf('async function deliverOrchestratorTaskBundle('))
+  assert.match(deliver.slice(0, 4000), /postOrchestratorTask\(taskId, 'bundle'/)
+  assert.match(deliver.slice(0, 4000), /await acknowledgeChatGPTBundle\(key, requestId, filename\)/)
+  // A repairable rejection is one more agentic recovery write in the same conversation.
+  assert.match(deliver.slice(0, 4000), /enqueueChatAgentTask\('RECOVERY_WRITE'/)
+  assert.match(deliver.slice(0, 4000), /postOrchestratorTask\(taskId, 'fail-run'/)
 })

@@ -256,6 +256,31 @@ func chatAgentTaskSupervisorSQL(column string) string {
 	return chatAgentTaskTypesSQL(column, chatAgentSupervisorTypes)
 }
 
+// An Orchestrator task is one agentic Main Request whose chat is the task
+// itself (chat id "otk_…"). Its write, supervision and recovery tasks are the
+// agentic ones, but a Worker serves them in the Supervisor's role (ADR-0081),
+// and they share the task's lane "h:<task id>" whatever their conversation, so
+// the Worker pinned to the task (ADR-0082) serves every round of it.
+const chatAgentOrchestratorChatPrefix = "otk_"
+
+func chatAgentTaskOrchestratorChat(task ChatAgentTask) bool {
+	return strings.HasPrefix(strings.TrimSpace(task.ChatID), chatAgentOrchestratorChatPrefix)
+}
+
+func chatAgentTaskOrchestratorChatSQL(alias string) string {
+	return alias + `.chat_id LIKE 'otk\_%'`
+}
+
+// chatAgentTaskForSupervisor reports whether the Supervisor pool serves this
+// task: a Supervisor type in a person's chat.
+func chatAgentTaskForSupervisor(task ChatAgentTask) bool {
+	return chatAgentTaskSupervisor(task.Type) && !chatAgentTaskOrchestratorChat(task)
+}
+
+func chatAgentTaskForSupervisorSQL(alias string) string {
+	return "(" + chatAgentTaskSupervisorSQL(alias+".type") + " AND NOT " + chatAgentTaskOrchestratorChatSQL(alias) + ")"
+}
+
 // chatAgentEphemeralTypes are served by the ephemeral utility pool (role
 // "translator"): each claim gets its own browser that lives until the task
 // settles. They never wait behind, or take a slot of, the persistent Workers,

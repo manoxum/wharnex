@@ -1,7 +1,6 @@
 # ADR-0081 — An Orchestrator task is one agentic Main Request
 
-- Status: Accepted (2026-09-28); implementation starts once the current task
-  queue drains, so no execution in flight is interrupted.
+- Status: Accepted and implemented (2026-09-28).
 - Supersedes (on acceptance): the execution transport of `adr/ADR-0078`
   (`ORCHESTRATOR_EXECUTE` Worker executor). Planning (`ORCHESTRATOR_PLAN`) is
   unchanged.
@@ -77,3 +76,33 @@ A chat can hold many Main Requests; a task is exactly one.
   confirmation, conversation reuse), and the terminal report outcome
   (`investigated`) existed only for chats, holding a barrier task in DOING
   for five hours.
+
+## Implemented form
+
+- The `ORCHESTRATOR_EXECUTE` attempt is only the task's round driver. It
+  starts the task (`worker-start`), and whenever the Agent leaves a request
+  pending that no agentic supervision owns, it sends that request through
+  `preparePromptForChatGPT`, the pipeline a chat's Main Request uses. It has
+  no transport of its own. Observing never spends an attempt; the Agent's
+  effort level bounds the rounds.
+- Supervision, keep-continue recovery, download and acknowledgement are the
+  agentic ones (`AWAIT_RESPONSE`, `RECOVERY_WRITE`). The claim routes those
+  types to Workers when their chat is a task (`otk_…`), on the task lane
+  `h:<task id>`, so the pinned Worker serves every round.
+- A task has no renderer, so the Desktop delivers its response bundle
+  straight to `POST /api/orchestrator/tasks/{task_id}/bundle`, which ingests
+  it as a chat does, then acknowledges it the same way. A rejection the
+  bounded correction covers (`adr/ADR-0078`) becomes one more
+  `RECOVERY_WRITE` in the same conversation; any other rejection ends the run
+  through `POST /api/orchestrator/tasks/{task_id}/fail-run`.
+- The task's ChatGPT conversation is durable on the task
+  (`conversation_url`). The first submitted request sets it through
+  `worker-conversation`, and it never changes: every round, repair, attempt
+  and retry (FAILED back to READY) continues in it until the task ends. A
+  task that predates the field adopts the most recent conversation its
+  attempts used.
+- A request the previous executor had already submitted is handed to the
+  agentic supervision (adopted) when its exact request ZIP is in the
+  conversation; otherwise the driver sends it again.
+- Still open: a headless round driver for human chats, which the renderer
+  drives today.

@@ -25,6 +25,7 @@ import { behaviorProbeScript, isBehaviorProbeEnabled, normalizeBehaviorProbeResu
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
 import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeOptionalChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { buildBundleName, parseBundleName, safeChatId } from './bundlename.mjs'
+import { orchestratorBundleRejectionTerminal, orchestratorBundleRepairPrompt } from './chat-agent-orchestrator-bundle-repair.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
 import { confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity } from './chatgpt-affinity.mjs'
 import { chatGPTDeliveryContinuationPrompt, chooseChatGPTRecoveryAction, classifyChatGPTConversationTransport, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress, reconcileChatGPTConversationTransport, recordChatGPTConversationTransport } from './chatgpt-recovery.mjs'
@@ -1877,7 +1878,98 @@ function publishPlanDownloadError(message, filename = '', cacheKey = '') {
 // it by request id across every chat in the workspace) without being
 // attributed to the surface that happened to download it.
 function publishBundleDownload(payload, routingKey = '') {
+  const orchestratorTaskId = orchestratorTaskIdForBundle(payload)
+  if (orchestratorTaskId) {
+    void deliverOrchestratorTaskBundle(orchestratorTaskId, payload)
+    return
+  }
   sendToChatGPTKey(routingKey || payload?.cacheKey || '', 'wharness:chatgpt:bundle-downloaded', payload)
+}
+
+// An Orchestrator task is a Main Request with no renderer (adr/ADR-0081): its
+// response bundle goes from the agentic supervision straight to the backend,
+// which ingests it exactly as a chat ingests its bundle.
+const ORCHESTRATOR_TASK_KEY = /^otk_[0-9]{8}T[0-9]{6}_[a-f0-9]{16}$/
+function orchestratorTaskIdForBundle(payload) {
+  const key = sanitizeChatCacheKey(payload?.cacheKey || '')
+  if (ORCHESTRATOR_TASK_KEY.test(key)) return key
+  const chat = String(parseBundleName(path.basename(String(payload?.filename || '')))?.chatId || '')
+  const id = chat.replace(/-/g, '_')
+  return ORCHESTRATOR_TASK_KEY.test(id) ? id : ''
+}
+
+const ORCHESTRATOR_BUNDLE_REPAIR_LIMIT = 3
+const orchestratorBundleRepairs = new Map()
+
+async function postOrchestratorTask(taskId, suffix, body, timeoutMs = 30_000) {
+  const response = await fetch(new URL(`/api/orchestrator/tasks/${encodeURIComponent(taskId)}/${suffix}`, BACKEND_URL), {
+    method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs),
+  })
+  let detail = ''
+  if (!response.ok) try { detail = String((await response.json())?.error?.message || '') } catch { /* no JSON body */ }
+  return { ok: response.ok, status: response.status, detail }
+}
+
+// A rejected bundle is removed from the pending deliveries without marking its
+// request delivered, so a corrected ZIP for the same request is still taken.
+async function discardOrchestratorBundleDelivery(requestId) {
+  const record = pendingChatGPTBundleDeliveries.get(requestId)
+  pendingChatGPTBundleDeliveries.delete(requestId)
+  if (record?.filePath) await rm(record.filePath, { force: true }).catch(() => undefined)
+}
+
+async function deliverOrchestratorTaskBundle(taskId, payload, attempt = 0) {
+  const key = sanitizeChatCacheKey(payload?.cacheKey || taskId)
+  const requestId = String(payload?.requestId || '')
+  const filename = path.basename(String(payload?.filename || ''))
+  let result
+  try {
+    // Ingestion runs the Protected sandbox, verification and Apply before it answers.
+    result = await postOrchestratorTask(taskId, 'bundle', { filename, content_base64: payload.contentBase64 }, 60 * 60_000)
+  } catch (error) {
+    result = { ok: false, status: 0, detail: error instanceof Error ? error.message : String(error) }
+  }
+  if (result.ok) {
+    orchestratorBundleRepairs.delete(requestId)
+    await acknowledgeChatGPTBundle(key, requestId, filename).catch((error) => console.warn(`[orchestrator-delivery] ack failed task=${taskId}: ${error instanceof Error ? error.message : String(error)}`))
+    console.log(`[orchestrator-delivery] delivered task=${taskId} request=${requestId}`)
+    return
+  }
+  if (result.status === 0 || result.status >= 500) {
+    const delayMs = Math.min(5 * 60_000, 15_000 * 2 ** attempt)
+    console.warn(`[orchestrator-delivery] retry task=${taskId} request=${requestId} status=${result.status} in=${delayMs}ms detail=${result.detail.slice(0, 200)}`)
+    if (attempt < 8) setTimeout(() => { void deliverOrchestratorTaskBundle(taskId, payload, attempt + 1) }, delayMs)
+    return
+  }
+  const rejection = new Error(`orchestrator Worker worker-bundle HTTP ${result.status}: ${result.detail}`)
+  await discardOrchestratorBundleDelivery(requestId)
+  if (!orchestratorBundleRejectionTerminal(rejection)) {
+    // The Agent moved to another request; this bundle answers nothing now.
+    console.warn(`[orchestrator-delivery] stale task=${taskId} request=${requestId} detail=${result.detail.slice(0, 200)}`)
+    return
+  }
+  const repairs = orchestratorBundleRepairs.get(requestId) || 0
+  const correction = orchestratorBundleRepairPrompt(rejection, filename)
+  // The durable supervision of this request names its conversation and Agent session.
+  const listed = correction ? await chatAgentScheduler.list({ request_id: requestId }).catch(() => ({ tasks: [] })) : { tasks: [] }
+  const supervision = (listed?.tasks || []).filter((item) => item.type === 'AWAIT_RESPONSE').sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0]
+  const conversationURL = canonicalChatGPTConversationURL(supervision?.payload?.conversation_url || '')
+  const sessionID = String(supervision?.payload?.session_id || supervision?.session_id || '')
+  if (correction && repairs < ORCHESTRATOR_BUNDLE_REPAIR_LIMIT && conversationURL) {
+    orchestratorBundleRepairs.set(requestId, repairs + 1)
+    // The correction is one more round of the same Main Request, written by
+    // the ordinary agentic recovery write and supervised again.
+    await enqueueChatAgentTask('RECOVERY_WRITE', {
+      key, requestId, rootRequestId: requestId, conversationURL, sessionID,
+      dedupeKey: `task-bundle-repair:${requestId}:${repairs + 1}`, maxAttempts: 4,
+      payload: { prompt: correction, original_prompt: correction, session_id: sessionID, workspace_chat_id: '' },
+    })
+    console.warn(`[orchestrator-delivery] repair task=${taskId} request=${requestId} count=${repairs + 1}`)
+    return
+  }
+  orchestratorBundleRepairs.delete(requestId)
+  const failed = await postOrchestratorTask(taskId, 'fail-run', { error: rejection.message.slice(0, 1500) }).catch(() => ({ ok: false }))
+  console.warn(`[orchestrator-delivery] failed-run task=${taskId} request=${requestId} recorded=${failed.ok === true} detail=${result.detail.slice(0, 200)}`)
 }
 
 function publishBundleDownloadError(message, filename = '', cacheKey = '') {
@@ -4966,7 +5058,11 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
   if (!text) throw new Error('Prepared prompt is empty')
   if (text.length > 1024 * 1024) throw new Error('Prepared prompt exceeds 1 MiB limit')
   const key = sanitizeChatCacheKey(request?.cacheKey)
-  const workspaceChatId = durableWorkspaceChatID(key, request?.workspaceChatId)
+  // An Orchestrator task is a Main Request without a workspace chat: it names
+  // its own input archive, and a hidden Worker may submit at an unconfirmed
+  // reasoning level (adr/ADR-0078, adr/ADR-0081).
+  const orchestratorTask = request?.orchestratorTask === true
+  const workspaceChatId = orchestratorTask ? '' : durableWorkspaceChatID(key, request?.workspaceChatId)
   const requestId = String(request?.requestId || '').trim()
   const requestedTitle = String(request?.chatTitle || '').replace(/\s+/g, ' ').trim().slice(0, 82)
   const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
@@ -5001,7 +5097,8 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
   // tunnel, so a slow or absent provider cannot delay the bundle.
   const timer = requestPreparationTimer(requestId)
   const directPrompt = text
-  const input = await withRequestPreparationDeadline(signal, (bounded) => materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], requestMetadata, bounded))
+  const bundleChatId = orchestratorTask && request?.bundleChatId ? String(request.bundleChatId) : undefined
+  const input = await withRequestPreparationDeadline(signal, (bounded) => materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], requestMetadata, bounded, bundleChatId))
   throwIfChatGPTTransportAborted(signal)
   timer.phase('archive', `bytes=${input.bytes} parts=${input.uploadPaths.length}`)
   const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, [], input.requestMetadata, input.multipart)
@@ -5040,7 +5137,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
     armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, [], directPrompt, request?.sessionId, expectedFilename, input.requestMetadata)
     try {
       throwIfChatGPTTransportAborted(signal)
-      await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { rateLimitExempt: !pacedWorker })
+      await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { rateLimitExempt: !pacedWorker, requireReasoningEffort: !orchestratorTask })
     } catch (error) {
       disarmExpectedChatGPTBundle(key, requestId)
       throw error
@@ -5924,41 +6021,75 @@ function releaseNotesWorkerRuntime() {
 
 function orchestratorExecutionWorkerRuntime() {
   return {
-    baseURL: BACKEND_URL, homeURL: CHATGPT_URL, expectedDownloads: expectedChatGPTOrchestratorExecutions,
-    pace: paceChatGPTWorkerSubmission, rateLimitDelay: chatAgentRateLimitDelayMs,
+    baseURL: BACKEND_URL, homeURL: CHATGPT_URL,
+    pace: paceChatGPTWorkerNavigation, rateLimitDelay: chatAgentRateLimitDelayMs,
     needsNavigation: (entry, url) => {
       const current = entry.view.webContents.getURL()
       return !(current === requireTrustedChatGPTURL(url) || sameConversationURL(current, url))
     },
-    phase: (value) => chatAgentWorkerActivity.set(value),
-    submittedEvidence: (key, entry, chatId, requestId) => executeChatGPTDOMScript(key, entry, 'orchestrator-agent-evidence',
-      chatGPTSubmittedRequestEvidenceScript(chatInputArchiveFilename(chatId, requestId))),
-    conversationURL: canonicalChatGPTConversationURL, sameConversation: sameConversationURL,
-    loadURL: async (key, entry, url) => {
-      await paceChatGPTWorkerNavigation()
-      return loadOwnedChatGPTURL(key, entry, url, 'orchestrator-agent-resume')
-    },
-    waitSurfaceReady: waitForChatGPTSurfaceReady,
-    targetComposer: targetChatGPTComposer, normalizeEffort: normalizeChatGPTReasoningEffort,
-    buildRequest: async (key, current) => {
-      const metadata = { chat_id: current.chat_id, requested_at: new Date().toISOString() }
-      const retry = await orchestratorRetryInput(current.task, (ref) => readStoredAttachment(chatAttachmentRoot(), ref))
-      const input = await materializeChatInput(key, current.agent_session_id, current.request_id, retry.attachments, [], current.prompt, true, retry.projectFiles, metadata, undefined, current.chat_id)
-      return { ...input,
-        bootstrap: localChatInputBootstrap(current.request_id, input.archiveName, current.expected_filename, [], input.requestMetadata, input.multipart),
-        cleanup: () => rm(path.dirname(input.archivePath), { recursive: true, force: true }).catch(() => undefined),
-      }
-    },
-    fill: (key, entry, value) => executeChatGPTDOMScript(key, entry, 'orchestrator-agent-fill', chatGPTFillComposerScript(value)),
-    paste: (entry, filePath, index, total) => pasteChatGPTFile(entry, filePath, index, total, { pacedWorker: true }),
-    wait, settleDelay: chatInputSettleDelay, assistantCount: chatGPTAssistantTurnCount,
-    submit: (key, target) => submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort: false, rateLimitExempt: false }),
-    waitConversation: waitForSubmittedChatGPTConversation, checkpoint: checkpointChatAgentTask,
-    health: (key, entry) => executeChatGPTDOMScript(key, entry, 'orchestrator-agent-health', chatGPTHumanActionScript()),
-    noteRateLimit: noteChatGPTRateLimitGate, humanActionMessage: chatGPTHumanActionMessage,
-    completion: (key, entry, baseline) => executeChatGPTDOMScript(key, entry, 'orchestrator-agent-completion', chatGPTResponseCompletionScript(baseline)),
-    executeDOM: executeChatGPTDOMScript, expectedDownloadScript: chatGPTExpectedDownloadScript,
+    conversationURL: canonicalChatGPTConversationURL,
+    checkpoint: checkpointChatAgentTask,
+    supervision: orchestratorRequestSupervision,
+    adopt: adoptOrchestratorRequest,
+    sendMainRequest: sendOrchestratorMainRequest,
   }
+}
+
+// Where the agentic transport stands on one request of a task's Main Request.
+async function orchestratorRequestSupervision(key, requestId) {
+  const id = String(requestId || '')
+  if (pendingChatGPTBundleDeliveries.has(id) || recentlyDeliveredChatGPTBundleRequestId(id) || chatGPTBundleAlreadyValidated(id)) return { state: 'delivered' }
+  if (expectedChatGPTBundles.get(sanitizeChatCacheKey(key))?.requestId === id) return { state: 'active' }
+  const listed = await chatAgentScheduler.list({ request_id: id })
+  const tasks = (listed?.tasks || []).filter((item) => ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(item.type))
+  if (tasks.some((item) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status))) return { state: 'active' }
+  const latest = tasks.filter((item) => item.type === 'AWAIT_RESPONSE').sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0]
+  if (!latest) return { state: 'none' }
+  if (latest.status === 'DONE') return { state: 'delivered' }
+  return { state: 'ended', error: String(latest.last_error || '').slice(0, 500) }
+}
+
+// A request the previous executor already submitted keeps its conversation:
+// the agentic supervision takes it over only when that exact request ZIP is
+// in the conversation. Otherwise the round driver sends it.
+async function adoptOrchestratorRequest(key, entry, current, conversationURL, assistantBaseline) {
+  const wc = entry.view.webContents
+  if (!sameConversationURL(wc.getURL(), conversationURL)) {
+    await paceChatGPTWorkerNavigation()
+    await loadOwnedChatGPTURL(key, entry, conversationURL, 'orchestrator-agent-adopt')
+  }
+  await waitForChatGPTSurfaceReady(key, entry)
+  const evidence = await executeChatGPTDOMScript(key, entry, 'orchestrator-agent-evidence',
+    chatGPTSubmittedRequestEvidenceScript(chatInputArchiveFilename(current.chat_id, current.request_id)))
+  if (evidence?.submitted !== true) return false
+  const requestMetadata = { chat_id: current.chat_id }
+  armExpectedChatGPTBundle(key, current.request_id, assistantBaseline, '', [], current.prompt, current.agent_session_id, current.expected_filename, requestMetadata)
+  const supervision = await enqueueChatAgentFollowups(key, current.request_id, conversationURL, {
+    expectedFilename: current.expected_filename, assistantBaseline, originalPrompt: current.prompt, sessionId: current.agent_session_id,
+    requestMetadata, projectPath: current.task?.project_path || '', requestEligibleAt: new Date().toISOString(),
+  })
+  const armed = expectedChatGPTBundles.get(sanitizeChatCacheKey(key))
+  if (armed?.requestId === current.request_id) armed.mainRequestTaskId = String(supervision?.task_id || '')
+  console.log(`[orchestrator-round] adopted key=${key} request=${current.request_id}`)
+  return true
+}
+
+// One round of a task's Main Request, through the pipeline a chat uses.
+async function sendOrchestratorMainRequest(key, entry, current, conversationURL) {
+  const retry = await orchestratorRetryInput(current.task, (ref) => readStoredAttachment(chatAttachmentRoot(), ref))
+  const projectPath = String(current.task?.project_path || '')
+  const prepared = await withChatGPTTransportPreparation(key, entry, current.request_id, () => preparePromptForChatGPT({
+    orchestratorTask: true, bundleChatId: current.chat_id,
+    text: current.prompt, cacheKey: key, sessionId: current.agent_session_id, requestId: current.request_id,
+    url: conversationURL, autoSubmit: true, expectedFilename: current.expected_filename,
+    reasoningEffort: current.reasoning_effort, includeContext: true,
+    attachments: retry.attachments, artifacts: [], projectFiles: retry.projectFiles,
+    projectPath, projectName: path.basename(projectPath), chatTitle: String(current.task?.title || ''),
+    requestedAt: new Date().toISOString(),
+  }, entry, { pacedWorker: true }))
+  if (!prepared?.submitted || !prepared.conversationUrl) throw new Error('Orchestrator Main Request round was not submitted to ChatGPT')
+  console.log(`[orchestrator-round] submitted key=${key} request=${current.request_id} conversation=${prepared.conversationUrl}`)
+  return { conversationUrl: prepared.conversationUrl }
 }
 
 async function chatAgentLifecycleBlocked(task) {

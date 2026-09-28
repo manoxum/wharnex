@@ -1,4 +1,4 @@
-import { chatAgentLane } from './chat-agent-residency.mjs'
+import { chatAgentLane, orchestratorTaskChat } from './chat-agent-residency.mjs'
 
 // A Worker that takes an Orchestrator execution stays with that task until the
 // task settles. Handing the lane back between attempts made the next attempt
@@ -25,12 +25,14 @@ export class OrchestrationTaskPins {
   // Records the outcome of an attempt a slot ran. Returns 'pinned', 'released'
   // or '' when the task is not an Orchestrator execution.
   note(slotId, task, result) {
-    if (task?.type !== 'ORCHESTRATOR_EXECUTE') return ''
+    // Every round of a task's Main Request (its driver, write, supervision and
+    // recovery) keeps the Worker; only the driver's end releases it.
+    if (!orchestratorTaskChat(task)) return ''
     const lane = chatAgentLane(task)
     if (!lane) return ''
     const slot = String(slotId || '')
     const status = String(result?.status || '').toLowerCase()
-    if (TERMINAL.has(status)) {
+    if (task.type === 'ORCHESTRATOR_EXECUTE' && TERMINAL.has(status)) {
       for (const [holder, pin] of this.pins) if (pin.lane === lane) this.pins.delete(holder)
       return 'released'
     }

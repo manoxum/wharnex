@@ -85,6 +85,10 @@ when locating the exact control.
 
 ## Attempt accounting for execution tasks
 
+> Superseded for execution transport by `adr/ADR-0081` (implemented form): the
+> execution attempt is now a round driver, and supervision, recovery and
+> delivery are the agentic ones. The outcome rules below still apply.
+
 An execution attempt whose Orchestrator task is no longer READY or DOING —
 already in REVIEW, FAILED, moved back or archived — settles when it starts.
 `worker-start` reports that status instead of an error, because an error

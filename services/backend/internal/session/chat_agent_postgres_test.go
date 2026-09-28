@@ -217,3 +217,55 @@ func TestPostgresEphemeralPoolPartitionMatchesMemory(t *testing.T) {
 		}
 	}
 }
+
+func TestPostgresOrchestratorTaskChatLaneMatchesMemory(t *testing.T) {
+	databaseURL := os.Getenv("WHARNESS_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("WHARNESS_TEST_DATABASE_URL is not configured")
+	}
+	schema := fmt.Sprintf("chat_agent_task_chat_%d", time.Now().UnixNano())
+	admin, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	if _, err := admin.Exec(`CREATE SCHEMA ` + schema); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Exec(`DROP SCHEMA ` + schema + ` CASCADE`)
+	testURL, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := testURL.Query()
+	query.Set("search_path", schema)
+	testURL.RawQuery = query.Encode()
+	postgres, err := NewPostgresStore(context.Background(), testURL.String(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer postgres.Close()
+	for name, store := range map[string]*Store{"memory": NewStore(), "postgres": postgres} {
+		if _, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "otk_20260928T000000_bbbbbbbbbbbbbbbb", "conv-x", "task-await")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.EnqueueChatAgentTask(testChatAgentTask("AWAIT_RESPONSE", "chat-person", "conv-y", "person-await")); err != nil {
+			t.Fatal(err)
+		}
+		summary, err := store.ChatAgentQueueSummary("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.DueSupervisorLanes != 1 || summary.DueWorker != 1 {
+			t.Fatalf("%s supervisor_lanes=%d due_worker=%d want 1/1", name, summary.DueSupervisorLanes, summary.DueWorker)
+		}
+		supervisor, err := store.ClaimChatAgentTaskWithOptions("s", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleSupervisor, WorkerID: "supervisor-1"})
+		if err != nil || supervisor == nil || supervisor.ChatID != "chat-person" {
+			t.Fatalf("%s Supervisor claim=%#v err=%v", name, supervisor, err)
+		}
+		worker, err := store.ClaimChatAgentTaskWithOptions("w", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1", PreferredLane: "h:otk_20260928T000000_bbbbbbbbbbbbbbbb", FallbackMode: ChatAgentClaimResidentOnly})
+		if err != nil || worker == nil || worker.ChatID != "otk_20260928T000000_bbbbbbbbbbbbbbbb" {
+			t.Fatalf("%s pinned Worker claim=%#v err=%v", name, worker, err)
+		}
+	}
+}

@@ -89,8 +89,12 @@ type Task struct {
 	// before it fails. Empty inherits the owning session's level.
 	EffortLevel  string            `json:"effort_level,omitempty"`
 	RetryContext *TaskRetryContext `json:"retry_context,omitempty"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	// ConversationURL is the task's one ChatGPT conversation. It is set by the
+	// first submitted request and never changes: every round, repair, attempt
+	// and retry (FAILED back to READY) continues in it until the task ends.
+	ConversationURL string    `json:"conversation_url,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 func TaskHasCompleted(task Task) bool {

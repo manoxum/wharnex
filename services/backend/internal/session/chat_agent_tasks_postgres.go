@@ -169,7 +169,7 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 		return nil, fmt.Errorf("requeue expired chat agent leases: %w", err)
 	}
 	seconds := int64(lease / time.Second)
-	laneExpr := `CASE WHEN t.conversation_id<>'' THEN 'c:'||t.conversation_id ELSE 'h:'||t.chat_id END`
+	laneExpr := `CASE WHEN ` + chatAgentTaskOrchestratorChatSQL("t") + ` THEN 'h:'||t.chat_id WHEN t.conversation_id<>'' THEN 'c:'||t.conversation_id ELSE 'h:'||t.chat_id END`
 	args := []any{owner, seconds, options.PreferredLane, options.FallbackMode, options.WorkerID}
 	excludedSQL := ""
 	if len(options.ExcludedLanes) > 0 {
@@ -211,9 +211,9 @@ func (s *Store) postgresClaimChatAgentTask(owner string, lease time.Duration, op
 	roleSQL := ""
 	switch options.Role {
 	case ChatAgentRoleSupervisor:
-		roleSQL = " AND (t.assigned_worker<>'' OR " + chatAgentTaskSupervisorSQL("t.type") + ")"
+		roleSQL = " AND (t.assigned_worker<>'' OR " + chatAgentTaskForSupervisorSQL("t") + ")"
 	case ChatAgentRoleWorker:
-		roleSQL = " AND (t.assigned_worker<>'' OR NOT (" + chatAgentTaskSupervisorSQL("t.type") + " OR " + chatAgentTaskEphemeralSQL("t.type") + "))"
+		roleSQL = " AND (t.assigned_worker<>'' OR NOT (" + chatAgentTaskForSupervisorSQL("t") + " OR " + chatAgentTaskEphemeralSQL("t.type") + "))"
 	case ChatAgentRoleTranslator:
 		roleSQL = " AND (t.assigned_worker<>'' OR " + chatAgentTaskEphemeralSQL("t.type") + ")"
 	}

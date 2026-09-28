@@ -14,7 +14,7 @@ func (s *Store) postgresChatAgentQueueSummary(projectID string) (ChatAgentQueueS
 	rows, err := s.db.Query(`WITH classified AS (
 		SELECT t.status,t.not_before,t.attempt,t.max_attempts,t.created_at,
 			($1='' OR t.project_id=$1) AS mine,
-			((NOT `+chatAgentTaskSupervisorSQL("t.type")+` AND NOT `+chatAgentTaskEphemeralSQL("t.type")+` AND EXISTS (
+			((NOT `+chatAgentTaskForSupervisorSQL("t")+` AND NOT `+chatAgentTaskEphemeralSQL("t.type")+` AND EXISTS (
 				SELECT 1 FROM harness_chat_agent_provider_state p
 				WHERE p.provider='chatgpt' AND p.paused=true
 				  AND (p.paused_until IS NULL OR p.paused_until>now())
@@ -98,20 +98,20 @@ func (s *Store) postgresChatAgentDueByRole(projectID string) (int, int, int, map
 		WHERE t.status IN ('PENDING','WAITING')
 		  AND ($1='' OR t.project_id=$1)
 		  AND t.not_before<=now() AND t.attempt<t.max_attempts
-		  AND NOT ((NOT `+chatAgentTaskSupervisorSQL("t.type")+` AND NOT `+chatAgentTaskEphemeralSQL("t.type")+` AND EXISTS (
+		  AND NOT ((NOT `+chatAgentTaskForSupervisorSQL("t")+` AND NOT `+chatAgentTaskEphemeralSQL("t.type")+` AND EXISTS (
 			SELECT 1 FROM harness_chat_agent_provider_state p
 			WHERE p.provider='chatgpt' AND p.paused=true
 			  AND (p.paused_until IS NULL OR p.paused_until>now())
 		  )) OR `+chatAgentBlockedByActiveTaskSQL("t")+`)
 	)
 		SELECT
-			count(DISTINCT CASE WHEN `+chatAgentTaskSupervisorSQL("type")+`
+			count(DISTINCT CASE WHEN `+chatAgentTaskForSupervisorSQL("due")+`
 				THEN CASE WHEN coalesce(conversation_id,'')<>'' THEN 'conversation:'||conversation_id ELSE 'chat:'||coalesce(chat_id,'') END END),
-			count(*) FILTER (WHERE NOT `+chatAgentTaskSupervisorSQL("type")+` AND NOT `+chatAgentTaskEphemeralSQL("type")+`),
+			count(*) FILTER (WHERE NOT `+chatAgentTaskForSupervisorSQL("due")+` AND NOT `+chatAgentTaskEphemeralSQL("type")+`),
 			count(*) FILTER (WHERE `+chatAgentTaskEphemeralSQL("type")+`),
 			coalesce((SELECT jsonb_object_agg(type, task_count) FROM (
 				SELECT type, count(*) AS task_count FROM due
-				WHERE NOT `+chatAgentTaskSupervisorSQL("type")+` AND NOT `+chatAgentTaskEphemeralSQL("type")+`
+				WHERE NOT `+chatAgentTaskForSupervisorSQL("due")+` AND NOT `+chatAgentTaskEphemeralSQL("type")+`
 				GROUP BY type
 			) worker_counts), '{}'::jsonb)
 		FROM due`, projectID)

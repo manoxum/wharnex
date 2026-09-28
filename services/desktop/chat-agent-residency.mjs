@@ -18,7 +18,15 @@ export const DEFAULT_CHAT_AGENT_IDLE_RELEASE_MS = 20_000
 export const MIN_CHAT_AGENT_IDLE_RELEASE_MS = 5_000
 export const MAX_CHAT_AGENT_IDLE_RELEASE_MS = 120_000
 
+// An Orchestrator task's chat is the task itself (adr/ADR-0081). Every round
+// of it shares the task's lane, whatever conversation it names, so the Worker
+// pinned to the task serves all of them. The backend claim uses the same rule.
+export function orchestratorTaskChat(task = {}) {
+  return String(task.chat_id || task.chatId || '').trim().startsWith('otk_')
+}
+
 export function chatAgentLane(task = {}) {
+  if (orchestratorTaskChat(task)) return `h:${String(task.chat_id || task.chatId).trim()}`
   const conversation = String(task.conversation_id || task.conversationId || '').trim()
   if (conversation) return `c:${conversation}`
   const chat = String(task.chat_id || task.chatId || '').trim()

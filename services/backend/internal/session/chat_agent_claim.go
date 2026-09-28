@@ -55,6 +55,9 @@ type ChatAgentClaimOptions struct {
 }
 
 func chatAgentTaskLane(task ChatAgentTask) string {
+	if chatAgentTaskOrchestratorChat(task) {
+		return "h:" + strings.TrimSpace(task.ChatID)
+	}
 	if value := strings.TrimSpace(task.ConversationID); value != "" {
 		return "c:" + value
 	}
@@ -183,12 +186,12 @@ func chatAgentClaimRoleAllows(task ChatAgentTask, options ChatAgentClaimOptions)
 		return true
 	}
 	if options.Role == ChatAgentRoleSupervisor {
-		return chatAgentTaskSupervisor(task.Type)
+		return chatAgentTaskForSupervisor(task)
 	}
 	if options.Role == ChatAgentRoleTranslator {
 		return chatAgentTaskEphemeral(task.Type)
 	}
-	return !chatAgentTaskSupervisor(task.Type) && !chatAgentTaskEphemeral(task.Type)
+	return !chatAgentTaskForSupervisor(task) && !chatAgentTaskEphemeral(task.Type)
 }
 
 func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {

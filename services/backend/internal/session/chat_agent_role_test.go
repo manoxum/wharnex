@@ -182,3 +182,27 @@ func TestChatAgentSupervisorSQLMatchesTheTypeList(t *testing.T) {
 		}
 	}
 }
+
+// An Orchestrator task's Main Request uses the agentic write and supervision
+// types, but a Worker serves them in the Supervisor's role, all on the task's
+// lane whatever conversation they name (ADR-0081, ADR-0082).
+func TestOrchestratorTaskChatRoundsGoToWorkersOnTheTaskLane(t *testing.T) {
+	store := NewStore()
+	for _, taskType := range []string{"BOT_WRITE", "AWAIT_RESPONSE", "RECOVERY_WRITE"} {
+		task := testChatAgentTask(taskType, "otk_20260928T000000_aaaaaaaaaaaaaaaa", "conv-"+taskType, "task:"+taskType)
+		if lane := chatAgentTaskLane(task); lane != "h:otk_20260928T000000_aaaaaaaaaaaaaaaa" {
+			t.Fatalf("%s lane=%q", taskType, lane)
+		}
+		if _, err := store.EnqueueChatAgentTask(task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if claimed, err := store.ClaimChatAgentTaskWithOptions("supervisor-owner", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleSupervisor, WorkerID: "supervisor-1"}); err != nil || claimed != nil {
+		t.Fatalf("Supervisor claimed a task round %#v err=%v", claimed, err)
+	}
+	options := ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1", PreferredLane: "h:otk_20260928T000000_aaaaaaaaaaaaaaaa", FallbackMode: ChatAgentClaimResidentOnly}
+	claimed, err := store.ClaimChatAgentTaskWithOptions("worker-owner", time.Minute, options)
+	if err != nil || claimed == nil || !chatAgentTaskSupervisor(claimed.Type) {
+		t.Fatalf("pinned Worker claim=%#v err=%v", claimed, err)
+	}
+}
