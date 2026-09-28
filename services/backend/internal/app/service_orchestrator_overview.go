@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/orchestrator"
 	"kernl.local/harness/backend/internal/session"
 )
@@ -33,6 +34,12 @@ func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (o
 	tasks, err = s.orchestrator.ListTasks(ctx, item.ProjectPath)
 	if err != nil {
 		return orchestrator.Overview{}, err
+	}
+	if s.retryCanceledOrchestratorTasks(ctx, item, tasks) {
+		tasks, err = s.orchestrator.ListTasks(ctx, item.ProjectPath)
+		if err != nil {
+			return orchestrator.Overview{}, err
+		}
 	}
 	if err := s.ensureLegacyDoingOrchestratorTasksQueued(ctx, item, tasks); err != nil {
 		return orchestrator.Overview{}, err
@@ -118,4 +125,49 @@ func orchestratorPlanningRequest(task session.ChatAgentTask) orchestrator.Planni
 		Attempt: task.Attempt, MaxAttempts: task.MaxAttempts, LastError: task.LastError,
 		CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt,
 	}
+}
+
+// orchestratorCanceledRetryLimit bounds automatic retries of executions a
+// restart canceled, so a task that is itself the reason for the restarts cannot
+// loop.
+const orchestratorCanceledRetryLimit = 3
+
+// retryCanceledOrchestratorTasks returns to READY a FAILED task whose current
+// run failed only because its execution context was canceled — a Wharnex
+// restart, not a verdict on the plan — exactly as an operator retry would.
+func (s *Service) retryCanceledOrchestratorTasks(ctx context.Context, owner domain.Session, tasks []orchestrator.Task) bool {
+	if !orchestratorAutomaticExecutionAllowed(owner) {
+		return false
+	}
+	retried := false
+	for _, task := range tasks {
+		if task.Status != orchestrator.TaskFailed {
+			continue
+		}
+		runs, err := s.orchestrator.ListRuns(ctx, task.ID)
+		if err != nil || len(runs) == 0 || runs[len(runs)-1].SessionID == "" {
+			continue
+		}
+		agent, err := s.store.Get(runs[len(runs)-1].SessionID)
+		if err != nil || agent.FailureKind != domain.FailureKindExecutionCanceled {
+			continue
+		}
+		canceled := 0
+		for _, run := range runs {
+			if strings.Contains(run.Error, "context canceled") {
+				canceled++
+			}
+		}
+		if canceled > orchestratorCanceledRetryLimit {
+			continue
+		}
+		guidance := "A execução anterior desta task foi interrompida porque o Wharnex reiniciou a meio (context canceled). O plano não foi rejeitado por Policy, verificação ou conteúdo. Esta conversa já contém esse plano; se continuar válido face ao código atual, reentregue-o; caso contrário, ajuste-o."
+		if _, err := s.RetryOrchestratorTask(ctx, owner.ID, task.ID, orchestrator.TaskRetryContext{Guidance: guidance}); err != nil {
+			s.bus.Publish(owner.ID, "orchestrator.canceled_retry_failed", map[string]any{"task_id": task.ID, "error": err.Error()})
+			continue
+		}
+		s.bus.Publish(owner.ID, "orchestrator.canceled_execution_retried", map[string]any{"task_id": task.ID, "attempt": canceled})
+		retried = true
+	}
+	return retried
 }

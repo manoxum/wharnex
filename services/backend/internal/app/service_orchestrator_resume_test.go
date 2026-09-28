@@ -67,3 +67,49 @@ func TestOrchestratorWorkerSeesNoRequestOnceItsBundleWasAccepted(t *testing.T) {
 		t.Fatalf("an answered request was still offered to the Worker: %#v err=%v", current, err)
 	}
 }
+
+// A restart that cancels a task's execution is a lifecycle interruption, not a
+// verdict on the plan: the task returns to READY with context, a bounded
+// number of times.
+func TestCanceledOrchestratorExecutionIsRetriedAutomatically(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorExecutionManualPlanner{}, policy.NewEngine(), fakeRunner{})
+	owner, err := service.StartSessionWithModes(ctx, t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := service.CreateOrchestratorTask(ctx, owner.ID, OrchestratorTaskInput{Title: "Canceled by restart"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.TransitionOrchestratorTask(ctx, owner.ID, task.ID, orchestrator.TaskReady); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store.ClaimChatAgentTaskWithOptions("worker-1", time.Minute, session.ChatAgentClaimOptions{WorkerID: "worker-1", Role: session.ChatAgentRoleWorker})
+	if err != nil || claim == nil {
+		t.Fatalf("claim=%#v err=%v", claim, err)
+	}
+	started, err := service.StartOrchestratorWorkerTask(ctx, owner.ID, task.ID, claim.TaskID, "worker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Update(started.AgentSessionID, func(current *domain.Session) error {
+		current.State = "failed"
+		current.FailureKind = domain.FailureKindExecutionCanceled
+		current.LastRepairError = "context canceled"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.OrchestratorOverview(ctx, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.orchestrator.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status == orchestrator.TaskFailed || updated.RetryContext == nil || updated.RetryContext.Guidance == "" {
+		t.Fatalf("canceled execution was not retried with context: %#v", updated)
+	}
+}
