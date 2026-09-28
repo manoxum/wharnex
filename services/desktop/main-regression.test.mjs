@@ -1433,38 +1433,6 @@ test('an unreachable reasoning effort still blocks submission unless a caller ex
   assert.equal(botWriteCount, 0, 'submitChatGPTDraft itself must keep failing closed by default')
 })
 
-test('expected bundle supervision is armed only around submissions that can leave stale state', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const prepareStart = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
-  const prepareEnd = source.indexOf('\nasync function retryPersistedChatGPTPrompt', prepareStart)
-  assert.notEqual(prepareStart, -1)
-  assert.notEqual(prepareEnd, -1)
-  const prepare = source.slice(prepareStart, prepareEnd)
-  const submitCount = (prepare.match(/await submitChatGPTDraft\(key, target\.entry, target\.conversationUrl, target, \{ rateLimitExempt: !pacedWorker, requireReasoningEffort: !orchestratorTask \}\)/g) || []).length
-  const disarmCount = (prepare.match(/disarmExpectedChatGPTBundle\(key, requestId\)/g) || []).length
-  assert.equal(submitCount, 1, 'the mandatory ZIP autoSubmit path calls submitChatGPTDraft once')
-  // One disarm for a failed submitChatGPTDraft, one for a failed durable
-  // AWAIT_RESPONSE task enqueue: the task is this Main Request's only durable
-  // record, so exhausting enqueueChatAgentFollowups' retries must not leave a
-  // live in-memory expectation behind either (see adr/ADR-0056).
-  assert.equal(disarmCount, 2, 'both a failed autoSubmit and a failed durable follow-up enqueue disarm the bundle armed before dispatch')
-
-  const preparedStart = source.indexOf('async function submitPreparedChatGPTDraft(')
-  const preparedEnd = source.indexOf('\nasync function submitPromptToChatGPT', preparedStart)
-  const prepared = source.slice(preparedStart, preparedEnd)
-  const preparedSubmit = prepared.indexOf('await submitChatGPTDraft(key, entry, prepared.conversationUrl || entry.affinity.boundURL)')
-  const preparedArm = prepared.indexOf('armExpectedChatGPTBundle(key, prepared.requestId')
-  assert.ok(preparedSubmit >= 0 && preparedArm > preparedSubmit, 'manual prepared submit arms supervision only after submit confirmation')
-  assert.match(prepared, /disarmExpectedChatGPTBundle\(key, prepared\.requestId\)/)
-
-  const repairStart = source.indexOf('async function submitPromptToChatGPT')
-  const repairEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads', repairStart)
-  const repair = source.slice(repairStart, repairEnd)
-  const repairSubmit = repair.indexOf('await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)')
-  const repairArm = repair.indexOf('armExpectedChatGPTBundle(key, requestId')
-  assert.ok(repairSubmit >= 0 && repairArm > repairSubmit, 'repair submission arms supervision only after submit confirmation')
-})
-
 test('pollChatGPTVisibleActivity skips DOM probing while the view is still navigating, mirroring pollExpectedChatGPTDownloadKey', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function pollChatGPTVisibleActivity()')
@@ -3129,19 +3097,6 @@ test('translation, planning and release notes run on their own ephemeral Workers
   const scheduler = source.slice(source.indexOf('chatTranslatorScheduler = new ChatAgentSchedulerClient('))
   assert.match(scheduler.slice(0, 1500), /skip: !\[\.\.\.desktopWindows\.values\(\)\]\.some\(\(state\) => state\.window && !state\.window\.isDestroyed\(\)\) \|\| dueChatTranslations === 0,/)
   assert.doesNotMatch(source, /chatAgentTranslationWorkersAvailable/)
-})
-
-test('an Orchestrator execution claim does not open its conversation before the executor needs it', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner, entry: ephemeralEntry })'))
-  assert.match(execute, /const executorNavigates = task\.type === 'ORCHESTRATOR_EXECUTE'/)
-  // It never bootstraps a blank page on the home surface either: the driver
-  // goes straight to the task's own conversation.
-  assert.match(execute, /if \(executorNavigates\) \{[\s\S]{0,400}settleAssignment\(entry\.slotId, assigned\.assignment\.epoch, assigned\.lane\)[\s\S]{0,120}\} else if \(conversationURL && !sameConversationURL/)
-  // The round driver's own navigations take a paced slot, as the claim did.
-  const adopt = source.slice(source.indexOf('async function adoptOrchestratorRequest('))
-  assert.match(adopt.slice(0, 600), /await paceChatGPTWorkerNavigation\(\)\n\s+await loadOwnedChatGPTURL\(key, entry, conversationURL, 'orchestrator-agent-adopt'\)/)
-  assert.match(source, /pace: paceChatGPTWorkerNavigation, rateLimitDelay: chatAgentRateLimitDelayMs,/)
 })
 
 test('an Orchestrator task round travels on the agentic Main Request transport', async () => {

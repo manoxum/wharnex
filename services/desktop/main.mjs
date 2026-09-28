@@ -12,7 +12,7 @@ import { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard
 import { installNativeSurfaceLifecycleGuard } from './native-surface-lifecycle.mjs'
 import { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { orchestratorCompletionDiagnostic } from './chat-agent-orchestrator-progress.mjs'
-import { executeOrchestratorExecution } from './chat-agent-orchestrator-execution.mjs'
+import { createOrchestratorConversationGuard, executeOrchestratorExecution } from './chat-agent-orchestrator-execution.mjs'
 import { orchestratorRetryInput } from './chat-agent-orchestrator-retry-input.mjs'
 import { registerOrchestratorExecutionDownload } from './chat-agent-orchestrator-execution-download.mjs'
 import { captureChatGPTAgentPage, captureParkedWorkerPage } from './chat-agent-snapshot.mjs'
@@ -5138,6 +5138,7 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
   }
   const target = await targetChatGPTComposer(key, linkedConversation || CHATGPT_URL, linkedConversation ? request?.preferCurrentConversation === true : false, entryOverride)
   throwIfChatGPTTransportAborted(signal)
+  if (typeof request?.onTargetConversation === 'function') await request.onTargetConversation(target.conversationUrl)
   target.reasoningEffort = reasoningEffort
   target.entry.reasoningEffort = reasoningEffort
   if (!linkedConversation) syncChatGPTAffinityURL(key, target.entry)
@@ -5165,6 +5166,15 @@ async function preparePromptForChatGPT(request, entryOverride = undefined, { pac
     conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
     if (!conversationUrl) throw new Error('ChatGPT submission was confirmed without a stable conversation id')
     timer.phase('submitted')
+    if (typeof request?.onSubmittedConversation === 'function') {
+      try {
+        const confirmedConversation = await request.onSubmittedConversation(conversationUrl)
+        if (confirmedConversation) conversationUrl = canonicalChatGPTConversationURL(confirmedConversation) || conversationUrl
+      } catch (error) {
+        // A dispatched request without confirmed affinity must not gain retry supervision.
+        disarmExpectedChatGPTBundle(key, requestId); throw error
+      }
+    }
     if (workspaceChatId) await persistWorkspaceChatRemoteBestEffort(workspaceChatId, conversationUrl, { remoteState: 'awaiting-response' })
     try {
       const mainRequestTask = await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
@@ -6077,19 +6087,20 @@ function releaseNotesWorkerRuntime() {
   }
 }
 
+const orchestratorConversationGuard = createOrchestratorConversationGuard({
+  conversationURL: canonicalChatGPTConversationURL, currentURL: (entry) => entry.view.webContents.getURL(), pace: paceChatGPTWorkerNavigation,
+  load: (key, entry, url) => loadOwnedChatGPTURL(key, entry, url, 'orchestrator-task-affinity'), waitReady: waitForChatGPTSurfaceReady })
+
 function orchestratorExecutionWorkerRuntime() {
   return {
-    baseURL: BACKEND_URL, homeURL: CHATGPT_URL,
-    pace: paceChatGPTWorkerNavigation, rateLimitDelay: chatAgentRateLimitDelayMs,
+    baseURL: BACKEND_URL, homeURL: CHATGPT_URL, pace: paceChatGPTWorkerNavigation, rateLimitDelay: chatAgentRateLimitDelayMs,
     needsNavigation: (entry, url) => {
       const current = entry.view.webContents.getURL()
       return !(current === requireTrustedChatGPTURL(url) || sameConversationURL(current, url))
     },
     conversationURL: canonicalChatGPTConversationURL,
-    checkpoint: checkpointChatAgentTask,
-    supervision: orchestratorRequestSupervision,
-    adopt: adoptOrchestratorRequest,
-    sendMainRequest: sendOrchestratorMainRequest,
+    ensureConversation: orchestratorConversationGuard.ensureConversation, checkpoint: checkpointChatAgentTask,
+    supervision: orchestratorRequestSupervision, adopt: adoptOrchestratorRequest, sendMainRequest: sendOrchestratorMainRequest,
   }
 }
 
@@ -6097,9 +6108,7 @@ function orchestratorExecutionWorkerRuntime() {
 async function orchestratorRequestSupervision(key, requestId) {
   const id = String(requestId || '')
   if (pendingChatGPTBundleDeliveries.has(id) || recentlyDeliveredChatGPTBundleRequestId(id) || chatGPTBundleAlreadyValidated(id)) return { state: 'delivered' }
-  // The durable queue decides first. An expectation stays armed in memory
-  // after supervision raised ATTENTION (a chat waits there for "Retomar
-  // pedido"), so reading memory first kept a task observing forever.
+  // The durable queue decides first; an ATTENTION expectation may remain armed in memory.
   const listed = await chatAgentScheduler.list({ request_id: id })
   const tasks = (listed?.tasks || []).filter((item) => ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(item.type))
   if (tasks.some((item) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status))) return { state: 'active' }
@@ -6111,16 +6120,9 @@ async function orchestratorRequestSupervision(key, requestId) {
   return { state: 'none' }
 }
 
-// A request the previous executor already submitted keeps its conversation:
-// the agentic supervision takes it over only when that exact request ZIP is
-// in the conversation. Otherwise the round driver sends it.
+// Adopt only when the exact prior request ZIP is present in the bound conversation.
 async function adoptOrchestratorRequest(key, entry, current, conversationURL, assistantBaseline) {
-  const wc = entry.view.webContents
-  if (!sameConversationURL(wc.getURL(), conversationURL)) {
-    await paceChatGPTWorkerNavigation()
-    await loadOwnedChatGPTURL(key, entry, conversationURL, 'orchestrator-agent-adopt')
-  }
-  await waitForChatGPTSurfaceReady(key, entry)
+  await orchestratorConversationGuard.ensureConversation(key, entry, conversationURL)
   const evidence = await executeChatGPTDOMScript(key, entry, 'orchestrator-agent-evidence',
     chatGPTSubmittedRequestEvidenceScript(chatInputArchiveFilename(current.chat_id, current.request_id)))
   if (evidence?.submitted !== true) return false
@@ -6136,10 +6138,9 @@ async function adoptOrchestratorRequest(key, entry, current, conversationURL, as
   return true
 }
 
-// One round of a task's Main Request, through the pipeline a chat uses.
-async function sendOrchestratorMainRequest(key, entry, current, conversationURL) {
-  // A resend after supervision gave up starts from a clean expectation and
-  // clears the human-attention notice that supervision left on the page.
+// Send one task Main Request round through the normal chat pipeline.
+async function sendOrchestratorMainRequest(key, entry, current, conversationURL, bindSubmittedConversation) {
+  // A resend starts from a clean expectation and clears the prior attention notice.
   if (expectedChatGPTBundles.get(sanitizeChatCacheKey(key))?.requestId === current.request_id) {
     disarmExpectedChatGPTBundle(key, current.request_id)
     clearChatGPTHumanAction(key, 'pedido reenviado pelo Orchestrator')
@@ -6147,13 +6148,12 @@ async function sendOrchestratorMainRequest(key, entry, current, conversationURL)
   const retry = await orchestratorRetryInput(current.task, (ref) => readStoredAttachment(chatAttachmentRoot(), ref))
   const projectPath = String(current.task?.project_path || '')
   const prepared = await withChatGPTTransportPreparation(key, entry, current.request_id, () => preparePromptForChatGPT({
-    orchestratorTask: true, bundleChatId: current.chat_id,
-    text: current.prompt, cacheKey: key, sessionId: current.agent_session_id, requestId: current.request_id,
-    url: conversationURL, autoSubmit: true, expectedFilename: current.expected_filename,
-    reasoningEffort: current.reasoning_effort, includeContext: true,
-    attachments: retry.attachments, artifacts: [], projectFiles: retry.projectFiles,
-    projectPath, projectName: path.basename(projectPath), chatTitle: String(current.task?.title || ''),
-    requestedAt: new Date().toISOString(),
+    orchestratorTask: true, bundleChatId: current.chat_id, text: current.prompt, cacheKey: key,
+    sessionId: current.agent_session_id, requestId: current.request_id, url: conversationURL, autoSubmit: true,
+    expectedFilename: current.expected_filename, reasoningEffort: current.reasoning_effort, includeContext: true,
+    attachments: retry.attachments, artifacts: [], projectFiles: retry.projectFiles, projectPath,
+    projectName: path.basename(projectPath), chatTitle: String(current.task?.title || ''), requestedAt: new Date().toISOString(),
+    ...orchestratorConversationGuard.submissionHooks(conversationURL, bindSubmittedConversation),
   }, entry, { pacedWorker: true }))
   if (!prepared?.submitted || !prepared.conversationUrl) throw new Error('Orchestrator Main Request round was not submitted to ChatGPT')
   console.log(`[orchestrator-round] submitted key=${key} request=${current.request_id} conversation=${prepared.conversationUrl}`)
