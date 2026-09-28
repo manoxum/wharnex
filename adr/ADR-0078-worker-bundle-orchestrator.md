@@ -106,3 +106,12 @@ without reopening the conversation. An agentic chat asks a person to resume
 or discard an execution a restart interrupted; a task has no chat and nobody
 to answer, so reconciliation resumes an approved Protected interruption of
 the task's current run on its own.
+
+A task is one Main Request with nobody reading its chat. A Main Request that
+ends in a report (`answered` or `investigated`, with no change) has finished:
+the task goes to REVIEW with that report, which satisfies its dependents. One
+that stops to ask a person (`awaiting_clarification`, `awaiting_plan_approval`)
+cannot continue by itself: the run fails with that question as its error, so
+a retry can add the missing context. Neither outcome applies while the request
+still awaits its response. Before this rule, a barrier task that concluded "no
+change needed" stayed DOING for five hours and held back its six dependents.

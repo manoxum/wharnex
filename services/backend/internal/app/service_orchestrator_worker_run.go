@@ -156,12 +156,12 @@ func (s *Service) reconcileOrchestratorWorkerRun(ctx context.Context, taskID str
 		return nil
 	}
 	task, run := current.Task, current.Run
-	switch orchestratorAgentOutcome(agent.State) {
+	switch orchestratorAgentOutcome(agent) {
 	case "review":
 		task.Status, task.Condition, run.Status = orchestrator.TaskReview, orchestrator.ConditionNone, "review"
 	case "failed":
 		task.Status, task.Condition, run.Status = orchestrator.TaskFailed, orchestrator.ConditionFailedRun, "failed"
-		run.Error = agent.LastRepairError
+		run.Error = orchestratorAgentOutcomeError(agent)
 	default:
 		workers, listErr := s.store.ListChatAgentTasks(session.ChatAgentTaskFilter{ProjectID: task.ProjectPath, ChatID: task.ID, Type: "ORCHESTRATOR_EXECUTE", Limit: 100})
 		if listErr != nil {
