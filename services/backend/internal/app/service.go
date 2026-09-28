@@ -3440,6 +3440,13 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 	var preMergeIntegrationSHA string
 	var versionChange appliedVersionChange
 	failApply := func(cause error) error {
+		// Undoing a partial integration must not inherit the cancellation that
+		// may have caused it: a Wharnex restart cancelled an Apply after its
+		// merge, the revert ran on the same cancelled context and failed at
+		// once, and the host kept an unverified merge the session reported as
+		// failed. Recovery gets its own bounded context.
+		ctx, cancelRecovery := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+		defer cancelRecovery()
 		if !useIntegrationBranches && versionChange.After != "" {
 			if restoreErr := restoreProjectVersion(item.ProjectPath, versionChange.After, versionChange.Before); restoreErr != nil {
 				cause = fmt.Errorf("%w; VERSION rollback also failed: %v", cause, restoreErr)
