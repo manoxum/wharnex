@@ -13,7 +13,7 @@ const tabs: Array<{ id: DetailTab; label: string }> = [
   { id: 'executions', label: 'Execuções' },
 ]
 
-export function OrchestratorPlanDrawer({ request, detail, loading, error, onClose, onRefresh, onSelectTask }: {
+export function OrchestratorPlanDrawer({ request, detail, loading, error, onClose, onRefresh, onSelectTask, onOpenTasks }: {
   request: OrchestratorPlanningRequest
   detail?: OrchestratorPlanningDetail
   loading: boolean
@@ -21,8 +21,10 @@ export function OrchestratorPlanDrawer({ request, detail, loading, error, onClos
   onClose: () => void
   onRefresh: () => void
   onSelectTask?: (task: OrchestratorTask) => void
+  onOpenTasks?: (planID: string) => void
 }) {
   const [tab, setTab] = useState<DetailTab>('summary')
+  const planID = detail?.plan?.id
 
   useEffect(() => { setTab('summary') }, [request.request_id])
 
@@ -50,6 +52,7 @@ export function OrchestratorPlanDrawer({ request, detail, loading, error, onClos
       </header>
 
       <div className="min-h-0 overflow-auto p-4">
+        {planID && onOpenTasks ? <div className="mb-2 flex justify-end"><button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => onOpenTasks(planID)}>Ver tasks</button></div> : null}
         <div className="mt-1 flex gap-4 overflow-x-auto border-b border-[var(--theme-border-soft)]" role="tablist" aria-label="Detalhe do planeamento">
           {tabs.map((item) => <button
             key={item.id}
