@@ -2605,17 +2605,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-view-switch button.active { background:var(--theme-surface); color:var(--theme-text); box-shadow:0 1px 3px var(--theme-shadow); }
 .orchestrator-tasks-toolbar > .primary { min-height:31px; }
 .orchestrator-task-surface { min-width:0; min-height:0; overflow:auto; background:var(--theme-bg); }
-.orchestrator-kanban { min-width:1120px; min-height:100%; padding:12px; display:grid; grid-template-columns:repeat(6,minmax(174px,1fr)); gap:8px; }
-.orchestrator-kanban > section { min-width:0; min-height:300px; display:grid; grid-template-rows:35px minmax(0,1fr); border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-elevated); }
-.orchestrator-kanban > section > header { padding:6px 8px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--theme-border-soft); }
-.orchestrator-kanban-stack { min-height:0; padding:6px; display:flex; flex-direction:column; gap:6px; }
-.orchestrator-kanban-stack article { padding:10px; display:grid; gap:7px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-surface); box-shadow:0 2px 7px color-mix(in srgb,var(--theme-shadow) 22%,transparent); cursor:pointer; }
-.orchestrator-kanban-stack article[draggable="true"] { cursor:grab; }
-.orchestrator-kanban-stack article.dragging { opacity:.38; }
-.orchestrator-kanban-stack article > div { display:flex; gap:5px; align-items:center; }
-.orchestrator-kanban-stack article > p { margin:0; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:3; color:var(--theme-text-muted); line-height:1.45; }
-.orchestrator-kanban-stack article > footer { display:flex; justify-content:space-between; gap:6px; color:var(--theme-text-soft); }
-.orchestrator-column-empty { margin:auto 4px; padding:14px 5px; border:1px dashed var(--theme-border-soft); border-radius:7px; color:var(--theme-text-soft); text-align:center; }
 
 .orchestrator-table-wrap { padding:12px; }
 .orchestrator-table { width:100%; border-spacing:0; overflow:hidden; border:1px solid var(--theme-border-soft); border-radius:9px; background:var(--theme-surface); }

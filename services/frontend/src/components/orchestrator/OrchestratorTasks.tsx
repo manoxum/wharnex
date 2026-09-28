@@ -1,29 +1,65 @@
-import { type ComponentProps, useMemo, useState } from 'react'
+import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
-import { TASK_EFFORT_LEVELS, taskEffortLevel } from '../../lib/orchestratorEffort'
-import type { EffortLevel, OrchestratorOverview, OrchestratorPriority, OrchestratorTask, OrchestratorTaskStatus, Session } from '../../types'
+import { combineOrchestratorTasks, mergeOrchestratorTaskPages } from '../../lib/orchestratorApi'
+import { ORCHESTRATOR_TERMINAL_STATUSES, type EffortLevel, type OrchestratorOverview, type OrchestratorPriority, type OrchestratorTask, type OrchestratorTaskPage, type OrchestratorTaskPageQuery, type OrchestratorTaskStatus, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus, type Session } from '../../types'
 import { Icon } from '../Icon'
 import { Status } from './OrchestratorStatus'
 import { ChatPanel } from '../ChatPanel'
+import { OrchestratorKanban } from './OrchestratorKanban'
 import { OrchestratorTaskDrawer } from './OrchestratorTaskDrawer'
 
-const statuses: OrchestratorTaskStatus[] = ['PENDING', 'WAITING', 'READY', 'DOING', 'REVIEW', 'FAILED', 'COMPLETE']
 type View = 'kanban' | 'table' | 'list' | 'graph'
+type TerminalQuery = Omit<OrchestratorTaskPageQuery, 'status' | 'limit'>
 
-export function OrchestratorTasks({ session, overview, chatProps, selectedTask, busy, onSelectedTask, onRun }: {
+export function OrchestratorTasks({ session, overview, terminalPages = {}, chatProps, selectedTask, busy, onSelectedTask, onLoadTerminalPage, onRun }: {
   session: Session
   overview: OrchestratorOverview
+  terminalPages?: OrchestratorTerminalTaskPages
   chatProps?: ComponentProps<typeof ChatPanel>
   selectedTask?: OrchestratorTask
   busy: boolean
   onSelectedTask: (task?: OrchestratorTask) => void
+  onLoadTerminalPage?: (status: OrchestratorTerminalTaskStatus, query?: TerminalQuery) => Promise<OrchestratorTaskPage | undefined>
   onRun: <T>(action: () => Promise<T>, after?: (value: T) => void) => Promise<T | undefined>
 }) {
   const [view, setView] = useState<View>('kanban')
   const [search, setSearch] = useState('')
+  const [searchPages, setSearchPages] = useState<OrchestratorTerminalTaskPages>({})
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const [dragTask, setDragTask] = useState<string>()
-  const tasks = useMemo(() => overview.tasks.filter((task) => !search.trim() || `${task.title} ${task.description || ''}`.toLowerCase().includes(search.trim().toLowerCase())), [overview.tasks, search])
+  const [loadingStatus, setLoadingStatus] = useState<OrchestratorTerminalTaskStatus>()
+  const searchVersion = useRef(0)
+  const query = search.trim()
+  const loadedTasks = useMemo(() => combineOrchestratorTasks(overview.tasks, terminalPages), [overview.tasks, terminalPages])
+
+  useEffect(() => {
+    const version = ++searchVersion.current
+    if (!query || !onLoadTerminalPage) { setSearchPages({}); return }
+    setSearchPages({})
+    const timer = window.setTimeout(() => {
+      ORCHESTRATOR_TERMINAL_STATUSES.forEach((status) => {
+        void onLoadTerminalPage(status, { q: query }).then((page) => {
+          if (!page || searchVersion.current !== version) return
+          setSearchPages((current) => ({ ...current, [status]: page }))
+        })
+      })
+    }, 180)
+    return () => window.clearTimeout(timer)
+  }, [onLoadTerminalPage, query])
+
+  const displayPages = query && onLoadTerminalPage ? searchPages : terminalPages
+  const tasks = useMemo(() => {
+    const needle = query.toLowerCase()
+    const result = new Map<string, OrchestratorTask>()
+    overview.tasks.forEach((task) => {
+      if (!needle || `${task.title} ${task.description || ''}`.toLowerCase().includes(needle)) result.set(task.id, task)
+    })
+    ORCHESTRATOR_TERMINAL_STATUSES.forEach((status) => displayPages[status]?.tasks.forEach((task) => {
+      if (query && !onLoadTerminalPage && !`${task.title} ${task.description || ''}`.toLowerCase().includes(needle)) return
+      result.set(task.id, task)
+    }))
+    return [...result.values()]
+  }, [displayPages, onLoadTerminalPage, overview.tasks, query])
 
   async function move(task: OrchestratorTask, target: OrchestratorTaskStatus) {
     if (task.status === target || task.status === 'DOING' || target === 'DOING' || target === 'REVIEW' || target === 'FAILED') return
@@ -34,9 +70,20 @@ export function OrchestratorTasks({ session, overview, chatProps, selectedTask, 
     void onRun(() => api.setOrchestratorTaskEffortLevel(session.id, task.id, level))
   }
 
+  async function loadMore(status: OrchestratorTerminalTaskStatus) {
+    const page = displayPages[status]
+    if (!onLoadTerminalPage || !page?.has_more || !page.next_cursor) return
+    setLoadingStatus(status)
+    try {
+      const next = await onLoadTerminalPage(status, { q: query || undefined, cursor: page.next_cursor })
+      if (query && next) setSearchPages((current) => ({ ...current, [status]: mergeOrchestratorTaskPages(current[status], next) }))
+    } finally { setLoadingStatus(undefined) }
+  }
+
+  const totalTasks = Object.values(overview.task_counts).reduce((total, count) => total + count, 0)
   return <div className="orchestrator-tasks-page">
     <header className="orchestrator-tasks-toolbar">
-      <div><strong className="text-lg">Tasks</strong><span className="text-sm text-[var(--theme-text-muted)]">{overview.tasks.length} no projeto · {overview.tasks.filter((task) => task.status === 'DOING').length} em execução</span></div>
+      <div><strong className="text-lg">Tasks</strong><span className="text-sm text-[var(--theme-text-muted)]">{totalTasks} no projeto · {overview.task_counts.DOING} em execução</span></div>
       <label className="orchestrator-search"><Icon name="search" size={14}/><input className="text-base" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar tasks" /></label>
       <div className="orchestrator-view-switch" role="group" aria-label="Vista de tasks">
         {(['kanban', 'table', 'list', 'graph'] as View[]).map((item) => <button key={item} className={`${view === item ? 'active ' : ''}text-base`} onClick={() => setView(item)}>{item === 'kanban' ? 'Kanban' : item === 'table' ? 'Tabela' : item === 'list' ? 'Lista' : 'Grafo'}</button>)}
@@ -45,37 +92,16 @@ export function OrchestratorTasks({ session, overview, chatProps, selectedTask, 
     </header>
 
     <div className={`orchestrator-task-surface view-${view}`}>
-      {view === 'kanban' && <Kanban tasks={tasks.filter((task) => task.status !== 'ARCHIVED')} session={session} busy={busy} onEffort={changeEffort} dragTask={dragTask} onDrag={setDragTask} onDrop={(status) => {
-        const task = tasks.find((item) => item.id === dragTask); setDragTask(undefined); if (task) void move(task, status)
-      }} onSelect={onSelectedTask} />}
+      {view === 'kanban' && <OrchestratorKanban tasks={tasks} taskCounts={overview.task_counts} terminalPages={displayPages} searching={Boolean(query)} session={session} busy={busy} dragTask={dragTask} loadingStatus={loadingStatus} onEffort={changeEffort} onDrag={setDragTask} onDrop={(status) => {
+        const task = loadedTasks.find((item) => item.id === dragTask); setDragTask(undefined); if (task) void move(task, status)
+      }} onLoadMore={(status) => void loadMore(status)} onSelect={onSelectedTask} />}
       {view === 'table' && <TaskTable tasks={tasks} onSelect={onSelectedTask} />}
       {view === 'list' && <TaskList tasks={tasks} onSelect={onSelectedTask} />}
       {view === 'graph' && <TaskGraph tasks={tasks} onSelect={onSelectedTask} />}
     </div>
 
     {newTaskOpen && <NewTaskDrawer session={session} overview={overview} busy={busy} onClose={() => setNewTaskOpen(false)} onRun={onRun} />}
-    {selectedTask && <OrchestratorTaskDrawer session={session} task={overview.tasks.find((item) => item.id === selectedTask.id) || selectedTask} tasks={overview.tasks} chatProps={chatProps} busy={busy} onClose={() => onSelectedTask(undefined)} onMove={move} onRun={onRun} onSelectedTask={onSelectedTask} />}
-  </div>
-}
-
-function Kanban({ tasks, session, busy, onEffort, dragTask, onDrag, onDrop, onSelect }: { tasks: OrchestratorTask[]; session: Session; busy: boolean; onEffort: (task: OrchestratorTask, level: EffortLevel) => void; dragTask?: string; onDrag: (id?: string) => void; onDrop: (status: OrchestratorTaskStatus) => void; onSelect: (task: OrchestratorTask) => void }) {
-  return <div className="orchestrator-kanban">
-    {statuses.map((status) => {
-      const grouped = tasks.filter((task) => task.status === status)
-      return <section key={status} onDragOver={(event) => { if (status === 'PENDING' || status === 'WAITING' || status === 'READY') event.preventDefault() }} onDrop={() => { if (status === 'PENDING' || status === 'WAITING' || status === 'READY') onDrop(status) }}>
-        <header><Status status={status}/><span className="font-mono text-sm leading-none text-[var(--theme-text-soft)]">{grouped.length}</span></header>
-        <div className="orchestrator-kanban-stack">
-          {grouped.map((task) => <article key={task.id} draggable={task.status !== 'DOING'} className={dragTask === task.id ? 'dragging' : ''} onDragStart={() => onDrag(task.id)} onDragEnd={() => onDrag(undefined)} onClick={() => onSelect(task)}>
-            <div><span className={`priority priority-${task.priority} font-mono text-sm leading-[1.4]`}>{task.priority}</span>{task.parallelizable && <span className="parallel font-mono text-sm leading-[1.4] text-[var(--theme-text-soft)]">parallel</span>}</div>
-            <strong className="text-base leading-[1.35]">{task.title}</strong>
-            <p className="text-sm">{task.description || 'Sem descrição adicional.'}</p>
-            <label className="mt-2 flex items-center justify-between gap-2 text-sm text-[var(--theme-muted)]" title="Nível de esforço · tentativas automáticas antes de a task falhar" onClick={(event) => event.stopPropagation()}>Esforço<select aria-label={`Esforço de ${task.title}`} className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-surface)] px-2 py-1 text-base text-[var(--theme-text)]" value={taskEffortLevel(task, session)} disabled={busy} onChange={(event) => onEffort(task, event.target.value as EffortLevel)}>{TASK_EFFORT_LEVELS.map((level) => <option key={level.value} value={level.value}>{level.label}</option>)}</select></label>
-            <footer className="font-mono text-sm"><span>{task.depends_on?.length || 0} deps</span><span>{task.capability || task.complexity || 'task'}</span></footer>
-          </article>)}
-          {!grouped.length && <div className="orchestrator-column-empty text-base">Arraste uma task para aqui</div>}
-        </div>
-      </section>
-    })}
+    {selectedTask && <OrchestratorTaskDrawer session={session} task={loadedTasks.find((item) => item.id === selectedTask.id) || selectedTask} tasks={loadedTasks} chatProps={chatProps} busy={busy} onClose={() => onSelectedTask(undefined)} onMove={move} onRun={onRun} onSelectedTask={onSelectedTask} />}
   </div>
 }
 
