@@ -4545,27 +4545,37 @@ async function waitForChatGPTSurfaceReady(cacheKey, entry) {
 }
 
 // ChatGPT's "could not load this conversation" surface stalls every action on
-// the page until retry is pressed. A failure must hold across two probes before
-// anything is done, then the page's own retry control is pressed (or the page
-// reloaded when that control is not unambiguous). Retrying reaches ChatGPT, so
-// a Worker takes its paced slot first. Bounded: a conversation that still will
-// not load fails the action and the task comes back later.
-const CHATGPT_CONVERSATION_LOAD_RETRIES = 3
+// the page until retry is pressed. It is what a throttled conversation read
+// (GET /backend-api/conversations/<id> → 429) looks like, so pressing retry
+// again and again only earns more refusals. A failure must hold across two
+// probes, then the page's own retry control is pressed once (or the page is
+// reloaded when that control is not unambiguous), paced for a Worker. If the
+// conversation still does not load, the action is deferred for free with a
+// growing per-conversation backoff so the read throttle can clear.
+const CHATGPT_CONVERSATION_LOAD_BACKOFF_MS = [2 * 60_000, 4 * 60_000, 8 * 60_000, 10 * 60_000]
+const chatGPTConversationLoadFailures = new Map()
 async function recoverChatGPTConversationLoadFailure(cacheKey, entry, wc, settle) {
   const probe = (click) => wc.executeJavaScript(chatGPTConversationLoadFailureScript(click), true).catch(() => null)
-  for (let attempt = 1; attempt <= CHATGPT_CONVERSATION_LOAD_RETRIES; attempt += 1) {
-    if (!(await probe(false))?.failed) return
-    await wait(2_000)
-    const confirmed = await probe(false)
-    if (!confirmed?.failed) return
-    if (entry.role === 'worker') await paceChatGPTWorkerNavigation()
-    const retried = confirmed.retryable ? await probe(true) : null
-    console.warn(`[chatgpt-load] conversation-load-failed key=${cacheKey} attempt=${attempt} action=${retried?.clicked ? 'retry' : 'reload'}`)
-    if (!retried?.clicked && !wc.isDestroyed()) wc.reload()
-    await wait(1_000)
-    await settle()
+  const conversation = canonicalChatGPTConversationURL(wc.getURL()) || cacheKey
+  if (!(await probe(false))?.failed) { chatGPTConversationLoadFailures.delete(conversation); return }
+  await wait(2_000)
+  const confirmed = await probe(false)
+  if (!confirmed?.failed) { chatGPTConversationLoadFailures.delete(conversation); return }
+  if (entry.role === 'worker') await paceChatGPTWorkerNavigation()
+  const retried = confirmed.retryable ? await probe(true) : null
+  if (!retried?.clicked && !wc.isDestroyed()) wc.reload()
+  await wait(1_000)
+  await settle()
+  if (!(await probe(false))?.failed) {
+    console.log(`[chatgpt-load] conversation-load-recovered key=${cacheKey} action=${retried?.clicked ? 'retry' : 'reload'}`)
+    chatGPTConversationLoadFailures.delete(conversation)
+    return
   }
-  if ((await probe(false))?.failed) throw new Error(`ChatGPT could not load this conversation after ${CHATGPT_CONVERSATION_LOAD_RETRIES} retries`)
+  const failures = (chatGPTConversationLoadFailures.get(conversation) || 0) + 1
+  chatGPTConversationLoadFailures.set(conversation, failures)
+  const delayMs = CHATGPT_CONVERSATION_LOAD_BACKOFF_MS[Math.min(failures, CHATGPT_CONVERSATION_LOAD_BACKOFF_MS.length) - 1]
+  console.warn(`[chatgpt-load] conversation-load-failed key=${cacheKey} failures=${failures} action=${retried?.clicked ? 'retry' : 'reload'} backoff_ms=${delayMs}`)
+  throw new ChatGPTConversationUnavailable(delayMs)
 }
 
 function chatAgentRateLimitDelayMs() {
@@ -4664,6 +4674,16 @@ class ChatGPTRateLimitDeferral extends Error {
     this.name = 'ChatGPTRateLimitDeferral'
     this.delayMs = Math.max(0, Number(delayMs) || 0)
     this.retryUpload = false
+  }
+}
+
+// Declared after its base: a class that extends is evaluated at module load.
+class ChatGPTConversationUnavailable extends ChatGPTRateLimitDeferral {
+  constructor(delayMs) {
+    super(delayMs)
+    this.name = 'ChatGPTConversationUnavailable'
+    this.message = 'ChatGPT could not load this conversation; retrying after a backoff'
+    this.conversationUnavailable = true
   }
 }
 
@@ -8474,12 +8494,11 @@ app.whenReady().then(async () => {
     }, 900)
   } else if (recovery) {
     // The saved windows are recreated immediately so the topology and the
-    // startup sequence below stay synchronous, but their projects are not
-    // bound yet: each window asks for the decision in its own themed modal
-    // and restores lazily from there. Asking here instead would mean a
-    // native message box, because no renderer exists at this point.
+    // startup sequence below stay synchronous, and each restores its projects
+    // on its own. Asking first left every Worker claim stalled behind an
+    // unanswered modal whenever the Desktop restarted with nobody at it.
     const records = recoverableDesktopWindows(recovery)
-    for (const record of records) createWindow(record.id, false, { recovery: { projects: record.projects, activeProject: record.activeProject, pending: true } })
+    for (const record of records) createWindow(record.id, false, { recovery: { projects: record.projects, activeProject: record.activeProject, pending: false } })
     persistWindowLayout(records.map((record) => record.id))
   } else {
     for (const windowId of layout) createWindow(windowId, false)

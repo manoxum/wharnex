@@ -206,3 +206,28 @@ test('an Agent continuation after an accepted bundle does not spend a Worker att
     globalThis.fetch = previousFetch
   }
 })
+
+test('a conversation ChatGPT cannot load returns the attempt as a free wait, not a failure', async () => {
+  const previousFetch = globalThis.fetch
+  const request = {
+    task: { status: 'DOING' }, run: { id: 'run-1' }, agent_session_id: 'ses-agent',
+    request_id: 'req_20260927T170000_0123456789abcdef', prompt: 'Backend-authored prompt',
+    expected_filename: 'whx_bundle_res_otk-abc_req_20260927T170000_0123456789abcdef.zip', chat_id: 'otk-abc', reasoning_effort: 'high', agent_state: 'awaiting_plan',
+  }
+  globalThis.fetch = async () => ({ ok: true, json: async () => request })
+  try {
+    const entry = { view: { webContents: { getURL: () => 'https://chatgpt.com/' } } }
+    const unavailable = Object.assign(new Error('ChatGPT could not load this conversation'), { conversationUnavailable: true, delayMs: 120_000 })
+    const runtime = {
+      baseURL: 'http://127.0.0.1:6969', homeURL: 'https://chatgpt.com/', expectedDownloads: new Map(),
+      conversationURL: (value) => value || '', sameConversation: () => false,
+      loadURL: async () => undefined, waitSurfaceReady: async () => { throw unavailable },
+    }
+    const task = { task_id: 'cat_0123456789abcdef0123', chat_id: 'otk_abc', session_id: 'ses-owner' }
+    const payload = { protocol: 'harness.orchestrator-execution/v1', task_id: 'otk_abc', active_request_id: request.request_id, expected_filename: request.expected_filename, conversation_url: 'https://chatgpt.com/c/owned' }
+    const result = await executeOrchestratorExecution(task, entry, 'otk_abc', payload, 'worker-1', runtime)
+    assert.deepEqual(result, { status: 'waiting', delayMs: 120_000, observation: true, error: 'ChatGPT could not load this conversation' })
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})

@@ -57,7 +57,19 @@ async function submitRequest(task, entry, key, current, payload, owner, runtime)
   }
 }
 
+// A conversation ChatGPT refuses to load (its "could not load" surface, backed
+// by a throttled conversation read) reached nothing that can be charged: the
+// attempt comes back as a free wait, long enough for the throttle to pass.
 export async function executeOrchestratorExecution(task, entry, key, payload, owner, runtime) {
+  try {
+    return await runOrchestratorExecution(task, entry, key, payload, owner, runtime)
+  } catch (error) {
+    if (error?.conversationUnavailable !== true) throw error
+    return { status: 'waiting', delayMs: Math.max(0, Number(error.delayMs) || 0), observation: true, error: String(error.message || 'ChatGPT could not load this conversation') }
+  }
+}
+
+async function runOrchestratorExecution(task, entry, key, payload, owner, runtime) {
   if (payload?.protocol !== 'harness.orchestrator-execution/v1' || payload.task_id !== task.chat_id) {
     return { status: 'failed', error: 'invalid orchestrator execution Worker payload' }
   }

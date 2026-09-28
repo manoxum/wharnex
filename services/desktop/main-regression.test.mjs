@@ -3048,3 +3048,20 @@ test('Ctrl+Space can reopen native spelling suggestions at the composer caret', 
   assert.match(source, /Menu\.buildFromTemplate\(template\)\.popup\(\{ window: win, x: params\.x, y: params\.y \}\)/)
   assert.match(preload, /spellcheck: Object\.freeze\(\{[\s\S]*showSuggestions: \(point = \{\}\) => invoke\('wharness:spellcheck:show-suggestions'/)
 })
+
+test('startup restores every saved window session without asking', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('const records = recoverableDesktopWindows(recovery)')
+  const restore = source.slice(start, source.indexOf('persistWindowLayout(records.map', start))
+  // A session waiting for a click stalled every Worker claim while nobody was
+  // at the machine; restoring is the default.
+  assert.match(restore, /recovery: \{ projects: record\.projects, activeProject: record\.activeProject, pending: false \}/)
+})
+
+test('every class that extends another is declared after its base', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  for (const match of source.matchAll(/^class (\w+) extends (\w+)/gm)) {
+    const base = source.search(new RegExp(`^class ${match[2]}\\b`, 'm'))
+    if (base >= 0) assert.ok(base < match.index, `${match[1]} is declared before its base ${match[2]}`)
+  }
+})
