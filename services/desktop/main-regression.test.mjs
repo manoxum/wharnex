@@ -3065,3 +3065,13 @@ test('every class that extends another is declared after its base', async () => 
     if (base >= 0) assert.ok(base < match.index, `${match[1]} is declared before its base ${match[2]}`)
   }
 })
+
+test('conversation load failures across threads cool Worker conversation reads down', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /chatGPTConversationReadFailures\.size >= 2/)
+  const execute = source.slice(source.indexOf('async function executeChatAgentTask(task, { worker, owner })'))
+  assert.match(execute.slice(0, 1500), /chatGPTConversationReadCooldownMs\(\)[\s\S]{0,200}observation: true/)
+  // Only a rendered conversation clears its backoff; "no failure seen" does not.
+  const recover = source.slice(source.indexOf('async function recoverChatGPTConversationLoadFailure('))
+  assert.match(recover.slice(0, 900), /if \(first\?\.loaded\) chatGPTConversationLoadFailures\.delete\(conversation\)/)
+})

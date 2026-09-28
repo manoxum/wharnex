@@ -4554,13 +4554,35 @@ async function waitForChatGPTSurfaceReady(cacheKey, entry) {
 // growing per-conversation backoff so the read throttle can clear.
 const CHATGPT_CONVERSATION_LOAD_BACKOFF_MS = [2 * 60_000, 4 * 60_000, 8 * 60_000, 10 * 60_000]
 const chatGPTConversationLoadFailures = new Map()
+// Several different conversations failing to load close together is the
+// account's conversation reads being throttled, not one bad thread. Workers
+// then stop opening conversations for a while so the throttle can clear.
+const CHATGPT_CONVERSATION_READ_WINDOW_MS = 2 * 60_000
+const CHATGPT_CONVERSATION_READ_COOLDOWN_MS = 3 * 60_000
+const chatGPTConversationReadFailures = new Map()
+let chatGPTConversationReadCooldownUntil = 0
+function chatGPTConversationReadCooldownMs() {
+  return Math.max(0, chatGPTConversationReadCooldownUntil - Date.now())
+}
+function noteChatGPTConversationReadFailure(conversation) {
+  const now = Date.now()
+  chatGPTConversationReadFailures.set(conversation, now)
+  for (const [key, at] of chatGPTConversationReadFailures) if (now - at > CHATGPT_CONVERSATION_READ_WINDOW_MS) chatGPTConversationReadFailures.delete(key)
+  if (chatGPTConversationReadFailures.size >= 2 && now >= chatGPTConversationReadCooldownUntil) {
+    chatGPTConversationReadCooldownUntil = now + CHATGPT_CONVERSATION_READ_COOLDOWN_MS
+    console.warn(`[chatgpt-load] conversation-read-cooldown conversations=${chatGPTConversationReadFailures.size} until=${new Date(chatGPTConversationReadCooldownUntil).toISOString()}`)
+  }
+}
 async function recoverChatGPTConversationLoadFailure(cacheKey, entry, wc, settle) {
   const probe = (click) => wc.executeJavaScript(chatGPTConversationLoadFailureScript(click), true).catch(() => null)
   const conversation = canonicalChatGPTConversationURL(wc.getURL()) || cacheKey
-  if (!(await probe(false))?.failed) { chatGPTConversationLoadFailures.delete(conversation); return }
+  const first = await probe(false)
+  if (first?.loaded) chatGPTConversationLoadFailures.delete(conversation)
+  if (!first?.failed) return
   await wait(2_000)
   const confirmed = await probe(false)
-  if (!confirmed?.failed) { chatGPTConversationLoadFailures.delete(conversation); return }
+  if (confirmed?.loaded) chatGPTConversationLoadFailures.delete(conversation)
+  if (!confirmed?.failed) return
   if (entry.role === 'worker') await paceChatGPTWorkerNavigation()
   const retried = confirmed.retryable ? await probe(true) : null
   if (!retried?.clicked && !wc.isDestroyed()) wc.reload()
@@ -4573,7 +4595,8 @@ async function recoverChatGPTConversationLoadFailure(cacheKey, entry, wc, settle
   }
   const failures = (chatGPTConversationLoadFailures.get(conversation) || 0) + 1
   chatGPTConversationLoadFailures.set(conversation, failures)
-  const delayMs = CHATGPT_CONVERSATION_LOAD_BACKOFF_MS[Math.min(failures, CHATGPT_CONVERSATION_LOAD_BACKOFF_MS.length) - 1]
+  noteChatGPTConversationReadFailure(conversation)
+  const delayMs = Math.max(chatGPTConversationReadCooldownMs(), CHATGPT_CONVERSATION_LOAD_BACKOFF_MS[Math.min(failures, CHATGPT_CONVERSATION_LOAD_BACKOFF_MS.length) - 1])
   console.warn(`[chatgpt-load] conversation-load-failed key=${cacheKey} failures=${failures} action=${retried?.clicked ? 'retry' : 'reload'} backoff_ms=${delayMs}`)
   throw new ChatGPTConversationUnavailable(delayMs)
 }
@@ -6689,6 +6712,10 @@ async function executeChatAgentTask(task, { worker, owner }) {
   const initialRateLimitDelay = chatAgentRateLimitDelayMs()
   if (initialRateLimitDelay > 0) {
     return { status: 'waiting', delayMs: initialRateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
+  }
+  const readCooldown = chatGPTConversationReadCooldownMs()
+  if (readCooldown > 0 && (task.type === 'ORCHESTRATOR_EXECUTE' || task.type === 'ORCHESTRATOR_PLAN')) {
+    return { status: 'waiting', delayMs: readCooldown, observation: true, error: 'ChatGPT conversation reads are cooling down' }
   }
   const payload = chatAgentTaskPayload(task)
   const taskKey = sanitizeChatCacheKey(task?.chat_id || task?.chatId)

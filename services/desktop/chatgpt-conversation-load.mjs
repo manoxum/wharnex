@@ -9,11 +9,12 @@ const CONVERSATION_PATH = /^\/(?:g\/[^/]+\/)?c\/[A-Za-z0-9-]{8,}/
 const COMPOSER_SELECTORS = '#prompt-textarea,div[contenteditable="true"][data-testid*="composer"],div[contenteditable="true"][role="textbox"],textarea[placeholder]'
 
 export function detectChatGPTConversationLoadFailure(doc, loc) {
-  const none = { failed: false, retry: null }
+  const none = { failed: false, loaded: false, retry: null }
   if (!CONVERSATION_PATH.test(String(loc?.pathname || ''))) return none
   if (doc?.readyState !== 'complete') return none
-  if (doc.querySelectorAll('[data-message-author-role]').length > 0) return none
-  if (doc.querySelectorAll(COMPOSER_SELECTORS).length > 0) return none
+  // Loaded: the thread or the composer rendered. Only this clears a backoff.
+  if (doc.querySelectorAll('[data-message-author-role]').length > 0) return { failed: false, loaded: true, retry: null }
+  if (doc.querySelectorAll(COMPOSER_SELECTORS).length > 0) return { failed: false, loaded: true, retry: null }
   const main = doc.querySelector('main')
   if (!main) return none
   const visible = (node) => {
@@ -23,7 +24,7 @@ export function detectChatGPTConversationLoadFailure(doc, loc) {
   const controls = [...main.querySelectorAll('button')].filter((button) => visible(button)
     && button.disabled !== true && button.getAttribute?.('aria-disabled') !== 'true'
     && !button.closest?.('header, nav, [role="dialog"]'))
-  return { failed: true, retry: controls.length === 1 ? controls[0] : null }
+  return { failed: true, loaded: false, retry: controls.length === 1 ? controls[0] : null }
 }
 
 export function chatGPTConversationLoadFailureScript(click = false) {
@@ -34,6 +35,6 @@ export function chatGPTConversationLoadFailureScript(click = false) {
     const result = detect(document, location);
     const clicked = ${click === true} && Boolean(result.retry);
     if (clicked) result.retry.click();
-    return { failed: result.failed, retryable: Boolean(result.retry), clicked };
+    return { failed: result.failed, loaded: result.loaded, retryable: Boolean(result.retry), clicked };
   })()`
 }
