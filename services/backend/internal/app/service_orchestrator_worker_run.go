@@ -154,7 +154,10 @@ func (s *Service) reconcileOrchestratorWorkerRun(ctx context.Context, taskID str
 			if orchestratorExecutionClaimPriority(candidate.Status) > 0 {
 				return nil
 			}
-			if candidate.Status == session.ChatAgentTaskFailed && (failed == nil || candidate.CreatedAt.After(failed.CreatedAt)) {
+			// ATTENTION holds no lease and delivers nothing further: like FAILED
+			// it ends the run, or the task would stay DOING with no Worker.
+			ended := candidate.Status == session.ChatAgentTaskFailed || candidate.Status == session.ChatAgentTaskAttention
+			if ended && (failed == nil || candidate.CreatedAt.After(failed.CreatedAt)) {
 				failed = candidate
 			}
 		}

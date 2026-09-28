@@ -1,9 +1,12 @@
 import { pollWorkerExpectedDownload } from './chat-agent-download-poll.mjs'
 import { postLongRunningWorkerJSON } from './chat-agent-long-request.mjs'
 import { orchestratorBundleRepairPrompt } from './chat-agent-orchestrator-bundle-repair.mjs'
+import { chatGPTDeliveryContinuationPrompt } from './chatgpt-recovery.mjs'
 
 const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000
 const POLL_MS = 2_000
+// Same bound as an agentic Main Request's delivery continuations.
+const MAX_DELIVERY_CONTINUATIONS = 2
 
 async function workerRequest(baseURL, sessionID, taskID, suffix, body, postBundle = postLongRunningWorkerJSON) {
   const path = `/api/sessions/${encodeURIComponent(sessionID)}/orchestrator/tasks/${encodeURIComponent(taskID)}/${suffix}`
@@ -86,6 +89,8 @@ async function runOrchestratorExecution(task, entry, key, payload, owner, runtim
   let conversationURL = runtime.conversationURL(payload.conversation_url || '')
   let baseline = Number(payload.assistant_baseline || 0)
   let repairCount = Math.max(0, Number(payload.bundle_repair_count) || 0)
+  let deliveryCount = Math.max(0, Number(payload.delivery_continuation_count) || 0)
+  const now = () => (typeof runtime.now === 'function' ? runtime.now() : Date.now())
   let target = { entry, wc: entry.view.webContents, conversationUrl: conversationURL }
   const resume = payload.active_request_id === current.request_id && payload.expected_filename === current.expected_filename && conversationURL
   if (resume) {
@@ -108,9 +113,24 @@ async function runOrchestratorExecution(task, entry, key, payload, owner, runtim
   }
   runtime.expectedDownloads.set(current.expected_filename, expected)
   let thinkingAt = 0
+  let deadline = now() + RESPONSE_TIMEOUT_MS
+  // A new prompt in the same conversation: the response ZIP must come from a
+  // turn after it, and the response window starts again.
+  const rearm = (assistantBaseline) => {
+    download = new Promise((resolve, reject) => { resolveDownload = resolve; rejectDownload = reject })
+    download.catch(() => undefined)
+    expected.resolve = resolveDownload
+    expected.reject = rejectDownload
+    expected.assistantBaseline = assistantBaseline
+    expected.freshOnly = true
+    expected.downloadStarted = false
+    expected.lastClickAt = 0
+    thinkingAt = 0
+    deadline = now() + RESPONSE_TIMEOUT_MS
+  }
   try {
-    let deadline = Date.now() + RESPONSE_TIMEOUT_MS
-    while (Date.now() < deadline) {
+   for (;;) {
+    while (now() < deadline) {
       const outcome = await Promise.race([
         download.then((value) => ({ done: true, value }), (error) => ({ done: true, error })),
         runtime.wait(POLL_MS).then(() => ({ done: false })),
@@ -135,16 +155,7 @@ async function runOrchestratorExecution(task, entry, key, payload, owner, runtim
           await runtime.submit(key, target)
           repairCount += 1
           await runtime.checkpoint(task.task_id, owner, { assistant_baseline: baseline, bundle_repair_count: repairCount })
-          download = new Promise((resolve, reject) => { resolveDownload = resolve; rejectDownload = reject })
-          download.catch(() => undefined)
-          expected.resolve = resolveDownload
-          expected.reject = rejectDownload
-          expected.assistantBaseline = baseline
-          expected.freshOnly = true
-          expected.downloadStarted = false
-          expected.lastClickAt = 0
-          thinkingAt = 0
-          deadline = Date.now() + RESPONSE_TIMEOUT_MS
+          rearm(baseline)
           continue
         }
         if (result.task?.status !== 'DOING') return { status: 'done' }
@@ -157,14 +168,30 @@ async function runOrchestratorExecution(task, entry, key, payload, owner, runtim
       if (runtime.noteRateLimit(key, health)) return { status: 'waiting', delayMs: runtime.rateLimitDelay(), observation: true, error: 'ChatGPT rate-limit gate is active' }
       if (health?.required === true) return { status: 'attention', providerWide: true, error: runtime.humanActionMessage(String(health.kind || 'verification')) }
       const completion = await runtime.completion(key, target.entry, baseline)
-      if (completion?.thinking === true) thinkingAt = Date.now()
+      if (completion?.thinking === true) thinkingAt = now()
       await pollWorkerExpectedDownload(expected,
         (script) => runtime.executeDOM(key, target.entry, 'orchestrator-agent-download', script), runtime.expectedDownloadScript)
     }
-    if (thinkingAt && Date.now() - thinkingAt < 60_000) {
+    if (thinkingAt && now() - thinkingAt < 60_000) {
       return { status: 'waiting', delayMs: 30_000, observation: true, liveBundlePending: true, error: `ChatGPT is still producing ${current.expected_filename}` }
     }
-    return { status: 'attention', error: `ChatGPT did not provide ${current.expected_filename} within eight minutes` }
+    // The turn ended without the file. As in an agentic Main Request, a short
+    // continuation in the same conversation asks ChatGPT to finish and deliver
+    // it, a bounded number of times, before a person is asked to look.
+    if (deliveryCount >= MAX_DELIVERY_CONTINUATIONS) {
+      return { status: 'attention', error: `ChatGPT did not provide ${current.expected_filename} after ${deliveryCount} delivery continuations` }
+    }
+    await runtime.pace()
+    const delay = runtime.rateLimitDelay()
+    if (delay > 0) return { status: 'waiting', delayMs: delay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
+    baseline = await runtime.assistantCount(target.wc)
+    if (!(await runtime.fill(key, target.entry, chatGPTDeliveryContinuationPrompt()))) throw new Error('Orchestrator delivery continuation composer could not be populated')
+    await runtime.submit(key, target)
+    deliveryCount += 1
+    await runtime.checkpoint(task.task_id, owner, { assistant_baseline: baseline, delivery_continuation_count: deliveryCount })
+    runtime.phase?.('processing')
+    rearm(baseline)
+   }
   } finally {
     if (runtime.expectedDownloads.get(current.expected_filename) === expected) runtime.expectedDownloads.delete(current.expected_filename)
   }

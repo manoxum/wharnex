@@ -212,3 +212,42 @@ func TestWorkerStartReportsATaskThatLeftExecution(t *testing.T) {
 		t.Fatalf("worker-start=%#v", current)
 	}
 }
+
+// An attempt that ended in ATTENTION produced nothing and holds no lease; the
+// task must leave DOING with that error instead of staying there unserved.
+func TestAttentionWorkerAttemptFailsTheDoingTask(t *testing.T) {
+	ctx := context.Background()
+	store := session.NewStore()
+	service := NewService(store, audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorExecutionManualPlanner{}, policy.NewEngine(), fakeRunner{})
+	owner, err := service.StartSessionWithModes(ctx, t.TempDir(), domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := service.CreateOrchestratorTask(ctx, owner.ID, OrchestratorTaskInput{Title: "Never delivered"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.TransitionOrchestratorTask(ctx, owner.ID, task.ID, orchestrator.TaskReady); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store.ClaimChatAgentTaskWithOptions("worker-1", time.Minute, session.ChatAgentClaimOptions{WorkerID: "worker-1", Role: session.ChatAgentRoleWorker})
+	if err != nil || claim == nil {
+		t.Fatalf("claim=%#v err=%v", claim, err)
+	}
+	if _, err := store.StartChatAgentTask(claim.TaskID, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.StartOrchestratorWorkerTask(ctx, owner.ID, task.ID, claim.TaskID, "worker-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FailChatAgentTask(claim.TaskID, "worker-1", "ChatGPT did not provide the response bundle", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.OrchestratorOverview(ctx, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.orchestrator.GetTask(ctx, task.ID)
+	if err != nil || updated.Status != orchestrator.TaskFailed {
+		t.Fatalf("task stayed %s after its attempt needed attention: err=%v", updated.Status, err)
+	}
+}

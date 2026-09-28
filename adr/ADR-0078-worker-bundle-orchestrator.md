@@ -83,3 +83,9 @@ After an accepted response bundle leaves the task DOING, the Agent's next
 round (workflow evidence, repair, continuation) is bounded by the task's
 effort level exactly as in an agentic Main Request. Reaching it is an
 observation and does not spend the Worker's transport attempt budget.
+
+When a response window ends with no bundle and no sign of generation, the
+Worker sends the agentic delivery continuation in the same conversation, at
+most twice, before raising attention. An attempt that ends in ATTENTION holds
+no lease and delivers nothing further, so it ends the task's run like FAILED:
+the task leaves DOING with that error instead of staying there unserved.
