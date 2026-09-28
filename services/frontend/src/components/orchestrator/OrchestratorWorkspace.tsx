@@ -1,7 +1,8 @@
-import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'react'
+import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import { errorMessage } from '../../lib/errorMessage'
-import type { ChatAgentTask, OrchestratorOverview as OverviewData, OrchestratorProposalResult, OrchestratorTask, Session } from '../../types'
+import { combineOrchestratorTasks, emptyOrchestratorTaskCounts, invalidateChangedOrchestratorTerminalPages, isOrchestratorTask, reconcileOrchestratorTerminalPages } from '../../lib/orchestratorApi'
+import { ORCHESTRATOR_TERMINAL_STATUSES, type ChatAgentTask, type OrchestratorOverview as OverviewData, type OrchestratorProposalResult, type OrchestratorTask, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus, type Session } from '../../types'
 import { Icon } from '../Icon'
 import { OrchestratorOverview } from './OrchestratorOverview'
 import { OrchestratorTasks } from './OrchestratorTasks'
@@ -31,12 +32,15 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
   onError: (message?: string) => void
 }) {
   const [section, setSection] = useState<'overview' | 'tasks'>('overview')
-  const [overview, setOverview] = useState<OverviewData>({ plans: [], tasks: [], planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 })
+  const [overview, setOverview] = useState<OverviewData>({ plans: [], tasks: [], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 })
+  const [terminalPages, setTerminalPages] = useState<OrchestratorTerminalTaskPages>({})
   const [proposal, setProposal] = useState<OrchestratorProposalResult>()
   const [selectedTask, setSelectedTask] = useState<OrchestratorTask>()
   const [planningTasks, setPlanningTasks] = useState<ChatAgentTask[]>([])
   const [busy, setBusy] = useState(false)
   const bootstrapPlanningRef = useRef(new Set<string>())
+  const terminalLoadingRef = useRef(new Set<OrchestratorTerminalTaskStatus>())
+  const taskOverview = useMemo(() => ({ ...overview, tasks: combineOrchestratorTasks(overview.tasks, terminalPages) }), [overview, terminalPages])
 
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setBusy(true)
@@ -51,6 +55,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
         api.chatAgentTasks(true, session.project_path).catch(() => ({ tasks: [] as ChatAgentTask[] })),
       ])
       setOverview(nextOverview)
+      setTerminalPages((current) => invalidateChangedOrchestratorTerminalPages(current, nextOverview.task_counts))
       setPlanningTasks(nextTasks.tasks.filter((task) => task.type === 'ORCHESTRATOR_PLAN'))
     } catch (reason) { if (!quiet) onError(errorMessage(reason)) }
     finally { if (!quiet) setBusy(false) }
@@ -68,6 +73,20 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     setSection('overview')
   }, [focusNonce])
 
+  const loadTerminalPage = useCallback(async (status: OrchestratorTerminalTaskStatus) => {
+    if (terminalLoadingRef.current.has(status)) return
+    terminalLoadingRef.current.add(status)
+    try {
+      const page = await api.orchestratorTasks(session.id, { status, limit: 50 })
+      setTerminalPages((current) => ({ ...current, [status]: page }))
+    } catch (reason) { onError(errorMessage(reason)) }
+    finally { terminalLoadingRef.current.delete(status) }
+  }, [onError, session.id])
+
+  useEffect(() => {
+    if (!active || section !== 'tasks') return
+    ORCHESTRATOR_TERMINAL_STATUSES.forEach((status) => { if (!terminalPages[status]) void loadTerminalPage(status) })
+  }, [active, loadTerminalPage, section, terminalPages])
 
   useEffect(() => {
     const objective = bootstrapObjective.trim()
@@ -95,6 +114,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     setBusy(true); onError(undefined)
     try {
       const value = await action()
+      if (isOrchestratorTask(value)) setTerminalPages((current) => reconcileOrchestratorTerminalPages(current, value))
       after?.(value)
       await refresh(true)
       return value
@@ -112,7 +132,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       </div>
       <nav aria-label="Orchestrator">
         <button className={section === 'overview' ? 'active' : ''} onClick={() => setSection('overview')}>Overview</button>
-        <button className={section === 'tasks' ? 'active' : ''} onClick={() => setSection('tasks')}>Tasks <span>{overview.tasks.filter((task) => task.status !== 'ARCHIVED').length}</span></button>
+        <button className={section === 'tasks' ? 'active' : ''} onClick={() => setSection('tasks')}>Tasks <span>{Object.values(overview.task_counts).reduce((total, count) => total + count, 0)}</span></button>
       </nav>
       <button className="orchestrator-refresh" type="button" onClick={() => void refresh()} disabled={busy} aria-label="Atualizar Orchestrator"><Icon name="refresh" size={15}/></button>
     </header>
@@ -133,7 +153,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       onSelectTask={(task) => { setSelectedTask(task); setSection('tasks') }}
     /> : <OrchestratorTasks
       session={session}
-      overview={overview}
+      overview={taskOverview}
       chatProps={chatProps}
       selectedTask={selectedTask}
       busy={busy}

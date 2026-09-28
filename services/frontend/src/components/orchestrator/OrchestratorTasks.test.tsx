@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { api } from '../../lib/api'
+import { emptyOrchestratorTaskCounts } from '../../lib/orchestratorApi'
 import type { OrchestratorOverview, OrchestratorTask, Session } from '../../types'
 import { OrchestratorTasks } from './OrchestratorTasks'
 
@@ -23,7 +24,7 @@ it('releases PENDING explicitly and shows READY as waiting for a Worker', async 
   const pending = task('First', 'PENDING')
   const waiting = task('Second', 'WAITING')
   const ready = task('Third', 'READY')
-  const overview: OrchestratorOverview = { plans: [], tasks: [pending, waiting, ready], planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 }
+  const overview: OrchestratorOverview = { plans: [], tasks: [pending, waiting, ready], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 }
   const transitioned = vi.spyOn(api, 'transitionOrchestratorTask').mockResolvedValue({ ...pending, status: 'READY' })
   vi.spyOn(api, 'orchestratorTaskRuns').mockResolvedValue({ runs: [] })
   const selected = vi.fn()
@@ -43,7 +44,7 @@ it('releases PENDING explicitly and shows READY as waiting for a Worker', async 
 it('hides archived cards in Kanban and offers a failed task retry with effort control', async () => {
   const failed = { ...task('Failed', 'FAILED'), condition: 'failed_run' as const }
   const archived = task('Archived', 'ARCHIVED')
-  const overview: OrchestratorOverview = { plans: [], tasks: [failed, archived], planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 }
+  const overview: OrchestratorOverview = { plans: [], tasks: [failed, archived], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 }
   const retry = vi.spyOn(api, 'retryOrchestratorTask').mockResolvedValue({ ...failed, status: 'READY' })
   const setEffort = vi.spyOn(api, 'setOrchestratorTaskEffort').mockResolvedValue({ ...failed, reasoning_effort: 'medium' })
   vi.spyOn(api, 'orchestratorTaskRuns').mockResolvedValue({ runs: [] })
@@ -57,7 +58,7 @@ it('hides archived cards in Kanban and offers a failed task retry with effort co
 
 it('changes effort on a Kanban card without opening the task drawer', async () => {
   const ready = task('Parallel change', 'READY')
-  const overview: OrchestratorOverview = { plans: [], tasks: [ready], planning_requests: [], mutation_slots: 5, mutation_slots_used: 0 }
+  const overview: OrchestratorOverview = { plans: [], tasks: [ready], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 5, mutation_slots_used: 0 }
   const selected = vi.fn()
   const setEffort = vi.spyOn(api, 'setOrchestratorTaskEffortLevel').mockResolvedValue({ ...ready, effort_level: 'ultra' })
   render(<OrchestratorTasks session={session} overview={overview} busy={false} onSelectedTask={selected} onRun={async <T,>(action: () => Promise<T>) => action()}/>)
@@ -68,7 +69,7 @@ it('changes effort on a Kanban card without opening the task drawer', async () =
 
 it('offers the bounded composer effort levels on a card, never Loop', () => {
   const ready = task('Bounded', 'READY')
-  const overview: OrchestratorOverview = { plans: [], tasks: [ready], planning_requests: [], mutation_slots: 5, mutation_slots_used: 0 }
+  const overview: OrchestratorOverview = { plans: [], tasks: [ready], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 5, mutation_slots_used: 0 }
   render(<OrchestratorTasks session={{ ...session, effort_level: 'loop' }} overview={overview} busy={false} onSelectedTask={vi.fn()} onRun={async <T,>(action: () => Promise<T>) => action()}/>)
   const select = screen.getByRole('combobox', { name: 'Esforço de Bounded' }) as HTMLSelectElement
   expect([...select.options].map((option) => option.value)).toEqual(['low', 'medium', 'high', 'extra_high', 'max', 'ultra'])

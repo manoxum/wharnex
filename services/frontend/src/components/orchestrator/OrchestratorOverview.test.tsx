@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import QuillDelta from 'quill-delta'
 import { api } from '../../lib/api'
+import { emptyOrchestratorTaskCounts } from '../../lib/orchestratorApi'
 import type { OrchestratorOverview as OverviewData, Session } from '../../types'
 import { ChatPanel } from '../ChatPanel'
 import { directivesToDelta, findComposerEditor } from '../../lib/composerRichText'
@@ -78,7 +79,7 @@ describe('OrchestratorOverview planning queue', () => {
     const onSelectTask = vi.fn()
     render(<OrchestratorOverview
       session={session}
-      overview={{ plans: [], tasks: [failed, ...newer], planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 }}
+      overview={{ plans: [], tasks: [failed, ...newer], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 }}
       chatProps={chatProps()}
       busy={false}
       onProposal={vi.fn()}
@@ -97,6 +98,7 @@ describe('OrchestratorOverview planning queue', () => {
     const overview = {
       plans: [{ id: 'opl-1', project_path: session.project_path, title: 'Existing draft', objective: 'First result', status: 'DRAFT', created_at: '2026-09-12T14:58:00.000Z', updated_at: '2026-09-12T14:59:00.000Z' }],
       tasks: [],
+      task_counts: emptyOrchestratorTaskCounts(),
       planning_requests: [
         { request_id: 'orp-first', task_id: 'cat-first', objective: 'Split the API safely', status: 'RUNNING', attempt: 1, max_attempts: 3, created_at: '2026-09-12T15:00:00.000Z', updated_at: '2026-09-12T15:01:00.000Z' },
         { request_id: 'orp-second', task_id: 'cat-second', objective: 'Polish the dashboard', status: 'PENDING', attempt: 0, max_attempts: 3, created_at: '2026-09-12T15:02:00.000Z', updated_at: '2026-09-12T15:02:00.000Z' },
@@ -127,7 +129,7 @@ describe('OrchestratorOverview planning queue', () => {
   })
 
   it('reuses the Agent composer controls and submits its primary action as planning', async () => {
-    const overview = { plans: [], tasks: [], planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 } satisfies OverviewData
+    const overview = { plans: [], tasks: [], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 } satisfies OverviewData
     const proposal = { request_id: 'orp_20260912T184134_0123456789abcdef', worker_task_id: 'cat-worker', delivery_status: 'PENDING' }
     const propose = vi.spyOn(api, 'proposeOrchestratorPlan').mockResolvedValue(proposal)
     const onProposal = vi.fn()
@@ -166,6 +168,7 @@ describe('OrchestratorOverview planning queue', () => {
     const overview = {
       plans: [{ id: 'opl-draft', project_path: session.project_path, title: 'Draft plan', objective: 'Ship safely', status: 'DRAFT', planner_request_id: 'orp-old', created_at: '2026-09-12T15:00:00.000Z', updated_at: '2026-09-12T15:00:00.000Z' }],
       tasks: [{ id: 'otk-1', project_path: session.project_path, plan_id: 'opl-draft', title: 'Backend', status: 'PENDING', condition: 'plan_approval', priority: 'normal', parallelizable: false, created_at: '2026-09-12T15:00:00.000Z', updated_at: '2026-09-12T15:00:00.000Z' }],
+      task_counts: emptyOrchestratorTaskCounts(),
       planning_requests: [], mutation_slots: 1, mutation_slots_used: 0,
     } satisfies OverviewData
     const reject = vi.spyOn(api, 'rejectOrchestratorPlan').mockResolvedValue({ ...overview, plans: [{ ...overview.plans[0], status: 'ARCHIVED' }], tasks: [{ ...overview.tasks[0], status: 'ARCHIVED', condition: 'none' }] })

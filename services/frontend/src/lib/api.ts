@@ -1,6 +1,8 @@
-import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, ChatFileRecord, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, ChatAgentTaskEvent, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, EvolutionKnowledgeRef, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, ExecutionErrorRecord, DockerOverview, DockerLogs, DockerContainerAction, DockerResourceKind, FileEntry, ProjectConfig, ProjectKnowledge, ProjectKnowledgeCatalog, ProjectProvision, ProjectTodo, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, OrchestratorTaskStatus, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, WorkspaceSearchOptions, WorkspaceSearchResult, GitHeadState, GitOverview, GitFileDiff, GitOperationPreview, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitRemoteMergeResult, GitBranchActionResult, GitBranchMutationResult, GitReleaseNotesResult, GitReleaseResult, GitCommit, GitUnpushedOverview, GitCommitDetail, GitHistoryPage, GitContributorsOverview, GitBranch, GitConflictStrategy, GitAuthorSettings, GitWorktreeCommitResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
+import type { AgentTurn, AppConfig, AttachmentInspection, AttentionRecord, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, ChatFileRecord, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, ChatAgentTaskEvent, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, EvolutionKnowledgeRef, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, ExecutionErrorRecord, DockerOverview, DockerLogs, DockerContainerAction, DockerResourceKind, FileEntry, ProjectConfig, ProjectKnowledge, ProjectKnowledgeCatalog, ProjectProvision, ProjectTodo, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, WorkspaceSearchOptions, WorkspaceSearchResult, GitHeadState, GitOverview, GitFileDiff, GitOperationPreview, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitRemoteMergeResult, GitBranchActionResult, GitBranchMutationResult, GitReleaseNotesResult, GitReleaseResult, GitCommit, GitUnpushedOverview, GitCommitDetail, GitHistoryPage, GitContributorsOverview, GitBranch, GitConflictStrategy, GitAuthorSettings, GitWorktreeCommitResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
 import type { DurableWorkspaceChatRecord } from './workspaceMemory'
 import type { OrchestratorTaskRetryContext, ReasoningEffort } from '../types'
+import { createOrchestratorApi, normalizeOrchestratorOverview } from './orchestratorApi'
+export { normalizeOrchestratorOverview } from './orchestratorApi'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8888'
 
@@ -61,20 +63,6 @@ async function requestDownload(path: string, body: unknown): Promise<{ blob: Blo
   const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
   const filename = encoded ? decodeURIComponent(encoded) : plain || 'wharness-chat-export.zip'
   return { blob: await response.blob(), filename }
-}
-
-// A Go backend marshals an empty slice as null unless it was explicitly
-// allocated. The orchestrator views call .filter/.map on these arrays
-// directly, so a single null took down the entire workspace render on any
-// project with no plans yet. The backend now always emits [], and this keeps
-// an older or partially deployed backend from being able to crash the app.
-export function normalizeOrchestratorOverview(overview: OrchestratorOverview): OrchestratorOverview {
-  return {
-    ...overview,
-    plans: Array.isArray(overview?.plans) ? overview.plans : [],
-    tasks: Array.isArray(overview?.tasks) ? overview.tasks.map((task) => ({ ...task, depends_on: Array.isArray(task?.depends_on) ? task.depends_on : [] })) : [],
-    planning_requests: Array.isArray(overview?.planning_requests) ? overview.planning_requests : [],
-  }
 }
 
 // Same defence as normalizeOrchestratorOverview: a Go backend marshals an
@@ -363,7 +351,7 @@ export const api = {
   gitSwitch: (id: string, branch: string, repository = '') => request<GitBranchActionResult>(`/api/sessions/${id}/git/switch`, { method: 'POST', body: JSON.stringify({ branch, repository }) }),
   gitMerge: (id: string, ref: string, repository = '') => request<GitMergeResult>(`/api/sessions/${id}/git/merge`, { method: 'POST', body: JSON.stringify({ ref, repository }) }),
   gitRemoteMerge: (id: string, targetRef: string, sourceRefs: string[], repository = '') => request<GitRemoteMergeResult>(`/api/sessions/${id}/git/remote-merge`, { method: 'POST', body: JSON.stringify({ target_ref: targetRef, source_refs: sourceRefs, repository, confirmation: 'merge_remote' }) }),
-  orchestratorOverview: (id: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/overview`).then(normalizeOrchestratorOverview),
+  ...createOrchestratorApi(request),
   proposeOrchestratorPlan: (id: string, objective: string, composer?: { include_context?: boolean; project_files?: string[]; attachment_cache_key?: string; attachments?: Array<{ name: string; size: number; mime: string; storage_ref: string }>; todo_ids?: string[] }) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/propose`, { method: 'POST', body: JSON.stringify({ objective, ...composer }) }),
   retryOrchestratorPlanning: (id: string, requestId: string) => request<OrchestratorPlanningRequest>(`/api/sessions/${id}/orchestrator/planning/${encodeURIComponent(requestId)}/retry`, { method: 'POST', body: '{}' }),
   importOrchestratorPlan: (id: string, requestId: string, proposal: OrchestratorProposal) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/import`, { method: 'POST', body: JSON.stringify({ request_id: requestId, proposal }) }),
@@ -371,7 +359,6 @@ export const api = {
   rejectOrchestratorPlan: (id: string, planId: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/plans/${encodeURIComponent(planId)}/reject`, { method: 'POST', body: '{}' }).then(normalizeOrchestratorOverview),
   reviseOrchestratorPlan: (id: string, planId: string, guidance: string) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/${encodeURIComponent(planId)}/revise`, { method: 'POST', body: JSON.stringify({ guidance }) }),
   createOrchestratorTask: (id: string, input: { plan_id?: string; title: string; description?: string; acceptance_criteria?: string[]; priority?: OrchestratorPriority; depends_on?: string[]; capability?: string }) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks`, { method: 'POST', body: JSON.stringify(input) }),
-  transitionOrchestratorTask: (id: string, taskId: string, status: OrchestratorTaskStatus) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/transition`, { method: 'POST', body: JSON.stringify({ status }) }),
   setOrchestratorTaskEffort: (id: string, taskId: string, reasoning_effort: ReasoningEffort) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/effort`, { method: 'POST', body: JSON.stringify({ reasoning_effort }) }),
   setOrchestratorTaskEffortLevel: (id: string, taskId: string, effort_level: EffortLevel) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/effort-level`, { method: 'POST', body: JSON.stringify({ effort_level }) }),
   retryOrchestratorTask: (id: string, taskId: string, input: OrchestratorTaskRetryContext) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/retry`, { method: 'POST', body: JSON.stringify(input) }),
