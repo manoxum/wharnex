@@ -9,8 +9,8 @@ export function normalizeChatGPTReasoningEffort(value, fallback = 'high') {
 }
 
 // Provider-agnostic by design: `observe` reads the current level and `cycle`
-// moves it one step, however the caller's UI represents that (main.mjs's
-// stepChatGPTReasoningEffortToward currently drives ChatGPT's own ARIA slider
+// moves it one step, however the caller's UI represents that (the Desktop
+// interaction module currently drives ChatGPT's own ARIA slider
 // control). Every step is re-verified through `observe` before a prompt is
 // allowed to submit, and the whole exchange is bounded to one pass over the
 // closed value set - if ChatGPT changes that control again, this stays

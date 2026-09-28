@@ -111,7 +111,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
         (script) => runtime.executeDOM(key, target.entry, 'orchestrator-agent-download', script), runtime.expectedDownloadScript)
     }
     if (thinkingAt && Date.now() - thinkingAt < 60_000) {
-      return { status: 'waiting', delayMs: 30_000, observation: true, error: `ChatGPT is still producing ${current.expected_filename}` }
+      return { status: 'waiting', delayMs: 30_000, observation: true, liveBundlePending: true, error: `ChatGPT is still producing ${current.expected_filename}` }
     }
     return { status: 'attention', error: `ChatGPT did not provide ${current.expected_filename} within eight minutes` }
   } finally {

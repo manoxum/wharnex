@@ -14,6 +14,10 @@ bootstrap naming that ZIP and the exact response ZIP. A Worker follows the
 conversation until it can download that response, then sends the bytes
 unchanged to the backend Orchestrator bundle validator. Re-delivery after an
 expired artifact is another bounded request ZIP in the same conversation.
+When a bounded observation confirms the response is still being generated,
+the Worker keeps that conversation resident through its durable `WAITING`
+interval. The next observation resumes the already loaded page; an idle-lane
+release must not force a cross-chat navigation while the bundle is being made.
 
 `TRANSLATE_MARKDOWN` remains on its one-task Translator Worker, and
 `RELEASE_NOTES` remains on a persistent Worker; both already exchange request
@@ -28,6 +32,10 @@ strict response ZIP validator remains mandatory. Agent Supervisors retain
 their verified-effort precondition. The release-notes HTTP waiter covers its
 three bounded Worker attempts, including claim and pacing before each
 response window.
+For a hidden Worker's effort picker, Desktop MAY temporarily emulate an active
+page through the Chrome DevTools Protocol while dispatching its bounded,
+trusted control events. It MUST clear that emulation afterward, and MUST NOT
+focus the remote WebContents or move the operating-system pointer.
 
 ## Compatibility
 

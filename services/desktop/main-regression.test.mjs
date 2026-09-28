@@ -1405,71 +1405,6 @@ test('every ChatGPT submit verifies the requested reasoning effort before starti
 // whatever level the account was already on instead of the requested
 // 'instant', and a thinking model given a trivial classification at a high
 // effort level blew through the 4-minute response timeout on every attempt.
-test('reasoning effort is stepped through the composer slider, not a keyboard shortcut', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('async function stepChatGPTReasoningEffortToward(')
-  const end = source.indexOf('\nasync function submitChatGPTDraft(', start)
-  assert.notEqual(start, -1)
-  const body = source.slice(start, end)
-
-  // Direction is computed from the two ordinal positions in the closed value
-  // set, never assumed from a fixed rotation.
-  assert.match(body, /CHATGPT_REASONING_EFFORTS\.indexOf\(wanted\)/)
-  assert.match(body, /CHATGPT_REASONING_EFFORTS\.indexOf\(current\.effort\) < wantedIndex \? 'Right' : 'Left'/)
-  // Already-converged is a real return path, not just the outer loop's
-  // concern: this function is also usable standalone.
-  assert.match(body, /if \(current\.effort === wanted\) return/)
-
-  // The control is opened first (a trusted native click on the located
-  // button rect) if the picker menu isn't already open...
-  assert.match(body, /reasoningEffortAdjustScript\(CHATGPT_BEHAVIOR\)/)
-  assert.match(body, /staged\?\.ok && staged\.state === 'effort-menu-closed'/)
-  // A held press routed by surface visibility: an instantaneous down/up leaves
-  // this Radix trigger settled back closed, and sendInputEvent drops a mouse
-  // event entirely on a view that is not visible.
-  assert.match(body, /pressChatGPTControl\(entry, wc, staged\.rect\)/)
-  // A hidden Chromium surface can still reject the pointer press even when
-  // hit-testing proves it landed on the trigger. The DOM probe focuses that
-  // same closed control, then one trusted Enter is the bounded fallback.
-  assert.match(body, /staged\.triggerFocused === true/)
-  assert.match(body, /\['Enter', 'Space', 'Down'\]/)
-  assert.match(body, /pressChatGPTControlKey\(entry, wc, openKey\)/)
-  // ...then the slider is stepped exactly once and the menu is closed again,
-  // so the very next observe() in the caller's bounded loop reads a clean
-  // collapsed-button label instead of the menu's generic open-state title.
-  assert.match(body, /pressChatGPTControlKey\(entry, wc, direction\)/)
-  assert.match(body, /pressChatGPTControlKey\(entry, wc, 'Escape'\)/)
-  assert.doesNotMatch(body, /dispatchChatGPTEffortCycle/)
-
-  const adjustStart = source.indexOf('export function reasoningEffortAdjustScript(', 0)
-  assert.equal(adjustStart, -1, 'reasoningEffortAdjustScript belongs in chat-agent-scripts.mjs, not main.mjs')
-
-  const scripts = await readFile(new URL('./chat-agent-scripts.mjs', import.meta.url), 'utf8')
-  assert.match(scripts, /export \{ reasoningEffortAdjustScript, reasoningEffortStateScript \} from '\.\/chat-agent-reasoning-effort-scripts\.mjs'/)
-
-  const effortScripts = await readFile(new URL('./chat-agent-reasoning-effort-scripts.mjs', import.meta.url), 'utf8')
-  const scriptStart = effortScripts.indexOf('export function reasoningEffortAdjustScript(')
-  assert.notEqual(scriptStart, -1)
-  const script = effortScripts.slice(scriptStart, effortScripts.indexOf('\nexport function', scriptStart + 1))
-  assert.match(script, /button\[0\]\.focus\(\)/)
-  assert.match(script, /triggerFocused: document\.activeElement === button\[0\]/)
-  // Scripts observe and stage; they never click (ADR-0037). Focusing the
-  // slider is staging - it cannot itself change the value - not a bypass of
-  // that rule.
-  assert.match(script, /slider\.focus\(\)/)
-  assert.doesNotMatch(script, /\.click\(\)/)
-  assert.match(script, /getAttribute\('aria-valuenow'\)/)
-  assert.match(script, /getAttribute\('aria-valuemax'\)/)
-  assert.ok(script.indexOf('const slider = pick(__whx.optionalSelectors.effortSlider)') < script.indexOf('const target = rect(button[0])'))
-  // aria-expanded is diagnostic metadata only; slider discovery remains the
-  // decision because ChatGPT has reported stale expanded state in the past.
-  assert.match(script, /triggerExpanded: button\[0\]\.getAttribute\('aria-expanded'\) === 'true'/)
-  assert.doesNotMatch(script, /if \([^\n]*aria-expanded/)
-
-  const domMap = await readFile(new URL('./chatgpt-behavior-dom-map.mjs', import.meta.url), 'utf8')
-  assert.match(domMap, /effortSlider: \[.*role="slider".*\]/)
-})
-
 // Live testing against the real ChatGPT account has already found the
 // effort control unreachable once (a dead keyboard shortcut, fixed by
 // stepChatGPTReasoningEffortToward) and could again - a future UI change is
@@ -2009,22 +1944,13 @@ test('background native input preserves the already-focused local composer', asy
   // `menu-not-open` that dominates this queue's failures.
   assert.match(account, /pressChatGPTControl\(entry, wc, located\.rect\)/)
 
-  const effortStepStart = source.indexOf('async function stepChatGPTReasoningEffortToward(')
-  const effortStep = source.slice(effortStepStart, source.indexOf('\nasync function submitChatGPTDraft(', effortStepStart))
-  // The press is awaited, so the focus guard wraps each synchronous burst of
-  // events instead of the whole press - handing it the awaited press would
-  // restore focus while the button is still held down.
-  assert.match(effortStep, /pressChatGPTControl\(entry, wc, staged\.rect\)/)
   const router = source.slice(source.indexOf('async function pressChatGPTControl('))
   assert.match(router.slice(0, 900), /dispatchChatGPTPointerPress\(wc, rect, \{ wait, guard: withPreservedLocalFocus \}\)/)
   const press = await readFile(new URL('./chatgpt-input.mjs', import.meta.url), 'utf8')
   const pressBody = press.slice(press.indexOf('export async function dispatchChatGPTPointerPress('))
   assert.match(pressBody.slice(0, 1200), /guard\(\(\) => \{[\s\S]*mouseDown[\s\S]*\}\)\n\s*await wait\(/)
   assert.match(pressBody.slice(0, 1200), /await wait\([\s\S]*guard\(\(\) => webContents\.sendInputEvent\(\{ type: 'mouseUp'/)
-  // Keys go through the same visibility-aware router as the press, so one
-  // interaction is never split across two delivery routes; the router keeps
-  // the focus guard on the native path.
-  assert.match(effortStep, /pressChatGPTControlKey\(entry, wc, direction\)/)
+  // The visibility-aware key router keeps the focus guard on the native path.
   const keyRouter = source.slice(source.indexOf('async function pressChatGPTControlKey('))
   assert.match(keyRouter.slice(0, 900), /withPreservedLocalFocus\(\(\) => dispatchChatGPTAccountKey\(wc, name\)\)/)
 })
@@ -2422,21 +2348,6 @@ test('legacy auxiliary conflict tasks cannot overwrite durable chat affinity', a
   assert.match(resume, /durableWorkspaceChatID\(key, request\?\.workspaceChatId\)/)
   assert.match(resume, /if \(workspaceChatId\) await persistWorkspaceChatRemoteBestEffort\(workspaceChatId/)
   assert.match(resume, /sessionId: request\?\.sessionId, workspaceChatId/)
-})
-
-test('a slot between two observations of a live response keeps its conversation', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const helper = source.slice(source.indexOf('function chatAgentSupervisingLiveResponse('))
-  assert.match(helper.slice(0, 400), /lastTask\?\.type === 'AWAIT_RESPONSE' && runtime\?\.lastResult\?\.status === 'waiting'/)
-
-  const scheduler = source.slice(
-    source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('),
-    source.indexOf('chatAgentScheduler.start()'))
-  // Releasing the lane here would hand the conversation to another slot, which
-  // would reload a page the model is still writing into.
-  assert.match(scheduler, /if \(chatAgentSupervisingLiveResponse\(worker\) \|\| chatAgentKeepFlowingActive\(worker\)\) return/)
-  // The predicate needs the settled result, so the runtime state has to keep it.
-  assert.match(scheduler, /kind === 'settled'[\s\S]{0,200}lastResult: state\.result/)
 })
 
 test('any trusted ChatGPT backend 429 is provider-wide evidence, not just the conversation endpoints', async () => {

@@ -53,9 +53,11 @@ import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 import { CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer } from './chat-agent-pacer.mjs'
 import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
+import { chatAgentLiveBundlePending } from './chat-agent-live-bundle-residency.mjs'
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
-import { reasoningEffortAdjustScript, reasoningEffortStateScript } from './chat-agent-scripts.mjs'
-import { CHATGPT_REASONING_EFFORTS, ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort } from './chatgpt-effort.mjs'
+import { reasoningEffortStateScript } from './chat-agent-scripts.mjs'
+import { ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort } from './chatgpt-effort.mjs'
+import { stepChatGPTEffort } from './chatgpt-effort-interaction.mjs'
 import { spellcheckContextMenuTemplate } from './spellcheck-menu.mjs'
 import { publicSupervisorId, supervisorSurfaceRoute } from './supervisor-surface-routing.mjs'
 import { createManualChatGPTTransport } from './manual-chatgpt-transport.mjs'
@@ -3015,8 +3017,7 @@ function workerEntryForIndex(worker) {
  * anything else.
  */
 function chatAgentSupervisingLiveResponse(worker) {
-  const runtime = chatAgentWorkerStates.get(Number(worker) || 0)
-  return runtime?.lastTask?.type === 'AWAIT_RESPONSE' && runtime?.lastResult?.status === 'waiting'
+  return chatAgentLiveBundlePending(chatAgentWorkerStates.get(Number(worker) || 0))
 }
 
 function workerEntryForAgentID(agentID) {
@@ -4695,70 +4696,20 @@ async function pasteChatGPTFile(entry, filePath, index, count, { translation = f
   console.log(`[chatgpt-upload] confirmed wc=${wc.id} file=${index}/${count} observed=${result.observed}`)
 }
 
-// Submission has two different facts that must not be collapsed: whether the
-// DOM send action itself failed, and whether our network observer happened to
-// see ChatGPT's POST. The first is a safe delivery failure. The second can be
-// ambiguous while the remote model is already reasoning, so automatic flows
-// dispatch once and keep supervising the armed request instead of replaying a
-// potentially duplicate submit. Manual one-shot actions may still require the
-// stronger observed-POST signal before reporting success.
-// Moves the reasoning-effort slider exactly one step toward `wanted`.
-//
-// The control is two things in sequence, both Radix and both requiring a
-// trusted native event (ADR-0037): a composer button that opens a menu, and
-// an ARIA slider inside it driven by ArrowLeft/ArrowRight once focused. One
-// call here performs the whole open-move-close sequence so the caller's
-// bounded observe/cycle loop sees a clean, readable button label again
-// immediately afterward - the slider's own label reads "Esforço de
-// raciocínio" (generic) while open, not a level name, so leaving the menu
-// open would make the very next observe() report effort-level-unknown.
+// Keep the account-specific control interaction isolated from submission.
 async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
-  const wantedIndex = CHATGPT_REASONING_EFFORTS.indexOf(wanted)
-  if (wantedIndex < 0) throw new Error(`Unsupported ChatGPT reasoning effort ${wanted}`)
-  const current = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-state', reasoningEffortStateScript(CHATGPT_BEHAVIOR))
-  if (!current?.ok) throw new Error(`ChatGPT reasoning effort is unavailable (${String(current?.state || 'unknown')})`)
-  if (current.effort === wanted) return
-  const direction = CHATGPT_REASONING_EFFORTS.indexOf(current.effort) < wantedIndex ? 'Right' : 'Left'
-
-  // The picker does not always open on the first press - live testing saw the
-  // very first click land with `aria-expanded` still false and the second one
-  // open it, the same flakiness chooseChatGPTConversationAction already
-  // absorbs for ChatGPT's other Radix menus. Retry the open rather than
-  // reporting the control missing.
-  let staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
-  for (let attempt = 0; attempt < CHATGPT_MENU_REOPEN_ATTEMPTS && staged?.ok && staged.state === 'effort-menu-closed'; attempt += 1) {
-    const { wc } = requireOwnedChatGPTEntry(key, entry)
-    // A held press, not an instantaneous click: this trigger settles back
-    // closed when both events land in the same tick, which is what left the
-    // slider unreachable behind "effort-menu-closed" on every attempt (see
-    // dispatchChatGPTPointerPress).
-    const visible = entry?.view?.getVisible?.()
-    const pressed = await pressChatGPTControl(entry, wc, staged.rect)
-    await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-    const before = staged
-    staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
-    if (staged?.state === 'effort-menu-closed' && staged.triggerFocused === true) {
-      for (const openKey of ['Enter', 'Space', 'Down']) {
-        await pressChatGPTControlKey(entry, wc, openKey)
-        await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
-        staged = await executeChatGPTDOMScript(key, entry, 'reasoning-effort-adjust', reasoningEffortAdjustScript(CHATGPT_BEHAVIOR))
-        if (staged?.state !== 'effort-menu-closed') break
-      }
-    }
-    // Control geometry and the state it reported, never page content. Without
-    // this the failure reads only "effort-menu-closed", which cannot separate
-    // a press that missed the control from one that landed and was ignored.
-    console.log(`[chatgpt-effort] key=${key} open-attempt=${attempt + 1} visible=${String(visible)} pressed=${pressed.x},${pressed.y} rect=${JSON.stringify(before.rect)} viewport=${JSON.stringify(before.viewport || null)} hit=${JSON.stringify(before.hit || null)} hitIsControl=${before.hitIsControl === true} focused=${staged?.triggerFocused === true} expanded=${staged?.triggerExpanded === true} disabled=${staged?.triggerDisabled === true} dataState=${String(staged?.triggerState || '')} pointerEvents=${String(staged?.triggerPointerEvents || '')} sliders=${Number(staged?.sliderCount || 0)} menus=${Number(staged?.openMenuCount || 0)} -> ${String(staged?.state || 'unknown')}`)
-  }
-  if (!staged?.ok || staged.state !== 'effort-slider-ready') {
-    throw new Error(`ChatGPT reasoning-effort slider is unavailable (${String(staged?.state || 'unknown')})`)
-  }
-  const { wc } = requireOwnedChatGPTEntry(key, entry)
-  await pressChatGPTControlKey(entry, wc, direction)
-  await pressChatGPTControlKey(entry, wc, 'Escape')
-  await wait(CHATGPT_ACCOUNT_ACTION_SETTLE_MS)
+  return stepChatGPTEffort({
+    key, entry, wanted, behavior: CHATGPT_BEHAVIOR,
+    executeDOM: executeChatGPTDOMScript, requireOwned: requireOwnedChatGPTEntry,
+    press: pressChatGPTControl, pressKey: pressChatGPTControlKey,
+    wait, settleMs: CHATGPT_ACCOUNT_ACTION_SETTLE_MS,
+    reopenAttempts: CHATGPT_MENU_REOPEN_ATTEMPTS,
+  })
 }
 
+// A successful DOM send and an observed provider POST are different facts.
+// Automatic flows dispatch once when observation is ambiguous, then supervise
+// the armed request instead of replaying a potentially duplicate submission.
 async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true, rateLimitExempt = true, beforeDispatch = undefined } = {}) {
   const target = preparedTarget || await targetChatGPTComposer(key, '', false, entryOverride)
   const wc = target.wc
@@ -6161,7 +6112,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
     // resumes the same conversation instead of reloading one mid-generation.
     if (thinkingObservedAt && Date.now() - thinkingObservedAt < ORCHESTRATOR_PLAN_GENERATING_GRACE_MS) {
       return {
-        status: 'waiting', observation: true, delayMs: ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS,
+        status: 'waiting', observation: true, liveBundlePending: true, delayMs: ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS,
         error: `ChatGPT is still producing ${filename}`,
       }
     }
