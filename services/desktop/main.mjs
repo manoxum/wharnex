@@ -3450,14 +3450,20 @@ function chatAgentRuntimeState() {
   const workers = chatGPTWorkerEntries.filter((entry) => /^worker-[1-9][0-9]?$/.test(entry.slotId)).map((entry) => {
     const worker = Number(entry.slotId.slice(7))
     const runtime = chatAgentWorkerStates.get(worker) || {}
+    // A Worker pinned to an Orchestrator task holds it between rounds exactly
+    // as a Supervisor holds its chat between observations (adr/ADR-0082):
+    // rendering only the lease made it blink between busy and free while the
+    // task was still running.
+    const pinnedTaskId = orchestrationTaskPins.taskId(entry.slotId)
     return {
       id: entry.slotId || `worker-${worker}`, label: `Worker ${worker}`, role: 'worker',
-      status: runtime.task ? (String(runtime.task.status || '').toUpperCase() === 'RUNNING' ? 'running' : 'claimed') : runtime.error ? 'error' : entry.loading ? 'loading' : runtime.active === false ? 'stopped' : chatAgentKeepFlowingActive(worker) ? 'claimed' : 'idle',
+      status: runtime.task ? (String(runtime.task.status || '').toUpperCase() === 'RUNNING' ? 'running' : 'claimed') : runtime.error ? 'error' : entry.loading ? 'loading' : runtime.active === false ? 'stopped' : chatAgentKeepFlowingActive(worker) || pinnedTaskId ? 'claimed' : 'idle',
       draining: worker > desiredChatAgentWorkerSlots, loop_active: runtime.active !== false, interacting: Boolean(entry.interactionWindowId),
-      occupied: Boolean(runtime.task || chatAgentKeepFlowingActive(worker)),
+      occupied: Boolean(runtime.task || chatAgentKeepFlowingActive(worker) || pinnedTaskId),
+      pinned_task_id: pinnedTaskId,
       monitor_open: Boolean(entry.monitorWindow && !entry.monitorWindow.isDestroyed()),
-      chat_id: String(runtime.task?.chat_id || runtime.lastTask?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(runtime.task),
-      project_id: chatAgentAgentProject(runtime.task, runtime.lastTask, chatAgentKeepFlowingActive(worker)),
+      chat_id: String(runtime.task?.chat_id || pinnedTaskId || runtime.lastTask?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(runtime.task),
+      project_id: chatAgentAgentProject(runtime.task, runtime.lastTask, chatAgentKeepFlowingActive(worker) || Boolean(pinnedTaskId)),
       last_task: publicChatAgentTask(runtime.lastTask), last_claim_at: String(runtime.lastClaimAt || ''),
       error: String(runtime.error || ''), browser: publicAgentBrowser(entry), residency: chatAgentResidency.snapshot(entry.slotId),
       activity: runtime.task ? chatAgentWorkerActivity.snapshot(entry.slotId) : null,

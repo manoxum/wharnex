@@ -2496,7 +2496,7 @@ test('task-scoped Keep flowing survives WAITING and ends when that task is termi
   assert.match(sponsorship, /lastResult\?\.status[\s\S]*=== 'waiting'/)
   assert.match(sponsorship, /chatAgentTaskKeepFlowing\(runtime\?\.lastTask\)/)
   assert.match(sponsorship, /chatAgentTaskKeepFlowingSponsored\(runtime\)/)
-  assert.match(source, /chatAgentKeepFlowingActive\(worker\) \? 'claimed' : 'idle'/)
+  assert.match(source, /chatAgentKeepFlowingActive\(worker\) \|\| pinnedTaskId \? 'claimed' : 'idle'/)
   assert.match(source, /keep_flowing: task\.keep_flowing === true/)
 })
 
@@ -3191,4 +3191,10 @@ test('before judging a page silent, supervision looks for the exact response ZIP
   const search = body.indexOf('chatGPTExpectedDownloadScript(expected.filename, 0, false, true)')
   assert.ok(search > 0 && search < body.indexOf('AWAIT_STALL_ATTENTION_MS'))
   assert.match(body, /\[chatgpt-supervision\] stall key=/)
+})
+
+test('a Worker pinned to a task is published as occupied by it between rounds', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const pinnedTaskId = orchestrationTaskPins\.taskId\(entry\.slotId\)/)
+  assert.match(source, /occupied: Boolean\(runtime\.task \|\| chatAgentKeepFlowingActive\(worker\) \|\| pinnedTaskId\),\n\s+pinned_task_id: pinnedTaskId,/)
 })

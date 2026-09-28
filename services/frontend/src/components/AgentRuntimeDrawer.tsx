@@ -55,7 +55,7 @@ const workerTaskTypeGroups: readonly WorkerTaskTypeGroup[] = [
 // phases it covers rather than the durable task status.
 const stateLegend: { key: OperationalState; label: string; hint: string }[] = [
   { key: 'idle', label: 'Ocioso', hint: 'Sem tarefa' },
-  { key: 'waiting', label: 'Na fila / a aguardar', hint: 'Na fila de envio do ritmo global, ou tarefa em espera' },
+  { key: 'waiting', label: 'Na fila / a aguardar', hint: 'Na fila de envio do ritmo global, tarefa em espera, ou Worker preso à sua tarefa entre rondas' },
   { key: 'loading', label: 'A abrir conversa', hint: 'A navegar ou a carregar a página do ChatGPT' },
   { key: 'working', label: 'A preparar / validar', hint: 'A iniciar, a preparar o pedido, a descarregar ou a validar a resposta' },
   { key: 'writing', label: 'A enviar ao GPT', hint: 'A carregar o ZIP, a submeter ou a escrever no chat' },
@@ -94,6 +94,7 @@ function agentOperationalState(agent: DesktopAgentRuntimeAgent): { key: Operatio
   if (agent.role === 'worker' && agent.suspended && !task) return { key: 'paused', label: 'Suspenso' }
   if (task?.type === 'AWAIT_RESPONSE' || agent.binding_hold === 'expected-bundle' || agent.binding_hold === 'bundle-delivery') return { key: 'listening', label: 'A escutar' }
   if (task && writingTaskTypes.has(task.type)) return { key: 'writing', label: 'A escrever' }
+  if (agent.pinned_task_id && !agent.task) return { key: 'waiting', label: 'Preso à tarefa' }
   if (task?.status === 'WAITING' || (agent.occupied && !agent.task)) return { key: 'waiting', label: 'A aguardar' }
   if (task || agent.occupied || agent.status === 'running' || agent.status === 'claimed') return { key: 'working', label: 'Em tarefa' }
   if (agent.chat_id) return { key: 'chat-empty', label: 'Chat sem jobs' }

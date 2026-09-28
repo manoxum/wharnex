@@ -46,6 +46,10 @@ rounds and navigates only when a round needs the page. From a blank page (a
 new Worker, or one parked after a failed load) it goes straight to the task's
 conversation, never to the home page first; only a task without a
 conversation yet starts from the home page.
+The runtime drawer shows a pinned Worker as held by its task ("Preso à
+tarefa") between rounds, including after its bundle is delivered and while
+the Agent runs the task locally, exactly as a Supervisor shows its chat
+between observations. It becomes free only when the pin is released.
 
 The configured Worker count and auto scale apply to Orchestrator execution,
 plus the account-lifecycle and classification work that is still on this pool.

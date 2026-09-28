@@ -97,6 +97,20 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.setWorkerCount).toHaveBeenCalledWith(5))
   })
 
+  it('keeps a Worker pinned to an Orchestrator task on that task between rounds', async () => {
+    const state = runtime()
+    state.agents = [
+      { ...state.agents[1], id: 'worker-1', label: 'Worker 1', role: 'worker', status: 'claimed', occupied: true, pinned_task_id: 'otk_20260928T004456_8f3615e75b5eb52c', chat_id: 'otk_20260928T004456_8f3615e75b5eb52c', task: undefined },
+    ]
+    window.wharnessDesktop = { agents: agentsBridge(state) } as unknown as WharnessDesktopBridge
+
+    const { container } = render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
+
+    expect(await screen.findByText('Worker · Preso à tarefa')).toBeTruthy()
+    expect(container.querySelector('.agent-runtime-list > button.state-waiting')).toBeTruthy()
+    expect(screen.queryByText('Worker · Ocioso')).toBeNull()
+  })
+
   it('makes idle, writing, listening, waiting and chat-without-jobs states distinct at a glance', async () => {
     const state = runtime()
     state.agents = [

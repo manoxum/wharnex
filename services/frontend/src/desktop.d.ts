@@ -48,6 +48,9 @@ type DesktopAgentRuntimeAgent = {
   // observations, so rendering the lease alone made a busy slot alternate
   // between occupied and free for the whole length of a request.
   occupied?: boolean
+  // The Orchestrator task a Worker is pinned to until that task ends; it holds
+  // the task between rounds, as a Supervisor holds its chat.
+  pinned_task_id?: string
   suspended?: boolean
   // Canonical host path of the project this slot is working for, carried at
   // agent level for the same reason: a Supervisor between observations has no
