@@ -83,6 +83,21 @@ it('invokes the exact advertised transition and keeps the menu open when it fail
   expect(screen.getByRole('menu')).not.toBeNull()
 })
 
+
+it('opens a fresh chat action only for reusable completed task references and never transitions the original task', async () => {
+  const openChat = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
+  const transition = vi.fn()
+  const { rerender } = render(<OrchestratorTaskActions task={task('COMPLETE', ['ARCHIVED'])} onOpen={vi.fn()} onOpenChat={openChat} onTransition={transition}/>)
+  fireEvent.click(screen.getByRole('button', { name: 'Ações de COMPLETE task' }))
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Abrir chat' }))
+  await waitFor(() => expect(openChat).toHaveBeenCalledTimes(1))
+  expect(transition).not.toHaveBeenCalled()
+
+  rerender(<OrchestratorTaskActions task={{ ...task('ARCHIVED'), was_completed: false }} onOpen={vi.fn()} onOpenChat={openChat} onTransition={transition}/>)
+  fireEvent.click(screen.getByRole('button', { name: 'Ações de ARCHIVED task' }))
+  expect(screen.queryByRole('menuitem', { name: 'Abrir chat' })).toBeNull()
+})
+
 it('reconciles an archive across terminal pages and totals without duplicating unrelated tasks', async () => {
   const session = {
     id: 'ses-actions', project_path: '/workspace/demo', state: 'ready', execution_mode: 'protected', automation_mode: 'auto', chat_transport_mode: 'scraper', effort_level: 'high', created_at: '2026-09-28T00:00:00Z',

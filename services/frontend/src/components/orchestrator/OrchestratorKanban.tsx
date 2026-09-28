@@ -7,7 +7,7 @@ import { Icon } from '../Icon'
 import { Status } from './OrchestratorStatus'
 import { OrchestratorTaskActions } from './OrchestratorTaskActions'
 
-export function OrchestratorKanban({ tasks, taskCounts, terminalPages, searching, session, busy, dragTask, loadingStatus, onEffort, onDrag, onDrop, onLoadMore, onSelect }: {
+export function OrchestratorKanban({ tasks, taskCounts, terminalPages, searching, session, busy, dragTask, loadingStatus, onEffort, onDrag, onDrop, onLoadMore, onSelect, onOpenChat }: {
   tasks: OrchestratorTask[]
   taskCounts: OrchestratorTaskCounts
   terminalPages: OrchestratorTerminalTaskPages
@@ -21,6 +21,7 @@ export function OrchestratorKanban({ tasks, taskCounts, terminalPages, searching
   onDrop: (status: OrchestratorTaskStatus) => void
   onLoadMore: (status: OrchestratorTerminalTaskStatus) => void
   onSelect: (task: OrchestratorTask) => void
+  onOpenChat?: (task: OrchestratorTask) => Promise<unknown> | unknown
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const [canScrollBack, setCanScrollBack] = useState(false)
@@ -132,7 +133,7 @@ export function OrchestratorKanban({ tasks, taskCounts, terminalPages, searching
             <header className="flex items-center justify-between border-b border-[var(--theme-border-soft)] px-2 py-1.5"><Status status={status}/><span className="font-mono text-sm leading-none text-[var(--theme-text-soft)]">{total}</span></header>
             <div className="flex min-h-0 flex-col gap-1.5 p-1.5">
               {grouped.map((task) => <article key={task.id} role="button" tabIndex={0} draggable={task.status !== 'DOING'} className={`grid gap-1.5 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-surface)] p-2.5 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)] ${dragTask === task.id ? 'opacity-40' : ''}`} onDragStart={() => onDrag(task.id)} onDragEnd={() => onDrag(undefined)} onClick={() => onSelect(task)} onKeyDown={(event) => activateCard(event, task)}>
-                <div className="flex items-start gap-1.5"><div className="flex min-w-0 items-center gap-1.5"><span className={`priority priority-${task.priority} font-mono text-sm leading-[1.4]`}>{task.priority}</span>{task.parallelizable && <span className="parallel font-mono text-sm leading-[1.4] text-[var(--theme-text-soft)]">parallel</span>}</div><OrchestratorTaskActions task={task} disabled={busy} onOpen={() => onSelect(task)} onTransition={(target) => transitionTask(task, target)}/></div>
+                <div className="flex items-start gap-1.5"><div className="flex min-w-0 items-center gap-1.5"><span className={`priority priority-${task.priority} font-mono text-sm leading-[1.4]`}>{task.priority}</span>{task.parallelizable && <span className="parallel font-mono text-sm leading-[1.4] text-[var(--theme-text-soft)]">parallel</span>}</div><OrchestratorTaskActions task={task} disabled={busy} onOpen={() => onSelect(task)} onOpenChat={onOpenChat ? () => onOpenChat(task) : undefined} onTransition={(target) => transitionTask(task, target)}/></div>
                 <strong className="text-base leading-[1.35]">{task.title}</strong>
                 <p className="m-0 line-clamp-3 text-sm leading-[1.45] text-[var(--theme-text-muted)]">{task.description || 'Sem descrição adicional.'}</p>
                 <label className="mt-1 flex items-center justify-between gap-2 text-sm text-[var(--theme-muted)]" title="Nível de esforço · tentativas automáticas antes de a task falhar" onClick={(event) => event.stopPropagation()}>Esforço<select aria-label={`Esforço de ${task.title}`} className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-surface)] px-2 py-1 text-base text-[var(--theme-text)]" value={taskEffortLevel(task, session)} disabled={busy} onChange={(event) => onEffort(task, event.target.value as EffortLevel)}>{TASK_EFFORT_LEVELS.map((level) => <option key={level.value} value={level.value}>{level.label}</option>)}</select></label>

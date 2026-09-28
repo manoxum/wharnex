@@ -150,5 +150,6 @@ export function directiveChipBadge(kind: DirectiveKind): string {
   if (kind === 'see') return 'SEE'
   if (kind === 'chat') return 'CHAT'
   if (kind === 'lib') return 'LIB'
+  if (kind === 'task') return 'TASK'
   return 'TODO'
 }

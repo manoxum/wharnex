@@ -49,6 +49,19 @@ describe('composer directives', () => {
     expect(canonicalizeDirectives(once)).toBe(once)
   })
 
+
+  it('canonicalizes @task IDs and offers completed task candidates', () => {
+    expect(canonicalizeDirectives('reuse @task:otk_123')).toBe('reuse @{[task]otk_123}')
+    expect(parseDirectives('@task:../other')).toHaveLength(0)
+    const query = directiveQuery('@task:login', '@task:login'.length)!
+    const rows = directiveSuggestions(query, [], projects, [], [], [], [], [], [
+      { value: 'otk_1', label: 'Corrigir login', detail: 'otk_1 · Concluída' },
+      { value: 'otk_2', label: 'Corrigir login', detail: 'otk_2 · Arquivada após conclusão' },
+    ])
+    expect(rows.map((row) => row.detail)).toEqual(['otk_1 · Concluída', 'otk_2 · Arquivada após conclusão'])
+    expect(applyDirectiveSuggestion('@task:login', query, rows[0]).text).toBe('@{[task]otk_1}')
+  })
+
   it('offers projects for @ref and that project’s files after the slash', () => {
     const projectQuery = directiveQuery('change @ref:flow', 16)
     expect(projectQuery).toMatchObject({ kind: 'ref', query: 'flow' })
@@ -337,7 +350,7 @@ describe('bare @ kind picker', () => {
   })
 
   it('filters by keyword or any alias', () => {
-    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach', 'see', 'chat', 'lib', 'todo'])
+    expect(directiveKindSuggestions('').map((s) => s.kind)).toEqual(['file', 'ref', 'attach', 'see', 'chat', 'lib', 'todo', 'task'])
     expect(directiveKindSuggestions('proj').map((s) => s.kind)).toEqual(['ref'])
     expect(directiveKindSuggestions('dir').map((s) => s.kind)).toEqual(['attach'])
   })

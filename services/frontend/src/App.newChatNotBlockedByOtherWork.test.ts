@@ -13,10 +13,12 @@ describe('App new-chat creation', () => {
     // shared flag made "Novo chat" silently do nothing while unrelated work
     // elsewhere was merely processing. Only a dedicated ref may debounce a
     // genuine double-click of this same action.
-    const start = source.indexOf('async function newChat()')
+    const start = source.indexOf("async function newChat(initialMessage = '')")
     const end = source.indexOf('\n  async function exportActiveChat')
     const body = source.slice(start, end)
     expect(body).not.toMatch(/if \(!session \|\| busy\)/)
     expect(body).toContain('creatingChatRef.current')
+    expect(body).toContain('api.createSession(')
+    expect(body).toContain("saveComposerDraft(created.project_path, chat.id, { message: initialMessage.trim(), height: 156 })")
   })
 })
