@@ -6,7 +6,7 @@ export const WORKER_DOWNLOAD_RETRY_MS = 20_000
 export async function pollWorkerExpectedDownload(expected, execute, script, now = Date.now()) {
   if (expected.downloadStarted) return ''
   if (expected.lastClickAt && now - expected.lastClickAt < WORKER_DOWNLOAD_RETRY_MS) return ''
-  const mode = await execute(script(expected.filename, expected.assistantBaseline))
+  const mode = await execute(script(expected.filename, expected.assistantBaseline, expected.freshOnly === true))
   if (mode) expected.lastClickAt = now
   return mode || ''
 }

@@ -59,3 +59,55 @@ test('Orchestrator Worker submits one request ZIP and delivers the exact respons
     globalThis.fetch = previousFetch
   }
 })
+
+test('schema rejection asks for a corrected ZIP in the same conversation', async () => {
+  const previousFetch = globalThis.fetch
+  const filename = 'whx_bundle_res_otk-abc_req_20260927T170000_0123456789abcdef.zip'
+  const request = { task: { status: 'DOING' }, agent_session_id: 'ses-agent',
+    request_id: 'req_20260927T170000_0123456789abcdef', expected_filename: filename,
+    prompt: 'Original task', chat_id: 'otk-abc', reasoning_effort: 'instant' }
+  globalThis.fetch = async () => ({ ok: true, json: async () => request })
+  const entry = { view: { webContents: { getURL: () => 'https://chatgpt.com/c/owned' } } }
+  const expectedDownloads = new Map()
+  const submitted = []
+  const filled = []
+  const checkpoints = []
+  let bundles = 0
+  const runtime = {
+    baseURL: 'http://127.0.0.1:6969', homeURL: 'https://chatgpt.com/', expectedDownloads,
+    pace: async () => {}, rateLimitDelay: () => 0,
+    conversationURL: (value) => value || '', sameConversation: () => true,
+    targetComposer: async () => ({ entry, wc: entry.view.webContents, conversationUrl: 'https://chatgpt.com/c/owned' }),
+    normalizeEffort: (value) => value,
+    buildRequest: async () => ({ uploadPaths: [], bytes: 0, bootstrap: 'Original bundle', cleanup: async () => {} }),
+    fill: async (_key, _entry, value) => { filled.push(value); return true },
+    paste: async () => {}, wait: async () => {}, settleDelay: () => 0,
+    assistantCount: async () => submitted.length,
+    submit: async () => submitted.push('https://chatgpt.com/c/owned'),
+    waitConversation: async () => 'https://chatgpt.com/c/owned',
+    checkpoint: async (_id, _owner, value) => checkpoints.push(value),
+    health: async () => ({ required: false }), noteRateLimit: () => false,
+    completion: async () => ({ thinking: true }), humanActionMessage: () => '',
+    expectedDownloadScript: (name) => name,
+    executeDOM: async () => expectedDownloads.get(filename).resolve(Buffer.from(`bundle-${bundles}`)),
+    postBundle: async () => {
+      bundles += 1
+      if (bundles === 1) throw new Error('orchestrator Worker worker-bundle HTTP 409: decode plan.json: json: unknown field "rationale"')
+      return { task: { status: 'REVIEW' } }
+    },
+  }
+  try {
+    const task = { task_id: 'cat_0123456789abcdef0123', chat_id: 'otk_abc', session_id: 'ses-owner' }
+    const payload = { protocol: 'harness.orchestrator-execution/v1', task_id: 'otk_abc' }
+    const result = await executeOrchestratorExecution(task, entry, 'otk_abc', payload, 'worker-1', runtime)
+    assert.equal(result.status, 'done')
+    assert.equal(bundles, 2)
+    assert.equal(submitted.length, 2)
+    assert.ok(filled.at(-1).includes('"rationale"'))
+    assert.equal(checkpoints[1].bundle_repair_count, 1)
+    assert.equal(checkpoints[1].assistant_baseline, 1)
+    assert.equal(expectedDownloads.size, 0)
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})

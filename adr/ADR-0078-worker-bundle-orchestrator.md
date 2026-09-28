@@ -19,6 +19,14 @@ the Worker keeps that conversation resident through its durable `WAITING`
 interval. The next observation resumes the already loaded page; an idle-lane
 release must not force a cross-chat navigation while the bundle is being made.
 
+When the strict validator refuses an Orchestrator execution `plan.json`
+only because of one unknown field, the Worker MAY ask for a corrected ZIP in
+the same conversation, at most three times per task. The correction prompt
+carries only that bounded field name and the exact expected filename, never
+bytes or prose from the rejected bundle. A corrected download must come from
+a newer assistant turn. The validator stays strict; a field the plan schema
+allows MUST also be accepted by the decoder, or no correction can succeed.
+
 `TRANSLATE_MARKDOWN` remains on its one-task Translator Worker, and
 `RELEASE_NOTES` remains on a persistent Worker; both already exchange request
 and response ZIPs. This change does not grant any of these tasks command,

@@ -32,6 +32,7 @@ type operationWire struct {
 	Type       string                            `json:"type"`
 	Patch      string                            `json:"patch,omitempty"`
 	PatchFile  string                            `json:"patch_file,omitempty"`
+	Rationale  string                            `json:"rationale,omitempty"`
 	Command    domain.CommandSpec                `json:"command"`
 	Shell      *domain.InteractiveShellSpec      `json:"shell,omitempty"`
 	SQL        *domain.InteractiveSQLSpec        `json:"sql,omitempty"`
@@ -214,7 +215,7 @@ func Parse(filename string, raw []byte) (Parsed, error) {
 			operations := make([]domain.Operation, 0, len(wired))
 			for index, op := range wired {
 				resolved := domain.Operation{
-					Type: op.Type, Patch: op.Patch, Command: op.Command, Shell: op.Shell, SQL: op.SQL, Logs: op.Logs,
+					Type: op.Type, Patch: op.Patch, Rationale: op.Rationale, Command: op.Command, Shell: op.Shell, SQL: op.SQL, Logs: op.Logs,
 					Filesystem: op.Filesystem, Process: op.Process, Network: op.Network, Container: op.Container, Service: op.Service,
 				}
 				if op.Type == "apply_patch" && op.PatchFile != "" {

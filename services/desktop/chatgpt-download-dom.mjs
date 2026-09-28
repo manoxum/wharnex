@@ -28,13 +28,15 @@ export function chooseChatGPTDownloadCandidate(candidates, expectedFilename) {
   return { index: -1, mode: '' }
 }
 
-export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
+export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0, freshOnly = false) {
   const expected = encode(filename)
   const baseline = Math.max(0, Number(assistantBaseline) || 0)
+  const requireFreshAssistant = freshOnly === true
   const choose = chooseChatGPTDownloadCandidate.toString()
   return `(() => {
     const expected = ${expected};
     const baseline = ${baseline};
+    const requireFreshAssistant = ${requireFreshAssistant};
     const choose = ${choose};
     const assistantTurns = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
     const latestAssistant = assistantTurns.length > baseline ? assistantTurns[assistantTurns.length - 1] : null;
@@ -55,7 +57,7 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0) {
       return {
         index,
         metadata,
-        visible: visible(node),
+        visible: visible(node) && (!requireFreshAssistant || Boolean(latestAssistant?.contains(node) || latestTurn?.contains(node))),
         disabled: Boolean(node.disabled || node.getAttribute?.('aria-disabled') === 'true'),
         latestAssistant: Boolean(latestAssistant && latestAssistant.contains(node)),
         latestTurn: Boolean(latestTurn && latestTurn.contains(node)),

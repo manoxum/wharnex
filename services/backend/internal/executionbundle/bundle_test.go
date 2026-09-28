@@ -379,3 +379,21 @@ func TestParseInteractiveV2TypedOperation(t *testing.T) {
 		t.Fatalf("unexpected shell script %q", got)
 	}
 }
+
+// The plan schema and AI_PROTOCOL give each typed operation its own rationale.
+// A strict decoder without that field rejected contract-valid bundles, so no
+// repair prompt could ever satisfy it.
+func TestParseInteractiveV2OperationRationale(t *testing.T) {
+	files := map[string]string{
+		"turn.json": `{"protocol":"harness.turn/v1","request_id":"req_interactive_12345678","kind":"workflow","chat_title":"Diagnóstico interativo","message":"inspect","outcome":{"status":"completed","reason_code":"","message":"","retryable":false}}`,
+		"plan.json": `{"protocol":"harness.execution/v2","plan_id":"iv2","request_id":"req_interactive_12345678","status":"ready","summary":"Inspeciona o runtime com shell tipado e escopo explícito.","risk":"medium","requires_approval":true,"debug":{"protocol":"harness.interactive/v2","target":"host","access":"observe","capabilities":["shell"],"rationale":"inspect runtime"},"operations":[{"type":"shell","rationale":"confirm the shell responds","command":{"argv":[],"cwd":".","timeout_seconds":60,"network":false,"expected_exit_codes":[0]},"shell":{"script":"printf ok","shell":"bash","cwd":".","timeout_seconds":10,"network":false,"env_allowlist":["PATH"]}}],"verification":[]}`,
+		"README.md": "interactive v2",
+	}
+	parsed, err := Parse("bundle.zip", zipBytes(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Plan.Operations[0].Rationale; got != "confirm the shell responds" {
+		t.Fatalf("operation rationale=%q", got)
+	}
+}

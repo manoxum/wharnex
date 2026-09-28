@@ -1,5 +1,6 @@
 import { pollWorkerExpectedDownload } from './chat-agent-download-poll.mjs'
 import { postLongRunningWorkerJSON } from './chat-agent-long-request.mjs'
+import { orchestratorBundleRepairPrompt } from './chat-agent-orchestrator-bundle-repair.mjs'
 
 const RESPONSE_TIMEOUT_MS = 8 * 60 * 1000
 const POLL_MS = 2_000
@@ -66,6 +67,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
 
   let conversationURL = runtime.conversationURL(payload.conversation_url || '')
   let baseline = Number(payload.assistant_baseline || 0)
+  let repairCount = Math.max(0, Number(payload.bundle_repair_count) || 0)
   let target = { entry, wc: entry.view.webContents, conversationUrl: conversationURL }
   const resume = payload.active_request_id === current.request_id && payload.expected_filename === current.expected_filename && conversationURL
   if (resume) {
@@ -79,7 +81,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
 
   let resolveDownload
   let rejectDownload
-  const download = new Promise((resolve, reject) => { resolveDownload = resolve; rejectDownload = reject })
+  let download = new Promise((resolve, reject) => { resolveDownload = resolve; rejectDownload = reject })
   download.catch(() => undefined)
   const expected = {
     taskId: task.task_id, filename: current.expected_filename, assistantBaseline: baseline,
@@ -88,7 +90,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
   runtime.expectedDownloads.set(current.expected_filename, expected)
   let thinkingAt = 0
   try {
-    const deadline = Date.now() + RESPONSE_TIMEOUT_MS
+    let deadline = Date.now() + RESPONSE_TIMEOUT_MS
     while (Date.now() < deadline) {
       const outcome = await Promise.race([
         download.then((value) => ({ done: true, value }), (error) => ({ done: true, error })),
@@ -96,9 +98,35 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
       ])
       if (outcome.done) {
         if (outcome.error) throw outcome.error
-        const result = await workerRequest(runtime.baseURL, sessionID, taskID, 'worker-bundle', {
-          ...credentials, filename: current.expected_filename, content_base64: Buffer.from(outcome.value).toString('base64'),
-        }, runtime.postBundle)
+        let result
+        try {
+          result = await workerRequest(runtime.baseURL, sessionID, taskID, 'worker-bundle', {
+            ...credentials, filename: current.expected_filename, content_base64: Buffer.from(outcome.value).toString('base64'),
+          }, runtime.postBundle)
+        } catch (error) {
+          const correction = orchestratorBundleRepairPrompt(error, current.expected_filename)
+          if (!correction) throw error
+          if (repairCount >= 3) return { status: 'failed', error: `Orchestrator response bundle rejected after ${repairCount} schema repairs: ${String(error.message).slice(0, 300)}` }
+          await runtime.pace()
+          const delay = runtime.rateLimitDelay()
+          if (delay > 0) return { status: 'waiting', delayMs: delay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
+          baseline = await runtime.assistantCount(target.wc)
+          if (!(await runtime.fill(key, target.entry, correction))) throw new Error('Orchestrator bundle repair composer could not be populated')
+          await runtime.submit(key, target)
+          repairCount += 1
+          await runtime.checkpoint(task.task_id, owner, { assistant_baseline: baseline, bundle_repair_count: repairCount })
+          download = new Promise((resolve, reject) => { resolveDownload = resolve; rejectDownload = reject })
+          download.catch(() => undefined)
+          expected.resolve = resolveDownload
+          expected.reject = rejectDownload
+          expected.assistantBaseline = baseline
+          expected.freshOnly = true
+          expected.downloadStarted = false
+          expected.lastClickAt = 0
+          thinkingAt = 0
+          deadline = Date.now() + RESPONSE_TIMEOUT_MS
+          continue
+        }
         if (result.task?.status === 'REVIEW' || result.task?.status === 'COMPLETE' || result.task?.status === 'FAILED') return { status: 'done' }
         return { status: 'waiting', delayMs: 3_000, error: 'Agent continuation is ready' }
       }
