@@ -54,6 +54,7 @@ import { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'
 import { ChatAgentSchedulerClient, chatAgentBackoff } from './chat-agent-scheduler.mjs'
 import { CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer } from './chat-agent-pacer.mjs'
 import { WorkerActivity } from './chat-agent-worker-activity.mjs'
+import { chatGPTConversationLoadFailureScript } from './chatgpt-conversation-load.mjs'
 import { ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane } from './chat-agent-residency.mjs'
 import { chatAgentLiveBundlePending } from './chat-agent-live-bundle-residency.mjs'
 import { CHATGPT_BEHAVIOR } from './chat-agent-behavior.mjs'
@@ -4533,12 +4534,38 @@ async function targetChatGPTComposer(cacheKey, expectedURL = '', preferCurrentCo
 
 async function waitForChatGPTSurfaceReady(cacheKey, entry) {
   const { wc } = requireOwnedChatGPTEntry(cacheKey, entry)
-  await waitForChatGPTReady({
+  const settle = () => waitForChatGPTReady({
     isLoading: () => entry.loading || wc.isLoading(),
     lastNetworkActivity: () => entry.lastNetworkActivity,
     wait,
   })
+  await settle()
   if (!isTrustedChatGPTOrigin(wc.getURL())) throw new Error('Active cached view is not a trusted ChatGPT page')
+  await recoverChatGPTConversationLoadFailure(cacheKey, entry, wc, settle)
+}
+
+// ChatGPT's "could not load this conversation" surface stalls every action on
+// the page until retry is pressed. A failure must hold across two probes before
+// anything is done, then the page's own retry control is pressed (or the page
+// reloaded when that control is not unambiguous). Retrying reaches ChatGPT, so
+// a Worker takes its paced slot first. Bounded: a conversation that still will
+// not load fails the action and the task comes back later.
+const CHATGPT_CONVERSATION_LOAD_RETRIES = 3
+async function recoverChatGPTConversationLoadFailure(cacheKey, entry, wc, settle) {
+  const probe = (click) => wc.executeJavaScript(chatGPTConversationLoadFailureScript(click), true).catch(() => null)
+  for (let attempt = 1; attempt <= CHATGPT_CONVERSATION_LOAD_RETRIES; attempt += 1) {
+    if (!(await probe(false))?.failed) return
+    await wait(2_000)
+    const confirmed = await probe(false)
+    if (!confirmed?.failed) return
+    if (entry.role === 'worker') await paceChatGPTWorkerNavigation()
+    const retried = confirmed.retryable ? await probe(true) : null
+    console.warn(`[chatgpt-load] conversation-load-failed key=${cacheKey} attempt=${attempt} action=${retried?.clicked ? 'retry' : 'reload'}`)
+    if (!retried?.clicked && !wc.isDestroyed()) wc.reload()
+    await wait(1_000)
+    await settle()
+  }
+  if ((await probe(false))?.failed) throw new Error(`ChatGPT could not load this conversation after ${CHATGPT_CONVERSATION_LOAD_RETRIES} retries`)
 }
 
 function chatAgentRateLimitDelayMs() {

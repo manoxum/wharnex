@@ -192,6 +192,7 @@ compositor → upload → submit → `PATCH …/workspace-chats/<chat>/remote` �
 
 ### Padrões de bloqueio conhecidos
 
+- **"Não foi possível carregar esta conversa".** A página termina de carregar numa conversa (`/c/<id>`) sem composer, sem turnos de mensagem e com um único botão na área principal ("Voltar a tentar"). `waitForChatGPTSurfaceReady` deteta esta forma estruturalmente, sem ler texto; confirma-a em duas sondas com 2 s de intervalo, passa pelo ritmo global quando é um Worker e prime esse botão (ou recarrega se o botão não for único). São no máximo 3 tentativas; depois a ação falha e a tarefa volta mais tarde. No log aparece `[chatgpt-load] conversation-load-failed key=… attempt=… action=retry|reload`.
 - **Só heartbeats depois dos insumos.** A tarefa arranca, descarrega tudo no
   mesmo segundo e depois só aparecem `…/heartbeat` durante minutos. É a fase
   local (ZIP/persistência) presa. Antes de 2026-09-25 só o timeout implícito de
