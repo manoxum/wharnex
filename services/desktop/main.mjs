@@ -1902,7 +1902,21 @@ const ORCHESTRATOR_BUNDLE_REPAIR_LIMIT = 3
 const orchestratorBundleRepairs = new Map()
 
 async function postOrchestratorTask(taskId, suffix, body, timeoutMs = 30_000) {
-  const response = await fetch(new URL(`/api/orchestrator/tasks/${encodeURIComponent(taskId)}/${suffix}`, BACKEND_URL), {
+  const path = `/api/orchestrator/tasks/${encodeURIComponent(taskId)}/${suffix}`
+  if (suffix === 'bundle') {
+    // Ingestion runs the Protected sandbox, verification and Apply before it
+    // answers. Node fetch drops a response whose headers take over five
+    // minutes, and the dropped connection cancelled the ingestion mid-way.
+    try {
+      await postLongRunningWorkerJSON(BACKEND_URL, path, body)
+      return { ok: true, status: 200, detail: '' }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const answered = message.match(/HTTP (\d{3})(?:: ([\s\S]*))?$/)
+      return answered ? { ok: false, status: Number(answered[1]), detail: String(answered[2] || '') } : { ok: false, status: 0, detail: message }
+    }
+  }
+  const response = await fetch(new URL(path, BACKEND_URL), {
     method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs),
   })
   let detail = ''
@@ -1924,8 +1938,7 @@ async function deliverOrchestratorTaskBundle(taskId, payload, attempt = 0) {
   const filename = path.basename(String(payload?.filename || ''))
   let result
   try {
-    // Ingestion runs the Protected sandbox, verification and Apply before it answers.
-    result = await postOrchestratorTask(taskId, 'bundle', { filename, content_base64: payload.contentBase64 }, 60 * 60_000)
+    result = await postOrchestratorTask(taskId, 'bundle', { filename, content_base64: payload.contentBase64 })
   } catch (error) {
     result = { ok: false, status: 0, detail: error instanceof Error ? error.message : String(error) }
   }

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -89,7 +90,10 @@ func (a *API) orchestratorTaskBundle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "orchestrator_task_bundle_invalid", "content_base64 is invalid")
 		return
 	}
-	result, err := a.service.SubmitOrchestratorTaskBundle(r.Context(), r.PathValue("task_id"), body.Filename, raw)
+	// Ingestion runs the Protected sandbox, verification and Apply. It must
+	// finish even if the Desktop connection drops: cancelling it mid-way left
+	// the task's execution cancelled and its bundle already consumed.
+	result, err := a.service.SubmitOrchestratorTaskBundle(context.WithoutCancel(r.Context()), r.PathValue("task_id"), body.Filename, raw)
 	if err != nil {
 		writeError(w, http.StatusConflict, "orchestrator_task_bundle_failed", err.Error())
 		return
