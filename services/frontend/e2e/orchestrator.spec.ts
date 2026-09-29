@@ -99,3 +99,84 @@ test('keeps the Orchestrator terminal flow accessible in a narrow viewport', asy
   expect(createdSessionInput.project_path).toBe(session.project_path)
   expect(String(createdSessionInput.chat_id || '')).not.toBe('')
 })
+
+
+test('keeps the orchestration phase aligned with approval, execution, review, and completion', async ({ page }) => {
+  const requestId = 'orp-phase-cycle'
+  const planId = 'opl-phase-cycle'
+  const objective = 'Fluxo integrado da orquestração'
+  let phase: 'AWAITING_APPROVAL' | 'EXECUTING' | 'REVIEW' | 'COMPLETED' = 'AWAITING_APPROVAL'
+  let planStatus: 'DRAFT' | 'ACTIVE' | 'COMPLETED' = 'DRAFT'
+  let statuses = ['PENDING', 'PENDING', 'PENDING']
+
+  const overview = () => {
+    const counts = { PENDING: 0, WAITING: 0, READY: 0, DOING: 0, REVIEW: 0, COMPLETE: 0, FAILED: 0, ARCHIVED: 0 }
+    statuses.forEach((status) => { counts[status as keyof typeof counts] += 1 })
+    return {
+      plans: [{ id: planId, project_path: session.project_path, title: 'Plano de fases', objective, status: planStatus, planner_request_id: requestId, created_at: '2026-09-29T18:00:00Z', updated_at: '2026-09-29T18:00:00Z' }],
+      tasks: statuses.map((status, index) => task(`phase-task-${index + 1}`, status, [], `Phase task ${index + 1}`)).map((item) => ({ ...item, plan_id: planId })),
+      task_counts: counts,
+      planning_requests: [{ request_id: requestId, task_id: 'planner-worker-task', objective, status: 'DONE', phase, attempt: 1, max_attempts: 15, created_at: '2026-09-29T18:00:00Z', updated_at: '2026-09-29T18:00:00Z' }],
+      mutation_slots: 1,
+      mutation_slots_used: 0,
+    }
+  }
+  const detail = () => ({
+    request_id: requestId,
+    task_id: 'planner-worker-task',
+    status: 'DONE',
+    attempt: 1,
+    max_attempts: 15,
+    objective,
+    include_context: true,
+    project_files: [],
+    attachments: [],
+    attempts: [],
+    plan: overview().plans[0],
+    tasks: overview().tasks.map((item) => ({ task: item, runs: [] })),
+  })
+
+  await page.addInitScript((value) => localStorage.setItem('kernl.workspace.active.v1', JSON.stringify(value)), { sessionId: session.id, projectPath: session.project_path, mode: 'orchestrator' })
+  await page.route('**/api/config', (route) => route.fulfill({ json: config }))
+  await page.route(`**/api/sessions/${session.id}`, (route) => route.fulfill({ json: session }))
+  await page.route(`**/api/sessions/${session.id}/events`, (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }))
+  await page.route('**/api/chat-agent/tasks?*', (route) => route.fulfill({ json: { tasks: [] } }))
+  await page.route(`**/api/sessions/${session.id}/orchestrator/overview`, (route) => route.fulfill({ json: overview() }))
+  await page.route(`**/api/sessions/${session.id}/orchestrator/planning/${requestId}`, (route) => route.fulfill({ json: detail() }))
+  await page.route(`**/api/sessions/${session.id}/orchestrator/plans/${planId}/approve`, async (route) => {
+    planStatus = 'ACTIVE'
+    phase = 'EXECUTING'
+    statuses = ['COMPLETE', 'REVIEW', 'READY']
+    await route.fulfill({ json: overview() })
+  })
+
+  await page.goto('/')
+  const planningCard = page.locator('article').filter({ hasText: objective })
+  await expect(planningCard).toBeVisible()
+  await expect(planningCard.getByText('Em análise', { exact: true })).toBeVisible()
+  await expect(planningCard.getByText('Concluído', { exact: true })).toHaveCount(0)
+
+  await page.getByRole('button', { name: `Abrir detalhe de ${objective}` }).click()
+  await expect(page.getByRole('button', { name: /Aprovar plano/ })).toBeVisible()
+  await page.getByRole('button', { name: /Aprovar plano/ }).click()
+  await expect(planningCard.getByText('Em execução', { exact: true })).toBeVisible()
+
+  for (const blockingStatus of ['READY', 'DOING', 'FAILED']) {
+    statuses = ['COMPLETE', 'REVIEW', blockingStatus]
+    phase = 'EXECUTING'
+    await page.getByRole('button', { name: 'Atualizar Orchestrator' }).click()
+    await expect(planningCard.getByText('Em execução', { exact: true })).toBeVisible()
+    await expect(planningCard.getByText('Review', { exact: true })).toHaveCount(0)
+  }
+
+  statuses = ['COMPLETE', 'REVIEW', 'REVIEW']
+  phase = 'REVIEW'
+  await page.getByRole('button', { name: 'Atualizar Orchestrator' }).click()
+  await expect(planningCard.getByText('Review', { exact: true })).toBeVisible()
+
+  statuses = ['COMPLETE', 'COMPLETE', 'COMPLETE']
+  phase = 'COMPLETED'
+  planStatus = 'COMPLETED'
+  await page.getByRole('button', { name: 'Atualizar Orchestrator' }).click()
+  await expect(planningCard.getByText('Concluído', { exact: true })).toBeVisible()
+})
