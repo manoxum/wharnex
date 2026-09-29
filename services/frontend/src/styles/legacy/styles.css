@@ -2666,7 +2666,11 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-task-tabs button { min-height:38px; padding:0 11px; display:inline-flex; align-items:center; gap:6px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:var(--theme-text-muted); font-weight:600; cursor:pointer; white-space:nowrap; }
 .orchestrator-task-tabs button:hover { color:var(--theme-text); }
 .orchestrator-task-tabs button.active { border-bottom-color:var(--theme-accent); color:var(--theme-text); }
-.orchestrator-task-detail-body.wide { padding:14px 16px; display:grid; align-content:start; gap:12px; }
+.orchestrator-task-detail-body.wide { padding:14px 16px; display:grid; grid-template-columns:minmax(0,1fr); align-content:start; gap:12px; }
+/* The agentic history surfaces declare container-type:inline-size and centre
+   themselves with auto margins; as grid items that made them shrink to their
+   (empty) content width, a narrow column in the middle of the drawer. */
+.orchestrator-task-detail-body.wide > * { width:100%; min-width:0; justify-self:stretch; }
 .orchestrator-run-selector { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:var(--theme-text-muted); font-weight:600; }
 .orchestrator-run-selector select { min-height:30px; padding:0 8px; border:1px solid var(--theme-border-soft); border-radius:7px; background:var(--theme-surface); color:var(--theme-text); }
 .orchestrator-run-selector small { flex-basis:100%; color:var(--theme-danger); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
