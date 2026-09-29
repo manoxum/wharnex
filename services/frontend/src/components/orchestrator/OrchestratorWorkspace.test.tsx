@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import { api } from '../../lib/api'
 import { emptyOrchestratorTaskCounts } from '../../lib/orchestratorApi'
-import type { Session } from '../../types'
+import type { ChatAgentTask, OrchestratorOverview, Session } from '../../types'
 import { ChatPanel } from '../ChatPanel'
 import { OrchestratorWorkspace } from './OrchestratorWorkspace'
 
@@ -23,7 +23,7 @@ describe('OrchestratorWorkspace polling', () => {
     vi.spyOn(api, 'orchestratorOverview').mockResolvedValue({ plans: [], tasks: [], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 })
     vi.spyOn(api, 'chatAgentTasks').mockResolvedValue({ tasks: [] })
   })
-  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+  afterEach(() => { delete window.wharnessDesktop; vi.useRealTimers(); vi.restoreAllMocks() })
 
   it('does not poll while inactive', async () => {
     render(<OrchestratorWorkspace session={session} chatProps={{} as ComponentProps<typeof ChatPanel>} active={false} onError={() => undefined}/>)
@@ -185,6 +185,75 @@ describe('OrchestratorWorkspace polling', () => {
     expect(screen.getByText('Selected task')).toBeTruthy()
     expect(screen.queryByText('Other task')).toBeNull()
     expect(screen.queryByText('Manual task')).toBeNull()
+  })
+
+
+  it('keeps multiple Worker monitors open and removes only the obsolete follow', async () => {
+    const firstRequest = {
+      request_id: 'orp-follow-one', task_id: 'cat-follow-one', objective: 'Primeiro plano', status: 'RUNNING', attempt: 1, max_attempts: 8,
+      created_at: '2026-09-29T08:00:00Z', updated_at: '2026-09-29T08:01:00Z',
+    } satisfies OrchestratorOverview['planning_requests'][number]
+    const secondRequest = {
+      ...firstRequest, request_id: 'orp-follow-two', task_id: 'cat-follow-two', objective: 'Segundo plano', status: 'LEASED',
+    } satisfies OrchestratorOverview['planning_requests'][number]
+    const firstTask: ChatAgentTask = {
+      task_id: firstRequest.task_id, type: 'ORCHESTRATOR_PLAN', project_id: '', chat_id: '', session_id: '', request_id: firstRequest.request_id,
+      root_request_id: firstRequest.request_id, conversation_id: '', parent_task_id: '', priority: 0, status: 'RUNNING', not_before: '', attempt: 1,
+      max_attempts: 8, dedupe_key: '', assigned_worker: '', keep_flowing: false, lease_owner: 'desktop:test:worker-2', payload: {}, last_error: '',
+      created_at: firstRequest.created_at, updated_at: firstRequest.updated_at,
+    }
+    const secondTask: ChatAgentTask = {
+      ...firstTask, task_id: secondRequest.task_id, request_id: secondRequest.request_id, root_request_id: secondRequest.request_id,
+      status: 'LEASED', lease_owner: 'desktop:test:worker-3', created_at: secondRequest.created_at, updated_at: secondRequest.updated_at,
+    }
+    let currentOverview: OrchestratorOverview = {
+      plans: [], tasks: [], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [firstRequest, secondRequest], mutation_slots: 1, mutation_slots_used: 0,
+    }
+    let currentTasks = [firstTask, secondTask]
+    vi.mocked(api.orchestratorOverview).mockImplementation(async () => currentOverview)
+    vi.mocked(api.chatAgentTasks).mockImplementation(async () => ({ tasks: currentTasks }))
+
+    const agents = {
+      openMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, alreadyOpen: false })),
+      closeMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, closed: true })),
+      onState: vi.fn(() => () => undefined),
+    }
+    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+
+    render(<OrchestratorWorkspace session={session} chatProps={{} as ComponentProps<typeof ChatPanel>} active onError={() => undefined}/>)
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Acompanhar instância' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Acompanhar instância' }))
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+    expect(screen.getByText('Seguindo Worker 2')).toBeTruthy()
+    expect(screen.getByText('Seguindo Worker 3')).toBeTruthy()
+    expect(agents.openMonitor).toHaveBeenCalledWith('worker-2')
+    expect(agents.openMonitor).toHaveBeenCalledWith('worker-3')
+    expect(agents.closeMonitor).not.toHaveBeenCalled()
+
+    currentOverview = {
+      ...currentOverview,
+      planning_requests: [{ ...firstRequest, status: 'DONE' }, secondRequest],
+    }
+    currentTasks = [{ ...firstTask, status: 'DONE' }, secondTask]
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Atualizar Orchestrator' }))
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+    })
+
+    expect(screen.queryByText('Seguindo Worker 2')).toBeNull()
+    expect(screen.getByText('Seguindo Worker 3')).toBeTruthy()
+    expect(agents.closeMonitor).toHaveBeenCalledWith('worker-2')
+    expect(agents.closeMonitor).not.toHaveBeenCalledWith('worker-3')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Parar de seguir' }))
+      await Promise.resolve(); await Promise.resolve()
+    })
+    expect(screen.queryByText('Seguindo Worker 3')).toBeNull()
+    expect(agents.closeMonitor).toHaveBeenCalledWith('worker-3')
   })
 
 })

@@ -1,12 +1,9 @@
-import { useEffect, useState } from 'react'
 import type { ChatAgentTask, OrchestratorOverview, OrchestratorPlan } from '../../types'
 import { taskBrowserAgentId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 import { Icon } from '../Icon'
-import { WorkerFollowViewer } from '../WorkerFollowViewer'
+import { useOrchestratorWorkerFollowRegistry } from './useOrchestratorWorkerFollows'
 
 type PlanningRequest = OrchestratorOverview['planning_requests'][number]
-type FollowedTask = { taskId: string; agentId: string }
-
 const actionClassName = 'inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 text-sm font-semibold text-[var(--theme-text-soft)] hover:border-[var(--theme-accent)] hover:bg-[var(--theme-hover)] hover:text-[var(--theme-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)]'
 const retryClassName = 'inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-[var(--theme-danger)] bg-transparent px-2.5 text-sm font-bold text-[var(--theme-danger)] hover:bg-[color-mix(in_srgb,var(--theme-danger)_10%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-danger)] disabled:cursor-default disabled:opacity-50'
 
@@ -43,15 +40,8 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, plans = [], 
   onSelect?: (request: PlanningRequest) => void
   onRetry: (requestId: string) => void
 }) {
-  const [followed, setFollowed] = useState<FollowedTask>()
+  const workerFollows = useOrchestratorWorkerFollowRegistry()
   const activeCount = requests.filter((item) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status)).length
-  const activeFollow = followed && requests.some((request) => request.task_id === followed.taskId && ['LEASED', 'RUNNING'].includes(request.status))
-    && tasks.some((task) => task.task_id === followed.taskId && taskBrowserAgentId(task) === followed.agentId)
-
-  useEffect(() => {
-    if (followed && !activeFollow) setFollowed(undefined)
-  }, [followed, activeFollow])
-
   if (!requests.length) return null
   return <>
     <section className="mx-auto mb-[22px] w-full max-w-[1100px] overflow-hidden rounded-[14px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface)] shadow-[0_8px_24px_var(--theme-shadow)]" aria-live="polite">
@@ -67,7 +57,7 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, plans = [], 
           const backingTask = tasks.find((task) => task.task_id === planning.task_id)
           const workerId = taskBrowserAgentId(backingTask)
           const resolvedChatId = backingTask ? resolveTaskChatId(backingTask, chats) : undefined
-          const isFollowing = followed?.taskId === planning.task_id && followed.agentId === workerId
+          const isFollowing = Boolean(workerId && workerFollows.isFollowing(planning.task_id, workerId))
           const plan = plans.find((item) => item.planner_request_id === planning.request_id)
           const state = statusPresentation(planning.status)
           return <article key={planning.task_id} className={`relative border-b border-l-[3px] border-b-[var(--theme-border-soft)] px-4 py-4 last:border-b-0 hover:bg-[var(--theme-hover)] ${state.card}`}>
@@ -91,7 +81,7 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, plans = [], 
                 {(onSelect || (plan && onOpenTasks) || workerId || (resolvedChatId && onGoToChat) || ['FAILED', 'ATTENTION'].includes(planning.status)) && <div className={`mt-3 flex flex-wrap gap-2 ${onSelect ? 'pointer-events-auto' : ''}`}>
                   {onSelect ? <button className={actionClassName} type="button" onClick={(event) => { event.stopPropagation(); onSelect(planning) }} title="Ver o detalhe desta orquestração no painel lateral"><Icon name="info" size={13}/> Detalhes</button> : null}
                   {plan && onOpenTasks ? <button className={actionClassName} type="button" onClick={(event) => { event.stopPropagation(); onOpenTasks(plan.id) }} title="Abrir Tasks mostrando só as tasks desta orquestração"><Icon name="filter" size={13}/> Ver tasks</button> : null}
-                  {workerId ? <button className={`${actionClassName} ${isFollowing ? 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' : ''}`} type="button" aria-pressed={isFollowing} onClick={(event) => { event.stopPropagation(); setFollowed(isFollowing ? undefined : { taskId: planning.task_id, agentId: workerId }) }} title="Acompanhar a instância do Worker que gera este plano numa janela separada"><Icon name="monitor" size={13}/> {isFollowing ? 'A acompanhar' : 'Acompanhar instância'}</button> : null}
+                  {workerId ? <button className={`${actionClassName} ${isFollowing ? 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' : ''}`} type="button" aria-pressed={isFollowing} onClick={(event) => { event.stopPropagation(); workerFollows.toggle(planning.task_id, workerId) }} title="Acompanhar a instância do Worker que gera este plano numa janela separada"><Icon name="monitor" size={13}/> {isFollowing ? 'A acompanhar' : 'Acompanhar instância'}</button> : null}
                   {resolvedChatId && onGoToChat ? <button className={actionClassName} type="button" onClick={(event) => { event.stopPropagation(); onGoToChat(resolvedChatId, backingTask?.session_id) }} title="Abrir o chat Wharnex deste planeamento"><Icon name="bridge" size={13}/> Ver chat</button> : null}
                   {['FAILED', 'ATTENTION'].includes(planning.status) ? <button className={retryClassName} type="button" disabled={busy} onClick={(event) => { event.stopPropagation(); onRetry(planning.request_id) }}><Icon name="refresh" size={13}/> Retentar</button> : null}
                 </div>}
@@ -101,6 +91,5 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, plans = [], 
         })}
       </div>
     </section>
-    {followed && activeFollow ? <WorkerFollowViewer agentId={followed.agentId} onStop={() => setFollowed(undefined)}/> : null}
   </>
 }

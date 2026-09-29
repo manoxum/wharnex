@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ChatAgentTask, OrchestratorOverview } from '../../types'
 import { OrchestratorPlanningQueue } from './OrchestratorPlanningQueue'
+import { OrchestratorWorkerFollowProvider, useOrchestratorWorkerFollows } from './useOrchestratorWorkerFollows'
 
 const request = {
   request_id: 'orp_20260927T144117_72c4527aecd5dbb0', task_id: 'cat_ac99a4a360284292a83b',
@@ -19,24 +20,26 @@ const task: ChatAgentTask = {
 
 afterEach(() => { delete window.wharnessDesktop; vi.restoreAllMocks() })
 
-it('stops following the task and closes its window when the task completes', async () => {
-  const agents = {
-    openMonitor: vi.fn(async () => ({ ok: true, agentId: 'worker-2', alreadyOpen: false })),
-    closeMonitor: vi.fn(async () => ({ ok: true, agentId: 'worker-2', closed: true })),
-    onState: vi.fn(() => () => undefined),
-  }
-  window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
-  const props = { requests: [request], tasks: [task], chats: [], busy: false, onRetry: vi.fn() }
-  const view = render(<OrchestratorPlanningQueue {...props}/> )
+function QueueHarness(props: Parameters<typeof OrchestratorPlanningQueue>[0]) {
+  const registry = useOrchestratorWorkerFollows(props.requests, props.tasks)
+  return <OrchestratorWorkerFollowProvider registry={registry}><OrchestratorPlanningQueue {...props}/></OrchestratorWorkerFollowProvider>
+}
+
+it('toggles two planning follows independently without replacing the first pair', () => {
+  const secondRequest = { ...request, request_id: 'orp_second', task_id: 'cat_second', objective: 'Segundo plano', status: 'LEASED' } satisfies OrchestratorOverview['planning_requests'][number]
+  const secondTask: ChatAgentTask = { ...task, task_id: secondRequest.task_id, request_id: secondRequest.request_id, status: 'LEASED', lease_owner: 'desktop:test:worker-3' }
+  render(<QueueHarness requests={[request, secondRequest]} tasks={[task, secondTask]} chats={[]} busy={false} onRetry={vi.fn()}/> )
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'Acompanhar instância' })[0])
   fireEvent.click(screen.getByRole('button', { name: 'Acompanhar instância' }))
-  expect(await screen.findByText('Seguindo Worker 2')).toBeTruthy()
-  view.rerender(<OrchestratorPlanningQueue {...props} requests={[{ ...request, status: 'DONE' }]} tasks={[{ ...task, status: 'DONE' }]}/> )
-  await waitFor(() => expect(screen.queryByText('Seguindo Worker 2')).toBeNull())
-  await waitFor(() => expect(agents.closeMonitor).toHaveBeenCalledWith('worker-2'))
+  expect(screen.getAllByRole('button', { name: 'A acompanhar' })).toHaveLength(2)
+
+  fireEvent.click(screen.getAllByRole('button', { name: 'A acompanhar' })[0])
+  expect(screen.getAllByRole('button', { name: 'A acompanhar' })).toHaveLength(1)
+  expect(screen.getAllByRole('button', { name: 'Acompanhar instância' })).toHaveLength(1)
 })
 
-
-it('opens a planning request from the card without leaking action clicks into detail selection', async () => {
+it('opens a planning request from the card without leaking action clicks into detail selection', () => {
   const agents = {
     openMonitor: vi.fn(async () => ({ ok: true, agentId: 'worker-2', alreadyOpen: false })),
     closeMonitor: vi.fn(async () => ({ ok: true, agentId: 'worker-2', closed: true })),
@@ -49,7 +52,7 @@ it('opens a planning request from the card without leaking action clicks into de
   const onGoToChat = vi.fn()
   const failed = { ...request, status: 'FAILED' }
   const failedTask = { ...task, chat_id: request.request_id, session_id: 'ses-planning' }
-  render(<OrchestratorPlanningQueue
+  render(<QueueHarness
     requests={[failed]}
     tasks={[failedTask]}
     chats={[{ id: 'chat-planning', sessionId: 'ses-planning' }]}
@@ -81,7 +84,7 @@ it('offers the drawer detail and the Tasks view filtered by the orchestration fo
   const onOpenTasks = vi.fn()
   const plan = { id: 'opl_20260927T144117_aaaa', project_path: '/workspace/demo', title: 'Plano', objective: 'Testar plano', status: 'ACTIVE' as const,
     planner_request_id: request.request_id, created_at: request.created_at, updated_at: request.updated_at }
-  render(<OrchestratorPlanningQueue requests={[request]} tasks={[]} chats={[]} plans={[plan]} busy={false} onRetry={vi.fn()} onSelect={onSelect} onOpenTasks={onOpenTasks}/>)
+  render(<QueueHarness requests={[request]} tasks={[]} chats={[]} plans={[plan]} busy={false} onRetry={vi.fn()} onSelect={onSelect} onOpenTasks={onOpenTasks}/>)
   fireEvent.click(screen.getByRole('button', { name: /Detalhes/ }))
   expect(onSelect).toHaveBeenCalledWith(request)
   onSelect.mockClear()
@@ -92,7 +95,7 @@ it('offers the drawer detail and the Tasks view filtered by the orchestration fo
 
 it('offers following the ephemeral browser that plans the orchestration', () => {
   const ephemeral = { ...task, lease_owner: 'desktop-508e:translator-1' }
-  render(<OrchestratorPlanningQueue requests={[request]} tasks={[ephemeral]} chats={[]} busy={false} onRetry={vi.fn()}/>)
+  render(<QueueHarness requests={[request]} tasks={[ephemeral]} chats={[]} busy={false} onRetry={vi.fn()}/>)
   expect(screen.getByRole('button', { name: /Acompanhar instância/ })).not.toBeNull()
 })
 
@@ -100,7 +103,7 @@ it('offers following the ephemeral browser that plans the orchestration', () => 
 it('shows semantic status cues for active, attention and completed requests', () => {
   const failed = { ...request, request_id: 'orp_failed', task_id: 'task-failed', status: 'FAILED', last_error: 'Falha ao entregar o plano.' }
   const done = { ...request, request_id: 'orp_done', task_id: 'task-done', status: 'DONE' }
-  render(<OrchestratorPlanningQueue requests={[request, failed, done]} tasks={[]} chats={[]} busy={false} onRetry={vi.fn()}/>)
+  render(<QueueHarness requests={[request, failed, done]} tasks={[]} chats={[]} busy={false} onRetry={vi.fn()}/>)
 
   expect(screen.getByText('1 ativo · 3 pedidos')).toBeTruthy()
   expect(screen.getByText('Em andamento')).toBeTruthy()
@@ -112,6 +115,6 @@ it('shows semantic status cues for active, attention and completed requests', ()
 
 it('keeps retry disabled while the queue is busy', () => {
   const failed = { ...request, status: 'ATTENTION' }
-  render(<OrchestratorPlanningQueue requests={[failed]} tasks={[]} chats={[]} busy onRetry={vi.fn()}/>)
+  render(<QueueHarness requests={[failed]} tasks={[]} chats={[]} busy onRetry={vi.fn()}/>)
   expect((screen.getByRole('button', { name: /Retentar/ }) as HTMLButtonElement).disabled).toBe(true)
 })
