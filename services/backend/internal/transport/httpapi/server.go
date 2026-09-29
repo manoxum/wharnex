@@ -223,7 +223,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	a.registerGitRoutes(mux)
 	a.registerConflictRoutes(mux)
 	a.registerOperationalLogRoutes(mux)
-	return cors(a.remotePairingAuth(requestLog(mux)), allowedOrigins(cfg.FrontendOrigin))
+	return cors(a.remotePairingAuth(requestLog(conditionalGET(mux))), allowedOrigins(cfg.FrontendOrigin))
 }
 
 // allowedOrigins is the fixed localhost/127.0.0.1:5173 pair every checkout
@@ -2022,8 +2022,8 @@ func cors(next http.Handler, allowed []string) http.Handler {
 				break
 			}
 		}
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, If-None-Match")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition, ETag")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
