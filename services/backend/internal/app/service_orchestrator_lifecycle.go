@@ -33,23 +33,74 @@ func (s *Service) recalculateOrchestratorTasks(ctx context.Context, projectPath 
 	return s.syncOrchestratorPlanStatus(ctx, plans, tasks)
 }
 
+type orchestratorPlanProgress struct {
+	total     int
+	completed int
+	review    int
+}
+
+func (progress orchestratorPlanProgress) allCompleted() bool {
+	return progress.total > 0 && progress.completed == progress.total
+}
+
+func (progress orchestratorPlanProgress) allReviewOrCompleted() bool {
+	return progress.review > 0 && progress.review+progress.completed == progress.total
+}
+
+func orchestratorPlanTaskProgress(planID string, tasks []orchestrator.Task) orchestratorPlanProgress {
+	progress := orchestratorPlanProgress{}
+	for _, task := range tasks {
+		if task.PlanID != planID {
+			continue
+		}
+		progress.total++
+		if orchestrator.TaskHasCompleted(task) {
+			progress.completed++
+		} else if task.Status == orchestrator.TaskReview {
+			progress.review++
+		}
+	}
+	return progress
+}
+
+func orchestratorPlanningRequestPhase(requestID string, plans []orchestrator.Plan, tasks []orchestrator.Task) orchestrator.OrchestrationPhase {
+	planIndex := -1
+	for index := range plans {
+		if plans[index].PlannerRequestID != requestID {
+			continue
+		}
+		if planIndex < 0 || plans[index].UpdatedAt.After(plans[planIndex].UpdatedAt) {
+			planIndex = index
+		}
+	}
+	if planIndex < 0 {
+		return orchestrator.OrchestrationPhasePlanning
+	}
+	plan := plans[planIndex]
+	switch plan.Status {
+	case orchestrator.PlanDraft:
+		return orchestrator.OrchestrationPhaseAwaitingApproval
+	case orchestrator.PlanArchived:
+		return orchestrator.OrchestrationPhaseArchived
+	}
+	progress := orchestratorPlanTaskProgress(plan.ID, tasks)
+	if progress.allCompleted() {
+		return orchestrator.OrchestrationPhaseCompleted
+	}
+	if progress.allReviewOrCompleted() {
+		return orchestrator.OrchestrationPhaseReview
+	}
+	return orchestrator.OrchestrationPhaseExecuting
+}
+
 func (s *Service) syncOrchestratorPlanStatus(ctx context.Context, plans []orchestrator.Plan, tasks []orchestrator.Task) error {
 	for _, plan := range plans {
 		if plan.Status != orchestrator.PlanActive {
 			continue
 		}
-		count, terminal := 0, 0
-		for _, task := range tasks {
-			if task.PlanID != plan.ID {
-				continue
-			}
-			count++
-			if orchestrator.TaskHasCompleted(task) {
-				terminal++
-			}
-		}
+		progress := orchestratorPlanTaskProgress(plan.ID, tasks)
 		target := orchestrator.PlanActive
-		if count > 0 && terminal == count {
+		if progress.allCompleted() {
 			target = orchestrator.PlanCompleted
 		}
 		if target == plan.Status {

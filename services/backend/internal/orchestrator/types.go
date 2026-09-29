@@ -13,6 +13,17 @@ const (
 	PlanArchived  PlanStatus = "ARCHIVED"
 )
 
+type OrchestrationPhase string
+
+const (
+	OrchestrationPhasePlanning         OrchestrationPhase = "PLANNING"
+	OrchestrationPhaseAwaitingApproval OrchestrationPhase = "AWAITING_APPROVAL"
+	OrchestrationPhaseExecuting        OrchestrationPhase = "EXECUTING"
+	OrchestrationPhaseReview           OrchestrationPhase = "REVIEW"
+	OrchestrationPhaseCompleted        OrchestrationPhase = "COMPLETED"
+	OrchestrationPhaseArchived         OrchestrationPhase = "ARCHIVED"
+)
+
 type Plan struct {
 	ID               string     `json:"id"`
 	ProjectPath      string     `json:"project_path"`
@@ -60,15 +71,18 @@ type Overview struct {
 }
 
 type PlanningRequest struct {
-	RequestID   string    `json:"request_id"`
-	TaskID      string    `json:"task_id"`
-	Objective   string    `json:"objective,omitempty"`
-	Status      string    `json:"status"`
-	Attempt     int       `json:"attempt"`
-	MaxAttempts int       `json:"max_attempts"`
-	LastError   string    `json:"last_error,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	RequestID string `json:"request_id"`
+	TaskID    string `json:"task_id"`
+	Objective string `json:"objective,omitempty"`
+	// Status is the technical planning Worker status. Phase is the derived
+	// functional lifecycle of the orchestration request.
+	Status      string             `json:"status"`
+	Phase       OrchestrationPhase `json:"phase"`
+	Attempt     int                `json:"attempt"`
+	MaxAttempts int                `json:"max_attempts"`
+	LastError   string             `json:"last_error,omitempty"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
 }
 
 type PlanningAttempt struct {

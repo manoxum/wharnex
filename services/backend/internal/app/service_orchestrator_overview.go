@@ -67,6 +67,7 @@ func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (o
 	planningByRequest := make(map[string]orchestrator.PlanningRequest, len(planningTasks))
 	for _, task := range planningTasks {
 		candidate := orchestratorPlanningRequest(task)
+		candidate.Phase = orchestratorPlanningRequestPhase(candidate.RequestID, plans, tasks)
 		if previous, ok := planningByRequest[candidate.RequestID]; !ok || candidate.UpdatedAt.After(previous.UpdatedAt) || (candidate.UpdatedAt.Equal(previous.UpdatedAt) && candidate.CreatedAt.After(previous.CreatedAt)) {
 			planningByRequest[candidate.RequestID] = candidate
 		}
