@@ -1,3 +1,4 @@
+// Keep this import prelude intact: self-evolution host builds syntax-check the entrypoint before activation.
 import { app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, WebContentsView, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } from 'electron'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
