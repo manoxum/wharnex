@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 )
@@ -39,5 +40,35 @@ func TestOrchestratorAgentOutcomeSettlesMainRequestsThatWaitForAPerson(t *testin
 	question := orchestratorAgentOutcomeError(domain.Session{State: "awaiting_clarification", LastTurn: &domain.AgentTurn{Message: "Qual base usar?"}})
 	if !strings.Contains(question, "Qual base usar?") {
 		t.Fatalf("clarification error = %q", question)
+	}
+}
+
+// A task's effort level bounds its attempts: a failed execution with budget
+// left is a repair round in preparation, not the end of the run.
+func TestOrchestratorAgentOutcomeWaitsForTheRepairOfAFailureWithBudgetLeft(t *testing.T) {
+	now := time.Date(2026, 9, 29, 5, 0, 0, 0, time.UTC)
+	previous := orchestratorNow
+	orchestratorNow = func() time.Time { return now }
+	defer func() { orchestratorNow = previous }()
+
+	agent := domain.Session{ID: "ses_budget", State: "failed", LastRequestID: "req_a", AutomationMode: domain.AutomationModeAuto,
+		EffortLevel: domain.EffortLevelExtraHigh, AutomationAttempt: 2, LastRepairError: "verification failed"}
+	if got := orchestratorAgentOutcome(agent); got != "" {
+		t.Fatalf("attempt 2 of 20: got %q, want no outcome while the repair starts", got)
+	}
+	now = now.Add(orchestratorRepairStartGrace)
+	if got := orchestratorAgentOutcome(agent); got != "failed" {
+		t.Fatalf("a repair that never started: got %q, want failed", got)
+	}
+
+	exhausted := agent
+	exhausted.ID, exhausted.AutomationAttempt = "ses_exhausted", 20
+	if got := orchestratorAgentOutcome(exhausted); got != "failed" {
+		t.Fatalf("budget spent: got %q, want failed", got)
+	}
+	infrastructure := agent
+	infrastructure.ID, infrastructure.FailureKind = "ses_infra", "sandbox_resource_exhausted"
+	if got := orchestratorAgentOutcome(infrastructure); got != "failed" {
+		t.Fatalf("infrastructure failure: got %q, want failed", got)
 	}
 }

@@ -119,3 +119,13 @@ cannot continue by itself: the run fails with that question as its error, so
 a retry can add the missing context. Neither outcome applies while the request
 still awaits its response. Before this rule, a barrier task that concluded "no
 change needed" stayed DOING for five hours and held back its six dependents.
+
+A task's effort level bounds its autonomous attempts exactly as it bounds an
+agentic Main Request (effort 20 means twenty rounds with ChatGPT). The engine
+records a failed execution as `failed` before it prepares the repair round, so
+a failed Agent with budget left and no infrastructure classification is not a
+final outcome: the task stays DOING while its repair starts, and the run ends
+only when the budget is spent, the failure is classified as infrastructure, or
+no repair round starts within three minutes. Reading the transient state as
+final had failed a task at effort 20 on its second attempt, three runs in a
+row, each with its repair already prepared.
