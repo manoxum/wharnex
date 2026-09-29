@@ -795,7 +795,7 @@ export type { OrchestratorTaskConclusion } from './types/attention'
 export { ORCHESTRATOR_TASK_STATUSES, ORCHESTRATOR_TERMINAL_STATUSES } from './types/orchestrator'
 export type {
   OrchestratorOverview, OrchestratorPlan, OrchestratorPlanStatus, OrchestratorPlanningRequest, OrchestratorPriority,
-  OrchestratorProposal, OrchestratorProposalResult, OrchestratorProposalTask, OrchestratorRunResult, OrchestratorTask,
+  OrchestratorProposal, OrchestratorProposalResult, OrchestratorProposalTask, OrchestratorRecentReview, OrchestratorRunResult, OrchestratorTask,
   OrchestratorTaskCondition, OrchestratorTaskCounts, OrchestratorTaskPage, OrchestratorTaskPageQuery, OrchestratorTaskRetryContext,
   OrchestratorTaskRun, OrchestratorTaskStatus, OrchestratorTerminalTaskPages, OrchestratorTerminalTaskStatus,
 } from './types/orchestrator'

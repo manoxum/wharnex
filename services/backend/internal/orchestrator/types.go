@@ -54,6 +54,7 @@ type Overview struct {
 	Tasks             []Task             `json:"tasks"`
 	TaskCounts        map[TaskStatus]int `json:"task_counts"`
 	PlanningRequests  []PlanningRequest  `json:"planning_requests"`
+	RecentReviews     []TaskConclusion   `json:"recent_reviews"`
 	MutationSlots     int                `json:"mutation_slots"`
 	MutationSlotsUsed int                `json:"mutation_slots_used"`
 }

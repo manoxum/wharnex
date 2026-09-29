@@ -39,9 +39,13 @@ export type OrchestratorPlanningRequest = {
 }
 
 export type OrchestratorTaskCounts = Record<OrchestratorTaskStatus, number>
+export type OrchestratorRecentReview = {
+  run_id: string; task_id: string; title: string; status: 'REVIEW'; completed_at: string
+}
 export type OrchestratorOverview = {
   plans: OrchestratorPlan[]; tasks: OrchestratorTask[]; task_counts: OrchestratorTaskCounts
-  planning_requests: OrchestratorPlanningRequest[]; mutation_slots: number; mutation_slots_used: number
+  planning_requests: OrchestratorPlanningRequest[]; recent_reviews?: OrchestratorRecentReview[]
+  mutation_slots: number; mutation_slots_used: number
 }
 export type OrchestratorTaskPage = { tasks: OrchestratorTask[]; total: number; next_cursor?: string; has_more: boolean }
 export type OrchestratorTaskPageQuery = { status?: OrchestratorTerminalTaskStatus; q?: string; limit?: number; cursor?: string }

@@ -11,6 +11,8 @@ import (
 	"kernl.local/harness/backend/internal/session"
 )
 
+const orchestratorRecentReviewLimit = 5
+
 func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (orchestrator.Overview, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
@@ -73,6 +75,10 @@ func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (o
 	for _, candidate := range planningByRequest {
 		planning = append(planning, candidate)
 	}
+	recentReviews, err := s.orchestrator.ListPendingTaskReviews(ctx, item.ProjectPath, orchestratorRecentReviewLimit)
+	if err != nil {
+		return orchestrator.Overview{}, err
+	}
 	counts := map[orchestrator.TaskStatus]int{
 		orchestrator.TaskPending: 0, orchestrator.TaskWaiting: 0, orchestrator.TaskReady: 0, orchestrator.TaskDoing: 0,
 		orchestrator.TaskReview: 0, orchestrator.TaskFailed: 0, orchestrator.TaskComplete: 0, orchestrator.TaskArchived: 0,
@@ -84,7 +90,7 @@ func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (o
 			used++
 		}
 	}
-	return orchestrator.Overview{Plans: plans, Tasks: tasks, TaskCounts: counts, PlanningRequests: planning, MutationSlots: s.executionQueue.currentCapacity(), MutationSlotsUsed: used}, nil
+	return orchestrator.Overview{Plans: plans, Tasks: tasks, TaskCounts: counts, PlanningRequests: planning, RecentReviews: recentReviews, MutationSlots: s.executionQueue.currentCapacity(), MutationSlotsUsed: used}, nil
 }
 
 func (s *Service) OrchestratorTasksPage(ctx context.Context, sessionID string, filter orchestrator.TaskPageFilter) (orchestrator.TaskPage, error) {

@@ -57,6 +57,7 @@ export function normalizeOrchestratorOverview(overview: OrchestratorOverview): O
     tasks,
     task_counts: normalizeTaskCounts(overview?.task_counts, tasks),
     planning_requests: Array.isArray(overview?.planning_requests) ? overview.planning_requests : [],
+    recent_reviews: Array.isArray(overview?.recent_reviews) ? overview.recent_reviews.slice(0, 5) : [],
   }
 }
 
