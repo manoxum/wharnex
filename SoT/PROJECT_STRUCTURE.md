@@ -9,6 +9,43 @@ Production code stays under domain-aligned service roots:
 
 Cross-cutting schemas live in `/schemas`; normative documents live in `/SoT`; container execution assets live in `/docker`; repository automation lives in `/scripts`.
 
+## Domain ownership for implementation
+
+Every new or extracted project-owned source or test file MUST have a domain
+directory beneath its service's source root. A domain is the product capability
+that changes the file (for example `window`, `chatgpt`, `agent`, `editor`,
+`orchestrator`, `project`), not its language, framework, or generic role. Keep
+the domain's implementation and focused tests together. A second directory
+level MAY separate cohesive concerns inside a large domain; do not create a
+directory solely to satisfy the rule while placing unrelated files inside it.
+
+- Desktop native code: `/services/desktop/<domain>/`. `main.mjs` remains the
+  Electron composition entry point; window persistence and recovery belong in
+  `window/`, ChatGPT browser state in `chatgpt/`, and subsequent extractions
+  follow the capability they own. New root-level Desktop helper files are
+  forbidden.
+- Backend Go code: `/services/backend/internal/<domain>/`; executable entry
+  points stay under `/services/backend/cmd/<command>/`.
+- Desktop and paired web UIs: `/services/frontend/src/<domain>/` and
+  `/services/webapp/src/<domain>/`, with each feature's components, hooks,
+  state, and tests in its own domain. A technical directory such as
+  `components/` MAY remain as an existing container but MUST contain a named
+  feature directory before new feature files are added.
+- Repository tooling: `/scripts/<domain>/` for new implementation scripts;
+  established command entry points may stay at `/scripts/` and delegate to
+  domain-owned modules.
+
+Service entry points, package/build configuration, runtime-required preload
+files, generated or vendored output, schemas, migrations, and normative
+documents keep the locations required by their consumers. Existing flat source
+files are migration debt, not an invitation to add siblings: when a concern is
+touched, extract or move that concern and its focused tests into its domain in
+the same change. Relocation MUST preserve wire, persisted-data, and runtime
+compatibility, and tests MUST continue to be discovered by the service gate.
+Avoid catch-all `utils`, `helpers`, `common`, and `misc` directories: a truly
+shared module belongs to the domain that owns its contract, with cross-domain
+imports using that contract.
+
 File-size limits, the extract-on-touch rule for legacy oversized files, and
 continuous-refactoring expectations are defined in `SoT/CODE_QUALITY.md`.
 Frontend styling direction (incremental Tailwind CSS migration) is defined in

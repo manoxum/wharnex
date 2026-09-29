@@ -155,3 +155,15 @@ commit. Ignore repair MUST preserve existing rules and be idempotent.
   MUST run this gate against PostgreSQL. A local run without a configured test
   database MAY report the integration portion as skipped, but that skipped run
   does not satisfy the release gate.
+
+## G13 Domain-owned source layout
+
+- `make domain-layout-check` validates every newly added implementation and
+  test file since the parent of the ADR-0085 adoption commit (or
+  `WHARNEX_DOMAIN_LAYOUT_BASE`),
+  staged addition, and untracked file against
+  `SoT/PROJECT_STRUCTURE.md`. It runs as part of `make check` and
+  `scripts/quality-gates.sh`.
+- The gate permits only named service domains and documented runtime entry
+  points. Reviewers verify semantic ownership and extract-on-touch for legacy
+  flat files, which path checks alone cannot determine.

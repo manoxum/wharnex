@@ -70,6 +70,8 @@ Concretely:
   file/domain), not for "this is where the exception went";
 - have the legacy file import/call into the new file, so the legacy file's
   own line count goes down or stays flat rather than growing;
+- place the extracted file and its focused tests under the owning domain
+  directory (see `SoT/PROJECT_STRUCTURE.md`), never as another flat sibling;
 - do not attempt to extract the *entire* legacy file in the same change
   unless that is the change being asked for — extract only what you are
   touching. The legacy file shrinks over many such changes, never through one

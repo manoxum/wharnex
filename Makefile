@@ -11,7 +11,7 @@ BUILD_STAMP := $(ROOT_DIR)/.harness/build-success
 BUILD_BASELINE_STAMP := $(ROOT_DIR)/.harness/build-previous-success
 
 .PHONY: reset-data clean-all help deps deps-unlocked deps-status deps-refresh deps-refresh-unlocked build-status build-refresh storage-prune storage-reclaim runner-deps build build-stage build-stage-unlocked build-all build-backend build-frontend build-webapp build-desktop build-runner build-plan stack-build \
-	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check webapp-check desktop-check lifecycle-check check test start stop restart status logs \
+	stack-up stack-stop stack-down stack-status stack-logs backend-check frontend-check webapp-check desktop-check lifecycle-check domain-layout-check check test start stop restart status logs \
 	electron-runtime-check electron-runtime-install electron-runtime-status \
 	up-link-host-check up-link-host-install up-link-host-status \
 	electron-sandbox-check electron-sandbox-install electron-sandbox-restore \
@@ -223,7 +223,12 @@ lifecycle-check:
 file-size-check:
 	@"$(ROOT_DIR)/scripts/check-file-size.sh"
 
+domain-layout-check:
+	@node --test "$(ROOT_DIR)/scripts/quality/domain-layout.test.mjs"
+	@node "$(ROOT_DIR)/scripts/quality/domain-layout.mjs"
+
 check:
+	@$(MAKE) --no-print-directory domain-layout-check
 	@$(MAKE) --no-print-directory backend-check
 	@$(MAKE) --no-print-directory frontend-check
 	@$(MAKE) --no-print-directory webapp-check

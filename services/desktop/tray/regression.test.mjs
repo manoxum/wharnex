@@ -2,9 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-const tray = await readFile(new URL('./desktop-tray-control.mjs', import.meta.url), 'utf8')
-const preload = await readFile(new URL('./preload.cjs', import.meta.url), 'utf8')
+const source = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
+const tray = await readFile(new URL('../desktop-tray-control.mjs', import.meta.url), 'utf8')
+const preload = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')
+const windowIPC = await readFile(new URL('../window/ipc.mjs', import.meta.url), 'utf8')
 
 test('desktop tray owns background lifecycle, project controls and recoverable shutdown', async () => {
   assert.match(source, /createDesktopTrayControl/)
@@ -15,18 +16,18 @@ test('desktop tray owns background lifecycle, project controls and recoverable s
   assert.match(tray, /label: 'Gerir Workers'/)
   assert.match(tray, /label: `Túneis/)
 
-  const closePrompt = await readFile(new URL('./desktop-window-close-prompt.mjs', import.meta.url), 'utf8')
+  const closePrompt = await readFile(new URL('../desktop-window-close-prompt.mjs', import.meta.url), 'utf8')
   assert.match(closePrompt, /buttons: \['Enviar para background', 'Fechar esta janela', 'Fechar todos os projetos', 'Abortar operação'\]/)
   assert.match(source, /fallback: \(windowState, descriptor\) => nativeWindowCloseChoice\(dialog, windowState\.window, descriptor\)/)
   assert.match(source, /persistDesktopRecoverySession\(\)/)
 
-  const recoveryDialog = await readFile(new URL('../frontend/src/components/DesktopRecoveryDialog.tsx', import.meta.url), 'utf8')
+  const recoveryDialog = await readFile(new URL('../../frontend/src/components/DesktopRecoveryDialog.tsx', import.meta.url), 'utf8')
   assert.match(recoveryDialog, /Recuperar sessão/)
   assert.match(recoveryDialog, /Descartar sessão/)
   assert.doesNotMatch(source, /buttons: \['Recuperar sessão', 'Descartar sessão'\]/)
   assert.match(source, /recoverableDesktopWindows\(recovery\)/)
-  assert.match(source, /pending: Boolean\(windowState\.recovery\?\.pending\)/)
-  assert.match(source, /ipcMain\.handle\('wharness:windows:recovery'/)
+  assert.match(windowIPC, /pending: Boolean\(windowState\.recovery\?\.pending\)/)
+  assert.match(windowIPC, /ipcMain\.handle\('wharness:windows:recovery'/)
   assert.match(source, /wharness:windows:close-project/)
   assert.match(source, /app\.on\('window-all-closed', \(\) => \{[\s\S]*ensureDesktopTray\(\)/)
 })
