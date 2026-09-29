@@ -3,8 +3,6 @@ import type { ArtifactRecord, OrchestratorPlanningDetail } from '../../types'
 import { BundleExplorerModal } from '../BundleExplorer'
 import { Icon } from '../Icon'
 
-type PlannedFile = { path: string; kinds: string[] }
-
 // The ZIPs exchanged with ChatGPT to produce the plan, explorable exactly as
 // an agentic chat's bundles.
 function PlanningBundles({ sessionId, bundles }: { sessionId?: string; bundles: ArtifactRecord[] }) {
@@ -28,45 +26,9 @@ function PlanningBundles({ sessionId, bundles }: { sessionId?: string; bundles: 
 }
 
 export function OrchestratorPlanFilesTab({ detail, sessionId }: { detail: OrchestratorPlanningDetail; sessionId?: string }) {
-  const [search, setSearch] = useState('')
-  const projectFiles = [...new Set(detail.project_files)]
-  const plannedFiles = collectPlannedFiles(detail)
   const bundles = detail.bundles || []
-  const total = projectFiles.length + detail.attachments.length + plannedFiles.length
-  if (!total && !bundles.length) return <EmptyState message="Este pedido não possui bundles, ficheiros ou anexos associados."/>
-
-  const query = normalizeSearch(search)
-  const visibleProjects = projectFiles.filter((path) => matches(query, path, 'ficheiro de projeto'))
-  const visibleAttachments = detail.attachments.filter((item) => matches(
-    query, item.name, item.mime, item.generated ? 'gerado' : 'anexo', formatBytes(item.size),
-  ))
-  const visiblePlanned = plannedFiles.filter((item) => matches(query, item.path, ...item.kinds))
-
-  return <div className="grid gap-4">
-    <PlanningBundles sessionId={sessionId} bundles={bundles}/>
-    <SearchBox value={search} onChange={setSearch} label="Pesquisar ficheiros e escopo"/>
-    <section className="grid gap-2">
-      <SectionTitle title="Entrada do utilizador" count={projectFiles.length + detail.attachments.length}/>
-      <p className="m-0 text-sm text-[var(--theme-text-muted)]">Referências e anexos fornecidos ao pedido, separados do escopo previsto pelo Planner.</p>
-      <ul className="m-0 grid list-none gap-1.5 p-0">
-        {visibleProjects.map((path) => <FileRow key={`project:${path}`} path={path} tags={['Ficheiro de projeto']}/>)}
-        {visibleAttachments.map((item, index) => <FileRow
-          key={`attachment:${index}:${item.name}`}
-          path={item.name}
-          tags={[item.generated ? 'Anexo gerado' : 'Anexo', item.mime || 'tipo não informado', formatBytes(item.size)]}
-        />)}
-      </ul>
-      {!visibleProjects.length && !visibleAttachments.length ? <InlineEmpty search={search}/> : null}
-    </section>
-    <section className="grid gap-2">
-      <SectionTitle title="Escopo previsto pelo Planner" count={plannedFiles.length}/>
-      <p className="m-0 text-sm text-[var(--theme-text-muted)]">Agregado e deduplicado de impact_files, read_files e barrier_files das tasks.</p>
-      <ul className="m-0 grid list-none gap-1.5 p-0">
-        {visiblePlanned.map((item) => <FileRow key={item.path} path={item.path} tags={item.kinds}/>)}
-      </ul>
-      {!visiblePlanned.length ? <InlineEmpty search={search} fallback="As tasks ainda não declaram ficheiros de impacto, leitura ou barreira."/> : null}
-    </section>
-  </div>
+  if (!bundles.length) return <EmptyState message="Nenhum bundle de pedido ou resposta foi registado para este planeamento."/>
+  return <PlanningBundles sessionId={sessionId} bundles={bundles}/>
 }
 
 export function OrchestratorPlanTab({ detail }: { detail: OrchestratorPlanningDetail }) {
@@ -114,30 +76,12 @@ function SectionTitle({ title, count }: { title: string; count: number }) {
   return <header className="flex items-center justify-between gap-2"><strong className="text-base">{title}</strong><span className="rounded-full bg-[var(--theme-subtle)] px-2 py-0.5 font-mono text-xs text-[var(--theme-text-soft)]">{count}</span></header>
 }
 
-function FileRow({ path, tags }: { path: string; tags: string[] }) {
-  return <li className="rounded-lg border border-[var(--theme-border-soft)] p-2.5"><code className="block break-all text-sm text-[var(--theme-text)]">{path}</code><span className="mt-1 flex flex-wrap gap-1">{tags.filter(Boolean).map((tag) => <span key={tag} className="rounded-full bg-[var(--theme-subtle)] px-1.5 py-0.5 text-xs text-[var(--theme-text-muted)]">{tag}</span>)}</span></li>
-}
-
 function EmptyState({ message }: { message: string }) {
   return <div className="mt-3 rounded-lg border border-dashed border-[var(--theme-border)] p-4 text-sm text-[var(--theme-text-muted)]">{message}</div>
 }
 
 function InlineEmpty({ search, fallback = 'Nenhum item corresponde à pesquisa.' }: { search: string; fallback?: string }) {
   return <p className="m-0 text-sm text-[var(--theme-text-muted)]">{search.trim() ? 'Nenhum item corresponde à pesquisa.' : fallback}</p>
-}
-
-function collectPlannedFiles(detail: OrchestratorPlanningDetail): PlannedFile[] {
-  const files = new Map<string, Set<string>>()
-  for (const { task } of detail.tasks) {
-    for (const [items, kind] of [[task.impact_files, 'Impacto'], [task.read_files, 'Leitura'], [task.barrier_files, 'Barreira']] as const) {
-      for (const path of items || []) {
-        const kinds = files.get(path) || new Set<string>()
-        kinds.add(kind)
-        files.set(path, kinds)
-      }
-    }
-  }
-  return [...files].map(([path, kinds]) => ({ path, kinds: [...kinds] })).sort((left, right) => left.path.localeCompare(right.path, 'pt'))
 }
 
 function normalizeSearch(value: string) { return value.trim().toLocaleLowerCase('pt') }

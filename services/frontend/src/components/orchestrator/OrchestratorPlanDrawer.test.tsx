@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import type { OrchestratorPlanningDetail, OrchestratorPlanningRequest, OrchestratorTask } from '../../types'
+import { api } from '../../lib/api'
 import { OrchestratorPlanDrawer } from './OrchestratorPlanDrawer'
 
 const request: OrchestratorPlanningRequest = {
@@ -42,7 +43,7 @@ it('keeps all detail tabs available across loading, error and empty states', () 
 
   view.rerender(<OrchestratorPlanDrawer {...props} loading={false} detail={emptyDetail}/>)
   fireEvent.click(screen.getByRole('tab', { name: 'Ficheiros' }))
-  expect(screen.getByText('Este pedido não possui bundles, ficheiros ou anexos associados.')).toBeTruthy()
+  expect(screen.getByText('Nenhum bundle de pedido ou resposta foi registado para este planeamento.')).toBeTruthy()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Plano' }))
   expect(screen.getByText(/Planeamento ainda não concluído\/importado/)).toBeTruthy()
@@ -88,35 +89,42 @@ it('shows plan identity and delegates close and refresh actions', () => {
 })
 
 
-it('separates request inputs from deduplicated planned file scope and searches both', () => {
-  const unsafeAttachment = { name: 'notes.md', size: 12, mime: 'text/markdown', storage_ref: 'secret/cache/ref' }
+it('shows only planning bundles even when the detail contains other file context', () => {
+  const bundle = (id: string, direction: 'input' | 'output', name: string) => ({
+    id, request_id: request.request_id, direction, kind: 'bundle', name, size: 2048, sha256: id, created_at: '2026-09-28T01:02:00Z', expires_at: '2026-10-28T01:02:00Z', bundle: true,
+  })
   const detail: OrchestratorPlanningDetail = {
     ...emptyDetail,
     project_files: ['src/input.ts'],
-    attachments: [unsafeAttachment],
+    attachments: [{ name: 'notes.md', size: 12, mime: 'text/markdown' }],
+    bundles: [
+      bundle('art-req', 'input', 'whx_bundle_req_orchestrator_orp-detail.zip'),
+      bundle('art-res', 'output', 'whx_bundle_res_orchestrator_orp-detail.zip'),
+    ],
     plan: planFixture(),
     tasks: [
       { task: taskFixture('task-a', 'Preparar base', [], { impact_files: ['src/shared.ts'], read_files: ['src/read.ts'] }), runs: [] },
-      { task: taskFixture('task-b', 'Consumir base', ['task-a'], { impact_files: ['src/shared.ts'], barrier_files: ['src/shared.ts', 'src/barrier.ts'] }), runs: [] },
+      { task: taskFixture('task-b', 'Consumir base', ['task-a'], { barrier_files: ['src/barrier.ts'] }), runs: [] },
     ],
   }
-  render(<OrchestratorPlanDrawer request={request} detail={detail} loading={false} onClose={vi.fn()} onRefresh={vi.fn()}/>)
+  const artifactEntries = vi.spyOn(api, 'artifactEntries').mockResolvedValue({ entries: [] })
+  render(<OrchestratorPlanDrawer request={request} detail={detail} sessionId="ses_owner" loading={false} onClose={vi.fn()} onRefresh={vi.fn()}/>)
   fireEvent.click(screen.getByRole('tab', { name: 'Ficheiros' }))
 
-  expect(screen.getByText('Entrada do utilizador')).toBeTruthy()
-  expect(screen.getByText('src/input.ts')).toBeTruthy()
-  expect(screen.getByText('notes.md')).toBeTruthy()
-  expect(screen.getByText('text/markdown')).toBeTruthy()
-  expect(screen.getByText('12 B')).toBeTruthy()
-  expect(screen.queryByText('secret/cache/ref')).toBeNull()
-  expect(screen.getByText('Escopo previsto pelo Planner')).toBeTruthy()
-  expect(screen.getAllByText('src/shared.ts')).toHaveLength(1)
-  expect(screen.getByText('Impacto')).toBeTruthy()
-  expect(screen.getAllByText('Barreira')).toHaveLength(2)
+  expect(screen.getByText('Bundles trocados com o GPT')).toBeTruthy()
+  expect(screen.getByText('whx_bundle_req_orchestrator_orp-detail.zip')).toBeTruthy()
+  expect(screen.getByText('whx_bundle_res_orchestrator_orp-detail.zip')).toBeTruthy()
+  expect(screen.getByText('Pedido enviado')).toBeTruthy()
+  expect(screen.getByText('Resposta do GPT')).toBeTruthy()
+  expect(screen.queryByRole('textbox', { name: 'Pesquisar ficheiros e escopo' })).toBeNull()
+  for (const hidden of ['Entrada do utilizador', 'Escopo previsto pelo Planner', 'src/input.ts', 'notes.md', 'src/shared.ts', 'src/read.ts', 'src/barrier.ts']) {
+    expect(screen.queryByText(hidden)).toBeNull()
+  }
 
-  fireEvent.change(screen.getByRole('textbox', { name: 'Pesquisar ficheiros e escopo' }), { target: { value: 'src/read.ts' } })
-  expect(screen.getByText('src/read.ts')).toBeTruthy()
-  expect(screen.queryByText('src/barrier.ts')).toBeNull()
+  fireEvent.click(screen.getAllByRole('button', { name: /Explorar/ })[0])
+  expect(screen.getByRole('dialog', { name: 'Explorar whx_bundle_req_orchestrator_orp-detail.zip' })).toBeTruthy()
+  expect(artifactEntries).toHaveBeenCalledWith('ses_owner', 'art-req')
+  artifactEntries.mockRestore()
 })
 
 it('shows plan metadata, assumptions and searchable task dependencies', () => {
@@ -176,20 +184,3 @@ function taskFixture(
     ...files,
   }
 }
-
-it('shows the bundles exchanged with ChatGPT for the plan first in Ficheiros', () => {
-  const bundle = (id: string, direction: 'input' | 'output', name: string) => ({
-    id, request_id: request.request_id, direction, kind: 'bundle', name, size: 2048, sha256: id, created_at: '2026-09-28T01:02:00Z', expires_at: '2026-10-28T01:02:00Z', bundle: true,
-  })
-  const detail = { ...emptyDetail, bundles: [
-    bundle('art-req', 'input', 'whx_bundle_req_orchestrator_orp-detail.zip'),
-    bundle('art-res', 'output', 'whx_bundle_res_orchestrator_orp-detail.zip'),
-  ] } as OrchestratorPlanningDetail
-  render(<OrchestratorPlanDrawer request={request} detail={detail} sessionId="ses_owner" loading={false} onClose={vi.fn()} onRefresh={vi.fn()}/>)
-  fireEvent.click(screen.getByRole('tab', { name: /Ficheiros/ }))
-  expect(screen.getByText('Bundles trocados com o GPT')).toBeTruthy()
-  expect(screen.getByText('whx_bundle_req_orchestrator_orp-detail.zip')).toBeTruthy()
-  expect(screen.getByText('Pedido enviado')).toBeTruthy()
-  expect(screen.getByText('Resposta do GPT')).toBeTruthy()
-  expect(screen.getAllByRole('button', { name: /Explorar/ })).toHaveLength(2)
-})
