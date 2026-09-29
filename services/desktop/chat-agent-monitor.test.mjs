@@ -22,7 +22,7 @@ class FakeBrowserWindow extends EventEmitter {
   close() { this.emit('close'); this.destroyed = true }
 }
 
-function worker() {
+function worker(slotId = 'worker-1') {
   const bounds = []
   const visibility = []
   const view = {
@@ -30,7 +30,7 @@ function worker() {
     setBounds: (value) => bounds.push(value),
     setVisible: (value) => visibility.push(value),
   }
-  return { entry: { slotId: 'worker-1', view, interactionWindowId: '', parkedLayout: true }, bounds, visibility, view }
+  return { entry: { slotId, view, interactionWindowId: '', parkedLayout: true }, bounds, visibility, view }
 }
 
 test('monitor shows the existing Worker at its 1280×900 automation viewport', () => {
@@ -48,6 +48,32 @@ test('monitor shows the existing Worker at its 1280×900 automation viewport', (
   assert.equal(entry.parkedLayout, false)
   assert.equal(openWorkerMonitor(entry, FakeBrowserWindow).alreadyOpen, true)
   assert.equal(FakeBrowserWindow.windows.length, 1)
+})
+
+test('different Workers keep independent monitor windows', () => {
+  FakeBrowserWindow.windows = []
+  const first = worker('worker-1')
+  const second = worker('worker-2')
+  openWorkerMonitor(first.entry, FakeBrowserWindow)
+  openWorkerMonitor(second.entry, FakeBrowserWindow)
+  const [firstWindow, secondWindow] = FakeBrowserWindow.windows
+
+  assert.equal(FakeBrowserWindow.windows.length, 2)
+  assert.notEqual(first.entry.monitorWindow, second.entry.monitorWindow)
+  assert.deepEqual(firstWindow.children, [first.view])
+  assert.deepEqual(secondWindow.children, [second.view])
+  assert.equal(openWorkerMonitor(first.entry, FakeBrowserWindow).alreadyOpen, true)
+  assert.equal(FakeBrowserWindow.windows.length, 2)
+
+  closeWorkerMonitor(first.entry)
+  assert.equal(first.entry.monitorWindow, undefined)
+  assert.equal(first.entry.parkedLayout, true)
+  assert.deepEqual(firstWindow.children, [])
+  assert.equal(second.entry.monitorWindow, secondWindow)
+  assert.equal(secondWindow.destroyed, false)
+  assert.equal(second.entry.parkedLayout, false)
+  assert.deepEqual(secondWindow.children, [second.view])
+  assert.deepEqual(second.visibility, [true])
 })
 
 test('closing the monitor detaches without destroying or navigating the Worker', () => {
