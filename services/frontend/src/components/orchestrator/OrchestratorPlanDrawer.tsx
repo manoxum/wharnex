@@ -4,7 +4,7 @@ import { type ChatAgentTask, type OrchestratorPlanningDetail, type OrchestratorP
 import { Icon } from '../Icon'
 import { WorkerFollowViewer } from '../WorkerFollowViewer'
 import { OrchestratorPlanFilesTab, OrchestratorPlanTab } from './OrchestratorPlanDetailTabs'
-import { OrchestratorPlanExecutionsTab, OrchestratorPlanProgressSummary } from './OrchestratorPlanRunSummary'
+import { OrchestratorPhaseBadge, OrchestratorPlanExecutionsTab, OrchestratorPlanProgressSummary } from './OrchestratorPlanRunSummary'
 
 type DetailTab = 'summary' | 'files' | 'plan' | 'tasks' | 'executions'
 
@@ -20,12 +20,6 @@ const tabs: Array<{ id: DetailTab; label: string; icon: 'info' | 'folder' | 'pla
 // together with the label (SoT/UI_UX.md).
 const actionClass = 'inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-3 text-sm font-semibold text-[var(--theme-text)] transition-colors hover:bg-[var(--theme-hover)] disabled:cursor-default disabled:opacity-50'
 
-function statusTone(status: string) {
-  if (['DONE', 'COMPLETED', 'ACTIVE'].includes(status)) return 'border-[color-mix(in_srgb,var(--theme-success)_45%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-success)_12%,transparent)] text-[var(--theme-success)]'
-  if (['FAILED', 'ATTENTION', 'CANCELLED'].includes(status)) return 'border-[color-mix(in_srgb,var(--theme-danger)_45%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-danger)_12%,transparent)] text-[var(--theme-danger)]'
-  if (['RUNNING', 'LEASED'].includes(status)) return 'border-[color-mix(in_srgb,var(--theme-accent)_45%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-[var(--theme-accent)]'
-  return 'border-[color-mix(in_srgb,var(--theme-warning)_45%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-warning)_12%,transparent)] text-[var(--theme-warning)]'
-}
 
 export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionId, chats = [], loading, busy = false, error, onClose, onRefresh, onSelectTask, onOpenTasks, onGoToChat, onRetry, onApprove, onReject, onRevise }: {
   request: OrchestratorPlanningRequest
@@ -86,9 +80,10 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
           <span className="truncate font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">{request.request_id}</span>
           <strong id="orchestrator-plan-detail-title" className="truncate text-lg">{detail?.plan?.title || request.objective || 'Detalhe do planeamento'}</strong>
           <span className="mt-1 flex flex-wrap items-center gap-2">
-            <span className={`inline-flex min-h-[23px] items-center rounded-full border px-2.5 font-mono text-sm font-bold leading-none tracking-[0.04em] ${statusTone(requestStatus)}`}>{requestStatus}</span>
+            <OrchestratorPhaseBadge phase={request.phase}/>
             <span className="text-sm text-[var(--theme-text-muted)]">Tentativa {detail?.attempt ?? request.attempt}/{detail?.max_attempts ?? request.max_attempts}</span>
           </span>
+          <span className="text-sm text-[var(--theme-text-soft)]">Estado técnico do pedido: <code className="font-mono">{requestStatus}</code></span>
           <span className="text-sm text-[var(--theme-text-soft)]">Criado {formatDate(request.created_at)} · Atualizado {formatDate(request.updated_at)}</span>
           {detail?.plan ? <span className="truncate text-sm text-[var(--theme-text-soft)]"><span className="font-mono">{detail.plan.id}</span> · {detail.plan.title}</span> : null}
         </div>
@@ -109,8 +104,8 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
             {canRetry && onRetry ? <button className={actionClass} type="button" disabled={busy} onClick={onRetry}><Icon name="refresh" size={13}/> Retentar planeamento</button> : null}
           </div>
           {canDecideDraft && planID ? <div className="mt-2 flex flex-wrap gap-2 border-t border-[var(--theme-border-soft)] pt-2">
-            {onReject ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold text-[var(--theme-danger)]" type="button" disabled={busy} onClick={() => onReject(planID)}><Icon name="close" size={13}/> Rejeitar plano</button> : null}
-            {onRevise ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onRevise(planID)}><Icon name="refresh" size={13}/> Revisar plano</button> : null}
+            {onReject ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold text-[var(--theme-danger)]" type="button" disabled={busy} onClick={() => onReject(planID)}><Icon name="close" size={13}/> Recusar plano</button> : null}
+            {onRevise ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onRevise(planID)}><Icon name="refresh" size={13}/> Pedir alteração</button> : null}
             {onApprove ? <button className="primary rounded-md px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onApprove(planID)}><Icon name="check" size={13}/> Aprovar plano</button> : null}
           </div> : null}
         </section>
@@ -157,7 +152,7 @@ const cardClass = 'rounded-xl border border-[var(--theme-border-soft)] bg-[var(-
 function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest; detail: OrchestratorPlanningDetail }) {
   const objective = detail.objective || request.objective
   return <div className="grid gap-3">
-    <OrchestratorPlanProgressSummary detail={detail}/>
+    <OrchestratorPlanProgressSummary detail={detail} phase={request.phase}/>
     <section className={cardClass}>
       <strong className="text-base">Objetivo</strong>
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-text-muted)]">{objective || 'Sem objetivo registrado.'}</p>

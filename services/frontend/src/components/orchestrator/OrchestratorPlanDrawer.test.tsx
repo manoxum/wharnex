@@ -9,6 +9,7 @@ const request: OrchestratorPlanningRequest = {
   task_id: 'cat-detail',
   objective: 'Detalhar request',
   status: 'RUNNING',
+  phase: 'PLANNING',
   attempt: 2,
   max_attempts: 8,
   created_at: '2026-09-28T01:00:00Z',
@@ -74,6 +75,7 @@ it('shows plan identity and delegates close and refresh actions', () => {
   render(<OrchestratorPlanDrawer request={request} detail={detail} loading={false} onClose={onClose} onRefresh={onRefresh} onOpenTasks={onOpenTasks}/>)
 
   expect(screen.getByText(request.request_id)).toBeTruthy()
+  expect(screen.getAllByText('Em andamento').length).toBeGreaterThan(0)
   expect(screen.getByText(request.status)).toBeTruthy()
   expect(screen.getByText('Tentativa 2/8')).toBeTruthy()
   expect(screen.getByText(/Criado .* Atualizado/)).toBeTruthy()
@@ -86,6 +88,98 @@ it('shows plan identity and delegates close and refresh actions', () => {
   expect(onOpenTasks).toHaveBeenCalledWith('opl-detail')
   expect(onRefresh).toHaveBeenCalledTimes(1)
   expect(onClose).toHaveBeenCalledTimes(1)
+})
+
+
+it('shows a draft awaiting decision as Em análise and keeps all decision actions available', () => {
+  const onApprove = vi.fn()
+  const onReject = vi.fn()
+  const onRevise = vi.fn()
+  const draftRequest: OrchestratorPlanningRequest = {
+    ...request,
+    status: 'DONE',
+    phase: 'AWAITING_APPROVAL',
+  }
+  const detail: OrchestratorPlanningDetail = {
+    ...emptyDetail,
+    status: 'DONE',
+    plan: { ...planFixture(), status: 'DRAFT' },
+  }
+
+  render(<OrchestratorPlanDrawer
+    request={draftRequest}
+    detail={detail}
+    loading={false}
+    onClose={vi.fn()}
+    onRefresh={vi.fn()}
+    onApprove={onApprove}
+    onReject={onReject}
+    onRevise={onRevise}
+  />)
+
+  expect(screen.getAllByText('Em análise').length).toBeGreaterThan(0)
+  expect(screen.queryByText('Concluído')).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Aprovar plano' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Recusar plano' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Pedir alteração' }))
+
+  expect(onApprove).toHaveBeenCalledWith('opl-detail')
+  expect(onReject).toHaveBeenCalledWith('opl-detail')
+  expect(onRevise).toHaveBeenCalledWith('opl-detail')
+})
+
+it('keeps Review distinct from completion and preserves plan tasks and executions access', () => {
+  const onOpenTasks = vi.fn()
+  const reviewTask = { ...taskFixture('task-review', 'Rever resultado'), status: 'REVIEW' as const }
+  const detail: OrchestratorPlanningDetail = {
+    ...emptyDetail,
+    plan: { ...planFixture(), status: 'ACTIVE' },
+    tasks: [{ task: reviewTask, runs: [] }],
+  }
+  const reviewRequest: OrchestratorPlanningRequest = {
+    ...request,
+    status: 'DONE',
+    phase: 'REVIEW',
+  }
+
+  const view = render(<OrchestratorPlanDrawer
+    request={reviewRequest}
+    detail={detail}
+    loading={false}
+    onClose={vi.fn()}
+    onRefresh={vi.fn()}
+    onOpenTasks={onOpenTasks}
+  />)
+
+  expect(screen.getAllByText('Review').length).toBeGreaterThan(0)
+  expect(screen.getByText(/Review ainda não é conclusão/)).toBeTruthy()
+  expect(screen.getByText(/COMPLETE ou preservam evidência equivalente/)).toBeTruthy()
+  expect(screen.queryByText('Concluído')).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Ver tasks' }))
+  expect(onOpenTasks).toHaveBeenCalledWith('opl-detail')
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Execuções' }))
+  expect(screen.getByText('Rever resultado')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Abrir task Rever resultado' })).toBeTruthy()
+
+  const completedRequest: OrchestratorPlanningRequest = {
+    ...reviewRequest,
+    phase: 'COMPLETED',
+  }
+  view.rerender(<OrchestratorPlanDrawer
+    request={completedRequest}
+    detail={{ ...detail, plan: { ...planFixture(), status: 'COMPLETED' } }}
+    loading={false}
+    onClose={vi.fn()}
+    onRefresh={vi.fn()}
+    onOpenTasks={onOpenTasks}
+  />)
+
+  expect(screen.getAllByText('Concluído').length).toBeGreaterThan(0)
+  expect(screen.getByRole('tab', { name: 'Tasks' })).toBeTruthy()
+  expect(screen.getByRole('tab', { name: 'Execuções' })).toBeTruthy()
 })
 
 
