@@ -2525,29 +2525,7 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-proposal-card > header button, .orchestrator-manual-plan .primary, .orchestrator-tasks-toolbar > .primary, .orchestrator-drawer .primary { min-height:34px; padding:0 13px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:8px; background:var(--theme-accent); color:var(--theme-accent-contrast, #fff); font-weight:700; cursor:pointer; }
 .orchestrator-proposal-card > header button:disabled, .orchestrator-manual-plan .primary:disabled, .orchestrator-drawer .primary:disabled { opacity:.48; cursor:default; }
 
-.orchestrator-manual-plan, .orchestrator-planning-queue, .orchestrator-proposal-card, .orchestrator-cockpit { width:min(1100px,100%); margin:0 auto 22px; border:1px solid var(--theme-border-soft); border-radius:14px; background:var(--theme-surface); box-shadow:0 8px 24px color-mix(in srgb, var(--theme-shadow) 26%, transparent); }
-.orchestrator-planning-queue { overflow:hidden; }
-.orchestrator-planning-queue > header { min-height:62px; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-elevated); }
-.orchestrator-planning-queue > header > div { display:grid; gap:2px; }
-.orchestrator-planning-list { max-height:440px; overflow:auto; display:grid; }
-.orchestrator-planning-status { min-height:82px; padding:14px 16px; display:grid; grid-template-columns:12px minmax(0,1fr) auto; align-items:center; gap:12px; border-bottom:1px solid var(--theme-border-soft); background:linear-gradient(105deg,color-mix(in srgb,var(--theme-accent) 7%,var(--theme-surface)),var(--theme-surface) 58%); }
-.orchestrator-planning-status:last-child { border-bottom:0; }
-.orchestrator-planning-status > div { min-width:0; display:grid; gap:3px; }
-.orchestrator-planning-pulse { width:9px; height:9px; border-radius:50%; background:var(--theme-accent); box-shadow:0 0 0 5px color-mix(in srgb,var(--theme-accent) 16%,transparent); animation:orchestrator-planning-pulse 1.8s ease-in-out infinite; }
-.orchestrator-planning-badge { min-height:23px; padding:0 8px; display:inline-flex; align-items:center; border:1px solid color-mix(in srgb,var(--theme-accent) 30%,var(--theme-border)); border-radius:999px; background:var(--theme-subtle); letter-spacing:.04em; }
-.orchestrator-planning-nav { display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; }
-.orchestrator-planning-nav button { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-elevated); color:var(--theme-text-soft); font-weight:600; cursor:pointer; }
-.orchestrator-planning-nav button:hover { border-color:color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border)); background:var(--theme-hover); color:var(--theme-text); }
-.orchestrator-planning-nav button[aria-pressed="true"] { border-color:color-mix(in srgb, var(--theme-accent) 55%, var(--theme-border)); background:color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface)); color:var(--theme-text); font-weight:700; }
-.orchestrator-planning-actions { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
-.orchestrator-planning-actions button { min-height:27px; padding:0 9px; border:1px solid color-mix(in srgb,#d46b5f 48%,var(--theme-border)); border-radius:7px; background:transparent; color:var(--theme-text); font-weight:700; cursor:pointer; }
-.orchestrator-planning-actions button:hover { background:color-mix(in srgb,#d46b5f 11%,transparent); }
-.orchestrator-planning-actions button:disabled { opacity:.48; cursor:default; }
-.orchestrator-planning-status.status-failed, .orchestrator-planning-status.status-attention { border-color:color-mix(in srgb,#d46b5f 52%,var(--theme-border)); }
-.orchestrator-planning-status.status-failed .orchestrator-planning-pulse, .orchestrator-planning-status.status-attention .orchestrator-planning-pulse { background:#d46b5f; box-shadow:0 0 0 5px color-mix(in srgb,#d46b5f 16%,transparent); animation:none; }
-.orchestrator-planning-status.status-done .orchestrator-planning-pulse, .orchestrator-planning-status.status-cancelled .orchestrator-planning-pulse { background:#66a867; box-shadow:none; animation:none; }
-@keyframes orchestrator-planning-pulse { 50% { opacity:.42; transform:scale(.78); } }
-@media (prefers-reduced-motion:reduce) { .orchestrator-planning-pulse { animation:none; } }
+.orchestrator-manual-plan, .orchestrator-proposal-card, .orchestrator-cockpit { width:min(1100px,100%); margin:0 auto 22px; border:1px solid var(--theme-border-soft); border-radius:14px; background:var(--theme-surface); box-shadow:0 8px 24px color-mix(in srgb, var(--theme-shadow) 26%, transparent); }
 .orchestrator-manual-plan { padding:16px; display:grid; gap:10px; }
 .orchestrator-manual-plan > header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .orchestrator-manual-plan > header > div { display:grid; gap:3px; }

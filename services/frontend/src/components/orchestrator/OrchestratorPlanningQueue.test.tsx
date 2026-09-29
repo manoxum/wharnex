@@ -84,12 +84,34 @@ it('offers the drawer detail and the Tasks view filtered by the orchestration fo
   render(<OrchestratorPlanningQueue requests={[request]} tasks={[]} chats={[]} plans={[plan]} busy={false} onRetry={vi.fn()} onSelect={onSelect} onOpenTasks={onOpenTasks}/>)
   fireEvent.click(screen.getByRole('button', { name: /Detalhes/ }))
   expect(onSelect).toHaveBeenCalledWith(request)
+  onSelect.mockClear()
   fireEvent.click(screen.getByRole('button', { name: /Ver tasks/ }))
   expect(onOpenTasks).toHaveBeenCalledWith(plan.id)
+  expect(onSelect).not.toHaveBeenCalled()
 })
 
 it('offers following the ephemeral browser that plans the orchestration', () => {
   const ephemeral = { ...task, lease_owner: 'desktop-508e:translator-1' }
   render(<OrchestratorPlanningQueue requests={[request]} tasks={[ephemeral]} chats={[]} busy={false} onRetry={vi.fn()}/>)
   expect(screen.getByRole('button', { name: /Acompanhar instância/ })).not.toBeNull()
+})
+
+
+it('shows semantic status cues for active, attention and completed requests', () => {
+  const failed = { ...request, request_id: 'orp_failed', task_id: 'task-failed', status: 'FAILED', last_error: 'Falha ao entregar o plano.' }
+  const done = { ...request, request_id: 'orp_done', task_id: 'task-done', status: 'DONE' }
+  render(<OrchestratorPlanningQueue requests={[request, failed, done]} tasks={[]} chats={[]} busy={false} onRetry={vi.fn()}/>)
+
+  expect(screen.getByText('1 ativo · 3 pedidos')).toBeTruthy()
+  expect(screen.getByText('Em andamento')).toBeTruthy()
+  expect(screen.getByText('Requer atenção')).toBeTruthy()
+  expect(screen.getByText('Concluído')).toBeTruthy()
+  expect(screen.getByText('Falha ao entregar o plano.')).toBeTruthy()
+  expect(screen.getByText('Planejamento encerrado.')).toBeTruthy()
+})
+
+it('keeps retry disabled while the queue is busy', () => {
+  const failed = { ...request, status: 'ATTENTION' }
+  render(<OrchestratorPlanningQueue requests={[failed]} tasks={[]} chats={[]} busy onRetry={vi.fn()}/>)
+  expect((screen.getByRole('button', { name: /Retentar/ }) as HTMLButtonElement).disabled).toBe(true)
 })
