@@ -73,7 +73,13 @@ capture deadlines. Live follow therefore attaches that same view to a
 separate user-opened 1280×900 window. The Worker keeps its conversation and
 scheduler lease, and closing the window parks it again without a navigation.
 The monitor creates no additional ChatGPT WebContents and does not read or
-persist generated output.
+persist generated output. The Orchestrator may keep monitors for several
+distinct Workers open simultaneously. Each monitor stays associated with the
+task and Worker identity that opened it: opening another Worker's monitor does
+not close or detach existing monitors, reopening the same Worker reuses its
+existing window, and direct interaction remains mutually exclusive with
+monitoring for that one Worker. Closing one monitor parks only its Worker and
+leaves the other monitored Workers attached.
 The monitor closes when that Worker's task settles, and the Orchestrator panel
 tracks the task identity so it cannot keep showing a finished or reassigned
 Worker. A restored conversation may already contain its exact response ZIP
