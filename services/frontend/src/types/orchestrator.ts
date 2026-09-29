@@ -4,6 +4,7 @@ export const ORCHESTRATOR_TASK_STATUSES = ['PENDING', 'WAITING', 'READY', 'DOING
 export const ORCHESTRATOR_TERMINAL_STATUSES = ['COMPLETE', 'ARCHIVED'] as const
 
 export type OrchestratorPlanStatus = 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
+export type OrchestratorPhase = 'PLANNING' | 'AWAITING_APPROVAL' | 'EXECUTING' | 'REVIEW' | 'COMPLETED' | 'ARCHIVED'
 export type OrchestratorTaskStatus = (typeof ORCHESTRATOR_TASK_STATUSES)[number]
 export type OrchestratorTerminalTaskStatus = (typeof ORCHESTRATOR_TERMINAL_STATUSES)[number]
 export type OrchestratorTaskCondition = 'none' | 'dependency' | 'plan_approval' | 'manual_pause' | 'missing_context' | 'approval' | 'conflict' | 'failed_run' | 'stale_dependency'
@@ -35,7 +36,7 @@ export type OrchestratorTaskRun = {
 }
 
 export type OrchestratorPlanningRequest = {
-  request_id: string; task_id: string; objective?: string; status: string; attempt: number; max_attempts: number; last_error?: string; created_at: string; updated_at: string
+  request_id: string; task_id: string; objective?: string; status: string; phase?: OrchestratorPhase; attempt: number; max_attempts: number; last_error?: string; created_at: string; updated_at: string
 }
 
 export type OrchestratorTaskCounts = Record<OrchestratorTaskStatus, number>
