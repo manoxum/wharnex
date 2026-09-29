@@ -893,6 +893,36 @@ func TestPendingPlanForSessionReturnsLatestMemberAfterSameSessionExtension(t *te
 	}
 }
 
+func TestClaimPendingBatchUsesCurrentStatusMember(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	tx, err := manager.Prepare("ses-current", "plan-current", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	if err := manager.RecordStatus(tx, "ses-current", "plan-current", "restart_pending", "current batch ready"); err != nil {
+		t.Fatal(err)
+	}
+	tx.ReleaseStage()
+
+	claimed, pending, status, err := manager.ClaimPendingBatch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer claimed.ReleaseStage()
+	if claimed.ID != tx.ID {
+		t.Fatalf("expected transaction %s, got %s", tx.ID, claimed.ID)
+	}
+	if pending.SessionID != "ses-current" || pending.PlanID != "plan-current" {
+		t.Fatalf("unexpected current pending member: %#v", pending)
+	}
+	if status.Transaction != "txn-"+tx.ID || status.Phase != "restart_pending" {
+		t.Fatalf("unexpected claimed status: %#v", status)
+	}
+}
+
 func TestPendingTransactionRecoversRestartConfirmationHandoff(t *testing.T) {
 	root := fakeRoot(t)
 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
