@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ChatAgentTask, OrchestratorOverview, OrchestratorPlan } from '../../types'
-import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
+import { taskBrowserAgentId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 import { Icon } from '../Icon'
 import { WorkerFollowViewer } from '../WorkerFollowViewer'
 
@@ -21,7 +21,7 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, plans = [], 
   const [followed, setFollowed] = useState<FollowedTask>()
   const activeCount = requests.filter((item) => ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status)).length
   const activeFollow = followed && requests.some((request) => request.task_id === followed.taskId && ['LEASED', 'RUNNING'].includes(request.status))
-    && tasks.some((task) => task.task_id === followed.taskId && ['LEASED', 'RUNNING'].includes(task.status) && extractWorkerId(task.lease_owner) === followed.agentId)
+    && tasks.some((task) => task.task_id === followed.taskId && taskBrowserAgentId(task) === followed.agentId)
 
   useEffect(() => {
     if (followed && !activeFollow) setFollowed(undefined)
@@ -37,7 +37,7 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, plans = [], 
       <div className="orchestrator-planning-list">
         {requests.map((planning) => {
           const backingTask = tasks.find((task) => task.task_id === planning.task_id)
-          const workerId = backingTask && ['LEASED', 'RUNNING'].includes(backingTask.status) ? extractWorkerId(backingTask.lease_owner) : undefined
+          const workerId = taskBrowserAgentId(backingTask)
           const resolvedChatId = backingTask ? resolveTaskChatId(backingTask, chats) : undefined
           const isFollowing = followed?.taskId === planning.task_id && followed.agentId === workerId
           const plan = plans.find((item) => item.planner_request_id === planning.request_id)

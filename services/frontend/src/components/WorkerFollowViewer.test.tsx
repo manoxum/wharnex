@@ -5,6 +5,7 @@ import { WorkerFollowViewer } from './WorkerFollowViewer'
 function installBridge() {
   const agents = {
     openMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, alreadyOpen: false })),
+    onState: vi.fn(() => () => undefined),
     closeMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, closed: true })),
     openInteraction: vi.fn(),
     setInteractionBounds: vi.fn(),

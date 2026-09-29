@@ -76,6 +76,13 @@ Each claimed task gets its own hidden hardened browser:
   conversation;
 - a kept browser that is not claimed again for 20 minutes is destroyed.
 
+An ephemeral browser is listed in the runtime drawer as "Worker efémero ·
+Planeamento" (or Release notes, Tradução) with its task and phase, and can be
+followed in the same monitor window as a persistent Worker. The planning queue
+names it from the task (its lease owner is the pool's loop, not a Worker
+slot), so a planning request is never shown as unassigned while its own
+browser is already working on it.
+
 Utility actions take the highest pacer priority (above an execution action
 that already reached ChatGPT), but still honour the shared pacing gap. Provider
 rate-limit and read-cooldown checks still apply at the action boundary, as

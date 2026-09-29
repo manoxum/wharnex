@@ -51,6 +51,8 @@ type DesktopAgentRuntimeAgent = {
   // The Orchestrator task a Worker is pinned to until that task ends; it holds
   // the task between rounds, as a Supervisor holds its chat.
   pinned_task_id?: string
+  // A browser created for one planning, release-notes or translation task.
+  ephemeral?: boolean
   suspended?: boolean
   // Canonical host path of the project this slot is working for, carried at
   // agent level for the same reason: a Supervisor between observations has no

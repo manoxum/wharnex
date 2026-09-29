@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
+import { taskBrowserAgentId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 import { type ChatAgentTask, type OrchestratorPlanningDetail, type OrchestratorPlanningRequest, type OrchestratorTask } from '../../types'
 import { Icon } from '../Icon'
 import { WorkerFollowViewer } from '../WorkerFollowViewer'
@@ -50,7 +50,7 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const planID = detail?.plan?.id
   const requestStatus = detail?.status || request.status
-  const workerID = planningTask && ['LEASED', 'RUNNING'].includes(planningTask.status) ? extractWorkerId(planningTask.lease_owner) : undefined
+  const workerID = taskBrowserAgentId(planningTask)
   const resolvedChatID = planningTask ? resolveTaskChatId(planningTask, chats) : undefined
   const canRetry = ['FAILED', 'ATTENTION'].includes(requestStatus)
   const canDecideDraft = detail?.plan?.status === 'DRAFT'

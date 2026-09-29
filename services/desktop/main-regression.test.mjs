@@ -3170,3 +3170,11 @@ test('a task bundle is delivered on the long-running request, never on a five-mi
   const post = source.slice(source.indexOf('async function postOrchestratorTask('))
   assert.match(post.slice(0, 1200), /if \(suffix === 'bundle'\) \{[\s\S]{0,500}await postLongRunningWorkerJSON\(BACKEND_URL, path, body\)/)
 })
+
+test('ephemeral utility Workers are published and can be followed while their task runs', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const EPHEMERAL_AGENT_ID = \/\^\(ephemeral\|translator\)-cat_\[a-f0-9\]\{20\}\$\//)
+  assert.match(source, /if \(!\/\^worker-\[1-9\]\[0-9\]\?\$\/\.test\(id\) && !EPHEMERAL_AGENT_ID\.test\(id\)\)/)
+  assert.match(source, /const agents = \[\.\.\.supervisors, \.\.\.workers, \.\.\.ephemeral\]/)
+  assert.match(source, /label: `Worker efémero · \$\{EPHEMERAL_WORKER_LABELS\[task\?\.type\] \|\| 'Utilitário'\}`/)
+})

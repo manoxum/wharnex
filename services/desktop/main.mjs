@@ -3173,7 +3173,9 @@ function chatAgentSupervisingLiveResponse(worker) {
 
 function workerEntryForAgentID(agentID) {
   const id = String(agentID || '').trim()
-  if (!/^worker-[1-9][0-9]?$/.test(id)) throw new Error('Only Worker browser instances can enter interaction mode')
+  // Ephemeral utility Workers (planning, release notes, translation) are
+  // followed through the same monitor window as a persistent Worker.
+  if (!/^worker-[1-9][0-9]?$/.test(id) && !EPHEMERAL_AGENT_ID.test(id)) throw new Error('Only Worker browser instances can enter interaction mode')
   const entry = chatGPTWorkerEntries.find((candidate) => candidate.slotId === id)
   if (!entry || entry.view.webContents.isDestroyed()) throw new Error('Worker browser instance is not available')
   return entry
@@ -3484,7 +3486,21 @@ function chatAgentRuntimeState() {
       keep_flowing: chatAgentKeepFlowingConfigured(worker), keep_flowing_active: chatAgentKeepFlowingActive(worker), suspended: workerSuspendsAllTaskTypes(chatAgentPolicies),
     }
   })
-  const agents = [...supervisors, ...workers]
+  // Ephemeral utility Workers exist only while their task runs; they are
+  // listed so a planning, release-notes or translation task is never seen as
+  // unassigned while its own browser is working on it.
+  const ephemeral = chatGPTWorkerEntries.filter((entry) => EPHEMERAL_AGENT_ID.test(entry.slotId) && !entry.view.webContents.isDestroyed()).map((entry) => {
+    const task = entry.ephemeralTask
+    const activity = chatAgentWorkerActivity.snapshot(entry.slotId)
+    return {
+      id: entry.slotId, label: `Worker efémero · ${EPHEMERAL_WORKER_LABELS[task?.type] || 'Utilitário'}`, role: 'worker', ephemeral: true,
+      status: activity ? 'running' : 'claimed', draining: false, loop_active: true, interacting: Boolean(entry.interactionWindowId),
+      occupied: true, monitor_open: Boolean(entry.monitorWindow && !entry.monitorWindow.isDestroyed()),
+      chat_id: String(task?.chat_id || entry.ownerKey || ''), task: publicChatAgentTask(task), project_id: String(task?.project_id || ''),
+      last_task: publicChatAgentTask(task), last_claim_at: '', error: '', browser: publicAgentBrowser(entry), activity,
+    }
+  })
+  const agents = [...supervisors, ...workers, ...ephemeral]
   const memory = chatAgentRuntimeMemory(agents)
   return {
     instance_id: String(chatAgentScheduler?.instanceID || ''),
@@ -6954,6 +6970,7 @@ async function executeChatTranslatorTask(task, { entry: borrowedEntry } = {}) {
   if (!host) return { status: 'failed', error: 'Translator has no host window' }
 
   const entry = borrowedEntry || createChatGPTWorkerView(`translator-${task.task_id}`, host)
+  if (!borrowedEntry) { entry.ephemeralTask = task; publishChatAgentRuntimeState() }
   let assigned
   try {
     const payload = chatAgentTaskPayload(task)
@@ -6972,6 +6989,7 @@ async function executeChatTranslatorTask(task, { entry: borrowedEntry } = {}) {
       if (index >= 0) chatGPTWorkerEntries.splice(index, 1)
       retireChatGPTWorkerView(entry)
       console.log(`[translator] destroyed task=${task.task_id}`)
+      publishChatAgentRuntimeState()
     }
   }
 }
@@ -6983,6 +7001,8 @@ async function executeChatTranslatorTask(task, { entry: borrowedEntry } = {}) {
 // conversation, so the next observation does not reopen it. The configured
 // Worker count and auto scale apply to Orchestrator execution only.
 const EPHEMERAL_WORKER_TASK_TYPES = new Set(['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES'])
+const EPHEMERAL_AGENT_ID = /^(ephemeral|translator)-cat_[a-f0-9]{20}$/
+const EPHEMERAL_WORKER_LABELS = { ORCHESTRATOR_PLAN: 'Planeamento', RELEASE_NOTES: 'Release notes', TRANSLATE_MARKDOWN: 'Tradução' }
 const EPHEMERAL_WORKER_IDLE_RETIRE_MS = 20 * 60_000
 const EPHEMERAL_WORKER_PACE_PRIORITY = 2
 const ephemeralWorkerViews = new Map()
@@ -6995,6 +7015,7 @@ function retireEphemeralWorkerView(taskId, reason) {
   if (index >= 0) chatGPTWorkerEntries.splice(index, 1)
   retireChatGPTWorkerView(kept.entry)
   console.log(`[ephemeral-worker] destroyed task=${taskId} reason=${reason}`)
+  publishChatAgentRuntimeState()
 }
 
 // A kept view whose task never came back (cancelled, retried elsewhere) must
@@ -7021,9 +7042,11 @@ async function executeEphemeralWorkerTask(task, context = {}) {
   if (!kept) {
     kept = { entry: createChatGPTWorkerView(`ephemeral-${task.task_id}`, host), lastUsed: Date.now(), running: false }
     ephemeralWorkerViews.set(task.task_id, kept)
+    publishChatAgentRuntimeState()
     console.log(`[ephemeral-worker] created task=${task.task_id} type=${task.type}`)
   }
   kept.running = true
+  kept.entry.ephemeralTask = task
   let result
   try {
     result = await chatAgentWorkerActivity.run(kept.entry.slotId, task.task_id,

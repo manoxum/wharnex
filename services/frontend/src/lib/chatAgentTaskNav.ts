@@ -11,6 +11,19 @@ export function extractWorkerId(owner?: string) {
   return match?.[1]
 }
 
+const EPHEMERAL_TASK_TYPES = new Set(['ORCHESTRATOR_PLAN', 'RELEASE_NOTES', 'TRANSLATE_MARKDOWN'])
+
+// The browser serving a leased task. Planning, release notes and translation
+// run on an ephemeral browser named after the task itself; its lease owner is
+// the ephemeral pool's loop (translator-N), not a Worker slot.
+export function taskBrowserAgentId(task?: { task_id: string; type: string; status: string; lease_owner?: string }) {
+  if (!task || !['LEASED', 'RUNNING'].includes(task.status)) return undefined
+  if (EPHEMERAL_TASK_TYPES.has(task.type) && /(?:^|:)translator-\d+$/.test(String(task.lease_owner || '').trim())) {
+    return `${task.type === 'TRANSLATE_MARKDOWN' ? 'translator' : 'ephemeral'}-${task.task_id}`
+  }
+  return extractWorkerId(task.lease_owner)
+}
+
 // A task's chat_id is the real Harness chat id for ordinary work, but is the
 // synthetic orchestrator request id for ORCHESTRATOR_PLAN tasks; session_id
 // resolves either shape to the real owning chat.

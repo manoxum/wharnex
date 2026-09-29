@@ -87,3 +87,9 @@ it('offers the drawer detail and the Tasks view filtered by the orchestration fo
   fireEvent.click(screen.getByRole('button', { name: /Ver tasks/ }))
   expect(onOpenTasks).toHaveBeenCalledWith(plan.id)
 })
+
+it('offers following the ephemeral browser that plans the orchestration', () => {
+  const ephemeral = { ...task, lease_owner: 'desktop-508e:translator-1' }
+  render(<OrchestratorPlanningQueue requests={[request]} tasks={[ephemeral]} chats={[]} busy={false} onRetry={vi.fn()}/>)
+  expect(screen.getByRole('button', { name: /Acompanhar instância/ })).not.toBeNull()
+})
