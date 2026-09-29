@@ -34,6 +34,9 @@ func (s *Service) StartOrchestratorWorkerTask(ctx context.Context, sessionID, ta
 		return OrchestratorWorkerRequest{}, errors.New("orchestrator Worker execution requires Protected Auto mode")
 	}
 	task, err := s.orchestrator.GetTask(ctx, taskID)
+	if err != nil && !errors.Is(err, orchestrator.ErrNotFound) {
+		return OrchestratorWorkerRequest{}, orchestratorStoreUnavailable(err)
+	}
 	if err != nil || task.ProjectPath != ownerSession.ProjectPath {
 		return OrchestratorWorkerRequest{}, errors.New("orchestrator task does not belong to this project")
 	}

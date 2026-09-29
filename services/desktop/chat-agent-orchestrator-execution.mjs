@@ -9,15 +9,31 @@ const OBSERVE_MS = 30_000
 // How many times the driver may resend one request after its supervision gave up.
 const MAX_REQUEST_RESENDS = 2
 
+// A backend that cannot answer (restarting, or its own store failing) says
+// nothing about the task. Nothing reached ChatGPT, so such an attempt must come
+// back as a free wait instead of spending the task's bounded budget.
+function backendUnavailable(message, cause = undefined) {
+  const error = new Error(message, cause ? { cause } : undefined)
+  error.backendUnavailable = true
+  return error
+}
+
 async function workerRequest(baseURL, sessionID, taskID, suffix, body) {
   const path = `/api/sessions/${encodeURIComponent(sessionID)}/orchestrator/tasks/${encodeURIComponent(taskID)}/${suffix}`
-  const response = await fetch(new URL(path, baseURL), {
-    method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  })
+  let response
+  try {
+    response = await fetch(new URL(path, baseURL), {
+      method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+  } catch (error) {
+    throw backendUnavailable(`orchestrator Worker ${suffix}: backend unreachable (${String(error?.message || error)})`, error)
+  }
   if (!response.ok) {
     let detail = ''
     try { detail = String((await response.json())?.error?.message || '') } catch {}
-    throw new Error(`orchestrator Worker ${suffix} HTTP ${response.status}${detail ? `: ${detail}` : ''}`)
+    const message = `orchestrator Worker ${suffix} HTTP ${response.status}${detail ? `: ${detail}` : ''}`
+    if (response.status === 502 || response.status === 503 || response.status === 504) throw backendUnavailable(message)
+    throw new Error(message)
   }
   return response.json()
 }
@@ -97,6 +113,7 @@ export async function executeOrchestratorExecution(task, entry, key, payload, ow
     if (error?.conversationUnavailable === true) {
       return observe(String(error.message || 'ChatGPT could not load this conversation'), Math.max(0, Number(error.delayMs) || 0))
     }
+    if (error?.backendUnavailable === true) return observe(String(error.message))
     // Affinity divergence is not a transient transport failure. Retrying could
     // submit the same Main Request into a second conversation, so fail the
     // execution task immediately and leave the concrete diagnostic visible.

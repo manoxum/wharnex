@@ -45,6 +45,9 @@ func (s *Service) acceptContextRequest(ctx context.Context, sessionID string, cu
 	for _, path := range turn.ContextPaths {
 		result.Commands = append(result.Commands, domain.CommandResult{Argv: []string{"context.read", path}, Cwd: ".", ExitCode: 0, Success: true, Stdout: "Added captured file to the next request bundle."})
 	}
+	// An increment is a round like a workflow step: its body belongs in the
+	// durable ledger, or the history of what the planner was shown is lost.
+	s.recordExecutionActivity(sessionID, turn.RequestID, result)
 	s.bus.Publish(sessionID, "context.incremented", map[string]any{"request_id": turn.RequestID, "added": len(turn.ContextPaths), "selected": len(paths)})
 	if err := s.prepareWorkflowContinuation(ctx, sessionID, result, updated.WorkflowRound+1, maxWorkflowRounds); err != nil {
 		return BundleSubmission{}, err

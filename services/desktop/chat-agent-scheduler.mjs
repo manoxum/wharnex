@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { chatAgentIdleDelay, DEFAULT_CHAT_AGENT_IDLE_CEILING_MS } from './chat-agent-idle-backoff.mjs'
 
 export const DEFAULT_CHAT_AGENT_WORKERS = 3
 export const DEFAULT_CHAT_AGENT_LEASE_SECONDS = 45
@@ -49,6 +50,7 @@ export class ChatAgentSchedulerClient {
     maxWorkers = 3,
     leaseSeconds = DEFAULT_CHAT_AGENT_LEASE_SECONDS,
     idleMs = 750,
+    idleCeilingMs = DEFAULT_CHAT_AGENT_IDLE_CEILING_MS,
     taskCooldownMs = DEFAULT_CHAT_AGENT_TASK_COOLDOWN_MS,
     claimOptions = () => ({}),
     onIdle = () => {},
@@ -70,6 +72,8 @@ export class ChatAgentSchedulerClient {
     this.workerCount = this.#normalizeWorkerCount(workerCount)
     this.leaseSeconds = leaseSeconds
     this.idleMs = idleMs
+    this.idleCeilingMs = idleCeilingMs
+    this.wakeEpoch = 0
     this.taskCooldownMs = Math.max(0, Number(taskCooldownMs) || 0)
     this.claimOptions = typeof claimOptions === 'function' ? claimOptions : () => ({})
     // Reported on every claim that found nothing. A worker that keeps claiming
@@ -230,6 +234,7 @@ export class ChatAgentSchedulerClient {
   }
 
   wake() {
+    this.wakeEpoch++
     for (const resolve of this.idleWaiters) resolve()
     this.idleWaiters.clear()
   }
@@ -252,6 +257,8 @@ export class ChatAgentSchedulerClient {
   async #workerLoop(index) {
     const agent = String(this.agentID(index) || `worker-${index}`)
     const owner = `${this.instanceID}:${agent}`
+    let emptyClaims = 0
+    let seenWake = this.wakeEpoch
     while (this.running && index <= this.workerCount) {
       try {
         const claim = await this.claimOptions(index) || {}
@@ -279,9 +286,12 @@ export class ChatAgentSchedulerClient {
         const task = claimed?.task
         if (!task) {
           this.onIdle(index)
-          await this.#waitForWork(this.idleMs)
+          if (seenWake !== this.wakeEpoch) { seenWake = this.wakeEpoch; emptyClaims = 0 }
+          emptyClaims++
+          await this.#waitForWork(chatAgentIdleDelay(emptyClaims, this.idleMs, this.idleCeilingMs))
           continue
         }
+        emptyClaims = 0
         const result = await this.#runTask(owner, task, index)
         // A passive observation never touched the provider: it read an
         // already-resident page and handed the slot straight back. Charging it
@@ -379,9 +389,11 @@ export class ChatAgentSchedulerClient {
     }
   }
 
+  // The scheduler never reads a transitioned task back, so it asks for the
+  // lease-state acknowledgement instead of the whole task and its payload.
   #transition(taskID, action, body) {
     return requestJSON(this.fetchImpl, this.baseURL, `/api/chat-agent/tasks/${encodeURIComponent(taskID)}/${action}`, {
-      method: 'POST', body: JSON.stringify(body),
+      method: 'POST', body: JSON.stringify(body), headers: { Prefer: 'return=minimal' },
     })
   }
 }

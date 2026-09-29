@@ -1,6 +1,11 @@
 package app
 
-import "kernl.local/harness/backend/internal/orchestrator"
+import (
+	"errors"
+	"fmt"
+
+	"kernl.local/harness/backend/internal/orchestrator"
+)
 
 type OrchestratorWorkerRequest struct {
 	Task             orchestrator.Task    `json:"task"`
@@ -25,4 +30,15 @@ func settledOrchestratorWorkerRequest(task orchestrator.Task) OrchestratorWorker
 		Task: task, AgentState: "settled",
 		ConversationURL: task.ConversationURL, ConversationID: task.ConversationID,
 	}
+}
+
+// ErrOrchestratorStoreUnavailable marks a worker-start the backend could not
+// answer because its own orchestrator store failed. It says nothing about the
+// task: on 2026-09-29 a backend deployed mid-migration failed every task read,
+// reported each as "does not belong to this project", and the Worker spent a
+// healthy task's attempt budget on a fault no attempt could change.
+var ErrOrchestratorStoreUnavailable = errors.New("orchestrator store unavailable")
+
+func orchestratorStoreUnavailable(cause error) error {
+	return fmt.Errorf("%w: %v", ErrOrchestratorStoreUnavailable, cause)
 }

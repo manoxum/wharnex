@@ -130,3 +130,28 @@ commit. Ignore repair MUST preserve existing rules and be idempotent.
   until deliberately promoted to a blocking gate. Reviewers enforce the
   extract-on-touch rule for legacy oversized files by inspection, since that
   rule is not mechanically checkable.
+
+## G12 Database identities and migration
+
+- Run `go test ./internal/dbidentity -count=1` from `services/backend` with
+  `WHARNESS_TEST_DATABASE_URL` set to a disposable PostgreSQL 17 database.
+  `scripts/quality-gates.sh` executes this gate when that URL is configured;
+  set `WHARNEX_REQUIRE_DATABASE_GATE=1` to make an absent URL fail, as required
+  in CI and release jobs that change this contract.
+- With a PostgreSQL test database configured, a catalog integration test MUST
+  initialize the legacy schema, apply the shared identity migration twice, and
+  assert every project-owned base table has `id bigint` as its sole identity
+  primary key, and non-null unique `sid text` and `uid uuid` columns. Every
+  declared relational foreign key MUST use `bigint` and target an `id` key.
+- Seeded legacy data MUST keep its former string key as `sid`; repeated migration
+  MUST preserve `id`, `sid`, `uid`, row counts and numeric relationships. The
+  gate MUST reject collisions, missing required references and incomplete prior upgrades
+  rather than repairing them through data loss or weakened assertions.
+- Persistence tests MUST prove relationship lookup and joins use numeric IDs;
+  transport tests MUST prove callers can use `sid` or `uid` and cannot supply a
+  numeric database ID as a record identifier. Newly introduced reference columns
+  and endpoints MUST add focused regression tests at those boundaries.
+- CI and releases that modify schema, persistence or backend identity contracts
+  MUST run this gate against PostgreSQL. A local run without a configured test
+  database MAY report the integration portion as skipped, but that skipped run
+  does not satisfy the release gate.

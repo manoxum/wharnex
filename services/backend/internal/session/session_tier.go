@@ -20,8 +20,8 @@ import (
 // complete session, and a write can never persist a slim view over the
 // durable record.
 const (
-	defaultHotSessionLimit = 32
-	defaultHotSessionBytes = 192 << 20
+	defaultHotSessionLimit = 24
+	defaultHotSessionBytes = 64 << 20
 )
 
 // slimSessionProjection is the SQL form of slimSession: it strips the same

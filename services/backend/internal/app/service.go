@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -578,34 +577,6 @@ func removeContextDirectory(zipPath string) {
 	if strings.HasPrefix(filepath.Base(directory), "wharness-context-") {
 		_ = os.RemoveAll(directory)
 	}
-}
-
-// chatIDPattern is deliberately stricter than the desktop's own cacheKey
-// pattern (which allows '_'): '_' is the field separator in the
-// whx_bundle_<req|res>_<chatid>_<request_id>[_<subrequest_id>].zip naming
-// scheme, so a chat id containing one would make the name ambiguous to
-// parse. Every real chat id is a crypto.randomUUID() (hex and hyphens only),
-// so this never rejects an actual chat in practice.
-var chatIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
-
-// SetChatID records the frontend's chat identifier against a session so
-// bundle filenames can be scoped to it. It is validated, not trusted: a
-// value containing '_' would make whx_bundle_* names ambiguous to parse.
-func (s *Service) SetChatID(sessionID, chatID string) (domain.Session, error) {
-	chatID = strings.TrimSpace(chatID)
-	if chatID == "" {
-		return s.store.Get(sessionID)
-	}
-	if !chatIDPattern.MatchString(chatID) {
-		return domain.Session{}, fmt.Errorf("invalid chat_id %q", chatID)
-	}
-	return s.store.Update(sessionID, func(item *domain.Session) error {
-		if item.ChatID != "" && item.ChatID != chatID {
-			return fmt.Errorf("session is already owned by chat_id %q", item.ChatID)
-		}
-		item.ChatID = chatID
-		return nil
-	})
 }
 
 func (s *Service) DeleteSession(sessionID string) error {
@@ -3896,35 +3867,6 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 	} else {
 		s.bus.Publish(sessionID, "context.refresh_after_revert_failed", map[string]any{"error": refreshErr.Error()})
 	}
-	return updated, nil
-}
-
-func (s *Service) RestartSelfEvolution(sessionID string) (domain.Session, error) {
-	item, err := s.store.Get(sessionID)
-	if err != nil {
-		return item, err
-	}
-	if !s.isSelfEvolution(item) || (item.SelfEvolutionActivation != "restart_pending" && item.State != "restart_pending") {
-		return item, errors.New("no Wharnex self-evolution restart is pending confirmation")
-	}
-	transaction, pending, err := s.selfEvolution.ClaimPendingForSession(sessionID)
-	if err != nil {
-		return item, fmt.Errorf("recover pending Wharnex self-evolution transaction: %w", err)
-	}
-	if err := s.selfEvolution.ScheduleRestart(transaction, sessionID, pending.PlanID); err != nil {
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, pending.PlanID, "restart_pending", "restart confirmation accepted but detached handoff failed: "+err.Error())
-		transaction.ReleaseStage()
-		return item, fmt.Errorf("schedule Wharnex restart: %w", err)
-	}
-	_ = s.selfEvolution.RecordStatus(transaction, sessionID, pending.PlanID, "restart_scheduled", "detached restart supervisor accepted the pending self-evolution batch")
-	s.updateSelfEvolutionBatchSessions(transaction, "restart_scheduled", "")
-	transaction.ReleaseStage()
-	updated, err := s.store.Get(sessionID)
-	if err != nil {
-		return item, err
-	}
-	s.bus.Publish(sessionID, "self_evolution.restart_scheduled", map[string]any{"plan_id": pending.PlanID, "transaction_id": transaction.ID})
-	go s.awaitSelfEvolutionActivation(transaction.ID)
 	return updated, nil
 }
 

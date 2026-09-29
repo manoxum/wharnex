@@ -3,28 +3,9 @@ import type { DurableWorkspaceChatRecord } from './workspaceMemory'
 import type { OrchestratorTaskRetryContext, ReasoningEffort, ContextMode } from '../types'
 import { createOrchestratorApi, normalizeOrchestratorOverview } from './orchestratorApi'
 import type { WorkspaceAttentionPayload } from './orchestratorAttention'
+import { API_URL, APIError, request } from './apiRequest'
 export { normalizeOrchestratorOverview } from './orchestratorApi'
-
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8888'
-
-export class APIError extends Error {
-  constructor(message: string, public status: number, public data?: unknown) {
-    super(message)
-  }
-}
-
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const message = data?.error?.message || `HTTP ${response.status}`
-    throw new APIError(message, response.status, data)
-  }
-  return data as T
-}
+export { APIError, request } from './apiRequest'
 
 export type ChatExportRequest = {
   chat_id: string

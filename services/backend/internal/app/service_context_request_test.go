@@ -61,6 +61,9 @@ func TestPartialContextRequestAddsOnlyCapturedFilesToNextBundle(t *testing.T) {
 	if !submitted.WorkflowPrepared || !submitted.ContextIncremented || submitted.Session.LastRequestID == first.LastRequestID {
 		t.Fatalf("context continuation not prepared: %#v", submitted)
 	}
+	if recorded := ledgerEvents(service.bus.History(started.ID), EventExecutionRecorded); len(recorded) != 1 || recorded[0].Data["request_id"] != first.LastRequestID {
+		t.Fatalf("the increment round must reach the durable ledger: %#v", recorded)
+	}
 	_, err = service.PublishRemoteInput(context.Background(), started.ID, RemoteInputRequest{RequestID: submitted.Session.LastRequestID, Prompt: submitted.Session.LastManualPrompt})
 	if err != nil {
 		t.Fatal(err)

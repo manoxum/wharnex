@@ -116,7 +116,7 @@ func (a *API) assignChatAgentTask(w http.ResponseWriter, r *http.Request) {
 		writeChatAgentTaskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	writeChatAgentTask(w, r, task)
 }
 
 func (a *API) startChatAgentTask(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +139,7 @@ func (a *API) heartbeatChatAgentTask(w http.ResponseWriter, r *http.Request) {
 		writeChatAgentTaskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	writeChatAgentTask(w, r, task)
 }
 
 func (a *API) waitChatAgentTask(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +160,7 @@ func (a *API) waitChatAgentTask(w http.ResponseWriter, r *http.Request) {
 		writeChatAgentTaskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	writeChatAgentTask(w, r, task)
 }
 
 func (a *API) completeChatAgentTask(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +185,7 @@ func (a *API) completeChatAgentTask(w http.ResponseWriter, r *http.Request) {
 		writeChatAgentTaskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	writeChatAgentTask(w, r, task)
 }
 
 func (a *API) failChatAgentTask(w http.ResponseWriter, r *http.Request) {
@@ -212,7 +212,7 @@ func (a *API) finishChatAgentTask(w http.ResponseWriter, r *http.Request, attent
 	if a.service != nil {
 		a.service.HandleChatAgentTaskTerminal(task)
 	}
-	writeJSON(w, http.StatusOK, task)
+	writeChatAgentTask(w, r, task)
 }
 
 func (a *API) chatAgentSimpleTransition(
@@ -231,7 +231,7 @@ func (a *API) chatAgentSimpleTransition(
 		writeChatAgentTaskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, task)
+	writeChatAgentTask(w, r, task)
 }
 
 func (a *API) cancelChatAgentLineage(w http.ResponseWriter, r *http.Request) {

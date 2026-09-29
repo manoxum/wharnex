@@ -18,14 +18,14 @@ function affinityError(message) {
 }
 
 async function drive({ start = REQUEST, supervision = { state: 'none' }, payload = PAYLOAD, adopt = false,
-  stored = '', observed = '', ensureError = undefined, bindError = '' } = {}) {
+  stored = '', observed = '', ensureError = undefined, bindError = '', startResponse = undefined } = {}) {
   const previousFetch = globalThis.fetch
   const calls = []
   const actions = []
   globalThis.fetch = async (url, options) => {
     const body = JSON.parse(options.body)
     calls.push({ url: String(url), body })
-    if (String(url).endsWith('/worker-start')) return { ok: true, json: async () => start }
+    if (String(url).endsWith('/worker-start')) return startResponse ? startResponse() : { ok: true, json: async () => start }
     actions.push(['bind', body.conversation_url])
     if (bindError) {
       return { ok: false, status: 409, json: async () => ({ error: { message: bindError } }) }
@@ -199,4 +199,17 @@ test('the driver has no transport of its own', async () => {
   for (const copied of ['fill(', 'paste(', 'expectedDownloads', 'chatGPTDeliveryContinuationPrompt', 'worker-bundle', 'new WebContentsView', 'new BrowserWindow', 'createChatGPTView']) {
     assert.equal(source.includes(copied), false, `driver still carries ${copied}`)
   }
+})
+
+test('a backend that cannot answer worker-start returns the attempt as a free wait', async () => {
+  const storeDown = await drive({ startResponse: () => ({ ok: false, status: 503, json: async () => ({ error: { message: 'orchestrator store unavailable: column "id" does not exist' } }) }) })
+  assert.equal(storeDown.result.status, 'waiting')
+  assert.equal(storeDown.result.observation, true)
+  assert.match(storeDown.result.error, /HTTP 503: orchestrator store unavailable/)
+  assert.equal(storeDown.actions.length, 0)
+  const unreachable = await drive({ startResponse: () => { throw new TypeError('fetch failed') } })
+  assert.equal(unreachable.result.observation, true)
+  assert.match(unreachable.result.error, /backend unreachable \(fetch failed\)/)
+  // A refusal about the task itself is still a charged failure.
+  await assert.rejects(drive({ startResponse: () => ({ ok: false, status: 409, json: async () => ({ error: { message: 'orchestrator task does not belong to this project' } }) }) }), /HTTP 409/)
 })
