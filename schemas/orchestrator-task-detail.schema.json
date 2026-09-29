@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharnex.local/schemas/orchestrator-task-detail.schema.json",
+  "title": "Wharnex Orchestrator task detail",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "task", "runs", "chat", "files", "plans", "execution", "engine"],
+  "properties": {
+    "protocol": { "const": "harness.orchestrator-task-detail/v1" },
+    "task": { "type": "object", "required": ["id", "project_path", "title", "status", "condition", "priority", "parallelizable", "created_at", "updated_at"] },
+    "runs": { "type": "array", "items": { "$ref": "#/$defs/run" } },
+    "chat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessions"],
+      "properties": {
+        "conversation_url": { "type": "string" },
+        "conversation_id": { "type": "string" },
+        "sessions": { "type": "array", "items": { "$ref": "#/$defs/chatSession" } }
+      }
+    },
+    "files": { "type": "array", "items": { "$ref": "#/$defs/file" } },
+    "plans": { "type": "array", "items": { "$ref": "#/$defs/plan" } },
+    "execution": { "type": "array", "items": { "$ref": "#/$defs/execution" } },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active_worker"],
+      "properties": { "active_worker": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/activeWorker" }] } }
+    }
+  },
+  "$defs": {
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "task_id", "project_path", "attempt", "status", "started_at"],
+      "properties": {
+        "id": { "type": "string" }, "task_id": { "type": "string" }, "project_path": { "type": "string" },
+        "session_id": { "type": "string" }, "request_id": { "type": "string" }, "execution_plan_id": { "type": "string" },
+        "attempt": { "type": "integer", "minimum": 1 }, "status": { "type": "string" }, "error": { "type": "string" },
+        "started_at": { "type": "string", "format": "date-time" }, "completed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "chatSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "session_id", "request_ids", "state", "events"],
+      "properties": {
+        "run_id": { "type": "string" }, "session_id": { "type": "string" }, "request_ids": { "type": "array", "items": { "type": "string" } },
+        "state": { "type": "string" }, "last_turn": { "type": "object" }, "events": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "file": {
+      "type": "object", "additionalProperties": false, "required": ["run_id", "session_id", "artifact"],
+      "properties": { "run_id": { "type": "string" }, "session_id": { "type": "string" }, "artifact": { "type": "object" } }
+    },
+    "plan": {
+      "type": "object", "additionalProperties": false, "required": ["run_id", "session_id", "request_id", "plan_id", "plan"],
+      "properties": {
+        "run_id": { "type": "string" }, "session_id": { "type": "string" }, "request_id": { "type": "string" }, "plan_id": { "type": "string" },
+        "recorded_at": { "type": "string", "format": "date-time" }, "current": { "type": "boolean" }, "plan": { "type": "object" }
+      }
+    },
+    "execution": {
+      "type": "object", "additionalProperties": false, "required": ["run_id", "session_id", "request_id", "plan_id", "success", "execution"],
+      "properties": {
+        "run_id": { "type": "string" }, "session_id": { "type": "string" }, "request_id": { "type": "string" }, "plan_id": { "type": "string" },
+        "recorded_at": { "type": "string", "format": "date-time" }, "current": { "type": "boolean" }, "success": { "type": "boolean" }, "execution": { "type": "object" }
+      }
+    },
+    "activeWorker": {
+      "type": "object", "additionalProperties": false, "required": ["worker_task_id", "status", "lease_owner", "lease_expires_at"],
+      "properties": {
+        "worker_task_id": { "type": "string" }, "status": { "enum": ["LEASED", "RUNNING"] }, "lease_owner": { "type": "string", "minLength": 1 },
+        "assigned_worker": { "type": "string" }, "session_id": { "type": "string" }, "request_id": { "type": "string" }, "conversation_id": { "type": "string" },
+        "lease_expires_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
