@@ -10,7 +10,7 @@ import { desktopBridge } from '../../lib/desktop'
 import { errorMessage } from '../../lib/errorMessage'
 import { promptDialog } from '../../lib/appDialog'
 import { OrchestratorTaskAttention } from './OrchestratorTaskAttention'
-import { Status } from './OrchestratorStatus'
+import { OrchestratorRecentReviews } from './OrchestratorRecentReviews'
 
 export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], chatProps, onGoToChat, onError, proposal, busy, onProposal, onRun, onOpenTasks, onOpenPlanTasks, onSelectTask, onSelectPlanningRequest }: {
   session: Session
@@ -40,7 +40,6 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
   const draftPlan = proposal?.plan || overview.plans.find((plan) => plan.status === 'DRAFT')
   const draftTasks = draftPlan ? overview.tasks.filter((task) => task.plan_id === draftPlan.id) : []
   const planningRequests = useMemo(() => [...overview.planning_requests].sort((a, b) => b.updated_at.localeCompare(a.updated_at)), [overview.planning_requests])
-  const recent = useMemo(() => [...overview.tasks].filter((task) => task.status !== 'ARCHIVED').sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 5), [overview.tasks])
 
   async function propose(message: string, attachments: File[], projectFiles: string[], artifacts: ChatArtifactSelection) {
     const value = message.trim()
@@ -183,9 +182,7 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
       </div>
       <div className="orchestrator-active-strip">
         <div className="orchestrator-slot"><span className={overview.mutation_slots_used ? 'busy' : 'free'}/><strong className="text-base">Mutation slot</strong><small className="text-sm text-[var(--theme-text-muted)]">{overview.mutation_slots_used ? active[0]?.title || 'Ocupado' : 'Livre para a próxima tarefa READY'}</small></div>
-        <div className="orchestrator-recent">
-          {recent.length ? recent.map((task) => <button key={task.id} onClick={() => onSelectTask(task)}><Status status={task.status}/><span><strong className="text-base">{task.title}</strong><small className="text-sm text-[var(--theme-text-muted)]">{task.condition !== 'none' ? task.condition.replaceAll('_', ' ') : task.plan_id ? 'Plano orquestrado' : 'Tarefa manual'}</small></span><Icon name="chevron-right" size={14}/></button>) : <div className="orchestrator-empty text-base">Ainda não existem tarefas. Gere um plano ou crie uma Task manual.</div>}
-        </div>
+        <OrchestratorRecentReviews reviews={overview.recent_reviews || []} tasks={overview.tasks} onSelectTask={onSelectTask}/>
       </div>
     </section>
   </div>
