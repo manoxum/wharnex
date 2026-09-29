@@ -4036,19 +4036,22 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 // A successful runtime restart activates the complete host tree that existed
 // at that instant, not only the session named by the latest transaction. This
 // repairs older sessions whose own transaction evidence was lost after a
-// duplicate pre-mutation Apply, while requiring temporal proof that their host
-// Apply completed before the healthy restart.
+// duplicate pre-mutation Apply, including confirmations already handed to a
+// newer covering batch, while requiring temporal proof that their host Apply
+// completed before the healthy restart.
 func (s *Service) reconcileEarlierRestartPending(status selfevolution.Status) {
 	restartedAt, err := time.Parse(time.RFC3339, status.UpdatedAt)
 	if err != nil {
 		return
 	}
 	for _, candidate := range s.store.List() {
-		if !s.isSelfEvolution(candidate) || candidate.SelfEvolutionActivation != "restart_pending" || candidate.LastHostAppliedAt.IsZero() || candidate.LastHostAppliedAt.After(restartedAt) {
+		activationPending := candidate.SelfEvolutionActivation == "restart_pending" || candidate.SelfEvolutionActivation == "restart_scheduled"
+		if !s.isSelfEvolution(candidate) || !activationPending || candidate.LastHostAppliedAt.IsZero() || candidate.LastHostAppliedAt.After(restartedAt) {
 			continue
 		}
 		updated, updateErr := s.store.Update(candidate.ID, func(current *domain.Session) error {
-			if current.SelfEvolutionActivation != "restart_pending" || current.LastHostAppliedAt.IsZero() || current.LastHostAppliedAt.After(restartedAt) {
+			activationPending := current.SelfEvolutionActivation == "restart_pending" || current.SelfEvolutionActivation == "restart_scheduled"
+			if !activationPending || current.LastHostAppliedAt.IsZero() || current.LastHostAppliedAt.After(restartedAt) {
 				return nil
 			}
 			current.SelfEvolutionActivation = ""
