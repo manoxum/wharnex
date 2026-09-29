@@ -3182,5 +3182,5 @@ test('ephemeral utility Workers are published and can be followed while their ta
 test('an Orchestrator planning request bundle is kept like an agentic request bundle', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const plan = source.slice(source.indexOf('async function executeChatAgentOrchestratorPlan('))
-  assert.match(plan.slice(0, 6000), /await persistChatArtifact\(sessionId, requestId, 'input', 'bundle', path\.basename\(requestPath\), 'application\/zip', await readFile\(requestPath\)\)/)
+  assert.match(plan.slice(0, 16000), /await persistChatArtifact\(sessionId, requestId, 'input', 'bundle', path\.basename\(requestPath\), 'application\/zip', await readFile\(requestPath\)\)/)
 })
