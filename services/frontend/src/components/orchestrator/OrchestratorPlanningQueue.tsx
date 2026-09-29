@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ChatAgentTask, OrchestratorOverview } from '../../types'
+import type { ChatAgentTask, OrchestratorOverview, OrchestratorPlan } from '../../types'
 import { extractWorkerId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
 import { Icon } from '../Icon'
 import { WorkerFollowViewer } from '../WorkerFollowViewer'
@@ -7,8 +7,10 @@ import { WorkerFollowViewer } from '../WorkerFollowViewer'
 type PlanningRequest = OrchestratorOverview['planning_requests'][number]
 type FollowedTask = { taskId: string; agentId: string }
 
-export function OrchestratorPlanningQueue({ requests, tasks, chats, busy, onGoToChat, onSelect, onRetry }: {
+export function OrchestratorPlanningQueue({ requests, tasks, chats, plans = [], busy, onGoToChat, onSelect, onOpenTasks, onRetry }: {
   requests: PlanningRequest[]
+  plans?: OrchestratorPlan[]
+  onOpenTasks?: (planID: string) => void
   tasks: ChatAgentTask[]
   chats: ChatAgentTaskChatRef[]
   busy: boolean
@@ -38,6 +40,7 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, busy, onGoTo
           const workerId = backingTask && ['LEASED', 'RUNNING'].includes(backingTask.status) ? extractWorkerId(backingTask.lease_owner) : undefined
           const resolvedChatId = backingTask ? resolveTaskChatId(backingTask, chats) : undefined
           const isFollowing = followed?.taskId === planning.task_id && followed.agentId === workerId
+          const plan = plans.find((item) => item.planner_request_id === planning.request_id)
           return <article
             key={planning.task_id}
             className={`orchestrator-planning-status status-${planning.status.toLowerCase()} ${onSelect ? 'relative' : ''}`}
@@ -53,7 +56,9 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, busy, onGoTo
               <strong className="text-base text-balance">{planning.objective || `Pedido ${planning.request_id}`}</strong>
               <span className="break-words text-sm leading-[1.45] text-[var(--theme-text-muted)]">Request <code className="[font-family:inherit] tabular-nums text-[var(--theme-text-soft)]" translate="no">{planning.request_id}</code> · prioridade máxima · tentativa {planning.attempt}/{planning.max_attempts}</span>
               {planning.last_error ? <small className="break-words text-sm leading-[1.45] text-[var(--theme-text-muted)]">{planning.last_error}</small> : <small className="break-words text-sm leading-[1.45] text-[var(--theme-text-muted)]">{['DONE', 'CANCELLED'].includes(planning.status) ? 'Planejamento encerrado.' : 'Pode sair do Orchestrator: um Worker continuará esta entrega.'}</small>}
-              {(workerId || (resolvedChatId && onGoToChat)) && <div className={`orchestrator-planning-nav ${onSelect ? 'pointer-events-auto' : ''}`}>
+              {(onSelect || (plan && onOpenTasks) || workerId || (resolvedChatId && onGoToChat)) && <div className={`orchestrator-planning-nav ${onSelect ? 'pointer-events-auto' : ''}`}>
+                {onSelect ? <button className="text-sm font-semibold" type="button" onClick={(event) => { event.stopPropagation(); onSelect(planning) }} title="Ver o detalhe desta orquestração no painel lateral"><Icon name="info" size={13}/> Detalhes</button> : null}
+                {plan && onOpenTasks ? <button className="text-sm font-semibold" type="button" onClick={(event) => { event.stopPropagation(); onOpenTasks(plan.id) }} title="Abrir Tasks mostrando só as tasks desta orquestração"><Icon name="filter" size={13}/> Ver tasks</button> : null}
                 {workerId ? <button className="text-sm font-semibold" type="button" aria-pressed={isFollowing} onClick={(event) => { event.stopPropagation(); setFollowed(isFollowing ? undefined : { taskId: planning.task_id, agentId: workerId }) }} title="Acompanhar a instância do Worker que gera este plano numa janela separada"><Icon name="monitor" size={13}/> {isFollowing ? 'A acompanhar' : 'Acompanhar instância'}</button> : null}
                 {resolvedChatId && onGoToChat ? <button className="text-sm font-semibold" type="button" onClick={(event) => { event.stopPropagation(); onGoToChat(resolvedChatId, backingTask?.session_id) }} title="Abrir o chat Wharnex deste planeamento"><Icon name="bridge" size={13}/> Ver chat</button> : null}
               </div>}

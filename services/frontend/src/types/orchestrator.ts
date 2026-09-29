@@ -20,6 +20,8 @@ export type OrchestratorTask = {
   capability?: string; complexity?: string; parallelizable: boolean; impact_files?: string[]; read_files?: string[]; barrier_files?: string[]
   reasoning_effort?: ReasoningEffort; effort_level?: EffortLevel; retry_context?: OrchestratorTaskRetryContext
   was_completed?: boolean; allowed_transitions?: OrchestratorTaskStatus[]; created_at: string; updated_at: string
+  // The task's one ChatGPT conversation, set by its first submitted request.
+  conversation_url?: string
 }
 
 export type OrchestratorTaskRetryContext = {

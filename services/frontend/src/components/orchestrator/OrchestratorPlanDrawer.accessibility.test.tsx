@@ -28,7 +28,7 @@ it('focuses the dialog controls, closes with Escape and restores focus', () => {
   expect(dialog.getAttribute('aria-modal')).toBe('true')
   expect(dialog.getAttribute('aria-labelledby')).toBe('orchestrator-plan-detail-title')
   expect(dialog.className).toContain('w-full')
-  expect(dialog.className).toContain('max-w-[460px]')
+  expect(dialog.className).toContain('max-w-[620px]')
   expect(scroll.className).toContain('overflow-y-auto')
   expect(document.activeElement).toBe(close)
   const refresh = screen.getByRole('button', { name: 'Atualizar detalhe do planeamento' })

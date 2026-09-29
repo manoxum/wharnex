@@ -175,6 +175,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       onProposal={setProposal}
       onRun={run}
       onOpenTasks={() => { setPlanFilter(undefined); setSection('tasks') }}
+      onOpenPlanTasks={(planID) => { setPlanFilter(planID); setSection('tasks') }}
       onSelectTask={(task) => { setPlanFilter(undefined); setSelectedTask(task); setSection('tasks') }}
       onSelectPlanningRequest={planningDetail.open}
     /> : <OrchestratorTasks

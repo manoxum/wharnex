@@ -75,3 +75,15 @@ it('opens a planning request from the card without leaking action clicks into de
   expect(onRetry).toHaveBeenCalledWith(request.request_id)
   expect(onSelect).not.toHaveBeenCalled()
 })
+
+it('offers the drawer detail and the Tasks view filtered by the orchestration for each queued request', () => {
+  const onSelect = vi.fn()
+  const onOpenTasks = vi.fn()
+  const plan = { id: 'opl_20260927T144117_aaaa', project_path: '/workspace/demo', title: 'Plano', objective: 'Testar plano', status: 'ACTIVE' as const,
+    planner_request_id: request.request_id, created_at: request.created_at, updated_at: request.updated_at }
+  render(<OrchestratorPlanningQueue requests={[request]} tasks={[]} chats={[]} plans={[plan]} busy={false} onRetry={vi.fn()} onSelect={onSelect} onOpenTasks={onOpenTasks}/>)
+  fireEvent.click(screen.getByRole('button', { name: /Detalhes/ }))
+  expect(onSelect).toHaveBeenCalledWith(request)
+  fireEvent.click(screen.getByRole('button', { name: /Ver tasks/ }))
+  expect(onOpenTasks).toHaveBeenCalledWith(plan.id)
+})

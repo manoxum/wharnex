@@ -8,13 +8,24 @@ import { OrchestratorPlanExecutionsTab, OrchestratorPlanProgressSummary } from '
 
 type DetailTab = 'summary' | 'files' | 'plan' | 'tasks' | 'executions'
 
-const tabs: Array<{ id: DetailTab; label: string }> = [
-  { id: 'summary', label: 'Resumo' },
-  { id: 'files', label: 'Ficheiros' },
-  { id: 'plan', label: 'Plano' },
-  { id: 'tasks', label: 'Tasks' },
-  { id: 'executions', label: 'Execuções' },
+const tabs: Array<{ id: DetailTab; label: string; icon: 'info' | 'folder' | 'plan' | 'list' | 'activity' }> = [
+  { id: 'summary', label: 'Resumo', icon: 'info' },
+  { id: 'files', label: 'Ficheiros', icon: 'folder' },
+  { id: 'plan', label: 'Plano', icon: 'plan' },
+  { id: 'tasks', label: 'Tasks', icon: 'list' },
+  { id: 'executions', label: 'Execuções', icon: 'activity' },
 ]
+
+// One look for every action of the drawer; colour carries meaning only
+// together with the label (SoT/UI_UX.md).
+const actionClass = 'inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-3 text-sm font-semibold text-[var(--theme-text)] transition-colors hover:bg-[var(--theme-hover)] disabled:cursor-default disabled:opacity-50'
+
+function statusTone(status: string) {
+  if (['DONE', 'COMPLETED', 'ACTIVE'].includes(status)) return 'border-[color-mix(in_srgb,var(--theme-success)_45%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-success)_12%,transparent)] text-[var(--theme-success)]'
+  if (['FAILED', 'ATTENTION', 'CANCELLED'].includes(status)) return 'border-[color-mix(in_srgb,var(--theme-danger)_45%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-danger)_12%,transparent)] text-[var(--theme-danger)]'
+  if (['RUNNING', 'LEASED'].includes(status)) return 'border-[color-mix(in_srgb,var(--theme-accent)_45%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-[var(--theme-accent)]'
+  return 'border-[color-mix(in_srgb,var(--theme-warning)_45%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-warning)_12%,transparent)] text-[var(--theme-warning)]'
+}
 
 export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = [], loading, busy = false, error, onClose, onRefresh, onSelectTask, onOpenTasks, onGoToChat, onRetry, onApprove, onReject, onRevise }: {
   request: OrchestratorPlanningRequest
@@ -61,19 +72,19 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
     onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
   >
     <aside
-      className="grid h-full w-full max-w-[460px] grid-rows-[auto_minmax(0,1fr)] border-l border-[var(--theme-border)] bg-[var(--theme-surface)] shadow-[-20px_0_55px_var(--theme-shadow)]"
+      className="grid h-full w-full max-w-[620px] grid-rows-[auto_minmax(0,1fr)] border-l border-[var(--theme-border)] bg-[var(--theme-surface)] shadow-[-20px_0_55px_var(--theme-shadow)]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="orchestrator-plan-detail-title"
       aria-label={`Detalhe do planeamento ${request.request_id}`}
       onKeyDown={(event) => handleDialogKeyDown(event, onClose)}
     >
-      <header className="flex min-h-[62px] items-start justify-between gap-3 border-b border-[var(--theme-border-soft)] px-3.5 py-2.5">
+      <header className="flex min-h-[62px] items-start justify-between gap-3 border-b border-[var(--theme-border-soft)] bg-[var(--theme-elevated)] px-4 py-3">
         <div className="grid min-w-0 gap-0.5">
           <span className="truncate font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">{request.request_id}</span>
           <strong id="orchestrator-plan-detail-title" className="truncate text-lg">{detail?.plan?.title || request.objective || 'Detalhe do planeamento'}</strong>
           <span className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="inline-flex min-h-[23px] items-center rounded-full border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2 font-mono text-sm font-bold leading-none tracking-[0.04em]">{requestStatus}</span>
+            <span className={`inline-flex min-h-[23px] items-center rounded-full border px-2.5 font-mono text-sm font-bold leading-none tracking-[0.04em] ${statusTone(requestStatus)}`}>{requestStatus}</span>
             <span className="text-sm text-[var(--theme-text-muted)]">Tentativa {detail?.attempt ?? request.attempt}/{detail?.max_attempts ?? request.max_attempts}</span>
           </span>
           <span className="text-sm text-[var(--theme-text-soft)]">Criado {formatDate(request.created_at)} · Atualizado {formatDate(request.updated_at)}</span>
@@ -86,14 +97,14 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
       </header>
 
       <div className="min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4" data-testid="orchestrator-plan-detail-scroll">
-        <section className="mb-3 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] p-3" aria-label="Ações do planeamento">
+        <section className="mb-3 rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] p-3" aria-label="Ações do planeamento">
           <div className="flex flex-wrap gap-2">
-            <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => void copyIdentifier(request.request_id)}><Icon name="copy" size={13}/> Copiar request_id</button>
-            {planID ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => void copyIdentifier(planID)}><Icon name="copy" size={13}/> Copiar plan_id</button> : null}
-            {resolvedChatID && onGoToChat ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => onGoToChat(resolvedChatID, planningTask?.session_id)}><Icon name="bridge" size={13}/> Abrir chat</button> : null}
-            {workerID ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" aria-pressed={followedWorker === workerID} onClick={() => setFollowedWorker((current) => current === workerID ? undefined : workerID)}><Icon name="monitor" size={13}/> {followedWorker === workerID ? 'A acompanhar Worker' : 'Acompanhar Worker'}</button> : null}
-            {planID && onOpenTasks ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" onClick={() => onOpenTasks(planID)}>Ver tasks</button> : null}
-            {canRetry && onRetry ? <button className="rounded-md border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={onRetry}><Icon name="refresh" size={13}/> Retentar planeamento</button> : null}
+            <button className={actionClass} type="button" onClick={() => void copyIdentifier(request.request_id)}><Icon name="copy" size={13}/> Copiar request_id</button>
+            {planID ? <button className={actionClass} type="button" onClick={() => void copyIdentifier(planID)}><Icon name="copy" size={13}/> Copiar plan_id</button> : null}
+            {resolvedChatID && onGoToChat ? <button className={actionClass} type="button" onClick={() => onGoToChat(resolvedChatID, planningTask?.session_id)}><Icon name="bridge" size={13}/> Abrir chat</button> : null}
+            {workerID ? <button className={actionClass} type="button" aria-pressed={followedWorker === workerID} onClick={() => setFollowedWorker((current) => current === workerID ? undefined : workerID)}><Icon name="monitor" size={13}/> {followedWorker === workerID ? 'A acompanhar Worker' : 'Acompanhar Worker'}</button> : null}
+            {planID && onOpenTasks ? <button className={actionClass} type="button" onClick={() => onOpenTasks(planID)}>Ver tasks</button> : null}
+            {canRetry && onRetry ? <button className={actionClass} type="button" disabled={busy} onClick={onRetry}><Icon name="refresh" size={13}/> Retentar planeamento</button> : null}
           </div>
           {canDecideDraft && planID ? <div className="mt-2 flex flex-wrap gap-2 border-t border-[var(--theme-border-soft)] pt-2">
             {onReject ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold text-[var(--theme-danger)]" type="button" disabled={busy} onClick={() => onReject(planID)}><Icon name="close" size={13}/> Rejeitar plano</button> : null}
@@ -104,15 +115,15 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
 
         {followedWorker ? <WorkerFollowViewer agentId={followedWorker} onStop={() => setFollowedWorker(undefined)}/> : null}
 
-        <div className="mt-1 flex gap-4 overflow-x-auto border-b border-[var(--theme-border-soft)]" role="tablist" aria-label="Detalhe do planeamento">
+        <div className="sticky -top-3 z-[2] -mx-3 mt-1 flex gap-1 overflow-x-auto border-b border-[var(--theme-border-soft)] bg-[var(--theme-surface)] px-3 sm:-top-4 sm:-mx-4 sm:px-4" role="tablist" aria-label="Detalhe do planeamento">
           {tabs.map((item) => <button
             key={item.id}
             type="button"
             role="tab"
             aria-selected={tab === item.id}
-            className={`-mb-px min-h-9 shrink-0 border-x-0 border-t-0 border-b-2 bg-transparent px-1 text-sm font-semibold ${tab === item.id ? 'border-[var(--theme-accent)] text-[var(--theme-text)]' : 'border-transparent text-[var(--theme-text-muted)]'}`}
+            className={`-mb-px inline-flex min-h-10 shrink-0 items-center gap-1.5 border-x-0 border-t-0 border-b-2 bg-transparent px-2.5 text-sm font-semibold transition-colors ${tab === item.id ? 'border-[var(--theme-accent)] text-[var(--theme-text)]' : 'border-transparent text-[var(--theme-text-muted)] hover:text-[var(--theme-text)]'}`}
             onClick={() => setTab(item.id)}
-          >{item.label}</button>)}
+          ><Icon name={item.icon} size={13}/>{item.label}</button>)}
         </div>
 
         {loading && !detail ? <StateMessage kind="loading" message="A carregar detalhe do pedido…"/> : null}
@@ -139,23 +150,25 @@ function StateMessage({ kind, message }: { kind: 'loading' | 'empty' | 'info'; m
   return <div className="mt-3 rounded-lg border border-dashed border-[var(--theme-border)] p-4 text-sm text-[var(--theme-text-muted)]" role={kind === 'loading' ? 'status' : undefined}>{message}</div>
 }
 
+const cardClass = 'rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] p-3'
+
 function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest; detail: OrchestratorPlanningDetail }) {
   const objective = detail.objective || request.objective
   return <div className="grid gap-3">
     <OrchestratorPlanProgressSummary detail={detail}/>
-    <section>
+    <section className={cardClass}>
       <strong className="text-base">Objetivo</strong>
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-text-muted)]">{objective || 'Sem objetivo registrado.'}</p>
     </section>
-    {detail.prompt ? <section>
+    {detail.prompt ? <section className={cardClass}>
       <strong className="text-base">Prompt</strong>
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-text-muted)]">{detail.prompt}</p>
     </section> : null}
-    <section>
+    <section className={cardClass}>
       <strong className="text-base">Contexto do pedido</strong>
       <p className="mb-0 mt-1 text-sm text-[var(--theme-text-muted)]">{detail.include_context ? 'Contexto do projeto incluído.' : 'Contexto completo do projeto não incluído.'}</p>
     </section>
-    {(detail.last_error || request.last_error) ? <section>
+    {(detail.last_error || request.last_error) ? <section className={cardClass}>
       <strong className="text-base">Último erro</strong>
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-danger)]">{detail.last_error || request.last_error}</p>
     </section> : null}

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert' | 'edit' | 'info' | 'package' | 'database' | 'archive' | 'history' | 'minus' | 'pause' | 'stop' | 'camera' | 'cursor' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema' | 'activity' | 'sparkles' | 'more-horizontal'
+type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert' | 'edit' | 'info' | 'package' | 'database' | 'archive' | 'history' | 'minus' | 'pause' | 'stop' | 'camera' | 'cursor' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema' | 'activity' | 'sparkles' | 'more-horizontal' | 'kanban' | 'table' | 'graph' | 'filter'
 
 export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
   const paths: Record<Name, ReactNode> = {
@@ -71,6 +71,10 @@ export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
     activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/><path d="M4 20h16"/></>,
     sparkles: <><path d="m12 3 1.4 3.6L17 8l-3.6 1.4L12 13l-1.4-3.6L7 8l3.6-1.4L12 3Z"/><path d="m18 14 .8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14ZM5 13l.7 1.8L7.5 15l-1.8.7L5 17.5l-.7-1.8L2.5 15l1.8-.7L5 13Z"/></>,
     'more-horizontal': <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+    kanban: <><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></>,
+    table: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 15h18M9 9.5V20"/></>,
+    graph: <><circle cx="12" cy="5" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M11 6.8 7 16.2M13 6.8l4 9.4"/></>,
+    filter: <path d="M4 5h16l-6 7.5V19l-4 2v-8.5L4 5Z"/>,
   }
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }

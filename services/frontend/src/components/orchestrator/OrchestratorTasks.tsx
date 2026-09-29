@@ -10,6 +10,12 @@ import { OrchestratorKanban } from './OrchestratorKanban'
 import { OrchestratorTaskDrawer } from './OrchestratorTaskDrawer'
 
 type View = 'kanban' | 'table' | 'list' | 'graph'
+const VIEWS: Array<{ id: View; label: string; icon: 'kanban' | 'table' | 'list' | 'graph' }> = [
+  { id: 'kanban', label: 'Kanban', icon: 'kanban' },
+  { id: 'table', label: 'Tabela', icon: 'table' },
+  { id: 'list', label: 'Lista', icon: 'list' },
+  { id: 'graph', label: 'Grafo', icon: 'graph' },
+]
 type TerminalQuery = Omit<OrchestratorTaskPageQuery, 'status' | 'limit'>
 
 export function OrchestratorTasks({ session, overview, terminalPages = {}, chatProps, selectedTask, planFilter, busy, onSelectedTask, onPlanFilterChange, onLoadTerminalPage, onRun }: {
@@ -106,9 +112,9 @@ export function OrchestratorTasks({ session, overview, terminalPages = {}, chatP
     <header className="orchestrator-tasks-toolbar">
       <div><strong className="text-lg">Tasks</strong><span className="text-sm text-[var(--theme-text-muted)]">{planFilter ? `${totalTasks} no plano` : `${totalTasks} no projeto`} · {filteredTaskCounts.DOING} em execução</span></div>
       {planFilter && <div className="flex items-center gap-2 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2.5 py-1.5 text-sm" role="status"><span className="truncate">Filtro: <strong>{activePlan?.title || 'Plano'}</strong> · <span className="font-mono text-[var(--theme-text-soft)]">{planFilter}</span></span><button className="shrink-0 font-semibold" type="button" onClick={() => onPlanFilterChange?.(undefined)} aria-label="Limpar filtro e ver todas as tasks">Ver todas</button></div>}
-      <label className="orchestrator-search"><Icon name="search" size={14}/><input className="text-base" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar tasks" /></label>
+      <label className="orchestrator-search"><Icon name="search" size={14}/><input className="text-base" type="search" aria-label="Pesquisar tasks" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar tasks" />{search ? <button type="button" className="grid place-items-center border-0 bg-transparent p-0 text-[var(--theme-text-soft)]" aria-label="Limpar pesquisa" onClick={() => setSearch('')}><Icon name="close" size={12}/></button> : null}</label>
       <div className="orchestrator-view-switch" role="group" aria-label="Vista de tasks">
-        {(['kanban', 'table', 'list', 'graph'] as View[]).map((item) => <button key={item} className={`${view === item ? 'active ' : ''}text-base`} onClick={() => setView(item)}>{item === 'kanban' ? 'Kanban' : item === 'table' ? 'Tabela' : item === 'list' ? 'Lista' : 'Grafo'}</button>)}
+        {VIEWS.map((item) => <button key={item.id} type="button" aria-pressed={view === item.id} aria-label={item.label} title={item.label} className={view === item.id ? 'active' : ''} onClick={() => setView(item.id)}><Icon name={item.icon} size={15}/></button>)}
       </div>
       <button className="primary text-base font-bold" type="button" onClick={() => setNewTaskOpen(true)}><Icon name="plus" size={14}/> Nova Task</button>
     </header>

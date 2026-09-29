@@ -12,7 +12,7 @@ import { promptDialog } from '../../lib/appDialog'
 import { OrchestratorTaskAttention } from './OrchestratorTaskAttention'
 import { Status } from './OrchestratorStatus'
 
-export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], chatProps, onGoToChat, onError, proposal, busy, onProposal, onRun, onOpenTasks, onSelectTask, onSelectPlanningRequest }: {
+export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], chatProps, onGoToChat, onError, proposal, busy, onProposal, onRun, onOpenTasks, onOpenPlanTasks, onSelectTask, onSelectPlanningRequest }: {
   session: Session
   overview: OverviewData
   chatProps: ComponentProps<typeof ChatPanel>
@@ -28,6 +28,7 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
   onProposal: (value?: OrchestratorProposalResult) => void
   onRun: <T>(action: () => Promise<T>, after?: (value: T) => void) => Promise<T | undefined>
   onOpenTasks: () => void
+  onOpenPlanTasks?: (planID: string) => void
   onSelectTask: (task: OrchestratorTask) => void
   onSelectPlanningRequest?: (request: OverviewData['planning_requests'][number]) => void
 }) {
@@ -145,7 +146,7 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
       </div>
     </section>
 
-    <OrchestratorPlanningQueue requests={planningRequests} tasks={planningTasks} chats={chats} busy={busy} onGoToChat={onGoToChat} onSelect={onSelectPlanningRequest} onRetry={(requestId) => { void onRun(() => api.retryOrchestratorPlanning(session.id, requestId)) }}/>
+    <OrchestratorPlanningQueue requests={planningRequests} tasks={planningTasks} chats={chats} plans={overview.plans} busy={busy} onGoToChat={onGoToChat} onSelect={onSelectPlanningRequest} onOpenTasks={onOpenPlanTasks} onRetry={(requestId) => { void onRun(() => api.retryOrchestratorPlanning(session.id, requestId)) }}/>
 
     {proposal?.manual_prompt && !proposal.worker_task_id && <section className="orchestrator-manual-plan">
       <header><div><strong className="text-base">Planner manual</strong><span className="text-sm text-[var(--theme-text-muted)]">Envie este prompt ao ChatGPT e cole abaixo apenas o JSON devolvido.</span></div><button type="button" onClick={() => void navigator.clipboard.writeText(proposal.manual_prompt || '')}><Icon name="copy" size={14}/> Copiar prompt</button></header>
