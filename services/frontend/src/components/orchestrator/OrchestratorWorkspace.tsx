@@ -1,41 +1,20 @@
-import { type ComponentProps, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import { errorMessage } from '../../lib/errorMessage'
 import { promptDialog } from '../../lib/appDialog'
 import { emptyOrchestratorTaskCounts, invalidateChangedOrchestratorTerminalPages, isOrchestratorTask, mergeOrchestratorTaskPages, reconcileOrchestratorTerminalPages } from '../../lib/orchestratorApi'
-import { ORCHESTRATOR_TERMINAL_STATUSES, type ChatAgentTask, type OrchestratorOverview as OverviewData, type OrchestratorProposalResult, type OrchestratorTask, type OrchestratorTaskPageQuery, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus, type Session } from '../../types'
+import { ORCHESTRATOR_TERMINAL_STATUSES, type ChatAgentTask, type OrchestratorOverview as OverviewData, type OrchestratorProposalResult, type OrchestratorTask, type OrchestratorTaskPageQuery, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus } from '../../types'
 import { Icon } from '../Icon'
 import { OrchestratorOverview } from './OrchestratorOverview'
 import { OrchestratorTasks } from './OrchestratorTasks'
 import { OrchestratorPlanDrawer } from './OrchestratorPlanDrawer'
 import { useOrchestratorPlanningDetail } from './useOrchestratorPlanningDetail'
-import type { ChatAgentTaskChatRef } from '../../lib/chatAgentTaskNav'
-import { ChatPanel } from '../ChatPanel'
+import { useOrchestratorTaskFocus } from './useOrchestratorTaskFocus'
+import type { OrchestratorWorkspaceProps } from './OrchestratorWorkspace.types'
 
 const TERMINAL_TASK_PAGE_SIZE = 24
 
-export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToChat, focusNonce, active = true, bootstrapObjective = '', bootstrapIncludeContext = true, onBootstrapAccepted, onError }: {
-  session: Session
-  // Minimal id/sessionId pairs only: enough to resolve a planning request's
-  // owning Harness chat without threading the full workspace-chat record in.
-  chats?: ChatAgentTaskChatRef[]
-  chatProps: ComponentProps<typeof ChatPanel>
-  onGoToChat?: (chatId?: string, sessionId?: string) => void
-  // Bumped by the Tarefas drawer's "Ver orquestração" action so a task that
-  // sent the operator here always lands back on the planning queue instead of
-  // whichever section Orchestrator happened to be left on.
-  focusNonce?: number
-  // This workspace stays mounted (CSS-hidden) while another mode is active,
-  // the same way EditorWorkspace does, so its local state (section, selected
-  // task) survives switching away and back. Polling every 5s regardless kept
-  // a network+render cost running forever for a panel the operator was not
-  // looking at; only poll while it is actually the visible mode.
-  active?: boolean
-  bootstrapObjective?: string
-  bootstrapIncludeContext?: boolean
-  onBootstrapAccepted?: () => void
-  onError: (message?: string) => void
-}) {
+export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToChat, focusNonce, focusTaskId, focusTaskNonce, active = true, bootstrapObjective = '', bootstrapIncludeContext = true, onBootstrapAccepted, onError }: OrchestratorWorkspaceProps) {
   const [section, setSection] = useState<'overview' | 'tasks'>('overview')
   const [overview, setOverview] = useState<OverviewData>({ plans: [], tasks: [], task_counts: emptyOrchestratorTaskCounts(), planning_requests: [], mutation_slots: 1, mutation_slots_used: 0 })
   const [terminalPages, setTerminalPages] = useState<OrchestratorTerminalTaskPages>({})
@@ -62,7 +41,8 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       setOverview(nextOverview)
       setTerminalPages((current) => invalidateChangedOrchestratorTerminalPages(current, nextOverview.task_counts))
       setPlanningTasks(nextTasks.tasks.filter((task) => task.type === 'ORCHESTRATOR_PLAN'))
-    } catch (reason) { if (!quiet) onError(errorMessage(reason)) }
+      return nextOverview
+    } catch (reason) { if (!quiet) onError(errorMessage(reason)); return undefined }
     finally { if (!quiet) setBusy(false) }
   }, [onError, session.id, session.project_path])
 
@@ -79,6 +59,14 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     if (!focusNonce) return
     setSection('overview')
   }, [focusNonce])
+
+  useOrchestratorTaskFocus({
+    active, focusTaskId, focusTaskNonce, tasks: overview.tasks,
+    refresh,
+    setSection,
+    setPlanFilter,
+    setSelectedTask,
+  })
 
   const loadTerminalPage = useCallback(async (status: OrchestratorTerminalTaskStatus, query: Omit<OrchestratorTaskPageQuery, 'status' | 'limit'> = {}) => {
     const key = `${status}:${query.q?.trim() || ''}:${query.cursor || ''}`

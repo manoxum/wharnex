@@ -16,6 +16,7 @@ import { executionQueueActiveCount, executionQueueIsActive, finishExecutionQueue
 import { collectAttentionItems, summarizeAttention, type AttentionItem, type AttentionTarget } from './lib/attentionCenter'
 import { mergeAttentionItems } from './lib/attentionItems'
 import { normalizeWorkspaceAttentionPayload, orchestratorConclusionAttentionItems, shouldPublishNativeAttentionAfterBaseline } from './lib/orchestratorAttention'
+import { useAttentionNavigation } from './lib/useAttentionNavigation'
 import { acknowledgeCompletedAttention, filterActiveAttentionItems, loadCompletedAttentionHistory } from './lib/attentionHistory'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget } from './components/InterruptedExecutionRecovery'
 import { DeferredEditorWorkspace } from './components/DeferredEditorWorkspace'
@@ -3533,6 +3534,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const attentionHistory = attentionHistoryState.projectPath === session?.project_path ? attentionHistoryState.items : []
   const attentionItems = filterActiveAttentionItems(allAttentionItems, attentionHistory)
   const attentionSummary = summarizeAttention(attentionItems)
+  const { orchestratorTaskFocus, openAttentionItem, openDesktopNotification } = useAttentionNavigation({
+    session, activeChatId, chats, allAttentionItems,
+    chatgptHumanActionActive: Boolean(chatgptHumanAction?.active),
+    acknowledge: acknowledgeAttentionItem,
+    openHumanAction: openChatGPTHumanAction,
+    setMode,
+    selectChat,
+    openRestart: openRestartConfirmation,
+    focusInspector: (target) => setInspectorAttention((current) => ({ tab: target, nonce: current.nonce + 1 })),
+  })
   useEffect(() => {
     const notifications = desktopBridge()?.notifications
     if (!notifications || !session) return
@@ -3558,7 +3569,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (notice.projectPath !== session.project_path) return
       void openDesktopNotification(notice)
     })
-  }, [session?.project_path, activeChatId, chats, attentionSessions])
+  }, [session?.project_path, activeChatId, chats, attentionSessions, orchestratorConclusionState])
   useEffect(() => {
     if (!embeddedProject) return
     window.parent.postMessage({ type: 'wharness:project-attention', projectPath: embeddedProject, total: attentionSummary.total, urgent: attentionSummary.urgent, actionable: attentionSummary.actionable }, window.location.origin)
@@ -3637,30 +3648,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     })
   }
 
-  async function openAttentionItem(item: AttentionItem) {
-    acknowledgeAttentionItem(item)
-    if (item.id.endsWith(':chatgpt-human-action') && item.chatId === activeChatId && chatgptHumanAction?.active) {
-      await openChatGPTHumanAction()
-      return
-    }
-    setMode('agent')
-    if (item.chatId !== activeChatId && chats.some((chat) => chat.id === item.chatId)) await selectChat(item.chatId)
-    if (item.kind === 'restart-pending') {
-      await openRestartConfirmation(item.chatId)
-      return
-    }
-    if (item.target) setInspectorAttention((current) => ({ tab: item.target as AttentionTarget, nonce: current.nonce + 1 }))
-  }
-
-  async function openDesktopNotification(notice: DesktopCompletionNotification) {
-    if (notice.kind === 'task-completed') {
-      const completed = allAttentionItems.find((item) => item.id === notice.id && item.kind === 'task-completed')
-      if (completed) acknowledgeAttentionItem(completed)
-    }
-    setMode('agent')
-    if (notice.chatId && notice.chatId !== activeChatId && chats.some((chat) => chat.id === notice.chatId)) await selectChat(notice.chatId)
-    if (notice.kind === 'restart-pending') await openRestartConfirmation(notice.chatId)
-  }
 
   // Shared by the Tarefas drawer and the Orchestrator planning queue: a
   // durable task's chat_id is the real Harness chat id for ordinary work, but
@@ -3980,6 +3967,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           chatProps={sharedChatProps}
           onGoToChat={(chatId, sessionId) => void goToRuntimeTaskChat(chatId, sessionId)}
           focusNonce={orchestratorFocusNonce}
+          focusTaskId={orchestratorTaskFocus.projectPath === session.project_path ? orchestratorTaskFocus.taskId : undefined}
+          focusTaskNonce={orchestratorTaskFocus.projectPath === session.project_path ? orchestratorTaskFocus.nonce : 0}
           active={mode === 'orchestrator'}
           bootstrapObjective={orchestratorBootstrapObjective}
           bootstrapIncludeContext={Boolean(pendingBootstrapLaunch?.artifacts.context)}
