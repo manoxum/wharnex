@@ -60,13 +60,14 @@ const (
 	TurnKindInvestigation TurnKind = "investigation"
 	TurnKindPlan          TurnKind = "plan"
 	TurnKindWorkflow      TurnKind = "workflow"
+	TurnKindContextRequest TurnKind = "context_request"
 	TurnKindChange        TurnKind = "change"
 	TurnKindBlocked       TurnKind = "blocked"
 )
 
 func ValidTurnKind(kind TurnKind) bool {
 	switch kind {
-	case TurnKindAnswer, TurnKindClarification, TurnKindInvestigation, TurnKindPlan, TurnKindWorkflow, TurnKindChange, TurnKindBlocked:
+	case TurnKindAnswer, TurnKindClarification, TurnKindInvestigation, TurnKindPlan, TurnKindWorkflow, TurnKindContextRequest, TurnKindChange, TurnKindBlocked:
 		return true
 	default:
 		return false
@@ -82,6 +83,7 @@ type AgentTurn struct {
 	Outcome             *TurnOutcome `json:"outcome"`
 	ResolvedEvidenceIDs []string     `json:"resolved_evidence_ids,omitempty"`
 	Interview           *Interview   `json:"interview,omitempty"`
+	ContextPaths        []string     `json:"context_paths,omitempty"`
 }
 
 // Interview is a structured clarification. It is data for a human decision,
