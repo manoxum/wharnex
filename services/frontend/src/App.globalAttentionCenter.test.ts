@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8')
+const routingSource = readFileSync(resolve(process.cwd(), 'src/lib/useAttentionNavigation.ts'), 'utf8')
 
 describe('App global attention session refresh', () => {
   it('refreshes inactive chat sessions on a bounded cadence and feeds the Agent center', () => {
@@ -33,6 +34,21 @@ describe('App global attention session refresh', () => {
     expect(source).toContain("if (item.kind !== 'task-completed' || !session) return")
     expect(source).toContain('acknowledgeCompletedAttention(session.project_path, item, history)')
     expect(source).toContain('attentionHistoryItems={attentionHistory}')
+  })
+
+  it('routes Orchestrator conclusions to their task without treating the synthetic execution id as a chat', () => {
+    expect(source).toContain('useAttentionNavigation({')
+    expect(source).toContain('focusTaskId={orchestratorTaskFocus.projectPath === session.project_path ? orchestratorTaskFocus.taskId : undefined}')
+    expect(routingSource).toContain("if (item.kind === 'task-completed' && item.orchestratorTaskId)")
+    expect(routingSource).toContain('openOrchestratorTask(item.orchestratorTaskId)')
+    expect(routingSource).toContain("setMode('orchestrator')")
+    expect(routingSource).toContain('openOrchestratorTask(completed.orchestratorTaskId)')
+    expect(routingSource).toContain('acknowledge(completed)')
+    expect(routingSource).toContain("setMode('agent')")
+    expect(routingSource).toContain('chats.some((chat) => chat.id === item.chatId)')
+    expect(source).toContain('attentionSessions, orchestratorConclusionState])')
+    expect(routingSource).toContain("if (item.kind === 'restart-pending') {")
+    expect(routingSource).toContain("if (notice.kind === 'restart-pending') await openRestart(notice.chatId)")
   })
 
 
