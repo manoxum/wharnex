@@ -200,6 +200,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [restartReports, setRestartReports] = useState<RestartReport[]>([])
   // Orchestrator task sessions awaiting self-evolution activation, projected as chats.
   const [orchestratorRestart, setOrchestratorRestart] = useState<{ chats: WorkspaceChat[]; sessions: Record<string, Session> }>({ chats: [], sessions: {} })
+  // A task that changed Wharnex itself reaches REVIEW with its restart pending
+  // and has no chat on screen to offer it: its modal opens once per session.
+  const announcedOrchestratorRestartsRef = useRef(new Set<string>())
   const [interruptedExecutions, setInterruptedExecutions] = useState<Array<{ chat: WorkspaceChat; session: Session }>>([])
   const [executionFIFO, setExecutionFIFO] = useState<FrontendExecutionQueueItem[]>([])
   const [editorOpenPath, setEditorOpenPath] = useState<string | undefined>(surfaceRequest?.kind === 'editor' ? surfaceRequest.path : undefined)
@@ -415,6 +418,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!restartModalOpen || !session) return
     void refreshRestartReports().catch((reason) => setError(messageOf(reason)))
   }, [restartModalOpen, attentionSessions, activeChatId, chats, session?.id])
+
+  useEffect(() => {
+    const fresh = orchestratorRestart.chats.filter((chat) => !announcedOrchestratorRestartsRef.current.has(chat.sessionId))
+    fresh.forEach((chat) => announcedOrchestratorRestartsRef.current.add(chat.sessionId))
+    if (fresh.length && !restartModalOpen) void openRestartConfirmation(fresh[0].id)
+  }, [orchestratorRestart])
 
   function setChatBusy(chatId: string, value: boolean) {
     setBusyChats((current) => {
@@ -3633,7 +3642,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   }
   const recoveryBlocksActiveChat = interruptedExecutions.some((target) => target.chat.id === activeChatId)
   const taskInFlight = requestChainActive(session) || restartModalOpen || recoveryBlocksActiveChat
-  const restartPending = isRestartPending(session)
+  // Also a task that changed Wharnex itself: it has no chat to show the restart.
+  const restartPending = isRestartPending(session) || orchestratorRestart.chats.length > 0
   // Attention routing and the side rail are shell-level. The shell owns the
   // notification entry point, while inspector routing stays on the existing
   // inspectorAttention channel consumed by the Agent workspace.
