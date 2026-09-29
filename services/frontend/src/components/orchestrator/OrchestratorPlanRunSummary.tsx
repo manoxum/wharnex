@@ -1,7 +1,31 @@
 import { useMemo } from 'react'
 import { ORCHESTRATOR_TASK_STATUSES, type OrchestratorPlanningDetail, type OrchestratorTask } from '../../types'
+import type { OrchestratorPhase } from '../../types/orchestrator'
 
-export function OrchestratorPlanProgressSummary({ detail }: { detail: OrchestratorPlanningDetail }) {
+function phasePresentation(phase: OrchestratorPhase | undefined) {
+  switch (phase) {
+    case 'AWAITING_APPROVAL':
+      return { label: 'Em análise', className: 'border-[var(--theme-warning)] bg-[color-mix(in_srgb,var(--theme-warning)_10%,var(--theme-surface))] text-[var(--theme-warning)]' }
+    case 'EXECUTING':
+      return { label: 'Em execução', className: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
+    case 'REVIEW':
+      return { label: 'Review', className: 'border-[var(--theme-warning)] bg-[color-mix(in_srgb,var(--theme-warning)_10%,var(--theme-surface))] text-[var(--theme-warning)]' }
+    case 'COMPLETED':
+      return { label: 'Concluído', className: 'border-[var(--theme-success)] bg-[color-mix(in_srgb,var(--theme-success)_9%,var(--theme-surface))] text-[var(--theme-success)]' }
+    case 'ARCHIVED':
+      return { label: 'Encerrado', className: 'border-[var(--theme-border)] bg-[var(--theme-muted)] text-[var(--theme-text-muted)]' }
+    case 'PLANNING':
+    default:
+      return { label: 'Em andamento', className: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
+  }
+}
+
+export function OrchestratorPhaseBadge({ phase }: { phase?: OrchestratorPhase }) {
+  const state = phasePresentation(phase)
+  return <span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 font-mono text-sm font-bold leading-none ${state.className}`} title={`Fase ${phase || 'PLANNING'}`}>{state.label}</span>
+}
+
+export function OrchestratorPlanProgressSummary({ detail, phase }: { detail: OrchestratorPlanningDetail; phase?: OrchestratorPhase }) {
   const summary = useMemo(() => {
     const taskCounts = Object.fromEntries(ORCHESTRATOR_TASK_STATUSES.map((status) => [status, 0])) as Record<(typeof ORCHESTRATOR_TASK_STATUSES)[number], number>
     const runCounts: Record<string, number> = {}
@@ -27,7 +51,11 @@ export function OrchestratorPlanProgressSummary({ detail }: { detail: Orchestrat
       <strong className="text-base">Progresso</strong>
       <span className="text-sm text-[var(--theme-text-muted)]">{detail.tasks.length} task{detail.tasks.length === 1 ? '' : 's'} · {summary.runs === 1 ? '1 execução' : `${summary.runs} execuções`} · {detail.attempts.length} tentativa{detail.attempts.length === 1 ? '' : 's'} de planeamento</span>
     </div>
-    <p className="mb-0 mt-1 text-sm text-[var(--theme-text-soft)]">Uma task só entra em concluídas quando o estado é COMPLETE; REVIEW continua separado até essa transição.</p>
+    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] px-2.5 py-2">
+      <span className="text-sm font-semibold text-[var(--theme-text-muted)]">Fase da orquestração</span>
+      <OrchestratorPhaseBadge phase={phase}/>
+    </div>
+    <p className="mb-0 mt-2 text-sm text-[var(--theme-text-soft)]">Review ainda não é conclusão. A fase Concluído só é liberada quando todas as tasks chegam a COMPLETE ou preservam evidência equivalente de conclusão no histórico, como ARCHIVED com was_completed=true.</p>
     <StatusCounts label="Tasks por status" entries={ORCHESTRATOR_TASK_STATUSES.map((status) => [status, summary.taskCounts[status]] as [string, number])}/>
     <StatusCounts label="Execuções por status" entries={Object.entries(summary.runCounts)}/>
     <StatusCounts label="Tentativas por status" entries={Object.entries(summary.attemptCounts)}/>
