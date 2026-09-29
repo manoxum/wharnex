@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { bytesToMiB, formatPatternLines, miBToBytes, parsePatternLines } from '../lib/projectConfig'
-import type { AppConfig, ArtifactSettings, BackendStorageUsage, ContextInspection, ProjectConfig, Session, TunnelProviderDocument } from '../types'
+import type { AppConfig, ArtifactSettings, BackendStorageUsage, ContextInspection, ContextMode, ProjectConfig, Session, TunnelProviderDocument } from '../types'
 import { ContextInspector, type ContextSelection } from './ContextInspector'
 import { Icon } from './Icon'
 import { InternalWindow } from './InternalWindow'
@@ -113,6 +113,14 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
       const nextInspection = await api.contextInspection(session.id)
       setInspection(nextInspection)
     } catch (error) { onError(messageOf(error, 'Não foi possível guardar a configuração do projeto')) }
+    finally { setSaving(false) }
+  }
+
+  async function changeContextMode(mode: ContextMode) {
+    if (!session || saving) return
+    setSaving(true)
+    try { onSession?.(await api.setContextMode(session.id, mode)) }
+    catch (error) { onError(messageOf(error, 'Não foi possível alterar a modalidade de contexto')) }
     finally { setSaving(false) }
   }
 
@@ -322,6 +330,7 @@ export function ProjectSettings({ session, onClose, onSession, onError, onTunnel
           ? <div className="settings-load-error"><Icon name="shield" size={22}/><div><strong>Não foi possível carregar a configuração</strong><p>{loadingError}</p><span>O backend tenta recriar automaticamente <code>whaness.yml</code> quando ele não existe. Pode tentar novamente sem fechar o projeto.</span><button className="secondary-button" onClick={() => setReloadNonce((value) => value + 1)}><Icon name="refresh" size={14}/> Tentar novamente</button></div></div>
           : <div className="settings-loading"><span className="settings-spinner"/>A carregar configuração…</div>) : <><section className="context-config-section">
           <div className="context-section-title"><div><strong>Configuração fina</strong><span>Estas opções alteram a próxima reconstrução do contexto.</span></div><div className="context-config-badges"><span>{config.context.include_overrides?.length || 0} inclusões explícitas</span><code>{session?.context.manifest.sha256.slice(0, 12) || '—'}</code></div></div>
+          {session && <label className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--theme-border)] p-3"><span className="flex flex-col"><strong>Modalidade de envio ao GPT</strong><small>Parcial envia mapas primeiro e acrescenta ficheiros por pedido; Full envia o snapshot elegível completo.</small></span><select aria-label="Modalidade de contexto da sessão" value={session.context_mode || 'full'} disabled={saving} onChange={(event) => void changeContextMode(event.target.value as ContextMode)}><option value="partial">Parcial (padrão)</option><option value="full">Full</option></select></label>}
           <label className="settings-toggle"><input type="checkbox" checked={config.context.auto_exclude} onChange={(event) => setConfig({ ...config, context: { ...config.context, auto_exclude: event.target.checked } })}/><span><strong>Reconhecimento automático</strong><small>Exclui dependências, caches, builds, binários, logs, IDE metadata e outros artefactos sem valor para a IA.</small></span></label>
           <div className="settings-grid">
             <label><span>Incluir apenas <small>opcional</small></span><textarea value={include} onChange={(event) => setInclude(event.target.value)} placeholder={'src/**\ndocs/**\ngo.mod'}/><small>Se vazio, todos os ficheiros elegíveis são considerados.</small></label>

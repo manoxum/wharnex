@@ -1,6 +1,6 @@
 import type { AgentTurn, AppConfig, AttachmentInspection, KnownProjectRef, ArtifactEntry, ArtifactPresentation, ArtifactRecord, ArtifactSettings, ManagedArtifact, ChatFileRecord, PostgresCatalog, PostgresConnectionInput, PostgresQueryResult, LanguageCode, LanguageSettings, MarkdownTranslation, AutomationMode, EffortLevel, ChatTransportMode, ChatRequestMode, ChatItem, ChatAgentQueueSummary, ChatAgentTask, ChatAgentTaskEvent, HarnessEvent, BackendStorageUsage, BundleQuota, BundleSubmission, CommandResult, CommandSpec, ContextInspection, EvolutionEvidence, EvolutionKnowledgeRef, ExecutionConcurrency, ExecutionMode, ExecutionPlan, ExecutionResult, ExecutionErrorRecord, DockerOverview, DockerLogs, DockerContainerAction, DockerResourceKind, FileEntry, ProjectConfig, ProjectKnowledge, ProjectKnowledgeCatalog, ProjectProvision, ProjectTodo, RemoteStorageConfigResponse, RemoteStorageConnection, RemoteStorageDocument, RemoteStorageProvider, RemoteStorageProviderID, OrchestratorOverview, OrchestratorPlanningDetail, OrchestratorPlanningRequest, OrchestratorPriority, OrchestratorProposal, OrchestratorProposalResult, OrchestratorRunResult, OrchestratorTask, OrchestratorTaskRun, Session, TerminalTarget, TerminalSessionDescriptor, TunnelProvider, TunnelProviderConfigResponse, TunnelProviderDocument, TunnelProviderEnrollment, TunnelProviderID, TunnelTestResult, WorkspaceFile, WorkspaceSearchOptions, WorkspaceSearchResult, GitHeadState, GitOverview, GitFileDiff, GitOperationPreview, GitCommitMode, GitPendingCommit, GitCommitResult, GitPushResult, GitMergeResult, GitRemoteMergeResult, GitBranchActionResult, GitBranchMutationResult, GitReleaseNotesResult, GitReleaseResult, GitCommit, GitUnpushedOverview, GitCommitDetail, GitHistoryPage, GitContributorsOverview, GitBranch, GitConflictStrategy, GitAuthorSettings, GitWorktreeCommitResult, ConflictWorkbench, ConflictManualResolution, ConflictManualResult, WorkspaceChatBindingRecovery } from '../types'
 import type { DurableWorkspaceChatRecord } from './workspaceMemory'
-import type { OrchestratorTaskRetryContext, ReasoningEffort } from '../types'
+import type { OrchestratorTaskRetryContext, ReasoningEffort, ContextMode } from '../types'
 import { createOrchestratorApi, normalizeOrchestratorOverview } from './orchestratorApi'
 import type { WorkspaceAttentionPayload } from './orchestratorAttention'
 export { normalizeOrchestratorOverview } from './orchestratorApi'
@@ -234,6 +234,8 @@ export const api = {
     request<Session>(`/api/sessions/${id}/effort-level`, { method: 'PUT', body: JSON.stringify({ effort_level: effortLevel }) }),
   setReasoningEffort: (id: string, reasoningEffort: ReasoningEffort) =>
     request<Session>(`/api/sessions/${id}/reasoning-effort`, { method: 'PUT', body: JSON.stringify({ reasoning_effort: reasoningEffort }) }),
+  setContextMode: (id: string, contextMode: ContextMode) =>
+    request<Session>(`/api/sessions/${id}/context-mode`, { method: 'PUT', body: JSON.stringify({ context_mode: contextMode }) }),
   setChatTransportMode: (id: string, chatTransportMode: ChatTransportMode) =>
     request<Session>(`/api/sessions/${id}/chat-transport-mode`, { method: 'PUT', body: JSON.stringify({ chat_transport_mode: chatTransportMode }) }),
   setKnowledgeSharing: (id: string, enabled: boolean) =>

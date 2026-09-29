@@ -428,6 +428,10 @@ func TestPublishRemoteInputRequiresActiveRequestAndReturnsShortBootstrap(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	started, err = service.SetContextMode(started.ID, domain.ContextModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, prompted, err := service.SubmitMessage(context.Background(), started.ID, "implement it")
 	if err != nil {
 		t.Fatal(err)
@@ -463,6 +467,10 @@ func TestRemoteInputPublishesFreshRequestArchiveInsteadOfSharedContext(t *testin
 	remote := &capturingRemoteStore{}
 	service.SetRemoteInputStore(remote)
 	started, err := service.StartSession(context.Background(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err = service.SetContextMode(started.ID, domain.ContextModeFull)
 	if err != nil {
 		t.Fatal(err)
 	}

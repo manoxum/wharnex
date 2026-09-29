@@ -75,6 +75,7 @@ type BundleSubmission struct {
 	ConflictPrepared       bool                    `json:"conflict_prepared,omitempty"`
 	WorkflowExecuted       bool                    `json:"workflow_executed,omitempty"`
 	WorkflowPrepared       bool                    `json:"workflow_prepared,omitempty"`
+	ContextIncremented     bool                    `json:"context_incremented,omitempty"`
 	WorkflowRound          int                     `json:"workflow_round,omitempty"`
 	RestartScheduled       bool                    `json:"restart_scheduled,omitempty"`
 	RestartRequired        bool                    `json:"restart_required,omitempty"`
@@ -457,7 +458,7 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		return domain.Session{}, err
 	}
 	knowledgeSharing := true
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, EffortLevel: effortLevel, ReasoningEffort: domain.ReasoningEffortHigh, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, EffortLevel: effortLevel, ReasoningEffort: domain.ReasoningEffortHigh, ContextMode: domain.ContextModePartial, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
 	if selfEvolution {
 		item.WharnexInstanceID = ""
 	}
@@ -908,6 +909,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		// replaces it, including replacing it with nothing.
 		if strings.TrimSpace(parentRequestID) == "" {
 			current.CrossProjectGrant = crossGrant
+			current.ContextPaths = nil
 		}
 		current.RemoteRecoveryAttempt = 0
 		recordRequestLineage(current, requestID, parentRequestID, requestKind)
@@ -1378,6 +1380,9 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 	if current.LastRequestMode == "adjust_plan" && parsed.Turn.RequestID == current.LastRequestID && parsed.Turn.Kind == domain.TurnKindPlan {
 		return BundleSubmission{}, errors.New("adjust_plan request must return a revised executable result, not a planning-only proposal")
+	}
+	if parsed.Turn.Kind == domain.TurnKindContextRequest {
+		return s.acceptContextRequest(ctx, sessionID, current, parsed.Turn, parsed.Info)
 	}
 	if parsed.Turn.Kind == domain.TurnKindWorkflow {
 		isDebug := parsed.Plan != nil && parsed.Plan.Debug != nil

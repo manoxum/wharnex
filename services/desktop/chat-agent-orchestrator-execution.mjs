@@ -118,7 +118,10 @@ async function driveOrchestratorRound(task, entry, key, payload, owner, runtime)
   // Only a READY or DOING task can use this attempt. Any other status means
   // the task left execution, so the round driver settles.
   if (current.task?.status !== 'READY' && current.task?.status !== 'DOING') return { status: 'done' }
-  if (!activeRequest(current)) return observe(`Agent state ${String(current.agent_state || 'unknown')}`)
+  if (!activeRequest(current)) {
+    const kind = String(current.agent_failure_kind || '')
+    return observe(`Agent state ${String(current.agent_state || 'unknown')}${kind ? ` (${kind})` : ''}`)
+  }
   if (!current.prompt) return observe('Agent request is awaiting another boundary')
 
   const supervision = await runtime.supervision(key, current.request_id)

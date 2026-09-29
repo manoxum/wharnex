@@ -12,8 +12,12 @@ type OrchestratorWorkerRequest struct {
 	ChatID           string               `json:"chat_id,omitempty"`
 	ReasoningEffort  string               `json:"reasoning_effort,omitempty"`
 	AgentState       string               `json:"agent_state"`
-	ConversationURL  string               `json:"conversation_url,omitempty"`
-	ConversationID   string               `json:"conversation_id,omitempty"`
+	// AgentFailureKind names why an Agent without a pending request is not
+	// advancing (for example a verified candidate the self-evolution lock
+	// refused), so the Worker's observation says more than the bare state.
+	AgentFailureKind string `json:"agent_failure_kind,omitempty"`
+	ConversationURL  string `json:"conversation_url,omitempty"`
+	ConversationID   string `json:"conversation_id,omitempty"`
 }
 
 func settledOrchestratorWorkerRequest(task orchestrator.Task) OrchestratorWorkerRequest {

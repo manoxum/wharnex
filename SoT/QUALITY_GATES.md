@@ -105,7 +105,12 @@ The OS launcher MUST stage a source-change build before stopping the current Des
 Normal `make build`/`make start` MUST use `--no-recreate` for PostgreSQL and tunnel containers. Backend/frontend may roll independently with `--no-deps`; this preserves active temporary tunnel base URLs across application restart/self-evolution. First stack initialization migrates compatible PostgreSQL 17 data from the former checkout-owned PGDATA into the named volume before the new database starts. A distinct logical reconciliation marker MUST repair skipped/partial first migrations by idempotently merging the legacy PostgreSQL rows after the Compose database becomes healthy and verifying session counts before backend activation.
 Stack self-evolution MUST NOT execute its restart worker inside the backend container that will be replaced. The backend image MUST contain the local build/control toolchain required by `make build-stage`, and activation MUST be delegated to a detached supervisor container. Application rollout MUST retain the previous backend/frontend image IDs long enough to restore them on failed health checks; tunnel/database containers remain excluded from that rollback boundary.
 
-Runtime state belongs under `.harness/` and must never be committed.
+Runtime state belongs under `.harness/` and must never be committed. Creating,
+cloning, or opening a project MUST ensure its root `.gitignore` contains
+`/.harness/` before any Wharnex baseline commit. If runtime files are already
+tracked, Wharnex MUST remove them from the Git index without deleting their
+working-tree copies; the staged removal then travels with the project's next
+commit. Ignore repair MUST preserve existing rules and be idempotent.
 
 ## G10 Orchestrator
 

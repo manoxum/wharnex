@@ -31,6 +31,11 @@
     "context_included": {
       "type": "boolean"
     },
+    "context_mode": { "enum": ["full", "partial"] },
+    "context_paths": {
+      "type": "array", "maxItems": 128, "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^(context|ref-context|att-context)/" }
+    },
     "context_root": {
       "type": "string",
       "enum": [

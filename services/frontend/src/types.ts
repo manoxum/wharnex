@@ -318,7 +318,8 @@ export type DockerLogs = { container_id: string; tail: number; content: string }
 export type DockerContainerAction = 'start' | 'stop' | 'restart'
 export type DockerResourceKind = 'volume' | 'network'
 
-export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'change' | 'blocked'
+export type TurnKind = 'answer' | 'clarification' | 'investigation' | 'plan' | 'workflow' | 'context_request' | 'change' | 'blocked'
+export type ContextMode = 'full' | 'partial'
 
 export type InterviewOption = { id: string; label: string }
 export type InterviewQuestion = { id: string; prompt: string; allow_multiple?: boolean; options: InterviewOption[] }
@@ -332,6 +333,7 @@ export type AgentTurn = {
   message: string
   outcome?: { status: 'completed' | 'failed' | 'partial'; reason_code?: string; message?: string; retryable: boolean }
 	interview?: Interview
+	context_paths?: string[]
 }
 
 export type ProjectKnowledgeEntry = {
@@ -381,6 +383,8 @@ export type Session = {
   approved_execution_boundary_keys?: string[]
   effort_level?: EffortLevel
   reasoning_effort?: ReasoningEffort
+  context_mode?: ContextMode
+  context_paths?: string[]
   automation_attempt?: number
   improvement_attempt?: number
   chat_transport_mode?: ChatTransportMode
@@ -872,7 +876,7 @@ export type ChatAttachmentInfo = {
 
 export type ChatItem = { id: string; role: 'user' | 'harness'; text: string; createdAt?: string; meta?: string; turnKind?: TurnKind; attachments?: ChatAttachmentInfo[]; iteration?: ChatIterationRef; source?: ChatItemSource; presentation?: ChatItemPresentation; approval?: ChatPlanApproval; change?: ChatChangeSummary; interview?: Interview }
 
-export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean; remote_recovery_prepared?: boolean; conflict_prepared?: boolean; workflow_executed?: boolean; workflow_prepared?: boolean; workflow_round?: number; restart_scheduled?: boolean; restart_required?: boolean }
+export type BundleSubmission = { session: Session; auto_executed: boolean; auto_applied: boolean; auto_error?: string; execution?: ExecutionResult; policy_blocked?: boolean; policy_reasons?: string[]; repair_prepared?: boolean; remote_recovery_prepared?: boolean; conflict_prepared?: boolean; workflow_executed?: boolean; workflow_prepared?: boolean; context_incremented?: boolean; workflow_round?: number; restart_scheduled?: boolean; restart_required?: boolean }
 
 export type ProjectStorageUsage = { project_path: string; session_count: number; context_bytes: number; sandbox_bytes: number; artifact_bytes: number; archive_bytes: number; total_bytes: number }
 export type BackendStorageUsage = { total_bytes: number; state_bytes: number; context_bytes: number; sandbox_bytes: number; artifact_bytes: number; archive_bytes: number; orphan_bytes: number; projects: ProjectStorageUsage[] }

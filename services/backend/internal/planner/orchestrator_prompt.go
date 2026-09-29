@@ -15,7 +15,9 @@ func buildOrchestratorManualPrompt(req Request) string {
 	encoded, _ := json.MarshalIndent(manifest, "", "  ")
 	return fmt.Sprintf(`%s
 
-Return ONLY one UTF-8 JSON object using protocol %s with this exact top-level shape:
+%s
+
+When enough context is available, return one UTF-8 JSON object using protocol %s with this exact top-level shape:
 {
   "protocol": "%s",
   "title": "short plan title",
@@ -48,5 +50,12 @@ OBJECTIVE:
 %s
 
 PROJECT MANIFEST:
-%s`, OrchestratorSystemPrompt, orchestrator.ProtocolV1, orchestrator.ProtocolV1, req.RequestID, req.Message, encoded)
+%s`, OrchestratorSystemPrompt, orchestratorContextModePrompt(req), orchestrator.ProtocolV1, orchestrator.ProtocolV1, req.RequestID, req.Message, encoded)
+}
+
+func orchestratorContextModePrompt(req Request) string {
+	if req.ContextMode != "partial" {
+		return "CONTEXT DELIVERY: Full. The project snapshot is attached when context is enabled for this planning request."
+	}
+	return `CONTEXT DELIVERY: Partial. The request carries context-map/main/maps and reference maps first. Inspect those inventories before planning. If you need specific file bodies, return a ZIP response containing context-request.json instead of plan.json. The JSON must have exactly protocol="harness.orchestrator-context-request/v1", request_id equal to this request, and context_paths with 1..32 exact context/, ref-context/, or att-context/ archive paths. Wharnex validates and reads those files from the captured snapshot, then sends a new request ZIP in this conversation containing the cumulative selected files. At most six increments are allowed. Once enough evidence is present, return the ordinary plan.json bundle. Do not emit commands, patches, or prose as the result.`
 }

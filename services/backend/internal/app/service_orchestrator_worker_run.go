@@ -76,7 +76,7 @@ func (s *Service) orchestratorWorkerRequest(ctx context.Context, taskID string) 
 		return OrchestratorWorkerRequest{}, err
 	}
 	result := OrchestratorWorkerRequest{Task: task, Run: run, AgentSessionID: run.SessionID,
-		AgentState: agent.State, ChatID: sessionChatID(agent), ReasoningEffort: string(agent.ReasoningEffort),
+		AgentState: agent.State, AgentFailureKind: agent.FailureKind, ChatID: sessionChatID(agent), ReasoningEffort: string(agent.ReasoningEffort),
 		ConversationURL: task.ConversationURL, ConversationID: task.ConversationID}
 	// Only a request still awaiting its response is the Worker's to deliver.
 	// Once its bundle is accepted the Agent executes locally; reporting the old

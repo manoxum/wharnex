@@ -35,6 +35,11 @@ const (
 // here rather than in the Desktop: the Desktop is transport and never opens the
 // archive.
 func (s *Service) ImportOrchestratorProposalBundle(ctx context.Context, sessionID, requestID string, raw []byte) (OrchestratorProposalResult, error) {
+	if increment, ok, err := decodeOrchestratorContextRequest(raw); err != nil {
+		return OrchestratorProposalResult{}, err
+	} else if ok {
+		return s.importOrchestratorContextRequest(ctx, sessionID, requestID, increment, raw)
+	}
 	proposal, err := DecodeOrchestratorPlanBundle(raw)
 	if err != nil {
 		return OrchestratorProposalResult{}, err

@@ -26,6 +26,7 @@
         "investigation",
         "plan",
         "workflow",
+        "context_request",
         "change",
         "blocked"
       ]
@@ -39,6 +40,13 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 262144
+    },
+    "context_paths": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^(context|ref-context|att-context)/[^/].*" }
     },
     "resolved_evidence_ids": {
       "type": "array",

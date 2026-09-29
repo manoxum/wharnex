@@ -47,6 +47,20 @@ func ValidateTurn(turn domain.AgentTurn) error {
 	if len(turn.ResolvedEvidenceIDs) > 500 {
 		return errors.New("resolved_evidence_ids exceeds 500 entries")
 	}
+	if turn.Kind == domain.TurnKindContextRequest {
+		if len(turn.ContextPaths) == 0 || len(turn.ContextPaths) > 32 {
+			return errors.New("context_request requires 1..32 context_paths")
+		}
+	} else if len(turn.ContextPaths) != 0 {
+		return errors.New("context_paths is valid only on a context_request turn")
+	}
+	seenPaths := map[string]struct{}{}
+	for _, path := range turn.ContextPaths {
+		if _, exists := seenPaths[path]; exists {
+			return errors.New("context_paths contains a duplicate")
+		}
+		seenPaths[path] = struct{}{}
+	}
 	seenEvidence := map[string]struct{}{}
 	for _, id := range turn.ResolvedEvidenceIDs {
 		if !strings.HasPrefix(id, "evt_") {

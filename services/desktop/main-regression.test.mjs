@@ -2168,7 +2168,8 @@ test('orchestrator planning survives as an exact artifact-only Worker delivery',
   assert.match(worker, /chatGPTResponseCompletionScript\(assistantBaseline\)/)
   assert.match(worker, /target\.reasoningEffort = normalizeChatGPTReasoningEffort\(payload\.reasoning_effort\)/)
   assert.match(worker, /reasoningEffort: normalizeChatGPTReasoningEffort\(payload\.reasoning_effort\)/)
-  assert.equal((worker.match(/requireReasoningEffort: false/g) || []).length, 2)
+  // Initial submission, artifact re-request and Partial context increment.
+  assert.equal((worker.match(/requireReasoningEffort: false/g) || []).length, 3)
   // One import path for the live download, a retained artifact and both
   // deliveries, so nothing reaches the backend through a weaker check.
   assert.match(worker, /importOrchestratorPlanArtifact\(sessionId, requestId, delivery, outcome\.value\)/)
@@ -2608,7 +2609,11 @@ test('orchestrator planning carries shared-composer context and attachments into
   assert.match(worker, /const generatedAttachments = Array\.isArray\(payload\.generated_attachments\)/)
   assert.match(worker, /requestAttachments\.push\(\{ name, bytes \}\)/)
   assert.match(worker, /generatedAttachmentBytes > 2 \* 1024 \* 1024/)
-  assert.match(worker, /contextBytes = includeContext \? \(await fetchContextZip\(sessionId\)\)\.bytes/)
+  // Full sends the whole snapshot; Partial sends its maps plus only the files
+  // the planner selected (adr/ADR-0083). Either way only when asked for.
+  assert.match(worker, /const capturedContext = includeContext \? await fetchContextZip\(sessionId\) : undefined/)
+  assert.match(worker, /const contextBytes = contextMode === 'full' \? capturedContext\?\.bytes : undefined/)
+  assert.match(worker, /context: contextMode === 'partial' && capturedContext \? \{ \.\.\.capturedContext, mode: 'partial', paths: selectedContextPaths \}/)
   assert.match(worker, /writeOrchestratorRequestBundle\(requestPath, \{/)
   assert.match(worker, /await pasteChatGPTFile\(target\.entry, requestPath, 1, 1, \{ pacedWorker \}\)/)
   assert.match(worker, /removeStoredChatAttachments\(chatAttachmentRoot\(\), attachmentCacheKey\)/)

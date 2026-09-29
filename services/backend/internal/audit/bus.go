@@ -15,6 +15,11 @@ type EventStore interface {
 	EventHistory(string) ([]domain.Event, error)
 }
 
+// maxUnpersistedEventsPerSession bounds the in-memory fallback a persistent
+// bus keeps for events its store refused. Persisted events are never kept in
+// memory: History reads them back from the store.
+const maxUnpersistedEventsPerSession = 256
+
 type Bus struct {
 	mu          sync.RWMutex
 	history     map[string][]domain.Event
@@ -52,9 +57,7 @@ func (b *Bus) SetObserver(observer func(domain.Event)) {
 
 func (b *Bus) Publish(sessionID, eventType string, data map[string]any) domain.Event {
 	event := domain.Event{ID: ids.New("evt"), SessionID: sessionID, Type: eventType, Timestamp: time.Now().UTC(), Data: sanitizeData(data)}
-	if b.store != nil {
-		_ = b.store.AppendEvent(event)
-	}
+	persisted := b.store != nil && b.store.AppendEvent(event) == nil
 	b.mu.RLock()
 	observer := b.observer
 	b.mu.RUnlock()
@@ -62,7 +65,9 @@ func (b *Bus) Publish(sessionID, eventType string, data map[string]any) domain.E
 		observer(event)
 	}
 	b.mu.Lock()
-	b.history[sessionID] = append(b.history[sessionID], event)
+	if !persisted {
+		b.rememberLocked(event)
+	}
 	for ch := range b.subscribers[sessionID] {
 		select {
 		case ch <- event:
@@ -71,6 +76,16 @@ func (b *Bus) Publish(sessionID, eventType string, data map[string]any) domain.E
 	}
 	b.mu.Unlock()
 	return event
+}
+
+// rememberLocked keeps an event the store did not hold. A memory-only bus
+// keeps its whole history; a persistent bus keeps only a bounded window.
+func (b *Bus) rememberLocked(event domain.Event) {
+	items := append(b.history[event.SessionID], event)
+	if b.store != nil && len(items) > maxUnpersistedEventsPerSession {
+		items = append([]domain.Event(nil), items[len(items)-maxUnpersistedEventsPerSession:]...)
+	}
+	b.history[event.SessionID] = items
 }
 
 func (b *Bus) History(sessionID string) []domain.Event {
@@ -160,6 +175,9 @@ func (b *Bus) Subscribe(sessionID string) (<-chan domain.Event, func()) {
 		if _, ok := b.subscribers[sessionID][ch]; ok {
 			delete(b.subscribers[sessionID], ch)
 			close(ch)
+			if len(b.subscribers[sessionID]) == 0 {
+				delete(b.subscribers, sessionID)
+			}
 		}
 		b.mu.Unlock()
 	}

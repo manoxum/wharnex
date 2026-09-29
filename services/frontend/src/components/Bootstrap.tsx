@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import type { AppConfig, AutomationMode, ChatTransportMode, EffortLevel, ReasoningEffort } from '../types'
+import type { AppConfig, AutomationMode, ChatTransportMode, ContextMode, EffortLevel, ReasoningEffort } from '../types'
 import { desktopBridge, isDesktop } from '../lib/desktop'
 import { confirmDialog, noticeDialog } from '../lib/appDialog'
 import {
@@ -106,6 +106,7 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
   function updateAutomationMode(value: AutomationMode) { setLaunchOptions((current) => ({ ...current, automationMode: value })) }
   function updateEffortLevel(value: EffortLevel) { setLaunchOptions((current) => ({ ...current, effortLevel: value })) }
   function updateReasoningEffort(value: ReasoningEffort) { setLaunchOptions((current) => ({ ...current, reasoningEffort: value })) }
+  function updateContextMode(value: ContextMode) { setLaunchOptions((current) => ({ ...current, contextMode: value })) }
   function updateTransport(value: ChatTransportMode) { setLaunchOptions((current) => ({ ...current, chatTransportMode: value })) }
 
   async function openRecent(projectPath: string) {
@@ -218,11 +219,13 @@ export function Bootstrap({ config, busy, error, recent, restoring, onStart, onC
                       automationMode={launchOptions.automationMode}
                       effortLevel={launchOptions.effortLevel}
                       reasoningEffort={launchOptions.reasoningEffort}
+                      contextMode={launchOptions.contextMode}
                       chatTransportMode={launchOptions.chatTransportMode}
                       busy={busy}
                       onAutomationMode={updateAutomationMode}
                       onEffortLevel={updateEffortLevel}
                       onReasoningEffort={updateReasoningEffort}
+                      onContextMode={updateContextMode}
                       onChatTransportMode={updateTransport}
                     />
                     {launchOptions.entryMode === 'agent' ? <><span className="composer-action-divider" /><ComposerPlanFirstControl requestMode={launchOptions.requestMode} onRequestMode={(requestMode) => setLaunchOptions((current) => ({ ...current, requestMode }))} /></> : null}

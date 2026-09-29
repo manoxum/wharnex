@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import { buildBundleName, safeChatId } from './bundlename.mjs'
 import { safeEntryName, writeChatInputZip } from './chat-input-zip-writer.mjs'
+import { selectArchiveContextEntries } from './chat-input-context-selection.mjs'
 
 // Keep low-level ZIP writes private to the writer; this module owns final archive publication.
 const STORE_METHOD = 0
@@ -334,6 +335,14 @@ function normalizeContextMapFiles(values) {
   })
 }
 
+export function orchestratorContextEntries(context) {
+  if (!context?.bytes) return []
+  return [
+    ...selectArchiveContextEntries(flattenContextEntries(context.bytes), context),
+    ...normalizeContextMapFiles(context.maps),
+  ]
+}
+
 function normalizeContinuationFiles(values) {
   const list = Array.isArray(values) ? values : []
   const seen = new Set()
@@ -393,6 +402,8 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
     request_metadata: normalizedRequestMetadata,
     prompt: 'prompt/wharness-planner-prompt.md',
     context_included: Boolean(context?.bytes),
+    context_mode: context?.mode === 'partial' ? 'partial' : 'full',
+    context_paths: context?.mode === 'partial' ? context.paths || [] : [],
     context_root: context?.bytes ? PRIMARY_CONTEXT_ROOT : '',
     context_roots: {
       primary: context?.bytes ? PRIMARY_CONTEXT_ROOT : '',
@@ -431,7 +442,7 @@ export async function writeChatInputArchive(targetPath, { requestId, requestMeta
   entries.push(...continuationFiles)
   for (const entry of gitContextSnapshot.files) entries.push({ name: entry.path, bytes: entry.raw })
   if (context?.bytes) {
-    entries.push(...flattenContextEntries(context.bytes))
+    entries.push(...selectArchiveContextEntries(flattenContextEntries(context.bytes), context))
     entries.push(...contextMapFiles)
   }
   if (selectedPaths.length) {

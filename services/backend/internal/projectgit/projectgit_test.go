@@ -132,6 +132,7 @@ func TestCloneRecursivelyInitializesSubmodules(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cloned, "modules", "sub", "sub.txt")); err != nil {
 		t.Fatalf("recursive submodule content missing: %v", err)
 	}
+	gitText(t, cloned, "check-ignore", "-q", ".harness/state/runtime.json")
 }
 
 func TestCloneRejectsUnsafeDirectoryName(t *testing.T) {

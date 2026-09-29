@@ -180,6 +180,10 @@ test('a settled task ends the driver and an idle Agent is observed for free', as
   assert.equal(idle.result.status, 'waiting')
   assert.equal(idle.result.observation, true)
   assert.match(idle.result.error, /Agent state executing/)
+  // A verified candidate the self-evolution lock refused says why it waits.
+  const parked = await drive({ start: { ...REQUEST, request_id: '', agent_state: 'verified', agent_failure_kind: 'self_evolution_transaction_busy' } })
+  assert.equal(parked.result.observation, true)
+  assert.match(parked.result.error, /Agent state verified \(self_evolution_transaction_busy\)/)
 })
 
 test('a conversation ChatGPT cannot load returns the attempt as a free wait', async () => {

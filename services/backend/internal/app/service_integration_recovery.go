@@ -55,21 +55,33 @@ func (s *Service) RecoverBlockedIntegrations(ctx context.Context) int {
 		if !integrationRecoveryEligible(item) {
 			continue
 		}
+		// The scan yields a slim view; the batch proof and Apply need the
+		// whole session, baseline snapshots included.
+		full, err := s.store.Get(item.ID)
+		if err != nil || !integrationRecoveryEligible(full) {
+			continue
+		}
+		item = full
+		stateKey, open := s.lockRetryState(item)
+		if !open {
+			continue
+		}
 		pending := hostApplicablePendingChanges(pendingHostChanges(item))
 		if !s.integrationConflictReleasable(ctx, item, pending) || !pendingBatchProvenClean(ctx, item.ProjectPath, pending) {
 			continue
 		}
-		if s.resumeParkedIntegration(ctx, item, pending) {
+		if s.resumeParkedIntegration(ctx, item, pending, stateKey) {
 			attempted++
 		}
 	}
 	return attempted
 }
 
-// resumeParkedIntegration re-applies one proven session, once per host state.
-func (s *Service) resumeParkedIntegration(ctx context.Context, item domain.Session, pending []domain.PendingHostChange) bool {
+// resumeParkedIntegration re-applies one proven session, once per host state
+// (and, for a session the self-evolution lock parked, once per lock state).
+func (s *Service) resumeParkedIntegration(ctx context.Context, item domain.Session, pending []domain.PendingHostChange, stateKey string) bool {
 	head, err := sandbox.CurrentHeadSHA(ctx, item.ProjectPath)
-	if err != nil || !s.integrationRecovery.claim(integrationRecoveryKey(item.ID, head, pending)) {
+	if err != nil || !s.integrationRecovery.claim(integrationRecoveryKey(item.ID, head, pending)+"|"+stateKey) {
 		return false
 	}
 	s.bus.Publish(item.ID, "integration.auto_recovery_started", map[string]any{
@@ -88,7 +100,7 @@ func integrationRecoveryEligible(item domain.Session) bool {
 	if item.ExecutionMode != domain.ExecutionModeProtected || !domain.AutomationModeApproves(item.AutomationMode) {
 		return false
 	}
-	if item.State != "failed" || item.PlannerInFlight || len(item.PendingManualRequestIDs) > 0 || item.ArchivedAt != nil {
+	if (item.State != "failed" && !parkedBySelfEvolutionLock(item)) || item.PlannerInFlight || len(item.PendingManualRequestIDs) > 0 || item.ArchivedAt != nil {
 		return false
 	}
 	return len(hostApplicablePendingChanges(pendingHostChanges(item))) > 0

@@ -68,6 +68,10 @@ func TestReadyOrchestratorTaskIsClaimedOnceByWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	owner, err = service.SetContextMode(owner.ID, domain.ContextModeFull)
+	if err != nil {
+		t.Fatal(err)
+	}
 	first, err := service.CreateOrchestratorTask(ctx, owner.ID, OrchestratorTaskInput{Title: "Implement change"})
 	if err != nil || first.Status != orchestrator.TaskPending {
 		t.Fatalf("created task=%#v err=%v", first, err)
@@ -98,6 +102,10 @@ func TestReadyOrchestratorTaskIsClaimedOnceByWorker(t *testing.T) {
 	if err != nil || request.Task.Status != orchestrator.TaskDoing || request.Task.FirstDoingAt == nil || request.Run.SessionID == "" ||
 		request.Prompt == "" || request.ExpectedFilename == "" || request.ChatID == "system" {
 		t.Fatalf("Worker start=%#v err=%v", request, err)
+	}
+	workerSession, err := service.GetSession(request.Run.SessionID)
+	if err != nil || workerSession.ContextMode != domain.ContextModeFull {
+		t.Fatalf("ORCHESTRATOR_EXECUTE lost Full context mode: session=%#v err=%v", workerSession, err)
 	}
 	firstDoingAt := *request.Task.FirstDoingAt
 	retried, err := service.StartOrchestratorWorkerTask(ctx, owner.ID, first.ID, claimed.TaskID, "worker-1")

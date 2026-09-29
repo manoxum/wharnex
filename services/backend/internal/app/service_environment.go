@@ -51,6 +51,8 @@ func (s *Service) plannerRequest(ctx context.Context, base planner.Request, snap
 	request := withPlannerKnowledge(base, snapshot)
 	if request.SessionID != "" {
 		if item, err := s.store.Get(request.SessionID); err == nil {
+			request.ContextMode = domain.EffectiveContextMode(item.ContextMode)
+			request.ContextPaths = append([]string(nil), item.ContextPaths...)
 			request.DebugEnabled = item.DebugEnabled
 			if request.ReasoningEffort == "" {
 				request.ReasoningEffort = normalizeReasoningEffort(item.ReasoningEffort)
@@ -73,6 +75,7 @@ func (s *Service) plannerRequest(ctx context.Context, base planner.Request, snap
 		request.ReasoningEffort = domain.ReasoningEffortHigh
 	}
 	request.ExecutionEnvironment = s.executionEnvironmentSection(ctx, projectPath)
+	request.InteractiveConnections = s.interactiveConnectionSection()
 	request.RepositoryTopology = s.repositoryTopologySection(ctx, projectPath)
 	return request
 }

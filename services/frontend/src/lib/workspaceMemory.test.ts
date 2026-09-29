@@ -96,6 +96,7 @@ describe('workspace memory', () => {
       automationMode: 'auto_approve',
       effortLevel: 'extra_high',
       reasoningEffort: 'medium',
+      contextMode: 'full',
       chatTransportMode: 'manual',
     })
     expect(loadPendingProjectLaunch('/workspace/demo')).toEqual({
@@ -105,6 +106,7 @@ describe('workspace memory', () => {
       automationMode: 'auto_approve',
       effortLevel: 'extra_high',
       reasoningEffort: 'medium',
+      contextMode: 'full',
       chatTransportMode: 'manual',
     })
     clearPendingProjectLaunch('/workspace/demo')

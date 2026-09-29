@@ -13,6 +13,7 @@ import { installNativeSurfaceLifecycleGuard } from './native-surface-lifecycle.m
 import { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady } from './chatgpt-upload.mjs'
 import { orchestratorCompletionDiagnostic } from './chat-agent-orchestrator-progress.mjs'
 import { createOrchestratorConversationGuard, executeOrchestratorExecution } from './chat-agent-orchestrator-execution.mjs'
+import { orchestratorContextIncrementPaths, rearmOrchestratorPlanDownload, sendOrchestratorContextIncrement } from './chat-agent-orchestrator-context-increment.mjs'
 import { orchestratorRetryInput } from './chat-agent-orchestrator-retry-input.mjs'
 import { registerOrchestratorExecutionDownload } from './chat-agent-orchestrator-execution-download.mjs'
 import { captureChatGPTAgentPage, captureParkedWorkerPage } from './chat-agent-snapshot.mjs'
@@ -46,6 +47,7 @@ import { uploadChatArtifact } from './artifact-upload.mjs'
 import { createOperationalLogShipper, installConsoleCapture } from './operational-log.mjs'
 import { currentTrace, installBackendTraceHeader, traceForTask, traceId, withTrace } from './operational-trace.mjs'
 import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
+import { contextSelectionFromSession } from './chat-input-context-selection.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, DEFAULT_SUSPENDED_WORKER_TASK_TYPES, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes } from './chat-agent-policies.mjs'
 import { autoScaleWorkerDemand } from './chat-agent-auto-scale.mjs'
@@ -3912,6 +3914,19 @@ async function fetchContextZip(sessionId, signal) {
   return { id, bytes, maps: maps.files }
 }
 
+async function fetchChatContextSelection(sessionId, signal) {
+  const target = new URL(`/api/sessions/${encodeURIComponent(sanitizeSessionId(sessionId))}`, BACKEND_URL)
+  const response = await fetch(target, { redirect: 'error', signal })
+  if (!response.ok) throw new Error(`Context selection unavailable: HTTP ${response.status}`)
+  return contextSelectionFromSession(await response.json())
+}
+
+// The captured snapshot plus the session's Full/Partial selection of it.
+async function fetchSelectedContextZip(sessionId, signal) {
+  const [captured, selection] = await Promise.all([fetchContextZip(sessionId, signal), fetchChatContextSelection(sessionId, signal)])
+  return { ...captured, ...selection }
+}
+
 async function fetchRequestGitContext(sessionId, signal) {
   const id = sanitizeSessionId(sessionId)
   const target = new URL(`/api/sessions/${encodeURIComponent(id)}/git/context`, BACKEND_URL)
@@ -4039,13 +4054,13 @@ async function materializeChatInput(cacheKey, sessionId, requestId, values, arti
     fetchRequestKnowledge(sessionId, requestId, signal),
     fetchRequestGitContext(sessionId, signal),
     fetchRequestContinuation(sessionId, requestId, signal),
-    includeContext ? fetchContextZip(sessionId, signal) : Promise.resolve(undefined),
+    includeContext ? fetchSelectedContextZip(sessionId, signal) : Promise.resolve(undefined),
   ])
   throwIfChatGPTTransportAborted(signal)
   // A derived request must be self-contained even when the linked ChatGPT
   // conversation forgot or truncated an earlier snapshot. The delta remains
-  // useful for focus, while the current full context is authoritative.
-  const context = eagerContext || (continuation.length ? await fetchContextZip(sessionId, signal) : undefined)
+  // useful for focus, while the current context selection is authoritative.
+  const context = eagerContext || (continuation.length ? await fetchSelectedContextZip(sessionId, signal) : undefined)
   timer.phase('inputs-loaded')
   const transport = await writeChatInputTransportArchives(dir, {
     chatId: bundleChatID, requestId, maxTotalBytes: limits.totalBytes, maxPartBytes: boundedChatInputPartBytes(limits), maxParts: limits.partLimit,
@@ -4069,7 +4084,7 @@ async function materializeProtocolChatInput(cacheKey, sessionId, requestId, prom
   const dir = path.join(app.getPath('temp'), 'wharness-chat-protocol', cacheKey, `${Date.now()}-${randomUUID()}`)
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const [context, knowledge, gitContext, continuation] = await Promise.all([
-    fetchContextZip(sessionId, signal),
+    fetchSelectedContextZip(sessionId, signal),
     fetchRequestKnowledge(sessionId, requestId, signal),
     fetchRequestGitContext(sessionId, signal),
     fetchRequestContinuation(sessionId, requestId, signal),
@@ -6299,6 +6314,9 @@ function parseOrchestratorPlanProposal(value) {
 }
 
 function orchestratorPlanResult(requestId, imported) {
+  if (imported?.delivery_status === 'context_increment' && Array.isArray(imported.context_paths)) {
+    return { status: 'context_increment', contextPaths: imported.context_paths }
+  }
   return {
     status: 'done',
     payload: {
@@ -6337,6 +6355,8 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
   const requestId = String(task.request_id || payload.request_id || '').trim()
   const prompt = String(payload.prompt || '').trim()
   const includeContext = payload.include_context === true
+  const contextMode = payload.context_mode === 'partial' ? 'partial' : 'full'
+  let selectedContextPaths = Array.isArray(payload.context_paths) ? payload.context_paths : []
   const attachmentCacheKey = String(payload.attachment_cache_key || '').trim()
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : []
   const generatedAttachments = Array.isArray(payload.generated_attachments) ? payload.generated_attachments : []
@@ -6362,9 +6382,13 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
   // here costs no provider request at all and is the difference between a
   // planning request that completes and one that asks again until it retires.
   const retained = await takeRetainedChatGPTOrchestratorPlan(filename)
+  let pendingIncrement
   if (retained) {
     const imported = await importRetainedOrchestratorPlan(sessionId, requestId, delivery, retained)
-    if (imported) {
+    if (imported?.status === 'context_increment') {
+      pendingIncrement = orchestratorContextIncrementPaths({ delivery_status: 'context_increment', context_paths: imported.contextPaths }, selectedContextPaths) || undefined
+    }
+    if (imported?.status === 'done') {
       if (attachmentCacheKey) await removeStoredChatAttachments(chatAttachmentRoot(), attachmentCacheKey).catch(() => undefined)
       console.log(`[orchestrator-worker] imported retained plan task=${task.task_id} request=${requestId}`)
       return imported
@@ -6377,7 +6401,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
 
   let resolveDownload
   let rejectDownload
-  const download = new Promise((resolve, reject) => { resolveDownload = resolve; rejectDownload = reject })
+  let download = new Promise((resolve, reject) => { resolveDownload = resolve; rejectDownload = reject })
   download.catch(() => undefined)
   const expected = { taskId: task.task_id, key, filename, armedAt: Date.now(), resolve: resolveDownload, reject: rejectDownload }
   expectedChatGPTOrchestratorPlans.set(filename, expected)
@@ -6402,7 +6426,9 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       if (rateLimitDelay > 0) return { status: 'waiting', delayMs: rateLimitDelay, observation: true, error: 'ChatGPT rate-limit cooldown is active' }
       target = await targetChatGPTComposer(key, CHATGPT_URL, false, entry)
       target.reasoningEffort = normalizeChatGPTReasoningEffort(payload.reasoning_effort)
-      const contextBytes = includeContext ? (await fetchContextZip(sessionId)).bytes : undefined
+      if (pendingIncrement) [selectedContextPaths, pendingIncrement] = [pendingIncrement, undefined]
+      const capturedContext = includeContext ? await fetchContextZip(sessionId) : undefined
+      const contextBytes = contextMode === 'full' ? capturedContext?.bytes : undefined
       const requestAttachments = []
       for (const attachment of attachments) {
         const filePath = await storedAttachmentPath(chatAttachmentRoot(), String(attachment?.storage_ref || ''))
@@ -6424,7 +6450,9 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
         requestAttachments.push({ name, bytes })
       }
       const request = await writeOrchestratorRequestBundle(requestPath, {
-        requestId, prompt, contextBytes, attachments: requestAttachments, createdAt: task.created_at,
+        requestId, prompt, contextBytes,
+        context: contextMode === 'partial' && capturedContext ? { ...capturedContext, mode: 'partial', paths: selectedContextPaths } : undefined,
+        attachments: requestAttachments, createdAt: task.created_at,
       })
       // Kept like an agentic request bundle, so the planning detail can show
       // and explore what was sent to produce the plan.
@@ -6448,7 +6476,7 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       console.log(`[orchestrator-worker] checkpointed task=${task.task_id} request=${requestId} conversation=${sanitizeDiagnosticURL(conversationUrl)}`)
     }
 
-    const deadline = Date.now() + ORCHESTRATOR_PLAN_TIMEOUT_MS
+    let deadline = Date.now() + ORCHESTRATOR_PLAN_TIMEOUT_MS
     let thinkingObservedAt = 0
     let rerequests = 0
     expected.assistantBaseline = assistantBaseline
@@ -6457,6 +6485,27 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
     // Only a 404 observed after this moment means *this* request's artifact is
     // gone; an older one belongs to a turn we already replaced.
     let lastRequestedAt = Date.now()
+    const sendContextIncrement = async (paths) => {
+      selectedContextPaths = paths
+      const sent = await sendOrchestratorContextIncrement({
+        fetchContext: () => fetchContextZip(sessionId),
+        writeRequest: async (context) => { await rm(requestPath, { force: true }); return writeOrchestratorRequestBundle(requestPath, { requestId, prompt, context, createdAt: task.created_at }) },
+        persistRequest: async () => persistChatArtifact(sessionId, requestId, 'input', 'bundle', path.basename(requestPath), 'application/zip', await readFile(requestPath)),
+        warn: (message) => console.warn(`[orchestrator-worker] ${message}`),
+        pace: async () => { if (pacedWorker) await paceChatGPTWorkerSubmission() },
+        fill: (bootstrap, label) => executeChatGPTDOMScript(key, target.entry, label, chatGPTFillComposerScript(bootstrap)),
+        attach: async () => { await pasteChatGPTFile(target.entry, requestPath, 1, 1, { pacedWorker }); await wait(chatInputSettleDelay((await readFile(requestPath)).byteLength, 1)) },
+        assistantCount: () => chatGPTAssistantTurnCount(target.wc),
+        submit: () => submitChatGPTDraft(key, target.entry, conversationUrl, { ...target, conversationUrl }, { requireReasoningEffort: false, rateLimitExempt: !pacedWorker }),
+        checkpoint: (values) => checkpointChatAgentTask(task.task_id, owner, { conversation_url: conversationUrl, expected_filename: filename, ...values }),
+      }, expected, paths)
+      assistantBaseline = sent.assistantBaseline
+      download = sent.download
+      lastRequestedAt = Date.now()
+      deadline = lastRequestedAt + ORCHESTRATOR_PLAN_TIMEOUT_MS
+      downloadTriggered = false
+    }
+    if (pendingIncrement) await sendContextIncrement(pendingIncrement)
     while (Date.now() < deadline) {
       const outcome = await Promise.race([
         download.then((value) => ({ done: true, value }), (error) => ({ done: true, error })),
@@ -6465,6 +6514,10 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       if (outcome.done) {
         if (outcome.error) throw outcome.error
         const imported = await importOrchestratorPlanArtifact(sessionId, requestId, delivery, outcome.value)
+        const increment = orchestratorContextIncrementPaths(imported, selectedContextPaths)
+        if (increment) await sendContextIncrement(increment)
+        else if (increment === null) download = rearmOrchestratorPlanDownload(expected, assistantBaseline)
+        if (increment !== undefined) continue
         terminalCleanup = true
         return orchestratorPlanResult(requestId, imported)
       }

@@ -67,6 +67,10 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}
+	agentSession, err = s.SetContextMode(agentSession.ID, domain.EffectiveContextMode(owner.ContextMode))
+	if err != nil {
+		return s.failOrchestratorRun(ctx, task, run, err)
+	}
 	run.SessionID = agentSession.ID
 	run.Status = "planning"
 	_ = s.orchestrator.AppendRun(ctx, run)

@@ -117,6 +117,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("PUT /api/sessions/{id}/debug-mode", a.debugMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/effort-level", a.effortLevel)
 	mux.HandleFunc("PUT /api/sessions/{id}/reasoning-effort", a.reasoningEffort)
+	mux.HandleFunc("PUT /api/sessions/{id}/context-mode", a.contextMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-transport-mode", a.chatTransportMode)
 	mux.HandleFunc("PUT /api/sessions/{id}/knowledge-sharing", a.knowledgeSharing)
 	mux.HandleFunc("PUT /api/sessions/{id}/chat-id", a.chatID)
@@ -1103,6 +1104,21 @@ func (a *API) reasoningEffort(w http.ResponseWriter, r *http.Request) {
 	item, err := a.service.SetReasoningEffort(r.PathValue("id"), body.ReasoningEffort)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "reasoning_effort_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (a *API) contextMode(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ContextMode domain.ContextMode `json:"context_mode"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	item, err := a.service.SetContextMode(r.PathValue("id"), body.ContextMode)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "context_mode_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

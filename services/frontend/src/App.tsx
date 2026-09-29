@@ -6,7 +6,7 @@ import { BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError 
 import { isAutomaticAutomationMode, isAutoApproveAutomationMode } from './lib/automationMode'
 import { knowledgeConsolidationPending, requestChainActive } from './lib/requestActivity'
 import type { AppConfig, AttentionRecord, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatIterationRef, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, EvolutionKnowledgeRef, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from './types'
-import type { OrchestratorTaskConclusion, ReasoningEffort } from './types'
+import type { OrchestratorTaskConclusion, ReasoningEffort, ContextMode } from './types'
 import { Bootstrap } from './components/Bootstrap'
 import { AgentWorkspace } from './components/AgentWorkspace'
 import { ChatPanel } from './components/ChatPanel'
@@ -835,6 +835,9 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       }
       if (pendingLaunch?.reasoningEffort && selectedSession.reasoning_effort !== pendingLaunch.reasoningEffort) {
         selectedSession = await api.setReasoningEffort(selectedSession.id, pendingLaunch.reasoningEffort)
+      }
+      if (pendingLaunch?.contextMode && selectedSession.context_mode !== pendingLaunch.contextMode) {
+        selectedSession = await api.setContextMode(selectedSession.id, pendingLaunch.contextMode)
       }
       if (pendingLaunch?.chatTransportMode && selectedSession.chat_transport_mode !== pendingLaunch.chatTransportMode) {
         selectedSession = await api.setChatTransportMode(selectedSession.id, pendingLaunch.chatTransportMode)
@@ -2254,12 +2257,15 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       const plannerFailed = updated.last_turn?.outcome?.status === 'failed' || updated.last_turn?.outcome?.status === 'partial'
       const policyReason = (submission.policy_reasons || updated.policy?.reasons || []).join('; ')
       const workflowRound = submission.workflow_round || updated.workflow_round || 0
+      const contextIncrement = submission.context_incremented === true
       const autoText = submission.remote_recovery_prepared
         ? `O resultado remoto terminou como retryable. O WHX registou a causa e preparou automaticamente um único pedido novo com contexto e base imutável atuais.`
         : submission.policy_blocked
         ? `Bundle bloqueado pela Policy antes da execução: ${policyReason || 'plano não permitido'}.${submission.repair_prepared ? ' O Wharnex preparou automaticamente um novo pedido de correção.' : ''}`
 		: submission.conflict_prepared
 		  ? `O ChangeSet foi verificado, mas encontrou um conflito real. O Wharnex preparou uma janela ChatGPT dedicada para resolver apenas ${updated.integration_conflict?.paths.join(', ') || 'os caminhos conflitantes'}.`
+        : contextIncrement
+          ? `Contexto incrementado (${workflowRound}/6). Os ficheiros pedidos pelo GPT seguem na continuação automática.`
         : submission.workflow_prepared
           ? `Passo local ${workflowRound}/6 concluído na sandbox Protected. Os resultados foram incorporados numa continuação para o mesmo ChatGPT; o Wharnex vai submetê-la automaticamente.`
           : submission.workflow_executed
@@ -2292,6 +2298,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           ? `Policy bloqueada${submission.repair_prepared ? ' · reparação automática preparada' : ''}`
 		  : submission.conflict_prepared
 		  ? 'Conflito real · GPT dedicado'
+          : contextIncrement
+            ? `Contexto Parcial ${workflowRound}/6 · ${updated.context_paths?.length || 0} ficheiros`
           : submission.workflow_prepared || submission.workflow_executed
             ? `Workflow ${workflowRound}/6 · sandbox Protected`
             : pendingApproval
@@ -2367,8 +2375,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         ? (submission.restart_required ? `Bundle ${filename} aplicado ao próprio Wharnex; build do host concluído e reinício pendente de confirmação.` : `Bundle ${filename} executado e aplicado automaticamente no Harness Chat “${targetChat.title}”.`)
         : submission.workflow_prepared
           ? workflowSubmitted
-            ? `Passo ${workflowRound}/6 executado e continuação submetida no Harness Chat “${targetChat.title}”.`
-            : `Passo ${workflowRound}/6 executado; a continuação ficou pendente no Harness Chat “${targetChat.title}”.`
+            ? contextIncrement
+              ? `Contexto incrementado e continuação submetida no Harness Chat “${targetChat.title}”.`
+              : `Passo ${workflowRound}/6 executado e continuação submetida no Harness Chat “${targetChat.title}”.`
+            : contextIncrement
+              ? `Contexto incrementado; a continuação ficou pendente no Harness Chat “${targetChat.title}”.`
+              : `Passo ${workflowRound}/6 executado; a continuação ficou pendente no Harness Chat “${targetChat.title}”.`
           : `Bundle ${filename} importado no Harness Chat “${targetChat.title}”.`
     } catch (e) {
 		const message = messageOf(e)
@@ -3078,6 +3090,16 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     try {
       const updated = await api.setReasoningEffort(session.id, next)
       acceptSessionForChat(targetChat, updated)
+    } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
+  }
+
+  async function changeContextMode(next: ContextMode) {
+    if (!session || next === (session.context_mode || 'full') || busy) return
+    const targetChat = chats.find((chat) => chat.id === activeChatId)
+    if (!targetChat) return
+    setBusy(true); setError(undefined)
+    try {
+      acceptSessionForChat(targetChat, await api.setContextMode(session.id, next))
     } catch (error) { setError(messageOf(error)) } finally { setBusy(false) }
   }
 
@@ -3824,7 +3846,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
     artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },
     requestMode: activeChat?.requestMode || 'direct', taskInFlight, queuedRequests: queuedRequestsByChat[activeChatId] || [], transportProgress: busyChats[activeChatId] ? transportProgress : '', transportRequestId: busyChats[activeChatId] ? activePendingRequestId(session) : '',
-    onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onDebugMode: changeDebugMode, onEffortLevel: changeEffortLevel, onReasoningEffort: changeReasoningEffort, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
+    onExecutionMode: changeExecutionMode, onAutomationMode: changeAutomationMode, onDebugMode: changeDebugMode, onEffortLevel: changeEffortLevel, onReasoningEffort: changeReasoningEffort, onContextMode: changeContextMode, onChatTransportMode: changeChatTransportMode, onKnowledgeSharing: changeKnowledgeSharing, onToggleArtifact: toggleComposerArtifact, onRequestMode: changeRequestMode,
     onComposerTyping: notifyComposerTyping,
     onSend: enqueueMainRequest, onAdjustExecutionPlan: adjustExecutionPlan, onPreviewBundle: previewComposerBundle, onComment: commentOnActiveTask, onQueueEdit: updateQueuedRequest, onQueueMove: moveQueuedRequest, onQueueRemove: removeQueuedRequest, onQueueMerge: mergeQueuedRequest, onQueuePromote: promoteQueuedRequest,
     onApprovePlan: approvePlanProposal, onCorrectPlan: correctPlanProposal, onRejectPlan: rejectPlanProposal, onConfirmPrepared: confirmPreparedDraft, onDismissPrepared: dismissPreparedDraft, onRetryPreparedDelivery: retryPreparedPromptDelivery, onOpenFile: openFileFromChat, onRevertChange: revertChange, onReprocessPolicyBlock: reprocessPolicyBlock, canReprocessPolicyBlock: Boolean(session.plan && session.policy && !session.policy.allowed),

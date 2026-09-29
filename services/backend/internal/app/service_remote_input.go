@@ -86,6 +86,8 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 		return RemoteInputResult{}, err
 	}
 	request.IncludeContext = true
+	request.ContextMode = domain.EffectiveContextMode(item.ContextMode)
+	request.ContextPaths = append([]string(nil), item.ContextPaths...)
 	if s.artifactStore != nil {
 		if err := s.persistRemoteInputArtifacts(ctx, item, request, attachments, artifacts); err != nil {
 			return RemoteInputResult{}, fmt.Errorf("persist remote input artifacts: %w", err)
@@ -118,6 +120,8 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 		return RemoteInputResult{}, err
 	}
 
+	request.ContextMode = domain.EffectiveContextMode(item.ContextMode)
+	request.ContextPaths = append([]string(nil), item.ContextPaths...)
 	token, err := randomToken()
 	if err != nil {
 		return RemoteInputResult{}, err
@@ -343,6 +347,7 @@ func buildRemoteInputArchive(target, contextPath string, contextManifest domain.
 	manifest := map[string]any{
 		"protocol": "wharness.remote-input/v1", "request_id": request.RequestID, "request_metadata": request.RequestMetadata,
 		"prompt": "prompt/wharness-planner-prompt.md", "context_included": request.IncludeContext,
+		"context_mode": request.ContextMode, "context_paths": request.ContextPaths,
 		"context_roots": map[string]string{
 			"primary": requestPrimaryContextRoot, "references": requestReferenceContextRoot,
 			"attached_paths": requestAttachedContextRoot, "maps": requestContextMapRoot, "sources_index": requestContextSourcesIndex,
@@ -379,7 +384,7 @@ func buildRemoteInputArchive(target, contextPath string, contextManifest domain.
 		}
 	}
 	if writeErr == nil && request.IncludeContext {
-		writeErr = writeContextDirectory(archive, contextPath)
+		writeErr = writeContextDirectorySelected(archive, contextPath, request.ContextMode, request.ContextPaths)
 	}
 	if writeErr == nil && request.IncludeContext {
 		mapFiles, mapErr := requestContextMapFiles(contextPath, contextManifest)

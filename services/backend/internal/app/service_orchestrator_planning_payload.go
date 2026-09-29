@@ -1,6 +1,9 @@
 package app
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"kernl.local/harness/backend/internal/domain"
+)
 
 type OrchestratorPlanningAttachment struct {
 	Name       string `json:"name"`
@@ -36,12 +39,14 @@ type orchestratorPlanningWorkerPayload struct {
 	Attachments          []OrchestratorPlanningAttachment  `json:"attachments,omitempty"`
 	GeneratedAttachments []OrchestratorGeneratedAttachment `json:"generated_attachments,omitempty"`
 	ReasoningEffort      string                            `json:"reasoning_effort"`
+	ContextMode          domain.ContextMode                `json:"context_mode,omitempty"`
 }
 
 func encodeOrchestratorPlanningWorkerPayload(
 	sessionID, requestID, objective, prompt string,
 	input OrchestratorComposerContext,
 	reasoningEffort string,
+	contextMode domain.ContextMode,
 ) ([]byte, error) {
 	return json.Marshal(orchestratorPlanningWorkerPayload{
 		Protocol: orchestratorPlanningWorkerProtocol, SessionID: sessionID,
@@ -52,5 +57,6 @@ func encodeOrchestratorPlanningWorkerPayload(
 		Attachments:          append([]OrchestratorPlanningAttachment(nil), input.Attachments...),
 		GeneratedAttachments: append([]OrchestratorGeneratedAttachment(nil), input.GeneratedAttachments...),
 		ReasoningEffort:      reasoningEffort,
+		ContextMode:          contextMode,
 	})
 }

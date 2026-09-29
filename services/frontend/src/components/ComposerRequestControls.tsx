@@ -1,25 +1,30 @@
-import type { AutomationMode, ChatRequestMode, ChatTransportMode, EffortLevel, ReasoningEffort } from '../types'
+import type { AutomationMode, ChatRequestMode, ChatTransportMode, ContextMode, EffortLevel, ReasoningEffort } from '../types'
 import { Icon } from './Icon'
+import { ComposerContextModeControl } from './ComposerContextModeControl'
 
 export function ComposerRequestControls({
   automationMode,
   effortLevel,
   reasoningEffort,
+  contextMode,
   chatTransportMode,
   busy = false,
   onAutomationMode,
   onEffortLevel,
   onReasoningEffort,
+  onContextMode,
   onChatTransportMode,
 }: {
   automationMode: AutomationMode
   effortLevel: EffortLevel
   reasoningEffort: ReasoningEffort
+  contextMode: ContextMode
   chatTransportMode: ChatTransportMode
   busy?: boolean
   onAutomationMode?: (mode: AutomationMode) => void
   onEffortLevel?: (level: EffortLevel) => void
   onReasoningEffort?: (effort: ReasoningEffort) => void
+  onContextMode?: (mode: ContextMode) => void
   onChatTransportMode?: (mode: ChatTransportMode) => void
 }) {
   return <>
@@ -40,6 +45,7 @@ export function ComposerRequestControls({
         <option value="loop">Loop · ∞</option>
       </select>
     </label>
+    <ComposerContextModeControl mode={contextMode} disabled={busy} onChange={onContextMode} />
     <label className="composer-effort-picker composer-reasoning-picker" title="Inteligência · define o esforço de raciocínio aplicado pelo ChatGPT antes de enviar este chat">
       <span>Inteligência</span>
       <select aria-label="Esforço de raciocínio" value={reasoningEffort} disabled={busy || !onReasoningEffort} onChange={(event) => onReasoningEffort?.(event.target.value as ReasoningEffort)}>

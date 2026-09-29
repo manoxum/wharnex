@@ -211,8 +211,10 @@ still needed by request recovery/audit fail closed and are never deleted.
 
 ## Self-contained derived archives (v1.3.9 — see `adr/ADR-0055`, `adr/ADR-0061`)
 
-Every derived request archive MUST carry the refreshed complete context even
-when the same ChatGPT conversation previously received a snapshot. It also
+Every derived request archive MUST carry the refreshed complete eligible
+context in Full mode, or the cumulative selected eligible bodies and maps in
+Partial mode, even when the same ChatGPT conversation previously received a
+snapshot. It also
 carries the root-relative context delta, cumulative redacted execution/recovery
 events (including argv, stdout, stderr and exit codes), and every prior response
 bundle in the Main Request with a hash/size index. Historical responses are

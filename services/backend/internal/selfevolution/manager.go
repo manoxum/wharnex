@@ -967,7 +967,7 @@ func (tx Transaction) Rollback(ctx context.Context) error {
 		currentSHA, shaErr := sandbox.CurrentHeadSHA(ctx, tx.Root)
 		if shaErr == nil && currentSHA != tx.PreTransactionSHA {
 			backups, backupErr := tx.readSourceBackups()
-			changed, diffErr := sandbox.ChangedPathsBetween(ctx, tx.Root, tx.PreTransactionSHA, currentSHA)
+			changed, diffErr := tx.foreignChangedPaths(ctx, tx.PreTransactionSHA, currentSHA)
 			if backupErr != nil || diffErr != nil {
 				// Can't verify safety — fail closed rather than risk silently
 				// discarding unrelated work.

@@ -1,4 +1,4 @@
-import type { AutomationMode, EffortLevel, ChatArtifactSelection, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, HarnessEvent, ReasoningEffort, WorkspaceMode } from '../types'
+import type { AutomationMode, EffortLevel, ChatArtifactSelection, ChatItem, ChatRequestMode, ChatTransportMode, ContextMode, ExecutionMode, HarnessEvent, ReasoningEffort, WorkspaceMode } from '../types'
 import { chatgptConversationURL } from './desktop'
 
 const ACTIVE_KEY = 'kernl.workspace.active.v1'
@@ -29,6 +29,7 @@ export type BootstrapLaunchOptions = {
   automationMode: AutomationMode
   effortLevel: EffortLevel
   reasoningEffort: ReasoningEffort
+  contextMode: ContextMode
   chatTransportMode: ChatTransportMode
 }
 
@@ -39,6 +40,7 @@ export const DEFAULT_BOOTSTRAP_LAUNCH_OPTIONS: BootstrapLaunchOptions = {
   automationMode: 'auto',
   effortLevel: 'high',
   reasoningEffort: 'high',
+  contextMode: 'partial',
   chatTransportMode: 'scraper',
 }
 
@@ -267,6 +269,7 @@ function normalizeBootstrapLaunchOptions(value?: Partial<BootstrapLaunchOptions>
     automationMode,
     effortLevel,
     reasoningEffort,
+    contextMode: value?.contextMode === 'full' ? 'full' : 'partial',
     chatTransportMode,
   }
 }

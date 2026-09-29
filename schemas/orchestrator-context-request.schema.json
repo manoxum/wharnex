@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharness.local/schemas/orchestrator-context-request.schema.json",
+  "title": "Wharnex Orchestrator context increment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "request_id", "context_paths"],
+  "properties": {
+    "protocol": { "const": "harness.orchestrator-context-request/v1" },
+    "request_id": { "type": "string", "pattern": "^orp_[A-Za-z0-9_-]{8,180}$" },
+    "context_paths": {
+      "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^(context|ref-context|att-context)/[^/].*" }
+    }
+  }
+}
