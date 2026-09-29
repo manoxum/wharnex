@@ -153,8 +153,11 @@ it('filters every task view by plan and composes the plan filter with search', (
   expect(screen.queryByText('Other complete')).toBeNull()
   expect(screen.queryByText('Manual complete')).toBeNull()
 
-  for (const view of ['Tabela', 'Lista', 'Grafo']) {
-    fireEvent.click(screen.getByRole('button', { name: view }))
+  const viewSwitcher = screen.getByRole('group', { name: 'Vista de tasks' })
+  expect(within(viewSwitcher).queryByRole('button', { name: 'Lista' })).toBeNull()
+
+  for (const view of ['Tabela', 'Grafo']) {
+    fireEvent.click(within(viewSwitcher).getByRole('button', { name: view }))
     expect(screen.getByText('Plan ready')).not.toBeNull()
     expect(screen.getByText('Plan review')).not.toBeNull()
     expect(screen.getByText('Plan complete')).not.toBeNull()
