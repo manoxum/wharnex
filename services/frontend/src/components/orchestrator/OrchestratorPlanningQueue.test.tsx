@@ -6,7 +6,7 @@ import { OrchestratorWorkerFollowProvider, useOrchestratorWorkerFollows } from '
 
 const request = {
   request_id: 'orp_20260927T144117_72c4527aecd5dbb0', task_id: 'cat_ac99a4a360284292a83b',
-  objective: 'Testar plano', status: 'RUNNING', attempt: 1, max_attempts: 8,
+  objective: 'Testar plano', status: 'RUNNING', phase: 'PLANNING', attempt: 1, max_attempts: 8,
   created_at: '2026-09-27T14:41:17Z', updated_at: '2026-09-27T14:42:00Z',
 } satisfies OrchestratorOverview['planning_requests'][number]
 
@@ -100,17 +100,40 @@ it('offers following the ephemeral browser that plans the orchestration', () => 
 })
 
 
-it('shows semantic status cues for active, attention and completed requests', () => {
-  const failed = { ...request, request_id: 'orp_failed', task_id: 'task-failed', status: 'FAILED', last_error: 'Falha ao entregar o plano.' }
-  const done = { ...request, request_id: 'orp_done', task_id: 'task-done', status: 'DONE' }
-  render(<QueueHarness requests={[request, failed, done]} tasks={[]} chats={[]} busy={false} onRetry={vi.fn()}/>)
+it('shows the functional orchestration phase instead of the technical Worker status', () => {
+  const awaitingApproval = { ...request, request_id: 'orp_analysis', task_id: 'task-analysis', objective: 'Aguardando aprovação', status: 'DONE', phase: 'AWAITING_APPROVAL' as const }
+  const executing = { ...request, request_id: 'orp_execution', task_id: 'task-execution', objective: 'Executando tasks', status: 'DONE', phase: 'EXECUTING' as const }
+  const review = { ...request, request_id: 'orp_review', task_id: 'task-review', objective: 'Em review', status: 'DONE', phase: 'REVIEW' as const }
+  const completed = { ...request, request_id: 'orp_completed', task_id: 'task-completed', objective: 'Finalizada', status: 'DONE', phase: 'COMPLETED' as const }
+  const archived = { ...request, request_id: 'orp_archived', task_id: 'task-archived', objective: 'Arquivada', status: 'DONE', phase: 'ARCHIVED' as const }
+  render(<QueueHarness requests={[request, awaitingApproval, executing, review, completed, archived]} tasks={[]} chats={[]} busy={false} onRetry={vi.fn()}/>)
 
-  expect(screen.getByText('1 ativo · 3 pedidos')).toBeTruthy()
+  expect(screen.getByText('4 ativos · 6 pedidos')).toBeTruthy()
   expect(screen.getByText('Em andamento')).toBeTruthy()
-  expect(screen.getByText('Requer atenção')).toBeTruthy()
+  expect(screen.getByText('Em análise')).toBeTruthy()
+  expect(screen.getByText('Em execução')).toBeTruthy()
+  expect(screen.getByText('Review')).toBeTruthy()
   expect(screen.getByText('Concluído')).toBeTruthy()
+  expect(screen.getByText('Encerrado')).toBeTruthy()
+
+  const analysisCard = screen.getByText('Aguardando aprovação').closest('article')
+  const executionCard = screen.getByText('Executando tasks').closest('article')
+  const archivedCard = screen.getByText('Arquivada').closest('article')
+  expect(analysisCard?.textContent).toContain('Em análise')
+  expect(analysisCard?.textContent).not.toContain('Concluído')
+  expect(executionCard?.textContent).toContain('Em execução')
+  expect(executionCard?.textContent).not.toContain('Concluído')
+  expect(archivedCard?.textContent).toContain('Encerrado')
+  expect(archivedCard?.textContent).not.toContain('Concluído')
+})
+
+it('keeps retry and error diagnostics tied to the technical planning status', () => {
+  const failed = { ...request, status: 'FAILED', phase: 'EXECUTING' as const, last_error: 'Falha ao entregar o plano.' }
+  render(<QueueHarness requests={[failed]} tasks={[]} chats={[]} busy={false} onRetry={vi.fn()}/>)
+
+  expect(screen.getByText('Em execução')).toBeTruthy()
   expect(screen.getByText('Falha ao entregar o plano.')).toBeTruthy()
-  expect(screen.getByText('Planejamento encerrado.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Retentar/ })).toBeTruthy()
 })
 
 it('keeps retry disabled while the queue is busy', () => {
