@@ -9,11 +9,10 @@ import { ChatPanel } from '../ChatPanel'
 import { OrchestratorKanban } from './OrchestratorKanban'
 import { OrchestratorTaskDrawer } from './OrchestratorTaskDrawer'
 
-type View = 'kanban' | 'table' | 'list' | 'graph'
-const VIEWS: Array<{ id: View; label: string; icon: 'kanban' | 'table' | 'list' | 'graph' }> = [
+type View = 'kanban' | 'table' | 'graph'
+const VIEWS: Array<{ id: View; label: string; icon: 'kanban' | 'table' | 'graph' }> = [
   { id: 'kanban', label: 'Kanban', icon: 'kanban' },
   { id: 'table', label: 'Tabela', icon: 'table' },
-  { id: 'list', label: 'Lista', icon: 'list' },
   { id: 'graph', label: 'Grafo', icon: 'graph' },
 ]
 type TerminalQuery = Omit<OrchestratorTaskPageQuery, 'status' | 'limit'>
@@ -124,7 +123,6 @@ export function OrchestratorTasks({ session, overview, terminalPages = {}, chatP
         const task = loadedTasks.find((item) => item.id === dragTask); setDragTask(undefined); if (task) void move(task, status)
       }} onLoadMore={(status) => void loadMore(status)} onSelect={onSelectedTask} onOpenChat={chatProps ? (task) => chatProps.onNewChat(canonicalTaskDirective(task.id)) : undefined} />}
       {view === 'table' && <TaskTable tasks={tasks} onSelect={onSelectedTask} />}
-      {view === 'list' && <TaskList tasks={tasks} onSelect={onSelectedTask} />}
       {view === 'graph' && <TaskGraph tasks={tasks} onSelect={onSelectedTask} />}
     </div>
 
@@ -137,10 +135,6 @@ function TaskTable({ tasks, onSelect }: { tasks: OrchestratorTask[]; onSelect: (
   return <div className="orchestrator-table-wrap"><table className="orchestrator-table"><thead className="text-base font-semibold"><tr><th>Task</th><th>Status</th><th>Condição</th><th>Prioridade</th><th>Dependências</th><th>Atualizada</th></tr></thead><tbody className="text-sm">
     {tasks.map((task) => <tr key={task.id} onClick={() => onSelect(task)}><td><strong className="text-base">{task.title}</strong><small className="font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">{task.plan_id ? 'Plano' : 'Manual'} · {task.id}</small></td><td><Status status={task.status}/></td><td>{task.condition === 'none' ? '—' : task.condition.replaceAll('_', ' ')}</td><td>{task.priority}</td><td>{task.depends_on?.length || 0}</td><td>{formatDate(task.updated_at)}</td></tr>)}
   </tbody></table>{!tasks.length && <div className="orchestrator-empty text-base">Nenhuma task corresponde ao filtro.</div>}</div>
-}
-
-function TaskList({ tasks, onSelect }: { tasks: OrchestratorTask[]; onSelect: (task: OrchestratorTask) => void }) {
-  return <div className="orchestrator-list">{tasks.map((task) => <button key={task.id} onClick={() => onSelect(task)}><Status status={task.status}/><span><strong className="text-base">{task.title}</strong><small className="text-sm text-[var(--theme-text-muted)]">{task.description || 'Sem descrição'} · {task.depends_on?.length || 0} dependência(s)</small></span><span className={`priority priority-${task.priority} font-mono text-sm leading-[1.4]`}>{task.priority}</span><Icon name="chevron-right" size={14}/></button>)}{!tasks.length && <div className="orchestrator-empty text-base">Nenhuma task corresponde ao filtro.</div>}</div>
 }
 
 function TaskGraph({ tasks, onSelect }: { tasks: OrchestratorTask[]; onSelect: (task: OrchestratorTask) => void }) {

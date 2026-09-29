@@ -2562,11 +2562,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-slot > span.free { background:#68a36b; box-shadow:0 0 0 4px color-mix(in srgb,#68a36b 14%,transparent); }
 .orchestrator-slot > span.busy { background:#c99342; box-shadow:0 0 0 4px color-mix(in srgb,#c99342 14%,transparent); }
 .orchestrator-slot small { grid-column:2; overflow:hidden; text-overflow:ellipsis; color:var(--theme-text-muted); }
-.orchestrator-list > button { min-height:47px; padding:7px 9px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:10px; border:0; border-radius:7px; background:transparent; color:var(--theme-text); text-align:left; cursor:pointer; }
-.orchestrator-list > button:hover { background:var(--theme-hover); }
-.orchestrator-list > button > span:nth-child(2) { display:grid; gap:2px; min-width:0; }
-.orchestrator-list strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.orchestrator-list small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--theme-text-muted); }
 .orchestrator-empty { padding:24px; color:var(--theme-text-soft); text-align:center; }
 
 .priority { display:inline-flex; width:max-content; padding:2px 6px; border-radius:4px; background:var(--theme-subtle); color:var(--theme-text-muted); }
@@ -2596,8 +2591,6 @@ code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-
 .orchestrator-table tbody tr { cursor:pointer; }
 .orchestrator-table tbody tr:hover { background:var(--theme-hover); }
 .orchestrator-table td:first-child { display:grid; align-content:center; gap:2px; color:var(--theme-text); }
-.orchestrator-list { width:min(900px, calc(100% - 24px)); margin:12px auto; padding:6px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
-.orchestrator-list > button { grid-template-columns:auto minmax(0,1fr) auto 20px; }
 
 .orchestrator-graph { min-width:700px; padding:30px 20px 60px; display:grid; justify-items:center; gap:0; }
 .orchestrator-graph > section { width:min(960px,100%); display:grid; justify-items:center; position:relative; }
