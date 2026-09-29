@@ -5,12 +5,14 @@ import { promptDialog } from '../../lib/appDialog'
 import { emptyOrchestratorTaskCounts, invalidateChangedOrchestratorTerminalPages, isOrchestratorTask, mergeOrchestratorTaskPages, reconcileOrchestratorTerminalPages } from '../../lib/orchestratorApi'
 import { ORCHESTRATOR_TERMINAL_STATUSES, type ChatAgentTask, type OrchestratorOverview as OverviewData, type OrchestratorProposalResult, type OrchestratorTask, type OrchestratorTaskPageQuery, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus } from '../../types'
 import { Icon } from '../Icon'
+import { WorkerFollowViewer } from '../WorkerFollowViewer'
 import { OrchestratorOverview } from './OrchestratorOverview'
 import { OrchestratorTasks } from './OrchestratorTasks'
 import { OrchestratorPlanDrawer } from './OrchestratorPlanDrawer'
 import { useOrchestratorPlanningDetail } from './useOrchestratorPlanningDetail'
 import { useOrchestratorTaskFocus } from './useOrchestratorTaskFocus'
 import type { OrchestratorWorkspaceProps } from './OrchestratorWorkspace.types'
+import { OrchestratorWorkerFollowProvider, useOrchestratorWorkerFollows } from './useOrchestratorWorkerFollows'
 
 const TERMINAL_TASK_PAGE_SIZE = 24
 
@@ -47,6 +49,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
   }, [onError, session.id, session.project_path])
 
   const planningDetail = useOrchestratorPlanningDetail(session.id, overview.planning_requests)
+  const workerFollows = useOrchestratorWorkerFollows(overview.planning_requests, planningTasks)
 
   useEffect(() => {
     if (!active) return
@@ -149,7 +152,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
 
   const navButtonClass = 'flex min-h-[30px] items-center gap-2 rounded-md border-0 bg-transparent px-3.5 text-base text-[var(--theme-text-muted)] cursor-pointer'
 
-  return <section className="orchestrator-workspace">
+  return <OrchestratorWorkerFollowProvider registry={workerFollows}><section className="orchestrator-workspace">
     <header className="orchestrator-header">
       <div>
         <span className="orchestrator-eyebrow inline-flex items-center gap-1.5 text-base font-bold text-[var(--theme-text)]"><Icon name="plan" size={14}/> Orchestrator</span>
@@ -192,6 +195,12 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       onRun={run}
     />}
 
+    {workerFollows.follows.map((follow) => <WorkerFollowViewer
+      key={`${follow.taskId}:${follow.agentId}`}
+      agentId={follow.agentId}
+      onStop={() => workerFollows.stop(follow.taskId, follow.agentId)}
+    />)}
+
     {planningDetail.request ? <OrchestratorPlanDrawer
       request={planningDetail.request}
       detail={planningDetail.detail}
@@ -216,5 +225,5 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
         planningDetail.close()
       }}
     /> : null}
-  </section>
+  </section></OrchestratorWorkerFollowProvider>
 }
