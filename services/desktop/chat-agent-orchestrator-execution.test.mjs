@@ -192,7 +192,7 @@ test('a conversation ChatGPT cannot load returns the attempt as a free wait', as
 
 test('the driver has no transport of its own', async () => {
   const source = await readFile(new URL('./chat-agent-orchestrator-execution.mjs', import.meta.url), 'utf8')
-  for (const copied of ['fill(', 'paste(', 'expectedDownloads', 'chatGPTDeliveryContinuationPrompt', 'worker-bundle']) {
+  for (const copied of ['fill(', 'paste(', 'expectedDownloads', 'chatGPTDeliveryContinuationPrompt', 'worker-bundle', 'new WebContentsView', 'new BrowserWindow', 'createChatGPTView']) {
     assert.equal(source.includes(copied), false, `driver still carries ${copied}`)
   }
 })
