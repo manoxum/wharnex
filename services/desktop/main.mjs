@@ -18,13 +18,13 @@ import { orchestratorRetryInput } from './chat-agent-orchestrator-retry-input.mj
 import { registerOrchestratorExecutionDownload } from './chat-agent-orchestrator-execution-download.mjs'
 import { captureChatGPTAgentPage, captureParkedWorkerPage } from './chat-agent-snapshot.mjs'
 import { closeWorkerMonitor, closeWorkerMonitorAfterState, openWorkerMonitor } from './chat-agent-monitor.mjs'
-import { persistChatAttachmentFiles, readStoredAttachment, readStoredAttachmentPreview, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
+import { readStoredAttachment, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 import { chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript, chatGPTSubmittedRequestEvidenceScript } from './chatgpt-dom.mjs'
 import { accountFailureDetail, chatGPTCommitConversationTitleScript, chatGPTConfirmDeleteScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectItemRectScript, chatGPTShowSidebarScript, chatGPTStopConversationScript, normalizeChatGPTProjectName, normalizeWHXTitle } from './chatgpt-account.mjs'
 import { ChatGPTAccountProviderChain } from './chatgpt-account-provider.mjs'
 import { behaviorProbeScript, isBehaviorProbeEnabled, normalizeBehaviorProbeResult, sanitizeBehaviorProbeControl, BEHAVIOR_PROBE_CONTROLS } from './chatgpt-behavior-probe.mjs'
 import { pathSize, restoreBrowserSession, snapshotBrowserSession } from './browser-session-data.mjs'
-import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, contextBundleURL, decodeUserAttachment, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeOptionalChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeOptionalChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 import { buildBundleName, parseBundleName, safeChatId } from './bundlename.mjs'
 import { orchestratorBundleRejectionTerminal, orchestratorBundleRepairPrompt } from './chat-agent-orchestrator-bundle-repair.mjs'
 import { shouldAttachProjectContext } from './chatgpt-context.mjs'
@@ -39,6 +39,15 @@ import { desktopIconDataURL } from './desktop-icon-mark.mjs'
 import { createDesktopWindowCloseCoordinator } from './desktop-window-close.mjs'
 import { createDesktopTrayControl } from './desktop-tray-control.mjs'
 import { completionNotificationRecord } from './desktop-notification-request.mjs'
+import { createDesktopWindowRecovery, recoverableDesktopWindows } from './window/recovery.mjs'
+import { createDesktopWindowLayout, MIN_DESKTOP_WINDOW_SIZE } from './window/layout.mjs'
+import { createDesktopRestartIntent } from './window/restart-intent.mjs'
+import { registerWindowIPC } from './window/ipc.mjs'
+import { createChatGPTCacheMarker } from './chatgpt/cache-marker.mjs'
+import { registerChatAttachmentIPC } from './chatgpt/attachment-ipc.mjs'
+import { createChatGPTRequestContextClient } from './chatgpt/request-context.mjs'
+import { createChatGPTAttachmentTools } from './chatgpt/attachments.mjs'
+import { configureChatGPTSession } from './chatgpt/session-setup.mjs'
 import { nativeWindowCloseChoice } from './desktop-window-close-prompt.mjs'
 // Planner requests are deliberately ZIP-only here; retired remote-input
 // publication must not be reintroduced into the Desktop request path.
@@ -47,7 +56,6 @@ import { uploadChatArtifact } from './artifact-upload.mjs'
 import { createOperationalLogShipper, installConsoleCapture } from './operational-log.mjs'
 import { currentTrace, installBackendTraceHeader, traceForTask, traceId, withTrace } from './operational-trace.mjs'
 import { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
-import { contextSelectionFromSession } from './chat-input-context-selection.mjs'
 import { DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, MIN_SUPERVISOR_SLOTS, MIN_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount } from './chat-agent-pool.mjs'
 import { autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, DEFAULT_SUSPENDED_WORKER_TASK_TYPES, keepFlowingForWorker, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes } from './chat-agent-policies.mjs'
 import { autoScaleWorkerDemand } from './chat-agent-auto-scale.mjs'
@@ -126,13 +134,6 @@ const ORCHESTRATOR_PLAN_GENERATING_GRACE_MS = 60_000
 const ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS = 30_000
 // Re-claim spacing after a worker slot was rebound before the task started.
 const CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS = 5_000
-const DEFAULT_CHAT_ATTACHMENT_COUNT_LIMIT = 0
-const DEFAULT_REQUEST_BUNDLE_TOTAL_BYTES = 100 * 1024 * 1024
-const DEFAULT_REQUEST_BUNDLE_PART_BYTES = 30 * 1024 * 1024
-const DEFAULT_REQUEST_BUNDLE_PART_LIMIT = 10
-const MAX_CHAT_ARTIFACTS = 4
-const MAX_CHAT_ARTIFACT_BYTES = 2 * 1024 * 1024
-const MAX_CHAT_ARTIFACTS_BYTES = 6 * 1024 * 1024
 const CHATGPT_CHROMIUM_VERSION = '152.0.7977.65'
 const CHATGPT_USER_AGENT = chromeCompatibleUserAgent(process.platform, CHATGPT_CHROMIUM_VERSION)
 const CHATGPT_ACCEPT_LANGUAGES = 'pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7'
@@ -151,8 +152,6 @@ app.commandLine.appendSwitch('disable-ipv6')
 if (process.platform === 'linux') app.disableHardwareAcceleration()
 // Channel choice is explicit configuration, ordered by priority. The managed
 // desktop-direct entry is always present as the safe final fallback.
-const SAFE_ATTACHMENT_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'])
-const MAX_ATTACHMENT_THUMBNAIL_SOURCE_BYTES = 8 * 1024 * 1024
 
 // An unhandled exception/rejection in this main process otherwise crashes the
 // whole Electron app instantly with no trace. Logging keeps the process (and
@@ -775,59 +774,13 @@ function releaseWindowProjects(windowState) {
   refreshDesktopTray()
 }
 
-function desktopRecoverySessionPath() { return path.join(app.getPath('userData'), 'wharness-desktop-recovery-session.json') }
-
-function desktopRecoveryWindowSnapshot(windowState) {
-  if (!windowState?.window || windowState.window.isDestroyed() || windowState.transientSurface) return undefined
-  const projects = [...windowState.projects].filter(Boolean)
-  if (!projects.length) return undefined
-  return {
-    id: windowState.id,
-    projects,
-    active_project: projects.includes(windowState.activeProject) ? windowState.activeProject : projects[0],
-  }
-}
-
-function persistDesktopRecoverySession() {
-  try {
-    const windows = [...desktopWindows.values()].map(desktopRecoveryWindowSnapshot).filter(Boolean)
-    if (!windows.length) {
-      rmSync(desktopRecoverySessionPath(), { force: true })
-      return false
-    }
-    writeFileSync(desktopRecoverySessionPath(), JSON.stringify({ version: 1, created_at: Date.now(), windows }), { mode: 0o600 })
-    return true
-  } catch (error) {
-    console.warn('[windows] recovery session persistence failed', error)
-    return false
-  }
-}
-
-function consumeDesktopRecoverySession() {
-  try {
-    const filename = desktopRecoverySessionPath()
-    const parsed = JSON.parse(readFileSync(filename, 'utf8'))
-    try { rmSync(filename, { force: true }) } catch { /* best effort */ }
-    if (parsed?.version !== 1 || !Array.isArray(parsed.windows)) return undefined
-    const windows = []
-    const seenProjects = new Set()
-    for (const candidate of parsed.windows.slice(0, 12)) {
-      const id = typeof candidate?.id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(candidate.id) ? candidate.id : ''
-      if (!id || !Array.isArray(candidate?.projects)) continue
-      const projects = []
-      for (const value of candidate.projects) {
-        try {
-          const projectPath = canonicalProjectPath(value)
-          if (!seenProjects.has(projectPath)) { seenProjects.add(projectPath); projects.push(projectPath) }
-        } catch { /* stale project path */ }
-      }
-      if (!projects.length) continue
-      const activeProject = projects.includes(candidate.active_project) ? candidate.active_project : projects[0]
-      windows.push({ id, projects, activeProject })
-    }
-    return windows.length ? { windows } : undefined
-  } catch { return undefined }
-}
+const desktopWindowRecovery = createDesktopWindowRecovery({
+  userDataPath: () => app.getPath('userData'),
+  windows: desktopWindows,
+  canonicalProjectPath,
+})
+const persistDesktopRecoverySession = desktopWindowRecovery.persist
+const consumeDesktopRecoverySession = desktopWindowRecovery.consume
 
 function projectMenuLabel(projectPath) {
   const basename = path.basename(projectPath) || projectPath
@@ -929,148 +882,27 @@ const desktopWindowClose = createDesktopWindowCloseCoordinator({
   closeAll: () => setTimeout(() => { void requestFullDesktopQuit() }, 0),
 })
 
-// The windows a saved session can offer to restore. The decision itself is
-// the renderer's: this only shapes the records, so a session with no usable
-// project never reaches a window as an empty prompt.
-function recoverableDesktopWindows(recovery) {
-  if (!recovery?.windows?.length) return [{ id: 'primary', projects: [], activeProject: '' }]
-  const records = []
-  for (const record of recovery.windows) {
-    const projects = [...record.projects]
-    if (projects.length) records.push({ id: record.id, projects, activeProject: projects.includes(record.activeProject) ? record.activeProject : projects[0] })
-  }
-  return records.length ? records : [{ id: 'primary', projects: [], activeProject: '' }]
-}
+// Refresh remote assets only when the compatibility Chromium version changes.
+const chatGPTCacheMarker = createChatGPTCacheMarker({
+  userDataPath: () => app.getPath('userData'),
+  chromiumVersion: CHATGPT_CHROMIUM_VERSION,
+})
+const chatGPTCacheMarkerCurrent = chatGPTCacheMarker.current
+const writeChatGPTCacheMarker = chatGPTCacheMarker.write
 
-function windowLayoutPath() { return path.join(app.getPath('userData'), 'wharness-window-layout.json') }
+const desktopWindowLayout = createDesktopWindowLayout({
+  userDataPath: () => app.getPath('userData'),
+  windows: desktopWindows,
+  displays: () => screen.getAllDisplays(),
+})
+const persistWindowLayout = desktopWindowLayout.persist
+const scheduleWindowLayoutPersistence = desktopWindowLayout.schedulePersistence
+const loadWindowLayout = desktopWindowLayout.loadWindowLayout
+const loadWindowPlacement = desktopWindowLayout.loadWindowPlacement
 
-function chatGPTCacheMarkerPath() { return path.join(app.getPath('userData'), 'wharness-chatgpt-cache-marker.json') }
-
-// The spoofed Chrome UA (CHATGPT_CHROMIUM_VERSION) is what the startup cache
-// clear actually guards: assets cached under a different UA than the one
-// about to make requests could be served back mismatched. That risk exists
-// only when the UA itself changes between runs, not on an ordinary restart
-// running the same build - which is what made every restart force every
-// Supervisor/Worker to refetch ChatGPT's entire SPA bundle over the network
-// instead of from disk, a large share of what made startup feel heavy.
-function chatGPTCacheMarkerCurrent() {
-  try { return JSON.parse(readFileSync(chatGPTCacheMarkerPath(), 'utf8'))?.chromiumVersion === CHATGPT_CHROMIUM_VERSION }
-  catch { return false }
-}
-
-function writeChatGPTCacheMarker() {
-  try { writeFileSync(chatGPTCacheMarkerPath(), JSON.stringify({ chromiumVersion: CHATGPT_CHROMIUM_VERSION }), { mode: 0o600 }) }
-  catch (error) { console.warn(`[chatgpt-cache] marker write failed: ${error instanceof Error ? error.message : String(error)}`) }
-}
-
-const DEFAULT_DESKTOP_WINDOW_SIZE = Object.freeze({ width: 1540, height: 960 })
-const MIN_DESKTOP_WINDOW_SIZE = Object.freeze({ width: 1100, height: 720 })
-let windowLayoutPersistTimer
-
-function normalizedWindowSize(value) {
-  const width = Number(value?.width)
-  const height = Number(value?.height)
-  if (!Number.isFinite(width) || !Number.isFinite(height)) return undefined
-  if (width < MIN_DESKTOP_WINDOW_SIZE.width || height < MIN_DESKTOP_WINDOW_SIZE.height) return undefined
-  if (width > 8192 || height > 8192) return undefined
-  return { width: Math.round(width), height: Math.round(height) }
-}
-
-function normalizedWindowBounds(value) {
-  const size = normalizedWindowSize(value)
-  if (!size) return undefined
-  const x = Number(value?.x)
-  const y = Number(value?.y)
-  if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 100_000 || Math.abs(y) > 100_000) return size
-  return { ...size, x: Math.round(x), y: Math.round(y) }
-}
-
-function readWindowLayoutState() {
-  try {
-    const parsed = JSON.parse(readFileSync(windowLayoutPath(), 'utf8'))
-    const windows = Array.isArray(parsed?.windows) ? parsed.windows.filter((item) => typeof item === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(item)) : []
-    const bounds = {}
-    const maximized = {}
-    const sourceBounds = parsed?.bounds && typeof parsed.bounds === 'object' ? parsed.bounds : parsed?.sizes && typeof parsed.sizes === 'object' ? parsed.sizes : {}
-    for (const [id, value] of Object.entries(sourceBounds)) {
-      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) continue
-      const placement = normalizedWindowBounds(value)
-      if (placement) bounds[id] = placement
-    }
-    if (parsed?.maximized && typeof parsed.maximized === 'object') {
-      for (const [id, value] of Object.entries(parsed.maximized)) if (/^[A-Za-z0-9_-]{1,80}$/.test(id) && value === true) maximized[id] = true
-    }
-    return { windows: windows.length ? [...new Set(windows)].slice(0, 12) : ['primary'], bounds, maximized }
-  } catch { return { windows: ['primary'], bounds: {}, maximized: {} } }
-}
-
-function persistedWindowPlacement(windowState) {
-  if (!windowState?.window || windowState.window.isDestroyed()) return undefined
-  try {
-    const raw = typeof windowState.window.getNormalBounds === 'function' ? windowState.window.getNormalBounds() : windowState.window.getBounds()
-    return normalizedWindowBounds(raw)
-  } catch { return undefined }
-}
-
-function persistWindowLayout(ids = [...desktopWindows.values()].filter((state) => !state.window.isDestroyed() && !state.transientSurface).map((state) => state.id)) {
-  try {
-    const previous = readWindowLayoutState()
-    const windows = [...new Set(ids)].filter((id) => /^[A-Za-z0-9_-]{1,80}$/.test(id)).slice(0, 12)
-    const bounds = {}
-    const maximized = {}
-    for (const id of windows) {
-      const live = desktopWindows.get(id)
-      const placement = persistedWindowPlacement(live) || previous.bounds[id]
-      if (placement) bounds[id] = placement
-      if (live?.window && !live.window.isDestroyed() ? live.window.isMaximized() : previous.maximized[id]) maximized[id] = true
-    }
-    writeFileSync(windowLayoutPath(), JSON.stringify({ version: 3, windows, bounds, maximized }), { mode: 0o600 })
-  } catch (error) { console.warn('[windows] layout persistence failed', error) }
-}
-
-function scheduleWindowLayoutPersistence() {
-  clearTimeout(windowLayoutPersistTimer)
-  windowLayoutPersistTimer = setTimeout(() => {
-    windowLayoutPersistTimer = undefined
-    persistWindowLayout()
-  }, 180)
-}
-
-function loadWindowLayout() { return readWindowLayoutState().windows }
-
-function loadWindowPlacement(id) {
-  const state = readWindowLayoutState()
-  const placement = state.bounds[id] || DEFAULT_DESKTOP_WINDOW_SIZE
-  if (!('x' in placement) || !('y' in placement)) return { ...placement, maximized: Boolean(state.maximized[id]) }
-  try {
-    const visible = screen.getAllDisplays().some((display) => {
-      const area = display.workArea
-      return placement.x < area.x + area.width - 80 && placement.x + placement.width > area.x + 80 && placement.y < area.y + area.height - 60 && placement.y + placement.height > area.y + 60
-    })
-    return visible ? { ...placement, maximized: Boolean(state.maximized[id]) } : { ...DEFAULT_DESKTOP_WINDOW_SIZE, maximized: Boolean(state.maximized[id]) }
-  } catch { return { ...placement, maximized: Boolean(state.maximized[id]) } }
-}
-
-function restartIntentPath() { return path.join(app.getPath('userData'), 'wharness-window-restart-intent.json') }
-
-function persistRestartIntent(scope, currentWindowId) {
-  try {
-    writeFileSync(restartIntentPath(), JSON.stringify({ version: 1, scope, current_window_id: currentWindowId, created_at: Date.now() }), { mode: 0o600 })
-  } catch (error) { console.warn('[windows] restart intent persistence failed', error) }
-}
-
-function consumeRestartIntent() {
-  try {
-    const filename = restartIntentPath()
-    const parsed = JSON.parse(readFileSync(filename, 'utf8'))
-    try { rmSync(filename, { force: true }) } catch { /* best effort */ }
-    const scope = parsed?.scope === 'current' ? 'current' : parsed?.scope === 'all' ? 'all' : ''
-    const currentWindowId = typeof parsed?.current_window_id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(parsed.current_window_id) ? parsed.current_window_id : ''
-    const createdAt = Number(parsed?.created_at || 0)
-    if (!scope || !currentWindowId || !Number.isFinite(createdAt) || Date.now() - createdAt > 10 * 60 * 1000) return undefined
-    return { scope, currentWindowId }
-  } catch { return undefined }
-}
+const desktopRestartIntent = createDesktopRestartIntent({ userDataPath: () => app.getPath('userData') })
+const persistRestartIntent = desktopRestartIntent.persist
+const consumeRestartIntent = desktopRestartIntent.consume
 
 async function waitForSelfEvolutionActivation() {
   const root = String(process.env.WHARNESS_ROOT || '').trim()
@@ -3896,70 +3728,14 @@ async function waitForSubmittedChatGPTConversation(cacheKey, entry, fallback = '
   return stableURL || canonicalChatGPTConversationURL(fallback)
 }
 
-async function fetchContextZip(sessionId, signal) {
-  const id = sanitizeSessionId(sessionId)
-  const response = await fetch(contextBundleURL(BACKEND_URL, id), { redirect: 'error', signal })
-  if (!response.ok) throw new Error(`Context bundle HTTP ${response.status}`)
-  const contentLength = Number(response.headers.get('content-length') || 0)
-  if (contentLength > MAX_CONTEXT_BYTES) throw new Error('Context ZIP exceeds 256 MiB desktop limit')
-  const bytes = Buffer.from(await response.arrayBuffer())
-  if (bytes.byteLength > MAX_CONTEXT_BYTES) throw new Error('Context ZIP exceeds 256 MiB desktop limit')
-  if (bytes.byteLength < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error('Backend did not return a ZIP bundle')
-  const mapsURL = new URL(`/api/sessions/${encodeURIComponent(id)}/context/maps`, BACKEND_URL)
-  const mapsResponse = await fetch(mapsURL, { redirect: 'error', signal })
-  const maps = await mapsResponse.json().catch(() => ({}))
-  if (!mapsResponse.ok || maps?.protocol !== 'harness.context-map/v1' || !Array.isArray(maps?.files)) {
-    throw new Error(maps?.error?.message || `Context maps HTTP ${mapsResponse.status}`)
-  }
-  return { id, bytes, maps: maps.files }
-}
-
-async function fetchChatContextSelection(sessionId, signal) {
-  const target = new URL(`/api/sessions/${encodeURIComponent(sanitizeSessionId(sessionId))}`, BACKEND_URL)
-  const response = await fetch(target, { redirect: 'error', signal })
-  if (!response.ok) throw new Error(`Context selection unavailable: HTTP ${response.status}`)
-  return contextSelectionFromSession(await response.json())
-}
-
-// The captured snapshot plus the session's Full/Partial selection of it.
-async function fetchSelectedContextZip(sessionId, signal) {
-  const [captured, selection] = await Promise.all([fetchContextZip(sessionId, signal), fetchChatContextSelection(sessionId, signal)])
-  return { ...captured, ...selection }
-}
-
-async function fetchRequestGitContext(sessionId, signal) {
-  const id = sanitizeSessionId(sessionId)
-  const target = new URL(`/api/sessions/${encodeURIComponent(id)}/git/context`, BACKEND_URL)
-  const response = await fetch(target, { redirect: 'error', signal })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok || body?.protocol !== 'harness.git-context/v1') throw new Error(body?.error?.message || `Git context HTTP ${response.status}`)
-  return body
-}
-
-async function fetchRequestKnowledge(sessionId, requestId, signal) {
-  const id = sanitizeSessionId(sessionId)
-  const rid = String(requestId || '').trim()
-  if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(rid)) throw new Error('Invalid request id for project knowledge snapshot')
-  const target = new URL(`/api/sessions/${encodeURIComponent(id)}/requests/${encodeURIComponent(rid)}/knowledge`, BACKEND_URL)
-  const response = await fetch(target, { redirect: 'error', signal })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok || !body?.knowledge) throw new Error(body?.error?.message || `Request knowledge HTTP ${response.status}`)
-  return body.knowledge
-}
-
-async function fetchRequestContinuation(sessionId, requestId, signal) {
-  const id = sanitizeSessionId(sessionId)
-  const rid = String(requestId || '').trim()
-  if (!/^req_[A-Za-z0-9_-]{8,180}$/.test(rid)) throw new Error('Invalid request id for continuation artifacts')
-  const target = new URL(`/api/sessions/${encodeURIComponent(id)}/requests/${encodeURIComponent(rid)}/continuation`, BACKEND_URL)
-  const response = await fetch(target, { redirect: 'error', signal })
-  const body = await response.json().catch(() => ({}))
-  // The attempt ledger and divergence report exist to make the NEXT round
-  // cheaper; failing to fetch them must never block the request they travel
-  // with. The prompt already carries both sections in full.
-  if (!response.ok || !Array.isArray(body?.files)) return []
-  return body.files
-}
+const requestContextClient = createChatGPTRequestContextClient({
+  backendURL: BACKEND_URL,
+  maxContextBytes: MAX_CONTEXT_BYTES,
+})
+const {
+  fetchContextZip, fetchChatContextSelection, fetchSelectedContextZip,
+  fetchRequestGitContext, fetchRequestKnowledge, fetchRequestContinuation,
+} = requestContextClient
 
 async function persistChatArtifact(sessionId, requestId, direction, kind, filename, contentType, bytes, signal) {
   return uploadChatArtifact(BACKEND_URL, sanitizeSessionId(sessionId), { requestId, direction, kind, filename, contentType, bytes }, signal)
@@ -3974,71 +3750,16 @@ async function requireAutoSession(sessionId, signal) {
   if (!['auto', 'auto_approve'].includes(sessionState?.automation_mode)) throw new Error('Automatic ChatGPT submission requires a project automatic mode')
 }
 
-async function fetchChatTransportLimits(signal) {
-  const target = new URL('/api/artifact-settings', BACKEND_URL)
-  const response = await fetch(target, { redirect: 'error', signal })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(body?.error?.message || `Artifact settings HTTP ${response.status}`)
-  const attachmentCountLimit = Math.max(0, Math.trunc(Number(body?.attachment_count_limit ?? DEFAULT_CHAT_ATTACHMENT_COUNT_LIMIT)))
-  const totalBytes = Math.max(1 << 20, Math.trunc(Number(body?.request_bundle_total_bytes || DEFAULT_REQUEST_BUNDLE_TOTAL_BYTES)))
-  const partBytes = Math.max(1 << 20, Math.trunc(Number(body?.request_bundle_part_bytes || DEFAULT_REQUEST_BUNDLE_PART_BYTES)))
-  const partLimit = Math.max(1, Math.min(20, Math.trunc(Number(body?.request_bundle_part_limit || DEFAULT_REQUEST_BUNDLE_PART_LIMIT))))
-  return { attachmentCountLimit, totalBytes, partBytes, partLimit }
-}
-
-function decodeChatAttachmentSet(values, limits) {
-  if (!Array.isArray(values)) throw new Error('Chat attachments must be an array')
-  if (limits.attachmentCountLimit > 0 && values.length > limits.attachmentCountLimit) throw new Error(`At most ${limits.attachmentCountLimit} chat attachments are allowed by the configured limit`)
-  // There is deliberately no fixed per-file attachment cap. An individual
-  // file can consume the whole logical request budget; the final archive size
-  // is checked after prompt, context and attachments have been assembled.
-  const decoded = values.map((value) => decodeUserAttachment(value, limits.totalBytes))
-  const names = new Set()
-  let total = 0
-  for (const attachment of decoded) {
-    const portableName = attachment.name.toLocaleLowerCase('en-US')
-    if (names.has(portableName)) throw new Error(`Duplicate attachment filename: ${attachment.name}`)
-    names.add(portableName)
-    total += attachment.bytes.byteLength
-  }
-  if (total > limits.totalBytes) throw new Error('Chat attachments alone exceed the configured request bundle total limit')
-  return { decoded, total }
-}
-
-function decodeChatArtifactSet(values) {
-  if (!Array.isArray(values) || values.length > MAX_CHAT_ARTIFACTS) throw new Error(`At most ${MAX_CHAT_ARTIFACTS} Wharnex artifacts are allowed`)
-  const decoded = values.map((value) => decodeUserAttachment(value, MAX_CHAT_ARTIFACT_BYTES))
-  const names = new Set()
-  let total = 0
-  for (const artifact of decoded) {
-    const portableName = artifact.name.toLocaleLowerCase('en-US')
-    if (names.has(portableName)) throw new Error(`Duplicate Wharnex artifact filename: ${artifact.name}`)
-    names.add(portableName)
-    total += artifact.bytes.byteLength
-  }
-  if (total > MAX_CHAT_ARTIFACTS_BYTES) throw new Error('Wharnex artifacts exceed the 6 MiB total limit')
-  return { decoded, total }
-}
-
-async function createPersistentAttachmentPreview(sourcePath, targetPath, mime, sourceBytes) {
-  const safeRaster = SAFE_ATTACHMENT_IMAGE_MIMES.has(String(mime || '').toLowerCase()) && Number(sourceBytes || 0) <= MAX_ATTACHMENT_THUMBNAIL_SOURCE_BYTES
-  let image = safeRaster ? nativeImage.createFromPath(sourcePath) : nativeImage.createEmpty()
-  let kind = 'thumbnail'
-  if (image.isEmpty()) {
-    image = await app.getFileIcon(sourcePath, { size: 'large' })
-    kind = 'icon'
-  }
-  if (image.isEmpty()) return 'none'
-  const size = image.getSize()
-  const scale = Math.min(1, 180 / Math.max(1, size.width), 120 / Math.max(1, size.height))
-  if (scale < 1) image = image.resize({ width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)) })
-  await writeFile(targetPath, image.toPNG(), { mode: 0o600 })
-  return kind
-}
-
-function chatAttachmentRoot() {
-  return path.join(app.getPath('userData'), 'chat-attachments-v1')
-}
+const chatGPTAttachmentTools = createChatGPTAttachmentTools({
+  backendURL: BACKEND_URL,
+  userDataPath: () => app.getPath('userData'),
+  nativeImage,
+  getFileIcon: (...args) => app.getFileIcon(...args),
+})
+const {
+  fetchChatTransportLimits, decodeChatAttachmentSet, decodeChatArtifactSet,
+  createPersistentAttachmentPreview, chatAttachmentRoot,
+} = chatGPTAttachmentTools
 
 async function materializeChatInput(cacheKey, sessionId, requestId, values, artifactValues, promptText, includeContext, projectFiles = [], requestMetadata = {}, signal, bundleChatID = cacheKey) {
   chatAgentWorkerActivity.set('preparing')
@@ -7998,142 +7719,11 @@ function desktopWindowAtScreenPoint(point, excludeWindowId = '') {
 }
 
 function registerIPC() {
-  ipcMain.handle('wharness:projects:pick-directory', async (event, request) => {
-    const windowState = trustedSender(event)
-    const requestedDefaultPath = typeof request?.defaultPath === 'string' && path.isAbsolute(request.defaultPath) ? request.defaultPath : undefined
-    const result = await dialog.showOpenDialog(windowState.window, {
-      title: typeof request?.title === 'string' ? request.title.slice(0, 120) : 'Selecionar pasta',
-      defaultPath: requestedDefaultPath,
-      properties: ['openDirectory', 'createDirectory'],
-    })
-    return { cancelled: result.canceled || result.filePaths.length === 0, path: result.filePaths[0] || '' }
-  })
-  ipcMain.handle('wharness:projects:pick-image', async (event, request) => {
-    const windowState = trustedSender(event)
-    const result = await dialog.showOpenDialog(windowState.window, {
-      title: typeof request?.title === 'string' && request.title.trim() ? request.title.trim() : 'Selecionar logo do projeto',
-      properties: ['openFile'],
-      filters: [{ name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'] }],
-    })
-    const selected = result.canceled ? '' : result.filePaths[0] || ''
-    if (!selected) return { cancelled: true, dataURL: '' }
-    const extension = path.extname(selected).toLowerCase()
-    const mime = extension === '.svg' ? 'image/svg+xml' : extension === '.jpg' || extension === '.jpeg' ? 'image/jpeg' : extension === '.webp' ? 'image/webp' : extension === '.gif' ? 'image/gif' : 'image/png'
-    const payload = await readFile(selected)
-    if (payload.byteLength > 2 * 1024 * 1024) throw new Error('O logotipo deve ter no máximo 2 MiB.')
-    return { cancelled: false, dataURL: `data:${mime};base64,${payload.toString('base64')}` }
-  })
-  ipcMain.handle('wharness:projects:trash', async (event, request) => {
-    trustedSender(event)
-    const projectPath = canonicalProjectPath(request?.projectPath)
-    const owner = [...desktopWindows.values()].find((state) => !state.window.isDestroyed() && !state.transientSurface && state.projects.has(projectPath))
-    if (owner) throw new Error('Feche ou desvincule o projeto antes de o mover para o lixo.')
-    await shell.trashItem(projectPath)
-    return { ok: true, path: projectPath }
-  })
-  ipcMain.handle('wharness:projects:acquire', (event, request) => acquireProjectForWindow(trustedSender(event), request?.projectPath))
-  ipcMain.handle('wharness:projects:release', (event, request) => releaseProjectForWindow(trustedSender(event), request?.projectPath))
-  ipcMain.handle('wharness:projects:activate', (event, request) => {
-    const windowState = trustedSender(event)
-    const projectPath = canonicalProjectPath(request?.projectPath)
-    if (!windowState.projects.has(projectPath)) throw new Error('Projeto ativo não pertence a esta janela')
-    if (windowState.activeProject && windowState.activeProject !== projectPath) suspendNativeSurfacesForWindow(windowState)
-    windowState.activeProject = projectPath
-    windowState.window.setTitle(desktopWindowTitle(projectPath, DESKTOP_INSTANCE))
-    return { ok: true, path: projectPath }
-  })
-  ipcMain.handle('wharness:projects:bindings', (event) => {
-    const windowState = trustedSender(event)
-    return { windowId: windowState.id, projects: [...windowState.projects] }
-  })
-  ipcMain.handle('wharness:windows:info', (event) => {
-    const windowState = trustedSender(event)
-    return { windowId: windowState.id, windowCount: desktopWindows.size }
-  })
-  ipcMain.handle('wharness:windows:recovery', (event) => {
-    const windowState = trustedSender(event)
-    return {
-      active: Boolean(windowState.recovery?.active),
-      projects: Array.isArray(windowState.recovery?.projects) ? [...windowState.recovery.projects] : [],
-      activeProject: String(windowState.recovery?.activeProject || ''),
-      pending: Boolean(windowState.recovery?.pending),
-    }
-  })
-  ipcMain.handle('wharness:windows:projects', (event) => {
-    const current = trustedSender(event)
-    const focused = BrowserWindow.getFocusedWindow()
-    const items = []
-    for (const state of desktopWindows.values()) {
-      if (state.window.isDestroyed() || state.transientSurface) continue
-      for (const projectPath of state.projects) items.push({ windowId: state.id, projectPath, focused: focused === state.window })
-    }
-    return { currentWindowId: current.id, items }
-  })
-  ipcMain.handle('wharness:windows:focus-project', (event, request) => {
-    trustedSender(event)
-    const projectPath = canonicalProjectPath(request?.projectPath)
-    const owner = [...desktopWindows.values()].find((state) => !state.window.isDestroyed() && !state.transientSurface && state.projects.has(projectPath))
-    if (!owner) throw new Error('O projeto já não está aberto noutra janela do Wharnex.')
-    sendToWindowState(owner, 'wharness:windows:activate-project', { projectPath })
-    owner.window.show(); owner.window.focus()
-    return { ok: true, windowId: owner.id, projectPath }
-  })
-  ipcMain.handle('wharness:windows:open', (event, request) => {
-    trustedSender(event)
-    const requestedProject = typeof request?.projectPath === 'string' && request.projectPath.trim() ? canonicalProjectPath(request.projectPath) : ''
-    const launch = requestedProject ? { recovery: { projects: [requestedProject], activeProject: requestedProject, pending: false } } : {}
-    const windowState = createWindow(undefined, true, launch)
-    windowState.window.show(); windowState.window.focus()
-    return { ok: true, windowId: windowState.id }
-  })
-  ipcMain.handle('wharness:windows:open-surface', (event, request) => {
-    const owner = trustedSender(event)
-    const surface = normalizedWorkspaceSurface(request)
-    if (!owner.projects.has(surface.projectPath)) throw new Error('A superfície só pode ser destacada a partir de um projeto aberto nesta janela.')
-    const windowState = createWindow(`surface-${randomUUID()}`, false, { surface })
-    windowState.window.show(); windowState.window.focus()
-    return { ok: true, windowId: windowState.id }
-  })
-  ipcMain.handle('wharness:windows:move-surface', (event, request) => {
-    const owner = trustedSender(event)
-    const surface = normalizedWorkspaceSurface(request)
-    if (!owner.projects.has(surface.projectPath)) throw new Error('A superfície só pode ser movida a partir de um projeto aberto nesta janela.')
-    let point = { x: Number(request?.screenX), y: Number(request?.screenY) }
-    if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || (point.x === 0 && point.y === 0)) point = screen.getCursorScreenPoint()
-    const destination = desktopWindowAtScreenPoint(point, owner.id)
-    if (destination) {
-      if (destination.activeProject !== surface.projectPath) return { ok: false, action: 'blocked', reason: 'different-project', message: 'Não é possível mover tabs entre janelas de projetos diferentes.' }
-      sendToWindowState(destination, 'wharness:windows:receive-surface', { surface })
-      destination.window.show(); destination.window.focus()
-      return { ok: true, action: 'moved', windowId: destination.id }
-    }
-    const windowState = createWindow(`surface-${randomUUID()}`, false, { surface })
-    windowState.window.show(); windowState.window.focus()
-    return { ok: true, action: 'opened', windowId: windowState.id }
-  })
-  ipcMain.handle('wharness:windows:minimize', (event) => {
-    const windowState = trustedSender(event)
-    windowState.window.minimize()
-    return { ok: true }
-  })
-  ipcMain.handle('wharness:windows:toggle-maximize', (event) => {
-    const windowState = trustedSender(event)
-    if (windowState.window.isMaximized()) windowState.window.unmaximize()
-    else windowState.window.maximize()
-    return { ok: true, maximized: windowState.window.isMaximized() }
-  })
-  ipcMain.handle('wharness:windows:close', (event) => {
-    const windowState = trustedSender(event)
-    setTimeout(() => {
-      if (!windowState.window.isDestroyed()) windowState.window.close()
-    }, 0)
-    return { ok: true }
-  })
-  ipcMain.handle('wharness:windows:acknowledge-close', (event) => {
-    return desktopWindowClose.acknowledge(trustedSender(event))
-  })
-  ipcMain.handle('wharness:windows:resolve-close', (event, request) => {
-    return desktopWindowClose.resolve(trustedSender(event), request?.action)
+  registerWindowIPC({
+    ipcMain, trustedSender, desktopWindows, acquireProjectForWindow,
+    releaseProjectForWindow, suspendNativeSurfacesForWindow, createWindow,
+    normalizedWorkspaceSurface, desktopWindowAtScreenPoint, sendToWindowState,
+    desktopWindowClose, DESKTOP_INSTANCE,
   })
   ipcMain.handle('wharness:notifications:publish', (event, request) => publishDesktopNotification(trustedSender(event), request))
   ipcMain.handle('wharness:tray:update-project-state', (event, request) => {
@@ -8801,36 +8391,9 @@ function registerIPC() {
     if (String(request?.confirm || '').trim() !== 'APAGAR WHARNEX') throw new Error('Complete Wharnex reset confirmation mismatch')
     return clearDesktopWharnessData()
   })
-  ipcMain.handle('wharness:attachments:persist', async (event, request) => {
-    trustedSender(event)
-    const cacheKey = sanitizeChatCacheKey(request?.cacheKey)
-    const messageId = sanitizeChatCacheKey(request?.messageId)
-    const limits = await fetchChatTransportLimits()
-    const { decoded } = decodeChatAttachmentSet(request?.attachments || [], limits)
-    const attachments = await persistChatAttachmentFiles(chatAttachmentRoot(), cacheKey, messageId, decoded, createPersistentAttachmentPreview)
-    return { ok: true, attachments }
-  })
-  ipcMain.handle('wharness:attachments:preview', async (event, request) => {
-    trustedSender(event)
-    try { return await readStoredAttachmentPreview(chatAttachmentRoot(), request?.storageRef) }
-    catch { return { available: false, dataUrl: '', previewKind: 'none' } }
-  })
-  ipcMain.handle('wharness:attachments:read', async (event, request) => {
-    trustedSender(event)
-    return readStoredAttachment(chatAttachmentRoot(), request?.storageRef)
-  })
-  ipcMain.handle('wharness:attachments:open', async (event, request) => {
-    trustedSender(event)
-    const filePath = await storedAttachmentPath(chatAttachmentRoot(), request?.storageRef)
-    const error = await shell.openPath(filePath)
-    if (error) throw new Error(`Não foi possível abrir o anexo: ${error}`)
-    return { ok: true }
-  })
-  ipcMain.handle('wharness:attachments:remove-chat', async (event, request) => {
-    trustedSender(event)
-    const cacheKey = sanitizeChatCacheKey(request?.cacheKey)
-    await removeStoredChatAttachments(chatAttachmentRoot(), cacheKey)
-    return { ok: true }
+  registerChatAttachmentIPC({
+    ipcMain, trustedSender, shell, fetchChatTransportLimits,
+    decodeChatAttachmentSet, chatAttachmentRoot, createPersistentAttachmentPreview,
   })
   ipcMain.handle('wharness:clipboard:read-text', (event) => { trustedSender(event); return clipboard.readText() })
   ipcMain.handle('wharness:clipboard:write-text', async (event, value) => {
@@ -8856,80 +8419,20 @@ function registerIPC() {
 app.whenReady().then(async () => {
   await rm(path.join(app.getPath('temp'), 'wharness-chat-protocol'), { recursive: true, force: true }).catch(() => undefined)
   try { await applyPendingBrowserSessionImport() } catch (error) { console.error('[chatgpt-session] pending import failed', error) }
-  const chatSession = session.fromPartition(CHATGPT_PARTITION)
-  chatSession.setUserAgent(CHATGPT_USER_AGENT, CHATGPT_ACCEPT_LANGUAGES)
-  registerChatGPTPlanDownloads(chatSession)
-
-  const remoteFilter = {
-    urls: [
-      'https://chatgpt.com/*',
-      'https://*.chatgpt.com/*',
-      'https://*.openai.com/*',
-    ],
-  }
-  chatSession.webRequest.onBeforeRequest(remoteFilter, (details, callback) => {
-    noteChatGPTNetworkActivity(details, 'before')
-    chatGPTUploads.onBeforeRequest(details)
-    chatGPTSubmissions.onBeforeRequest(details)
-    callback({})
+  await configureChatGPTSession({
+    electronSession: session,
+    partition: CHATGPT_PARTITION,
+    userAgent: CHATGPT_USER_AGENT,
+    acceptLanguages: CHATGPT_ACCEPT_LANGUAGES,
+    chromiumVersion: CHATGPT_CHROMIUM_VERSION,
+    uploads: chatGPTUploads,
+    submissions: chatGPTSubmissions,
+    cacheMarker: chatGPTCacheMarker,
+    registerChatGPTPlanDownloads,
+    noteChatGPTNetworkActivity,
+    noteChatGPTNetworkFailure,
+    noteChatGPTHTTPStatus,
   })
-  chatSession.webRequest.onErrorOccurred(remoteFilter, (details) => {
-    noteChatGPTNetworkActivity(details, 'error')
-    noteChatGPTNetworkFailure(details)
-    chatGPTUploads.onErrorOccurred(details)
-    console.error(`[chatgpt-net] ${details.method} ${sanitizeDiagnosticURL(details.url)} error=${details.error}`)
-  })
-  chatSession.webRequest.onCompleted(remoteFilter, (details) => {
-    noteChatGPTNetworkActivity(details, 'completed')
-    chatGPTUploads.onCompleted(details)
-    noteChatGPTHTTPStatus(details)
-    if (details.statusCode >= 400) {
-      // The WebContents id and Retry-After tell which page keeps re-reading a
-      // throttled resource and for how long the provider asked it to stop.
-      const retryAfter = Object.entries(details.responseHeaders || {}).find(([name]) => name.toLowerCase() === 'retry-after')?.[1]?.[0]
-      console.error(`[chatgpt-http] ${details.method} ${sanitizeDiagnosticURL(details.url)} status=${details.statusCode} wc=${details.webContentsId ?? '-'}${retryAfter ? ` retry_after=${String(retryAfter).slice(0, 32)}` : ''}`)
-    }
-  })
-
-  // Remote ChatGPT gets the minimum browser permissions it needs. In particular,
-  // navigator.clipboard.writeText() maps to clipboard-sanitized-write in Electron.
-  // We deliberately do NOT grant clipboard-read: importing a response remains an
-  // explicit Wharnex action owned by the trusted local renderer/main process.
-  chatSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    const requestingURL = details?.requestingUrl || webContents?.getURL() || ''
-    const trusted = isTrustedChatGPTOrigin(requestingURL)
-    const allowed = trusted && (permission === 'notifications' || permission === 'clipboard-sanitized-write')
-    if (permission.startsWith('clipboard')) {
-      console.log(`[chatgpt-permission] ${permission} origin=${sanitizeDiagnosticURL(requestingURL)} allowed=${allowed}`)
-    }
-    callback(allowed)
-  })
-  chatSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
-    const requestingURL = details?.requestingUrl || requestingOrigin || details?.embeddingOrigin || ''
-    const trusted = isTrustedChatGPTOrigin(requestingURL)
-    return trusted && (permission === 'notifications' || permission === 'clipboard-sanitized-write')
-  })
-
-  // Keep the local Wharnex composer useful in Portuguese while preserving
-  // English for code/technical terms. Electron only accepts dictionaries that
-  // are actually available in the current Chromium build.
-  try {
-    const available = new Set(session.defaultSession.availableSpellCheckerLanguages || [])
-    const preferred = ['pt-PT', 'pt-BR', 'en-US'].filter((language) => available.has(language))
-    if (preferred.length) session.defaultSession.setSpellCheckerLanguages(preferred)
-  } catch (error) { console.warn('[spellcheck] dictionary configuration failed', error) }
-
-  // Cache only: preserve cookies/login while forcing current ChatGPT assets to reload
-  // under the Chrome-compatible UA. Only needed when that UA actually changed
-  // since the last run; an ordinary restart on the same build reuses the warm
-  // cache instead of forcing every Supervisor/Worker to refetch ChatGPT's
-  // entire SPA bundle over the network. Failures here must not prevent startup.
-  if (!chatGPTCacheMarkerCurrent()) {
-    try { await chatSession.clearCache() } catch (error) { console.error('[chatgpt-cache] clear failed', error) }
-    writeChatGPTCacheMarker()
-  }
-
-  console.log(`ChatGPT compatibility UA: Chrome/${CHATGPT_CHROMIUM_VERSION}`)
   chatAgentPolicies = loadChatAgentPolicies()
   registerIPC()
   ensureDesktopTray()

@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 cd "$(dirname "$0")/.."
+make domain-layout-check
 make backend-check
 make desktop-check
 if [ -n "${WHARNESS_TEST_DATABASE_URL:-}" ]; then

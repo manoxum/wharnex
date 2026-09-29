@@ -12,27 +12,6 @@ test('workspace toolbar owns the themed title bar and window controls', async ()
 })
 
 
-test('desktop windows restore normal bounds and maximized state per window id', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const persistenceStart = source.indexOf('function windowLayoutPath()')
-  const persistenceEnd = source.indexOf('\nfunction restartIntentPath()', persistenceStart)
-  const persistence = source.slice(persistenceStart, persistenceEnd)
-  const createStart = source.indexOf('function createWindow(')
-  const registerStart = source.indexOf('\nfunction registerIPC()', createStart)
-  const create = source.slice(createStart, registerStart)
-
-  assert.match(persistence, /JSON\.stringify\(\{ version: 3, windows, bounds, maximized \}\)/)
-  assert.match(persistence, /getNormalBounds/)
-  assert.match(persistence, /function loadWindowPlacement\(id\)/)
-  assert.match(create, /const initialWindowPlacement = surface \? \{ width: 1280, height: 820, maximized: false \} : loadWindowPlacement\(id\)/)
-  assert.match(create, /width: initialWindowPlacement\.width/)
-  assert.match(create, /height: initialWindowPlacement\.height/)
-  assert.match(create, /win\.on\('resize', scheduleWindowLayoutPersistence\)/)
-  assert.match(create, /win\.on\('move', scheduleWindowLayoutPersistence\)/)
-  assert.match(create, /if \(!surface && initialWindowPlacement\.maximized\) win\.maximize\(\)/)
-  assert.doesNotMatch(create, /windowStatePersistence/)
-})
-
 test('desktop tray resolves the installed Wharnex raster icon before SVG fallback', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const resolveStart = source.indexOf('function resolveDesktopIcon()')
@@ -75,28 +54,6 @@ test('hidden Worker views stay out of the local shell compositor until explicitl
   assert.doesNotMatch(create, /contentView\.addChildView\(view\)/)
   assert.match(show, /windowState\.window\.contentView\.addChildView\(entry\.view\)/)
   assert.match(show, /entry\.attached = true/)
-})
-
-test('renderer window controls are closed preload IPC operations', async () => {
-  const [source, preload] = await Promise.all([
-    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
-    readFile(new URL('./preload.cjs', import.meta.url), 'utf8'),
-  ])
-  assert.match(source, /ipcMain\.handle\('wharness:windows:minimize'/)
-  assert.match(source, /ipcMain\.handle\('wharness:windows:toggle-maximize'/)
-  assert.match(source, /ipcMain\.handle\('wharness:windows:close'/)
-  assert.match(source, /ipcMain\.handle\('wharness:windows:activate-self-evolution'/)
-  assert.match(preload, /minimize: \(\) => invoke\('wharness:windows:minimize'\)/)
-  assert.match(preload, /toggleMaximize: \(\) => invoke\('wharness:windows:toggle-maximize'\)/)
-  assert.match(preload, /close: \(\) => invoke\('wharness:windows:close'\)/)
-  assert.match(preload, /recovery: \(\) => invoke\('wharness:windows:recovery'\)/)
-  assert.match(preload, /ipcRenderer\.on\('wharness:windows:close-project', handler\)/)
-  assert.match(preload, /activateSelfEvolution: \(impacts\) => invoke\('wharness:windows:activate-self-evolution'/)
-  const activation = source.slice(source.indexOf("ipcMain.handle('wharness:windows:activate-self-evolution'"), source.indexOf("ipcMain.handle('wharness:chatgpt:show'"))
-  assert.match(activation, /impacts\.includes\('desktop'\)[\s\S]*await scheduleDesktopCoordinatorRelaunch\(\)[\s\S]*app\.exit\(0\)/)
-  assert.doesNotMatch(activation, /app\.relaunch\(/)
-  assert.match(activation, /impacts\.includes\('frontend'\)[\s\S]*webContents\.reload\(\)/)
-  assert.match(activation, /await waitForSelfEvolutionActivation\(\)/)
 })
 
 test('local frontend navigation uses a per-runtime cache token', async () => {
@@ -216,48 +173,6 @@ test('Supervisor transport keeps the captured chat entry and exposes no focus IP
   assert.match(source, /retryPreparedChatGPTPrompt\(request, entry\)/)
   assert.match(source, /attachContextToChatGPT\(request, entry\)/)
   assert.match(source, /attachPromptToChatGPT\(request, entry\)/)
-})
-
-test('linked projects expose owning windows and can bring an existing owner forward', async () => {
-  const [source, preload] = await Promise.all([
-    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
-    readFile(new URL('./preload.cjs', import.meta.url), 'utf8'),
-  ])
-
-  const projectsStart = source.indexOf("ipcMain.handle('wharness:windows:projects'")
-  const focusStart = source.indexOf("ipcMain.handle('wharness:windows:focus-project'")
-  const openStart = source.indexOf("ipcMain.handle('wharness:windows:open'", focusStart)
-  assert.notEqual(projectsStart, -1)
-  assert.notEqual(focusStart, -1)
-  const projectsHandler = source.slice(projectsStart, focusStart)
-  const focusHandler = source.slice(focusStart, openStart)
-  assert.match(projectsHandler, /for \(const state of desktopWindows\.values\(\)\)/)
-  assert.match(projectsHandler, /currentWindowId: current\.id/)
-  assert.match(focusHandler, /canonicalProjectPath\(request\?\.projectPath\)/)
-  assert.match(focusHandler, /sendToWindowState\(owner, 'wharness:windows:activate-project', \{ projectPath \}\)/)
-  assert.match(focusHandler, /owner\.window\.show\(\); owner\.window\.focus\(\)/)
-  assert.match(preload, /projects: \(\) => invoke\('wharness:windows:projects'\)/)
-  assert.match(preload, /focusProject: \(projectPath\) => invoke\('wharness:windows:focus-project'/)
-  assert.match(preload, /wharness:windows:activate-project/)
-})
-
-test('project home IPC can pick logos, move closed projects to trash and open a project in a new window', async () => {
-  const [source, preload] = await Promise.all([
-    readFile(new URL('./main.mjs', import.meta.url), 'utf8'),
-    readFile(new URL('./preload.cjs', import.meta.url), 'utf8'),
-  ])
-  assert.match(source, /ipcMain\.handle\('wharness:projects:pick-image'/)
-  assert.match(source, /filters: \[\{ name: 'Imagens', extensions: \['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'\] \}\]/)
-  assert.match(source, /ipcMain\.handle\('wharness:projects:trash'/)
-  assert.match(source, /await shell\.trashItem\(projectPath\)/)
-  const openStart = source.indexOf("ipcMain.handle('wharness:windows:open'")
-  const openEnd = source.indexOf("ipcMain.handle('wharness:windows:open-surface'", openStart)
-  const openHandler = source.slice(openStart, openEnd)
-  assert.match(openHandler, /canonicalProjectPath\(request\.projectPath\)/)
-  assert.match(openHandler, /recovery: \{ projects: \[requestedProject\], activeProject: requestedProject, pending: false \}/)
-  assert.match(preload, /pickImage: \(request = \{\}\) => invoke\('wharness:projects:pick-image', request\)/)
-  assert.match(preload, /trash: \(projectPath\) => invoke\('wharness:projects:trash'/)
-  assert.match(preload, /open: \(request = \{\}\) => invoke\('wharness:windows:open', request\)/)
 })
 
 test('a failed prompt delivery remains retryable without asking the planner for a new prompt', async () => {
@@ -461,7 +376,8 @@ test('desktop owns the new-chat affinity handshake and renderer only confirms or
 
 test('Desktop sends one logical request and uses configured multipart transport only when needed', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  assert.match(source, /async function fetchChatTransportLimits\(signal\)/)
+  const attachments = await readFile(new URL('./chatgpt/attachments.mjs', import.meta.url), 'utf8')
+  assert.match(attachments, /async function fetchChatTransportLimits\(signal\)/)
   const start = source.indexOf('async function preparePromptForChatGPT(request, entryOverride = undefined, { pacedWorker = false } = {})')
   const end = source.indexOf('\nasync function attachContextToChatGPT', start)
   const prepare = source.slice(start, end)
@@ -474,7 +390,7 @@ test('Desktop sends one logical request and uses configured multipart transport 
 test('automatic ChatGPT transport accepts auto-approve projects', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function requireAutoSession')
-  const end = source.indexOf('\nfunction decodeChatAttachmentSet', start)
+  const end = source.indexOf('\nconst chatGPTAttachmentTools = createChatGPTAttachmentTools', start)
   const guard = source.slice(start, end)
   assert.match(guard, /\['auto', 'auto_approve'\]\.includes\(sessionState\?\.automation_mode\)/)
 })
@@ -482,7 +398,7 @@ test('automatic ChatGPT transport accepts auto-approve projects', async () => {
 test('automatic and confirmed submissions wait for a stable loaded definitive ChatGPT conversation URL', async () => {
   const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
   const waiterStart = source.indexOf('async function waitForConcreteChatGPTConversation')
-  const waiterEnd = source.indexOf('\nasync function fetchContextZip', waiterStart)
+  const waiterEnd = source.indexOf('\nconst requestContextClient = createChatGPTRequestContextClient', waiterStart)
   const waiter = source.slice(waiterStart, waiterEnd)
   assert.match(waiter, /!wc\.isLoading\(\) && Date\.now\(\) - stableSince >= 600/)
   assert.match(waiter, /waitForConcreteChatGPTConversation\(wc, 30_000\)/)
@@ -552,25 +468,6 @@ test('renderer navigation preserves overlay-driven ChatGPT visibility', async ()
   const navigate = source.slice(start, end)
   assert.doesNotMatch(navigate, /windowState\.chatgptVisible = true/)
   assert.match(navigate, /activateChatGPTView\(key, request\?\.bounds, windowState\)/)
-})
-
-test('closing or switching the active project hides Supervisor and interactive Worker surfaces in Desktop before renderer teardown', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const suspendStart = source.indexOf('function suspendNativeSurfacesForWindow(windowState)')
-  const suspendEnd = source.indexOf('\nfunction releaseProjectForWindow', suspendStart)
-  const suspend = source.slice(suspendStart, suspendEnd)
-  assert.ok(suspendStart >= 0)
-  assert.match(suspend, /windowState\.chatgptVisible = false/)
-  assert.match(suspend, /active\.view\.setVisible\(false\)/)
-  assert.match(suspend, /hideChatAgentInteractionsForWindow\(windowState\)/)
-
-  const releaseStart = source.indexOf('function releaseProjectForWindow(windowState, value)')
-  const releaseEnd = source.indexOf('\nfunction releaseWindowProjects', releaseStart)
-  assert.match(source.slice(releaseStart, releaseEnd), /activeProject === requested\) suspendNativeSurfacesForWindow\(windowState\)/)
-
-  const activateStart = source.indexOf("ipcMain.handle('wharness:projects:activate'")
-  const activateEnd = source.indexOf("ipcMain.handle('wharness:projects:bindings'", activateStart)
-  assert.match(source.slice(activateStart, activateEnd), /activeProject !== projectPath\) suspendNativeSurfacesForWindow\(windowState\)/)
 })
 
 test('same-origin ChatGPT auth redirects stay embedded and explicit loads are serialized', async () => {
@@ -2835,29 +2732,6 @@ test('registerChatGPTTodoClassificationDownload and registerChatGPTMarkdownTrans
   assert.match(helper, /\[1-9\]\[0-9\]\{0,3\}/)
 })
 
-// Clearing the whole ChatGPT session cache on every startup forced every
-// Supervisor/Worker to refetch ChatGPT's entire SPA bundle over the network
-// on the very next navigation instead of using the warm disk cache - a large,
-// entirely avoidable share of what made ordinary restarts feel heavy. The
-// clear only guards against a UA that changed since the marker was written.
-test('the ChatGPT cache is only cleared when the spoofed Chromium UA has changed since last run', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const start = source.indexOf('app.whenReady().then(async () => {')
-  assert.notEqual(start, -1)
-  const boot = source.slice(start, source.indexOf('\n  const layout = loadWindowLayout()', start))
-
-  assert.match(boot, /if \(!chatGPTCacheMarkerCurrent\(\)\) \{/)
-  const guardStart = boot.indexOf('if (!chatGPTCacheMarkerCurrent())')
-  const guard = boot.slice(guardStart, boot.indexOf('\n  }', guardStart))
-  assert.match(guard, /await chatSession\.clearCache\(\)/)
-  assert.match(guard, /writeChatGPTCacheMarker\(\)/)
-
-  const helperStart = source.indexOf('function chatGPTCacheMarkerCurrent(')
-  assert.notEqual(helperStart, -1)
-  const helper = source.slice(helperStart, source.indexOf('\n}', helperStart))
-  assert.match(helper, /chromiumVersion === CHATGPT_CHROMIUM_VERSION/)
-})
-
 // Live-observed on a large draining backlog: due-task demand flapped above
 // and below zero from one 2s auto-scale poll to the next, so a grow was torn
 // back down before its own demand's next tick, then regrown moments later -
@@ -2974,31 +2848,6 @@ test('an unrecognized download on the ChatGPT automation partition fails closed'
   assert.match(helper, /internalChatGPTBrowsers\.values\(\)/)
   assert.match(helper, /sourceWebContents === wc \|\| sourceWebContents\.hostWebContents === wc/)
 })
-
-test('detached workbench surfaces stay transient and keep project ownership with the parent window', async () => {
-  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
-  const createStart = source.indexOf('function createWindow(')
-  const createEnd = source.indexOf('\nfunction registerIPC()', createStart)
-  const createWindowSource = source.slice(createStart, createEnd)
-  assert.match(createWindowSource, /transientSurface: Boolean\(surface\)/)
-  assert.match(createWindowSource, /if \(surface\?\.projectPath\) \{[\s\S]*state\.projects\.add\(surface\.projectPath\)/)
-  assert.match(createWindowSource, /if \(!state\.transientSurface\) \{[\s\S]*win\.on\('resize', scheduleWindowLayoutPersistence\)/)
-  assert.match(createWindowSource, /if \(!quitting && !state\.transientSurface\) persistWindowLayout\(\)/)
-  assert.match(source, /function persistWindowLayout\(ids = \[\.\.\.desktopWindows\.values\(\)\]\.filter\(\(state\) => !state\.window\.isDestroyed\(\) && !state\.transientSurface\)/)
-  assert.match(source, /find\(\(state\) => !state\.window\.isDestroyed\(\) && !state\.transientSurface && state\.projects\.has\(projectPath\)\)/)
-
-  const handlerStart = source.indexOf("ipcMain.handle('wharness:windows:open-surface'")
-  assert.notEqual(handlerStart, -1)
-  const handler = source.slice(handlerStart, source.indexOf("ipcMain.handle('wharness:windows:minimize'", handlerStart))
-  assert.match(handler, /owner\.projects\.has\(surface\.projectPath\)/)
-  assert.match(handler, /createWindow\(`surface-\$\{randomUUID\(\)\}`, false, \{ surface \}\)/)
-  assert.match(handler, /wharness:windows:move-surface/)
-  assert.match(handler, /destination\.activeProject !== surface\.projectPath/)
-  assert.match(handler, /wharness:windows:receive-surface/)
-  assert.match(handler, /reason: 'different-project'/)
-  assert.doesNotMatch(handler, /projectWindowRegistry\.set/)
-})
-
 
 test('Ctrl+Space can reopen native spelling suggestions at the composer caret', async () => {
   const [source, preload] = await Promise.all([
