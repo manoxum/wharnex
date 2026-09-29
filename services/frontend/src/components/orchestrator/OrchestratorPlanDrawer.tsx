@@ -27,10 +27,12 @@ function statusTone(status: string) {
   return 'border-[color-mix(in_srgb,var(--theme-warning)_45%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-warning)_12%,transparent)] text-[var(--theme-warning)]'
 }
 
-export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = [], loading, busy = false, error, onClose, onRefresh, onSelectTask, onOpenTasks, onGoToChat, onRetry, onApprove, onReject, onRevise }: {
+export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionId, chats = [], loading, busy = false, error, onClose, onRefresh, onSelectTask, onOpenTasks, onGoToChat, onRetry, onApprove, onReject, onRevise }: {
   request: OrchestratorPlanningRequest
   detail?: OrchestratorPlanningDetail
   planningTask?: ChatAgentTask
+  // The owning session, where the planning bundles are kept.
+  sessionId?: string
   chats?: ChatAgentTaskChatRef[]
   loading: boolean
   busy?: boolean
@@ -136,7 +138,7 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, chats = 
 
         {!detail || (error && !loading) ? null : <div className="mt-3" role="tabpanel">
           {tab === 'summary' ? <SummaryTab request={request} detail={detail}/> : null}
-          {tab === 'files' ? <OrchestratorPlanFilesTab detail={detail}/> : null}
+          {tab === 'files' ? <OrchestratorPlanFilesTab detail={detail} sessionId={sessionId}/> : null}
           {tab === 'plan' ? <OrchestratorPlanTab detail={detail}/> : null}
           {tab === 'tasks' ? <TasksTab detail={detail}/> : null}
           {tab === 'executions' ? <OrchestratorPlanExecutionsTab detail={detail} onSelectTask={onSelectTask}/> : null}

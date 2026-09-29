@@ -1,15 +1,39 @@
 import { useState } from 'react'
-import type { OrchestratorPlanningDetail } from '../../types'
+import type { ArtifactRecord, OrchestratorPlanningDetail } from '../../types'
+import { BundleExplorerModal } from '../BundleExplorer'
 import { Icon } from '../Icon'
 
 type PlannedFile = { path: string; kinds: string[] }
 
-export function OrchestratorPlanFilesTab({ detail }: { detail: OrchestratorPlanningDetail }) {
+// The ZIPs exchanged with ChatGPT to produce the plan, explorable exactly as
+// an agentic chat's bundles.
+function PlanningBundles({ sessionId, bundles }: { sessionId?: string; bundles: ArtifactRecord[] }) {
+  const [open, setOpen] = useState<ArtifactRecord>()
+  return <section className="grid gap-2">
+    <SectionTitle title="Bundles trocados com o GPT" count={bundles.length}/>
+    {bundles.length ? <ul className="m-0 grid list-none gap-1.5 p-0">
+      {bundles.map((bundle) => <li key={bundle.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--theme-border-soft)] p-2.5">
+        <span className="min-w-0">
+          <code className="block break-all text-sm text-[var(--theme-text)]">{bundle.name}</code>
+          <span className="mt-1 flex flex-wrap gap-1">
+            <span className="rounded-full bg-[var(--theme-subtle)] px-1.5 py-0.5 text-xs text-[var(--theme-text-muted)]">{bundle.direction === 'input' ? 'Pedido enviado' : 'Resposta do GPT'}</span>
+            <span className="rounded-full bg-[var(--theme-subtle)] px-1.5 py-0.5 text-xs text-[var(--theme-text-muted)]">{formatBytes(bundle.size)}</span>
+          </span>
+        </span>
+        {sessionId ? <button type="button" className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" onClick={() => setOpen(bundle)}><Icon name="package" size={13}/> Explorar</button> : null}
+      </li>)}
+    </ul> : <p className="m-0 text-sm text-[var(--theme-text-muted)]">Nenhum bundle registado para este planeamento. Os planeamentos anteriores a esta versão não guardavam os bundles.</p>}
+    {open && sessionId ? <BundleExplorerModal sessionId={sessionId} bundle={open} onClose={() => setOpen(undefined)}/> : null}
+  </section>
+}
+
+export function OrchestratorPlanFilesTab({ detail, sessionId }: { detail: OrchestratorPlanningDetail; sessionId?: string }) {
   const [search, setSearch] = useState('')
   const projectFiles = [...new Set(detail.project_files)]
   const plannedFiles = collectPlannedFiles(detail)
+  const bundles = detail.bundles || []
   const total = projectFiles.length + detail.attachments.length + plannedFiles.length
-  if (!total) return <EmptyState message="Este pedido não possui ficheiros ou anexos associados."/>
+  if (!total && !bundles.length) return <EmptyState message="Este pedido não possui bundles, ficheiros ou anexos associados."/>
 
   const query = normalizeSearch(search)
   const visibleProjects = projectFiles.filter((path) => matches(query, path, 'ficheiro de projeto'))
@@ -19,6 +43,7 @@ export function OrchestratorPlanFilesTab({ detail }: { detail: OrchestratorPlann
   const visiblePlanned = plannedFiles.filter((item) => matches(query, item.path, ...item.kinds))
 
   return <div className="grid gap-4">
+    <PlanningBundles sessionId={sessionId} bundles={bundles}/>
     <SearchBox value={search} onChange={setSearch} label="Pesquisar ficheiros e escopo"/>
     <section className="grid gap-2">
       <SectionTitle title="Entrada do utilizador" count={projectFiles.length + detail.attachments.length}/>

@@ -108,6 +108,25 @@ type PlanningRequestDetail struct {
 	Attempts        []PlanningAttempt    `json:"attempts"`
 	Plan            *Plan                `json:"plan,omitempty"`
 	Tasks           []PlanningTaskDetail `json:"tasks"`
+	// Bundles are the request and response ZIPs exchanged with ChatGPT to
+	// produce this plan, in the artifact shape the bundle explorer reads.
+	Bundles []PlanningBundle `json:"bundles"`
+}
+
+type PlanningBundle struct {
+	ID          string    `json:"id"`
+	RequestID   string    `json:"request_id,omitempty"`
+	Direction   string    `json:"direction"`
+	Kind        string    `json:"kind"`
+	Name        string    `json:"name"`
+	ContentType string    `json:"content_type,omitempty"`
+	Size        int64     `json:"size"`
+	SHA256      string    `json:"sha256"`
+	CreatedAt   time.Time `json:"created_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	Bundle      bool      `json:"bundle"`
+	BundleType  string    `json:"bundle_type,omitempty"`
+	EntryCount  int       `json:"entry_count,omitempty"`
 }
 
 func orchestratorPriorityRank(priority Priority) int {

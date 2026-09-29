@@ -42,7 +42,7 @@ it('keeps all detail tabs available across loading, error and empty states', () 
 
   view.rerender(<OrchestratorPlanDrawer {...props} loading={false} detail={emptyDetail}/>)
   fireEvent.click(screen.getByRole('tab', { name: 'Ficheiros' }))
-  expect(screen.getByText('Este pedido não possui ficheiros ou anexos associados.')).toBeTruthy()
+  expect(screen.getByText('Este pedido não possui bundles, ficheiros ou anexos associados.')).toBeTruthy()
 
   fireEvent.click(screen.getByRole('tab', { name: 'Plano' }))
   expect(screen.getByText(/Planeamento ainda não concluído\/importado/)).toBeTruthy()
@@ -176,3 +176,20 @@ function taskFixture(
     ...files,
   }
 }
+
+it('shows the bundles exchanged with ChatGPT for the plan first in Ficheiros', () => {
+  const bundle = (id: string, direction: 'input' | 'output', name: string) => ({
+    id, request_id: request.request_id, direction, kind: 'bundle', name, size: 2048, sha256: id, created_at: '2026-09-28T01:02:00Z', expires_at: '2026-10-28T01:02:00Z', bundle: true,
+  })
+  const detail = { ...emptyDetail, bundles: [
+    bundle('art-req', 'input', 'whx_bundle_req_orchestrator_orp-detail.zip'),
+    bundle('art-res', 'output', 'whx_bundle_res_orchestrator_orp-detail.zip'),
+  ] } as OrchestratorPlanningDetail
+  render(<OrchestratorPlanDrawer request={request} detail={detail} sessionId="ses_owner" loading={false} onClose={vi.fn()} onRefresh={vi.fn()}/>)
+  fireEvent.click(screen.getByRole('tab', { name: /Ficheiros/ }))
+  expect(screen.getByText('Bundles trocados com o GPT')).toBeTruthy()
+  expect(screen.getByText('whx_bundle_req_orchestrator_orp-detail.zip')).toBeTruthy()
+  expect(screen.getByText('Pedido enviado')).toBeTruthy()
+  expect(screen.getByText('Resposta do GPT')).toBeTruthy()
+  expect(screen.getAllByRole('button', { name: /Explorar/ })).toHaveLength(2)
+})

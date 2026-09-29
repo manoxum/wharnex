@@ -6426,6 +6426,10 @@ async function executeChatAgentOrchestratorPlan(task, entry, key, payload, owner
       const request = await writeOrchestratorRequestBundle(requestPath, {
         requestId, prompt, contextBytes, attachments: requestAttachments, createdAt: task.created_at,
       })
+      // Kept like an agentic request bundle, so the planning detail can show
+      // and explore what was sent to produce the plan.
+      await persistChatArtifact(sessionId, requestId, 'input', 'bundle', path.basename(requestPath), 'application/zip', await readFile(requestPath))
+        .catch((error) => console.warn(`[orchestrator-worker] request bundle not persisted request=${requestId}: ${error instanceof Error ? error.message : String(error)}`))
       const filled = await executeChatGPTDOMScript(key, target.entry, 'orchestrator-fill-composer', chatGPTFillComposerScript(request.bootstrap))
       if (!filled) throw new Error('ChatGPT orchestrator composer could not be populated')
       await pasteChatGPTFile(target.entry, requestPath, 1, 1, { pacedWorker })

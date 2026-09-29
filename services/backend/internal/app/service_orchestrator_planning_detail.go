@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 
+	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/orchestrator"
 	"kernl.local/harness/backend/internal/session"
 )
@@ -26,6 +28,7 @@ func (s *Service) OrchestratorPlanningRequestDetail(
 		RequestID:    requestID,
 		ProjectFiles: make([]string, 0), Attachments: make([]orchestrator.PlanningAttachment, 0),
 		Attempts: make([]orchestrator.PlanningAttempt, 0), Tasks: make([]orchestrator.PlanningTaskDetail, 0),
+		Bundles: orchestratorPlanningBundles(owner.Artifacts, requestID),
 	}
 	planningTasks, err := s.store.ListChatAgentTasks(session.ChatAgentTaskFilter{
 		ProjectID: owner.ProjectPath, RequestID: requestID, Type: "ORCHESTRATOR_PLAN", Limit: 200,
@@ -115,4 +118,27 @@ func planningAttachmentDetails(payload orchestratorPlanningWorkerPayload) []orch
 		})
 	}
 	return items
+}
+
+// orchestratorPlanningBundles lists the ZIPs exchanged with ChatGPT for one
+// planning request, request first.
+func orchestratorPlanningBundles(artifacts []domain.ArtifactRecord, requestID string) []orchestrator.PlanningBundle {
+	bundles := make([]orchestrator.PlanningBundle, 0, 2)
+	for _, artifact := range artifacts {
+		if artifact.RequestID != requestID || artifact.Kind != "bundle" {
+			continue
+		}
+		bundles = append(bundles, orchestrator.PlanningBundle{
+			ID: artifact.ID, RequestID: artifact.RequestID, Direction: artifact.Direction, Kind: artifact.Kind, Name: artifact.Name,
+			ContentType: artifact.ContentType, Size: artifact.Size, SHA256: artifact.SHA256, CreatedAt: artifact.CreatedAt,
+			ExpiresAt: artifact.ExpiresAt, Bundle: artifact.Bundle, BundleType: artifact.BundleType, EntryCount: artifact.EntryCount,
+		})
+	}
+	sort.SliceStable(bundles, func(i, j int) bool {
+		if bundles[i].Direction != bundles[j].Direction {
+			return bundles[i].Direction == "input"
+		}
+		return bundles[i].CreatedAt.Before(bundles[j].CreatedAt)
+	})
+	return bundles
 }

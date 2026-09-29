@@ -3178,3 +3178,9 @@ test('ephemeral utility Workers are published and can be followed while their ta
   assert.match(source, /const agents = \[\.\.\.supervisors, \.\.\.workers, \.\.\.ephemeral\]/)
   assert.match(source, /label: `Worker efémero · \$\{EPHEMERAL_WORKER_LABELS\[task\?\.type\] \|\| 'Utilitário'\}`/)
 })
+
+test('an Orchestrator planning request bundle is kept like an agentic request bundle', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const plan = source.slice(source.indexOf('async function executeChatAgentOrchestratorPlan('))
+  assert.match(plan.slice(0, 6000), /await persistChatArtifact\(sessionId, requestId, 'input', 'bundle', path\.basename\(requestPath\), 'application\/zip', await readFile\(requestPath\)\)/)
+})

@@ -196,6 +196,7 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
       request={planningDetail.request}
       detail={planningDetail.detail}
       planningTask={planningTasks.find((task) => task.task_id === (planningDetail.detail?.task_id || planningDetail.request?.task_id))}
+      sessionId={session.id}
       chats={chats}
       loading={planningDetail.loading}
       busy={busy}

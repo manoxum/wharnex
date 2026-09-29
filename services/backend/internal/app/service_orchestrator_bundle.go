@@ -39,7 +39,16 @@ func (s *Service) ImportOrchestratorProposalBundle(ctx context.Context, sessionI
 	if err != nil {
 		return OrchestratorProposalResult{}, err
 	}
-	return s.ImportOrchestratorProposal(ctx, sessionID, requestID, proposal)
+	result, err := s.ImportOrchestratorProposal(ctx, sessionID, requestID, proposal)
+	if err != nil {
+		return result, err
+	}
+	// Keep the response like the request, so the planning detail can show and
+	// explore the bundles exchanged to produce this plan.
+	if _, persistErr := s.PersistArtifact(ctx, sessionID, requestID, "output", "bundle", "whx_bundle_res_orchestrator_"+requestID+".zip", "application/zip", raw); persistErr != nil {
+		s.bus.Publish(sessionID, "orchestrator.plan_bundle_unpersisted", map[string]any{"request_id": requestID, "error": persistErr.Error()})
+	}
+	return result, nil
 }
 
 // DecodeOrchestratorPlanBundle extracts and decodes plan.json from a planning

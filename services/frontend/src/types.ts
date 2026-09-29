@@ -785,6 +785,8 @@ export type OrchestratorPlanningDetail = OrchestratorPlanningInput & {
   attempts: OrchestratorPlanningAttempt[]
   plan?: import('./types/orchestrator').OrchestratorPlan
   tasks: OrchestratorPlanningTaskDetail[]
+  // The request and response ZIPs exchanged with ChatGPT for this plan.
+  bundles?: ArtifactRecord[]
 }
 
 export type WorkspaceMode = 'editor' | 'agent' | 'orchestrator'
