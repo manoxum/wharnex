@@ -25,7 +25,7 @@ const sections = [
   {
     file: '../supervision/recovery/runtime.mjs', index: '../supervision/recovery/index.mjs', exportName: 'createRecoveryRuntime',
     call: 'const {\n  queueChatGPTComment, hasPendingChatGPTComments, flushQueuedChatGPTComments,',
-    next: '\nconst browserSessionOperations =',
+    next: '\nfunction registerIPC() {',
     body: '  const { queueChatGPTComment, hasPendingChatGPTComments, flushQueuedChatGPTComments }',
   },
 ]

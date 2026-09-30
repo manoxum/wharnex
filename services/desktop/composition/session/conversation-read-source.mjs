@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { readSupervisorSurfaceSource } from '../supervision/surface-source.mjs'
-import { expandDesktopChatGPTPacingSource } from '../transport/pacing-source.mjs'
+import { expandDesktopChatGPTTransportStageSource } from '../transport/stage-source.mjs'
 
 // Structural tests follow the composed read health, pacing and upload path.
 export async function readConversationReadSource() {
@@ -14,5 +14,5 @@ export async function readConversationReadSource() {
       || !reads.includes("from './health.mjs'")) {
     throw new Error('Conversation-read health domain composition missing')
   }
-  return expandDesktopChatGPTPacingSource(main)
+  return expandDesktopChatGPTTransportStageSource(main)
 }

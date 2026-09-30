@@ -1,10 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { readHealthSource } from '../session/health-source.mjs'
+import { expandDesktopOwnershipSource } from '../session/ownership/source.mjs'
 
 // Legacy composition tests inspect adjacent ownership and throttle logic.
 // Rebuild that sequence from its domain modules and verify their facades.
 export async function readOwnershipSource() {
-  let main = await readHealthSource()
+  let main = await expandDesktopOwnershipSource(await readHealthSource())
   const throttle = await readFile(new URL('../../chatgpt/session/ownership/throttle.mjs', import.meta.url), 'utf8')
   const binding = await readFile(new URL('../../agent/supervision/ownership/binding.mjs', import.meta.url), 'utf8')
   const transport = await readFile(new URL('../../chatgpt/transport/requests/supervisor.mjs', import.meta.url), 'utf8')

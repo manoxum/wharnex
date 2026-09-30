@@ -1,10 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { readConversationReadSource } from './conversation-read-source.mjs'
+import { expandDesktopChatWorkflowSource } from './workflow/source.mjs'
 
 // Compose the health implementation for source-level regression tests while
 // checking that main reaches it through the session facade.
 export async function readHealthSource() {
-  let main = await readConversationReadSource()
+  let main = await expandDesktopChatWorkflowSource(await readConversationReadSource())
   const transportRuntime = await readFile(new URL('./transport-runtime.mjs', import.meta.url), 'utf8')
   const transportStart = transportRuntime.indexOf('  const {\n    canonicalBundleFilename,')
   const transportEnd = transportRuntime.lastIndexOf('\n  return {')

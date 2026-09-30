@@ -14,11 +14,13 @@ import { readSchedulerStartupSource } from '../workers/scheduler-startup-source.
 // collapses to width 0, so the shared `visible()` predicate rejects it.
 test('a chat slot is given its layout viewport before it is ever hidden', async () => {
   const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const authViewRuntime = await readFile(new URL('../session/auth-view/runtime.mjs', import.meta.url), 'utf8')
   const viewportSource = await readFile(new URL('../../chatgpt/account/control/viewport.mjs', import.meta.url), 'utf8')
   const supervisorSource = await readFile(new URL('../../chatgpt/session/views/supervisor.mjs', import.meta.url), 'utf8')
   const workerSource = await readFile(new URL('../../chatgpt/session/views/worker.mjs', import.meta.url), 'utf8')
   const entrySource = await readFile(new URL('../../chatgpt/session/views/entry.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createChatGPTViewOperations\(\{/)
+  assert.match(source, /createDesktopAuthViewRuntime\(\{/)
+  assert.match(authViewRuntime, /createChatGPTViewOperations\(\{/)
 
   const grantStart = viewportSource.indexOf('function grantChatGPTLayoutViewport(')
   assert.ok(grantStart > 0, 'grantChatGPTLayoutViewport must exist')
@@ -105,12 +107,16 @@ test('the layout viewport guard does not read native bounds as renderer evidence
 
 test('startup restores every saved window session without asking', async () => {
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const wiring = await readFile(new URL('../startup/runtime.mjs', import.meta.url), 'utf8')
   const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const runtime = await readFile(new URL('../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
   const restore = await readFile(new URL('../../window/lifecycle/startup/restore.mjs', import.meta.url), 'utf8')
   // A session waiting for a click stalled every Worker claim while nobody was
   // at the machine; restoring is the default.
-  assert.match(main, /startDesktopRuntime\(createDesktopStartupContext\(\{/)
+  const entry = await readFile(new URL('../entry/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(main, /desktopEntrypoint\.start\(\)/)
+  assert.match(entry, /startDesktopRuntime\(startup\.startupContext\(\)\)/)
+  assert.match(wiring, /return createDesktopStartupContext\(\{/)
   assert.match(context, /restoreDesktopWindows: restoreDesktopWindowsAtStartup/)
   assert.ok(runtime.indexOf('restoreDesktopWindows(restoreWindowsOptions)') < runtime.indexOf('worker.create('))
   assert.match(restore, /const records = recoverableDesktopWindows\(recovery\)/)

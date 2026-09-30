@@ -1,19 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { readSchedulerStartupSource } from '../workers/scheduler-startup-source.mjs'
-import { expandPromptPreparationSource } from './preparation-source.mjs'
-import { expandPromptDispatchSource } from './dispatch-source.mjs'
 import { expandTransportRuntimeSource } from './runtime-source.mjs'
-
-const sections = [
-  ['preparation/prepare.mjs', 'async function preparePromptForChatGPT('],
-  ['preparation/queue.mjs', 'async function queuePreparedPromptForWorker('],
-  ['retry/persisted.mjs', 'async function retryPersistedChatGPTPrompt('],
-  ['retry/prepared.mjs', 'async function retryPreparedChatGPTPrompt('],
-  ['manual/attach.mjs', 'async function attachContextToChatGPT('],
-  ['submission/prepared.mjs', 'async function submitPreparedChatGPTDraft('],
-  ['submission/prompt.mjs', 'async function submitPromptToChatGPT('],
-  ['continuation/continue.mjs', 'function automaticChatGPTContinuationBlockReason('],
-]
 
 // Legacy source-level tests inspect ordering across the Desktop composition.
 // Reconstruct that order from the actual domain modules rather than keeping
@@ -36,7 +23,6 @@ export async function readPromptTransportSource() {
     throw new Error('Worker interaction domain composition missing from main.mjs')
   }
   main = `${main.slice(0, interactionCompositionEnd)}${interaction.slice(interactionStart, interactionEnd).replace(/^  /gm, '').trim()}\n${wiring}\n${main.slice(interactionCompositionEnd)}`
-  main = await expandPromptPreparationSource(main)
   const queue = await readFile(new URL('../../agent/scheduling/queue/task-operations.mjs', import.meta.url), 'utf8')
   const queueStart = queue.indexOf('  const CHAT_AGENT_REQUEST_BOUND_TASKS =')
   const queueEnd = queue.lastIndexOf('\n  return { chatAgentInitialRequestWaitMs,')
@@ -103,7 +89,7 @@ export async function readPromptTransportSource() {
     throw new Error('Orchestrator plan import domain composition missing from main.mjs')
   }
   main = `${main.slice(0, planImportCompositionStart)}${planImport.slice(planImportStart, planImportEnd).replace(/^  /gm, '').trim()}\n${main.slice(planImportCompositionEnd)}`
-  const withTransport = await expandPromptDispatchSource(main, sections)
+  const withTransport = main
   const lease = await readFile(new URL('../../agent/supervision/response/supervisor-lease.mjs', import.meta.url), 'utf8')
   const leaseStart = lease.indexOf('  async function superviseChatAgentResponse(')
   const leaseEnd = lease.lastIndexOf('\n  return { superviseChatAgentResponse }')

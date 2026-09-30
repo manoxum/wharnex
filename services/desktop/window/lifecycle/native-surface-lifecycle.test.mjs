@@ -28,7 +28,9 @@ test('Electron navigation details and renderer loss share the suspension boundar
 
 test('Desktop wires the guard to the complete native-surface suspension helper', () => {
   const source = readFileSync(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const windowRuntime = readFileSync(new URL('../../composition/window/creation-runtime.mjs', import.meta.url), 'utf8')
   const createWindow = readFileSync(new URL('./create/window.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopWindowCreator\(\{[\s\S]*installNativeSurfaceLifecycleGuard, suspendNativeSurfacesForWindow/)
+  assert.match(source, /createDesktopEntrypointRuntime\(\{/)
+  assert.match(windowRuntime, /createDesktopWindowCreator\(\{[\s\S]*installNativeSurfaceLifecycleGuard: d\.installNativeSurfaceLifecycleGuard,[\s\S]*suspendNativeSurfacesForWindow: d\.suspendNativeSurfacesForWindow/)
   assert.match(createWindow, /installNativeSurfaceLifecycleGuard\(win\.webContents, \{ frontendOrigin: FRONTEND_ORIGIN, suspend: \(\) => suspendNativeSurfacesForWindow\(state\) \}\)/)
 })

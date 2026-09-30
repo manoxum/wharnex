@@ -42,17 +42,23 @@ test('window layout keeps old sizes and avoids reopening a window off screen', a
 })
 
 test('window creation still uses the layout module and persists live movement', async () => {
-  const [main, runtime, layout, create] = await Promise.all([
+  const [main, runtime, assembly, creation, entry, layout, create] = await Promise.all([
     readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../composition/window/runtime.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../composition/window/assembly/runtime.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../composition/window/creation-runtime.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../composition/entry/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('./layout.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../lifecycle/create/window.mjs', import.meta.url), 'utf8'),
   ])
 
-  assert.match(main, /createDesktopWindowRuntime\(\{/)
+  assert.match(main, /createDesktopWindowAssembly\(\{/)
+  assert.match(assembly, /createDesktopWindowRuntime\(\{/)
   assert.match(runtime, /const persistWindowLayout = desktopWindowLayout\.persist/)
   assert.match(runtime, /const loadWindowPlacement = desktopWindowLayout\.loadWindowPlacement/)
-  assert.match(main, /const createWindow = createDesktopWindowCreator\(\{[\s\S]*loadWindowPlacement[\s\S]*scheduleWindowLayoutPersistence/)
+  assert.match(main, /createDesktopEntrypointRuntime\(\{/)
+  assert.match(entry, /createDesktopWindowCreationRuntime\(deps\)/)
+  assert.match(creation, /const createWindow = createDesktopWindowCreator\(\{[\s\S]*loadWindowPlacement[\s\S]*scheduleWindowLayoutPersistence/)
   assert.match(layout, /JSON\.stringify\(\{ version: 3, windows: validIds, bounds, maximized \}\)/)
   assert.match(layout, /getNormalBounds/)
   assert.match(layout, /function loadWindowPlacement\(id\)/)

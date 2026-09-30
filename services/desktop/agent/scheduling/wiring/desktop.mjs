@@ -1,5 +1,7 @@
+import { createDesktopSchedulingState } from './state.mjs'
+
 export function createDesktopAgentScheduling(d) {
-  const { state } = d
+  const state = d.state || createDesktopSchedulingState(d)
   const policyStore = d.createChatAgentPolicyStore({
     userDataPath: () => d.app.getPath('userData'),
     policies: () => state.chatAgentPolicies,

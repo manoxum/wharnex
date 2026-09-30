@@ -43,8 +43,12 @@ test('main traces every scheduler attempt and every transport preparation', asyn
   const source = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
   const context = await readFile(new URL('../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const runtime = await readFile(new URL('../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
+  const wiring = await readFile(new URL('../composition/startup/runtime.mjs', import.meta.url), 'utf8')
   const transport = await readFile(new URL('../chatgpt/transport/requests/transport-preparation.mjs', import.meta.url), 'utf8')
-  assert.match(source, /startDesktopRuntime\(createDesktopStartupContext\(\{/)
+  const entry = await readFile(new URL('../composition/entry/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(source, /desktopEntrypoint\.start\(\)/)
+  assert.match(entry, /startDesktopRuntime\(startup\.startupContext\(\)\)/)
+  assert.match(wiring, /return createDesktopStartupContext\(\{/)
   for (const [factory, invocation] of [
     ['createWorkerScheduler', /worker\.create\(\{ \.\.\.worker\.options, workerHost \}\)/],
     ['createTranslatorScheduler', /translator\.create\(translator\.options\)/],

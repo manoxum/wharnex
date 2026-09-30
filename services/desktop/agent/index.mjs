@@ -7,7 +7,7 @@ export {
 export {
   captureChatGPTAgentPage, captureParkedWorkerPage, createResponseProbe, createSupervisorResponseLease, createAgentWrite, createResponseLineage, createChatAgentFollowups, createChatGPTActivityPoll,
   createSupervisorOwnership, createSupervisorPool, createSupervisorSurfaceSlots,
-  createSupervisorSurfaceVisibility, createSupervisorSurfaceNavigation, createWorkerInteraction,
+  createSupervisorSurfaceVisibility, createSupervisorSurfaceNavigation, createWorkerInteraction, createDesktopSupervisorSurfaces,
   closeWorkerMonitor, closeWorkerMonitorAfterState, openWorkerMonitor, chatAgentMemorySnapshot,
   publicAgentBrowser, buildChatAgentRuntimeState, chatAgentLiveBundlePending, publicSupervisorId,
   supervisorSurfaceRoute,

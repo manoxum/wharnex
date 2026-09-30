@@ -7,7 +7,9 @@ test('a visible ChatGPT page performs one bounded composer reload before requiri
     readFile(new URL('../../../../main.mjs', import.meta.url), 'utf8'),
     readFile(new URL('./target.mjs', import.meta.url), 'utf8'),
   ])
-  assert.match(main, /createChatGPTComposerTarget\(\{/)
+  const stage = await readFile(new URL('../../../../composition/transport/stage/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(main, /createDesktopChatGPTTransportStage\(chatGPTTransportStageDependencies\)/)
+  assert.match(stage, /createChatGPTComposerTarget\(\{/)
   assert.match(target, /for \(let attempt = 0; attempt < 20; attempt \+= 1\)/)
   assert.match(target, /await wait\(250\)/)
   assert.match(target, /let ready = await composerReady\(\)/)
@@ -30,7 +32,11 @@ test('DOM composer calls retry transient evaluation and retain the failing stage
   const helperEnd = renderer.indexOf('\n  return { executeChatGPTDOMScript', helperStart)
   const helper = renderer.slice(helperStart, helperEnd)
   assert.notEqual(helperStart, -1)
-  assert.match(main, /createChatGPTRendererStability\(\{/)
+  const preparation = await readFile(new URL('../../../../composition/transport/preparation/runtime.mjs', import.meta.url), 'utf8')
+  const stage = await readFile(new URL('../../../../composition/transport/stage/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(main, /createDesktopChatGPTTransportStage\(chatGPTTransportStageDependencies\)/)
+  assert.match(stage, /createDesktopRequestPreparation\(\{/)
+  assert.match(preparation, /createChatGPTRendererStability\(\{/)
   assert.match(helper, /attempt <= 3/)
   assert.match(helper, /await waitForChatGPTSurfaceReady/)
   assert.match(helper, /\[chatgpt-dom\] stage=/)

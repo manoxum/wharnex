@@ -5,32 +5,35 @@ import { readFile } from 'node:fs/promises'
 
 
 test('internal ChatGPT browser reuses the isolated Electron partition without privileged preload', async () => {
-  const [source, internalBrowser, authIPC, preload, cleanup] = await Promise.all([
+  const [source, browserRuntime, internalBrowser, authIPC, preload, cleanup] = await Promise.all([
     readPromptTransportSource(),
+    readFile(new URL('../browser/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../browser/session/internal-window.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../chatgpt/session/ipc/authentication.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../preload.cjs', import.meta.url), 'utf8'),
     readFile(new URL('../../chatgpt/session/views/cleanup.mjs', import.meta.url), 'utf8'),
   ])
 
-  assert.match(source, /const openInternalChatGPTBrowser = createInternalChatGPTBrowser\(\{/)
-  assert.match(source, /partition: CHATGPT_PARTITION/)
+  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopEntrypointRuntime\(\{/)
+  assert.match(browserRuntime, /const openInternalChatGPTBrowser = createInternalChatGPTBrowser\(\{/)
+  assert.match(browserRuntime, /partition: d\.CHATGPT_PARTITION/)
   assert.match(internalBrowser, /new BrowserWindow/)
   assert.match(internalBrowser, /securePreferences\(\{ partition, backgroundThrottling: false \}\)/)
   assert.doesNotMatch(internalBrowser, /preload:/)
-  assert.match(source, /trustedURL: requireTrustedChatGPTURL/)
+  assert.match(browserRuntime, /trustedURL: d\.requireTrustedChatGPTURL/)
   assert.match(internalBrowser, /trustedURL\(value \|\| homeURL\)/)
   assert.match(internalBrowser, /setWindowOpenHandler/)
   assert.match(internalBrowser, /will-navigate/)
   assert.match(source, /registerChatGPTSessionControlIPC\(\{/)
   assert.match(authIPC, /ipcMain\.handle\('wharness:chatgpt:open-internal'/)
-  assert.match(source, /closeInternalBrowsers: closeAllInternalChatGPTBrowsers/)
+  assert.match(browserRuntime, /closeInternalBrowsers: d\.closeAllInternalChatGPTBrowsers/)
   assert.match(cleanup, /function closeAllInternalChatGPTBrowsers\(\)/)
   assert.match(preload, /openInternal: \(url = ''\) => invoke\('wharness:chatgpt:open-internal'/)
 })
 
 test('dual ChatGPT auth uses a real managed browser and never forwards an in-flight provider URL', async () => {
   const source = await readPromptTransportSource()
+  const authViewRuntime = await readFile(new URL('./auth-view/runtime.mjs', import.meta.url), 'utf8')
   const navigation = await readFile(new URL('../../chatgpt/session/auth/navigation.mjs', import.meta.url), 'utf8')
   const managed = await readFile(new URL('../../chatgpt/session/auth/managed.mjs', import.meta.url), 'utf8')
   const routeStart = navigation.indexOf('function routeChatGPTNavigation(entry, event, url)')
@@ -38,7 +41,8 @@ test('dual ChatGPT auth uses a real managed browser and never forwards an in-fli
   assert.notEqual(routeStart, -1)
   assert.notEqual(routeEnd, -1)
   const route = navigation.slice(routeStart, routeEnd)
-  assert.match(source, /createChatGPTAuthentication\(\{/)
+  assert.match(source, /createDesktopAuthViewRuntime\(\{/)
+  assert.match(authViewRuntime, /createChatGPTAuthentication\(\{/)
   assert.match(route, /startExternalAuthentication\(entry, disposition\.provider \|\| 'OpenAI'\)/)
   assert.match(route, /disposition\.provider === 'Google'/)
   assert.doesNotMatch(route, /shell\.openExternal\(url\).*external-auth/s)
@@ -54,6 +58,7 @@ test('dual ChatGPT auth uses a real managed browser and never forwards an in-fli
 
 test('external auth reuses the persistent Wharnex browser profile and clear-session owns deletion', async () => {
   const source = await readPromptTransportSource()
+  const browserRuntime = await readFile(new URL('../browser/runtime.mjs', import.meta.url), 'utf8')
   const managed = await readFile(new URL('../../chatgpt/session/auth/managed.mjs', import.meta.url), 'utf8')
   const browserSession = await readFile(new URL('../../browser/session/session-operations.mjs', import.meta.url), 'utf8')
   const externalStart = managed.indexOf('function startExternalAuthentication(entry, provider')
@@ -70,7 +75,8 @@ test('external auth reuses the persistent Wharnex browser profile and clear-sess
   assert.notEqual(clearStart, -1)
   assert.notEqual(clearEnd, -1)
   assert.match(browserSession.slice(clearStart, clearEnd), /rm\(authProfilePath\(\), \{ recursive: true, force: true/)
-  assert.match(source, /authProfilePath: managedAuthProfilePath/)
+  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopEntrypointRuntime\(\{/)
+  assert.match(browserRuntime, /authProfilePath: d\.managedAuthProfilePath/)
 })
 
 
@@ -115,9 +121,11 @@ test('same-origin ChatGPT auth redirects stay embedded and explicit loads are se
   const viewNavigation = await readFile(new URL('../../chatgpt/session/views/navigation.mjs', import.meta.url), 'utf8')
   const viewSupervisor = await readFile(new URL('../../chatgpt/session/views/supervisor.mjs', import.meta.url), 'utf8')
   const viewEntry = await readFile(new URL('../../chatgpt/session/views/entry.mjs', import.meta.url), 'utf8')
+  const authViewRuntime = await readFile(new URL('./auth-view/runtime.mjs', import.meta.url), 'utf8')
   const routeStart = navigation.indexOf('function routeChatGPTNavigation')
   const route = navigation.slice(routeStart)
-  assert.match(source, /createChatGPTAuthentication\(\{/)
+  assert.match(source, /createDesktopAuthViewRuntime\(\{/)
+  assert.match(authViewRuntime, /createChatGPTAuthentication\(\{/)
   assert.match(route, /disposition\.kind === 'chatgpt-auth'/)
   const authStart = route.indexOf("disposition.kind === 'chatgpt-auth'")
   const externalStart = route.indexOf("disposition.kind === 'external-auth'", authStart)
@@ -125,7 +133,7 @@ test('same-origin ChatGPT auth redirects stay embedded and explicit loads are se
   assert.match(authBlock, /entry\.embeddedAuthActive = true/)
   assert.doesNotMatch(authBlock, /startExternalAuthentication/)
 
-  assert.match(source, /createChatGPTViewOperations\(\{/)
+  assert.match(authViewRuntime, /createChatGPTViewOperations\(\{/)
   const load = viewNavigation
   assert.match(load, /entry\.navigationPromise/)
   assert.match(load, /isBenignChatGPTLoadAbort/)
@@ -137,11 +145,13 @@ test('same-origin ChatGPT auth redirects stay embedded and explicit loads are se
 
 test('desktop ChatGPT state publishes only a boolean authentication result to the renderer', async () => {
   const source = await readPromptTransportSource()
+  const authViewRuntime = await readFile(new URL('./auth-view/runtime.mjs', import.meta.url), 'utf8')
   const viewState = await readFile(new URL('../../chatgpt/session/views/state.mjs', import.meta.url), 'utf8')
   const embedded = await readFile(new URL('../../chatgpt/session/auth/embedded.mjs', import.meta.url), 'utf8')
   assert.match(source, /createChatGPTViewState\(\{/)
   assert.match(viewState, /authenticated: Boolean\(entry\?\.authenticated\)/)
-  assert.match(source, /createEmbeddedChatGPTAuthentication\(\{/)
+  assert.match(source, /createDesktopAuthViewRuntime\(\{/)
+  assert.match(authViewRuntime, /createEmbeddedChatGPTAuthentication\(\{/)
   assert.match(embedded, /executeJavaScript\(chatGPTSessionProbeExpression\(\), true\)/)
 })
 

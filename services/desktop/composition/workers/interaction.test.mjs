@@ -120,7 +120,9 @@ test('autonomous workers pace chat switches, wait for page settle, and pause on 
   const execute = source.slice(executeStart, executeEnd)
   const httpStatus = await readFile(new URL('../../chatgpt/session/health/http-status.mjs', import.meta.url), 'utf8')
 
-  assert.match(source, /const CHATGPT_WORKER_NAVIGATION_GAP_MS = CHAT_AGENT_NAVIGATION_GAP_MS/)
+  const settings = await readFile(new URL('../config/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(source, /CHATGPT_WORKER_NAVIGATION_GAP_MS/)
+  assert.match(settings, /navigationGapMs: CHAT_AGENT_NAVIGATION_GAP_MS/)
   assert.match(pacing, /chatGPTWorkerPacer\.pace/)
   assert.match(pacing, /await loadOwnedChatGPTURL/)
   assert.match(pacing, /await waitForChatGPTSurfaceReady/)

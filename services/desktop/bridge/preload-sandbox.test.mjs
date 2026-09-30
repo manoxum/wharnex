@@ -24,11 +24,13 @@ test('the privileged preload can still be loaded by a sandboxed renderer', async
 test('the window receiving that preload is the sandboxed one, which is what bounds its require', async () => {
   const main = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
   const createWindow = await readFile(new URL('../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')
+  const windowRuntime = await readFile(new URL('../composition/window/creation-runtime.mjs', import.meta.url), 'utf8')
   const { securePreferences } = await import('../window/lifecycle/create/web-preferences.mjs')
 
   assert.equal(securePreferences().sandbox, true)
   assert.equal(securePreferences().nodeIntegration, false)
   assert.equal(securePreferences().contextIsolation, true)
-  assert.match(main, /createDesktopWindowCreator\(\{[\s\S]*securePreferences/)
+  assert.match(main, /createDesktopEntrypointRuntime\(\{/)
+  assert.match(windowRuntime, /createDesktopWindowCreator\(\{[\s\S]*securePreferences: d\.securePreferences/)
   assert.match(createWindow, /securePreferences\(\{ preload: path\.join\(here, 'preload\.cjs'\) \}\)/)
 })

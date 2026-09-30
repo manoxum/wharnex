@@ -26,7 +26,11 @@ test('transient protocol ZIPs are deleted promptly and included in storage clean
 
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
   const runtime = await readFile(new URL('../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /app\.whenReady\(\)\.then\(\(\) => startDesktopRuntime\(createDesktopStartupContext\(\{/)
+  const startupWiring = await readFile(new URL('../startup/runtime.mjs', import.meta.url), 'utf8')
+  const entry = await readFile(new URL('../entry/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(main, /app\.whenReady\(\)\.then\(\(\) => desktopEntrypoint\.start\(\)\)/)
+  assert.match(entry, /startDesktopRuntime\(startup\.startupContext\(\)\)/)
+  assert.match(startupWiring, /return createDesktopStartupContext\(\{/)
   assert.match(runtime, /rm\(path\.join\(app\.getPath\('temp'\), 'wharness-chat-protocol'\), \{ recursive: true, force: true \}\)/)
   assert.ok(runtime.indexOf("'wharness-chat-protocol'") < runtime.indexOf('await configureChatGPTSession(chatGPTSessionOptions)'))
 })
@@ -38,7 +42,9 @@ test('an expired ChatGPT artifact is re-requested instead of clicked forever', a
   // Measured live: 134 clicks against two dead file cards in one lease. The
   // card stays rendered after ChatGPT collects the artifact behind it, so the
   // 404 on its own download endpoint is the only evidence the file is gone.
-  assert.match(source, /createDesktopChatViewHealthRuntime\(\{/)
+  const workflow = await readFile(new URL('../session/workflow/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(source, /createDesktopChatWorkflowRuntime\(\{/)
+  assert.match(workflow, /createDesktopChatViewHealthRuntime\(\{/)
   assert.match(viewHealth, /createChatGPTHTTPHealth\(\{/)
   const detector = health.slice(health.indexOf('function chatGPTInterpreterDownloadConversation('), health.indexOf('\n  function noteChatGPTExpiredArtifact('))
   assert.match(detector, /backend-api\\\/conversation\\\/\(\[A-Za-z0-9-\]\{1,128\}\)\\\/interpreter\\\/download/)
@@ -77,7 +83,9 @@ test('an unrecognized download on the ChatGPT automation partition fails closed'
   const legacy = await readFile(new URL('../../chatgpt/downloads/legacy-plan.mjs', import.meta.url), 'utf8')
   const router = await readFile(new URL('../../chatgpt/downloads/registration/router.mjs', import.meta.url), 'utf8')
   const browsing = await readFile(new URL('../../chatgpt/downloads/registration/source.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopDownloadRuntime\(\{/)
+  const workflow = await readFile(new URL('../session/workflow/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(source, /createDesktopChatWorkflowRuntime\(\{/)
+  assert.match(workflow, /createDesktopDownloadRuntime\(\{/)
   assert.match(runtime, /createChatGPTDownloadRouter\(\{/)
   const start = router.indexOf("chatSession.on('will-download'")
   assert.notEqual(start, -1)

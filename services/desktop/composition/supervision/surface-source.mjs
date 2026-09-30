@@ -14,11 +14,14 @@ export async function readSupervisorSurfaceSource() {
   const agent = await readFile(new URL('../../agent/index.mjs', import.meta.url), 'utf8')
   const supervision = await readFile(new URL('../../agent/supervision/index.mjs', import.meta.url), 'utf8')
   const surface = await readFile(new URL('../../agent/supervision/surface/index.mjs', import.meta.url), 'utf8')
-  const start = main.indexOf('const {\n  retireChatGPTSupervisorSurface, supervisorKey, supervisorEntry,')
+  const wiring = await readFile(new URL('../../agent/supervision/surface/wiring/desktop.mjs', import.meta.url), 'utf8')
+  const start = main.indexOf('const supervisorSurfaceDependencies = {')
   const end = main.indexOf('function wait(ms)', start)
   if (start < 0 || end <= start || !main.includes("from './agent/index.mjs'")
       || !agent.includes("from './supervision/index.mjs'")
-      || !supervision.includes("from './surface/index.mjs'")) {
+      || !supervision.includes("from './surface/index.mjs'")
+      || !surface.includes("from './wiring/index.mjs'")
+      || !main.includes('createDesktopSupervisorSurfaces(supervisorSurfaceDependencies)')) {
     throw new Error('Supervisor surface domain composition missing')
   }
   const bodies = await Promise.all(sections.map(async ([file, signature]) => {
@@ -27,7 +30,7 @@ export async function readSupervisorSurfaceSource() {
     const bodyEnd = module.lastIndexOf('\n  return {')
     const factory = `createSupervisorSurface${file[0].toUpperCase()}${file.slice(1)}`
     if (bodyStart < 0 || bodyEnd <= bodyStart || !surface.includes(`export { ${factory} } from './${file}.mjs'`)
-        || !main.includes(`${factory}({`)) {
+        || !wiring.includes(`${factory}({`)) {
       throw new Error(`Supervisor surface section missing: ${file}`)
     }
     return module.slice(bodyStart, bodyEnd).replace(/^  /gm, '').trim()

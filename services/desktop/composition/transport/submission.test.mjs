@@ -25,7 +25,7 @@ test('in-flight comments defer stale bundle capture and rearm after the comment 
   assert.match(comments, /armExpectedChatGPTBundle\(key, pending\.requestId, assistantBaseline, '', \[\], '', pending\.sessionId, expectedFilename, requestMetadata\)/)
 
   const pollStart = source.indexOf('async function pollExpectedChatGPTDownloadKey(key)')
-  const pollEnd = source.indexOf('\nconst browserSessionOperations', pollStart)
+  const pollEnd = source.indexOf('\nasync function pollExpectedChatGPTDownloads()', pollStart)
   const polling = source.slice(pollStart, pollEnd)
   assert.match(polling, /hasPendingChatGPTComments\(key\)\) return/)
   assert.match(polling, /chatGPTResponseCompletionScript\(expected\.assistantBaseline\)/)

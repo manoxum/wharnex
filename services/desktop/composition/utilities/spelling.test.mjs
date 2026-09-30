@@ -13,9 +13,11 @@ test('Portuguese spell checking is configured from Chromium dictionaries', async
 
 test('local editable fields wire native spelling corrections into the Electron menu', async () => {
   const source = await readDesktopIPCSource()
+  const windowRuntime = await readFile(new URL('../window/creation-runtime.mjs', import.meta.url), 'utf8')
   const menu = await readFile(new URL('../../window/lifecycle/create/editor-menu.mjs', import.meta.url), 'utf8')
   const createWindow = await readFile(new URL('../../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopWindowCreator\(\{[\s\S]*spellcheckContextMenuTemplate/)
+  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopEntrypointRuntime/)
+  assert.match(windowRuntime, /createDesktopWindowCreator\(\{[\s\S]*spellcheckContextMenuTemplate: d\.spellcheckContextMenuTemplate/)
   assert.match(createWindow, /installLocalEditorContextMenu\(win, \{ Menu, spellcheckContextMenuTemplate \}\)/)
   assert.match(menu, /webContents\.on\('context-menu'/)
   assert.match(menu, /spellcheckContextMenuTemplate/)
@@ -44,7 +46,8 @@ test('Ctrl+Space can reopen native spelling suggestions at the composer caret', 
   assert.match(handler, /sendCommand\('Input\.dispatchMouseEvent', \{ type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1 \}\)/)
   assert.match(handler, /input\.debugger\.detach\(\)/)
   assert.doesNotMatch(handler, /\.sendInputEvent\(/)
-  assert.match(source, /createDesktopWindowCreator\(\{/)
+  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopEntrypointRuntime/)
+  assert.match(await readFile(new URL('../window/creation-runtime.mjs', import.meta.url), 'utf8'), /createDesktopWindowCreator\(\{/)
   assert.match(menu, /Menu\.buildFromTemplate\(template\)\.popup\(\{ window: win, x: params\.x, y: params\.y \}\)/)
   assert.match(preload, /spellcheck: Object\.freeze\(\{[\s\S]*showSuggestions: \(point = \{\}\) => invoke\('wharness:spellcheck:show-suggestions'/)
 })

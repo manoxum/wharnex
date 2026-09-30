@@ -31,8 +31,10 @@ test('routes only trusted window and owned ChatGPT entry messages', () => {
 
 test('runtime controls defer message routing until after the routing factory initializes', async () => {
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const ownership = await readFile(new URL('../session/ownership/runtime.mjs', import.meta.url), 'utf8')
   const controls = main.indexOf('createChatAgentRuntimeControls({')
-  const routing = main.indexOf('createDesktopMessageRouting({')
+  const routing = main.indexOf('createDesktopOwnershipRuntime({')
   assert.ok(controls >= 0 && routing > controls)
+  assert.match(ownership, /createDesktopMessageRouting\(\{/)
   assert.match(main.slice(controls, routing), /sendToWindowState: \(\.\.\.args\) => sendToWindowState\(\.\.\.args\)/)
 })

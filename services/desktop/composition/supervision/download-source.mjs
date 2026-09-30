@@ -18,7 +18,7 @@ export async function readDownloadSupervisionSource() {
     return module.slice(start, end).replace(/^  /gm, '').trim()
   }))
   const start = main.indexOf('const { pollExpectedChatGPTDownloadKey, pollExpectedChatGPTDownloads } = createExpectedBundleSupervision({')
-  const end = main.indexOf('\nconst browserSessionOperations =', start)
+  const end = main.indexOf('\nfunction registerIPC() {', start)
   const transport = await readFile(new URL('../../chatgpt/transport/index.mjs', import.meta.url), 'utf8')
   if (start < 0 || end <= start || !main.includes("from './chatgpt/transport/index.mjs'")
       || !transport.includes("createExpectedBundleSupervision")) {
