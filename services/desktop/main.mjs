@@ -124,6 +124,7 @@ import {
   createChatGPTViewOwnership,
 } from './chatgpt/session/index.mjs'
 import { desktopInstanceName, desktopWindowTitle } from './identity/desktop-identity.mjs'
+import { configureDesktopProcess } from './lifecycle/index.mjs'
 import { desktopIconDataURL } from './icon/desktop-icon-mark.mjs'
 import { createDesktopTrayControl } from './tray/desktop-tray-control.mjs'
 import { completionNotificationRecord } from './notification/desktop-notification-request.mjs'
@@ -204,54 +205,10 @@ const CHATGPT_ACCEPT_LANGUAGES = 'pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7'
 const CHATGPT_BUNDLE_RETENTION_HOURS = Math.max(1, Math.min(24 * 30, Number(process.env.WHARNESS_CHATGPT_BUNDLE_RETENTION_HOURS || 72) || 72))
 const CHATGPT_BUNDLE_RETENTION_MS = CHATGPT_BUNDLE_RETENTION_HOURS * 60 * 60 * 1000
 const CHATGPT_AFFINITY_RECOVERY_GRACE_MS = 60_000
-// Some Linux networks advertise IPv6 while dropping HTTPS connections on that
-// route. Chromium otherwise selects that route for ChatGPT and leaves the
-// embedded view loading indefinitely. The local runtime has a verified IPv4
-// path, so keep the desktop browser on it until the host network is fixed.
-app.commandLine.appendSwitch('disable-ipv6')
-// Electron 44 on this Linux/X11 runtime has trapped in the GPU path while the
-// local shell and embedded ChatGPT surfaces are composited together. Wharnex
-// is a productivity UI, not a GPU workload; software compositing keeps the
-// title-bar overlay and workspace stable without changing application features.
-if (process.platform === 'linux') app.disableHardwareAcceleration()
-// Channel choice is explicit configuration, ordered by priority. The managed
-// desktop-direct entry is always present as the safe final fallback.
-
-// An unhandled exception/rejection in this main process otherwise crashes the
-// whole Electron app instantly with no trace. Logging keeps the process (and
-// every open window) alive so a single bad async path degrades instead of
-// killing the app.
-process.on('uncaughtException', (error) => {
-  console.error('[main-process-fault] uncaughtException', error)
+configureDesktopProcess({
+  app, BrowserWindow, environment: process.env, platform: process.platform,
+  processTarget: process, logger: console, getMainWindow: () => mainWindow,
 })
-process.on('unhandledRejection', (reason) => {
-  console.error('[main-process-fault] unhandledRejection', reason)
-})
-
-// Electron's default userData directory is derived only from package.json's
-// `name`, so two independent Wharnex checkouts collide on the same profile
-// (shared LevelDB storage, shared ChatGPT partition) unless one of them opts
-// into an isolated path here.
-const customUserDataDir = String(process.env.WHARNESS_DESKTOP_USER_DATA_DIR || '').trim()
-if (customUserDataDir) {
-  if (!path.isAbsolute(customUserDataDir)) throw new Error('WHARNESS_DESKTOP_USER_DATA_DIR must be an absolute path')
-  app.setPath('userData', path.normalize(customUserDataDir))
-}
-// Without a single-instance lock, a second launch against the same userData
-// directory runs a second full Chromium profile alongside the first,
-// corrupting shared on-disk storage and doubling memory pressure. A genuine
-// second launch now quits immediately and hands off to the running instance.
-if (!app.requestSingleInstanceLock()) {
-  app.quit()
-} else {
-  app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0] || mainWindow
-    if (!win) return
-    if (win.isMinimized()) win.restore()
-    win.show()
-    win.focus()
-  })
-}
 
 let mainWindow
 let desktopTrayControl

@@ -26,8 +26,8 @@ test('desktop tray resolves the installed Wharnex raster icon before SVG fallbac
 })
 
 test('Linux Desktop uses software compositing to avoid GPU renderer traps', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
-  assert.match(source, /if \(process\.platform === 'linux'\) app\.disableHardwareAcceleration\(\)/)
+  const source = await readFile(new URL('../../lifecycle/startup/desktop-process.mjs', import.meta.url), 'utf8')
+  assert.match(source, /if \(platform === 'linux'\) app\.disableHardwareAcceleration\(\)/)
 })
 
 test('local frontend navigation uses a per-runtime cache token', async () => {
@@ -39,10 +39,12 @@ test('local frontend navigation uses a per-runtime cache token', async () => {
 })
 
 test('desktop disables a broken IPv6 browser route before Electron becomes ready', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
-  const switchAt = source.indexOf("app.commandLine.appendSwitch('disable-ipv6')")
-  const readyAt = source.indexOf('app.whenReady()')
-  assert.ok(switchAt >= 0 && switchAt < readyAt)
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const bootstrap = await readFile(new URL('../../lifecycle/startup/desktop-process.mjs', import.meta.url), 'utf8')
+  const configureAt = main.indexOf('configureDesktopProcess({')
+  const readyAt = main.indexOf('app.whenReady()')
+  assert.match(bootstrap, /app\.commandLine\.appendSwitch\('disable-ipv6'\)/)
+  assert.ok(configureAt >= 0 && configureAt < readyAt)
 })
 
 test('renderer navigation preserves overlay-driven ChatGPT visibility', async () => {
@@ -55,21 +57,23 @@ test('renderer navigation preserves overlay-driven ChatGPT visibility', async ()
 })
 
 test('an uncaught main-process exception or rejection is logged instead of silently crashing the whole app', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
-  assert.match(source, /process\.on\('uncaughtException', \(error\) => \{\s*console\.error\('\[main-process-fault\] uncaughtException', error\)/)
-  assert.match(source, /process\.on\('unhandledRejection', \(reason\) => \{\s*console\.error\('\[main-process-fault\] unhandledRejection', reason\)/)
+  const source = await readFile(new URL('../../lifecycle/startup/desktop-process.mjs', import.meta.url), 'utf8')
+  assert.match(source, /processTarget\.on\('uncaughtException', \(error\) => \{\s*logger\.error\('\[main-process-fault\] uncaughtException', error\)/)
+  assert.match(source, /processTarget\.on\('unhandledRejection', \(reason\) => \{\s*logger\.error\('\[main-process-fault\] unhandledRejection', reason\)/)
 })
 
 test('a second launch against the same userData profile hands off to the running instance instead of running two Chromium profiles at once', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readFile(new URL('../../lifecycle/startup/desktop-process.mjs', import.meta.url), 'utf8')
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
   const lockStart = source.indexOf('const customUserDataDir =')
-  const lockEnd = source.indexOf('\nlet mainWindow', lockStart)
+  const lockEnd = source.length
   assert.notEqual(lockStart, -1)
   const lockBlock = source.slice(lockStart, lockEnd)
   assert.match(lockBlock, /if \(!path\.isAbsolute\(customUserDataDir\)\) throw new Error\('WHARNESS_DESKTOP_USER_DATA_DIR must be an absolute path'\)/)
   assert.match(lockBlock, /app\.setPath\('userData', path\.normalize\(customUserDataDir\)\)/)
   assert.match(lockBlock, /if \(!app\.requestSingleInstanceLock\(\)\) \{\s*app\.quit\(\)/)
   assert.match(lockBlock, /app\.on\('second-instance', \(\) => \{/)
+  assert.match(main, /configureDesktopProcess\(\{[\s\S]*getMainWindow: \(\) => mainWindow/)
 })
 
 test('a dead main-frame renderer in the trusted window reloads the frontend instead of leaving a permanently blank window', async () => {
