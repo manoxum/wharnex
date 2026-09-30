@@ -1,154 +1,57 @@
 // Keep this import prelude intact: self-evolution host builds syntax-check the entrypoint before activation.
-import { app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, WebContentsView, clipboard, dialog, ipcMain, nativeImage, screen, session, shell } from 'electron'
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, rmSync } from 'node:fs'
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { TextDecoder } from 'node:util'
-import {
-  ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick,
-  dispatchChatGPTPointerPress, submitWithoutReplay,
-  ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUploadRetry,
-  plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady,
-  createChatGPTFileUpload,
-  registerExpectedBundleRecoveryIPC,
-  registerChatGPTBundleIPC,
-  shouldAttachProjectContext,
-  chatGPTDeliveryContinuationPrompt, chooseChatGPTRecoveryAction,
-  classifyChatGPTConversationTransport, commitChatGPTRecoveryAction,
-  createChatGPTRecoveryState, isChatGPTConversationTransportURL,
-  isRecoverableChatGPTNetworkError, noteChatGPTRecoveryAssistantCount,
-  noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress,
-  reconcileChatGPTConversationTransport, recordChatGPTConversationTransport,
-  claimNetworkFaultReloadSlot, isNetworkRecoveryFault, RATE_LIMIT_GATE,
-  classifyChatGPTRateLimit, registerChatAttachmentIPC,
-  throwIfChatGPTTransportAborted,
-  boundedChatInputPartBytes, requestPreparationTimer,
-  withRequestPreparationDeadline, createManualChatGPTTransport,
-  classifyChatGPTRequestDelivery, registerChatGPTPromptIPC,
-  createChatGPTDraftSubmission,
-} from './chatgpt/transport/index.mjs'
-import {
-  preserveLocalFocusDuringBackgroundOperation, installNativeSurfaceLifecycleGuard,
-  recoverableDesktopWindows,
-  MIN_DESKTOP_WINDOW_SIZE, ProjectWindowRegistry, canonicalProjectPath,
-  registerWindowIPC, spellcheckContextMenuTemplate,
-  createWorkspaceSurfaceRouting,
-  registerDesktopShellIPC, registerSpellcheckIPC, createDesktopWindowCreator,
-  securePreferences,
-  restoreDesktopWindowsAtStartup,
-} from './window/index.mjs'
-import {
-  orchestratorCompletionDiagnostic,
-  executeOrchestratorExecution, orchestratorContextIncrementPaths,
-  rearmOrchestratorPlanDownload, sendOrchestratorContextIncrement,
-  orchestratorRetryInput,
-  orchestratorPlanFilename, orchestratorBundleFilename, orchestratorDeliveryFor,
-  registerOrchestratorExecutionDownload,
-  OrchestrationTaskPins, orchestratorRequestFilename, writeOrchestratorRequestBundle,
-  captureChatGPTAgentPage, captureParkedWorkerPage,
-  createChatAgentFollowups, createWorkerInteraction, createDesktopSupervisorSurfaces,
-  closeWorkerMonitor, closeWorkerMonitorAfterState,
-  openWorkerMonitor, chatAgentMemorySnapshot,
-  publicAgentBrowser as projectAgentBrowser, buildChatAgentRuntimeState,
-  chatAgentLiveBundlePending, publicSupervisorId, supervisorSurfaceRoute,
-  DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS,
-  HARD_MAX_WORKER_SLOTS, normalizeSupervisorSlotCount, normalizeWorkerSlotCount,
-  autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget,
-  autoScaleTarget, normalizeChatAgentPolicies, workerSuspensionState,
-  workerSuspendsAllTaskTypes, createChatAgentPolicyStore, createKeepFlowingState,
-  autoScaleWorkerDemand, MAX_TRANSLATOR_SLOTS, translatorCapacityTarget,
-  chatAgentQueueDiagnostics, ChatAgentSchedulerClient, chatAgentBackoff, createChatAgentTaskQueue,
-  chatAgentTaskPayload, createChatAgentConversationURL,
-  createWorkerScheduler, createTranslatorScheduler, createSupervisorScheduler,
-  createChatAgentSchedulingOperations,
-  createDesktopAgentScheduling,
-  createChatAgentRuntimeRefresh,
-  createChatAgentRuntimeControls,
-  CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS,
-  ChatAgentGlobalPacer, WorkerActivity, ChatAgentResidency,
-  CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane,
-  orchestratorTaskChat, createWorkerPacing, CHATGPT_BEHAVIOR,
-  reasoningEffortStateScript, executeReleaseNotesBundleTask,
-  registerReleaseNotesBundleDownload,
-  markdownTranslationFilename, todoClassificationFilename,
-  EPHEMERAL_WORKER_TASK_TYPES, EPHEMERAL_AGENT_ID, EPHEMERAL_WORKER_LABELS,
-  EPHEMERAL_WORKER_IDLE_RETIRE_MS, EPHEMERAL_WORKER_PACE_PRIORITY,
-  pollWorkerExpectedDownload, registerAgentIPC,
-} from './agent/index.mjs'
+import { createDesktopBaseDependencies } from './composition/entry/dependencies/index.mjs'
 import { createArtifactWorkerRuntime } from './composition/utilities/artifacts/index.mjs'
 import { createAgentWorkerRuntime } from './composition/workers/runtime/index.mjs'
 import { createRecoveryRuntime } from './composition/supervision/recovery/index.mjs'
 import { createResponseRuntime } from './composition/transport/response/index.mjs'
 import { createOrchestrationRuntime } from './composition/orchestration/index.mjs'
-import {
-  readStoredAttachment, removeStoredChatAttachments, storedAttachmentPath,
-  buildBundleName, parseBundleName, safeChatId, uploadChatArtifact,
-  chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap,
-  writeChatInputTransportArchives,
-  MAX_CONTEXT_BYTES, MAX_PLAN_BYTES, MAX_EXECUTION_BUNDLE_BYTES,
-  MAX_MARKDOWN_TRANSLATION_BYTES, MAX_MARKDOWN_TRANSLATION_RESULT_BYTES,
-  MAX_TODO_CLASSIFICATION_BYTES, TODO_CLASSIFICATION_TIMEOUT_MS,
-  MARKDOWN_TRANSLATION_TIMEOUT_MS, MARKDOWN_TRANSLATION_POLL_MS,
-  MAX_ORCHESTRATOR_PLAN_BYTES, ORCHESTRATOR_PLAN_TIMEOUT_MS,
-  ORCHESTRATOR_PLAN_GENERATING_GRACE_MS, ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS,
-} from './transport/index.mjs'
-import {
-  CHATGPT_URL, CHATGPT_LOGIN_URL, CHATGPT_LIBRARY_URL, CHATGPT_PARTITION,
-  CHATGPT_CHROMIUM_VERSION, CHATGPT_ACCEPT_LANGUAGES,
-  CHATGPT_AFFINITY_RECOVERY_GRACE_MS, EXPIRED_ARTIFACT_TTL_MS,
-  RETRYABLE_PROMPT_TTL_MS, DELIVERED_BUNDLE_DEDUP_TTL_MS,
-  EXPECTED_BUNDLE_TTL_MS, DOM_DOWNLOAD_POLL_MS, DOM_DOWNLOAD_RETRY_MS,
-  DOWNLOAD_INFLIGHT_TIMEOUT_MS, BUNDLE_COMPLETION_GRACE_MS,
-  BUNDLE_CONTINUATION_BASE_MS, BUNDLE_COMPLETION_CONFIRM_MS,
-  MAX_BUNDLE_CONTINUATIONS, MAX_AUTOMATIC_BUNDLE_CONTINUATIONS,
-  PROCESSING_SIGNAL_GRACE_MS, BUNDLE_UNOBSERVED_SETTLE_MS,
-  CONVERSATION_TRANSPORT_STALE_MS, PROCESSING_STALE_ATTENTION_MS,
-  AWAIT_STALL_ATTENTION_MS, CHATGPT_RATE_LIMIT_BACKOFF_MS,
-  CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS, CHATGPT_DOM_PROBE_FAILURE_LIMIT,
-  CHATGPT_ACCOUNT_ACTION_SETTLE_MS, CHATGPT_MENU_REOPEN_ATTEMPTS,
-  CHATGPT_CONTROL_PRESS_HOLD_MS, DEFERRED_SUPERVISOR_NAVIGATION_RETRY_MS,
-} from './chatgpt/config/index.mjs'
-import {
-  chatGPTComposerReadyScript, chatGPTExpectedDownloadScript,
-  chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript,
-  chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript,
-  chatGPTSubmittedRequestEvidenceScript, behaviorProbeScript, isBehaviorProbeEnabled,
-  normalizeBehaviorProbeResult, sanitizeBehaviorProbeControl, BEHAVIOR_PROBE_CONTROLS,
-  ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort, stepChatGPTEffort,
-  evaluateChatGPTDOMWithDeadline,
-} from './chatgpt/dom/index.mjs'
-import { accountFailureDetail, ChatGPTAccountProviderChain } from './chatgpt/account/index.mjs'
-import { pathSize, restoreBrowserSession, snapshotBrowserSession, createBrowserSessionOperations, createInternalChatGPTBrowser, registerBrowserDataIPC } from './browser/index.mjs'
-import { chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin, normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeOptionalChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId, BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security/security.mjs'
-import {
-  confirmChatGPTAffinity, createChatGPTAffinityTracker, isChatGPTAffinityAwaitingSettlement,
-  markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity,
-  publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity,
-  shouldPreserveChatGPTAffinityNavigation, syncChatGPTAffinity,
-  chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails,
-  launchManagedBrowserAuth, managedBrowserProfileDirectory,
-  registerChatGPTAccountIPC, registerChatGPTSessionControlIPC, registerChatGPTSurfaceIPC,
-  createWorkspaceChatRemote, createChatGPTRateLimitResume,
-  createChatGPTConversationReadHealth,
-  createChatGPTCacheMarker, configureChatGPTSession, createChatGPTConversationURLs,
-  chatGPTConversationLoadFailureScript, withChatGPTNavigationDeadline,
-} from './chatgpt/session/index.mjs'
-import { desktopInstanceName, desktopWindowTitle, initializeDesktopIdentity } from './identity/index.mjs'
-import { configureDesktopProcess } from './lifecycle/index.mjs'
 import { createDesktopCollections } from './composition/state/index.mjs'
 import { createDesktopCompositionSettings } from './composition/config/index.mjs'
 import { createDesktopChatGPTTransportStage } from './composition/transport/index.mjs'
 import { createDesktopWindowAssembly } from './composition/window/index.mjs'
 import { createDesktopEntrypointRuntime } from './composition/entry/index.mjs'
 import { createDesktopAuthViewRuntime, createDesktopOwnershipRuntime, createDesktopChatWorkflowRuntime } from './composition/session/index.mjs'
-import { registerClipboardIPC } from './clipboard/index.mjs'
-// Planner requests are deliberately ZIP-only here; retired remote-input
-// publication must not be reintroduced into the Desktop request path.
-import {
-  traceForTask, traceId, withTrace,
-} from './observability/index.mjs'
+
+const {
+  app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, WebContentsView, clipboard,
+  dialog, ipcMain, nativeImage, screen, session, shell, createHash, randomUUID,
+  mkdirSync, rmSync, mkdir, readFile, readdir, rm, writeFile, path,
+  fileURLToPath, TextDecoder, ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, dispatchChatGPTPointerPress, submitWithoutReplay, ChatGPTUploadCoordinator,
+  chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady, createChatGPTFileUpload, registerExpectedBundleRecoveryIPC, registerChatGPTBundleIPC,
+  shouldAttachProjectContext, chatGPTDeliveryContinuationPrompt, chooseChatGPTRecoveryAction, classifyChatGPTConversationTransport, commitChatGPTRecoveryAction, createChatGPTRecoveryState, isChatGPTConversationTransportURL, isRecoverableChatGPTNetworkError,
+  noteChatGPTRecoveryAssistantCount, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress, reconcileChatGPTConversationTransport, recordChatGPTConversationTransport, claimNetworkFaultReloadSlot, isNetworkRecoveryFault, RATE_LIMIT_GATE,
+  classifyChatGPTRateLimit, registerChatAttachmentIPC, throwIfChatGPTTransportAborted, boundedChatInputPartBytes, requestPreparationTimer, withRequestPreparationDeadline, createManualChatGPTTransport, classifyChatGPTRequestDelivery,
+  registerChatGPTPromptIPC, createChatGPTDraftSubmission, preserveLocalFocusDuringBackgroundOperation, installNativeSurfaceLifecycleGuard, recoverableDesktopWindows, MIN_DESKTOP_WINDOW_SIZE, ProjectWindowRegistry, canonicalProjectPath,
+  registerWindowIPC, spellcheckContextMenuTemplate, createWorkspaceSurfaceRouting, registerDesktopShellIPC, registerSpellcheckIPC, createDesktopWindowCreator, securePreferences, restoreDesktopWindowsAtStartup,
+  orchestratorCompletionDiagnostic, executeOrchestratorExecution, orchestratorContextIncrementPaths, rearmOrchestratorPlanDownload, sendOrchestratorContextIncrement, orchestratorRetryInput, orchestratorPlanFilename, orchestratorBundleFilename,
+  orchestratorDeliveryFor, registerOrchestratorExecutionDownload, OrchestrationTaskPins, orchestratorRequestFilename, writeOrchestratorRequestBundle, captureChatGPTAgentPage, captureParkedWorkerPage, createChatAgentFollowups,
+  createWorkerInteraction, createDesktopSupervisorSurfaces, closeWorkerMonitor, closeWorkerMonitorAfterState, openWorkerMonitor, chatAgentMemorySnapshot, projectAgentBrowser, buildChatAgentRuntimeState,
+  chatAgentLiveBundlePending, publicSupervisorId, supervisorSurfaceRoute, DEFAULT_SUPERVISOR_SLOTS, DEFAULT_WORKER_SLOTS, HARD_MAX_SUPERVISOR_SLOTS, HARD_MAX_WORKER_SLOTS, normalizeSupervisorSlotCount,
+  normalizeWorkerSlotCount, autoScaleDrainTarget, autoScaleSupervisorDrainTarget, autoScaleSupervisorTarget, autoScaleTarget, normalizeChatAgentPolicies, workerSuspensionState, workerSuspendsAllTaskTypes,
+  createChatAgentPolicyStore, createKeepFlowingState, autoScaleWorkerDemand, MAX_TRANSLATOR_SLOTS, translatorCapacityTarget, chatAgentQueueDiagnostics, ChatAgentSchedulerClient, chatAgentBackoff,
+  createChatAgentTaskQueue, chatAgentTaskPayload, createChatAgentConversationURL, createWorkerScheduler, createTranslatorScheduler, createSupervisorScheduler, createChatAgentSchedulingOperations, createDesktopAgentScheduling,
+  createChatAgentRuntimeRefresh, createChatAgentRuntimeControls, CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer, WorkerActivity, ChatAgentResidency, CHAT_AGENT_NAVIGATION_GAP_MS,
+  CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane, orchestratorTaskChat, createWorkerPacing, CHATGPT_BEHAVIOR, reasoningEffortStateScript, executeReleaseNotesBundleTask, registerReleaseNotesBundleDownload,
+  markdownTranslationFilename, todoClassificationFilename, EPHEMERAL_WORKER_TASK_TYPES, EPHEMERAL_AGENT_ID, EPHEMERAL_WORKER_LABELS, EPHEMERAL_WORKER_IDLE_RETIRE_MS, EPHEMERAL_WORKER_PACE_PRIORITY, pollWorkerExpectedDownload,
+  registerAgentIPC, readStoredAttachment, removeStoredChatAttachments, storedAttachmentPath, buildBundleName, parseBundleName, safeChatId, uploadChatArtifact,
+  chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives, MAX_CONTEXT_BYTES, MAX_PLAN_BYTES, MAX_EXECUTION_BUNDLE_BYTES, MAX_MARKDOWN_TRANSLATION_BYTES,
+  MAX_MARKDOWN_TRANSLATION_RESULT_BYTES, MAX_TODO_CLASSIFICATION_BYTES, TODO_CLASSIFICATION_TIMEOUT_MS, MARKDOWN_TRANSLATION_TIMEOUT_MS, MARKDOWN_TRANSLATION_POLL_MS, MAX_ORCHESTRATOR_PLAN_BYTES, ORCHESTRATOR_PLAN_TIMEOUT_MS, ORCHESTRATOR_PLAN_GENERATING_GRACE_MS,
+  ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS, CHATGPT_URL, CHATGPT_LOGIN_URL, CHATGPT_LIBRARY_URL, CHATGPT_PARTITION, CHATGPT_CHROMIUM_VERSION, CHATGPT_ACCEPT_LANGUAGES, CHATGPT_AFFINITY_RECOVERY_GRACE_MS,
+  EXPIRED_ARTIFACT_TTL_MS, RETRYABLE_PROMPT_TTL_MS, DELIVERED_BUNDLE_DEDUP_TTL_MS, EXPECTED_BUNDLE_TTL_MS, DOM_DOWNLOAD_POLL_MS, DOM_DOWNLOAD_RETRY_MS, DOWNLOAD_INFLIGHT_TIMEOUT_MS, BUNDLE_COMPLETION_GRACE_MS,
+  BUNDLE_CONTINUATION_BASE_MS, BUNDLE_COMPLETION_CONFIRM_MS, MAX_BUNDLE_CONTINUATIONS, MAX_AUTOMATIC_BUNDLE_CONTINUATIONS, PROCESSING_SIGNAL_GRACE_MS, BUNDLE_UNOBSERVED_SETTLE_MS, CONVERSATION_TRANSPORT_STALE_MS, PROCESSING_STALE_ATTENTION_MS,
+  AWAIT_STALL_ATTENTION_MS, CHATGPT_RATE_LIMIT_BACKOFF_MS, CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS, CHATGPT_DOM_PROBE_FAILURE_LIMIT, CHATGPT_ACCOUNT_ACTION_SETTLE_MS, CHATGPT_MENU_REOPEN_ATTEMPTS, CHATGPT_CONTROL_PRESS_HOLD_MS, DEFERRED_SUPERVISOR_NAVIGATION_RETRY_MS,
+  chatGPTComposerReadyScript, chatGPTExpectedDownloadScript, chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript, chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript,
+  chatGPTSubmittedRequestEvidenceScript, behaviorProbeScript, isBehaviorProbeEnabled, normalizeBehaviorProbeResult, sanitizeBehaviorProbeControl, BEHAVIOR_PROBE_CONTROLS, ensureChatGPTReasoningEffort, normalizeChatGPTReasoningEffort,
+  stepChatGPTEffort, evaluateChatGPTDOMWithDeadline, accountFailureDetail, ChatGPTAccountProviderChain, pathSize, restoreBrowserSession, snapshotBrowserSession, createBrowserSessionOperations,
+  createInternalChatGPTBrowser, registerBrowserDataIPC, chatGPTNavigationDisposition, chatInputSettleDelay, chromeCompatibleUserAgent, isChatGPTAuthURL, isHTTPS, isTrustedChatGPTOrigin,
+  normalizeBounds, requireLocalHTTPURL, requireTrustedChatGPTURL, sanitizeChatCacheKey, sanitizeOptionalChatCacheKey, sanitizeChatGPTAuthMode, sanitizeDiagnosticURL, sanitizeSessionId,
+  BundleOwnershipError, canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename, confirmChatGPTAffinity, createChatGPTAffinityTracker,
+  isChatGPTAffinityAwaitingSettlement, markChatGPTAffinitySubmitted, observeChatGPTAffinity, proposeChatGPTAffinity, publicChatGPTAffinity, rejectChatGPTAffinity, settleChatGPTAffinity, shouldPreserveChatGPTAffinityNavigation,
+  syncChatGPTAffinity, chatGPTSessionProbeExpression, closeManagedBrowserAuth, electronCookieDetails, launchManagedBrowserAuth, managedBrowserProfileDirectory, registerChatGPTAccountIPC, registerChatGPTSessionControlIPC,
+  registerChatGPTSurfaceIPC, createWorkspaceChatRemote, createChatGPTRateLimitResume, createChatGPTConversationReadHealth, createChatGPTCacheMarker, configureChatGPTSession, createChatGPTConversationURLs, chatGPTConversationLoadFailureScript,
+  withChatGPTNavigationDeadline, desktopInstanceName, desktopWindowTitle, initializeDesktopIdentity, configureDesktopProcess, registerClipboardIPC, traceForTask, traceId,
+  withTrace,
+} = createDesktopBaseDependencies()
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const { DESKTOP_INSTANCE, DESKTOP_ICON, FRONTEND_URL, BACKEND_URL, FRONTEND_ORIGIN, FRONTEND_RUNTIME_TOKEN } =

@@ -13,6 +13,15 @@ const registrations = [
 // same order as the Electron composition entry point.
 export async function readDesktopIPCSource() {
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const dependencyIndex = await readFile(new URL('../entry/dependencies/index.mjs', import.meta.url), 'utf8')
+  const dependencyDomains = ['platform', 'agent', 'chatgpt', 'desktop', 'transport']
+  if (!main.includes("from './composition/entry/dependencies/index.mjs'")
+      || dependencyDomains.some((domain) => !dependencyIndex.includes(`from './${domain}.mjs'`))) {
+    throw new Error('Desktop dependency domain composition is missing')
+  }
+  const dependencySource = (await Promise.all(dependencyDomains.map((domain) =>
+    readFile(new URL(`../entry/dependencies/${domain}.mjs`, import.meta.url), 'utf8'))))
+    .join('\n').replaceAll("from '../../../", "from './")
   const index = await readFile(new URL('./index.mjs', import.meta.url), 'utf8')
   const register = await readFile(new URL('./register.mjs', import.meta.url), 'utf8')
   const runtime = await readFile(new URL('./runtime.mjs', import.meta.url), 'utf8')
@@ -41,5 +50,5 @@ export async function readDesktopIPCSource() {
     }
     return module.slice(first, last)
   }))
-  return `${source.slice(0, end)}\n${bodies.join('\n')}${source.slice(end)}`
+  return `${dependencySource}\n${source.slice(0, end)}\n${bodies.join('\n')}${source.slice(end)}`
 }
