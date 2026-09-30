@@ -75,6 +75,9 @@ func ValidateDebugPlan(plan domain.ExecutionPlan) error {
 		return errors.New("debug target must be sandbox or host")
 	}
 	access := debug.EffectiveAccess()
+	if debug.AutoObserve && (debug.Protocol != domain.InteractiveProtocolV2 || debug.Target != "host" || access != domain.DebugAccessObserve) {
+		return errors.New("auto_observe requires harness.interactive/v2 host observe access")
+	}
 	if access != domain.DebugAccessObserve && access != domain.DebugAccessModify {
 		return fmt.Errorf("unsupported debug access %q", debug.Access)
 	}

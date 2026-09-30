@@ -48,8 +48,8 @@ func ValidateTurn(turn domain.AgentTurn) error {
 		return errors.New("resolved_evidence_ids exceeds 500 entries")
 	}
 	if turn.Kind == domain.TurnKindContextRequest {
-		if len(turn.ContextPaths) == 0 || len(turn.ContextPaths) > 32 {
-			return errors.New("context_request requires 1..32 context_paths")
+		if len(turn.ContextPaths) == 0 {
+			return errors.New("context_request requires at least one context_path")
 		}
 	} else if len(turn.ContextPaths) != 0 {
 		return errors.New("context_paths is valid only on a context_request turn")

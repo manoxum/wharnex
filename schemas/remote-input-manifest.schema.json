@@ -31,7 +31,7 @@
     },
     "context_mode": { "enum": ["full", "partial"] },
     "context_paths": {
-      "type": "array", "maxItems": 128, "uniqueItems": true,
+      "type": "array", "uniqueItems": true,
       "items": { "type": "string", "pattern": "^(context|ref-context|att-context)/" }
     },
     "project_files": {

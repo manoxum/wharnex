@@ -855,7 +855,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			current.Plan = result.Plan
 			current.Policy = &decision
 			if result.Turn != nil && result.Turn.Kind == domain.TurnKindWorkflow {
-				if result.Plan.Debug != nil && !debugAuthorized(*current) {
+				if result.Plan.Debug != nil && !debugAuthorizedWithPolicy(*current, decision) {
 					current.State = "debug_approval_required"
 				} else {
 					current.State = "workflow_planned"
@@ -903,7 +903,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	}
 	if result.Plan != nil && result.Turn != nil && result.Turn.Kind == domain.TurnKindWorkflow {
 		isDebug := result.Plan.Debug != nil
-		if isDebug && !debugAuthorized(updated) {
+		if isDebug && (updated.Policy == nil || !debugAuthorizedWithPolicy(updated, *updated.Policy)) {
 			s.bus.Publish(sessionID, "debug.approval_required", map[string]any{"plan_id": result.Plan.PlanID, "request_id": result.Plan.RequestID, "target": result.Plan.Debug.Target})
 			return result, updated, nil
 		}

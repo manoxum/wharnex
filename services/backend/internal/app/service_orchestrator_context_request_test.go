@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"kernl.local/harness/backend/internal/audit"
@@ -56,5 +58,20 @@ func TestOrchestratorPlanningIncrementValidatesAndAccumulatesCapturedFiles(t *te
 	}
 	if current.OrchestratorContextRounds[planning.RequestID] != 2 {
 		t.Fatalf("round count = %d", current.OrchestratorContextRounds[planning.RequestID])
+	}
+}
+
+func TestDecodeOrchestratorContextRequestHasNoPathCountCeiling(t *testing.T) {
+	paths := make([]string, 64)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("context/file-%03d.txt", i)
+	}
+	raw := orchestratorBundle(t, map[string]string{"context-request.json": `{"protocol":"harness.orchestrator-context-request/v1","request_id":"orp_12345678","context_paths":["` + strings.Join(paths, `","`) + `"]}`})
+	request, ok, err := decodeOrchestratorContextRequest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || len(request.ContextPaths) != 64 {
+		t.Fatalf("unexpected parsed request: ok=%v paths=%d", ok, len(request.ContextPaths))
 	}
 }

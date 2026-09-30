@@ -162,6 +162,7 @@ type RemoteInputRequest struct {
 	IncludeContext    bool               `json:"include_context"`
 	ContextMode       domain.ContextMode `json:"-"`
 	ContextPaths      []string           `json:"-"`
+	ContextRound      int                `json:"-"`
 	Attachments       []RemoteInputFile  `json:"attachments"`
 	Artifacts         []RemoteInputFile  `json:"artifacts"`
 	ProjectFiles      []string           `json:"project_files"`

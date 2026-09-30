@@ -60,20 +60,35 @@ func (e *Engine) Evaluate(plan domain.ExecutionPlan) domain.PolicyDecision {
 func (e *Engine) evaluateInteractiveV2(plan domain.ExecutionPlan, decision domain.PolicyDecision) domain.PolicyDecision {
 	debug := plan.Debug
 	decision.Risk = maxRisk(decision.Risk, "medium")
-	if debug.Target == "host" {
+	decision.AutoObserveRequested = debug.AutoObserve
+	autoObserve, autoReason := eligibleAutoObserve(plan)
+	decision.AutoObserveGranted = autoObserve
+	decision.AutoObserveReason = autoReason
+	if debug.Target == "host" && !autoObserve {
 		decision.RequiresApproval = true
 		decision.Reasons = append(decision.Reasons, "interactive v2 host scope requires explicit consent")
 	}
 	if debug.EffectiveAccess() == domain.DebugAccessModify {
 		decision.RequiresApproval = true
 		decision.Risk = "high"
+		decision.AutoObserveGranted = false
+		decision.AutoObserveReason = "modifying observations are never auto-observed"
 		decision.Reasons = append(decision.Reasons, "interactive v2 host modification is one-shot and plan-bound")
 	}
 	for _, capability := range debug.Capabilities {
 		switch capability {
-		case domain.InteractiveCapabilitySQL, domain.InteractiveCapabilityLogs, domain.InteractiveCapabilityFilesystem, domain.InteractiveCapabilityProcess, domain.InteractiveCapabilityContainer, domain.InteractiveCapabilityService, domain.InteractiveCapabilityNetwork, domain.InteractiveCapabilityShell:
+		case domain.InteractiveCapabilitySQL, domain.InteractiveCapabilityLogs, domain.InteractiveCapabilityProcess, domain.InteractiveCapabilityContainer, domain.InteractiveCapabilityService, domain.InteractiveCapabilityNetwork, domain.InteractiveCapabilityShell, domain.InteractiveCapabilityCommand:
 			decision.RequiresApproval = true
+			decision.AutoObserveGranted = false
+			if debug.AutoObserve {
+				decision.AutoObserveReason = fmt.Sprintf("capability %q is not eligible for automatic observation", capability)
+			}
 			decision.Reasons = append(decision.Reasons, fmt.Sprintf("interactive capability %q exposes scoped host/runtime state", capability))
+		case domain.InteractiveCapabilityFilesystem:
+			if !autoObserve {
+				decision.RequiresApproval = true
+				decision.Reasons = append(decision.Reasons, fmt.Sprintf("interactive capability %q exposes scoped host/runtime state", capability))
+			}
 		}
 	}
 	for _, op := range plan.Operations {
@@ -117,7 +132,81 @@ func (e *Engine) evaluateInteractiveV2(plan domain.ExecutionPlan, decision domai
 			decision.Risk = "high"
 		}
 	}
+	if decision.RequiresApproval && decision.AutoObserveGranted {
+		decision.AutoObserveGranted = false
+		decision.AutoObserveReason = "another policy boundary still requires explicit consent"
+	}
 	return decision
+}
+
+func eligibleAutoObserve(plan domain.ExecutionPlan) (bool, string) {
+	debug := plan.Debug
+	if debug == nil || !debug.AutoObserve {
+		return false, "not requested"
+	}
+	if debug.Protocol != domain.InteractiveProtocolV2 || debug.Target != "host" || debug.EffectiveAccess() != domain.DebugAccessObserve {
+		return false, "auto_observe is limited to interactive v2 host observations"
+	}
+	if plan.RequiresApproval {
+		return false, "planner already requested explicit approval"
+	}
+	if len(debug.Capabilities) != 1 || debug.Capabilities[0] != domain.InteractiveCapabilityFilesystem {
+		return false, "only bounded project filesystem observation is eligible"
+	}
+	if len(debug.Scope.Paths) == 0 || len(plan.Operations) == 0 {
+		return false, "project path scope and at least one typed observation are required"
+	}
+	for _, op := range plan.Operations {
+		if op.Type != "filesystem" || op.Filesystem == nil {
+			return false, "only typed filesystem observations are eligible"
+		}
+		action := op.Filesystem.Action
+		if action != "read" && action != "stat" && action != "list" {
+			return false, "filesystem mutation is not eligible"
+		}
+		if action == "read" && (op.Filesystem.MaxBytes <= 0 || op.Filesystem.MaxBytes > 1<<20) {
+			return false, "filesystem reads must have a positive max_bytes no larger than 1 MiB"
+		}
+		if !interactivePathWithinScope(op.Filesystem.Path, debug.Scope.Paths) {
+			return false, "filesystem path is outside the declared project scope"
+		}
+		if interactivePathLooksSensitive(op.Filesystem.Path) {
+			return false, "potentially sensitive project paths require explicit consent"
+		}
+	}
+	return true, "engine classified the request as bounded project-scoped read-only filesystem observation"
+}
+
+func interactivePathWithinScope(candidate string, scopes []string) bool {
+	clean := filepath.Clean(strings.TrimSpace(candidate))
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return false
+	}
+	for _, scope := range scopes {
+		base := filepath.Clean(strings.TrimSpace(scope))
+		if base == "." || filepath.IsAbs(base) || base == ".." || strings.HasPrefix(base, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if clean == base || strings.HasPrefix(clean, base+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func interactivePathLooksSensitive(candidate string) bool {
+	clean := strings.ToLower(filepath.ToSlash(filepath.Clean(strings.TrimSpace(candidate))))
+	base := filepath.Base(clean)
+	if base == ".env" || strings.HasPrefix(base, ".env.") || base == ".npmrc" || base == ".netrc" || base == ".pypirc" || base == ".git-credentials" || base == "credentials.json" || base == "id_rsa" || base == "id_ed25519" || strings.HasSuffix(base, ".pem") || strings.HasSuffix(base, ".key") || strings.HasSuffix(base, ".p12") || strings.HasSuffix(base, ".pfx") {
+		return true
+	}
+	for _, segment := range strings.Split(clean, "/") {
+		switch segment {
+		case ".git", ".ssh", ".aws", "secrets", "credentials", "private", "tokens":
+			return true
+		}
+	}
+	return false
 }
 
 func classifyCommand(command domain.CommandSpec, decision *domain.PolicyDecision) {

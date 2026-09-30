@@ -14,7 +14,7 @@ In Full, a request ZIP carries every eligible body under `context/`,
 `context-map/` inventories, the source/authority index and the ordinary
 request evidence, but no project/reference/attachment file bodies. A completed
 `harness.turn/v1` `context_request` response with `context_paths` is a typed
-engine read of 1..32 exact file paths from those three content roots. Wharnex
+engine read of one or more exact file paths from those three content roots. Wharnex
 MUST validate each path against the captured eligible snapshot, reject
 traversal, missing/excluded files, repeated requests with no new file, and
 requests beyond the bounded round/size limits. It opens no model-supplied
@@ -24,7 +24,7 @@ Selected paths do not confer write authority.
 
 `ORCHESTRATOR_PLAN` uses the owning session's modality. Its Partial request ZIP
 carries maps first; a response ZIP with `context-request.json` and protocol
-`harness.orchestrator-context-request/v1` asks for 1..32 exact captured file
+`harness.orchestrator-context-request/v1` asks for one or more exact captured file
 paths, and the Worker sends a follow-up request ZIP with cumulative selected
 bodies in the same conversation. At most six increments are permitted. A
 normal `plan.json` response ends planning. Because the context-request answer
@@ -356,3 +356,9 @@ output MUST be pruned as dependencies regardless of directory name. Pruning is
 mandatory and cannot be reopened by project configuration, so it MUST name only
 unambiguous non-source directories: SQL migrations, for instance, are project
 source and MUST stay.
+
+## Semantic map and observation evolution
+
+`context-map/<source>/maps` remains the exact `harness.context-map/v1` inventory fallback. `context-map/<source>/semantic-index` uses `harness.context-semantic-index/v1` to add role/language/top-level-symbol/module signals, related-file hints, request-ranked candidates, module groups and an explicit byte/round budget. Candidate/group size is advisory only; it never changes snapshot authorization or imposes a file-count limit. Increment audit events record selected path count, cumulative selected bytes and round.
+
+Interactive diagnostics may request `debug.auto_observe=true` only with `harness.interactive/v2` host/observe. Policy independently grants automatic observation only to typed filesystem `read`/`stat`/`list` operations inside declared project-relative scopes; reads are bounded to at most 1 MiB. Shell, network, SQL/log/process/container/service capabilities, mutations, ambiguous scope and any other approval boundary remain consent-gated or denied. Policy decisions persist the requested and effective auto-observe classification for audit.

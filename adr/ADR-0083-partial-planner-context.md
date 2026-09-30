@@ -17,7 +17,7 @@ responses use `harness.turn/v1` kind `context_request` with `context_paths`;
 Orchestrator planning responses use `context-request.json` with
 `harness.orchestrator-context-request/v1`. Each request names exact archive
 paths from `context/`, `ref-context/` or `att-context/`. The backend checks
-paths against the captured snapshot and bounds rounds, file count and bytes.
+paths against the captured snapshot and bounds rounds and cumulative bytes; path count is not a protocol limit.
 It reads the snapshot itself; model output never becomes a shell command or
 host path. The cumulative selection travels in each follow-up ZIP.
 
@@ -33,3 +33,7 @@ plan and answer response bundles remain valid. A `context_request` is legal
 only for a Partial request; old planners may answer directly without asking
 for more files. Legacy Orchestrator JSON deliveries remain readable for
 already checkpointed tasks.
+
+## 2026-09-30 clarification
+
+Partial context selection is byte-budgeted rather than file-count-budgeted. A request may name any number of unique captured paths that fit within the immutable snapshot, the 64 MiB cumulative selected-context budget and the six-increment bound. Ranking/grouping in context maps is advisory and MUST NOT impose a path-count ceiling.

@@ -48,7 +48,11 @@ func (s *Service) acceptContextRequest(ctx context.Context, sessionID string, cu
 	// An increment is a round like a workflow step: its body belongs in the
 	// durable ledger, or the history of what the planner was shown is lost.
 	s.recordExecutionActivity(sessionID, turn.RequestID, result)
-	s.bus.Publish(sessionID, "context.incremented", map[string]any{"request_id": turn.RequestID, "added": len(turn.ContextPaths), "selected": len(paths)})
+	ranking := contextMapSelectionRankingMetrics(current.Context.ZipPath, current.Context.Manifest, requestContextMapState{SelectedPaths: current.ContextPaths, RoundsUsed: current.WorkflowRound, Query: current.LastManualPrompt}, turn.ContextPaths)
+	s.bus.Publish(sessionID, "context.incremented", map[string]any{
+		"request_id": turn.RequestID, "added": len(turn.ContextPaths), "selected": len(paths), "selected_bytes": selectedContextBytes(current.Context.ZipPath, paths), "round": current.WorkflowRound + 1,
+		"ranking_candidates": ranking.Candidates, "ranking_requested": ranking.RequestedRanked, "ranking_top10_hits": ranking.TopTenHits, "ranking_request_match_hits": ranking.RequestMatchHits, "ranking_position_sum": ranking.RankPositionSum,
+	})
 	if err := s.prepareWorkflowContinuation(ctx, sessionID, result, updated.WorkflowRound+1, maxWorkflowRounds); err != nil {
 		return BundleSubmission{}, err
 	}

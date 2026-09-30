@@ -17,11 +17,14 @@ func ExecutionModeTargetsHost(mode ExecutionMode) bool {
 }
 
 type PolicyDecision struct {
-	Allowed          bool                `json:"allowed"`
-	RequiresApproval bool                `json:"requires_approval"`
-	Risk             string              `json:"risk"`
-	Reasons          []string            `json:"reasons"`
-	ApprovalItems    []ExecutionApproval `json:"approval_items,omitempty"`
+	Allowed              bool                `json:"allowed"`
+	AutoObserveRequested bool                `json:"auto_observe_requested,omitempty"`
+	AutoObserveGranted   bool                `json:"auto_observe_granted,omitempty"`
+	AutoObserveReason    string              `json:"auto_observe_reason,omitempty"`
+	RequiresApproval     bool                `json:"requires_approval"`
+	Risk                 string              `json:"risk"`
+	Reasons              []string            `json:"reasons"`
+	ApprovalItems        []ExecutionApproval `json:"approval_items,omitempty"`
 }
 
 // ExecutionApproval is operator-facing policy metadata. It is intentionally

@@ -72,9 +72,10 @@ type ExecutionPlan struct {
 // the backwards-compatible default. Modify is host-only, approval-gated, and
 // still constrained by argv validation plus the Policy Engine.
 type DebugSpec struct {
-	Protocol string `json:"protocol"`
-	Target   string `json:"target"`
-	Access   string `json:"access,omitempty"`
+	Protocol    string `json:"protocol"`
+	Target      string `json:"target"`
+	Access      string `json:"access,omitempty"`
+	AutoObserve bool   `json:"auto_observe,omitempty"`
 	// Query selects an engine-owned, read-only diagnostic. Unlike a command it
 	// never crosses the process boundary and cannot acquire shell/filesystem
 	// authority from model-controlled argv. Queries are observe-only.

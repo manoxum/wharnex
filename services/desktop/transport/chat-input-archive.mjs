@@ -65,7 +65,7 @@ function rewriteContextSourcesIndex(bytes) {
       prefix: requestArchiveAttachmentPrefix(attachment?.prefix),
     }))
   }
-  document.execution_rule = 'context/ contains only the primary project snapshot. ref-context/ contains related project snapshots whose write authority is controlled by the request grant. att-context/ contains read-only external @attach material and is never a patch target. context-map/ contains generated path inventory and redacted sensitive configuration key-state metadata; it is never a patch target.'
+  document.execution_rule = 'context/ contains only the primary project snapshot. ref-context/ contains related project snapshots whose write authority is controlled by the request grant. att-context/ contains read-only external @attach material and is never a patch target. context-map/ contains generated path inventory, deterministic semantic guidance with byte/round budget metadata, and redacted sensitive configuration key-state metadata; semantic ranking is advisory and context-map/ is never a patch target.'
   return Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8')
 }
 

@@ -14,7 +14,6 @@ import (
 )
 
 const maxSelectedContextBytes = 64 << 20
-const maxSelectedContextFiles = 128
 
 func contextArchiveEntries(contextPath string) (map[string]*zip.File, *zip.ReadCloser, error) {
 	source, err := zip.OpenReader(filepath.Clean(contextPath))
@@ -54,8 +53,8 @@ func contextContentPath(name string) bool {
 // A model can only request content already admitted to this immutable snapshot.
 // No model-supplied path is opened on the host filesystem.
 func selectContextPaths(contextPath string, previous, requested []string) ([]string, error) {
-	if len(requested) == 0 || len(requested) > 32 {
-		return nil, fmt.Errorf("context request requires 1..32 paths")
+	if len(requested) == 0 {
+		return nil, fmt.Errorf("context request requires at least one path")
 	}
 	entries, source, err := contextArchiveEntries(contextPath)
 	if err != nil {
@@ -77,8 +76,8 @@ func selectContextPaths(contextPath string, previous, requested []string) ([]str
 		}
 		selected[name] = struct{}{}
 		total += file.UncompressedSize64
-		if len(selected) > maxSelectedContextFiles || total > maxSelectedContextBytes {
-			return nil, fmt.Errorf("selected context exceeds %d files or %d bytes", maxSelectedContextFiles, maxSelectedContextBytes)
+		if total > maxSelectedContextBytes {
+			return nil, fmt.Errorf("selected context exceeds %d bytes", maxSelectedContextBytes)
 		}
 	}
 	if len(selected) == len(previous) {
@@ -90,6 +89,26 @@ func selectContextPaths(contextPath string, previous, requested []string) ([]str
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func selectedContextBytes(contextPath string, paths []string) uint64 {
+	entries, source, err := contextArchiveEntries(contextPath)
+	if err != nil {
+		return 0
+	}
+	defer source.Close()
+	var total uint64
+	seen := make(map[string]struct{}, len(paths))
+	for _, name := range paths {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		if file := entries[name]; file != nil {
+			total += file.UncompressedSize64
+		}
+	}
+	return total
 }
 
 func writeContextDirectorySelected(target *zip.Writer, contextPath string, mode domain.ContextMode, paths []string) error {

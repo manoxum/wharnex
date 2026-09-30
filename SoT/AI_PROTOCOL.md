@@ -422,7 +422,7 @@ The Worker uploads exactly `whx_bundle_req_orchestrator_<request_id>.zip` with t
 
 In Partial mode, an Orchestrator planning response MAY instead contain
 `context-request.json` with protocol `harness.orchestrator-context-request/v1`,
-the exact `orp_` request id and 1..32 eligible archive paths. Backend
+the exact `orp_` request id and one or more eligible archive paths. Backend
 validation records the cumulative selection; the same Worker submits a new
 request ZIP with those bodies in the same conversation and retains the exact
 result filename. A context request is neither a DAG nor an execution plan.

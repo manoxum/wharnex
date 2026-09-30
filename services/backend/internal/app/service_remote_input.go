@@ -88,6 +88,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 	request.IncludeContext = true
 	request.ContextMode = domain.EffectiveContextMode(item.ContextMode)
 	request.ContextPaths = append([]string(nil), item.ContextPaths...)
+	request.ContextRound = item.WorkflowRound
 	if s.artifactStore != nil {
 		if err := s.persistRemoteInputArtifacts(ctx, item, request, attachments, artifacts); err != nil {
 			return RemoteInputResult{}, fmt.Errorf("persist remote input artifacts: %w", err)
@@ -122,6 +123,7 @@ func (s *Service) PublishRemoteInput(ctx context.Context, sessionID string, requ
 
 	request.ContextMode = domain.EffectiveContextMode(item.ContextMode)
 	request.ContextPaths = append([]string(nil), item.ContextPaths...)
+	request.ContextRound = item.WorkflowRound
 	token, err := randomToken()
 	if err != nil {
 		return RemoteInputResult{}, err
@@ -260,7 +262,7 @@ func remoteInputShape(contextPath string, manifest domain.ContextManifest, reque
 		}
 		count++
 		largest = max(largest, info.Size())
-		mapFiles, err := requestContextMapFiles(contextPath, manifest)
+		mapFiles, err := requestContextMapFilesWithState(contextPath, manifest, requestContextMapState{SelectedPaths: request.ContextPaths, RoundsUsed: request.ContextRound, Query: request.Prompt})
 		if err != nil {
 			return 0, 0, err
 		}
@@ -387,7 +389,7 @@ func buildRemoteInputArchive(target, contextPath string, contextManifest domain.
 		writeErr = writeContextDirectorySelected(archive, contextPath, request.ContextMode, request.ContextPaths)
 	}
 	if writeErr == nil && request.IncludeContext {
-		mapFiles, mapErr := requestContextMapFiles(contextPath, contextManifest)
+		mapFiles, mapErr := requestContextMapFilesWithState(contextPath, contextManifest, requestContextMapState{SelectedPaths: request.ContextPaths, RoundsUsed: request.ContextRound, Query: request.Prompt})
 		if mapErr != nil {
 			writeErr = mapErr
 		} else {
