@@ -13,9 +13,6 @@ _(reserved — no entries yet)_
 - 2026-09-28 — Adiciona regressão Playwright para CI/browser-capable em viewport estreito: faixa horizontal sem wrap, controlos de extremidade, paginação COMPLETE/ARCHIVED, menu terminal, drag-and-drop após scroll, novo chat com diretiva `@task` e evidência visual lado a lado com `docs/orchestrator-test/kanban-before.png`.
 - 2026-09-28 — Consolida no backend o ciclo COMPLETE terminal → ARCHIVED e a paginação por cursor, preserva `was_completed`, bloqueia regressão para READY e rejeita limites de página inválidos no transporte antes de tocar no serviço.
 - 2026-09-28 — Mantém os gates existentes e não altera produção fora da superfície Orchestrator.
-### Chat 5ddc25b9-ab8a-4eee-8dc3-c925b652ad29 (2026-09-28)
-
-_(reserved — no entries yet)_
 
 
 ### Chat 263284aa-461b-40c1-b165-36d9560539c4 (2026-09-27)
