@@ -1,0 +1,1 @@
+export { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation, confirmDialog, subscribeHeaderPopover, buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from './bridge'

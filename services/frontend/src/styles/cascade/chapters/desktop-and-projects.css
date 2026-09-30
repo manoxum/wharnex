@@ -1,0 +1,12 @@
+@import '../../domains/editor/search-palette.css';
+@import '../../domains/workspace/chrome/quiet-grammar.css';
+@import '../../domains/workspace/chrome/settings-grammar.css';
+@import '../../domains/workspace/chrome/neutral-actions.css';
+@import '../../domains/editor/explorer-and-terminal.css';
+@import '../../domains/workspace/chrome/unified-side-tools.css';
+@import '../../domains/git/compact-review.css';
+@import '../../domains/artifacts/library-pagination.css';
+@import '../../domains/execution/error-list.css';
+@import '../../domains/artifacts/library-toolbar.css';
+@import '../../domains/project/task-center.css';
+@import '../../domains/project/action-hub.css';

@@ -1,0 +1,10 @@
+@import '../../domains/agent/pool-status.css';
+@import '../../domains/chat/directive-chips.css';
+@import '../../domains/artifacts/storage-tools.css';
+@import '../../domains/terminal/workbench.css';
+@import '../../domains/git/project-identity.css';
+@import '../../domains/artifacts/chat-files.css';
+@import '../../domains/git/worktree.css';
+@import '../../domains/workspace/layout/configurable-shell.css';
+@import '../../domains/workspace/layout/agent-rail.css';
+@import '../../domains/workspace/chrome/project-actions.css';

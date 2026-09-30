@@ -1,0 +1,184 @@
+/* Git control surface: keep worktree and unpublished commits visually distinct,
+   compact, and easy to scan while promoting diffs to a focused review window. */
+.git-change-surface {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.git-change-surface-heading {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 2px;
+}
+.git-change-surface-heading > div { min-width: 0; display: grid; gap: 2px; }
+.git-change-surface-heading > div > span {
+  color: var(--theme-text-muted);
+  font-size: calc(6.8px * var(--ui-font-scale));
+  font-weight: 700;
+  letter-spacing: .065em;
+  text-transform: uppercase;
+}
+.git-change-surface-heading > div > strong {
+  overflow: hidden;
+  color: var(--theme-text);
+  font-size: calc(10px * var(--ui-font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-clean-state {
+  min-height: 58px;
+  padding: 11px 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px dashed var(--theme-border-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-surface) 74%, transparent);
+}
+.git-clean-state > span {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--theme-accent-soft);
+  color: var(--theme-accent);
+}
+.git-clean-state > div { min-width: 0; display: grid; gap: 2px; }
+.git-clean-state strong { color: var(--theme-text); font-size: calc(8.7px * var(--ui-font-scale)); }
+.git-clean-state small { color: var(--theme-text-muted); font-size: calc(7.4px * var(--ui-font-scale)); }
+
+.git-worktree-files-section { gap: 8px; }
+.git-worktree-files {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  list-style: none;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  background: var(--theme-bg);
+}
+.git-worktree-files li {
+  min-width: 0;
+  min-height: 38px;
+  padding: 5px 7px;
+  display: grid;
+  grid-template-columns: 18px 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-bottom: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+}
+.git-worktree-files li:last-child { border-bottom: 0; }
+.git-worktree-files li:hover { background: var(--theme-hover); }
+.git-worktree-file-select { width: 18px; height: 24px; display: grid; place-items: center; }
+.git-worktree-file-select input,
+.git-unpushed-list > li > input { width: 13px; height: 13px; margin: 0; accent-color: var(--theme-accent); }
+.git-worktree-file-icon,
+.git-unpushed-commit-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--theme-elevated);
+  color: var(--theme-text-muted);
+}
+.git-worktree-file-copy { min-width: 0; display: grid; gap: 1px; }
+.git-worktree-file-copy strong {
+  overflow: hidden;
+  color: var(--theme-text);
+  font: 600 calc(8.4px * var(--ui-font-scale))/1.25 var(--mono-font-family, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-worktree-file-copy small {
+  color: var(--theme-text-muted);
+  font-size: calc(6.9px * var(--ui-font-scale));
+}
+.git-file-diff-action {
+  min-height: 25px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--theme-text-muted);
+  font-size: calc(7.3px * var(--ui-font-scale));
+  font-weight: 650;
+  cursor: pointer;
+}
+.git-file-diff-action:hover:not(:disabled) {
+  border-color: var(--theme-border-soft);
+  background: var(--theme-surface);
+  color: var(--theme-text);
+}
+.git-file-diff-action:disabled { opacity: .42; cursor: default; }
+.git-worktree-commit {
+  padding: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 7px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  background: var(--theme-surface);
+}
+.git-worktree-commit label { min-width: 0; display: grid; gap: 4px; }
+.git-worktree-commit label > span {
+  color: var(--theme-text-muted);
+  font-size: calc(6.8px * var(--ui-font-scale));
+  font-weight: 650;
+}
+
+.git-unpushed-summary {
+  min-height: 46px;
+  padding: 7px 8px 7px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  background: var(--theme-surface);
+}
+.git-unpushed-branch-copy { min-width: 0; display: grid; gap: 2px; }
+.git-unpushed-branch-copy strong {
+  overflow: hidden;
+  color: var(--theme-text);
+  font-size: calc(9px * var(--ui-font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-unpushed-branch-copy small { color: var(--theme-text-muted); font-size: calc(7.1px * var(--ui-font-scale)); }
+.git-unpushed-actions {
+  min-height: 31px;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.git-unpushed-actions > span { color: var(--theme-text-muted); font-size: calc(7.2px * var(--ui-font-scale)); }
+.git-unpushed-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  list-style: none;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  background: var(--theme-bg);
+}

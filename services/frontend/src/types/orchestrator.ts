@@ -1,4 +1,4 @@
-import type { EffortLevel, ReasoningEffort } from '../types'
+import type { EffortLevel, ReasoningEffort } from './runtime/operation'
 
 export const ORCHESTRATOR_TASK_STATUSES = ['PENDING', 'WAITING', 'READY', 'DOING', 'REVIEW', 'FAILED', 'COMPLETE', 'ARCHIVED'] as const
 export const ORCHESTRATOR_TERMINAL_STATUSES = ['COMPLETE', 'ARCHIVED'] as const

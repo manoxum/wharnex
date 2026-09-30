@@ -1,0 +1,10 @@
+@import '../../domains/settings/premium-navigation.css';
+@import '../../domains/settings/ide-palette.css';
+@import '../../domains/workspace/layout/semantic-tabs.css';
+@import '../../domains/workspace/layout/responsive-tabs.css';
+@import '../../domains/docker/services.css';
+@import '../../domains/agent/runtime-drawer.css';
+@import '../../domains/chat/resource-tabs.css';
+@import '../../domains/execution/error-history.css';
+@import '../../domains/workspace/layout/detached-surfaces.css';
+@import '../../domains/chat/reference-thumbnails.css';

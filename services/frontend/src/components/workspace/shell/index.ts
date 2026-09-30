@@ -1,0 +1,5 @@
+export { Bootstrap } from './Bootstrap'
+export { WorkspaceSideRail, type Drawer } from './WorkspaceSideRail'
+export { WorkspaceTopbar } from './WorkspaceTopbar'
+export { WorkbenchStatusBar } from './WorkbenchStatusBar'
+export { WorkspaceShell } from './WorkspaceShell'

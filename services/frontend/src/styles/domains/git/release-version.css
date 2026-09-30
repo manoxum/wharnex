@@ -1,0 +1,130 @@
+.git-release-version-base {
+  min-height: 34px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  background: var(--theme-muted);
+  color: var(--theme-text);
+  font: 720 calc(8px * var(--ui-font-scale))/1 var(--mono-font-family, monospace);
+}
+.git-release-version-base.missing { color: var(--warning); }
+.git-release-tag-preview {
+  min-width: 0;
+  padding: 7px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px dashed var(--theme-border-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-muted) 64%, transparent);
+}
+.git-release-tag-preview > span { color: var(--theme-text-muted); font-size: calc(6.6px * var(--ui-font-scale)); font-weight: 680; }
+.git-release-tag-preview > code { min-width: 0; overflow: hidden; color: var(--theme-accent); font-size: calc(7.4px * var(--ui-font-scale)); text-overflow: ellipsis; white-space: nowrap; }
+.git-release-notes-card { padding: 10px; }
+.git-release-notes-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.git-release-notes-heading > div:first-child { min-width: 0; display: grid; gap: 2px; }
+.git-release-mode { flex: 0 0 auto; display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: color-mix(in srgb, var(--theme-bg) 90%, var(--theme-muted)); }
+.git-release-mode button,
+.git-release-toolbar button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--theme-text-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: calc(7.4px * var(--ui-font-scale));
+}
+.git-release-mode button { display: inline-flex; align-items: center; gap: 5px; }
+.git-release-mode button:hover:not(:disabled),
+.git-release-toolbar button:hover:not(:disabled) { background: var(--theme-hover); color: var(--theme-text); }
+.git-release-mode button.active { background: var(--theme-accent-soft); color: var(--theme-accent); font-weight: 740; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 24%, transparent); }
+.git-release-editor { overflow: hidden; border: 1px solid var(--theme-border); border-radius: 9px; background: color-mix(in srgb, var(--theme-bg) 96%, var(--theme-surface)); }
+.git-release-toolbar { min-height: 33px; padding: 3px 5px; display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--theme-border-soft); background: color-mix(in srgb, var(--theme-muted) 42%, transparent); }
+.git-release-editable { min-height: 128px; max-height: 280px; padding: 11px; overflow: auto; color: var(--theme-text); font-size: calc(8.5px * var(--ui-font-scale)); line-height: 1.55; outline: none; }
+.git-release-editable:empty::before { content: attr(data-placeholder); color: var(--theme-text-muted); pointer-events: none; }
+.git-release-gpt { display: grid; gap: 8px; }
+.git-release-gpt-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.git-release-gpt-action .git-action { justify-self: start; display: inline-flex; align-items: center; gap: 5px; }
+.git-release-gpt-action > span { color: var(--theme-text-muted); font-size: calc(6.7px * var(--ui-font-scale)); }
+.git-release-gpt textarea { min-height: 128px; padding: 10px 11px; resize: vertical; line-height: 1.5; }
+.git-release-footer { min-width: 0; padding: 2px 1px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.git-release-safety-note { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.git-release-safety-note > span { width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid var(--theme-border-soft); border-radius: 8px; background: var(--theme-muted); color: var(--theme-text-soft); }
+.git-release-safety-note > div { min-width: 0; display: grid; gap: 2px; }
+.git-release-safety-note strong { color: var(--theme-text-soft); font-size: calc(7.3px * var(--ui-font-scale)); }
+.git-release-safety-note small { color: var(--theme-text-muted); font-size: calc(6.5px * var(--ui-font-scale)); line-height: 1.35; }
+.git-release-publish { min-height: 32px; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding-inline: 12px; }
+@media (max-width: 920px) {
+  .git-release-fields { grid-template-columns: 1fr; }
+}
+@media (max-width: 820px) {
+  .git-branch-create-row { grid-template-columns: 1fr; }
+  .git-branch-create-action { justify-self: start; }
+  .git-release-library-heading { align-items: flex-start; flex-direction: column; }
+  .git-release-library-actions { width: 100%; justify-content: space-between; }
+  .git-release-hero { grid-template-columns: 36px minmax(0, 1fr); }
+  .git-release-readiness { grid-column: 2; justify-self: start; }
+  .git-release-notes-heading { align-items: flex-start; flex-direction: column; }
+  .git-release-footer { align-items: flex-start; flex-direction: column; }
+  .git-release-publish { align-self: stretch; justify-content: center; }
+}
+@media (max-width: 560px) {
+  .git-release-backdrop { padding: 8px; }
+  .git-release-modal { max-height: calc(100dvh - 16px); border-radius: 10px; }
+  .git-release-modal-header small { display: none; }
+  .git-release-list li { grid-template-columns: 28px minmax(0, 1fr) 26px; }
+  .git-release-list-state { display: none; }
+  .git-release-version-chip { display: none; }
+  .git-release-hero { grid-template-columns: 1fr; }
+  .git-release-hero-icon { display: none; }
+  .git-release-readiness { grid-column: 1; }
+  .git-release-mode { width: 100%; }
+  .git-release-mode button { flex: 1; justify-content: center; }
+  .git-release-gpt-action { align-items: flex-start; flex-direction: column; }
+}
+
+/* Project tasks -----------------------------------------------------------
+   One Main Request is the durable unit of work. Child GPT requests, plans,
+   executions and audit events are unfolded inside the same task instead of
+   living in separate rail drawers. */
+.project-tasks-drawer { height:100%; min-height:0; display:grid; grid-template-rows:46px auto auto minmax(0,1fr); background:var(--theme-bg); color:var(--theme-text); }
+.project-task-intro { margin:0; padding:8px 12px; border-bottom:1px solid var(--theme-border-soft); color:var(--theme-text-muted); font-size:calc(7.4px * var(--ui-font-scale)); line-height:1.45; }
+.project-task-tabs { padding:6px 8px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-surface); }
+.project-task-tabs button { min-width:0; min-height:30px; padding:0 8px; display:flex; align-items:center; justify-content:center; gap:5px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--theme-text-muted); cursor:pointer; font-size:calc(7.4px * var(--ui-font-scale)); font-weight:700; }
+.project-task-tabs button:hover { background:var(--theme-hover); color:var(--theme-text-soft); }
+.project-task-tabs button[aria-selected='true'] { border-color:var(--theme-border); background:var(--theme-accent-soft); color:var(--theme-text); }
+.project-task-tabs b { min-width:18px; padding:3px 5px; border-radius:999px; background:var(--theme-muted); font:700 calc(6.8px * var(--ui-font-scale))/1 var(--mono-font-family); text-align:center; }
+.project-task-details { min-width:0; border-top:1px solid var(--theme-border-soft); }
+.project-task-details > summary { min-height:28px; padding-top:6px; display:flex; align-items:center; justify-content:space-between; color:var(--theme-text-muted); cursor:pointer; font-size:calc(7.2px * var(--ui-font-scale)); font-weight:700; list-style:none; }
+.project-task-details > summary::-webkit-details-marker { display:none; }
+.project-task-details > summary::after { content:'+'; width:17px; height:17px; display:grid; place-items:center; border:1px solid var(--theme-border-soft); border-radius:5px; background:var(--theme-bg); color:var(--theme-text-soft); }
+.project-task-details[open] > summary::after { content:'−'; }
+.project-task-detail-grid { padding-top:5px; display:grid; gap:8px; }
+.project-task-detail-grid > section { min-width:0; display:grid; gap:6px; padding:8px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-bg); }
+.project-task-detail-grid > section > header { min-width:0; display:flex; align-items:center; gap:6px; color:var(--theme-text-muted); }
+.project-task-detail-grid > section > header strong { color:var(--theme-text-soft); font-size:calc(7.3px * var(--ui-font-scale)); text-transform:uppercase; letter-spacing:.045em; }
+.project-task-detail-grid > section > header span { margin-left:auto; min-width:18px; padding:2px 5px; border-radius:999px; background:var(--theme-muted); font:700 calc(6.5px * var(--ui-font-scale))/1 var(--mono-font-family); text-align:center; }
+.project-task-request-list,.project-task-plan-list,.project-task-execution-list { min-width:0; display:grid; gap:5px; }
+.project-task-request-list > div { min-width:0; padding:7px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 7px; border:1px solid var(--theme-border-soft); border-radius:7px; background:var(--theme-surface); }
+.project-task-request-list > div > div { min-width:0; display:flex; align-items:center; gap:6px; }
+.project-task-request-list b { color:var(--theme-text-soft); font-size:calc(7.2px * var(--ui-font-scale)); }
+.project-task-request-list code { min-width:0; overflow:hidden; color:var(--theme-text-muted); font:600 calc(6.2px * var(--ui-font-scale))/1.2 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
+.project-task-request-list small { grid-column:1 / -1; color:var(--theme-text-muted); font-size:calc(6.5px * var(--ui-font-scale)); }
+.request-state { padding:2px 5px; border-radius:999px; background:var(--theme-muted); color:var(--theme-text-muted); font-size:calc(6.3px * var(--ui-font-scale)); font-weight:750; white-space:nowrap; }
+.request-state.running,.request-state.done { color:var(--success); }
+.request-state.failed,.request-state.attention { color:var(--danger); }
+.project-task-plan-list details,.project-task-execution-list details { min-width:0; border:1px solid var(--theme-border-soft); border-radius:7px; background:var(--theme-surface); overflow:hidden; }
+.project-task-plan-list summary,.project-task-execution-list summary { min-width:0; padding:7px; display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; list-style:none; }
+.project-task-plan-list summary::-webkit-details-marker,.project-task-execution-list summary::-webkit-details-marker { display:none; }
+.project-task-plan-list summary > span,.project-task-execution-list summary > span { min-width:0; display:grid; gap:2px; }
+.project-task-plan-list summary b,.project-task-execution-list summary b { overflow:hidden; color:var(--theme-text-soft); font-size:calc(7.4px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.project-task-plan-list summary small,.project-task-execution-list summary small { color:var(--theme-text-muted); font-size:calc(6.4px * var(--ui-font-scale)); }
+.project-task-plan-list summary code,.project-task-execution-list summary code { max-width:38%; overflow:hidden; color:var(--theme-accent); font:600 calc(6.2px * var(--ui-font-scale))/1.2 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
+.project-task-plan-view,.project-task-terminal { min-width:0; max-height:420px; overflow:auto; border-top:1px solid var(--theme-border-soft); }
+.project-task-empty-detail { margin:0; color:var(--theme-text-muted); font-size:calc(7px * var(--ui-font-scale)); line-height:1.45; }
+.project-task-empty-detail.danger { color:var(--danger); }

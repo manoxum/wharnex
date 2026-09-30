@@ -1,0 +1,156 @@
+@media (max-width: 1100px) {
+}
+
+/* Durable ChatGPT task queue, kept separate from the Worker inspector so the
+   operator can read queue state without selecting an agent. */
+.chat-agent-tasks-drawer { height:100%; min-height:0; display:grid; grid-template-rows:46px auto minmax(0,1fr); background:var(--theme-bg); color:var(--theme-text); }
+.chat-agent-tasks-summary { min-height:36px; padding:6px 12px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(7.8px * var(--ui-font-scale)); }
+.chat-agent-tasks-summary span { display:inline-flex; align-items:baseline; gap:5px; white-space:nowrap; }
+.chat-agent-tasks-summary b { color:var(--theme-text); font:750 calc(9.2px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
+/* The queue is shared; this panel is not. Stating the scope is what keeps an
+   empty project queue from reading as a stopped runtime. */
+.chat-agent-tasks-scope { margin:0; padding:7px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(6.9px * var(--ui-font-scale)); line-height:1.45; }
+.chat-agent-tasks-summary small { margin-left:auto; color:var(--theme-text-muted); font-size:calc(7.1px * var(--ui-font-scale)); white-space:nowrap; }
+.chat-agent-tasks-body { min-height:0; overflow:auto; padding:8px 10px 12px; display:grid; align-content:start; gap:10px; }
+.chat-agent-tasks-body > .agent-drawer-empty { display:grid; gap:4px; }
+.chat-agent-task-section { display:grid; gap:6px; }
+.chat-agent-task-section > header { min-height:22px; padding:0 2px; display:flex; align-items:center; justify-content:space-between; color:var(--theme-text-soft); }
+.chat-agent-task-section > header strong { font-size:calc(8px * var(--ui-font-scale)); text-transform:uppercase; letter-spacing:.075em; }
+.chat-agent-task-section > header span { min-width:22px; padding:2px 6px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-surface); text-align:center; font:750 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family); }
+.chat-agent-task-section > p { margin:0; padding:9px 10px; border:1px dashed var(--theme-border-soft); border-radius:8px; color:var(--theme-text-muted); font-size:calc(7.8px * var(--ui-font-scale)); }
+.chat-agent-task-scheduled-section { padding:0 2px; border:1px solid var(--theme-border-soft); border-radius:9px; background:color-mix(in srgb,var(--theme-surface) 58%,transparent); }
+.chat-agent-task-scheduled-section > summary { min-height:40px; padding:6px 8px; display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--theme-text-soft); cursor:pointer; list-style:none; user-select:none; }
+.chat-agent-task-scheduled-section > summary::-webkit-details-marker { display:none; }
+.chat-agent-task-scheduled-section > summary > span { min-width:0; display:grid; gap:2px; }
+.chat-agent-task-scheduled-section > summary strong { font-size:calc(8px * var(--ui-font-scale)); text-transform:uppercase; letter-spacing:.075em; }
+.chat-agent-task-scheduled-section > summary small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(7px * var(--ui-font-scale)); font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
+.chat-agent-task-scheduled-section > summary em { min-width:24px; padding:3px 6px; border:1px solid color-mix(in srgb,var(--warning) 24%,var(--theme-border-soft)); border-radius:999px; background:var(--theme-bg); color:color-mix(in srgb,var(--warning) 70%,var(--theme-text)); text-align:center; font:750 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family); font-style:normal; }
+.chat-agent-task-scheduled-section[open] { padding-bottom:6px; }
+.chat-agent-task-scheduled-section[open] > summary { border-bottom:1px solid var(--theme-border-soft); }
+.chat-agent-task-scheduled-section > .chat-agent-task-list { padding:6px 6px 0; }
+.chat-agent-task-list { display:grid; gap:6px; }
+.chat-agent-task-card { min-width:0; padding:9px 10px 7px; display:grid; gap:6px; border:1px solid var(--theme-border-soft); border-radius:9px; background:var(--theme-surface); box-shadow:0 1px 1px color-mix(in srgb,var(--theme-shadow) 55%,transparent); content-visibility:auto; contain-intrinsic-size:128px; transition:border-color .14s ease,background .14s ease; }
+.chat-agent-task-card:hover { border-color:var(--theme-border); background:color-mix(in srgb,var(--theme-surface) 92%,var(--theme-elevated)); }
+.chat-agent-task-heading { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.chat-agent-task-identity { min-width:0; display:flex; align-items:center; gap:7px; }
+.chat-agent-task-identity > div { min-width:0; display:flex; align-items:baseline; gap:7px; }
+.chat-agent-task-identity strong { overflow:hidden; color:var(--theme-text); font-size:calc(9.8px * var(--ui-font-scale)); line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
+.chat-agent-task-identity code { overflow:hidden; color:var(--theme-text-muted); font:600 calc(6.7px * var(--ui-font-scale))/1.2 var(--mono-font-family); letter-spacing:.03em; text-overflow:ellipsis; white-space:nowrap; }
+.chat-agent-task-heading-meta { flex:0 0 auto; display:flex; align-items:center; gap:5px; }
+.chat-agent-task-heading-meta em { min-width:27px; padding:3px 5px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-bg); color:var(--theme-text-muted); font:750 calc(6.8px * var(--ui-font-scale))/1 var(--mono-font-family); font-style:normal; text-align:center; }
+.chat-agent-task-state { padding:3px 6px; border:1px solid var(--theme-border-soft); border-radius:999px; background:transparent; color:var(--theme-text-soft); font-size:calc(7px * var(--ui-font-scale)); font-weight:700; white-space:nowrap; }
+.chat-agent-task-card.running .chat-agent-task-state,.chat-agent-task-card.leased .chat-agent-task-state { border-color:color-mix(in srgb,var(--success) 30%,var(--theme-border)); color:color-mix(in srgb,var(--success) 70%,var(--theme-text)); }
+.chat-agent-task-card.waiting .chat-agent-task-state,.chat-agent-task-card.scheduled .chat-agent-task-state { border-color:color-mix(in srgb,var(--warning) 30%,var(--theme-border)); color:color-mix(in srgb,var(--warning) 70%,var(--theme-text)); }
+.chat-agent-task-card.guarded .chat-agent-task-state { border-color:color-mix(in srgb,var(--warning) 30%,var(--theme-border)); color:color-mix(in srgb,var(--warning) 70%,var(--theme-text)); }
+.chat-agent-task-card.blocked .chat-agent-task-state { border-color:color-mix(in srgb,var(--danger) 30%,var(--theme-border)); color:color-mix(in srgb,var(--danger) 70%,var(--theme-text)); }
+.chat-agent-task-worker { min-width:0; display:flex; align-items:center; gap:8px; color:var(--theme-text-soft); }
+.chat-agent-task-worker > span { min-width:0; display:inline-flex; align-items:center; gap:5px; }
+.chat-agent-task-worker b { overflow:hidden; font-size:calc(8px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.chat-agent-task-worker small { min-width:0; overflow:hidden; color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.chat-agent-task-worker small::before { content:'·'; margin-right:8px; color:var(--theme-border); }
+.chat-agent-task-metrics { min-width:0; display:flex; align-items:center; gap:0; padding:1px 0; color:var(--theme-text-muted); }
+.chat-agent-task-metrics > span { min-width:0; display:inline-flex; align-items:baseline; gap:4px; }
+.chat-agent-task-metrics > span + span::before { content:'·'; margin:0 8px; color:var(--theme-border); }
+.chat-agent-task-metrics small { color:var(--theme-text-muted); font-size:calc(6.8px * var(--ui-font-scale)); white-space:nowrap; }
+.chat-agent-task-metrics b { color:var(--theme-text-soft); font:700 calc(7.5px * var(--ui-font-scale))/1.2 var(--mono-font-family); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.chat-agent-task-error { min-width:0; display:flex; align-items:flex-start; gap:6px; padding:6px 8px; border:1px solid color-mix(in srgb,var(--danger) 22%,var(--theme-border-soft)); border-radius:7px; background:color-mix(in srgb,var(--danger) 5%,transparent); color:var(--danger); font-size:calc(7.3px * var(--ui-font-scale)); line-height:1.4; }
+.chat-agent-task-error span { min-width:0; overflow-wrap:anywhere; }
+.chat-agent-task-details { min-width:0; margin:1px -1px -1px; border-top:1px solid var(--theme-border-soft); }
+.chat-agent-task-details summary { min-height:25px; padding:5px 1px 0; display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); font-weight:650; cursor:pointer; list-style:none; user-select:none; }
+.chat-agent-task-details summary::-webkit-details-marker { display:none; }
+.chat-agent-task-details summary::after { content:'+'; width:16px; height:16px; display:grid; place-items:center; border:1px solid var(--theme-border-soft); border-radius:5px; background:var(--theme-bg); color:var(--theme-text-soft); font:700 calc(8px * var(--ui-font-scale))/1 var(--mono-font-family); }
+.chat-agent-task-details[open] summary { color:var(--theme-text); }
+.chat-agent-task-details[open] summary::after { content:'−'; }
+.chat-agent-task-detail-grid { padding-top:4px; display:grid; gap:8px; }
+.chat-agent-task-detail-grid > section { min-width:0; display:grid; gap:5px; }
+.chat-agent-task-detail-grid > section > strong { color:var(--theme-text-soft); font-size:calc(7.2px * var(--ui-font-scale)); text-transform:uppercase; letter-spacing:.055em; }
+.chat-agent-task-detail-grid dl { margin:0; display:grid; gap:0; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-bg); overflow:hidden; }
+.chat-agent-task-detail-grid dl > div { min-width:0; padding:6px 8px; display:grid; grid-template-columns:84px minmax(0,1fr); gap:8px; border-bottom:1px solid var(--theme-border-soft); }
+.chat-agent-task-detail-grid dl > div:last-child { border-bottom:0; }
+.chat-agent-task-detail-grid dt { color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); }
+.chat-agent-task-detail-grid dd { margin:0; overflow:hidden; color:var(--theme-text-soft); font:500 calc(7.4px * var(--ui-font-scale))/1.4 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
+.chat-agent-task-detail-grid pre { max-height:180px; margin:0; overflow:auto; padding:9px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-bg); color:var(--theme-text-muted); font:500 calc(7.2px * var(--ui-font-scale))/1.45 var(--mono-font-family); white-space:pre-wrap; overflow-wrap:anywhere; }
+
+/* Desktop Supervisor/Worker runtime management. Sized a step above the rest of
+   the app's dense panels on purpose: this is an operational control surface an
+   operator reads at a glance, not a compact inspector list. */
+.agent-runtime-drawer { container-type:inline-size; container-name:agent-runtime; height:100%; min-height:0; display:grid; grid-template-rows:46px auto auto minmax(0,1fr); background:color-mix(in srgb, var(--theme-bg) 94%, var(--theme-surface)); color:var(--theme-text); }
+.agent-runtime-heading-actions { display:flex; align-items:center; gap:2px; }
+.agent-runtime-drawer .agent-drawer-heading strong { font-size:calc(11.5px * var(--ui-font-scale)); }
+.agent-runtime-drawer .agent-drawer-heading .panel-kicker { font-size:calc(8.5px * var(--ui-font-scale)); }
+.agent-runtime-summary { min-height:58px; padding:10px 12px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
+.agent-runtime-summary span { min-width:0; padding:8px 10px; display:flex; align-items:baseline; gap:6px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); color:var(--theme-text-muted); }
+.agent-runtime-summary b { color:var(--theme-text); font:700 calc(13px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
+.agent-runtime-summary small { overflow:hidden; font-size:calc(8.6px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-tabs { min-height:43px; padding:6px 12px 0; display:flex; align-items:end; gap:3px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
+.agent-runtime-tabs button { min-width:0; min-height:36px; padding:0 10px; position:relative; display:flex; align-items:center; gap:7px; border:0; border-radius:8px 8px 0 0; background:transparent; color:var(--theme-text-muted); cursor:pointer; font-size:calc(9px * var(--ui-font-scale)); }
+.agent-runtime-tabs button:hover { background:var(--theme-hover); color:var(--theme-text-soft); }
+.agent-runtime-tabs button.active { color:var(--theme-text); background:color-mix(in srgb,var(--theme-surface) 72%,transparent); }
+.agent-runtime-tabs button.active::after { content:''; position:absolute; left:9px; right:9px; bottom:-1px; height:2px; border-radius:999px; background:var(--theme-accent); }
+.agent-runtime-tabs button span { font-weight:700; }
+.agent-runtime-tabs button small { padding:2px 5px; border:1px solid var(--theme-border-soft); border-radius:999px; color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); line-height:1; }
+.agent-runtime-tab-panel { min-height:0; overflow:auto; background:color-mix(in srgb,var(--theme-bg) 96%,var(--theme-surface)); }
+.agent-runtime-tab-panel.agents { overflow:hidden; display:grid; grid-template-rows:auto auto minmax(0,1fr); }
+.agent-runtime-tab-panel.agents .agent-runtime-body { height:100%; }
+.agent-runtime-state-legend { padding:7px 12px; display:flex; flex-wrap:wrap; gap:6px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
+.agent-runtime-state-legend > span { display:inline-flex; align-items:center; gap:6px; color:var(--theme-text-muted); font-size:calc(8px * var(--ui-font-scale)); white-space:nowrap; }
+.agent-runtime-tab-panel.policies { padding-bottom:10px; }
+.agent-runtime-memory-summary { padding:10px 12px; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; border-bottom:1px solid var(--theme-border-soft); background:color-mix(in srgb, var(--theme-bg) 96%, var(--theme-surface)); }
+.agent-runtime-memory-summary span { min-width:0; padding:8px 10px; display:grid; gap:4px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
+.agent-runtime-memory-summary small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-memory-summary b { overflow:hidden; color:var(--theme-text); font:700 calc(10.2px * var(--ui-font-scale))/1.2 var(--mono-font-family); font-variant-numeric:tabular-nums; text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-diagnostics { padding:10px 12px 11px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
+.agent-runtime-diagnostic-row { min-width:0; min-height:72px; padding:10px 11px; display:grid; align-content:start; gap:7px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); box-shadow:inset 0 2px 0 var(--theme-border-soft); }
+.agent-runtime-diagnostic-row.tone-success { box-shadow:inset 0 2px 0 color-mix(in srgb, var(--success) 72%, var(--theme-border)); }
+.agent-runtime-diagnostic-row.tone-warning { box-shadow:inset 0 2px 0 color-mix(in srgb, var(--warning) 72%, var(--theme-border)); }
+.agent-runtime-diagnostic-row.tone-danger { box-shadow:inset 0 2px 0 color-mix(in srgb, var(--danger) 72%, var(--theme-border)); }
+.agent-runtime-diagnostic-row > div:first-child { min-width:0; display:grid; gap:2px; }
+.agent-runtime-diagnostic-row strong { color:var(--theme-text); font-size:calc(10.2px * var(--ui-font-scale)); }
+.agent-runtime-diagnostic-row small,.agent-runtime-diagnostic-row > span,.agent-runtime-provider-action > span { min-width:0; max-width:none; overflow:hidden; color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-diagnostic-row > span { align-self:end; }
+.agent-runtime-provider-action { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.agent-runtime-provider-action button { min-height:28px; flex:0 0 auto; padding:0 10px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-elevated); color:var(--theme-text); font-size:calc(8.2px * var(--ui-font-scale)); cursor:pointer; }
+.agent-runtime-provider-action button:hover:not(:disabled) { border-color:color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border)); background:var(--theme-hover); }
+.agent-runtime-provider-action button:disabled { opacity:.45; cursor:default; }
+.agent-runtime-queue { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:6px; color:var(--theme-text-muted); font-size:calc(8px * var(--ui-font-scale)); }
+.agent-runtime-queue span { padding:4px 9px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-surface); }
+.agent-runtime-queue b { color:var(--theme-text-soft); font-family:var(--mono-font-family); font-variant-numeric:tabular-nums; }
+.agent-runtime-queue-times { grid-column:1/-1; padding-top:2px; display:flex; justify-content:space-between; gap:8px; color:var(--theme-text-muted); font-size:calc(7.8px * var(--ui-font-scale)); }
+.agent-runtime-pause { min-width:0; padding:10px 12px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
+.agent-runtime-pause.is-paused { background:color-mix(in srgb, var(--warning) 7%, var(--theme-bg)); }
+.agent-runtime-pause-copy { min-width:0; display:grid; gap:3px; }
+.agent-runtime-pause-copy strong { color:var(--theme-text); font-size:calc(11px * var(--ui-font-scale)); }
+.agent-runtime-pause-copy small { color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); line-height:1.4; }
+.agent-runtime-pause-controls { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
+.agent-runtime-pause-controls select,.agent-runtime-pause-controls input { min-height:32px; border:1px solid var(--theme-border); border-radius:8px; background:var(--theme-elevated); color:var(--theme-text); font-size:calc(8.8px * var(--ui-font-scale)); }
+.agent-runtime-pause-controls select { padding:0 8px; }
+.agent-runtime-pause-controls label { display:flex; align-items:center; gap:5px; color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); }
+.agent-runtime-pause-controls input { width:74px; padding:0 7px; font-family:var(--mono-font-family); font-variant-numeric:tabular-nums; }
+.agent-runtime-pause-controls .agent-runtime-icon-button { flex:0 0 auto; }
+.agent-runtime-pause-controls :disabled { opacity:.4; cursor:default; }
+.agent-runtime-task-suspension { margin:0; padding:9px 11px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 12px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
+.agent-runtime-task-suspension legend { padding:0 5px; color:var(--theme-text-muted); font-size:calc(8.5px * var(--ui-font-scale)); }
+.agent-runtime-task-suspension label { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:6px; color:var(--theme-text); font-size:calc(8.5px * var(--ui-font-scale)); }
+.agent-runtime-task-suspension code { overflow:hidden; color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); text-overflow:ellipsis; }
+.agent-runtime-scale { padding:10px 12px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
+.agent-runtime-scale-card { min-width:0; padding:9px 11px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:9px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
+.agent-runtime-scale-card > div:first-child { min-width:0; display:grid; gap:3px; }
+.agent-runtime-number-policy { display:flex; align-items:center; gap:5px; color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); }
+.agent-runtime-number-policy input { width:82px; min-height:32px; padding:0 7px; border:1px solid var(--theme-border); border-radius:8px; background:var(--theme-elevated); color:var(--theme-text); font:600 calc(9px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
+.agent-runtime-number-policy input:disabled { opacity:.45; }
+.agent-runtime-scale strong { color:var(--theme-text); font-size:calc(10.5px * var(--ui-font-scale)); }
+.agent-runtime-scale small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-stepper { display:grid; grid-template-columns:31px 40px 31px; height:32px; border:1px solid var(--theme-border); border-radius:8px; overflow:hidden; background:var(--theme-bg); }
+.agent-runtime-stepper button { border:0; background:var(--theme-elevated); color:var(--theme-text); cursor:pointer; font-size:16px; }
+.agent-runtime-stepper button:hover:not(:disabled) { background:var(--theme-hover); }
+.agent-runtime-stepper button:disabled { opacity:.35; cursor:default; }
+.agent-runtime-stepper b { display:grid; place-items:center; border-inline:1px solid var(--theme-border); color:var(--theme-text); background:var(--theme-bg); font:700 calc(10.5px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
+.agent-runtime-stepper.locked { opacity:.65; }
+.agent-runtime-body { min-height:0; padding:10px 12px 12px; display:grid; grid-template-columns:minmax(175px,.8fr) minmax(240px,1.2fr); gap:9px; background:color-mix(in srgb, var(--theme-bg) 94%, var(--theme-surface)); }
+.agent-runtime-list { min-height:0; overflow:auto; padding:7px; display:grid; align-content:start; gap:5px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
+.agent-runtime-list > button { --agent-state:var(--theme-text-muted); min-width:0; min-height:56px; padding:9px 10px; display:grid; grid-template-columns:9px minmax(0,1fr) auto; align-items:center; gap:8px; border:1px solid color-mix(in srgb,var(--agent-state) 20%,transparent); border-radius:8px; background:color-mix(in srgb,var(--agent-state) 4%,transparent); box-shadow:inset 3px 0 0 color-mix(in srgb,var(--agent-state) 72%,transparent); color:var(--theme-text); text-align:left; cursor:pointer; }
+.agent-runtime-list > button:hover { border-color:var(--theme-border-soft); background:var(--theme-hover); }
+.agent-runtime-list > button.active { border-color:color-mix(in srgb, var(--agent-state) 52%, var(--theme-border)); background:color-mix(in srgb, var(--agent-state) 11%, var(--theme-surface)); box-shadow:inset 4px 0 0 var(--agent-state); }
+.agent-runtime-list > button > span:nth-child(2) { min-width:0; display:grid; gap:3px; }
+.agent-runtime-list strong { overflow:hidden; font-size:calc(10.8px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-list small { overflow:hidden; color:var(--theme-text-muted); font-size:calc(8.6px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }

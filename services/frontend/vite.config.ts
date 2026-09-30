@@ -40,16 +40,16 @@ export default defineConfig(({ command }) => ({
         // automatic dynamic-import splitting was not separating them from
         // the entry chunk on its own here, so chunk assignment is explicit.
         manualChunks(id) {
-          if (id.includes('/src/components/GitDrawer')) return 'panel-git'
-          if (id.includes('/src/components/DatabaseExplorerPanel')) return 'panel-database'
-          if (id.includes('/src/components/ArtifactExplorerPanel')) return 'panel-artifacts'
-          if (id.includes('/src/components/AgentRuntimeDrawer')) return 'panel-runtime'
-          if (id.includes('/src/components/ChatAgentTasksDrawer')) return 'panel-tasks'
-          if (id.includes('/src/components/ProjectKnowledgeDrawer')) return 'panel-knowledge'
-          if (id.includes('/src/components/EvolutionEvidenceDrawer')) return 'panel-evolution'
-          if (id.includes('/src/components/AgentProjectExplorer')) return 'panel-explorer'
-          if (id.includes('/src/components/ProjectActivityDrawer')) return 'panel-activity'
-          if (id.includes('/src/components/ProjectTodoPanel')) return 'panel-todo'
+          if (id.includes('/src/components/git/review/GitDrawer')) return 'panel-git'
+          if (id.includes('/src/components/database/browser/DatabaseExplorerPanel')) return 'panel-database'
+          if (id.includes('/src/components/artifacts/explorer/ArtifactExplorerPanel')) return 'panel-artifacts'
+          if (id.includes('/src/components/agent/runtime/AgentRuntimeDrawer')) return 'panel-runtime'
+          if (id.includes('/src/components/chat/tasks/ChatAgentTasksDrawer')) return 'panel-tasks'
+          if (id.includes('/src/components/project/knowledge/ProjectKnowledgeDrawer')) return 'panel-knowledge'
+          if (id.includes('/src/components/project/knowledge/EvolutionEvidenceDrawer')) return 'panel-evolution'
+          if (id.includes('/src/components/agent/explorer/AgentProjectExplorer')) return 'panel-explorer'
+          if (id.includes('/src/components/project/tasks/ProjectActivityDrawer')) return 'panel-activity'
+          if (id.includes('/src/components/project/tasks/ProjectTodoPanel')) return 'panel-todo'
         },
       },
     },

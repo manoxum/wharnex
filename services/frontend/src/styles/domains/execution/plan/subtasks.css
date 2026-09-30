@@ -1,0 +1,118 @@
+/* Execution subtasks ----------------------------------------------------------- */
+.execution-main-request.tone-failed > .main-request-summary {
+  box-shadow: inset 3px 0 var(--theme-danger, #d66b62);
+}
+
+.execution-main-request.tone-active > .main-request-summary {
+  box-shadow: inset 3px 0 var(--theme-accent);
+}
+
+.execution-subtask-list {
+  max-height: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.execution-subtask {
+  overflow: hidden;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 11px;
+  background: var(--theme-elevated);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--theme-shadow) 10%, transparent);
+}
+
+.execution-subtask > .execution-subtask-summary {
+  min-height: 56px;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.execution-subtask > .execution-subtask-summary::-webkit-details-marker {
+  display: none;
+}
+
+.execution-subtask[open] > .execution-subtask-summary {
+  border-bottom: 1px solid var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-accent-soft) 12%, var(--theme-elevated));
+}
+
+.execution-subtask.tone-failed {
+  border-color: color-mix(in srgb, var(--theme-danger, #d66b62) 34%, var(--theme-border));
+}
+
+.execution-subtask.tone-active {
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border));
+}
+
+.execution-subtask-events {
+  background: var(--theme-surface);
+}
+
+.execution-subtask-events .execution-command-card {
+  border-bottom-color: var(--theme-border-soft);
+}
+
+.execution-subtask-events .execution-command-card:last-child {
+  border-bottom: 0;
+}
+
+.execution-subtask-events .execution-event {
+  min-height: 44px;
+  padding: 7px 10px;
+}
+
+.execution-subtask-events .execution-event-copy strong {
+  font-size: calc(8.8px * var(--ui-font-scale));
+}
+
+.execution-subtask-events .execution-command-output {
+  margin: 0 9px 9px 27px;
+}
+
+@container request-history (max-width: 660px) {
+  .main-request-block > .main-request-summary,
+  .main-request-plan-row > .main-request-plan-summary,
+  .execution-subtask > .execution-subtask-summary {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+  }
+  .main-request-summary-mark { width: 30px; height: 30px; border-radius: 9px; }
+  .main-request-summary-meta code,
+  .main-request-plan-meta code,
+  .execution-subtask-meta code { display: none; }
+  .main-request-summary-copy strong { white-space: normal; }
+}
+
+@container request-history (max-width: 460px) {
+  .main-request-block > .main-request-summary,
+  .main-request-plan-row > .main-request-plan-summary,
+  .execution-subtask > .execution-subtask-summary { gap: 7px; padding: 8px; }
+  .history-status { display: none; }
+  .main-request-plan-copy small,
+  .execution-subtask-copy small { white-space: normal; }
+}
+
+@container plan-view (max-width: 760px) {
+  .plan-heading { align-items: flex-start; }
+  .plan-heading-meta { padding-right: 4px; }
+  .plan-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .plan-impact-grid { grid-template-columns: 1fr; }
+}
+
+@container plan-view (max-width: 480px) {
+  .plan-heading { padding: 13px 12px 12px 15px; gap: 10px; }
+  .plan-heading h3 { font-size: calc(14px * var(--ui-font-scale)); }
+  .plan-heading-meta code { max-width: 170px; }
+  .plan-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plan-document,
+  .plan-impact-panel { padding: 12px; }
+}

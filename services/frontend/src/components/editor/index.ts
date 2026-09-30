@@ -1,0 +1,1 @@
+export { DeferredEditorWorkspace } from './canvas'

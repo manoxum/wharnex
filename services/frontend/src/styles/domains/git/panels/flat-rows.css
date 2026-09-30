@@ -1,0 +1,26 @@
+/* Git: tabs and rows carry hierarchy; container chrome stays secondary. */
+.git-heading-branch {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.git-tabs { padding-inline: 10px; background: var(--theme-surface); }
+.git-tab-content { padding: 0 14px 16px; gap: 0; }
+.git-section,
+.git-worktree-card,
+.git-branch-hero {
+  border: 1px solid var(--theme-border-soft);
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+  background: var(--theme-surface);
+  box-shadow: none;
+}
+.git-section { padding: 12px 0; gap: 10px; }
+.git-worktree-card,
+.git-branch-hero { padding: 10px 0; }
+.git-worktree-status { width: 30px; height: 30px; border-radius: var(--radius-control); }
+.git-action { border-radius: var(--radius-control); box-shadow: none; }
+.git-notice { border-radius: 0; }

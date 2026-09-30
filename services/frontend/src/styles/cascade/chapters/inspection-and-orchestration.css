@@ -1,0 +1,10 @@
+@import '../../domains/window/application-dialogs.css';
+@import '../../domains/window/dialogs-and-split.css';
+@import '../../domains/workspace/layout/agent-inspector.css';
+@import '../../domains/workspace/chrome/search-and-editor.css';
+@import '../../domains/chat/composer-workbench.css';
+@import '../../domains/artifacts/galleries.css';
+@import '../../domains/orchestrator/workspace.css';
+@import '../../domains/chat/transcript.css';
+@import '../../domains/settings/language-and-git.css';
+@import '../../domains/agent/task-queue.css';

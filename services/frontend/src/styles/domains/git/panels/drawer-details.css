@@ -1,0 +1,86 @@
+.git-tab-content {
+  padding: 12px;
+  gap: 10px;
+  background: color-mix(in srgb, var(--theme-bg) 97%, var(--theme-surface));
+  scrollbar-gutter: stable;
+}
+
+.git-tab-content > .git-changes-tabs {
+  margin: 0;
+}
+
+.git-changes-tabs {
+  width: 100%;
+  max-width: none;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-bg));
+  box-shadow: inset 0 1px color-mix(in srgb, var(--theme-text) 4%, transparent);
+}
+
+.git-changes-tabs button {
+  min-height: 32px;
+  height: 32px;
+  border-radius: 7px;
+}
+
+.git-changes-tabs button.active {
+  background: var(--theme-elevated);
+  box-shadow: inset 0 -2px var(--theme-accent), 0 1px 3px color-mix(in srgb, var(--theme-shadow) 58%, transparent);
+}
+
+.git-change-surface,
+.git-section {
+  margin: 0;
+  padding: 12px;
+  gap: 10px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface) 97%, var(--theme-bg));
+  box-shadow: inset 0 1px color-mix(in srgb, var(--theme-text) 3.5%, transparent);
+}
+
+.git-settings-stack {
+  padding-top: 0;
+  gap: 10px;
+}
+
+.git-section-heading > div > span,
+.git-change-surface-heading > div > span,
+.git-contributor-ranking-heading > div > span {
+  color: color-mix(in srgb, var(--theme-text-muted) 92%, var(--theme-accent));
+  letter-spacing: .09em;
+}
+
+.git-worktree-card,
+.git-branch-hero,
+.git-merge-card,
+.git-pending-list li,
+.git-remote-list li,
+.git-clean-state,
+.git-unpushed-summary,
+.git-contributor-card,
+.git-contribution-calendar,
+.git-contribution-chart {
+  border-color: color-mix(in srgb, var(--theme-border-soft) 90%, transparent);
+  border-radius: 10px;
+}
+
+.git-clean-state {
+  background: color-mix(in srgb, var(--theme-elevated) 72%, var(--theme-surface));
+}
+
+@container semantic-panel (max-width: 430px) {
+  .git-drawer-heading { min-height: 56px; padding-left: 9px; }
+  .git-heading-copy { grid-template-columns: 22px minmax(0, 1fr); column-gap: 7px; }
+  .git-heading-symbol { width: 22px; height: 22px; }
+  .git-heading-text { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .git-heading-branch { max-width: 100%; padding: 0; border: 0; background: transparent; }
+  .git-repository-summary { margin-inline: 8px; }
+  .git-tabs { padding-inline: 3px; }
+  .git-tabs button { padding-inline: 4px; }
+  .git-tab-content { padding: 9px; }
+  .git-change-surface, .git-section { padding: 10px; border-radius: 10px; }
+}

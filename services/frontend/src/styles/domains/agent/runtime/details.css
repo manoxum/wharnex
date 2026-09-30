@@ -1,0 +1,52 @@
+@container agent-runtime (max-width: 560px) {
+  .agent-runtime-tab-panel.policies {
+    padding: 10px;
+    gap: 8px;
+  }
+  .agent-runtime-policy-section {
+    padding: 9px;
+    border-radius: 12px;
+  }
+  .agent-runtime-policy-heading {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 5px;
+  }
+  .agent-runtime-policy-heading > small {
+    max-width: none;
+    justify-self: start;
+    text-align: left;
+  }
+  .agent-runtime-policy-grid {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+  .agent-runtime-policy-wide { grid-column: auto; }
+  .agent-runtime-worker-policy-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agent-runtime-worker-policy-controls select { width: 100%; min-width: 0; }
+  .agent-runtime-worker-policy-controls label { margin-left: 0; justify-content: flex-start; }
+  .agent-runtime-worker-policy-controls .agent-runtime-icon-button { justify-self: end; }
+  .agent-runtime-task-tree-branches { grid-template-columns: 1fr; }
+}
+
+@container agent-runtime (max-width: 410px) {
+  .agent-runtime-tab-panel.policies { padding: 8px; }
+  .agent-runtime-policy-section { padding: 8px; }
+  .agent-runtime-policy-heading { padding-bottom: 8px; }
+  .agent-runtime-policy-grid { padding-top: 8px; }
+  .agent-runtime-policy-section .agent-runtime-scale-card {
+    min-height: 0;
+    padding: 10px;
+  }
+  .agent-runtime-worker-policy { padding: 10px; }
+  .agent-runtime-worker-policy-heading { align-items: flex-start; }
+  .agent-runtime-worker-policy-controls { grid-template-columns: 1fr; }
+  .agent-runtime-worker-policy-controls label { justify-content: space-between; }
+  .agent-runtime-worker-policy-controls .agent-runtime-icon-button { justify-self: start; }
+  .agent-runtime-task-tree { padding-left: 14px; }
+  .agent-runtime-task-tree-root { margin-left: -14px; grid-template-columns: auto minmax(0, 1fr); }
+  .agent-runtime-task-tree-root > em { grid-column: 2; }
+  .agent-runtime-task-tree::before { left: 5px; }
+  .agent-runtime-task-tree-leaf { grid-template-columns: auto minmax(0, 1fr); }
+  .agent-runtime-task-tree-leaf code { grid-column: 2; max-width: 100%; }
+}

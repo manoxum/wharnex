@@ -1,0 +1,184 @@
+/* Agent runtime */
+.agent-runtime-summary {
+  padding: 12px 14px;
+  gap: 9px;
+  background: transparent;
+}
+.agent-runtime-summary span,
+.agent-runtime-memory-summary span {
+  border-color: color-mix(in srgb, var(--theme-border) 74%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface) 94%, var(--theme-elevated));
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 16%, transparent);
+}
+.agent-runtime-summary span {
+  min-height: 54px;
+  padding: 9px 11px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+.agent-runtime-summary b { font-size: calc(14px * var(--ui-font-scale)); }
+.agent-runtime-summary small { line-height: 1.25; }
+.agent-runtime-tabs { padding-inline: 12px; background: color-mix(in srgb, var(--theme-surface) 90%, var(--theme-bg)); }
+.agent-runtime-tab-panel { background: transparent; }
+.agent-runtime-state-legend,
+.agent-runtime-pause,
+.agent-runtime-memory-summary,
+.agent-runtime-diagnostics,
+.agent-runtime-scale,
+.agent-runtime-scope { background: transparent; }
+.agent-runtime-body { padding: 12px 14px 14px; gap: 11px; background: transparent; }
+.agent-runtime-list,
+.agent-runtime-detail {
+  border-color: color-mix(in srgb, var(--theme-border) 76%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--theme-shadow) 14%, transparent);
+}
+.agent-runtime-list { padding: 8px; gap: 6px; }
+.agent-runtime-list > button { min-height: 60px; border-radius: 10px; box-shadow: inset 3px 0 0 color-mix(in srgb,var(--agent-state) 68%,transparent); }
+.agent-runtime-detail { padding: 15px 16px 17px; }
+.agent-runtime-memory-summary { padding: 12px 14px 10px; gap: 9px; border-bottom: 0; }
+.agent-runtime-diagnostics { padding: 0 14px 12px; gap: 9px; }
+.agent-runtime-diagnostic-row {
+  min-height: 82px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated));
+  box-shadow: inset 0 2px 0 var(--theme-border-soft), 0 5px 16px color-mix(in srgb, var(--theme-shadow) 12%, transparent);
+}
+.agent-runtime-scale { padding: 12px 14px; gap: 9px; border-bottom: 0; }
+.agent-runtime-scale-card {
+  min-height: 64px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated));
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--theme-shadow) 12%, transparent);
+}
+.agent-runtime-scale small { overflow: visible; white-space: normal; line-height: 1.35; }
+.agent-runtime-pause { margin: 10px 14px 0; padding: 12px; border: 1px solid var(--theme-border-soft); border-radius: 12px; }
+.agent-runtime-state-legend { padding: 8px 14px; }
+.agent-runtime-tab-panel.agents { grid-template-rows: auto minmax(0, 1fr); }
+
+.agent-runtime-tab-panel.policies {
+  padding: 14px 14px 18px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.agent-runtime-policy-section {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 68%, transparent);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--theme-surface) 95%, var(--theme-bg));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--theme-shadow) 10%, transparent);
+}
+.agent-runtime-policy-heading {
+  min-width: 0;
+  padding: 1px 2px 11px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, .9fr);
+  align-items: end;
+  gap: 12px;
+  border-bottom: 1px solid var(--theme-border-soft);
+}
+.agent-runtime-policy-heading > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.agent-runtime-policy-heading span {
+  color: var(--theme-text-muted);
+  font-size: calc(7.2px * var(--ui-font-scale));
+  font-weight: 720;
+  letter-spacing: .075em;
+  text-transform: uppercase;
+}
+.agent-runtime-policy-heading h3 {
+  margin: 0;
+  color: var(--theme-text);
+  font-size: calc(11.6px * var(--ui-font-scale));
+  line-height: 1.25;
+  letter-spacing: -.01em;
+}
+.agent-runtime-policy-heading > small {
+  max-width: 300px;
+  justify-self: end;
+  color: var(--theme-text-muted);
+  font-size: calc(7.8px * var(--ui-font-scale));
+  line-height: 1.42;
+  text-align: right;
+}
+.agent-runtime-policy-grid {
+  min-width: 0;
+  padding-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.agent-runtime-policy-wide { grid-column: 1 / -1; }
+.agent-runtime-policy-section .agent-runtime-pause {
+  margin: 0;
+  padding: 11px 12px;
+  border-color: color-mix(in srgb, var(--theme-border) 80%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-elevated) 68%, var(--theme-surface));
+  box-shadow: none;
+}
+.agent-runtime-policy-section .agent-runtime-pause.is-paused {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--theme-border));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--warning) 72%, var(--theme-border));
+}
+.agent-runtime-policy-section .agent-runtime-scale-card {
+  min-height: 76px;
+  padding: 12px 13px;
+  border-color: color-mix(in srgb, var(--theme-border) 72%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--theme-elevated) 62%, var(--theme-surface));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 3%, transparent);
+}
+.agent-runtime-policy-section .agent-runtime-scale-card > div:first-child {
+  align-self: start;
+  gap: 4px;
+}
+.agent-runtime-policy-grid strong {
+  color: var(--theme-text);
+  font-size: calc(10.3px * var(--ui-font-scale));
+  line-height: 1.25;
+}
+.agent-runtime-policy-grid small {
+  overflow: visible;
+  color: var(--theme-text-muted);
+  font-size: calc(8px * var(--ui-font-scale));
+  line-height: 1.42;
+  text-overflow: clip;
+  white-space: normal;
+}
+.agent-runtime-policy-grid .agent-runtime-stepper,
+.agent-runtime-policy-grid .agent-runtime-number-policy,
+.agent-runtime-policy-grid > .agent-runtime-scale-card > .agent-runtime-icon-button {
+  align-self: center;
+}
+
+.agent-runtime-worker-policy {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 72%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--theme-elevated) 72%, var(--theme-surface)), color-mix(in srgb, var(--theme-surface) 97%, var(--theme-bg)));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 3%, transparent);
+}
+.agent-runtime-worker-policy.is-paused {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--theme-border));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--warning) 68%, var(--theme-border));
+}
+.agent-runtime-worker-policy-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}

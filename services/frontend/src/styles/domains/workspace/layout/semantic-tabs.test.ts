@@ -1,0 +1,36 @@
+import { describe, expect, it } from 'vitest'
+import { css, lastRule } from '../../../cascade/styleRules'
+
+describe('canonical workbench tab CSS', () => {
+  it('keeps semantic tabs flat with one accent underline instead of mixed pills/cards', () => {
+    const canonical = css.slice(css.lastIndexOf('/* Canonical workbench tabs'))
+    const gitTabs = lastRule('.git-tabs')
+    const gitChangeTabs = lastRule('.git-changes-tabs')
+
+    expect(canonical).toContain('.project-source-tabs,')
+    expect(canonical).toContain('.context-view-switch,')
+    expect(canonical).toContain('.agent-runtime-tabs,')
+    expect(canonical).toContain('.composer-attachment-tabs,')
+    expect(canonical).toContain('.database-workspace-tabs,')
+    expect(canonical).toContain('.database-object-kind-tabs,')
+    expect(canonical).toContain('.file-library-tabs,')
+    expect(canonical).toContain('.agent-chat-management-tabs {')
+    expect(canonical).toContain(".project-todo-tabs button[aria-pressed='true']::after")
+    expect(canonical).toContain(".agent-chat-management-tabs button[aria-selected='true']::after")
+    expect(canonical).toContain('.chat-tab-group.active {')
+    expect(canonical).toContain('.chat-tab-group.active .chat-tab { color: var(--theme-text); font-weight: 700; }')
+    expect(canonical).toContain('.editor-tab.active {')
+    expect(lastRule('.chat-tab-group.active')).toContain('var(--theme-accent-soft)')
+    expect(lastRule('.editor-tab.active')).toContain('var(--theme-accent-soft)')
+    expect(canonical).toContain('.terminal-tab-shell.active {')
+    expect(canonical).toContain('.agent-chat-surface-tabs button.active {')
+    expect(canonical).toContain('background: var(--theme-accent)')
+    expect(gitTabs).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))')
+    expect(gitTabs).toContain('overflow: visible')
+    expect(gitTabs).toContain('background: var(--theme-surface)')
+    expect(gitChangeTabs).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(gitChangeTabs).toContain('overflow: visible')
+    expect(lastRule('.project-todo-tabs')).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))')
+    expect(lastRule('.agent-chat-management-tabs')).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+  })
+})

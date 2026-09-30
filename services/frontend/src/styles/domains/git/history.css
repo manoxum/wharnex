@@ -1,0 +1,111 @@
+/* Branch-history commit diff: clearer hierarchy, denser metadata and a calmer review canvas. */
+.git-history-commit-modal {
+  width: min(1680px, calc(100vw - 32px));
+  height: min(860px, calc(100dvh - 32px));
+  border-color: color-mix(in srgb, var(--theme-accent) 20%, var(--theme-border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--theme-elevated) 96%, var(--theme-accent) 4%);
+  box-shadow: 0 28px 90px color-mix(in srgb, var(--theme-shadow) 88%, transparent), 0 0 0 1px color-mix(in srgb, var(--theme-accent) 7%, transparent);
+}
+.git-history-commit-modal > .git-history-commit-header {
+  min-height: 78px;
+  padding: 11px 12px 11px 16px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--theme-surface) 94%, var(--theme-accent) 6%), var(--theme-surface));
+}
+.git-history-commit-modal > .git-history-commit-header > .git-history-commit-heading { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 11px; }
+.git-history-commit-icon {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 30%, var(--theme-border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--theme-accent) 10%, var(--theme-bg));
+  color: var(--theme-accent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+}
+.git-history-commit-copy { min-width: 0; display: grid; gap: 4px; }
+.git-history-commit-eyebrow { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.git-history-commit-eyebrow code {
+  max-width: 92px;
+  overflow: hidden;
+  padding: 3px 6px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--theme-bg) 76%, transparent);
+  color: var(--theme-text-soft);
+  font: 650 calc(6.8px * var(--ui-font-scale))/1 var(--mono-font-family, monospace);
+  text-overflow: ellipsis;
+}
+.git-history-commit-modal > header .git-history-commit-copy > strong { font-size: calc(10.8px * var(--ui-font-scale)); line-height: 1.25; }
+.git-history-commit-byline { display: flex; align-items: center; gap: 7px; color: var(--theme-text-muted); font-size: calc(7.2px * var(--ui-font-scale)); }
+.git-history-commit-byline time::before { content: '·'; margin-right: 7px; color: var(--theme-border); }
+.git-history-commit-modal > .git-history-commit-header > .git-history-commit-actions {
+  min-width: 0;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.git-history-commit-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(54px, auto));
+  overflow: hidden;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-bg) 78%, transparent);
+}
+.git-history-commit-stat {
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 9px;
+  display: grid;
+  align-content: center;
+  justify-items: end;
+  gap: 3px;
+  border: 0;
+  border-left: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+}
+.git-history-commit-stat:first-child { border-left: 0; }
+.git-history-commit-stat b { font: 750 calc(8px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); }
+.git-history-commit-stat small { color: var(--theme-text-muted); font-size: calc(6.2px * var(--ui-font-scale)); font-weight: 650; letter-spacing: .02em; }
+.git-history-commit-stat.additions b { color: #78b884; }
+.git-history-commit-stat.deletions b { color: #cf7d75; }
+.git-history-commit-stat.files b { color: var(--theme-text-soft); }
+.git-history-commit-close { flex: 0 0 auto; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: color-mix(in srgb, var(--theme-bg) 82%, transparent); }
+.git-history-commit-disclosure { padding: 0 16px; background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg)); }
+.git-history-commit-disclosure > summary { min-height: 36px; }
+.git-history-commit-modal > .git-diff-review { grid-template-columns: minmax(230px, 27%) minmax(0, 1fr); background: var(--theme-bg); }
+.git-history-commit-modal .git-diff-review-files { padding: 8px; gap: 4px; background: color-mix(in srgb, var(--theme-surface) 94%, var(--theme-bg)); }
+.git-history-commit-modal .git-diff-review-file-list > button { min-height: 36px; padding: 8px 9px; border-radius: 8px; }
+.git-history-commit-modal .git-diff-review-file-list > button.active {
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border));
+  background: color-mix(in srgb, var(--theme-accent) 11%, var(--theme-surface));
+  box-shadow: inset 2px 0 0 var(--theme-accent);
+}
+.git-history-commit-modal .git-diff-review-file-heading { min-height: 36px; padding: 0 12px; background: color-mix(in srgb, #1b1e19 90%, var(--theme-accent) 3%); }
+.git-history-commit-modal .change-diff-toolbar { min-height: 42px; padding: 6px 10px 6px 12px; }
+.git-history-commit-modal .change-diff-editor { background: #121411; }
+
+@media (max-width: 760px) {
+  .git-history-commit-modal { width: 100%; height: calc(100dvh - 16px); border-radius: 10px; }
+  .git-history-commit-modal > .git-history-commit-header { align-items: flex-start; }
+  .git-history-commit-modal > .git-history-commit-header > .git-history-commit-actions { align-items: flex-start; }
+  .git-history-commit-stats { grid-template-columns: repeat(2, minmax(42px, auto)); }
+  .git-history-commit-stat { min-height: 30px; padding: 5px 7px; }
+  .git-history-commit-stat small { display: none; }
+  .git-history-commit-stat.files { display: none; }
+  .git-history-commit-modal > .git-diff-review { grid-template-columns: 1fr; grid-template-rows: minmax(110px, 26%) minmax(0, 1fr); }
+  .git-history-commit-modal > .git-diff-review.files-collapsed { grid-template-rows: 38px minmax(0, 1fr); }
+}
+
+@media (max-width: 520px) {
+  .git-history-commit-icon { display: none; }
+  .git-history-commit-stats { display: none; }
+  .git-history-commit-modal > .git-history-commit-header { min-height: 60px; padding-left: 12px; }
+  .git-history-commit-disclosure { padding: 0 12px; }
+}

@@ -1,10 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
+import App from './app/workspace/App'
 import './styles/index.css'
-import { applyUIPreferences, loadUIPreferences, subscribeUIPreferences, syncUIPreferences } from './lib/uiPreferences'
-import { api } from './lib/api'
-import { applyInterfaceLanguage } from './lib/languageSettings'
+import { applyUIPreferences, loadUIPreferences, subscribeUIPreferences, syncUIPreferences } from './lib/workspace/preferences/uiPreferences'
+import { api } from './lib/transport/http/api'
+import { applyInterfaceLanguage } from './lib/project/connections/languageSettings'
 
 function start() {
   const uiPreferences = loadUIPreferences()

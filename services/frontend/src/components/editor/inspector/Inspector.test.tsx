@@ -1,0 +1,385 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Session } from '../../../types'
+import type { WorkspaceChat } from '../../../lib/chat/history/workspaceMemory'
+import { Inspector } from './Inspector'
+
+function legacySession(): Session {
+  return {
+    id: 'ses-legacy',
+    project_path: '/tmp/demo',
+    state: 'planned',
+    execution_mode: 'protected',
+    automation_mode: 'manual',
+    created_at: new Date().toISOString(),
+    context: {
+      id: 'ctx-legacy',
+      manifest: { id: 'ctx-legacy', project_root: '/tmp/demo', sha256: 'abc', files: [], excluded: [], text_truncated: false },
+    },
+    plan: {
+      protocol: 'harness.execution/v1',
+      plan_id: 'plan-legacy',
+      request_id: 'req-legacy',
+      status: 'ready',
+      summary: 'Plano sem operações',
+      risk: 'low',
+      requires_approval: false,
+      operations: null as unknown as [],
+      verification: null as unknown as [],
+    },
+    policy: { allowed: true, requires_approval: false, risk: 'low', reasons: [] },
+  }
+}
+
+describe('Inspector plan compatibility', () => {
+  it('opens a persisted plan whose operation collections are null', () => {
+    render(<Inspector
+      config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={legacySession()}
+      events={[]}
+      manualPrompt=""
+      busy={false}
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={async () => ''}
+      onSession={() => undefined}
+    />)
+    expect(screen.getByText('Plano sem operações')).toBeTruthy()
+    expect(document.querySelector('.plan-control-surface')).toBeTruthy()
+    expect(document.querySelector('.plan-command-deck')).toBeNull()
+    expect(screen.getByText('Operações').parentElement?.textContent).toContain('0')
+    expect(screen.getByText('Verificações').parentElement?.textContent).toContain('0')
+  })
+
+  it('shows plan patches as file-level diffs with manual fallback actions', () => {
+    const session = legacySession()
+    session.plan = {
+      ...session.plan!,
+      operations: [{
+        type: 'apply_patch',
+        patch: 'diff --git a/src/demo.ts b/src/demo.ts\n--- a/src/demo.ts\n+++ b/src/demo.ts\n@@ -1 +1 @@\n-old\n+new\n',
+        command: { argv: [], cwd: '.', timeout_seconds: 60, network: false, expected_exit_codes: [0] },
+      }],
+      verification: [],
+    }
+    render(<Inspector
+      config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={session}
+      events={[]}
+      manualPrompt=""
+      busy={false}
+      activeTab="plan"
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={async () => ''}
+      onSession={() => undefined}
+    />)
+    const downloadPatches = screen.getByRole('button', { name: /Descarregar patches/i })
+    expect(downloadPatches).toBeTruthy()
+    expect(downloadPatches.closest('.plan-control-surface')).toBeTruthy()
+    expect(downloadPatches.closest('.plan-manual-tools')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Copiar lote de comandos/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /src\/demo\.ts/i })).toBeTruthy()
+    expect(screen.queryByText(/diff --git a\/src\/demo\.ts/)).toBeNull()
+  })
+
+  it('distinguishes the approved chat plan from the later execution plan', () => {
+    const session = legacySession()
+    session.plan = {
+      ...session.plan!, protocol: 'harness.execution/v2', document: '## Execução\nAlterações locais completas.', dependencies: [], system_tools: [],
+      approved_chat_plan: { protocol: 'harness.chat-plan/v1', request_id: 'req-proposal', sha256: 'a'.repeat(64), document: '## Proposta aprovada\nImplementar o fluxo definido.' },
+    }
+    render(<Inspector config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }} session={session} events={[]} manualPrompt="" busy={false} activeTab="plan" onChatGPTURL={() => true} onExecute={async () => undefined} onManualPlan={async () => undefined} onPlanFile={async () => ''} onBundleFile={async () => ''} onSession={() => undefined}/>)
+    expect(screen.getByText('Plano do Chat aprovado')).toBeTruthy()
+    expect(screen.getByText('Plano de execução')).toBeTruthy()
+    expect(screen.getByText('Implementar o fluxo definido.')).toBeTruthy()
+    expect(screen.getByText('Alterações locais completas.')).toBeTruthy()
+  })
+
+  it('offers an adjustment action beside reject and execute for an unexecuted plan', () => {
+    const onAdjustExecutionPlan = vi.fn()
+    render(<Inspector config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }} session={legacySession()} events={[]} manualPrompt="" busy={false} activeTab="plan" onChatGPTURL={() => true} onExecute={async () => undefined} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={async () => undefined} onManualPlan={async () => undefined} onPlanFile={async () => ''} onBundleFile={async () => ''} onSession={() => undefined}/>)
+    expect(screen.getByRole('button', { name: /^Rejeitar$/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Ajustar$/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Aceitar e executar/i })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Ajustar$/i }))
+    expect(onAdjustExecutionPlan).toHaveBeenCalledTimes(1)
+  })
+})
+
+it('hides the execute control while the active plan already has a durable execution intent', () => {
+  const session = legacySession()
+  session.interrupted_execution = { plan_id: session.plan!.plan_id, requested_at: '2026-09-12T19:00:00.000Z', approved: false, status: 'running' }
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
+})
+
+it('shows workflow as a local probe without exposing change execution controls', () => {
+  const session = legacySession()
+  session.automation_mode = 'auto'
+  session.workflow_round = 2
+  session.last_turn = { protocol: 'harness.turn/v1', request_id: 'req-legacy', kind: 'workflow', message: 'Confirmar capacidade local.' }
+  session.plan = {
+    ...session.plan!,
+    summary: 'Inspecionar capacidades existentes',
+    operations: [{
+      type: 'command', patch: '',
+      command: { argv: ['git', 'status', '--short'], cwd: '.', timeout_seconds: 30, network: false, expected_exit_codes: [0] },
+    }],
+    verification: [],
+  }
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[{ id: 'evt-wf', session_id: session.id, type: 'workflow.started', timestamp: new Date().toISOString(), data: { round: 2 } }]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  expect(screen.getByText(/Workflow local 2\/6/i)).toBeTruthy()
+  expect(screen.getByText('Probe autorizada')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
+  expect(screen.queryByRole('button', { name: /Aplicar no host/i })).toBeNull()
+})
+
+it('never asks for a second host-apply approval after a verified execution', () => {
+  const session = legacySession()
+  session.state = 'verified'
+  session.last_execution = { plan_id: session.plan!.plan_id, success: true, started_at: new Date().toISOString(), completed_at: new Date().toISOString(), commands: [] }
+  session.pending_host_changes = [
+    { plan: session.plan!, execution: session.last_execution, verified_at: session.last_execution.completed_at },
+    { plan: { ...session.plan!, plan_id: 'plan-fix', summary: 'Correção incremental' }, execution: { ...session.last_execution, plan_id: 'plan-fix' }, verified_at: session.last_execution.completed_at },
+  ]
+  const onReject = vi.fn(async () => undefined)
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onRejectPendingChanges={onReject}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  expect(screen.queryByRole('button', { name: /Aplicar no host/i })).toBeNull()
+  expect(screen.getByText('Integração pendente de recuperação')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /^Rejeitar$/i }))
+  expect(onReject).toHaveBeenCalledOnce()
+})
+
+
+it('does not expose execution again after a self-evolution plan is applied or restart-pending', () => {
+  for (const state of ['restart_pending', 'restart_scheduled', 'applied']) {
+    const session = legacySession()
+    session.self_evolution = true
+    session.state = state
+    session.last_execution = { plan_id: session.plan!.plan_id, success: true, started_at: new Date().toISOString(), completed_at: new Date().toISOString(), commands: [] }
+    const { unmount } = render(<Inspector
+      config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+      session={session}
+      events={[]}
+      manualPrompt=""
+      busy={false}
+      onChatGPTURL={() => true}
+      onExecute={async () => undefined}
+      onManualPlan={async () => undefined}
+      onPlanFile={async () => ''}
+      onBundleFile={async () => ''}
+      onSession={() => undefined}
+    />)
+    expect(screen.queryByRole('button', { name: /^Executar$/i })).toBeNull()
+    unmount()
+  }
+})
+
+
+it('blocks apply while a baseline adaptation is active', () => {
+  const session = legacySession()
+  session.state = 'baseline_update_pending'
+  session.planner_in_flight = true
+  session.last_execution = { plan_id: session.plan!.plan_id, success: true, started_at: new Date().toISOString(), completed_at: new Date().toISOString(), commands: [] }
+  session.pending_host_changes = [
+    { plan: session.plan!, execution: session.last_execution, verified_at: session.last_execution.completed_at },
+  ]
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onRejectPendingChanges={async () => undefined}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  expect(screen.queryByRole('button', { name: /Aplicar no host/i })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Rejeitar$/i })).toBeNull()
+})
+
+
+it('shows streamed command output immediately below the command event', () => {
+  const session = legacySession()
+  const timestamp = '2026-09-03T23:10:00.000Z'
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[
+      { id: 'evt-start', session_id: session.id, type: 'command.started', timestamp, data: { run_id: 'run-1', argv: ['go', 'test', './...'], cwd: '.', target: 'sandbox' } },
+      { id: 'evt-output', session_id: session.id, type: 'command.output', timestamp, data: { run_id: 'run-1', stream: 'stdout', text: 'package ok\n', target: 'sandbox' } },
+      { id: 'evt-error', session_id: session.id, type: 'command.output', timestamp, data: { run_id: 'run-1', stream: 'stderr', text: 'warning detail\n', target: 'sandbox' } },
+      { id: 'evt-done', session_id: session.id, type: 'command.completed', timestamp, data: { run_id: 'run-1', argv: ['go', 'test', './...'], exit_code: 0, success: true, stdout: 'package ok\n', target: 'sandbox' } },
+    ]}
+    manualPrompt=""
+    busy={false}
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  fireEvent.click(screen.getByRole('button', { name: /Execução/ }))
+  const output = document.querySelector('.execution-command-output')
+  expect(output?.textContent).toContain('package ok')
+  expect(output?.textContent).toContain('warning detail')
+  expect(output?.textContent).not.toContain('[stdout]')
+  expect(output?.textContent).not.toContain('[stderr]')
+  expect(document.querySelector('.execution-output-segment.stderr')?.textContent).toContain('warning detail')
+  expect(document.querySelector('.execution-output-segment.stderr')?.getAttribute('data-stream')).toBe('stderr')
+  expect(document.querySelectorAll('.execution-command-output')).toHaveLength(1)
+  expect(document.querySelectorAll('.execution-command-card')).toHaveLength(1)
+  expect(document.querySelector('.execution-log-panel')).toBeNull()
+})
+
+class TestResizeObserver { observe() {}; disconnect() {}; unobserve() {} }
+
+function desktopBridge() {
+  const noopSubscription = () => () => undefined
+  const stateFor = (cacheKey: string) => ({ url: 'https://chatgpt.com/', title: 'ChatGPT', loading: false, canGoBack: false, canGoForward: false, authMode: 'embedded' as const, authWindowOpen: false, authenticated: false, cacheKey })
+  return {
+    platform: 'linux', projects: { pickDirectory: vi.fn() },
+    chatgpt: {
+      show: vi.fn().mockResolvedValue({ ok: true }), hide: vi.fn().mockResolvedValue({ ok: true }), setBounds: vi.fn().mockResolvedValue({ ok: true }),
+      navigate: vi.fn((_url: string, cacheKey: string) => Promise.resolve(stateFor(cacheKey))), confirmAffinity: vi.fn(), rejectAffinity: vi.fn(), reload: vi.fn(), focus: vi.fn(), back: vi.fn(), forward: vi.fn(), paste: vi.fn(), submitPrompt: vi.fn(), preparePrompt: vi.fn(), attachContext: vi.fn(), attachPrompt: vi.fn(), submitPrepared: vi.fn(), continueExpectedBundle: vi.fn(), stopConversation: vi.fn(),
+      state: vi.fn((cacheKey: string) => Promise.resolve(stateFor(cacheKey))), release: vi.fn(), setAuthMode: vi.fn(), startAuth: vi.fn(), openExternal: vi.fn(), resumeEmbedded: vi.fn(), pickBundle: vi.fn(),
+      onState: vi.fn(noopSubscription), onExternalAuth: vi.fn(noopSubscription), onAuthComplete: vi.fn(noopSubscription), onAuthError: vi.fn(noopSubscription),
+      onPlanDownloaded: vi.fn(noopSubscription), onPlanDownloadError: vi.fn(noopSubscription), onBundleDownloaded: vi.fn(noopSubscription), onBundleDownloadError: vi.fn(noopSubscription),
+      onActivity: vi.fn(noopSubscription),
+    },
+    attachments: { persist: vi.fn(), preview: vi.fn(), open: vi.fn(), removeChat: vi.fn() }, clipboard: { copyContextZip: vi.fn(), readText: vi.fn(), writeText: vi.fn() },
+  } as unknown as WharnessDesktopBridge
+}
+
+function workspaceChat(id: string, title: string): WorkspaceChat {
+  return { id, title, sessionId: `ses-${id}`, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+}
+
+describe('Inspector ChatGPT engine pool (desktop)', () => {
+  beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver) })
+  afterEach(() => { cleanup(); delete window.wharnessDesktop; vi.unstubAllGlobals() })
+
+  it('keeps exactly one Supervisor pane while the active chat changes', async () => {
+    const desktop = desktopBridge(); window.wharnessDesktop = desktop
+    const chatA = workspaceChat('chat-a', 'Chat A')
+    const chatB = workspaceChat('chat-b', 'Chat B')
+    const sessionA = { ...legacySession(), id: chatA.sessionId }
+    const sessionB = { ...legacySession(), id: chatB.sessionId }
+    const props = {
+      config: { planner: 'manual', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false } as const,
+      events: [], manualPrompt: '', busy: false, chats: [chatA, chatB],
+      onChatGPTURL: () => true, onExecute: async () => undefined,
+      onManualPlan: async () => undefined, onPlanFile: async () => '', onBundleFile: async () => '', onSession: () => undefined,
+    }
+    const view = render(<Inspector {...props} session={sessionA} chat={chatA} />)
+
+    await waitFor(() => expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(1))
+    await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalledWith(expect.anything(), 'chat-a', expect.anything()))
+    expect(desktop.chatgpt.state).toHaveBeenCalledTimes(1)
+
+    act(() => { view.rerender(<Inspector {...props} session={sessionB} chat={chatB} />) })
+
+    await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalledWith(expect.anything(), 'chat-b', expect.anything()))
+    expect(document.querySelectorAll('.desktop-chatgpt-pool-item')).toHaveLength(1)
+    expect(desktop.chatgpt.state).toHaveBeenCalledTimes(1)
+  })
+})
+
+it('keeps auto-approve pause and suspend controls usable while execution is busy', () => {
+  const session = legacySession()
+  session.automation_mode = 'auto_approve'
+  const onControlExecutionPlan = vi.fn(async () => undefined)
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={true}
+    activeTab="plan"
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onControlExecutionPlan={onControlExecutionPlan}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  const pause = screen.getByRole('button', { name: /^Pausar$/i }) as HTMLButtonElement
+  const suspend = screen.getByRole('button', { name: /^Suspender$/i }) as HTMLButtonElement
+  expect(pause.disabled).toBe(false)
+  expect(suspend.disabled).toBe(false)
+  fireEvent.click(pause)
+  expect(onControlExecutionPlan).toHaveBeenCalledWith('pause')
+})
+
+it('offers GPT-calculated reversal after the active plan reached the host', () => {
+  const session = legacySession()
+  session.state = 'applied'
+  session.last_execution = { plan_id: session.plan!.plan_id, success: true, started_at: new Date().toISOString(), completed_at: new Date().toISOString(), commands: [] }
+  session.last_applied_changes = [{ plan: session.plan!, execution: session.last_execution, verified_at: session.last_execution.completed_at }]
+  const onPrepareExecutionPlanReversal = vi.fn(async () => undefined)
+  render(<Inspector
+    config={{ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false }}
+    session={session}
+    events={[]}
+    manualPrompt=""
+    busy={false}
+    activeTab="plan"
+    onChatGPTURL={() => true}
+    onExecute={async () => undefined}
+    onPrepareExecutionPlanReversal={onPrepareExecutionPlanReversal}
+    onManualPlan={async () => undefined}
+    onPlanFile={async () => ''}
+    onBundleFile={async () => ''}
+    onSession={() => undefined}
+  />)
+  fireEvent.click(screen.getByRole('button', { name: /Reverter com GPT/i }))
+  expect(onPrepareExecutionPlanReversal).toHaveBeenCalledOnce()
+})

@@ -1,0 +1,18 @@
+/* Operational surface refinement — denser information, calmer chrome and
+   clearer hierarchy across the agent, Git, task and knowledge drawers. */
+.agent-runtime-drawer,
+.git-drawer,
+.chat-agent-tasks-drawer,
+.project-knowledge-drawer,
+.agent-archive-drawer {
+  background: color-mix(in srgb, var(--theme-bg) 97%, var(--theme-surface));
+}
+.agent-runtime-drawer .agent-drawer-heading,
+.git-drawer .agent-drawer-heading,
+.chat-agent-tasks-drawer .agent-drawer-heading,
+.project-knowledge-drawer .agent-drawer-heading,
+.agent-archive-drawer .agent-drawer-heading {
+  min-height: 52px;
+  padding-inline: 14px 11px;
+  background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg));
+}
