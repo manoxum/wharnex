@@ -3,6 +3,7 @@ import { artifactPreviewDefinition, type ArtifactPreviewKind } from '../../../li
 import { MarkdownContent } from '../../presentation/content/MarkdownContent'
 import { TranslatableMarkdown } from '../../presentation/content/TranslatableMarkdown'
 import { Icon } from '../../presentation/chrome/Icon'
+import { DrawioPreview } from './DrawioPreview'
 
 const MAX_TEXT_PREVIEW_BYTES = 16 * 1024 * 1024
 
@@ -22,7 +23,7 @@ export function ArtifactPreview({ path, url, size, kind: declaredKind, mode = 'p
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [truncated, setTruncated] = useState(false)
-  const needsText = kind === 'text' || kind === 'markdown' || kind === 'office' || (kind === 'html' && mode === 'raw')
+  const needsText = kind === 'text' || kind === 'markdown' || kind === 'office' || ((kind === 'html' || kind === 'drawio') && mode === 'raw')
   useEffect(() => {
     if (!needsText) return
     const controller = new AbortController(); let alive = true
@@ -35,6 +36,7 @@ export function ArtifactPreview({ path, url, size, kind: declaredKind, mode = 'p
   if (kind === 'image') return <div className="artifact-media-preview"><img src={url} alt={path} loading="lazy" /></div>
   if (kind === 'audio') return <div className="artifact-media-preview"><audio src={url} controls preload="metadata" /></div>
   if (kind === 'video') return <div className="artifact-media-preview"><video src={url} controls preload="metadata" /></div>
+  if (kind === 'drawio' && mode === 'preview') return <DrawioPreview path={path} url={url} size={size} compact={compact}/>
   if (kind === 'pdf' || (kind === 'html' && mode === 'preview')) return <iframe className="artifact-document-frame" src={url} title={`Pré-visualização de ${path}`} sandbox={kind === 'html' ? '' : undefined} referrerPolicy="no-referrer" loading="lazy" />
   if (kind === 'binary') return <PreviewEmpty title="Formato sem pré-visualização segura" text={`${size.toLocaleString('pt-PT')} bytes · descarregue para abrir no programa apropriado.`} />
   if (loading) return <div className="artifact-preview-empty"><span className="spinner"/>A abrir por stream…</div>

@@ -8,7 +8,7 @@ vi.mock('../../../lib/transport/http/api', () => ({ api: {
   artifactURL: (_sessionId: string, artifactId: string, preview = false) => `/artifact/${artifactId}${preview ? '?preview=1' : ''}`,
 } }))
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('ArtifactViewerModal', () => {
   const items: ArtifactPresentationItem[] = [
@@ -42,6 +42,18 @@ describe('ArtifactViewerModal', () => {
     brightness.focus()
     fireEvent.keyDown(brightness, { key: 'ArrowRight' })
     expect(screen.getByText('Imagem A')).toBeTruthy()
+  })
+
+  it('switches Draw.io between the local visual preview and raw source', async () => {
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n" value="Gateway" vertex="1" parent="1"><mxGeometry x="10" y="10" width="120" height="60" as="geometry"/></mxCell></root></mxGraphModel>'
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, body: null, headers: { get: () => null }, text: async () => source }) as unknown as Response))
+    render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={[{ path: 'artifacts/flow.drawio', size: source.length }]} initialIndex={0} onClose={vi.fn()}/>)
+
+    expect(await screen.findByRole('img', { name: 'Diagrama Draw.io: artifacts/flow.drawio' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Ver source' }))
+    const pre = await screen.findByText((_content, element) => element?.tagName === 'PRE' && Boolean(element.textContent?.includes('<mxGraphModel>')))
+    expect(pre.textContent).toContain('Gateway')
+    expect(screen.getByRole('button', { name: 'Ver preview' })).toBeTruthy()
   })
 
 })
