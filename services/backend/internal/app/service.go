@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/translationflow"
 	"kernl.local/harness/backend/internal/app/verification"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/bundlename"
@@ -37,7 +36,6 @@ import (
 	"kernl.local/harness/backend/internal/sandboxenv"
 	"kernl.local/harness/backend/internal/selfevolution"
 	"kernl.local/harness/backend/internal/session"
-	"kernl.local/harness/backend/internal/translation"
 	"kernl.local/harness/backend/internal/utility"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
@@ -144,131 +142,16 @@ type Service struct {
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
 
-// translationWorkerPayload is what the Desktop worker is handed.
-//
-// It carries the request bundle itself, already built and already sealed by the
-// engine that will validate the answer. The worker's job is reduced to
-// transport: upload this archive, ask for exactly this filename back, and
-// return the bytes. It composes no instruction and reads no prose, so there is
-// nothing left for it to get subtly wrong.
-type translationWorkerPayload struct {
-	Protocol        string `json:"protocol"`
-	Task            string `json:"task"`
-	TaskID          string `json:"task_id"`
-	TargetLanguage  string `json:"target_language"`
-	RequestFilename string `json:"request_filename"`
-	ResultFilename  string `json:"result_filename"`
-	Bootstrap       string `json:"bootstrap"`
-	ArchiveBase64   string `json:"archive_base64"`
-	ReasoningEffort string `json:"reasoning_effort"`
-}
-
-// translationWorkerResult is what the worker returns on completion: the exact
-// bytes it downloaded, unread and uninterpreted.
-type translationWorkerResult struct {
-	Protocol     string `json:"protocol"`
-	TaskID       string `json:"task_id"`
-	Filename     string `json:"filename"`
-	BundleBase64 string `json:"bundle_base64"`
-}
+// The worker payload aliases preserve the existing integration test contract.
+type translationWorkerPayload = translationflow.WorkerPayload
+type translationWorkerResult = translationflow.WorkerResult
 
 func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, target utility.LanguageCode, markdown string) (utility.Result, error) {
 	currentSession, err := s.GetSession(sessionID)
 	if err != nil {
 		return utility.Result{}, err
 	}
-	request := utility.Request{Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown, TargetLanguage: target, Markdown: markdown}
-	if err := utility.ValidateRequest(request); err != nil {
-		return utility.Result{}, err
-	}
-	if markdown == "" {
-		return utility.Result{Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown, TargetLanguage: target}, nil
-	}
-	// The id is minted here because the protocol's filenames are derived from
-	// it: the request bundle cannot be built without knowing what the answer
-	// will be called.
-	taskID := session.NewChatAgentTaskID()
-	chatID := currentSession.ChatID
-	if chatID == "" {
-		chatID = currentSession.ID
-	}
-	chatHash := currentSession.Context.WorkspaceSHA256
-	if chatHash == "" {
-		chatHash = currentSession.Context.Manifest.SHA256
-	}
-	manifest, archive, err := translation.BuildRequestWithMetadata(taskID, string(target), markdown, translation.RequestMetadata{
-		ChatTitle: "Document translation", ChatID: chatID, ChatHash: chatHash, RequestedAt: time.Now().UTC().Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		return utility.Result{}, err
-	}
-	payload, err := json.Marshal(translationWorkerPayload{
-		Protocol: translation.RequestProtocolV1, Task: translation.TaskTranslateDocument, TaskID: taskID,
-		TargetLanguage: manifest.TargetLanguage, RequestFilename: manifest.RequestFilename,
-		ResultFilename: manifest.ResultFilename, Bootstrap: translation.RequestBootstrap(manifest),
-		ArchiveBase64: base64.StdEncoding.EncodeToString(archive), ReasoningEffort: string(domain.ReasoningEffortInstant),
-	})
-	if err != nil {
-		return utility.Result{}, fmt.Errorf("encode translation task: %w", err)
-	}
-	task, err := s.store.EnqueueChatAgentTask(session.ChatAgentTask{
-		Type: "TRANSLATE_MARKDOWN", TaskID: taskID, ChatID: sessionID, SessionID: sessionID,
-		RootRequestID: taskID, Payload: payload, MaxAttempts: 1,
-	})
-	if err != nil {
-		return utility.Result{}, fmt.Errorf("enqueue translation worker: %w", err)
-	}
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-	timeout := time.NewTimer(12 * time.Minute)
-	defer timeout.Stop()
-	for {
-		current, getErr := s.store.GetChatAgentTask(task.TaskID)
-		if getErr != nil {
-			return utility.Result{}, fmt.Errorf("read translation worker: %w", getErr)
-		}
-		switch current.Status {
-		case session.ChatAgentTaskDone:
-			return s.finishTranslation(current.Payload, manifest, target)
-		case session.ChatAgentTaskFailed, session.ChatAgentTaskAttention, session.ChatAgentTaskCancelled:
-			detail := strings.TrimSpace(current.LastError)
-			if detail == "" {
-				detail = "translation worker did not complete"
-			}
-			return utility.Result{}, fmt.Errorf("%w: %s", utility.ErrUnavailable, detail)
-		}
-		select {
-		case <-ctx.Done():
-			_, _ = s.store.CancelChatAgentLineage(taskID)
-			return utility.Result{}, ctx.Err()
-		case <-timeout.C:
-			_, _ = s.store.CancelChatAgentLineage(taskID)
-			return utility.Result{}, fmt.Errorf("%w: translation worker timed out", utility.ErrUnavailable)
-		case <-ticker.C:
-		}
-	}
-}
-
-// finishTranslation validates the downloaded bundle against the request it
-// answers. Validation lives here, not in the worker, so the side that authored
-// the contract is the side that enforces it.
-func (s *Service) finishTranslation(raw json.RawMessage, manifest translation.TransportManifest, target utility.LanguageCode) (utility.Result, error) {
-	var delivered translationWorkerResult
-	if err := json.Unmarshal(raw, &delivered); err != nil {
-		return utility.Result{}, fmt.Errorf("decode translation worker result: %w", err)
-	}
-	bundle, err := base64.StdEncoding.DecodeString(delivered.BundleBase64)
-	if err != nil {
-		return utility.Result{}, fmt.Errorf("decode translation bundle bytes: %w", err)
-	}
-	parsed, err := translation.ParseResult(delivered.Filename, bundle, manifest)
-	if err != nil {
-		return utility.Result{}, fmt.Errorf("%w: %s", utility.ErrUnavailable, err.Error())
-	}
-	return utility.Result{
-		Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown,
-		TargetLanguage: target, Markdown: parsed.Markdown,
-	}, nil
+	return translationflow.Translate(ctx, s.store, sessionID, currentSession, target, markdown)
 }
 
 func (s *Service) SetOrchestratorStore(store *orchestrator.Store) {
