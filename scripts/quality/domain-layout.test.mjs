@@ -36,4 +36,5 @@ test('new work cannot enlarge a directory beyond twenty source and test files', 
   }])
   assert.deepEqual(overfullDirectoryViolations([files[19]], files.slice(0, 20)), [])
   assert.deepEqual(overfullDirectoryViolations([`${directory}/README.md`], files), [])
+  assert.deepEqual(overfullDirectoryViolations([`${directory}/removed.mjs`], files), [])
 })

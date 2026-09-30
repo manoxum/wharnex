@@ -35,13 +35,14 @@ export function domainLayoutViolation(file) {
 }
 
 export function overfullDirectoryViolations(newFiles, allFiles) {
+  const presentFiles = new Set(allFiles)
   const countByDirectory = new Map()
   for (const file of allFiles) {
     if (!SOURCE.test(file) || ROOT_ENTRIES.has(file)) continue
     const directory = path.posix.dirname(file)
     countByDirectory.set(directory, (countByDirectory.get(directory) || 0) + 1)
   }
-  return [...new Set(newFiles.filter((file) => SOURCE.test(file) && !ROOT_ENTRIES.has(file))
+  return [...new Set(newFiles.filter((file) => presentFiles.has(file) && SOURCE.test(file) && !ROOT_ENTRIES.has(file))
     .map((file) => path.posix.dirname(file)))].sort()
     .filter((directory) => (countByDirectory.get(directory) || 0) > MAX_FILES_PER_DIRECTORY)
     .map((directory) => ({
