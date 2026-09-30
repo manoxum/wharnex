@@ -6,14 +6,15 @@ import { WorkerFollowViewer } from '../../agent/runtime/WorkerFollowViewer'
 import { OrchestratorPlanFilesTab, OrchestratorPlanTab } from './OrchestratorPlanDetailTabs'
 import { OrchestratorPhaseBadge, OrchestratorPlanExecutionsTab, OrchestratorPlanProgressSummary } from './OrchestratorPlanRunSummary'
 
-type DetailTab = 'summary' | 'files' | 'plan' | 'tasks' | 'executions'
+type DetailTab = 'summary' | 'files' | 'plan' | 'tasks' | 'executions' | 'engine'
 
-const tabs: Array<{ id: DetailTab; label: string; icon: 'info' | 'folder' | 'plan' | 'list' | 'activity' }> = [
+const tabs: Array<{ id: DetailTab; label: string; icon: 'info' | 'folder' | 'plan' | 'list' | 'activity' | 'monitor' }> = [
   { id: 'summary', label: 'Resumo', icon: 'info' },
   { id: 'files', label: 'Ficheiros', icon: 'folder' },
   { id: 'plan', label: 'Plano', icon: 'plan' },
   { id: 'tasks', label: 'Tasks', icon: 'list' },
   { id: 'executions', label: 'Execuções', icon: 'activity' },
+  { id: 'engine', label: 'Engine', icon: 'monitor' },
 ]
 
 // One look for every action of the drawer; colour carries meaning only
@@ -42,7 +43,6 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
   onRevise?: (planID: string) => void
 }) {
   const [tab, setTab] = useState<DetailTab>('summary')
-  const [followedWorker, setFollowedWorker] = useState<string>()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const planID = detail?.plan?.id
   const requestStatus = detail?.status || request.status
@@ -54,14 +54,9 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
     setTab('summary')
-    setFollowedWorker(undefined)
     closeButtonRef.current?.focus()
     return () => { if (previousFocus?.isConnected) previousFocus.focus() }
   }, [request.request_id])
-  useEffect(() => {
-    if (followedWorker && followedWorker !== workerID) setFollowedWorker(undefined)
-  }, [followedWorker, workerID])
-
   return <div
     className="fixed inset-0 z-[1240] flex justify-end bg-[color-mix(in_srgb,var(--theme-backdrop)_65%,transparent)]"
     data-chatgpt-overlay-blocker="true"
@@ -99,7 +94,6 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
             <button className={actionClass} type="button" onClick={() => void copyIdentifier(request.request_id)}><Icon name="copy" size={13}/> Copiar request_id</button>
             {planID ? <button className={actionClass} type="button" onClick={() => void copyIdentifier(planID)}><Icon name="copy" size={13}/> Copiar plan_id</button> : null}
             {resolvedChatID && onGoToChat ? <button className={actionClass} type="button" onClick={() => onGoToChat(resolvedChatID, planningTask?.session_id)}><Icon name="bridge" size={13}/> Abrir chat</button> : null}
-            {workerID ? <button className={actionClass} type="button" aria-pressed={followedWorker === workerID} onClick={() => setFollowedWorker((current) => current === workerID ? undefined : workerID)}><Icon name="monitor" size={13}/> {followedWorker === workerID ? 'A acompanhar Worker' : 'Acompanhar Worker'}</button> : null}
             {planID && onOpenTasks ? <button className={actionClass} type="button" onClick={() => onOpenTasks(planID)}>Ver tasks</button> : null}
             {canRetry && onRetry ? <button className={actionClass} type="button" disabled={busy} onClick={onRetry}><Icon name="refresh" size={13}/> Retentar planeamento</button> : null}
           </div>
@@ -109,8 +103,6 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
             {onApprove ? <button className="primary rounded-md px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onApprove(planID)}><Icon name="check" size={13}/> Aprovar plano</button> : null}
           </div> : null}
         </section>
-
-        {followedWorker ? <WorkerFollowViewer agentId={followedWorker} onStop={() => setFollowedWorker(undefined)}/> : null}
 
         <div className="sticky -top-3 z-[2] -mx-3 mt-1 flex gap-1 overflow-x-auto border-b border-[var(--theme-border-soft)] bg-[var(--theme-surface)] px-3 sm:-top-4 sm:-mx-4 sm:px-4" role="tablist" aria-label="Detalhe do planeamento">
           {tabs.map((item) => <button
@@ -131,7 +123,9 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
           <button className="mt-2 text-sm font-semibold" type="button" onClick={onRefresh}>Tentar novamente</button>
         </div> : null}
 
-        {!detail || (error && !loading) ? null : <div className="mt-3" role="tabpanel">
+        {tab === 'engine' ? <div className="mt-3 h-[clamp(320px,62vh,680px)] min-h-0 overflow-hidden rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface)]" role="tabpanel" data-testid="orchestrator-plan-engine">
+          <PlanEngineTab workerID={workerID} onStop={() => setTab('summary')}/>
+        </div> : !detail || (error && !loading) ? null : <div className="mt-3" role="tabpanel">
           {tab === 'summary' ? <SummaryTab request={request} detail={detail}/> : null}
           {tab === 'files' ? <OrchestratorPlanFilesTab detail={detail} sessionId={sessionId}/> : null}
           {tab === 'plan' ? <OrchestratorPlanTab detail={detail}/> : null}
@@ -141,6 +135,17 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
       </div>
     </aside>
   </div>
+}
+
+
+function PlanEngineTab({ workerID, onStop }: { workerID?: string; onStop: () => void }) {
+  if (!workerID) return <div className="grid h-full min-h-0 place-items-center p-6 text-center">
+    <div className="grid max-w-sm gap-1">
+      <strong className="text-base">Nenhum Worker associado ao planeamento</strong>
+      <p className="m-0 text-sm text-[var(--theme-text-muted)]">Quando o pedido de planeamento tiver um Worker ativo, a instância aparece aqui automaticamente.</p>
+    </div>
+  </div>
+  return <WorkerFollowViewer agentId={workerID} onStop={onStop}/>
 }
 
 function StateMessage({ kind, message }: { kind: 'loading' | 'empty' | 'info'; message: string }) {
