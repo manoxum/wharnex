@@ -72,6 +72,9 @@ func prepareTerminalHistory(workspace Workspace, shell string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := ensureTerminalRuntimeGitExclude(projectRoot); err != nil {
+		return "", err
+	}
 	dir, err := prepareTerminalHistoryDirectory(projectRoot)
 	if err != nil {
 		return "", err
