@@ -1,7 +1,8 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 ### Chat 0274c282-e529-442c-9af2-913cd0a85f4f (2026-09-29)
 
-_(reserved — no entries yet)_
+- Partial context selection is now limited by cumulative bytes and rounds rather than an artificial file-count ceiling, including Orchestrator and cumulative manifest transport.
+- Context maps expose semantic role/relation hints, request-ranked candidates, groups and byte/round budget metadata; interactive v2 adds engine-classified `auto_observe` for bounded project filesystem reads.
 
 
 ### Chat 553a4edc-1cf9-4951-a560-3661daa82aeb (2026-09-29)

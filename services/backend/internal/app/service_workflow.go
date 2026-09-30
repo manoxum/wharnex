@@ -35,12 +35,13 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 			return result, errors.New("no workflow step is ready")
 		}
 		isDebug := current.Plan.Debug != nil
+		decision := s.policy.Evaluate(*current.Plan)
 		if !isDebug && !domain.AutomationModeIsAutomatic(current.AutomationMode) {
 			result.AutoError = "iterative workflow requires a project automatic mode"
 			return result, nil
 		}
-		if isDebug && !debugAuthorized(current) {
-			result.AutoError = "debug flow requires one approval for this Main Request"
+		if isDebug && !debugAuthorizedWithPolicy(current, decision) {
+			result.AutoError = "debug flow requires explicit approval or an engine-granted auto_observe classification"
 			return result, nil
 		}
 		if !isDebug && current.ExecutionMode != domain.ExecutionModeProtected {
@@ -55,7 +56,9 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 		if err := protocol.ValidateWorkflowPlan(*current.Plan); err != nil {
 			return result, err
 		}
-		decision := s.policy.Evaluate(*current.Plan)
+		if isDebug {
+			s.bus.Publish(sessionID, "interactive.classified", map[string]any{"plan_id": current.Plan.PlanID, "auto_observe_requested": decision.AutoObserveRequested, "auto_observe_granted": decision.AutoObserveGranted, "auto_observe_reason": decision.AutoObserveReason, "requires_approval": decision.RequiresApproval, "approval_avoided": decision.AutoObserveGranted && !decision.RequiresApproval})
+		}
 		if !decision.Allowed {
 			execution := domain.ExecutionResult{
 				PlanID: current.Plan.PlanID, Success: false,
@@ -293,7 +296,7 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 			item.Plan = planned.Plan
 			item.Policy = &decision
 			if planned.Turn != nil && planned.Turn.Kind == domain.TurnKindWorkflow {
-				if planned.Plan.Debug != nil && !debugAuthorized(*item) {
+				if planned.Plan.Debug != nil && !debugAuthorizedWithPolicy(*item, decision) {
 					item.State = "debug_approval_required"
 				} else {
 					item.State = "workflow_planned"

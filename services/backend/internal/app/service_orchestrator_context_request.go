@@ -73,7 +73,7 @@ func decodeOrchestratorContextRequest(raw []byte) (orchestratorContextRequest, b
 	if err := decoder.Decode(&request); err != nil {
 		return orchestratorContextRequest{}, false, err
 	}
-	if request.Protocol != orchestratorContextRequestProtocol || request.RequestID == "" || len(request.ContextPaths) == 0 || len(request.ContextPaths) > 32 {
+	if request.Protocol != orchestratorContextRequestProtocol || request.RequestID == "" || len(request.ContextPaths) == 0 {
 		return orchestratorContextRequest{}, false, errors.New("invalid orchestrator context request")
 	}
 	var extra any
@@ -132,6 +132,10 @@ func (s *Service) importOrchestratorContextRequest(ctx context.Context, sessionI
 	if _, err := s.PersistArtifact(ctx, sessionID, requestID, "output", "bundle", "whx_bundle_res_orchestrator_"+requestID+".zip", "application/zip", raw); err != nil {
 		s.bus.Publish(sessionID, "orchestrator.context_bundle_unpersisted", map[string]any{"request_id": requestID, "error": err.Error()})
 	}
-	s.bus.Publish(sessionID, "orchestrator.context_incremented", map[string]any{"request_id": requestID, "added": len(request.ContextPaths), "selected": len(paths)})
+	ranking := contextMapSelectionRankingMetrics(item.Context.ZipPath, item.Context.Manifest, requestContextMapState{SelectedPaths: previous, RoundsUsed: item.OrchestratorContextRounds[requestID]}, request.ContextPaths)
+	s.bus.Publish(sessionID, "orchestrator.context_incremented", map[string]any{
+		"request_id": requestID, "added": len(request.ContextPaths), "selected": len(paths), "selected_bytes": selectedContextBytes(item.Context.ZipPath, paths), "round": item.OrchestratorContextRounds[requestID] + 1,
+		"ranking_candidates": ranking.Candidates, "ranking_requested": ranking.RequestedRanked, "ranking_top10_hits": ranking.TopTenHits, "ranking_request_match_hits": ranking.RequestMatchHits, "ranking_position_sum": ranking.RankPositionSum,
+	})
 	return OrchestratorProposalResult{RequestID: requestID, ContextPaths: paths, Delivery: "context_increment"}, nil
 }

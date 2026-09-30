@@ -9,7 +9,7 @@ const DebugProtocolV1 = "harness.debug/v1"
 // DebugProtocolV1 remains readable for durable/in-flight compatibility.
 const InteractiveProtocolV1 = "harness.interactive/v1"
 const InteractiveProtocolV2 = "harness.interactive/v2"
-const InteractivePolicyRevisionV2 = "interactive-v2-policy/1"
+const InteractivePolicyRevisionV2 = "interactive-v2-policy/2"
 const InterviewProtocolV1 = "harness.interview/v1"
 
 const DebugQueryProjectExecutionSummary = "project_execution_summary"

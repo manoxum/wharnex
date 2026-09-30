@@ -50,6 +50,13 @@ func debugPlanAuthorized(item domain.Session, plan *domain.ExecutionPlan) bool {
 
 func debugAuthorized(item domain.Session) bool { return debugPlanAuthorized(item, item.Plan) }
 
+func debugAuthorizedWithPolicy(item domain.Session, decision domain.PolicyDecision) bool {
+	if debugAuthorized(item) {
+		return true
+	}
+	return item.Plan != nil && item.Plan.Debug != nil && item.Plan.Debug.AutoObserve && decision.Allowed && decision.AutoObserveGranted && !decision.RequiresApproval
+}
+
 func (s *Service) ApproveDebug(ctx context.Context, sessionID string) (BundleSubmission, error) {
 	current, err := s.store.Get(sessionID)
 	if err != nil {
@@ -134,13 +141,14 @@ func interactiveGrantCovers(item domain.Session, plan *domain.ExecutionPlan) boo
 
 func interactivePlanDigest(plan *domain.ExecutionPlan) (string, error) {
 	payload := struct {
-		Protocol string                  `json:"protocol"`
-		Target   string                  `json:"target"`
-		Access   string                  `json:"access"`
-		Caps     []string                `json:"capabilities"`
-		Scope    domain.InteractiveScope `json:"scope"`
-		Ops      []domain.Operation      `json:"operations"`
-	}{Protocol: plan.Debug.Protocol, Target: plan.Debug.Target, Access: plan.Debug.EffectiveAccess(), Caps: append([]string(nil), plan.Debug.Capabilities...), Scope: plan.Debug.Scope, Ops: plan.Operations}
+		Protocol    string                  `json:"protocol"`
+		Target      string                  `json:"target"`
+		Access      string                  `json:"access"`
+		AutoObserve bool                    `json:"auto_observe"`
+		Caps        []string                `json:"capabilities"`
+		Scope       domain.InteractiveScope `json:"scope"`
+		Ops         []domain.Operation      `json:"operations"`
+	}{Protocol: plan.Debug.Protocol, Target: plan.Debug.Target, Access: plan.Debug.EffectiveAccess(), AutoObserve: plan.Debug.AutoObserve, Caps: append([]string(nil), plan.Debug.Capabilities...), Scope: plan.Debug.Scope, Ops: plan.Operations}
 	sort.Strings(payload.Caps)
 	raw, err := json.Marshal(payload)
 	if err != nil {

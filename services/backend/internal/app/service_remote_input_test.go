@@ -259,7 +259,7 @@ func TestBuildRemoteInputArchiveContainsPromptContextAndAttachments(t *testing.T
 			}
 		}
 	}
-	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "git-context/index.json", "context/src/main.txt", "context-map/main/maps", "context-map/main/sensitive-file-map", "attachments/notes.txt"} {
+	for _, expected := range []string{"transport.json", "prompt/wharness-planner-prompt.md", "git-context/index.json", "context/src/main.txt", "context-map/main/maps", "context-map/main/semantic-index", "context-map/main/sensitive-file-map", "attachments/notes.txt"} {
 		if !names[expected] {
 			t.Errorf("missing %s", expected)
 		}
@@ -301,6 +301,13 @@ func TestRequestContextMapRedactsEnvValues(t *testing.T) {
 		contents[file.Path] = file.Content
 	}
 	maps := contents["context-map/main/maps"]
+	semantic := contents["context-map/main/semantic-index"]
+	if !strings.Contains(maps, `"protocol": "harness.context-map/v1"`) {
+		t.Fatalf("inventory fallback protocol changed unexpectedly: %s", maps)
+	}
+	if !strings.Contains(semantic, `"protocol": "harness.context-semantic-index/v1"`) || !strings.Contains(semantic, `"max_selected_bytes": 67108864`) || strings.Contains(semantic, "max_paths_per_request") {
+		t.Fatalf("context semantic budget contract is incomplete: %s", semantic)
+	}
 	if !strings.Contains(maps, `"path": ".env"`) || !strings.Contains(maps, `"status": "excluded"`) {
 		t.Fatalf("excluded env path missing from map: %s", maps)
 	}
@@ -312,6 +319,75 @@ func TestRequestContextMapRedactsEnvValues(t *testing.T) {
 	}
 	if strings.Contains(redacted, "super-secret") {
 		t.Fatalf("sensitive value leaked into redacted map: %s", redacted)
+	}
+}
+
+func TestRequestContextSemanticIndexRanksRequestAndTracksBudget(t *testing.T) {
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "context.zip")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	contents := map[string]string{
+		"services/widget.go":      "package services\nfunc LoadWidget() {}\n",
+		"services/widget_test.go": "package services\nfunc TestLoadWidget() {}\n",
+	}
+	manifest := domain.ContextManifest{ProjectRoot: root}
+	for name, content := range contents {
+		entry, createErr := writer.Create(name)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		if _, writeErr := entry.Write([]byte(content)); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		manifest.Files = append(manifest.Files, domain.ContextFile{Path: name, Size: int64(len(content)), ContentType: "text/plain; charset=utf-8"})
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	files, err := requestContextMapFilesWithState(archivePath, manifest, requestContextMapState{
+		SelectedPaths: []string{"context/services/widget_test.go"},
+		RoundsUsed:    2,
+		Query:         "Fix LoadWidget behavior",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var semantic requestContextSemanticIndex
+	for _, item := range files {
+		if item.Path == "context-map/main/semantic-index" {
+			if err := json.Unmarshal([]byte(item.Content), &semantic); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if semantic.Protocol != requestContextSemanticIndexProtocol || semantic.Budget.RoundsUsed != 2 || semantic.Budget.RoundsRemaining != 4 {
+		t.Fatalf("unexpected semantic budget: %#v", semantic)
+	}
+	if semantic.Budget.SelectedBytes != int64(len(contents["services/widget_test.go"])) {
+		t.Fatalf("selected byte budget = %d", semantic.Budget.SelectedBytes)
+	}
+	selected := false
+	for _, entry := range semantic.Entries {
+		if entry.Path == "context/services/widget_test.go" {
+			selected = entry.Selected
+		}
+	}
+	if !selected {
+		t.Fatal("semantic index did not distinguish the selected body")
+	}
+	if len(semantic.Candidates) == 0 || semantic.Candidates[0].Path != "context/services/widget.go" || !containsString(semantic.Candidates[0].Reasons, "symbol_match") || !containsString(semantic.Candidates[0].Reasons, "related_to") {
+		t.Fatalf("request-ranked candidate missing semantic reasons: %#v", semantic.Candidates)
+	}
+	metrics := contextMapSelectionRankingMetrics(archivePath, manifest, requestContextMapState{SelectedPaths: []string{"context/services/widget_test.go"}, RoundsUsed: 2, Query: "Fix LoadWidget behavior"}, []string{"context/services/widget.go"})
+	if metrics.RequestedRanked != 1 || metrics.TopTenHits != 1 || metrics.RequestMatchHits != 1 || metrics.RankPositionSum != 1 {
+		t.Fatalf("unexpected ranking telemetry: %#v", metrics)
 	}
 }
 
@@ -388,7 +464,9 @@ func TestBuildRemoteInputArchiveSeparatesWorkspaceContextRoots(t *testing.T) {
 		"ref-context/01-core/api.txt",
 		"att-context/attach-01/openapi.yml",
 		"context-map/main/maps",
+		"context-map/main/semantic-index",
 		"context-map/@ref/01-core/maps",
+		"context-map/@ref/01-core/semantic-index",
 		requestContextSourcesIndex,
 	} {
 		if !names[expected] {
@@ -959,7 +1037,7 @@ func TestRemoteFileMapKeepsContextFilesSnapshotBackedUntilFetched(t *testing.T) 
 	}
 	defer os.RemoveAll(filepath.Dir(bundle.ZipPath))
 	dir := t.TempDir()
-	resources, entries, err := buildRemoteFileMapResources(dir, bundle.ZipPath, bundle.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, RequestGitContext{}, nil, nil, nil, nil, nil, func(path string) string { return "https://example.invalid/" + path })
+	resources, entries, err := buildRemoteFileMapResources(dir, bundle.ZipPath, bundle.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, RequestGitContext{}, nil, requestContextMapState{}, nil, nil, nil, func(path string) string { return "https://example.invalid/" + path })
 	if err != nil {
 		t.Fatal(err)
 	}

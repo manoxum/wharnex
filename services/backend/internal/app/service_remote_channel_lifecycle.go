@@ -139,7 +139,7 @@ func buildRemoteContextUpdateResources(ctx context.Context, dir string, item dom
 	}
 	resourceURL := func(path string) string { return strings.TrimSuffix(state.baseURL, "/") + "/" + path }
 	gitContext := requestGitContextForItem(ctx, item)
-	resources, contextEntries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, gitContext, nil, nil, nil, nil, state.fileMapEntries, resourceURL)
+	resources, contextEntries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, domain.RequestKnowledgeSnapshot{State: domain.KnowledgeStateNone}, gitContext, nil, requestContextMapState{SelectedPaths: item.ContextPaths, RoundsUsed: item.WorkflowRound}, nil, nil, state.fileMapEntries, resourceURL)
 	if err != nil {
 		return nil, err
 	}

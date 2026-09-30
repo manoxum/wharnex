@@ -286,7 +286,7 @@ func buildRemoteChannelResources(ctx context.Context, dir string, item domain.Se
 		return strings.TrimSuffix(state.baseURL, "/") + "/" + path
 	}
 	gitContext := requestGitContextForItem(ctx, item)
-	resources, entries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, knowledge, gitContext, continuationArtifacts(item, request.RequestID), request.ProjectFiles, attachments, artifacts, state.fileMapEntries, resourceURL)
+	resources, entries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, knowledge, gitContext, continuationArtifacts(item, request.RequestID), requestContextMapState{SelectedPaths: request.ContextPaths, RoundsUsed: request.ContextRound, Query: request.Prompt}, attachments, artifacts, state.fileMapEntries, resourceURL)
 	if err != nil {
 		return nil, 0, 0, err
 	}

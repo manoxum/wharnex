@@ -271,6 +271,10 @@
             "modify"
           ]
         },
+        "auto_observe": {
+          "type": "boolean",
+          "description": "Requests engine-classified auto-observation. The engine grants it only to bounded, typed, read-only, project-scoped and non-sensitive host observations; it never grants mutation, shell or network authority."
+        },
         "query": {
           "enum": [
             "project_execution_summary"
