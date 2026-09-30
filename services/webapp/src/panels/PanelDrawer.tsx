@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api } from '../api'
-import type { AppConfig, KnowledgeCatalog, PanelName, PostgresConnection, PostgresQueryResult, ProjectConfig, ProjectTodo, Session, WorkspaceChat } from '../types'
+import { api } from '../transport/api'
+import type { AppConfig, KnowledgeCatalog, PanelName, PostgresConnection, PostgresQueryResult, ProjectConfig, ProjectTodo, Session, WorkspaceChat } from '../transport/contracts'
 
 const panels: Array<[PanelName, string, string]> = [
   ['notifications', 'Atenção', 'Sinais que precisam de intervenção'], ['archive', 'Arquivo', 'Chats arquivados deste projeto'], ['todos', 'TODO', 'Trabalho persistente do projeto'],

@@ -1,4 +1,4 @@
-import type { RemoteAttachment } from '../types'
+import type { RemoteAttachment } from '../../transport/contracts'
 
 function bytesToBase64(bytes: Uint8Array) {
   let binary = ''

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api } from '../api'
-import type { AppConfig, OrchestratorOverview, Session, WorkspaceChat } from '../types'
+import { api } from '../transport/api'
+import type { AppConfig, OrchestratorOverview, Session, WorkspaceChat } from '../transport/contracts'
 
 export function OrchestratorPane({ session, project, config, onChatCreated, onError }: {
   session: Session; project: string; config?: AppConfig; onChatCreated: (chat: WorkspaceChat) => void; onError: (message: string) => void

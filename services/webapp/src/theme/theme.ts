@@ -1,4 +1,4 @@
-import type { UIPreferences } from '../types'
+import type { UIPreferences } from '../transport/contracts'
 
 const UI_FONTS: Record<UIPreferences['uiFont'], string> = {
   elegant: "Inter, Manrope, 'Segoe UI Variable', 'Segoe UI', ui-sans-serif, system-ui, sans-serif",

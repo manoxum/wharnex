@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from 'react'
-import { makeDirective, parseDirectives, removeDirective, type DirectiveKind } from '../lib/composerDirectives'
-import type { AppConfig, PanelName, RequestMode, Session } from '../types'
+import { makeDirective, parseDirectives, removeDirective, type DirectiveKind } from './composerDirectives'
+import type { AppConfig, PanelName, RequestMode, Session } from '../../transport/contracts'
 import { ComposerTray } from './ComposerTray'
 
 export type ComposerValue = { text: string; files: File[]; projectFiles: string[]; tunnelIds: string[]; mode: RequestMode; includeContext: boolean }

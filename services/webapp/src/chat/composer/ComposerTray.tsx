@@ -1,5 +1,5 @@
-import type { DirectiveKind } from '../lib/composerDirectives'
-import type { AppConfig, PanelName, RequestMode, Session } from '../types'
+import type { DirectiveKind } from './composerDirectives'
+import type { AppConfig, PanelName, RequestMode, Session } from '../../transport/contracts'
 
 const directives: Array<[DirectiveKind, string, string]> = [
   ['file', 'Ficheiro', 'Projeto atual'], ['ref', 'Referência', 'Outro projeto'], ['attach', 'Caminho', 'Externo'],

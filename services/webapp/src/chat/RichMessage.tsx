@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { ChatItem } from '../types'
+import type { ChatItem } from '../transport/contracts'
 
 export function RichMessage({ item, user }: { item: ChatItem; user: boolean }) {
   return <div className={user ? 'text-accent-ink' : 'text-ink'}>

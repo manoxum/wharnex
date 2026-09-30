@@ -2,7 +2,7 @@ import type {
   AgentProviderState, AgentQueueSummary, AppConfig, Artifact, AttentionRecord, ChatItem, ChatItemWire, EvolutionEvidence, ExecutionError, FileEntry, KnowledgeCatalog, OrchestratorOverview, OrchestratorProposalResult,
   OrchestratorRunResult, PostgresCatalog, PostgresConnection, PostgresQueryResult, ProjectConfig, ProjectHistoryEntry, ProjectTodo, QueueTask, RemoteDispatchInput, RemoteInputConfig, RequestMode, Session, StorageUsage,
   TunnelTestResult, UIPreferences, WorkspaceChat,
-} from './types'
+} from './contracts'
 
 export class APIError extends Error { constructor(public readonly status: number, message: string) { super(message) } }
 

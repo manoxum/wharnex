@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api } from './api'
-import { PairingScreen } from './components/PairingScreen'
-import { RemoteWorkspace } from './components/RemoteWorkspace'
-import { pairingCodeFromScan } from './lib/pairing'
+import { api } from '../transport'
+import { PairingScreen, pairingCodeFromScan } from '../pairing'
+import { RemoteWorkspace } from '../workspace'
 
 export default function App() {
   const [paired, setPaired] = useState(false)

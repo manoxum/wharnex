@@ -1,4 +1,4 @@
-import type { ProjectHistoryEntry } from '../types'
+import type { ProjectHistoryEntry } from '../../transport/contracts'
 
 const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path
 

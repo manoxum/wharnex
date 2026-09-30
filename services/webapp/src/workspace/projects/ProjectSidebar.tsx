@@ -1,4 +1,4 @@
-import type { ProjectHistoryEntry, WorkspaceChat } from '../types'
+import type { ProjectHistoryEntry, WorkspaceChat } from '../../transport/contracts'
 
 const nameOf = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path
 

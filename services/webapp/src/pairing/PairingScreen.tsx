@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { pairingCodeFromScan } from '../lib/pairing'
+import { pairingCodeFromScan } from './pairing'
 
 type Detector = { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>> }
 type DetectorConstructor = new (options?: { formats?: string[] }) => Detector

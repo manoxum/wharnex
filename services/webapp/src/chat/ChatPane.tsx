@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import type { AppConfig, ChatItem, PanelName, Session, WorkspaceChat } from '../types'
-import { Composer, type ComposerValue } from './Composer'
+import type { AppConfig, ChatItem, PanelName, Session, WorkspaceChat } from '../transport/contracts'
+import { Composer, type ComposerValue } from './composer/Composer'
 import { RichMessage } from './RichMessage'
 
 export function ChatPane({ chat, session, config, items, busy, onSend, onSave, onArchive, onSessionChange, onNavigate, onOpenPanel }: {
