@@ -22,9 +22,10 @@ import { clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWork
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation, confirmDialog, subscribeHeaderPopover, buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from '../../lib/desktop'
 import { conflictAutoDispatchable, gitConflictChatTitle } from '../../lib/git'
 import { embeddedProjectInitiallyActive, embeddedProjectPath, persistOperationalEvidence, storedAttachmentFile, withProjectTodoPrePlan, reconcileTunnelConfig } from '../../lib/project'
-import { errorMessage as messageOf, loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool, loadWorkbenchState, saveWorkbenchState, workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget, type WorkspaceSurfaceTransferPoint } from '../../lib/workspace'
+import { errorMessage as messageOf, loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool, loadWorkbenchState, saveWorkbenchState, workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget } from '../../lib/workspace'
 import { effortAttemptLimit } from '../agent'
 import { useEmbeddedProjectBridge } from './useEmbeddedProjectBridge'
+import { createSurfaceTransferActions } from './surfaces'
 import { type ComponentProps, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from 'react'
 import type { AppConfig, AutomationMode, EffortLevel, ChatArtifactKind, ChatArtifactSelection, ChatGPTActivity, ChatItem, ChatRequestMode, ChatTransportMode, QueuedChatRequest, ProjectTodo, ExecutionMode, EvolutionKnowledgeRef, HarnessEvent, Session, TerminalRunInput, TerminalRunRequest, WorkspaceMode } from '../../types'
 
@@ -2975,61 +2976,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     setExplorerReveal((current) => ({ path, nonce: current.nonce + 1 }))
   }
 
-  function activateWorkspaceSurface(target: WorkspaceSurfaceTarget) {
-    if (!session || target.projectPath !== session.project_path) { setError('Não é possível mover tabs entre janelas de projetos diferentes.'); return }
-    if (target.kind === 'chat') {
-      setMode('agent')
-      if (target.chatId && target.chatId !== activeChatIdRef.current) void selectChat(target.chatId)
-      return
-    }
-    if (target.kind === 'editor') {
-      setMode('editor')
-      if (target.path) { setEditorOpenPath(target.path); setEditorOpenNonce((nonce) => nonce + 1) }
-      return
-    }
-    setTerminalOpen(true)
-  }
-
-  const detachSurface = (target: WorkspaceSurfaceTarget) => {
-    const bridge = desktopBridge()
-    if (bridge) {
-      void bridge.windows.openSurface(target).catch((cause) => setError(messageOf(cause)))
-      return
-    }
-    window.open(workspaceSurfaceURL(target, 'window'), '_blank', 'noopener,noreferrer')
-  }
-  const removeMovedSurfaceFromThisWindow = (target: WorkspaceSurfaceTarget) => {
-    const key = workspaceSurfaceKey(target)
-    if (surfaceRequest?.host === 'window') {
-      setSurfaceTabs((current) => {
-        const next = current.filter((item) => workspaceSurfaceKey(item) !== key)
-        if (activeSurfaceKey === key) {
-          const replacement = next[0]
-          queueMicrotask(() => {
-            if (!replacement) { void desktopBridge()?.windows.close(); return }
-            setActiveSurfaceKey(workspaceSurfaceKey(replacement))
-            activateWorkspaceSurface(replacement)
-          })
-        }
-        return next
-      })
-      return
-    }
-    setHiddenSurfaceKeys((current) => current.includes(key) ? current : [...current, key])
-    if (target.kind === 'chat' && target.chatId === activeChatId) {
-      const hidden = new Set([...hiddenSurfaceKeys, key])
-      const replacement = chats.find((chat) => !hidden.has(workspaceSurfaceKey({ kind: 'chat', chatId: chat.id })))
-      if (replacement) void selectChat(replacement.id)
-    }
-  }
-  const moveSurfaceByDrag = (target: WorkspaceSurfaceTarget, point: WorkspaceSurfaceTransferPoint) => {
-    const bridge = desktopBridge()
-    if (!bridge) { detachSurface(target); return }
-    void bridge.windows.moveSurface({ ...target, ...point }).then((result) => {
-      if (!result.ok) { setError(result.message || 'Não foi possível mover a tab para essa janela.'); return }
-      removeMovedSurfaceFromThisWindow(target)
-    }).catch((cause) => setError(messageOf(cause)))
-  }
+  const { activateWorkspaceSurface, detachSurface, removeMovedSurfaceFromThisWindow, moveSurfaceByDrag } = createSurfaceTransferActions({
+    projectPath: session.project_path, surfaceHost: surfaceRequest?.host, activeChatId, activeChatIdRef,
+    activeSurfaceKey, hiddenSurfaceKeys, chats, setMode, setError, setEditorOpenPath, setEditorOpenNonce,
+    setTerminalOpen, setSurfaceTabs, setActiveSurfaceKey, setHiddenSurfaceKeys, selectChat,
+  })
   const splitWorkspaceSurface = (target: WorkspaceSurfaceTarget, direction: WorkspaceSplitDirection) => setSplitSurface({ target, direction, ratio: .5 })
   const resizeWorkspaceSplit = (event: ReactPointerEvent<HTMLDivElement>, direction: WorkspaceSplitDirection) => {
     event.preventDefault()
