@@ -65,7 +65,7 @@ export function OrchestratorTaskDrawer({ session, task, tasks, chatProps, busy, 
     {tab === 'bundle' && <div className="orchestrator-task-detail-body wide">{runSelector}<TaskBundleTab agent={detail.agent} loading={detail.loading}/></div>}
     {tab === 'plan' && <div className="orchestrator-task-detail-body wide">{runSelector}<TaskPlanTab agent={detail.agent} events={detail.events} loading={detail.loading} error={detail.error}/></div>}
     {tab === 'execution' && <div className="orchestrator-task-detail-body wide">{runSelector}<TaskExecutionTab agent={detail.agent} events={detail.events} loading={detail.loading} error={detail.error}/></div>}
-    {tab === 'engine' && <div className="orchestrator-task-detail-body wide"><TaskEngineTab task={task}/></div>}
+    {tab === 'engine' && <div className="orchestrator-task-detail-body wide"><TaskEngineTab key={task.id} task={task}/></div>}
     {tab === 'overview' && <div className="orchestrator-task-detail-body">
       <div className="orchestrator-task-detail-badges"><Status status={task.status}/><span className={`priority priority-${task.priority} font-mono text-sm leading-[1.4]`}>{task.priority}</span>{task.condition !== 'none' && <span className="condition text-sm">{task.condition.replaceAll('_', ' ')}</span>}</div>
       <p className="text-base">{task.description || 'Sem descrição adicional.'}</p>
