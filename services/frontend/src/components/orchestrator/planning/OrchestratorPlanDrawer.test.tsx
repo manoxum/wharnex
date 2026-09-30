@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { expect, it, vi } from 'vitest'
-import type { OrchestratorPlanningDetail, OrchestratorPlanningRequest, OrchestratorTask } from '../../../types'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+import type { ChatAgentTask, OrchestratorPlanningDetail, OrchestratorPlanningRequest, OrchestratorTask } from '../../../types'
 import { api } from '../../../lib/transport/http/api'
 import { OrchestratorPlanDrawer } from './OrchestratorPlanDrawer'
 
@@ -14,6 +14,24 @@ const request: OrchestratorPlanningRequest = {
   max_attempts: 8,
   created_at: '2026-09-28T01:00:00Z',
   updated_at: '2026-09-28T01:05:00Z',
+}
+
+afterEach(() => {
+  delete window.wharnessDesktop
+  vi.restoreAllMocks()
+})
+
+function installDesktopBridge() {
+  const agents = {
+    openMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, alreadyOpen: false })),
+    onState: vi.fn<(listener: (state: DesktopAgentRuntimeState) => void) => () => void>(() => () => undefined),
+    closeMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, closed: true })),
+    openInteraction: vi.fn(async (agentId: string, bounds: DesktopBounds) => ({ ok: true, agentId, bounds })),
+    setInteractionBounds: vi.fn(async (agentId: string, bounds: DesktopBounds) => ({ ok: true, agentId, bounds })),
+    closeInteraction: vi.fn(async (agentId: string) => ({ ok: true, agentId, closed: true })),
+  }
+  window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+  return agents
 }
 
 const emptyDetail: OrchestratorPlanningDetail = {
@@ -34,15 +52,17 @@ it('keeps all detail tabs available across loading, error and empty states', () 
   const props = { request, onClose: vi.fn(), onRefresh: vi.fn() }
   const view = render(<OrchestratorPlanDrawer {...props} loading detail={undefined}/>)
 
-  for (const label of ['Resumo', 'Ficheiros', 'Plano', 'Tasks', 'Execuções']) {
+  for (const label of ['Resumo', 'Ficheiros', 'Plano', 'Tasks', 'Execuções', 'Engine']) {
     expect(screen.getByRole('tab', { name: label })).toBeTruthy()
   }
   expect(screen.getByRole('status').textContent).toContain('A carregar detalhe')
 
   view.rerender(<OrchestratorPlanDrawer {...props} loading={false} detail={undefined} error="Falha de leitura"/>)
   expect(screen.getByRole('alert').textContent).toContain('Falha de leitura')
+  expect(screen.getByRole('tab', { name: 'Engine' })).toBeTruthy()
 
   view.rerender(<OrchestratorPlanDrawer {...props} loading={false} detail={emptyDetail}/>)
+  expect(screen.getByRole('tab', { name: 'Engine' })).toBeTruthy()
   fireEvent.click(screen.getByRole('tab', { name: 'Ficheiros' }))
   expect(screen.getByText('Nenhum bundle de pedido ou resposta foi registado para este planeamento.')).toBeTruthy()
 
@@ -54,6 +74,34 @@ it('keeps all detail tabs available across loading, error and empty states', () 
 
   fireEvent.click(screen.getByRole('tab', { name: 'Execuções' }))
   expect(screen.getByText('Ainda não existem execuções registradas para este pedido.')).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Engine' }))
+  expect(screen.getByText('Nenhum Worker associado ao planeamento')).toBeTruthy()
+  const engine = screen.getByTestId('orchestrator-plan-engine')
+  expect(engine.className).toContain('overflow-hidden')
+  expect(engine.className).toContain('h-[clamp(320px,62vh,680px)]')
+})
+
+it('embeds the planning Worker in Engine without opening the native monitor', async () => {
+  const agents = installDesktopBridge()
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 10, y: 20, left: 10, top: 20, right: 410, bottom: 320, width: 400, height: 300, toJSON: () => ({}) } as DOMRect)
+  const planningTask = {
+    task_id: request.task_id,
+    type: 'ORCHESTRATOR_PLAN',
+    status: 'RUNNING',
+    lease_owner: 'planner:worker-7',
+    chat_id: request.request_id,
+    session_id: 'ses-owner',
+  } as unknown as ChatAgentTask
+
+  render(<OrchestratorPlanDrawer request={request} detail={emptyDetail} planningTask={planningTask} loading={false} onClose={vi.fn()} onRefresh={vi.fn()}/>)
+
+  expect(screen.queryByRole('button', { name: /Acompanhar Worker/ })).toBeNull()
+  fireEvent.click(screen.getByRole('tab', { name: 'Engine' }))
+
+  await waitFor(() => expect(agents.openInteraction).toHaveBeenCalledWith('worker-7', { x: 10, y: 20, width: 400, height: 300 }))
+  expect(screen.getByLabelText('Worker incorporado Worker 7')).toBeTruthy()
+  expect(agents.openMonitor).not.toHaveBeenCalled()
 })
 
 it('shows plan identity and delegates close and refresh actions', () => {
