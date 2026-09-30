@@ -324,7 +324,7 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
   })
 
-  it('opens the full-size Worker window when interacting during an active task', async () => {
+  it('routes interaction during an active task to the Engine without opening a monitor window', async () => {
     const agents = agentsBridge()
     const listener = vi.fn()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
@@ -332,13 +332,14 @@ describe('AgentRuntimeDrawer', () => {
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByText('Worker 1'))
     fireEvent.click(screen.getByRole('button', { name: /Interagir aqui/ }))
-    await waitFor(() => expect(agents.openMonitor).toHaveBeenCalledWith('worker-1'))
-    expect(agents.openInteraction).not.toHaveBeenCalled()
     await waitFor(() => expect(listener).toHaveBeenCalledTimes(1))
+    expect(agents.openMonitor).not.toHaveBeenCalled()
+    expect(agents.openInteraction).not.toHaveBeenCalled()
+    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ agentId: 'worker-1' })
     window.removeEventListener('wharnex:agent-follow', listener)
   })
 
-  it('closes an idle inline interaction before following its Worker', async () => {
+  it('closes an idle inline interaction before routing its Worker to the Engine', async () => {
     const state = runtime()
     const worker = state.agents.find((agent) => agent.id === 'worker-1')!
     worker.status = 'idle'
@@ -346,19 +347,21 @@ describe('AgentRuntimeDrawer', () => {
     const agents = agentsBridge(state)
     const steps: string[] = []
     agents.closeInteraction.mockImplementation(async () => { steps.push('close'); return { ok: true, agentId: 'worker-1', closed: true } })
-    agents.openMonitor.mockImplementation(async () => { steps.push('open'); return { ok: true, agentId: 'worker-1' } })
+    const listener = vi.fn(() => { steps.push('follow') })
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+    window.addEventListener('wharnex:agent-follow', listener)
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByText('Worker 1'))
     fireEvent.click(screen.getByRole('button', { name: /Interagir aqui/ }))
     await waitFor(() => expect(agents.openInteraction).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: /Seguir \(flow\)/ }))
-    await waitFor(() => expect(agents.openMonitor).toHaveBeenCalledWith('worker-1'))
-    expect(steps.indexOf('close')).toBeLessThan(steps.indexOf('open'))
+    await waitFor(() => expect(listener).toHaveBeenCalledTimes(1))
+    expect(agents.openMonitor).not.toHaveBeenCalled()
+    expect(steps.indexOf('close')).toBeLessThan(steps.indexOf('follow'))
+    window.removeEventListener('wharnex:agent-follow', listener)
   })
 
-
-  it('moves a Worker into the main Engine flow when Seguir is requested', async () => {
+  it('moves a Worker into the main Engine flow without pre-opening a native window', async () => {
     const agents = agentsBridge()
     const onClose = vi.fn()
     const listener = vi.fn()
@@ -370,7 +373,7 @@ describe('AgentRuntimeDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Seguir \(flow\)/ }))
 
     await waitFor(() => expect(listener).toHaveBeenCalledTimes(1))
-    expect(agents.openMonitor).toHaveBeenCalledWith('worker-1')
+    expect(agents.openMonitor).not.toHaveBeenCalled()
     expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ agentId: 'worker-1' })
     // Following a Worker must not dismiss the panel: the drawer closes only
     // when the operator asks it to.
