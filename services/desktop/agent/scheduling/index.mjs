@@ -7,6 +7,7 @@ export {
 } from './capacity/index.mjs'
 export {
   chatAgentQueueDiagnostics, ChatAgentSchedulerClient, chatAgentBackoff, createChatAgentTaskQueue,
+  chatAgentTaskPayload, createChatAgentConversationURL,
 } from './queue/index.mjs'
 export {
   CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS, ChatAgentGlobalPacer, WorkerActivity,
@@ -16,6 +17,8 @@ export {
 export {
   createChatAgentExecution,
 } from './execution/index.mjs'
+export { createLegacyTitleTasks } from './execution/index.mjs'
 export { createWorkerScheduler, createTranslatorScheduler, createSupervisorScheduler } from './startup/index.mjs'
 export { createChatAgentSchedulingOperations } from './operations.mjs'
 export { createChatAgentRuntimeRefresh, createChatAgentRuntimeControls } from './diagnostics/index.mjs'
+export { createDesktopAgentScheduling } from './wiring/index.mjs'

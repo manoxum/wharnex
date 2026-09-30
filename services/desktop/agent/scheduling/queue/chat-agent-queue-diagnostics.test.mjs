@@ -16,8 +16,10 @@ test('runtime queue diagnostics separate deferred work from claimable backlog', 
   assert.equal(diagnostics.oldest_created_at, undefined)
 
   const source = await readFile(new URL('../../../main.mjs', import.meta.url), 'utf8')
+  const wiring = await readFile(new URL('../wiring/desktop.mjs', import.meta.url), 'utf8')
   const refreshSource = await readFile(new URL('../diagnostics/refresh.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createChatAgentRuntimeRefresh\(\{/)
+  assert.match(source, /createDesktopAgentScheduling\(\{/)
+  assert.match(wiring, /d\.createChatAgentRuntimeRefresh\(\{/)
   assert.match(refreshSource, /scheduler\.queueSummary\(\)/)
   assert.doesNotMatch(refreshSource, /scheduler\.list\(\{ limit: 500 \}\)/)
 })

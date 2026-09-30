@@ -62,9 +62,11 @@ test('the shipper batches, keeps records while the backend is down and bounds it
 })
 
 test('main installs the capture before anything else can log', async () => {
-  const source = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
+  const source = await readFile(new URL('../identity/runtime.mjs', import.meta.url), 'utf8')
+  const main = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
   const backend = source.indexOf('const BACKEND_URL =')
-  const install = source.indexOf('installConsoleCapture(console, operationalLog, { trace: currentTrace })')
+  const install = source.indexOf('installConsoleCapture(consoleTarget, operationalLog, { trace: currentTrace })')
   assert.ok(backend > 0 && install > backend, 'capture must be installed right after the backend URL is known')
   assert.match(source, /createOperationalLogShipper\(\{ endpoint: new URL\('\/api\/operational-log', BACKEND_URL\)\.href \}\)/)
+  assert.match(main, /initializeDesktopIdentity\(\{ app, nativeImage/)
 })

@@ -21,14 +21,16 @@ test('a visible ChatGPT page performs one bounded composer reload before requiri
 })
 
 test('DOM composer calls retry transient evaluation and retain the failing stage', async () => {
-  const [main, target] = await Promise.all([
+  const [main, target, renderer] = await Promise.all([
     readFile(new URL('../../../../main.mjs', import.meta.url), 'utf8'),
     readFile(new URL('./target.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../../../chatgpt/session/views/renderer-stability.mjs', import.meta.url), 'utf8'),
   ])
-  const helperStart = main.indexOf('async function executeChatGPTDOMScript(')
-  const helperEnd = main.indexOf('\nconst { targetChatGPTComposer } = createChatGPTComposerTarget({', helperStart)
-  const helper = main.slice(helperStart, helperEnd)
+  const helperStart = renderer.indexOf('async function executeChatGPTDOMScript(')
+  const helperEnd = renderer.indexOf('\n  return { executeChatGPTDOMScript', helperStart)
+  const helper = renderer.slice(helperStart, helperEnd)
   assert.notEqual(helperStart, -1)
+  assert.match(main, /createChatGPTRendererStability\(\{/)
   assert.match(helper, /attempt <= 3/)
   assert.match(helper, /await waitForChatGPTSurfaceReady/)
   assert.match(helper, /\[chatgpt-dom\] stage=/)

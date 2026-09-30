@@ -18,10 +18,13 @@ test('bundle supervision cannot reload or probe a ChatGPT surface during transpo
 
 test('the durable response inbox is isolated by Desktop userData instead of shared through host temp', async () => {
   const source = await readActivityRecoverySource()
-  const directoryStart = source.indexOf('function pendingBundleDirectory()')
-  const directoryEnd = source.indexOf('\nasync function pendingChatGPTBundlePayloads', directoryStart)
+  const inbox = await readFile(new URL('../session/pending-bundle-inbox.mjs', import.meta.url), 'utf8')
+  const directoryStart = inbox.indexOf('function pendingBundleDirectory()')
+  const directoryEnd = inbox.indexOf('\n  async function pendingChatGPTBundlePayloads', directoryStart)
   assert.notEqual(directoryStart, -1)
-  const directory = source.slice(directoryStart, directoryEnd)
+  assert.match(source, /createPendingBundleInbox\(\{/)
+  assert.match(source, /\bapp, path, readdir, readFile, rm\b/)
+  const directory = inbox.slice(directoryStart, directoryEnd)
   assert.match(directory, /app\.getPath\('userData'\)/)
   assert.match(directory, /pending-chatgpt-bundles-v1/)
   assert.doesNotMatch(directory, /app\.getPath\('temp'\)/)

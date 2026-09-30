@@ -105,14 +105,16 @@ test('a plan still being produced at the lease deadline is observed, not failed'
 test('orchestrator planning delivers the project standard response bundle', async () => {
   const source = await readPromptTransportSource()
   const preflight = await readFile(new URL('./preflight.mjs', import.meta.url), 'utf8')
+  const filenames = await readFile(new URL('./filenames.mjs', import.meta.url), 'utf8')
   // The planning result uses the same ZIP transport and naming contract as
   // every other planner artifact instead of a bare JSON file of its own.
-  const naming = source.slice(source.indexOf('function orchestratorBundleFilename('), source.indexOf('\n// A checkpoint written under the old contract'))
+  assert.match(source, /orchestratorBundleFilename/)
+  const naming = filenames.slice(filenames.indexOf('function orchestratorBundleFilename('))
   assert.match(naming, /buildBundleName\('res', 'orchestrator', id\)/)
   assert.match(naming, /\^orp_\[0-9\]\{8\}T\[0-9\]\{6\}_\[0-9a-f\]\{16\}\$/)
 
   // A request already checkpointed under the legacy contract finishes on it.
-  const delivery = source.slice(source.indexOf('function orchestratorDeliveryFor('), source.indexOf('\nasync function importOrchestratorWorkerPlanBundle('))
+  const delivery = filenames.slice(filenames.indexOf('function orchestratorDeliveryFor('))
   assert.match(delivery, /endsWith\('\.json'\) \? 'json' : 'bundle'/)
 
   assert.match(preflight, /delivery === 'bundle' \? orchestratorBundleFilename\(requestId\) : orchestratorPlanFilename\(task\.task_id\)/)

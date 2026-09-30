@@ -6,6 +6,7 @@ export { createOwnedChatGPTConversationReload } from './reload.mjs'
 export { createChatGPTViewCleanup } from './cleanup.mjs'
 export { createChatGPTViewState } from './state.mjs'
 export { createChatGPTViewOwnership } from './ownership.mjs'
+export { createChatGPTRendererStability } from './renderer-stability.mjs'
 
 export function createChatGPTViewOperations(options) {
   const navigation = createChatGPTViewNavigation(options)

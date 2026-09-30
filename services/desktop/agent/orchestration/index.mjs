@@ -1,7 +1,7 @@
 export { orchestratorCompletionDiagnostic } from './chat-agent-orchestrator-progress.mjs'
 export { createOrchestratorConversationGuard, executeOrchestratorExecution } from './chat-agent-orchestrator-execution.mjs'
 export { orchestratorContextIncrementPaths, rearmOrchestratorPlanDownload, sendOrchestratorContextIncrement } from './chat-agent-orchestrator-context-increment.mjs'
-export { createOrchestratorPlanWorker, createOrchestratorPlanImport } from './plan/index.mjs'
+export { createOrchestratorPlanWorker, createOrchestratorPlanImport, orchestratorPlanFilename, orchestratorBundleFilename, orchestratorDeliveryFor } from './plan/index.mjs'
 export { orchestratorRetryInput } from './chat-agent-orchestrator-retry-input.mjs'
 export { registerOrchestratorExecutionDownload } from './chat-agent-orchestrator-execution-download.mjs'
 export { createOrchestratorBundleDelivery } from './task-bundle-delivery.mjs'

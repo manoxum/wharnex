@@ -29,7 +29,9 @@ test('translation, planning and release notes run on their own ephemeral Workers
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
   const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const ephemeralSource = await readFile(new URL('../../agent/automation/artifact-workers/ephemeral-runtime.mjs', import.meta.url), 'utf8')
-  assert.match(source, /const EPHEMERAL_WORKER_TASK_TYPES = new Set\(\['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES'\]\)/)
+  const ephemeralConfig = await readFile(new URL('../../agent/automation/artifact-workers/ephemeral-config.mjs', import.meta.url), 'utf8')
+  assert.match(source, /EPHEMERAL_WORKER_TASK_TYPES/)
+  assert.match(ephemeralConfig, /const EPHEMERAL_WORKER_TASK_TYPES = new Set\(\['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES'\]\)/)
   assert.match(main, /createEphemeralWorkerRuntime\(\{/)
   const ephemeral = ephemeralSource.slice(ephemeralSource.indexOf('async function executeEphemeralWorkerTask('))
   // A WAITING observation keeps the view on its conversation; anything else retires it.

@@ -65,5 +65,7 @@ test('main traces every scheduler attempt and every transport preparation', asyn
   assert.match(worker, /execute: \(task, context\) => withTrace\(traceForTask\(task\), \(\) => chatAgentWorkerActivity\.run\([^\n]*executeChatAgentTask\(task, context\)\)\)/)
   assert.match(transport, /return await withTrace\(traceId\('prepare', requestId \|\| key, Date\.now\(\)\.toString\(36\)\), operation\)/)
   assert.match(source, /withTrace,\s*traceId,/)
-  assert.match(source, /installConsoleCapture\(console, operationalLog, \{ trace: currentTrace \}\)\ninstallBackendTraceHeader\(globalThis, BACKEND_URL\)/)
+  const identity = await readFile(new URL('../identity/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(source, /initializeDesktopIdentity\(\{ app, nativeImage/)
+  assert.match(identity, /installConsoleCapture\(consoleTarget, operationalLog, \{ trace: currentTrace \}\)\n  installBackendTraceHeader\(globalTarget, BACKEND_URL\)/)
 })

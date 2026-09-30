@@ -62,9 +62,9 @@ test('observing a submit does not erase the retryable prompt, only a real termin
   // entry must survive that observation so a manual resend stays possible.
   assert.doesNotMatch(prepareOwnBody, /retryableChatGPTPrompts\.delete\(key\)/)
 
-  const ackStart = source.indexOf('async function acknowledgeChatGPTBundle(')
-  const ackEnd = source.indexOf('\nfunction chatGPTPartitionPath', ackStart)
-  assert.match(source.slice(ackStart, ackEnd), /cancelChatGPTRequestState\(key, id\)/)
+  const inbox = await readFile(new URL('../session/pending-bundle-inbox.mjs', import.meta.url), 'utf8')
+  assert.match(source, /cancelRequest: cancelChatGPTRequestState/)
+  assert.match(inbox, /await cancelRequest\(key, id\)/)
   const bundleSource = await readFile(new URL('../../chatgpt/downloads/bundle.mjs', import.meta.url), 'utf8')
   assert.match(source, /pendingDeliveries: pendingChatGPTBundleDeliveries/)
   assert.match(bundleSource, /pendingDeliveries\.set\(validated\.requestId/)
@@ -138,9 +138,9 @@ test('automatic ChatGPT transport accepts auto-approve projects', async () => {
 test('automatic and confirmed submissions wait for a stable loaded definitive ChatGPT conversation URL', async () => {
   const source = await readPromptTransportSource()
   const conversationURLs = await readFile(new URL('../../chatgpt/session/conversation-url.mjs', import.meta.url), 'utf8')
-  const waiterStart = source.indexOf('async function waitForConcreteChatGPTConversation')
-  const waiterEnd = source.indexOf('\nconst requestContextClient = createChatGPTRequestContextClient', waiterStart)
-  const waiter = source.slice(waiterStart, waiterEnd)
+  const waiter = await readFile(new URL('../../chatgpt/session/ownership/conversation-settlement.mjs', import.meta.url), 'utf8')
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  assert.match(main, /createChatGPTConversationSettlement\(\{/)
   assert.match(waiter, /!wc\.isLoading\(\) && Date\.now\(\) - stableSince >= 600/)
   assert.match(waiter, /waitForConcreteChatGPTConversation\(wc, 30_000\)/)
   assert.match(waiter, /settleChatGPTAffinityAfterSubmit\(cacheKey, entry, stableURL\)/)

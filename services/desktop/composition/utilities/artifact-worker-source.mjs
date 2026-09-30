@@ -41,7 +41,7 @@ export async function readArtifactWorkersSource() {
   const translatorStart = translator.indexOf('  async function executeChatTranslatorTask(')
   const translatorEnd = translator.lastIndexOf('\n  return { executeChatTranslatorTask }')
   const translatorCompositionStart = withEphemeral.indexOf('const { executeChatTranslatorTask } = createTranslatorTaskRuntime({')
-  const translatorCompositionEnd = withEphemeral.indexOf('\nconst EPHEMERAL_WORKER_TASK_TYPES', translatorCompositionStart)
+  const translatorCompositionEnd = withEphemeral.indexOf('\nconst ephemeralWorkerViews = new Map()', translatorCompositionStart)
   const translationIndex = await readFile(new URL('../../agent/automation/translation/index.mjs', import.meta.url), 'utf8')
   if (translatorStart < 0 || translatorEnd <= translatorStart || translatorCompositionStart < 0
       || translatorCompositionEnd <= translatorCompositionStart || !agent.includes('createTranslatorTaskRuntime')

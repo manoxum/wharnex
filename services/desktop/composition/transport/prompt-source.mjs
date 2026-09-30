@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { readSchedulerStartupSource } from '../workers/scheduler-startup-source.mjs'
+import { expandPromptPreparationSource } from './preparation-source.mjs'
 
 const sections = [
   ['preparation/prepare.mjs', 'async function preparePromptForChatGPT('],
@@ -18,27 +19,22 @@ const sections = [
 export async function readPromptTransportSource() {
   let main = await readSchedulerStartupSource()
   const interaction = await readFile(new URL('../../agent/supervision/surface/worker-interaction.mjs', import.meta.url), 'utf8')
+  const wiring = await readFile(new URL('../../agent/scheduling/wiring/desktop.mjs', import.meta.url), 'utf8')
+  const wiringIndex = await readFile(new URL('../../agent/scheduling/index.mjs', import.meta.url), 'utf8')
   const interactionStart = interaction.indexOf('  function workerEntryForAgentID(')
   const interactionEnd = interaction.lastIndexOf('\n  return {')
-  const interactionCompositionStart = main.indexOf('const {\n  workerEntryForAgentID, hideChatAgentInteractionEntry,')
-  const interactionCompositionEnd = main.indexOf('\nconst { reconcileChatAgentWorkerTasks, refreshChatAgentRuntimeState } = createChatAgentRuntimeRefresh({', interactionCompositionStart)
+  const interactionCompositionStart = main.indexOf('const desktopAgentScheduling = createDesktopAgentScheduling({')
+  const interactionCompositionEnd = main.indexOf('const chatAgentBrowserSnapshot = desktopAgentScheduling.chatAgentBrowserSnapshot', interactionCompositionStart)
   const surfaceIndex = await readFile(new URL('../../agent/supervision/surface/index.mjs', import.meta.url), 'utf8')
   if (interactionStart < 0 || interactionEnd <= interactionStart || interactionCompositionStart < 0
-      || interactionCompositionEnd <= interactionCompositionStart || !surfaceIndex.includes("from './worker-interaction.mjs'")) {
+      || interactionCompositionEnd <= interactionCompositionStart || !surfaceIndex.includes("from './worker-interaction.mjs'")
+      || !wiringIndex.includes("from './wiring/index.mjs'")
+      || !wiring.includes('d.createWorkerInteraction({')
+      || !wiring.includes('d.createChatAgentRuntimeRefresh({')) {
     throw new Error('Worker interaction domain composition missing from main.mjs')
   }
-  main = `${main.slice(0, interactionCompositionStart)}${interaction.slice(interactionStart, interactionEnd).replace(/^  /gm, '').trim()}\n${main.slice(interactionCompositionEnd)}`
-  const input = await readFile(new URL('../../chatgpt/transport/requests/preparation/input.mjs', import.meta.url), 'utf8')
-  const inputStart = input.indexOf('  async function materializeChatInput(')
-  const inputEnd = input.lastIndexOf('\n  return { materializeChatInput,')
-  const inputCompositionStart = main.indexOf('const {\n  materializeChatInput, materializeProtocolChatInput,')
-  const inputCompositionEnd = main.indexOf('\nasync function executeChatGPTDOMScript(', inputCompositionStart)
-  const preparationIndex = await readFile(new URL('../../chatgpt/transport/requests/preparation/index.mjs', import.meta.url), 'utf8')
-  if (inputStart < 0 || inputEnd <= inputStart || inputCompositionStart < 0
-      || inputCompositionEnd <= inputCompositionStart || !preparationIndex.includes("from './input.mjs'")) {
-    throw new Error('Chat input preparation domain composition missing from main.mjs')
-  }
-  main = `${main.slice(0, inputCompositionStart)}${input.slice(inputStart, inputEnd).replace(/^  /gm, '').trim()}\n${main.slice(inputCompositionEnd)}`
+  main = `${main.slice(0, interactionCompositionEnd)}${interaction.slice(interactionStart, interactionEnd).replace(/^  /gm, '').trim()}\n${wiring}\n${main.slice(interactionCompositionEnd)}`
+  main = await expandPromptPreparationSource(main)
   const pacing = await readFile(new URL('../../agent/scheduling/residency/worker-pacing.mjs', import.meta.url), 'utf8')
   const pacingStart = pacing.indexOf('  function chatAgentNavigationGapMs()')
   const pacingEnd = pacing.lastIndexOf('\n  return {')
@@ -65,7 +61,7 @@ export async function readPromptTransportSource() {
   const queueStart = queue.indexOf('  const CHAT_AGENT_REQUEST_BOUND_TASKS =')
   const queueEnd = queue.lastIndexOf('\n  return { chatAgentInitialRequestWaitMs,')
   const queueCompositionStart = main.indexOf('const {\n  chatAgentInitialRequestWaitMs, chatAgentRequestEligibleAt,')
-  const queueCompositionEnd = main.indexOf('\nfunction expectedChatAgentPayload(', queueCompositionStart)
+  const queueCompositionEnd = main.indexOf('\nconst { expectedChatAgentPayload, enqueueChatAgentFollowups } = createChatAgentFollowups({', queueCompositionStart)
   const queueIndex = await readFile(new URL('../../agent/scheduling/queue/index.mjs', import.meta.url), 'utf8')
   if (queueStart < 0 || queueEnd <= queueStart || queueCompositionStart < 0
       || queueCompositionEnd <= queueCompositionStart || !queueIndex.includes("from './task-operations.mjs'")) {
@@ -76,13 +72,24 @@ export async function readPromptTransportSource() {
   const remoteStart = remote.indexOf('  function durableWorkspaceChatID(')
   const remoteEnd = remote.lastIndexOf('\n  return { durableWorkspaceChatID,')
   const remoteCompositionStart = main.indexOf('const {\n  durableWorkspaceChatID, persistWorkspaceChatRemote,')
-  const remoteCompositionEnd = main.indexOf('\nfunction chatAgentTaskPayload(', remoteCompositionStart)
+  const remoteCompositionEnd = main.indexOf('\nconst chatAgentConversationURL = createChatAgentConversationURL(', remoteCompositionStart)
   const remoteOwnershipIndex = await readFile(new URL('../../chatgpt/session/ownership/index.mjs', import.meta.url), 'utf8')
   if (remoteStart < 0 || remoteEnd <= remoteStart || remoteCompositionStart < 0
       || remoteCompositionEnd <= remoteCompositionStart || !remoteOwnershipIndex.includes("from './workspace-remote.mjs'")) {
     throw new Error('Workspace chat remote domain composition missing from main.mjs')
   }
   main = `${main.slice(0, remoteCompositionStart)}${remote.slice(remoteStart, remoteEnd).replace(/^  /gm, '').trim()}\n${main.slice(remoteCompositionEnd)}`
+  const followups = await readFile(new URL('../../agent/supervision/response/followups.mjs', import.meta.url), 'utf8')
+  const followupsStart = followups.indexOf('  function expectedChatAgentPayload(')
+  const followupsEnd = followups.lastIndexOf('\n  return { expectedChatAgentPayload, enqueueChatAgentFollowups }')
+  const followupsCompositionStart = main.indexOf('const { expectedChatAgentPayload, enqueueChatAgentFollowups } = createChatAgentFollowups({')
+  const followupsCompositionEnd = main.indexOf('\n// Durably records one decision', followupsCompositionStart)
+  const followupsIndex = await readFile(new URL('../../agent/supervision/response/index.mjs', import.meta.url), 'utf8')
+  if (followupsStart < 0 || followupsEnd <= followupsStart || followupsCompositionStart < 0
+      || followupsCompositionEnd <= followupsCompositionStart || !followupsIndex.includes("from './followups.mjs'")) {
+    throw new Error('Response followup domain composition missing from main.mjs')
+  }
+  main = `${main.slice(0, followupsCompositionStart)}${followups.slice(followupsStart, followupsEnd).replace(/^  /gm, '').trim()}\n${main.slice(followupsCompositionEnd)}`
   const lineage = await readFile(new URL('../../agent/supervision/response/lineage.mjs', import.meta.url), 'utf8')
   const lineageStart = lineage.indexOf('  function recordChatGPTTaskEvent(')
   const lineageEnd = lineage.lastIndexOf('\n  return {')
@@ -167,10 +174,21 @@ export async function readPromptTransportSource() {
   const writeStart = write.indexOf('  async function executeChatAgentWrite(')
   const writeEnd = write.lastIndexOf('\n  return { executeChatAgentWrite }')
   const writeCompositionStart = withPool.indexOf('const { executeChatAgentWrite } = createAgentWrite({')
-  const writeCompositionEnd = withPool.indexOf('\nasync function executeChatAgentTitleDiscover(', writeCompositionStart)
+  const writeCompositionEnd = withPool.indexOf('\nconst { executeChatAgentTitleDiscover, executeChatAgentTempTitle, executeChatAgentTitleAwait } = createLegacyTitleTasks({', writeCompositionStart)
   if (writeStart < 0 || writeEnd <= writeStart || writeCompositionStart < 0
       || writeCompositionEnd <= writeCompositionStart || !responseIndex.includes("from './write.mjs'")) {
     throw new Error('Agent write domain composition missing from main.mjs')
   }
-  return `${withPool.slice(0, writeCompositionStart)}${write.slice(writeStart, writeEnd).replace(/^  /gm, '').trim()}\n${withPool.slice(writeCompositionEnd)}`
+  const withWrite = `${withPool.slice(0, writeCompositionStart)}${write.slice(writeStart, writeEnd).replace(/^  /gm, '').trim()}\n${withPool.slice(writeCompositionEnd)}`
+  const legacyTitle = await readFile(new URL('../../agent/scheduling/execution/title-compatibility.mjs', import.meta.url), 'utf8')
+  const titleStart = legacyTitle.indexOf('  async function executeChatAgentTitleDiscover(')
+  const titleEnd = legacyTitle.lastIndexOf('\n  return { executeChatAgentTitleDiscover,')
+  const titleCompositionStart = withWrite.indexOf('const { executeChatAgentTitleDiscover, executeChatAgentTempTitle, executeChatAgentTitleAwait } = createLegacyTitleTasks({')
+  const titleCompositionEnd = withWrite.indexOf('\nfunction releaseNotesWorkerRuntime()', titleCompositionStart)
+  const executionIndex = await readFile(new URL('../../agent/scheduling/execution/index.mjs', import.meta.url), 'utf8')
+  if (titleStart < 0 || titleEnd <= titleStart || titleCompositionStart < 0
+      || titleCompositionEnd <= titleCompositionStart || !executionIndex.includes("from './title-compatibility.mjs'")) {
+    throw new Error('Legacy title task domain composition missing from main.mjs')
+  }
+  return `${withWrite.slice(0, titleCompositionStart)}${legacyTitle.slice(titleStart, titleEnd).replace(/^  /gm, '').trim()}\n${withWrite.slice(titleCompositionEnd)}`
 }

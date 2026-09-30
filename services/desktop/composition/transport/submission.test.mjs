@@ -50,7 +50,8 @@ test('processing detection uses hysteresis and escalates a stale ambiguous contr
 
 test('task comments use a single-flight queue with recent idempotency protection', async () => {
   const source = await readActivityRecoverySource()
-  assert.match(source, /const flushingChatGPTComments = new Set\(\)/)
+  const collections = await readFile(new URL('../state/chatgpt.mjs', import.meta.url), 'utf8')
+  assert.match(collections, /flushingChatGPTComments: new Set\(\)/)
   assert.match(source, /if \(flushingChatGPTComments\.has\(key\)\) continue/)
   assert.match(source, /recentChatGPTCommentIds\.set\(`\$\{key\}:\$\{pending\.commentId\}`/)
   assert.match(source, /recentChatGPTCommentFingerprints\.set\(pending\.fingerprint/)

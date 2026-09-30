@@ -10,20 +10,17 @@ test('workspace toolbar owns the themed title bar and window controls', async ()
 
 
 test('desktop tray resolves the installed Wharnex raster icon before SVG fallback', async () => {
-  const source = await readDesktopIPCSource()
-  const resolveStart = source.indexOf('function resolveDesktopIcon()')
-  const resolveEnd = source.indexOf('\nconst DESKTOP_ICON = resolveDesktopIcon()', resolveStart)
-  const resolve = source.slice(resolveStart, resolveEnd)
-  const png = resolve.indexOf("'256x256'")
-  const svg = resolve.indexOf("'scalable'")
-  const fallback = resolve.indexOf('nativeImage.createFromDataURL')
+  const source = await readFile(new URL('../../identity/runtime.mjs', import.meta.url), 'utf8')
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const png = source.indexOf("'256x256'")
+  const svg = source.indexOf("'scalable'")
+  const fallback = source.indexOf('nativeImage.createFromDataURL')
 
-  assert.ok(resolveStart !== -1 && resolveEnd > resolveStart)
-  assert.match(resolve, /WHARNESS_DESKTOP_DATA_HOME/)
-  assert.match(resolve, /nativeImage\.createFromPath\(candidate\)/)
-  assert.match(resolve, /if \(!image\.isEmpty\(\)\) return image/)
+  assert.match(source, /WHARNESS_DESKTOP_DATA_HOME/)
+  assert.match(source, /nativeImage\.createFromPath\(candidate\)/)
+  assert.match(source, /if \(!image\.isEmpty\(\)\) \{ DESKTOP_ICON = image; break \}/)
   assert.ok(png !== -1 && svg > png && fallback > svg)
-  assert.match(source, /const DESKTOP_ICON = resolveDesktopIcon\(\)/)
+  assert.match(main, /initializeDesktopIdentity\(\{ app, nativeImage/)
 })
 
 test('Linux Desktop uses software compositing to avoid GPU renderer traps', async () => {
@@ -32,8 +29,9 @@ test('Linux Desktop uses software compositing to avoid GPU renderer traps', asyn
 })
 
 test('local frontend navigation uses a per-runtime cache token', async () => {
+  const identity = await readFile(new URL('../../identity/runtime.mjs', import.meta.url), 'utf8')
   const source = await readDesktopIPCSource()
-  assert.match(source, /const FRONTEND_RUNTIME_TOKEN = randomUUID\(\)/)
+  assert.match(identity, /const FRONTEND_RUNTIME_TOKEN = randomUUID\(\)/)
   assert.match(source, /createDesktopWindowCreator\(\{[\s\S]*FRONTEND_URL, FRONTEND_RUNTIME_TOKEN, FRONTEND_ORIGIN/)
   const create = await readFile(new URL('../../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')
   assert.match(create, /target\.searchParams\.set\('wharnessRuntime', FRONTEND_RUNTIME_TOKEN\)/)

@@ -10,6 +10,7 @@ test('two Supervisor slots double-buffer renderer IPC while bounded workers stay
   const legacyPlanDownload = await readFile(new URL('../../chatgpt/downloads/legacy-plan.mjs', import.meta.url), 'utf8')
   const chatGPTStateIPC = await readFile(new URL('../../chatgpt/session/ipc/state.mjs', import.meta.url), 'utf8')
   const workerPool = await readFile(new URL('../../agent/scheduling/residency/worker-pool.mjs', import.meta.url), 'utf8')
+  const collections = await readFile(new URL('../state/chatgpt.mjs', import.meta.url), 'utf8')
   const preload = await readFile(new URL('../../preload.cjs', import.meta.url), 'utf8')
   const ensureStart = source.indexOf('function ensureChatGPTView(cacheKey, windowState)')
   const ensureEnd = source.indexOf('\nfunction evictIdleChatGPTViews', ensureStart)
@@ -17,7 +18,8 @@ test('two Supervisor slots double-buffer renderer IPC while bounded workers stay
   const workerStart = workerPool.indexOf('function reconcileChatGPTWorkerPool(windowState)')
   const workerEnd = workerPool.indexOf('\n  function assignChatGPTWorker', workerStart)
   const workers = workerPool.slice(workerStart, workerEnd)
-  assert.match(source, /const chatGPTWorkerEntries = \[\]/)
+  assert.match(collections, /chatGPTWorkerEntries: \[\]/)
+  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopCollections\(ProjectWindowRegistry\)/)
   assert.match(source, /let desiredChatAgentSupervisorSlots = DEFAULT_SUPERVISOR_SLOTS/)
   assert.match(source, /let desiredChatAgentWorkerSlots = DEFAULT_WORKER_SLOTS/)
   assert.match(ensure, /entry\.role = 'supervisor'/)
@@ -54,14 +56,17 @@ test('two Supervisor slots double-buffer renderer IPC while bounded workers stay
 
 test('agent browser snapshots present hidden workers at full size for capture', async () => {
   const source = await readTaskExecutionSource()
+  const wiring = await readFile(new URL('../../agent/scheduling/wiring/desktop.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function chatAgentBrowserSnapshot(agentID)')
   const end = source.indexOf('\nfunction retireChatGPTSupervisorSurface', start)
   assert.notEqual(start, -1)
   const snapshot = source.slice(start, end)
-  assert.match(snapshot, /ensureChatGPTLayoutViewport\(layoutKey, entry\)/)
+  assert.match(snapshot, /d\.ensureChatGPTLayoutViewport\(layoutKey, entry\)/)
   assert.match(snapshot, /entry\.role === 'worker' && !entry\.interactionWindowId/)
-  assert.match(snapshot, /await captureParkedWorkerPage\(entry, BrowserWindow, \{ openMonitor: openWorkerMonitor, closeMonitor: closeWorkerMonitor \}\)/)
-  assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor' \? supervisorKey/)
+  assert.match(snapshot, /await d\.captureParkedWorkerPage\(entry, d\.BrowserWindow, \{ openMonitor: d\.openWorkerMonitor, closeMonitor: d\.closeWorkerMonitor \}\)/)
+  assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor' \? d\.supervisorKey/)
+  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopAgentScheduling\(\{/)
+  assert.match(wiring, /async function chatAgentBrowserSnapshot\(agentID\)/)
 })
 
 test('a running Worker cannot be resized into the narrow interaction pane', async () => {
