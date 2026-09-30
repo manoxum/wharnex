@@ -1,0 +1,5 @@
+export { ProjectWindowRegistry, canonicalProjectPath } from './project-window-registry.mjs'
+export { registerWindowIPC } from './ipc.mjs'
+export { createProjectWindowOwnership } from './ownership.mjs'
+export { createDesktopProjectNavigation } from './navigation.mjs'
+export { createWorkspaceSurfaceRouting } from './surface-routing.mjs'
