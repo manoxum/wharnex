@@ -43,9 +43,11 @@ test('Worker pause and resume persist policy changes and wake the scheduler', ()
 
 test('runtime controls initialize before early Desktop consumers capture them', async () => {
   const main = await readFile(new URL('../../../main.mjs', import.meta.url), 'utf8')
+  const windowRuntime = await readFile(new URL('../../../composition/window/runtime.mjs', import.meta.url), 'utf8')
   const initialized = main.indexOf('createChatAgentRuntimeControls({')
   assert.ok(initialized > 0)
-  assert.ok(initialized < main.indexOf('resumeWorkers: resumeChatAgentWorkers'))
+  assert.ok(initialized < main.indexOf('createDesktopWindowRuntime({'))
+  assert.match(windowRuntime, /resumeWorkers: d\.resumeChatAgentWorkers/)
   assert.ok(initialized < main.indexOf('refreshChatAgentRuntimeState, publishChatAgentRuntimeState,'))
   assert.match(main, /persistChatAgentPolicies: \(\.\.\.args\) => persistChatAgentPolicies\(\.\.\.args\)/)
 })

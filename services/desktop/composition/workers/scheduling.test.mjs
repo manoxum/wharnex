@@ -157,7 +157,10 @@ test('Worker upload and submit recheck suspension at the last provider-facing bo
 test('automatic rate-limit resume reloads one Worker and confirms the structural gate before claims resume', async () => {
   const source = await readActivityRecoverySource()
   const resume = await readFile(new URL('../../chatgpt/session/health/rate-limit-resume.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createChatGPTRateLimitResume\(\{/)
+  const pacing = await readFile(new URL('../transport/pacing/runtime.mjs', import.meta.url), 'utf8')
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  assert.match(main, /createDesktopChatGPTPacing\(chatGPTPacingDependencies\)/)
+  assert.match(pacing, /createChatGPTRateLimitResume\(\{/)
   assert.match(resume, /state\.resumeProbeRequired/)
   assert.match(resume, /wc\.reload\(\)/)
   assert.match(resume, /await wait\(50\)/)

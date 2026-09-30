@@ -22,9 +22,11 @@ test('the scheduler preserves the same Worker lane after a generating observatio
   const planObservation = await readFile(new URL('../orchestration/plan/observation.mjs', import.meta.url), 'utf8')
   const execution = await readFile(new URL('../orchestration/chat-agent-orchestrator-execution.mjs', import.meta.url), 'utf8')
   const workerPool = await readFile(new URL('../scheduling/residency/worker-pool.mjs', import.meta.url), 'utf8')
+  const orchestrationRuntime = await readFile(new URL('../../composition/orchestration/runtime.mjs', import.meta.url), 'utf8')
   const scheduler = source.slice(source.indexOf('chatAgentScheduler = new ChatAgentSchedulerClient('), source.indexOf('chatAgentScheduler.start()'))
   assert.match(workerPool, /return chatAgentLiveBundlePending\(chatAgentWorkerStates\.get\(Number\(worker\) \|\| 0\)\)/)
-  assert.match(source, /observeAgainMs: ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS/)
+  assert.match(source, /createOrchestrationRuntime\(\{/)
+  assert.match(orchestrationRuntime, /observeAgainMs: ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS/)
   assert.match(planObservation, /status: 'waiting', observation: true, liveBundlePending: true, delayMs: observeAgainMs/)
   // An Orchestrator task keeps its Worker through its pin (adr/ADR-0082), so
   // its round driver needs no residency signal of its own.

@@ -33,11 +33,13 @@ test('transient protocol ZIPs are deleted promptly and included in storage clean
 
 test('an expired ChatGPT artifact is re-requested instead of clicked forever', async () => {
   const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const viewHealth = await readFile(new URL('../session/view-health-runtime.mjs', import.meta.url), 'utf8')
   const health = await readFile(new URL('../../chatgpt/session/health/http-status.mjs', import.meta.url), 'utf8')
   // Measured live: 134 clicks against two dead file cards in one lease. The
   // card stays rendered after ChatGPT collects the artifact behind it, so the
   // 404 on its own download endpoint is the only evidence the file is gone.
-  assert.match(source, /createChatGPTHTTPHealth\(\{/)
+  assert.match(source, /createDesktopChatViewHealthRuntime\(\{/)
+  assert.match(viewHealth, /createChatGPTHTTPHealth\(\{/)
   const detector = health.slice(health.indexOf('function chatGPTInterpreterDownloadConversation('), health.indexOf('\n  function noteChatGPTExpiredArtifact('))
   assert.match(detector, /backend-api\\\/conversation\\\/\(\[A-Za-z0-9-\]\{1,128\}\)\\\/interpreter\\\/download/)
 
@@ -48,7 +50,9 @@ test('an expired ChatGPT artifact is re-requested instead of clicked forever', a
   const worker = await readFile(new URL('../../agent/orchestration/plan/observation.mjs', import.meta.url), 'utf8')
   assert.match(worker, /chatGPTArtifactExpiredSince\(chatAgentConversationID\(flow\.conversationUrl\), flow\.lastRequestedAt\)/)
   // Bounded, and it must not restart the planning work it already did.
-  assert.match(source, /maxBundleContinuations: MAX_BUNDLE_CONTINUATIONS/)
+  const orchestration = await readFile(new URL('../orchestration/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(source, /createOrchestrationRuntime\(\{/)
+  assert.match(orchestration, /maxBundleContinuations: MAX_BUNDLE_CONTINUATIONS/)
   assert.match(worker, /rerequests >= maxBundleContinuations/)
   // Once the artifacts are collected the conversation can never deliver again,
   // so exhaustion clears the checkpoint and the next attempt starts fresh
@@ -69,10 +73,12 @@ test('an expired ChatGPT artifact is re-requested instead of clicked forever', a
 // browsing window, which shares this partition.
 test('an unrecognized download on the ChatGPT automation partition fails closed', async () => {
   const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const runtime = await readFile(new URL('../downloads/runtime.mjs', import.meta.url), 'utf8')
   const legacy = await readFile(new URL('../../chatgpt/downloads/legacy-plan.mjs', import.meta.url), 'utf8')
   const router = await readFile(new URL('../../chatgpt/downloads/registration/router.mjs', import.meta.url), 'utf8')
   const browsing = await readFile(new URL('../../chatgpt/downloads/registration/source.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createChatGPTDownloadRouter\(\{/)
+  assert.match(source, /createDesktopDownloadRuntime\(\{/)
+  assert.match(runtime, /createChatGPTDownloadRouter\(\{/)
   const start = router.indexOf("chatSession.on('will-download'")
   assert.notEqual(start, -1)
   const handler = router.slice(start, router.indexOf('\n    })', start))

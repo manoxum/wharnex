@@ -30,9 +30,11 @@ test('translation, planning and release notes run on their own ephemeral Workers
   const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const ephemeralSource = await readFile(new URL('../../agent/automation/artifact-workers/ephemeral-runtime.mjs', import.meta.url), 'utf8')
   const ephemeralConfig = await readFile(new URL('../../agent/automation/artifact-workers/ephemeral-config.mjs', import.meta.url), 'utf8')
+  const workerRuntime = await readFile(new URL('../workers/runtime/runtime.mjs', import.meta.url), 'utf8')
   assert.match(source, /EPHEMERAL_WORKER_TASK_TYPES/)
   assert.match(ephemeralConfig, /const EPHEMERAL_WORKER_TASK_TYPES = new Set\(\['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES'\]\)/)
-  assert.match(main, /createEphemeralWorkerRuntime\(\{/)
+  assert.match(main, /createAgentWorkerRuntime\(\{/)
+  assert.match(workerRuntime, /createEphemeralWorkerRuntime\(\{/)
   const ephemeral = ephemeralSource.slice(ephemeralSource.indexOf('async function executeEphemeralWorkerTask('))
   // A WAITING observation keeps the view on its conversation; anything else retires it.
   assert.match(ephemeral.slice(0, 2500), /if \(String\(result\?\.status \|\| ''\) !== 'waiting'\) retireEphemeralWorkerView/)

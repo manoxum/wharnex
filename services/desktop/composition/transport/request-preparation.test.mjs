@@ -63,7 +63,10 @@ test('observing a submit does not erase the retryable prompt, only a real termin
   assert.doesNotMatch(prepareOwnBody, /retryableChatGPTPrompts\.delete\(key\)/)
 
   const inbox = await readFile(new URL('../session/pending-bundle-inbox.mjs', import.meta.url), 'utf8')
-  assert.match(source, /cancelRequest: cancelChatGPTRequestState/)
+  const transportRuntime = await readFile(new URL('../session/transport-runtime.mjs', import.meta.url), 'utf8')
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  assert.match(main, /createDesktopChatTransportRuntime\(\{/)
+  assert.match(transportRuntime, /cancelRequest: cancelChatGPTRequestState/)
   assert.match(inbox, /await cancelRequest\(key, id\)/)
   const bundleSource = await readFile(new URL('../../chatgpt/downloads/bundle.mjs', import.meta.url), 'utf8')
   assert.match(source, /pendingDeliveries: pendingChatGPTBundleDeliveries/)

@@ -100,6 +100,7 @@ test('a dead main-frame renderer in the trusted window reloads the frontend inst
 // project closing and reopening.
 test('a parked chat surface is never shown while it carries layout-only bounds', async () => {
   const source = await readDesktopIPCSource()
+  const runtime = await readFile(new URL('../session/view-health-runtime.mjs', import.meta.url), 'utf8')
   const surface = await readFile(new URL('../../agent/supervision/surface/visibility.mjs', import.meta.url), 'utf8')
   const viewportSource = await readFile(new URL('../../chatgpt/account/control/viewport.mjs', import.meta.url), 'utf8')
   const authIPC = await readFile(new URL('../../chatgpt/session/ipc/authentication.mjs', import.meta.url), 'utf8')
@@ -147,7 +148,8 @@ test('a parked chat surface is never shown while it carries layout-only bounds',
   const viewState = await readFile(new URL('../../chatgpt/session/views/state.mjs', import.meta.url), 'utf8')
   const boundsStart = viewState.indexOf('function setChatGPTBounds(')
   const boundsEnd = viewState.indexOf('\n  function currentChatGPTState(', boundsStart)
-  assert.match(source, /createChatGPTViewState\(\{/)
+  assert.match(source, /createDesktopChatViewHealthRuntime\(\{/)
+  assert.match(runtime, /createChatGPTViewState\(\{/)
   assert.match(viewState.slice(boundsStart, boundsEnd), /entry\.parkedLayout = false/)
 })
 

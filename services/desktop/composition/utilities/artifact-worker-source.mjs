@@ -15,12 +15,14 @@ export async function readArtifactWorkersSource() {
     if (start < 0 || end <= start) throw new Error(`Artifact worker section missing: ${file}`)
     return module.slice(start, end).replace(/^  /gm, '').trim()
   }))
-  const start = main.indexOf('const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification } = createArtifactWorkers({')
+  const start = main.indexOf('const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification } = createArtifactWorkers(deps)')
   const end = main.indexOf('\nasync function chatAgentLifecycleRetry(', start)
   const agent = await readFile(new URL('../../agent/index.mjs', import.meta.url), 'utf8')
   const automation = await readFile(new URL('../../agent/automation/index.mjs', import.meta.url), 'utf8')
+  const artifactComposition = await readFile(new URL('./artifacts/index.mjs', import.meta.url), 'utf8')
   if (start < 0 || end <= start || !main.includes("from './agent/index.mjs'")
-      || !agent.includes('createArtifactWorkers') || !automation.includes("from './artifact-workers/index.mjs'")) {
+      || !agent.includes('createArtifactWorkers') || !automation.includes("from './artifact-workers/index.mjs'")
+      || !artifactComposition.includes("from './runtime.mjs'")) {
     throw new Error('Artifact worker domain composition missing')
   }
   const source = `${main.slice(0, start)}${bodies.join('\n\n')}\n${main.slice(end)}`

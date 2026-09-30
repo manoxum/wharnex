@@ -23,7 +23,7 @@ test('the durable response inbox is isolated by Desktop userData instead of shar
   const directoryEnd = inbox.indexOf('\n  async function pendingChatGPTBundlePayloads', directoryStart)
   assert.notEqual(directoryStart, -1)
   assert.match(source, /createPendingBundleInbox\(\{/)
-  assert.match(source, /\bapp, path, readdir, readFile, rm\b/)
+  assert.match(source, /app: app, path: path, readdir: readdir, readFile: readFile, rm: rm/)
   const directory = inbox.slice(directoryStart, directoryEnd)
   assert.match(directory, /app\.getPath\('userData'\)/)
   assert.match(directory, /pending-chatgpt-bundles-v1/)
@@ -104,7 +104,10 @@ test('automatic bundle recovery is one wake-up and validation quiesces queued or
 
   const quiesce = await readFile(new URL('../../chatgpt/transport/downloads/expectation/validated.mjs', import.meta.url), 'utf8')
   assert.match(source, /createValidatedBundleState\(\{/)
-  assert.match(source, /scheduler: \(\) => chatAgentScheduler/)
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const transportComposition = await readFile(new URL('../session/transport-runtime.mjs', import.meta.url), 'utf8')
+  assert.match(main, /scheduler: \(\) => chatAgentScheduler/)
+  assert.match(transportComposition, /scheduler: d\.scheduler/)
   assert.match(quiesce, /abortChatGPTTransportPreparations/)
   assert.match(quiesce, /activeScheduler\.cancelLineage/)
 

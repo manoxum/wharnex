@@ -6,6 +6,7 @@ import { readSchedulerStartupSource } from '../composition/workers/scheduler-sta
 
 const main = await readDesktopIPCSource()
 const trayComposition = await readFile(new URL('../composition/window/tray-lifecycle.mjs', import.meta.url), 'utf8')
+const windowRuntime = await readFile(new URL('../composition/window/runtime.mjs', import.meta.url), 'utf8')
 const tray = await readFile(new URL('./desktop-tray-control.mjs', import.meta.url), 'utf8')
 const preload = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')
 const windowIPC = await readFile(new URL('../window/project/ipc.mjs', import.meta.url), 'utf8')
@@ -19,7 +20,8 @@ const autoScale = await readFile(new URL('../agent/scheduling/capacity/auto-scal
 const runtimeControls = await readFile(new URL('../agent/scheduling/diagnostics/controls.mjs', import.meta.url), 'utf8')
 
 test('desktop tray owns background lifecycle, project controls and recoverable shutdown', async () => {
-  assert.match(main, /createDesktopTrayComposition\(\{/)
+  assert.match(main, /createDesktopWindowRuntime\(\{/)
+  assert.match(windowRuntime, /createDesktopTrayComposition\(\{/)
   assert.match(trayComposition, /createDesktopTrayControl\(\{/)
   assert.match(tray, /new deps\.Tray\(deps\.icon\.resize/)
   assert.match(tray, /label: 'Abrir projeto'/)
@@ -43,7 +45,7 @@ test('desktop tray owns background lifecycle, project controls and recoverable s
   assert.match(startupRestore, /recoverableDesktopWindows\(recovery\)/)
   assert.match(windowIPC, /pending: Boolean\(windowState\.recovery\?\.pending\)/)
   assert.match(windowIPC, /ipcMain\.handle\('wharness:windows:recovery'/)
-  assert.match(main, /createDesktopProjectNavigation\(\{/)
+  assert.match(windowRuntime, /createDesktopProjectNavigation\(\{/)
   assert.match(projectNavigation, /sendToWindowState\(state, 'wharness:windows:close-project', \{ projectPath \}\)/)
   assert.match(main, /registerDesktopLifecycleHandlers\(\{/)
   assert.match(lifecycleHandlers, /app\.on\('window-all-closed', \(\) => \{[\s\S]*if \(!getQuitting\(\)\) ensureDesktopTray\(\)/)

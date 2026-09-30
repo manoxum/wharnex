@@ -1,6 +1,7 @@
 export {
   ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick,
   dispatchChatGPTPointerPress, submitWithoutReplay, createChatGPTPromptTransport,
+  createDesktopPromptDispatch,
   shouldAttachProjectContext, createChatGPTRequestContextClient,
   createChatGPTTransportPreparation, throwIfChatGPTTransportAborted,
   boundedChatInputPartBytes, requestPreparationTimer, withRequestPreparationDeadline,

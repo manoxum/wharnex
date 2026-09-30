@@ -72,12 +72,14 @@ test('project home IPC can pick logos, move closed projects to trash and open a 
 })
 
 test('closing or switching the active project hides Supervisor and interactive Worker surfaces in Desktop before renderer teardown', async () => {
-  const [source, windowIPC, ownership] = await Promise.all([
+  const [source, windowRuntime, windowIPC, ownership] = await Promise.all([
     readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../composition/window/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('./ipc.mjs', import.meta.url), 'utf8'),
     readFile(new URL('./ownership.mjs', import.meta.url), 'utf8'),
   ])
-  assert.match(source, /createProjectWindowOwnership\(\{[\s\S]*hideAgentInteractions: \(\.\.\.args\) => hideChatAgentInteractionsForWindow\(\.\.\.args\)/)
+  assert.match(source, /hideAgentInteractionsForWindow: \(\.\.\.args\) => hideChatAgentInteractionsForWindow\(\.\.\.args\)/)
+  assert.match(windowRuntime, /createProjectWindowOwnership\(\{[\s\S]*hideAgentInteractions: d\.hideAgentInteractionsForWindow/)
   const suspendStart = ownership.indexOf('function suspendNativeSurfacesForWindow(windowState)')
   const suspendEnd = ownership.indexOf('\n  function acquireProjectForWindow', suspendStart)
   const suspend = ownership.slice(suspendStart, suspendEnd)

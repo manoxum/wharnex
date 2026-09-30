@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { readSchedulerStartupSource } from '../workers/scheduler-startup-source.mjs'
 import { expandPromptPreparationSource } from './preparation-source.mjs'
+import { expandPromptDispatchSource } from './dispatch-source.mjs'
+import { expandTransportRuntimeSource } from './runtime-source.mjs'
 
 const sections = [
   ['preparation/prepare.mjs', 'async function preparePromptForChatGPT('],
@@ -17,7 +19,7 @@ const sections = [
 // Reconstruct that order from the actual domain modules rather than keeping
 // duplicate implementation text in main.mjs.
 export async function readPromptTransportSource() {
-  let main = await readSchedulerStartupSource()
+  let main = await expandTransportRuntimeSource(await readSchedulerStartupSource())
   const interaction = await readFile(new URL('../../agent/supervision/surface/worker-interaction.mjs', import.meta.url), 'utf8')
   const wiring = await readFile(new URL('../../agent/scheduling/wiring/desktop.mjs', import.meta.url), 'utf8')
   const wiringIndex = await readFile(new URL('../../agent/scheduling/index.mjs', import.meta.url), 'utf8')
@@ -35,28 +37,6 @@ export async function readPromptTransportSource() {
   }
   main = `${main.slice(0, interactionCompositionEnd)}${interaction.slice(interactionStart, interactionEnd).replace(/^  /gm, '').trim()}\n${wiring}\n${main.slice(interactionCompositionEnd)}`
   main = await expandPromptPreparationSource(main)
-  const pacing = await readFile(new URL('../../agent/scheduling/residency/worker-pacing.mjs', import.meta.url), 'utf8')
-  const pacingStart = pacing.indexOf('  function chatAgentNavigationGapMs()')
-  const pacingEnd = pacing.lastIndexOf('\n  return {')
-  const pacingCompositionStart = main.indexOf('const {\n  ChatGPTRateLimitDeferral, ChatGPTConversationUnavailable,')
-  const pacingCompositionEnd = main.indexOf('\nconst { pasteChatGPTFile } = createChatGPTFileUpload({', pacingCompositionStart)
-  const residencyIndex = await readFile(new URL('../../agent/scheduling/residency/index.mjs', import.meta.url), 'utf8')
-  if (pacingStart < 0 || pacingEnd <= pacingStart || pacingCompositionStart < 0
-      || pacingCompositionEnd <= pacingCompositionStart || !residencyIndex.includes("from './worker-pacing.mjs'")) {
-    throw new Error('Worker pacing domain composition missing from main.mjs')
-  }
-  main = `${main.slice(0, pacingCompositionStart)}${pacing.slice(pacingStart, pacingEnd).replace(/^  /gm, '').trim()}\n${main.slice(pacingCompositionEnd)}`
-  const upload = await readFile(new URL('../../chatgpt/transport/uploads/paste-runtime.mjs', import.meta.url), 'utf8')
-  const uploadStart = upload.indexOf('  async function pasteChatGPTFile(')
-  const uploadEnd = upload.lastIndexOf('\n  return { pasteChatGPTFile }')
-  const uploadCompositionStart = main.indexOf('const { pasteChatGPTFile } = createChatGPTFileUpload({')
-  const uploadCompositionEnd = main.indexOf('\n// Keep the account-specific control interaction', uploadCompositionStart)
-  const uploadIndex = await readFile(new URL('../../chatgpt/transport/uploads/index.mjs', import.meta.url), 'utf8')
-  if (uploadStart < 0 || uploadEnd <= uploadStart || uploadCompositionStart < 0
-      || uploadCompositionEnd <= uploadCompositionStart || !uploadIndex.includes("from './paste-runtime.mjs'")) {
-    throw new Error('ChatGPT file upload domain composition missing from main.mjs')
-  }
-  main = `${main.slice(0, uploadCompositionStart)}${upload.slice(uploadStart, uploadEnd).replace(/^  /gm, '').trim()}\n${main.slice(uploadCompositionEnd)}`
   const queue = await readFile(new URL('../../agent/scheduling/queue/task-operations.mjs', import.meta.url), 'utf8')
   const queueStart = queue.indexOf('  const CHAT_AGENT_REQUEST_BOUND_TASKS =')
   const queueEnd = queue.lastIndexOf('\n  return { chatAgentInitialRequestWaitMs,')
@@ -83,7 +63,7 @@ export async function readPromptTransportSource() {
   const followupsStart = followups.indexOf('  function expectedChatAgentPayload(')
   const followupsEnd = followups.lastIndexOf('\n  return { expectedChatAgentPayload, enqueueChatAgentFollowups }')
   const followupsCompositionStart = main.indexOf('const { expectedChatAgentPayload, enqueueChatAgentFollowups } = createChatAgentFollowups({')
-  const followupsCompositionEnd = main.indexOf('\n// Durably records one decision', followupsCompositionStart)
+  const followupsCompositionEnd = main.indexOf('\nconst {\n  recordChatGPTTaskEvent, hydrateExpectedChatAgentBundle,', followupsCompositionStart)
   const followupsIndex = await readFile(new URL('../../agent/supervision/response/index.mjs', import.meta.url), 'utf8')
   if (followupsStart < 0 || followupsEnd <= followupsStart || followupsCompositionStart < 0
       || followupsCompositionEnd <= followupsCompositionStart || !followupsIndex.includes("from './followups.mjs'")) {
@@ -123,31 +103,7 @@ export async function readPromptTransportSource() {
     throw new Error('Orchestrator plan import domain composition missing from main.mjs')
   }
   main = `${main.slice(0, planImportCompositionStart)}${planImport.slice(planImportStart, planImportEnd).replace(/^  /gm, '').trim()}\n${main.slice(planImportCompositionEnd)}`
-  const draft = await readFile(new URL('../../chatgpt/transport/requests/submission/draft.mjs', import.meta.url), 'utf8')
-  const draftStart = draft.indexOf('  async function submitChatGPTDraft(')
-  const draftEnd = draft.lastIndexOf('\n  return { submitChatGPTDraft }')
-  const draftCompositionStart = main.indexOf('const { submitChatGPTDraft } = createChatGPTDraftSubmission({')
-  const draftCompositionEnd = main.indexOf('\nconst {\n  preparePromptForChatGPT,', draftCompositionStart)
-  const submissionIndex = await readFile(new URL('../../chatgpt/transport/requests/submission/index.mjs', import.meta.url), 'utf8')
-  if (draftStart < 0 || draftEnd <= draftStart || draftCompositionStart < 0 || draftCompositionEnd <= draftCompositionStart
-      || !submissionIndex.includes("from './draft.mjs'")) throw new Error('Draft submission domain composition missing')
-  main = `${main.slice(0, draftCompositionStart)}${draft.slice(draftStart, draftEnd).replace(/^  /gm, '').trim()}\n${main.slice(draftCompositionEnd)}`
-  const bodies = await Promise.all(sections.map(async ([file, signature]) => {
-    const module = await readFile(new URL(`../../chatgpt/transport/requests/${file}`, import.meta.url), 'utf8')
-    const start = module.indexOf(`  ${signature}`)
-    const end = module.lastIndexOf('\n  return {')
-    if (start < 0 || end <= start) throw new Error(`Prompt source section missing: ${file}`)
-    return module.slice(start, end).replace(/^  /gm, '').trim()
-  }))
-  const start = main.indexOf('const {\n  preparePromptForChatGPT,')
-  const end = main.indexOf('\nfunction durableWorkspaceChatID(', start)
-  const transport = await readFile(new URL('../../chatgpt/transport/index.mjs', import.meta.url), 'utf8')
-  const requests = await readFile(new URL('../../chatgpt/transport/requests/index.mjs', import.meta.url), 'utf8')
-  if (start < 0 || end <= start || !main.includes("from './chatgpt/transport/index.mjs'")
-      || !transport.includes("createChatGPTPromptTransport") || !requests.includes("from './prompt-index.mjs'")) {
-    throw new Error('Prompt transport domain composition missing from main.mjs')
-  }
-  const withTransport = `${main.slice(0, start)}${bodies.join('\n\n')}\n${main.slice(end)}`
+  const withTransport = await expandPromptDispatchSource(main, sections)
   const lease = await readFile(new URL('../../agent/supervision/response/supervisor-lease.mjs', import.meta.url), 'utf8')
   const leaseStart = lease.indexOf('  async function superviseChatAgentResponse(')
   const leaseEnd = lease.lastIndexOf('\n  return { superviseChatAgentResponse }')

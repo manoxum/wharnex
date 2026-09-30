@@ -76,7 +76,9 @@ test('only a canonical physical Supervisor id crosses the renderer boundary', ()
 
 test('the public ChatGPT state carries the owning physical Supervisor id', async () => {
   const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const runtime = await readFile(new URL('../../composition/session/view-health-runtime.mjs', import.meta.url), 'utf8')
   const viewState = await readFile(new URL('../../chatgpt/session/views/state.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createChatGPTViewState\(\{/)
+  assert.match(source, /createDesktopChatViewHealthRuntime\(\{/)
+  assert.match(runtime, /createChatGPTViewState\(\{/)
   assert.match(viewState, /supervisorId: publicSupervisorId\(entry\)/)
 })

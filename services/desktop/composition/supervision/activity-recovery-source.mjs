@@ -9,6 +9,8 @@ const sections = [
 
 export async function readActivityRecoverySource() {
   const main = await readCommentQueueSource()
+  const entry = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const recoveryRuntime = await readFile(new URL('./recovery/runtime.mjs', import.meta.url), 'utf8')
   const bodies = await Promise.all(sections.map(async ([file, signature]) => {
     const module = await readFile(new URL(file, import.meta.url), 'utf8')
     const start = module.indexOf(`  ${signature}`)
@@ -18,8 +20,9 @@ export async function readActivityRecoverySource() {
   }))
   const start = main.indexOf('const { pollChatGPTVisibleActivity } = createChatGPTActivityPoll({')
   const end = main.indexOf('\nasync function pollExpectedChatGPTDownloadKey(', start)
-  if (start < 0 || end <= start || !main.slice(0, main.indexOf('\nconst here')).includes('createChatGPTActivityPoll')
-      || !main.slice(0, main.indexOf('\nconst here')).includes('createChatGPTRecoveryActions')) {
+  if (start < 0 || end <= start || !entry.includes('createRecoveryRuntime({')
+      || !recoveryRuntime.includes('createChatGPTActivityPoll')
+      || !recoveryRuntime.includes('createChatGPTRecoveryActions')) {
     throw new Error('Activity/recovery domain composition missing')
   }
   return `${main.slice(0, start)}${bodies.join('\n\n')}\n${main.slice(end)}`

@@ -32,13 +32,15 @@ test('new ChatGPT views open the requested conversation as part of their first v
 
 test('navigation only observes affinity and a stable late observer performs definitive settlement', async () => {
   const source = await readDesktopIPCSource()
+  const runtime = await readFile(new URL('../../../composition/session/view-health-runtime.mjs', import.meta.url), 'utf8')
   const navigation = await readFile(new URL('./navigation.mjs', import.meta.url), 'utf8')
   const create = await readFile(new URL('../views/supervisor.mjs', import.meta.url), 'utf8')
   const affinityRuntime = await readFile(new URL('../ownership/affinity-runtime.mjs', import.meta.url), 'utf8')
   assert.match(create, /observeChatGPTAffinityURL\(cacheKey, entry, url\); scheduleChatGPTAffinitySettlement\(cacheKey, entry\)/)
   const settleStart = affinityRuntime.indexOf('function scheduleChatGPTAffinitySettlement')
   const settle = affinityRuntime.slice(settleStart)
-  assert.match(source, /createChatGPTAffinityRuntime\(\{/)
+  assert.match(source, /createDesktopChatViewHealthRuntime\(\{/)
+  assert.match(runtime, /createChatGPTAffinityRuntime\(\{/)
   assert.match(settle, /waitForConcreteChatGPTConversation\(entry\.view\.webContents, 2_500\)/)
   assert.match(settle, /settleChatGPTAffinityAfterSubmit\(cacheKey, entry, stableURL\)/)
 

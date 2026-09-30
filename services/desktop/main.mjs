@@ -8,15 +8,12 @@ import { fileURLToPath } from 'node:url'
 import { TextDecoder } from 'node:util'
 import {
   ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick,
-  dispatchChatGPTPointerPress, submitWithoutReplay, createChatGPTPromptTransport,
+  dispatchChatGPTPointerPress, submitWithoutReplay, createDesktopPromptDispatch,
   ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript, pasteWithUploadRetry,
   plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady,
   createChatGPTFileUpload,
-  createExpectedBundleSupervision, registerExpectedBundleRecoveryIPC,
+  registerExpectedBundleRecoveryIPC,
   createSupervisorTransport,
-  createChatGPTCommentQueue,
-  createChatGPTBundleExpectation,
-  createExpectedBundleLookup, createValidatedBundleState,
   registerChatGPTBundleIPC,
   shouldAttachProjectContext,
   chatGPTDeliveryContinuationPrompt, chooseChatGPTRecoveryAction,
@@ -32,36 +29,33 @@ import {
   boundedChatInputPartBytes, requestPreparationTimer,
   withRequestPreparationDeadline, createManualChatGPTTransport,
   classifyChatGPTRequestDelivery, registerChatGPTPromptIPC,
-  createChatGPTRequestCancellation,
   createChatGPTComposerTarget,
   createChatGPTDraftSubmission,
   createChatInputPreparation,
 } from './chatgpt/transport/index.mjs'
 import {
   preserveLocalFocusDuringBackgroundOperation, installNativeSurfaceLifecycleGuard,
-  createDesktopWindowRecovery, recoverableDesktopWindows,
-  createDesktopRestartIntent, createDesktopWindowLayout,
+  recoverableDesktopWindows,
   MIN_DESKTOP_WINDOW_SIZE, ProjectWindowRegistry, canonicalProjectPath,
-  registerWindowIPC, spellcheckContextMenuTemplate, createProjectWindowOwnership,
-  createDesktopProjectNavigation, createWorkspaceSurfaceRouting,
+  registerWindowIPC, spellcheckContextMenuTemplate,
+  createWorkspaceSurfaceRouting,
   registerDesktopShellIPC, registerSpellcheckIPC, createDesktopWindowCreator,
   securePreferences,
-  createDesktopCoordinatorRelaunch,
   restoreDesktopWindowsAtStartup,
 } from './window/index.mjs'
-import { createChatGPTAccountOperations } from './chatgpt/account/index.mjs'
+import { createDesktopChatGPTAccount } from './chatgpt/account/index.mjs'
 import {
-  orchestratorCompletionDiagnostic, createOrchestratorConversationGuard,
+  orchestratorCompletionDiagnostic,
   executeOrchestratorExecution, orchestratorContextIncrementPaths,
   rearmOrchestratorPlanDownload, sendOrchestratorContextIncrement,
-  createOrchestratorPlanWorker, createOrchestratorPlanImport, orchestratorRetryInput,
+  orchestratorRetryInput,
   orchestratorPlanFilename, orchestratorBundleFilename, orchestratorDeliveryFor,
-  registerOrchestratorExecutionDownload, createOrchestratorBundleDelivery,
-  OrchestrationTaskPins, orchestratorRequestFilename, writeOrchestratorRequestBundle, createOrchestratorRequestTransport,
-  captureChatGPTAgentPage, captureParkedWorkerPage, createResponseProbe,
-  createSupervisorOwnership, createSupervisorPool, createSupervisorResponseLease, createAgentWrite, createResponseLineage, createChatAgentFollowups, createSupervisorSurfaceSlots,
+  registerOrchestratorExecutionDownload,
+  OrchestrationTaskPins, orchestratorRequestFilename, writeOrchestratorRequestBundle,
+  captureChatGPTAgentPage, captureParkedWorkerPage,
+  createSupervisorOwnership, createChatAgentFollowups, createSupervisorSurfaceSlots,
   createSupervisorSurfaceVisibility, createSupervisorSurfaceNavigation, createWorkerInteraction,
-  createChatGPTActivityPoll, closeWorkerMonitor, closeWorkerMonitorAfterState,
+  closeWorkerMonitor, closeWorkerMonitorAfterState,
   openWorkerMonitor, chatAgentMemorySnapshot,
   publicAgentBrowser as projectAgentBrowser, buildChatAgentRuntimeState,
   chatAgentLiveBundlePending, publicSupervisorId, supervisorSurfaceRoute,
@@ -81,16 +75,19 @@ import {
   CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, CHAT_AGENT_WORKER_ACTION_GAP_MS,
   ChatAgentGlobalPacer, WorkerActivity, ChatAgentResidency,
   CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane,
-  orchestratorTaskChat, createChatAgentExecution, createLegacyTitleTasks, createWorkerPacing, CHATGPT_BEHAVIOR,
+  orchestratorTaskChat, createWorkerPacing, CHATGPT_BEHAVIOR,
   reasoningEffortStateScript, executeReleaseNotesBundleTask,
-  registerReleaseNotesBundleDownload, createArtifactWorkers,
+  registerReleaseNotesBundleDownload,
   markdownTranslationFilename, todoClassificationFilename,
   EPHEMERAL_WORKER_TASK_TYPES, EPHEMERAL_AGENT_ID, EPHEMERAL_WORKER_LABELS,
   EPHEMERAL_WORKER_IDLE_RETIRE_MS, EPHEMERAL_WORKER_PACE_PRIORITY,
-  pollWorkerExpectedDownload, registerAgentIPC, createEphemeralWorkerRuntime,
-  createTranslatorTaskRuntime,
+  pollWorkerExpectedDownload, registerAgentIPC,
 } from './agent/index.mjs'
-import { createChatGPTRecoveryActions } from './chatgpt/transport/recovery/actions/index.mjs'
+import { createArtifactWorkerRuntime } from './composition/utilities/artifacts/index.mjs'
+import { createAgentWorkerRuntime } from './composition/workers/runtime/index.mjs'
+import { createRecoveryRuntime } from './composition/supervision/recovery/index.mjs'
+import { createResponseRuntime } from './composition/transport/response/index.mjs'
+import { createOrchestrationRuntime } from './composition/orchestration/index.mjs'
 import {
   readStoredAttachment, removeStoredChatAttachments, storedAttachmentPath,
   buildBundleName, parseBundleName, safeChatId, uploadChatArtifact,
@@ -120,7 +117,7 @@ import {
   CHATGPT_CONTROL_PRESS_HOLD_MS, DEFERRED_SUPERVISOR_NAVIGATION_RETRY_MS,
 } from './chatgpt/config/index.mjs'
 import {
-  chatGPTAssistantTurnCountScript, chatGPTComposerReadyScript, chatGPTExpectedDownloadScript,
+  chatGPTComposerReadyScript, chatGPTExpectedDownloadScript,
   chatGPTHumanActionScript, chatGPTResponseCompletionScript, chatGPTFillComposerScript,
   chatGPTSubmitScript, chatGPTVisibleActivityScript, chatGPTProcessingDurationScript,
   chatGPTSubmittedRequestEvidenceScript, behaviorProbeScript, isBehaviorProbeEnabled,
@@ -140,15 +137,12 @@ import {
   launchManagedBrowserAuth, managedBrowserProfileDirectory, createChatGPTAuthentication,
   createEmbeddedChatGPTAuthentication,
   registerChatGPTAccountIPC, registerChatGPTSessionControlIPC, registerChatGPTSurfaceIPC,
-  createChatGPTThrottle, createWorkspaceChatRemote, createChatGPTAffinityRuntime,
-  createChatGPTRateLimit, createChatGPTHTTPHealth, createChatGPTRateLimitResume,
-  createChatGPTConversationReadHealth, createChatGPTNetworkActivity,
-  createChatGPTHumanAttention,
+  createChatGPTThrottle, createWorkspaceChatRemote, createChatGPTRateLimitResume,
+  createChatGPTConversationReadHealth,
   createChatGPTCacheMarker, configureChatGPTSession, createChatGPTConversationURLs,
   chatGPTConversationLoadFailureScript, withChatGPTNavigationDeadline,
   createOwnedChatGPTConversationReload,
-  createChatGPTViewOperations, createChatGPTViewCleanup, createChatGPTViewState,
-  createChatGPTViewOwnership,
+  createChatGPTViewOperations,
   createChatGPTConversationSettlement,
   createChatGPTRendererStability,
 } from './chatgpt/session/index.mjs'
@@ -156,14 +150,10 @@ import { desktopInstanceName, desktopWindowTitle, initializeDesktopIdentity } fr
 import { configureDesktopProcess, createDesktopStartupContext, startDesktopRuntime, registerDesktopLifecycleHandlers } from './lifecycle/index.mjs'
 import { registerDesktopIPC } from './composition/ipc/index.mjs'
 import { createDesktopCollections } from './composition/state/index.mjs'
-import { createDesktopMessageRouting, createDesktopTrayComposition } from './composition/window/index.mjs'
-import { createChatGPTViewKeys, createDesktopProfilePaths, createPendingBundleInbox } from './composition/session/index.mjs'
-import {
-  createChatGPTUtilityDownloads, createOrchestratorPlanDownloads,
-  createLegacyPlanDownload, createChatGPTBundleDownload,
-  createChatGPTDownloadPublication, createChatGPTDownloadSource,
-  createValidBundleMetric, createChatGPTDownloadRouter,
-} from './chatgpt/downloads/index.mjs'
+import { createDesktopChatGPTPacing } from './composition/transport/index.mjs'
+import { createDesktopMessageRouting, createDesktopWindowRuntime } from './composition/window/index.mjs'
+import { createDesktopDownloadRuntime } from './composition/downloads/index.mjs'
+import { createChatGPTViewKeys, createDesktopChatTransportRuntime, createDesktopChatViewHealthRuntime } from './composition/session/index.mjs'
 import { registerClipboardIPC } from './clipboard/index.mjs'
 // Planner requests are deliberately ZIP-only here; retired remote-input
 // publication must not be reintroduced into the Desktop request path.
@@ -383,214 +373,75 @@ const { withChatGPTSupervisorTransport } = createSupervisorTransport({
 const {
   acquireProjectForWindow, suspendNativeSurfacesForWindow,
   releaseProjectForWindow, releaseWindowProjects,
-} = createProjectWindowOwnership({
-  registry: projectWindowRegistry, windows: desktopWindows, canonicalProjectPath,
-  windowTitle: (projectPath) => desktopWindowTitle(projectPath, DESKTOP_INSTANCE),
-  refreshTray: () => refreshDesktopTray(), trayControl: () => desktopTrayControl,
-  activeChatGPTEntry, deferredNavigation: () => deferredSupervisorNavigation,
-  reconcileThrottle: reconcileChatGPTThrottle, chatGPTKeyForEntry,
-  hideAgentInteractions: (...args) => hideChatAgentInteractionsForWindow(...args),
-})
-
-const desktopWindowRecovery = createDesktopWindowRecovery({
-  userDataPath: () => app.getPath('userData'),
-  windows: desktopWindows,
-  canonicalProjectPath,
-})
-const persistDesktopRecoverySession = desktopWindowRecovery.persist
-const consumeDesktopRecoverySession = desktopWindowRecovery.consume
-
-const {
+  persistDesktopRecoverySession, consumeDesktopRecoverySession,
   projectMenuLabel, projectWindowState, restoreProjectWindow, requestProjectClose,
   activeDesktopProjects, showDesktopFallbackWindow, sendDesktopTrayProjectAction,
-} = createDesktopProjectNavigation({
-  windows: desktopWindows, sendToWindowState,
-  createWindow: (...args) => createWindow(...args),
-  setMainWindow: (window) => { mainWindow = window },
-})
-
-const {
   desktopTrayController, publishDesktopNotification, refreshDesktopTray,
   ensureDesktopTray, requestFullDesktopQuit, desktopWindowClose,
-} = createDesktopTrayComposition({
-  app, dialog, Menu, Notification, Tray, nativeImage, session,
-  icon: DESKTOP_ICON, instanceName: desktopInstanceName(DESKTOP_INSTANCE), platform: process.platform,
+  chatGPTCacheMarker, persistWindowLayout, scheduleWindowLayoutPersistence,
+  loadWindowLayout, loadWindowPlacement, persistRestartIntent, consumeRestartIntent,
+  waitForSelfEvolutionActivation, scheduleDesktopCoordinatorRelaunch,
+} = createDesktopWindowRuntime({
+  app, dialog, Menu, Notification, Tray, nativeImage, session, DESKTOP_ICON,
+  platform: process.platform, DESKTOP_INSTANCE, desktopInstanceName, desktopWindowTitle,
+  desktopWindows, projectWindowRegistry, canonicalProjectPath,
+  activeChatGPTEntry, reconcileChatGPTThrottle, chatGPTKeyForEntry,
+  sendToWindowState, chatAgentRuntimeState, resumeChatAgentWorkers,
+  createChatGPTCacheMarker, CHATGPT_CHROMIUM_VERSION,
+  pauseChatAgentWorkers: () => pauseChatAgentWorkers({}),
+  userDataPath: () => app.getPath('userData'), displays: () => screen.getAllDisplays(),
   getTrayControl: () => desktopTrayControl,
   setTrayControl: (control) => { desktopTrayControl = control },
-  listProjects: activeDesktopProjects, projectLabel: projectMenuLabel,
-  restoreProject: restoreProjectWindow, closeProject: requestProjectClose,
-  showFallback: showDesktopFallbackWindow, sendProjectAction: sendDesktopTrayProjectAction,
-  projectWindowState, sendToWindowState,
-  workerState: chatAgentRuntimeState,
-  pauseWorkers: () => pauseChatAgentWorkers({}), resumeWorkers: resumeChatAgentWorkers,
-  canonicalProjectPath,
+  setMainWindow: (window) => { mainWindow = window },
+  getDeferredSupervisorNavigation: () => deferredSupervisorNavigation,
+  refreshDesktopTray: () => refreshDesktopTray(),
+  createWindow: (...args) => createWindow(...args),
   hideAgentInteractionsForWindow: (...args) => hideChatAgentInteractionsForWindow(...args),
   persistWindowLayout: () => persistWindowLayout(),
-  persistDesktopRecoverySession,
   markExplicitDesktopExit: () => { explicitDesktopExit = true },
   isQuitting: () => quitting,
 })
 
-// Refresh remote assets only when the compatibility Chromium version changes.
-const chatGPTCacheMarker = createChatGPTCacheMarker({
-  userDataPath: () => app.getPath('userData'),
-  chromiumVersion: CHATGPT_CHROMIUM_VERSION,
-})
-
-const desktopWindowLayout = createDesktopWindowLayout({
-  userDataPath: () => app.getPath('userData'),
-  windows: desktopWindows,
-  displays: () => screen.getAllDisplays(),
-})
-const persistWindowLayout = desktopWindowLayout.persist
-const scheduleWindowLayoutPersistence = desktopWindowLayout.schedulePersistence
-const loadWindowLayout = desktopWindowLayout.loadWindowLayout
-const loadWindowPlacement = desktopWindowLayout.loadWindowPlacement
-
-const desktopRestartIntent = createDesktopRestartIntent({ userDataPath: () => app.getPath('userData') })
-const persistRestartIntent = desktopRestartIntent.persist
-const consumeRestartIntent = desktopRestartIntent.consume
-
-const { waitForSelfEvolutionActivation, scheduleDesktopCoordinatorRelaunch } =
-  createDesktopCoordinatorRelaunch({ isQuitting: () => quitting })
-
 const {
   canonicalBundleFilename, authoritativeBundleFilename,
   armExpectedChatGPTBundle, disarmExpectedChatGPTBundle,
-} = createChatGPTBundleExpectation({
-  buildBundleName, safeChatId, requestIdFromFilename: wharnessBundleRequestIdFromFilename,
-  parseBundleName, sanitizeChatCacheKey, expectedChatGPTBundles,
-  createChatGPTRecoveryState,
-})
-
-const { cancelChatGPTRequestState } = createChatGPTRequestCancellation({
-  sanitizeChatCacheKey, abortChatGPTTransportPreparations,
-  expectedChatGPTBundles, retryableChatGPTPrompts, preparedChatGPTDrafts,
-  manualChatGPTTransport, pendingChatGPTComments, chatgptViews,
-  clearChatGPTHumanAction: (...args) => clearChatGPTHumanAction(...args),
-  reconcileChatGPTThrottle,
-  scheduler: () => chatAgentScheduler,
-  refreshChatAgentRuntimeState: (...args) => refreshChatAgentRuntimeState(...args),
-  publishChatAgentRuntimeState,
-})
-
-async function chatGPTAssistantTurnCount(wc) {
-  try {
-    const count = await wc.executeJavaScript(chatGPTAssistantTurnCountScript(), true)
-    return Math.max(0, Number(count) || 0)
-  } catch {
-    return 0
-  }
-}
-
-const { expectedChatGPTBundleForDownload, chatGPTExpectedKeyForRequest } = createExpectedBundleLookup({
-  expectedChatGPTBundles, chatgptViews,
-  requestIdFromFilename: wharnessBundleRequestIdFromFilename,
-  sanitizeOptionalChatCacheKey, recentDownload: () => recentExpectedDownload,
-  ttlMs: EXPECTED_BUNDLE_TTL_MS,
-})
-const {
+  cancelChatGPTRequestState, chatGPTAssistantTurnCount,
+  expectedChatGPTBundleForDownload, chatGPTExpectedKeyForRequest,
   recentlyDeliveredChatGPTBundleRequestId, markChatGPTBundleRequestDelivered,
   chatGPTBundleAlreadyValidated, quiesceChatGPTRecoveryAfterValidatedBundle,
-} = createValidatedBundleState({
-  deliveredChatGPTBundleRequestIds, dedupTtlMs: DELIVERED_BUNDLE_DEDUP_TTL_MS,
-  pendingChatGPTBundleDeliveries, expectedChatGPTBundles, chatGPTExpectedKeyForRequest,
-  abortChatGPTTransportPreparations, scheduler: () => chatAgentScheduler,
+  pendingBundleDirectory, pendingChatGPTBundlePayloads, acknowledgeChatGPTBundle,
+  chatGPTPartitionPath, managedAuthProfilePath, pendingBrowserImportPath,
+} = createDesktopChatTransportRuntime({
+  app, path, readdir, readFile, rm, buildBundleName, safeChatId,
+  wharnessBundleRequestIdFromFilename, parseBundleName, sanitizeChatCacheKey,
+  sanitizeOptionalChatCacheKey, expectedChatGPTBundles, createChatGPTRecoveryState,
+  abortChatGPTTransportPreparations, retryableChatGPTPrompts, preparedChatGPTDrafts,
+  manualChatGPTTransport, pendingChatGPTComments, chatgptViews,
+  reconcileChatGPTThrottle, publishChatAgentRuntimeState,
+  deliveredChatGPTBundleRequestIds, pendingChatGPTBundleDeliveries,
+  validateWharnessBundleDownload, managedBrowserProfileDirectory,
+  EXPECTED_BUNDLE_TTL_MS, DELIVERED_BUNDLE_DEDUP_TTL_MS, CHATGPT_BUNDLE_RETENTION_MS,
+  clearChatGPTHumanAction: (...args) => clearChatGPTHumanAction(...args),
+  scheduler: () => chatAgentScheduler, recentDownload: () => recentExpectedDownload,
   refreshChatAgentRuntimeState: (...args) => refreshChatAgentRuntimeState(...args),
-  publishChatAgentRuntimeState,
-})
-
-const { pendingBundleDirectory, pendingChatGPTBundlePayloads, acknowledgeChatGPTBundle } = createPendingBundleInbox({
-  app, path, readdir, readFile, rm,
-  requestIdFromFilename: wharnessBundleRequestIdFromFilename,
-  recentlyDelivered: recentlyDeliveredChatGPTBundleRequestId,
-  validateBundle: validateWharnessBundleDownload,
-  deliveries: pendingChatGPTBundleDeliveries, sanitizeChatCacheKey,
-  markDelivered: markChatGPTBundleRequestDelivered,
-  cancelRequest: cancelChatGPTRequestState, scheduler: () => chatAgentScheduler,
-  parseBundleName, safeChatId, enqueueTask: (...args) => enqueueChatAgentTask(...args),
-  retentionMs: CHATGPT_BUNDLE_RETENTION_MS,
-})
-
-const { chatGPTPartitionPath, managedAuthProfilePath, pendingBrowserImportPath } = createDesktopProfilePaths({
-  app, path, managedBrowserProfileDirectory,
+  enqueueChatAgentTask: (...args) => enqueueChatAgentTask(...args),
 })
 
 const {
   closeInternalChatGPTBrowserForWindow, closeAllInternalChatGPTBrowsers,
   rehomeChatGPTWorkers, closeChatGPTViewsForWindow, closeAllChatGPTViews,
-} = createChatGPTViewCleanup({
-  internalChatGPTBrowsers, chatGPTAuthBrowsers, chatgptViews,
-  chatGPTWorkerEntries, desktopWindows,
-  hideChatAgentInteractionsForWindow: (...args) => hideChatAgentInteractionsForWindow(...args),
-  grantChatGPTLayoutViewport: (...args) => grantChatGPTLayoutViewport(...args),
-  retireChatGPTSupervisorSurface: (...args) => retireChatGPTSupervisorSurface(...args),
-  closeManagedBrowserAuth,
-})
-
-const {
   chatGPTEntryForWebContentsID, noteChatGPTNetworkActivity, noteChatGPTNetworkFailure,
-} = createChatGPTNetworkActivity({
-  chatgptViews, chatGPTWorkerEntries, expectedChatGPTBundles,
-  isChatGPTConversationTransportURL, recordChatGPTConversationTransport,
-  noteChatGPTRecoveryProgress, isRecoverableChatGPTNetworkError,
-  noteChatGPTRecoveryFault,
-})
-
-const { requireOwnedChatGPTEntry, releaseChatGPTView } = createChatGPTViewOwnership({
-  sanitizeChatCacheKey, chatgptViews, chatGPTWorkerEntries,
-  supervisorBindingHeld: (...args) => supervisorBindingHeld(...args),
-  sendToChatGPTKey, cancelExternalAuthentication: (...args) => cancelExternalAuthentication(...args),
-  preparedChatGPTDrafts, retryableChatGPTPrompts, pendingChatGPTComments,
-  flushingChatGPTComments, chatGPTActivityFingerprints,
-  expectedChatGPTBundles, chatGPTTransportTails, manualChatGPTTransport,
-  windowStateForEntry,
-})
-
-const { setChatGPTBounds, currentChatGPTState, publishChatGPTState } = createChatGPTViewState({
-  chatgptViews, desktopWindows, chatGPTAuthBrowsers,
-  sanitizeChatCacheKey, normalizeBounds, activeChatGPTEntry,
-  getDeferredSupervisorNavigation: () => deferredSupervisorNavigation,
-  publicSupervisorId, manualChatGPTTransport, publicChatGPTAffinity,
-  windowStateForEntry, sendToWindowState, homeURL: CHATGPT_URL,
-})
-
-const {
+  requireOwnedChatGPTEntry, releaseChatGPTView,
+  setChatGPTBounds, currentChatGPTState, publishChatGPTState,
   observeChatGPTAffinityURL, syncChatGPTAffinityURL, proposeCurrentChatGPTAffinity,
   settleChatGPTAffinityAfterSubmit, scheduleChatGPTAffinitySettlement,
-} = createChatGPTAffinityRuntime({
-  requireTrustedChatGPTURL, observeChatGPTAffinity,
-  canonicalChatGPTConversationURL: (value) => canonicalChatGPTConversationURL(value),
-  syncChatGPTAffinity, homeURL: CHATGPT_URL, sanitizeDiagnosticURL,
-  proposeChatGPTAffinity, publishChatGPTState, settleChatGPTAffinity,
-  isChatGPTAffinityAwaitingSettlement, chatGPTKeyForEntry,
-  waitForConcreteChatGPTConversation: (...args) => waitForConcreteChatGPTConversation(...args),
-})
-
-function noteChatGPTRendererFault(cacheKey, reason) {
-  const expected = expectedChatGPTBundles.get(cacheKey)
-  if (!expected?.recovery) return false
-  noteChatGPTRecoveryFault(expected.recovery, reason, Date.now())
-  console.warn(`[chatgpt-recovery] renderer-fault key=${cacheKey} request=${expected.requestId} error=${reason}`)
-  return true
-}
-
-const {
-  chatGPTHumanActionMessage, setChatGPTHumanAction, clearChatGPTHumanAction,
-} = createChatGPTHumanAttention({
-  chatgptViews, expectedChatGPTBundles, retryableChatGPTPrompts,
-  windowStateForEntry, sendToChatGPTKey, sendToWindowState,
-  Notification, recordChatGPTTaskEvent: (...args) => recordChatGPTTaskEvent(...args),
-})
-
-// Register provider rate-limit evidence and suspend the pool accordingly.
-//
-// Both provider shapes stop the account for the same fixed window. The kind is
-// still preserved as diagnostic evidence, while the local clock is set optimistically so
-// workers stop on this tick rather than after the backend round-trip, and the
-// durable value from the backend then takes over.
-const { applyChatGPTRateLimit, noteChatGPTRateLimitGate } = createChatGPTRateLimit({
-  state: {
+  noteChatGPTRendererFault, chatGPTHumanActionMessage,
+  setChatGPTHumanAction, clearChatGPTHumanAction,
+  applyChatGPTRateLimit, noteChatGPTRateLimitGate,
+  chatGPTInterpreterDownloadConversation, noteChatGPTExpiredArtifact,
+  chatGPTArtifactExpiredSince, noteChatGPTHTTPStatus,
+} = createDesktopChatViewHealthRuntime({
+  rateState: {
     get hits() { return chatGPTRateLimitHits }, set hits(value) { chatGPTRateLimitHits = value },
     get until() { return chatGPTRateLimitUntil }, set until(value) { chatGPTRateLimitUntil = value },
     get resumeProbeRequired() { return chatGPTRateLimitResumeProbeRequired },
@@ -600,102 +451,71 @@ const { applyChatGPTRateLimit, noteChatGPTRateLimitGate } = createChatGPTRateLim
     get policies() { return chatAgentPolicies }, get scheduler() { return chatAgentScheduler },
     get runtimeDiagnostics() { return chatAgentRuntimeDiagnostics },
   },
-  classifyChatGPTRateLimit, RATE_LIMIT_GATE, CHATGPT_RATE_LIMIT_BACKOFF_MS,
-  expectedChatGPTBundles, noteChatGPTRecoveryProgress,
-  publishChatAgentRuntimeState, sendToChatGPTKey,
-})
-
-const {
-  chatGPTInterpreterDownloadConversation, noteChatGPTExpiredArtifact,
-  chatGPTArtifactExpiredSince, noteChatGPTHTTPStatus,
-} = createChatGPTHTTPHealth({
-  chatGPTExpiredArtifactConversations, EXPIRED_ARTIFACT_TTL_MS,
-  chatGPTEntryForWebContentsID, isChatGPTConversationTransportURL,
-  expectedChatGPTBundles, setChatGPTHumanAction, clearChatGPTHumanAction,
-  noteChatGPTRecoveryFault, getRateLimitUntil: () => chatGPTRateLimitUntil,
+  internalChatGPTBrowsers, chatGPTAuthBrowsers, chatgptViews,
+  chatGPTWorkerEntries, desktopWindows, closeManagedBrowserAuth,
+  expectedChatGPTBundles, preparedChatGPTDrafts, retryableChatGPTPrompts,
+  pendingChatGPTComments, flushingChatGPTComments, chatGPTActivityFingerprints,
+  chatGPTTransportTails, manualChatGPTTransport, chatGPTExpiredArtifactConversations,
+  sanitizeChatCacheKey, sendToChatGPTKey, windowStateForEntry,
+  normalizeBounds, activeChatGPTEntry, publicSupervisorId, publicChatGPTAffinity,
+  sendToWindowState, CHATGPT_URL, sanitizeDiagnosticURL, chatGPTKeyForEntry,
+  requireTrustedChatGPTURL, observeChatGPTAffinity, syncChatGPTAffinity,
+  proposeChatGPTAffinity, settleChatGPTAffinity, isChatGPTAffinityAwaitingSettlement,
+  Notification, classifyChatGPTRateLimit, RATE_LIMIT_GATE,
+  CHATGPT_RATE_LIMIT_BACKOFF_MS, EXPIRED_ARTIFACT_TTL_MS,
+  noteChatGPTRecoveryProgress, noteChatGPTRecoveryFault,
+  publishChatAgentRuntimeState, isChatGPTConversationTransportURL,
+  recordChatGPTConversationTransport, isRecoverableChatGPTNetworkError,
+  hideChatAgentInteractionsForWindow: (...args) => hideChatAgentInteractionsForWindow(...args),
+  grantChatGPTLayoutViewport: (...args) => grantChatGPTLayoutViewport(...args),
+  retireChatGPTSupervisorSurface: (...args) => retireChatGPTSupervisorSurface(...args),
+  supervisorBindingHeld: (...args) => supervisorBindingHeld(...args),
+  cancelExternalAuthentication: (...args) => cancelExternalAuthentication(...args),
+  getDeferredSupervisorNavigation: () => deferredSupervisorNavigation,
+  canonicalChatGPTConversationURL: (value) => canonicalChatGPTConversationURL(value),
+  waitForConcreteChatGPTConversation: (...args) => waitForConcreteChatGPTConversation(...args),
+  recordChatGPTTaskEvent: (...args) => recordChatGPTTaskEvent(...args),
+  getRateLimitUntil: () => chatGPTRateLimitUntil,
 })
 
 const {
   publishPlanDownload, publishPlanDownloadError,
   publishBundleDownload, publishBundleDownloadError,
-} = createChatGPTDownloadPublication({
-  sendToChatGPTKey, sanitizeChatCacheKey, parseBundleName, path,
-  deliverOrchestratorTaskBundle: (...args) => deliverOrchestratorTaskBundle(...args),
-  wharnessBundleRequestIdFromFilename, expectedChatGPTBundles,
-})
-
-const { deliverOrchestratorTaskBundle } = createOrchestratorBundleDelivery({
-  backendURL: BACKEND_URL,
-  pendingDeliveries: pendingChatGPTBundleDeliveries,
-  acknowledge: acknowledgeChatGPTBundle,
-  scheduler: () => chatAgentScheduler,
-  enqueue: (...args) => enqueueChatAgentTask(...args),
-  canonicalURL: (value) => canonicalChatGPTConversationURL(value),
-})
-
-const {
+  deliverOrchestratorTaskBundle,
   registerChatGPTMarkdownTranslationDownload,
   registerChatGPTTodoClassificationDownload,
-} = createChatGPTUtilityDownloads({
-  expectedChatGPTTranslations, expectedChatGPTTodoClassifications,
-  tempPath: () => app.getPath('temp'),
-  MARKDOWN_TRANSLATION_TIMEOUT_MS, MAX_MARKDOWN_TRANSLATION_RESULT_BYTES,
-  TODO_CLASSIFICATION_TIMEOUT_MS, MAX_TODO_CLASSIFICATION_BYTES,
-})
-
-const chatGPTDownloadIsHumanBrowsing = createChatGPTDownloadSource(internalChatGPTBrowsers)
-
-const orchestratorPlanDownloads = createOrchestratorPlanDownloads({
-  expectedChatGPTOrchestratorPlans,
-  tempPath: () => app.getPath('temp'),
-  MAX_ORCHESTRATOR_PLAN_BYTES, ORCHESTRATOR_PLAN_TIMEOUT_MS,
-})
-const {
+  chatGPTDownloadIsHumanBrowsing, orchestratorPlanDownloads,
   registerChatGPTOrchestratorPlanDownload,
   takeRetainedChatGPTOrchestratorPlan,
-} = orchestratorPlanDownloads
-
-const handleLegacyPlanDownload = createLegacyPlanDownload({
-  tempPath: () => app.getPath('temp'), maxBytes: MAX_PLAN_BYTES,
-  requestIdFromFilename: wharnessPlanRequestIdFromFilename,
-  validatePlanFile: validateWharnessPlanFile,
-  publishPlan: publishPlanDownload, publishError: publishPlanDownloadError,
-  humanBrowsing: chatGPTDownloadIsHumanBrowsing, sanitizeURL: sanitizeDiagnosticURL,
-})
-
-const recordValidBundleMetric = createValidBundleMetric({
-  scheduler: () => chatAgentScheduler, chatGPTWorkerEntries, chatgptViews,
-  chatAgentConversationID,
+  handleLegacyPlanDownload, recordValidBundleMetric,
+  handleBundleDownload, registerChatGPTPlanDownloads,
+} = createDesktopDownloadRuntime({
+  sendToChatGPTKey, sanitizeChatCacheKey, parseBundleName, path,
+  wharnessBundleRequestIdFromFilename, expectedChatGPTBundles,
+  BACKEND_URL, pendingChatGPTBundleDeliveries, acknowledgeChatGPTBundle,
+  expectedChatGPTTranslations, expectedChatGPTTodoClassifications,
+  MARKDOWN_TRANSLATION_TIMEOUT_MS, MAX_MARKDOWN_TRANSLATION_RESULT_BYTES,
+  TODO_CLASSIFICATION_TIMEOUT_MS, MAX_TODO_CLASSIFICATION_BYTES,
+  internalChatGPTBrowsers, expectedChatGPTOrchestratorPlans,
+  MAX_ORCHESTRATOR_PLAN_BYTES, ORCHESTRATOR_PLAN_TIMEOUT_MS,
+  MAX_PLAN_BYTES, wharnessPlanRequestIdFromFilename, validateWharnessPlanFile,
+  sanitizeDiagnosticURL, chatGPTWorkerEntries, chatgptViews,
+  chatAgentConversationID, MAX_EXECUTION_BUNDLE_BYTES, pendingBundleDirectory,
+  validateWharnessBundleDownload, recentlyDeliveredChatGPTBundleRequestId,
+  quiesceChatGPTRecoveryAfterValidatedBundle, chatAgentWorkerActivity,
+  registerOrchestratorExecutionDownload, expectedChatGPTOrchestratorExecutions,
+  registerReleaseNotesBundleDownload, expectedChatGPTReleaseNotes,
+  expectedChatGPTBundleForDownload, chatGPTKeyForWebContents,
+  canonicalWharnessBundleDownload, BundleOwnershipError,
+  scheduler: () => chatAgentScheduler, tempPath: () => app.getPath('temp'),
+  enqueueChatAgentTask: (...args) => enqueueChatAgentTask(...args),
+  canonicalChatGPTConversationURL: (value) => canonicalChatGPTConversationURL(value),
+  deliverOrchestratorTaskBundle: (...args) => deliverOrchestratorTaskBundle(...args),
+  recordChatGPTTaskEvent: (...args) => recordChatGPTTaskEvent(...args),
   recordProviderDiagnostics: (provider) => {
     chatAgentRuntimeDiagnostics.provider = { ...chatAgentRuntimeDiagnostics.provider, ...provider }
     publishChatAgentRuntimeState()
   },
-})
-
-const handleBundleDownload = createChatGPTBundleDownload({
-  pendingDeliveries: pendingChatGPTBundleDeliveries,
-  maxBytes: MAX_EXECUTION_BUNDLE_BYTES, pendingDirectory: pendingBundleDirectory,
-  expectedBundles: expectedChatGPTBundles,
-  validateBundle: validateWharnessBundleDownload,
-  recordValidBundle: recordValidBundleMetric,
-  recentlyDelivered: recentlyDeliveredChatGPTBundleRequestId,
-  quiesceRecovery: quiesceChatGPTRecoveryAfterValidatedBundle,
-  publishBundle: publishBundleDownload, publishError: publishBundleDownloadError,
-  recordTaskEvent: (...args) => recordChatGPTTaskEvent(...args),
-  sanitizeURL: sanitizeDiagnosticURL,
-})
-
-const { registerChatGPTPlanDownloads } = createChatGPTDownloadRouter({
-  chatGPTWorkerEntries, chatAgentWorkerActivity,
-  registerOrchestratorExecutionDownload, expectedChatGPTOrchestratorExecutions,
-  tempPath: () => app.getPath('temp'),
-  registerChatGPTOrchestratorPlanDownload,
-  registerChatGPTMarkdownTranslationDownload,
-  registerReleaseNotesBundleDownload, expectedChatGPTReleaseNotes,
-  registerChatGPTTodoClassificationDownload, expectedChatGPTBundleForDownload,
-  chatGPTKeyForWebContents, canonicalWharnessBundleDownload,
-  BundleOwnershipError, path, publishBundleDownloadError,
-  handleBundleDownload, handleLegacyPlanDownload,
 })
 
 const {
@@ -957,68 +777,28 @@ const { executeChatGPTDOMScript, waitForChatGPTSurfaceReady } = createChatGPTRen
   recoverChatGPTConversationLoadFailure: (...args) => recoverChatGPTConversationLoadFailure(...args),
 })
 
-function serializeChatGPTAccountOperation(operation) {
-  const next = chatGPTAccountOperation.catch(() => undefined).then(operation)
-  chatGPTAccountOperation = next.catch(() => undefined)
-  return next
+const chatGPTAccountDependencies = {
+  executeChatGPTDOMScript, isTrustedChatGPTOrigin, chatGPTAccountProviders,
+  BrowserWindow, desktopWindows, preserveLocalFocusDuringBackgroundOperation,
+  windowStateForEntry, chatgptViews, dispatchChatGPTPointerPress, wait,
+  CHATGPT_CONTROL_PRESS_HOLD_MS, dispatchChatGPTAccountKey, requireOwnedChatGPTEntry,
+  CHATGPT_ACCOUNT_ACTION_SETTLE_MS, CHATGPT_MENU_REOPEN_ATTEMPTS,
+  sanitizeChatCacheKey, ensureChatGPTView,
+  get paceChatGPTWorkerNavigation() { return paceChatGPTWorkerNavigation },
+  requireTrustedChatGPTURL, sameConversationURL, loadOwnedChatGPTURL,
+  waitForChatGPTSurfaceReady, chatGPTConversationID, dispatchChatGPTPointerClick,
+  reconcileChatGPTThrottle, createChatGPTAffinityTracker, releaseChatGPTView,
+  chatGPTKeyForEntry, path, parseBundleName, CHATGPT_LIBRARY_URL,
 }
-
-function runChatGPTAccountAction(action, payload, browserFallback) {
-  return chatGPTAccountProviders.run(action, payload, (_ignoredAction, ignoredPayload) => browserFallback(ignoredPayload))
-}
-
 const {
-  runChatGPTAccountScript,
-  hideChatGPTSidebar,
-  focusedLocalWharnexContents,
-  withPreservedLocalFocus,
-  grantChatGPTLayoutViewport,
-  ensureChatGPTLayoutViewport,
-  pressChatGPTControl,
-  pressChatGPTControlKey,
-  commitChatGPTAccountControl,
-  chooseChatGPTConversationAction,
-  ensureChatGPTProject,
-  organizeChatGPTConversation,
-  suggestChatGPTConversationTitle,
-  archiveChatGPTConversation,
-  deleteChatGPTConversation,
-  deleteChatGPTLibraryArtifact,
-  stopChatGPTConversation,
-} = createChatGPTAccountOperations({
-  executeChatGPTDOMScript,
-  isTrustedChatGPTOrigin,
-  runChatGPTAccountAction,
-  BrowserWindow,
-  desktopWindows,
-  preserveLocalFocusDuringBackgroundOperation,
-  windowStateForEntry,
-  chatgptViews,
-  dispatchChatGPTPointerPress,
-  wait,
-  CHATGPT_CONTROL_PRESS_HOLD_MS,
-  dispatchChatGPTAccountKey,
-  requireOwnedChatGPTEntry,
-  CHATGPT_ACCOUNT_ACTION_SETTLE_MS,
-  CHATGPT_MENU_REOPEN_ATTEMPTS,
-  sanitizeChatCacheKey,
-  ensureChatGPTView,
-  serializeChatGPTAccountOperation,
-  paceChatGPTWorkerNavigation: (...args) => paceChatGPTWorkerNavigation(...args),
-  requireTrustedChatGPTURL,
-  sameConversationURL,
-  loadOwnedChatGPTURL,
-  waitForChatGPTSurfaceReady,
-  chatGPTConversationID,
-  dispatchChatGPTPointerClick,
-  reconcileChatGPTThrottle,
-  createChatGPTAffinityTracker,
-  releaseChatGPTView,
-  chatGPTKeyForEntry,
-  path,
-  parseBundleName,
-  CHATGPT_LIBRARY_URL,
-})
+  runChatGPTAccountScript, hideChatGPTSidebar, focusedLocalWharnexContents,
+  withPreservedLocalFocus, grantChatGPTLayoutViewport,
+  ensureChatGPTLayoutViewport, pressChatGPTControl, pressChatGPTControlKey,
+  commitChatGPTAccountControl, chooseChatGPTConversationAction,
+  ensureChatGPTProject, organizeChatGPTConversation, suggestChatGPTConversationTitle,
+  archiveChatGPTConversation, deleteChatGPTConversation,
+  deleteChatGPTLibraryArtifact, stopChatGPTConversation,
+} = createDesktopChatGPTAccount(chatGPTAccountDependencies)
 
 const { reloadOwnedChatGPTConversation } = createOwnedChatGPTConversationReload({
   sanitizeChatCacheKey, requireOwnedChatGPTEntry,
@@ -1038,38 +818,8 @@ const { targetChatGPTComposer } = createChatGPTComposerTarget({
   touchChatGPTEntry, wait,
 })
 
-// ChatGPT's "could not load this conversation" surface stalls every action on
-// the page until retry is pressed. It is what a throttled conversation read
-// (GET /backend-api/conversations/<id> → 429) looks like, so pressing retry
-// again and again only earns more refusals. A failure must hold across two
-// probes, then the page's own retry control is pressed once (or the page is
-// reloaded when that control is not unambiguous), paced for a Worker. If the
-// conversation still does not load, the action is deferred for free with a
-// growing per-conversation backoff so the read throttle can clear.
-const {
-  chatGPTConversationReadCooldownMs, chatGPTConversationReadGateMs,
-  releaseChatGPTConversationReadProbe, noteChatGPTConversationReadHealthy,
-  noteChatGPTConversationReadFailure, recoverChatGPTConversationLoadFailure,
-  parkChatGPTWorkerAfterLoadFailure,
-} = createChatGPTConversationReadHealth({
-  chatGPTConversationLoadFailureScript, canonicalChatGPTConversationURL,
-  chatGPTConversationID, wait,
-  paceChatGPTWorkerNavigation: (...args) => paceChatGPTWorkerNavigation(...args),
-  createConversationUnavailable: (delayMs) => new ChatGPTConversationUnavailable(delayMs),
-  chatAgentResidency, createChatGPTAffinityTracker,
-})
-
-function noteOrchestrationTaskPin(worker, task, result) {
-  const entry = workerEntryForIndex(worker)
-  if (!entry) return
-  const outcome = orchestrationTaskPins.note(entry.slotId, task, result)
-  if (outcome) console.log(`[chat-agent] orchestration-pin slot=${entry.slotId} task=${String(task?.chat_id || '')} ${outcome} status=${String(result?.status || '')}`)
-}
-
-const {
-  chatAgentRateLimitDelayMs, chatAgentRateLimitResumeBlocked,
-} = createChatGPTRateLimitResume({
-  state: {
+const chatGPTPacingDependencies = {
+  rateLimitState: {
     get until() { return chatGPTRateLimitUntil },
     get resumeProbeRequired() { return chatGPTRateLimitResumeProbeRequired },
     set resumeProbeRequired(value) { chatGPTRateLimitResumeProbeRequired = value },
@@ -1078,147 +828,73 @@ const {
     get resumeProbeNotBefore() { return chatGPTRateLimitResumeProbeNotBefore },
     set resumeProbeNotBefore(value) { chatGPTRateLimitResumeProbeNotBefore = value },
   },
-  chatGPTWorkerEntries, chatGPTKeyForEntry,
-  paceChatGPTWorkerNavigation: (...args) => paceChatGPTWorkerNavigation(...args),
-  isTrustedChatGPTOrigin, homeURL: CHATGPT_URL, userAgent: CHATGPT_USER_AGENT,
-  wait, waitForChatGPTReady, chatGPTHumanActionScript,
-  noteChatGPTRateLimitGate, sanitizeDiagnosticURL,
-})
-
-// Process-wide spacing between cross-chat navigation starts, scaled by how the
-// provider is actually behaving.
-//
-// A fixed 30-second gate protected the account at a cost that only appeared at
-// scale: navigation is serialized process-wide, so the whole pool could rebind
-// twice a minute no matter how many workers were free or how many conversations
-// held due work. Six idle workers waiting on one clock is not protection, it is
-// the idleness the gate was never meant to buy. The provider's own durable
-// 429 evidence is the right input: while it reports no pressure the gate stays
-// at a healthy floor, and every escalation level walks it back up to the
-// protective 30-second ceiling, which is where a rate-limited account belongs.
-const {
-  ChatGPTRateLimitDeferral, ChatGPTConversationUnavailable,
-  chatAgentNavigationGapMs, paceChatGPTWorkerRequest, paceChatGPTWorkerNavigation,
-  chatAgentSubmissionGapMs, paceChatGPTWorkerSubmission, loadAndSettleChatGPTWorkerConversation,
-} = createWorkerPacing({
-  getRuntimeDiagnostics: () => chatAgentRuntimeDiagnostics,
+  chatGPTConversationLoadFailureScript, canonicalChatGPTConversationURL,
+  chatGPTConversationID, wait, chatAgentResidency, createChatGPTAffinityTracker,
+  workerEntryForIndex, orchestrationTaskPins, chatGPTWorkerEntries,
+  chatGPTKeyForEntry, isTrustedChatGPTOrigin, CHATGPT_URL, CHATGPT_USER_AGENT,
+  waitForChatGPTReady, chatGPTHumanActionScript, noteChatGPTRateLimitGate,
+  sanitizeDiagnosticURL, getRuntimeDiagnostics: () => chatAgentRuntimeDiagnostics,
   CHATGPT_RATE_LIMIT_HEALTHY_WINDOW_MS,
   CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS, CHATGPT_WORKER_NAVIGATION_GAP_MS,
   CHAT_AGENT_WORKER_ACTION_GAP_MS, chatAgentWorkerActivity, chatGPTWorkerPacer,
   CHAT_AGENT_SUBMIT_GAP_MS, CHAT_AGENT_SUBMIT_GAP_RECOVERY_MS,
-  CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, chatAgentRateLimitDelayMs,
-  loadOwnedChatGPTURL, waitForChatGPTSurfaceReady, chatAgentResidency,
-})
-
-const { pasteChatGPTFile } = createChatGPTFileUpload({
-  chatGPTKeyForEntry, requireOwnedChatGPTEntry, pasteWithUploadRetry,
-  paceChatGPTWorkerSubmission, chatAgentRateLimitDelayMs,
-  ChatGPTRateLimitDeferral, chatAgentWorkerActivity,
-  waitForChatGPTSurfaceReady, chatGPTComposerReadyScript,
-  chatGPTUploadThumbnailScript, path, chatGPTUploads,
-  selectChatGPTUploadFile,
-})
-
-// Keep the account-specific control interaction isolated from submission.
-async function stepChatGPTReasoningEffortToward(key, entry, wanted) {
-  return stepChatGPTEffort({
-    key, entry, wanted, behavior: CHATGPT_BEHAVIOR,
-    executeDOM: executeChatGPTDOMScript, requireOwned: requireOwnedChatGPTEntry,
-    press: pressChatGPTControl, pressKey: pressChatGPTControlKey,
-    wait, settleMs: CHATGPT_ACCOUNT_ACTION_SETTLE_MS,
-    reopenAttempts: CHATGPT_MENU_REOPEN_ATTEMPTS,
-  })
+  CHAT_AGENT_TRANSLATION_ACTION_GAP_MS, loadOwnedChatGPTURL,
+  waitForChatGPTSurfaceReady, requireOwnedChatGPTEntry, pasteWithUploadRetry,
+  chatGPTComposerReadyScript, chatGPTUploadThumbnailScript, path,
+  chatGPTUploads, selectChatGPTUploadFile,
 }
-
-// A successful DOM send and an observed provider POST are different facts.
-// Automatic flows dispatch once when observation is ambiguous, then supervise
-// the armed request instead of replaying a potentially duplicate submission.
-const { submitChatGPTDraft } = createChatGPTDraftSubmission({
-  chatAgentWorkerActivity, targetChatGPTComposer, normalizeChatGPTReasoningEffort,
-  canonicalChatGPTConversationURL, sameConversationURL,
-  ensureChatGPTReasoningEffort, executeChatGPTDOMScript,
-  reasoningEffortStateScript, CHATGPT_BEHAVIOR, requireOwnedChatGPTEntry,
-  stepChatGPTReasoningEffortToward, markChatGPTAffinitySubmitted,
-  submitWithoutReplay, chatAgentRateLimitDelayMs, ChatGPTRateLimitDeferral,
-  chatGPTSubmissions, chatGPTSubmitScript,
-})
-
 const {
-  preparePromptForChatGPT,
-  queuePreparedPromptForWorker,
-  retryPersistedChatGPTPrompt,
-  retryPreparedChatGPTPrompt,
-  attachContextToChatGPT,
-  attachPromptToChatGPT,
-  submitPreparedChatGPTDraft,
-  submitPromptToChatGPT,
-  automaticChatGPTContinuationBlockReason,
-  chatGPTContinuationSuppressedError,
-  submitChatGPTContinuation,
-} = createChatGPTPromptTransport({
-  throwIfChatGPTTransportAborted,
-  sanitizeChatCacheKey,
+  chatGPTConversationReadCooldownMs, chatGPTConversationReadGateMs,
+  releaseChatGPTConversationReadProbe, noteChatGPTConversationReadHealthy,
+  noteChatGPTConversationReadFailure, recoverChatGPTConversationLoadFailure,
+  parkChatGPTWorkerAfterLoadFailure, noteOrchestrationTaskPin,
+  chatAgentRateLimitDelayMs, chatAgentRateLimitResumeBlocked,
+  ChatGPTRateLimitDeferral, ChatGPTConversationUnavailable,
+  chatAgentNavigationGapMs, paceChatGPTWorkerRequest, paceChatGPTWorkerNavigation,
+  chatAgentSubmissionGapMs, paceChatGPTWorkerSubmission,
+  loadAndSettleChatGPTWorkerConversation, pasteChatGPTFile,
+} = createDesktopChatGPTPacing(chatGPTPacingDependencies)
+
+const promptDispatchDependencies = {
+  chatAgentWorkerActivity, targetChatGPTComposer, normalizeChatGPTReasoningEffort,
+  canonicalChatGPTConversationURL, sameConversationURL, ensureChatGPTReasoningEffort,
+  executeChatGPTDOMScript, reasoningEffortStateScript, CHATGPT_BEHAVIOR,
+  requireOwnedChatGPTEntry, markChatGPTAffinitySubmitted, submitWithoutReplay,
+  chatAgentRateLimitDelayMs, ChatGPTRateLimitDeferral, chatGPTSubmissions,
+  chatGPTSubmitScript, pressChatGPTControl, pressChatGPTControlKey,
+  CHATGPT_ACCOUNT_ACTION_SETTLE_MS, CHATGPT_MENU_REOPEN_ATTEMPTS, wait,
+  throwIfChatGPTTransportAborted, sanitizeChatCacheKey,
   durableWorkspaceChatID: (...args) => durableWorkspaceChatID(...args),
-  authoritativeBundleFilename,
-  chatgptTransportModes,
-  normalizeChatGPTReasoningEffort,
-  requireAutoSession,
-  retryableChatGPTPrompts,
-  canonicalChatGPTConversationURL,
-  chatgptViews,
-  shouldAttachProjectContext,
-  chatGPTConversationID,
-  requestPreparationTimer,
-  withRequestPreparationDeadline,
-  materializeChatInput,
-  localChatInputBootstrap,
-  preparedChatGPTDrafts,
-  manualChatGPTTransport,
-  path,
-  touchChatGPTEntry,
-  CHATGPT_URL,
-  targetChatGPTComposer,
-  syncChatGPTAffinityURL,
-  executeChatGPTDOMScript,
-  chatGPTFillComposerScript,
-  pasteChatGPTFile,
-  wait,
-  chatInputSettleDelay,
-  chatGPTAssistantTurnCount,
-  armExpectedChatGPTBundle,
-  submitChatGPTDraft,
-  disarmExpectedChatGPTBundle,
-  waitForSubmittedChatGPTConversation,
+  authoritativeBundleFilename, chatgptTransportModes, requireAutoSession,
+  retryableChatGPTPrompts, chatgptViews, shouldAttachProjectContext,
+  chatGPTConversationID, requestPreparationTimer, withRequestPreparationDeadline,
+  materializeChatInput, localChatInputBootstrap, preparedChatGPTDrafts,
+  manualChatGPTTransport, path, touchChatGPTEntry, CHATGPT_URL,
+  syncChatGPTAffinityURL, chatGPTFillComposerScript, pasteChatGPTFile,
+  chatInputSettleDelay, chatGPTAssistantTurnCount, armExpectedChatGPTBundle,
+  disarmExpectedChatGPTBundle, waitForSubmittedChatGPTConversation,
   persistWorkspaceChatRemoteBestEffort: (...args) => persistWorkspaceChatRemoteBestEffort(...args),
   enqueueChatAgentFollowups: (...args) => enqueueChatAgentFollowups(...args),
-  expectedChatGPTBundles,
-  sanitizeSessionId,
-  getChatAgentScheduler: () => chatAgentScheduler,
+  expectedChatGPTBundles, sanitizeSessionId, getChatAgentScheduler: () => chatAgentScheduler,
   enqueueChatAgentTask: (...args) => enqueueChatAgentTask(...args),
-  refreshChatAgentRuntimeState,
-  publishChatAgentRuntimeState,
-  BACKEND_URL,
-  fetch,
-  chatInputArchiveFilename,
-  app,
-  rm,
-  mkdir,
-  MAX_CONTEXT_BYTES,
-  writeFile,
-  chatInputPartManifest,
-  clearChatGPTHumanAction,
-  recentlyDeliveredChatGPTBundleRequestId,
-  RETRYABLE_PROMPT_TTL_MS,
-  fetchContextZip,
-  plannerPromptMarkdown,
-  activateChatGPTView,
-  requireOwnedChatGPTEntry,
-  canonicalBundleFilename,
-  fillBundledChatGPTComposer,
-  chatGPTBundleAlreadyValidated,
-  MAX_AUTOMATIC_BUNDLE_CONTINUATIONS,
+  refreshChatAgentRuntimeState, publishChatAgentRuntimeState,
+  BACKEND_URL, fetch, chatInputArchiveFilename, app, rm, mkdir,
+  MAX_CONTEXT_BYTES, writeFile, chatInputPartManifest, clearChatGPTHumanAction,
+  recentlyDeliveredChatGPTBundleRequestId, RETRYABLE_PROMPT_TTL_MS,
+  fetchContextZip, plannerPromptMarkdown, activateChatGPTView,
+  canonicalBundleFilename, fillBundledChatGPTComposer,
+  chatGPTBundleAlreadyValidated, MAX_AUTOMATIC_BUNDLE_CONTINUATIONS,
   chatGPTDeliveryContinuationPrompt,
-})
+}
+const {
+  stepChatGPTReasoningEffortToward, submitChatGPTDraft,
+  preparePromptForChatGPT, queuePreparedPromptForWorker,
+  retryPersistedChatGPTPrompt, retryPreparedChatGPTPrompt,
+  attachContextToChatGPT, attachPromptToChatGPT,
+  submitPreparedChatGPTDraft, submitPromptToChatGPT,
+  automaticChatGPTContinuationBlockReason, chatGPTContinuationSuppressedError,
+  submitChatGPTContinuation,
+} = createDesktopPromptDispatch(promptDispatchDependencies)
 
 const {
   durableWorkspaceChatID, persistWorkspaceChatRemote,
@@ -1253,429 +929,117 @@ const { expectedChatAgentPayload, enqueueChatAgentFollowups } = createChatAgentF
   chatAgentInitialRequestWaitMs, enqueueChatAgentTask,
 })
 
-// Durably records one decision against the Main Request's own AWAIT_RESPONSE
-// task (see armExpectedChatGPTBundle's mainRequestTaskId). Best-effort by
-// construction: recordTaskEvent itself never throws, and a missing task id
-// (arming raced the enqueue, or the enqueue never reached this expectation)
-// silently skips rather than blocking the caller's own automation.
 const {
-  recordChatGPTTaskEvent, hydrateExpectedChatAgentBundle,
-  chatAgentChildExists, captureChatGPTProcessingDuration,
-  enqueueChatAgentContinuation,
-} = createResponseLineage({
+  recordChatGPTTaskEvent, hydrateExpectedChatAgentBundle, chatAgentChildExists,
+  captureChatGPTProcessingDuration, enqueueChatAgentContinuation, probeChatAgentResponse,
+  executeChatAgentWrite, executeChatAgentTitleDiscover, executeChatAgentTempTitle,
+  executeChatAgentTitleAwait,
+} = createResponseRuntime({
+  expectedChatGPTBundles, armExpectedChatGPTBundle, MAX_AUTOMATIC_BUNDLE_CONTINUATIONS, chatGPTProcessingDurationScript,
+  CHATGPT_BEHAVIOR, chatGPTBundleAlreadyValidated, disarmExpectedChatGPTBundle, BUNDLE_CONTINUATION_BASE_MS,
+  enqueueChatAgentTask, chatGPTSupervisorOwnsExpectedResponse, CHAT_AGENT_AWAIT_PROBE_MS, recentlyDeliveredChatGPTBundleRequestId,
+  pendingChatGPTBundleDeliveries, sameConversationURL, orchestratorTaskChat, paceChatGPTWorkerNavigation,
+  loadOwnedChatGPTURL, waitForChatGPTSurfaceReady, executeChatGPTDOMScript, chatGPTHumanActionScript,
+  noteChatGPTRateLimitGate, chatAgentRateLimitDelayMs, chatGPTHumanActionMessage, chatAgentKeepFlowingEnabled,
+  chooseChatGPTRecoveryAction, chatGPTResponseCompletionScript, PROCESSING_SIGNAL_GRACE_MS, DOM_DOWNLOAD_RETRY_MS,
+  chatGPTExpectedDownloadScript, AWAIT_STALL_ATTENTION_MS, DOWNLOAD_INFLIGHT_TIMEOUT_MS, noteChatGPTRecoveryAssistantCount,
+  isChatGPTAffinityAwaitingSettlement, BUNDLE_UNOBSERVED_SETTLE_MS, BUNDLE_COMPLETION_CONFIRM_MS, paceChatGPTWorkerSubmission,
+  sanitizeSessionId, canonicalChatGPTConversationURL, durableWorkspaceChatID, withChatGPTTransportPreparation,
+  preparePromptForChatGPT, chatGPTDeliveryContinuationPrompt, submitChatGPTContinuation, submitPromptToChatGPT,
+  persistWorkspaceChatRemoteBestEffort, expectedChatAgentPayload, chatAgentInitialRequestWaitMs, chatAgentConversationID,
   getScheduler: () => chatAgentScheduler,
-  expectedChatGPTBundles, armExpectedChatGPTBundle,
-  MAX_AUTOMATIC_BUNDLE_CONTINUATIONS, chatGPTProcessingDurationScript,
-  CHATGPT_BEHAVIOR, chatGPTBundleAlreadyValidated,
-  disarmExpectedChatGPTBundle, BUNDLE_CONTINUATION_BASE_MS,
-  enqueueChatAgentTask,
-})
-
-const { probeChatAgentResponse } = createResponseProbe({
-  hydrateExpectedChatAgentBundle,
-  chatGPTSupervisorOwnsExpectedResponse,
-  CHAT_AGENT_AWAIT_PROBE_MS,
-  recentlyDeliveredChatGPTBundleRequestId,
-  pendingChatGPTBundleDeliveries,
-  disarmExpectedChatGPTBundle,
-  sameConversationURL,
-  orchestratorTaskChat,
-  paceChatGPTWorkerNavigation,
-  loadOwnedChatGPTURL,
-  waitForChatGPTSurfaceReady,
-  executeChatGPTDOMScript,
-  chatGPTHumanActionScript,
-  noteChatGPTRateLimitGate,
-  chatAgentRateLimitDelayMs,
-  chatGPTHumanActionMessage,
-  chatAgentKeepFlowingEnabled,
-  chooseChatGPTRecoveryAction,
-  performChatGPTRecoveryAction: (...args) => performChatGPTRecoveryAction(...args),
-  chatGPTResponseCompletionScript,
-  PROCESSING_SIGNAL_GRACE_MS,
-  enqueueChatAgentContinuation,
-  DOM_DOWNLOAD_RETRY_MS,
-  chatGPTExpectedDownloadScript,
-  AWAIT_STALL_ATTENTION_MS,
-  captureChatGPTProcessingDuration,
-  DOWNLOAD_INFLIGHT_TIMEOUT_MS,
-  noteChatGPTRecoveryAssistantCount,
-  isChatGPTAffinityAwaitingSettlement,
-  BUNDLE_UNOBSERVED_SETTLE_MS,
-  BUNDLE_COMPLETION_CONFIRM_MS,
+  getRecoveryAction: () => performChatGPTRecoveryAction,
+  getContinuationRecorder: () => recordChatGPTContinuationSent,
   setRecentExpectedDownload: (value) => { recentExpectedDownload = value },
 })
 
-const { executeChatAgentWrite } = createAgentWrite({
-  paceChatGPTWorkerSubmission, chatAgentRateLimitDelayMs, sanitizeSessionId,
-  canonicalChatGPTConversationURL, durableWorkspaceChatID,
-  withChatGPTTransportPreparation, preparePromptForChatGPT,
-  chatGPTBundleAlreadyValidated, MAX_AUTOMATIC_BUNDLE_CONTINUATIONS,
-  chatGPTDeliveryContinuationPrompt, sameConversationURL,
-  submitChatGPTContinuation, submitPromptToChatGPT, expectedChatGPTBundles,
-  recordChatGPTContinuationSent: (...args) => recordChatGPTContinuationSent(...args),
-  persistWorkspaceChatRemoteBestEffort, expectedChatAgentPayload,
-  enqueueChatAgentTask, chatAgentInitialRequestWaitMs,
-})
-
-const { executeChatAgentTitleDiscover, executeChatAgentTempTitle, executeChatAgentTitleAwait } = createLegacyTitleTasks({
-  canonicalChatGPTConversationURL, chatAgentChildExists,
-  enqueueChatAgentTask, chatAgentConversationID,
-})
-
-function releaseNotesWorkerRuntime() {
-  return {
-    expectedDownloads: expectedChatGPTReleaseNotes,
-    tempRoot: app.getPath('temp'),
-    pace: paceChatGPTWorkerSubmission,
-    rateLimitDelay: chatAgentRateLimitDelayMs,
-    requireEntry: requireOwnedChatGPTEntry,
-    waitSurfaceReady: waitForChatGPTSurfaceReady,
-    targetComposer: (key, entry) => targetChatGPTComposer(key, CHATGPT_URL, false, entry),
-    executeDOM: executeChatGPTDOMScript,
-    fillScript: chatGPTFillComposerScript,
-    pasteFile: (entry, filePath) => pasteChatGPTFile(entry, filePath, 1, 1, { pacedWorker: true }),
-    settleDelay: (bytes) => chatInputSettleDelay(bytes, 1),
-    assistantTurnCount: chatGPTAssistantTurnCount,
-    submit: (key, target) => submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort: false, rateLimitExempt: false }),
-    waitConversation: waitForSubmittedChatGPTConversation,
-    wait,
-    humanActionScript: chatGPTHumanActionScript,
-    noteRateLimit: noteChatGPTRateLimitGate,
-    setHumanAction: (key, kind) => setChatGPTHumanAction(key, kind, '', 'release-notes-worker'),
-    humanActionMessage: chatGPTHumanActionMessage,
-    responseCompletionScript: chatGPTResponseCompletionScript,
-    expectedDownloadScript: chatGPTExpectedDownloadScript,
-    reconcile: reconcileChatGPTThrottleForKey,
-    cleanup: (task, key, conversationUrl) => enqueueChatAgentTask('DELETE_TEMP_CHAT', {
-      key, requestId: task.task_id, rootRequestId: task.task_id, conversationURL: conversationUrl,
-      parentTaskID: task.task_id, dedupeKey: `delete-release-notes:${chatAgentConversationID(conversationUrl)}`,
-      payload: {}, maxAttempts: 4,
-    }).catch((error) => console.warn(`[release-notes] temporary ChatGPT cleanup scheduling failed: ${error instanceof Error ? error.message : String(error)}`)),
-  }
-}
-
-const orchestratorConversationGuard = createOrchestratorConversationGuard({
-  conversationURL: canonicalChatGPTConversationURL, currentURL: (entry) => entry.view.webContents.getURL(), pace: paceChatGPTWorkerNavigation,
-  load: (key, entry, url) => loadOwnedChatGPTURL(key, entry, url, 'orchestrator-task-affinity'), waitReady: waitForChatGPTSurfaceReady })
-
-function orchestratorExecutionWorkerRuntime() {
-  return {
-    baseURL: BACKEND_URL, homeURL: CHATGPT_URL, pace: paceChatGPTWorkerNavigation, rateLimitDelay: chatAgentRateLimitDelayMs,
-    needsNavigation: (entry, url) => {
-      const current = entry.view.webContents.getURL()
-      return !(current === requireTrustedChatGPTURL(url) || sameConversationURL(current, url))
-    },
-    conversationURL: canonicalChatGPTConversationURL,
-    ensureConversation: orchestratorConversationGuard.ensureConversation, checkpoint: checkpointChatAgentTask,
-    supervision: orchestratorRequestSupervision, adopt: adoptOrchestratorRequest, sendMainRequest: sendOrchestratorMainRequest,
-  }
-}
-
-// Where the agentic transport stands on one request of a task's Main Request.
-const {
-  orchestratorRequestSupervision, adoptOrchestratorRequest,
-  sendOrchestratorMainRequest,
-} = createOrchestratorRequestTransport({
-  pendingChatGPTBundleDeliveries, recentlyDeliveredChatGPTBundleRequestId,
-  chatGPTBundleAlreadyValidated, getScheduler: () => chatAgentScheduler,
-  expectedChatGPTBundles, sanitizeChatCacheKey, orchestratorConversationGuard,
-  executeChatGPTDOMScript, chatGPTSubmittedRequestEvidenceScript,
-  chatInputArchiveFilename, armExpectedChatGPTBundle, enqueueChatAgentFollowups,
-  disarmExpectedChatGPTBundle, clearChatGPTHumanAction,
-  orchestratorRetryInput, readStoredAttachment, chatAttachmentRoot,
-  withChatGPTTransportPreparation, preparePromptForChatGPT, path,
-})
-
-async function chatAgentLifecycleBlocked(task) {
-  const listed = await chatAgentScheduler.list({ chat_id: task.chat_id })
-  return (listed?.tasks || []).some((item) => item.task_id !== task.task_id && ['PENDING', 'LEASED', 'RUNNING', 'WAITING'].includes(item.status) && ['BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE'].includes(item.type))
-}
-
-const {
-  importOrchestratorWorkerPlanBundle, importOrchestratorWorkerPlan,
-  checkpointChatAgentTask, orchestratorPlanInstruction,
-  parseOrchestratorPlanProposal, orchestratorPlanResult,
-  importOrchestratorPlanArtifact, importRetainedOrchestratorPlan,
-} = createOrchestratorPlanImport({ sanitizeSessionId, BACKEND_URL, fetch })
-
-const executeChatAgentOrchestratorPlan = createOrchestratorPlanWorker({
-  sanitizeSessionId, orchestratorDeliveryFor, orchestratorBundleFilename,
-  orchestratorPlanFilename, canonicalChatGPTConversationURL,
-  takeRetainedChatGPTOrchestratorPlan, importRetainedOrchestratorPlan,
-  orchestratorContextIncrementPaths, removeStoredChatAttachments,
-  chatAttachmentRoot, tempPath: () => app.getPath('temp'),
-  orchestratorRequestFilename, expectedChatGPTOrchestratorPlans,
-  reconcileChatGPTThrottleForKey, enqueueChatAgentTask, chatAgentConversationID,
-  requireOwnedChatGPTEntry, sameConversationURL, loadOwnedChatGPTURL,
-  waitForChatGPTSurfaceReady, normalizeChatGPTReasoningEffort,
-  chatGPTAssistantTurnCount, sanitizeDiagnosticURL, paceChatGPTWorkerSubmission,
-  chatAgentRateLimitDelayMs, targetChatGPTComposer, fetchContextZip,
-  storedAttachmentPath, writeOrchestratorRequestBundle, persistChatArtifact,
-  executeChatGPTDOMScript, chatGPTFillComposerScript, pasteChatGPTFile,
-  wait, chatInputSettleDelay, submitChatGPTDraft,
-  waitForSubmittedChatGPTConversation, checkpointChatAgentTask,
-  homeURL: CHATGPT_URL, planTimeoutMs: ORCHESTRATOR_PLAN_TIMEOUT_MS,
-  pollIntervalMs: MARKDOWN_TRANSLATION_POLL_MS,
-  importOrchestratorPlanArtifact, rearmOrchestratorPlanDownload,
-  orchestratorPlanResult, chatGPTHumanActionScript, noteChatGPTRateLimitGate,
-  setChatGPTHumanAction, chatGPTHumanActionMessage,
-  chatGPTResponseCompletionScript, chatGPTArtifactExpiredSince,
-  maxBundleContinuations: MAX_BUNDLE_CONTINUATIONS,
-  pollWorkerExpectedDownload, chatGPTExpectedDownloadScript,
-  generatingGraceMs: ORCHESTRATOR_PLAN_GENERATING_GRACE_MS,
-  observeAgainMs: ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS,
+const { releaseNotesWorkerRuntime, orchestratorExecutionWorkerRuntime,
+  orchestratorRequestSupervision, adoptOrchestratorRequest, sendOrchestratorMainRequest,
+  chatAgentLifecycleBlocked, checkpointChatAgentTask, orchestratorPlanInstruction,
+  parseOrchestratorPlanProposal, orchestratorPlanResult, importOrchestratorPlanArtifact,
+  executeChatAgentOrchestratorPlan,
+} = createOrchestrationRuntime({
+  expectedChatGPTReleaseNotes, app, paceChatGPTWorkerSubmission, chatAgentRateLimitDelayMs,
+  requireOwnedChatGPTEntry, waitForChatGPTSurfaceReady, targetChatGPTComposer, CHATGPT_URL,
+  executeChatGPTDOMScript, chatGPTFillComposerScript, pasteChatGPTFile, chatInputSettleDelay,
+  chatGPTAssistantTurnCount, submitChatGPTDraft, waitForSubmittedChatGPTConversation, wait,
+  chatGPTHumanActionScript, noteChatGPTRateLimitGate, setChatGPTHumanAction, chatGPTHumanActionMessage,
+  chatGPTResponseCompletionScript, chatGPTExpectedDownloadScript, reconcileChatGPTThrottleForKey, enqueueChatAgentTask,
+  chatAgentConversationID, canonicalChatGPTConversationURL, paceChatGPTWorkerNavigation, loadOwnedChatGPTURL,
+  BACKEND_URL, sameConversationURL, requireTrustedChatGPTURL, pendingChatGPTBundleDeliveries,
+  recentlyDeliveredChatGPTBundleRequestId, chatGPTBundleAlreadyValidated, expectedChatGPTBundles, sanitizeChatCacheKey,
+  chatGPTSubmittedRequestEvidenceScript, chatInputArchiveFilename, armExpectedChatGPTBundle, enqueueChatAgentFollowups,
+  disarmExpectedChatGPTBundle, clearChatGPTHumanAction, orchestratorRetryInput, readStoredAttachment,
+  chatAttachmentRoot, withChatGPTTransportPreparation, preparePromptForChatGPT, path,
+  sanitizeSessionId, fetch, orchestratorDeliveryFor, orchestratorBundleFilename,
+  orchestratorPlanFilename, takeRetainedChatGPTOrchestratorPlan, orchestratorContextIncrementPaths, removeStoredChatAttachments,
+  orchestratorRequestFilename, expectedChatGPTOrchestratorPlans, normalizeChatGPTReasoningEffort, sanitizeDiagnosticURL,
+  fetchContextZip, storedAttachmentPath, writeOrchestratorRequestBundle, persistChatArtifact,
+  ORCHESTRATOR_PLAN_TIMEOUT_MS, MARKDOWN_TRANSLATION_POLL_MS, rearmOrchestratorPlanDownload, chatGPTArtifactExpiredSince,
+  MAX_BUNDLE_CONTINUATIONS, pollWorkerExpectedDownload, ORCHESTRATOR_PLAN_GENERATING_GRACE_MS, ORCHESTRATOR_PLAN_OBSERVE_AGAIN_MS,
   orchestratorCompletionDiagnostic, sendOrchestratorContextIncrement,
+  getScheduler: () => chatAgentScheduler,
 })
 
-// Transport for one translation request.
-//
-// The worker composes nothing. The backend's translation engine built the
-// request bundle, wrote the instruction into it, and named the exact artifact
-// that counts as an answer; this function uploads that archive, waits for that
-// exact filename, and returns the bytes it downloaded without reading them. The
-// engine that authored the contract is the one that validates the reply.
-//
-// That is the whole reason translation moved onto a bundle. When the worker
-// pasted a prose instruction and hoped for a Markdown file back, an answer in
-// the wrong shape — prose, the source echoed back, a differently named file —
-// was indistinguishable from no answer, so the job sat in the queue until it
-// timed out. A bundle can be wrong in ways that have names.
-
-const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification } = createArtifactWorkers({
-  markdownTranslationFilename,
-  MAX_MARKDOWN_TRANSLATION_BYTES,
-  paceChatGPTWorkerSubmission,
-  path,
-  app,
-  rm,
-  mkdir,
-  writeFile,
-  expectedChatGPTTranslations,
-  reconcileChatGPTThrottleForKey,
-  requireOwnedChatGPTEntry,
-  waitForChatGPTSurfaceReady,
-  targetChatGPTComposer,
-  CHATGPT_URL,
-  executeChatGPTDOMScript,
-  chatGPTFillComposerScript,
-  pasteChatGPTFile,
-  wait,
-  chatInputSettleDelay,
-  chatGPTAssistantTurnCount,
-  submitChatGPTDraft,
-  waitForSubmittedChatGPTConversation,
-  MARKDOWN_TRANSLATION_TIMEOUT_MS,
-  MARKDOWN_TRANSLATION_POLL_MS,
-  chatGPTHumanActionScript,
-  noteChatGPTRateLimitGate,
-  setChatGPTHumanAction,
-  chatGPTHumanActionMessage,
-  pollWorkerExpectedDownload,
-  chatGPTExpectedDownloadScript,
-  enqueueChatAgentTask,
-  chatAgentConversationID,
-  todoClassificationFilename,
-  MAX_TODO_CLASSIFICATION_BYTES,
-  chatAgentRateLimitDelayMs,
-  expectedChatGPTTodoClassifications,
-  TODO_CLASSIFICATION_TIMEOUT_MS,
-  chatGPTResponseCompletionScript,
-})
-
-async function chatAgentLifecycleRetry(task, key, conversationURL, error, { persist = true } = {}) {
-  const detail = String(error || 'remote lifecycle operation did not complete')
-  if (Number(task.attempt || 0) < Number(task.max_attempts || 0)) {
-    return { status: 'waiting', delayMs: chatAgentBackoff(task.attempt), error: detail }
-  }
-  if (persist) await persistWorkspaceChatRemote(key, conversationURL, { remoteState: 'attention' })
-  return { status: 'failed', error: detail }
-}
-
-// ─── Supervisor pool ────────────────────────────────────────────────────────
-//
-// A Supervisor owns one Harness chat for the whole life of its request: it opens
-// the conversation, submits the request bundle, follows the remote instance in
-// real time, and collects the response bundle. It never takes renaming,
-// organizing, archiving, deletion, title or translation work, so small jobs can
-// never evict a conversation that is mid-request — and it releases its chat only
-// once that request has settled and another chat actually needs the slot.
-//
-// Everything the pool exists for is the absence of one thing: a cross-chat
-// navigation. The bound renderer is already on the conversation, so observing a
-// response costs no provider request at all, and alternating between chats is a
-// visibility change rather than a reload.
-
-// How long a Supervisor task waits when every slot is still finishing a request.
-// Nothing reached ChatGPT, so this outcome is free and charges no attempt.
-const CHAT_SUPERVISOR_SLOT_WAIT_MS = 15_000
-
-const { superviseChatAgentResponse } = createSupervisorResponseLease({
-  hydrateExpectedChatAgentBundle, recentlyDeliveredChatGPTBundleRequestId,
-  disarmExpectedChatGPTBundle, pendingChatGPTBundleDeliveries,
-  CHAT_AGENT_AWAIT_PROBE_MS, chatgptTransportModes, chatGPTHumanActionMessage,
-  pollExpectedChatGPTDownloadKey: (...args) => pollExpectedChatGPTDownloadKey(...args),
-  AWAIT_STALL_ATTENTION_MS, EXPECTED_BUNDLE_TTL_MS,
+const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification } = createArtifactWorkerRuntime({
+  markdownTranslationFilename, MAX_MARKDOWN_TRANSLATION_BYTES, paceChatGPTWorkerSubmission, path,
+  app, rm, mkdir, writeFile,
+  expectedChatGPTTranslations, reconcileChatGPTThrottleForKey, requireOwnedChatGPTEntry, waitForChatGPTSurfaceReady,
+  targetChatGPTComposer, CHATGPT_URL, executeChatGPTDOMScript, chatGPTFillComposerScript,
+  pasteChatGPTFile, wait, chatInputSettleDelay, chatGPTAssistantTurnCount,
+  submitChatGPTDraft, waitForSubmittedChatGPTConversation, MARKDOWN_TRANSLATION_TIMEOUT_MS, MARKDOWN_TRANSLATION_POLL_MS,
+  chatGPTHumanActionScript, noteChatGPTRateLimitGate, setChatGPTHumanAction, chatGPTHumanActionMessage,
+  pollWorkerExpectedDownload, chatGPTExpectedDownloadScript, enqueueChatAgentTask, chatAgentConversationID,
+  todoClassificationFilename, MAX_TODO_CLASSIFICATION_BYTES, chatAgentRateLimitDelayMs, expectedChatGPTTodoClassifications,
+  TODO_CLASSIFICATION_TIMEOUT_MS, chatGPTResponseCompletionScript,
 })
 
 const {
   chatSupervisorHostWindow, bindChatSupervisor, noteChatSupervisorLane,
   chatSupervisorLanesHeldByOthers, executeChatSupervisorTask,
-} = createSupervisorPool({
-  desktopWindows, chatgptViews, touchChatGPTEntry,
+  executeChatTranslatorTask, executeEphemeralWorkerTask, executeChatAgentTask,
+} = createAgentWorkerRuntime({
+  chatAgentBackoff, persistWorkspaceChatRemote, hydrateExpectedChatAgentBundle, recentlyDeliveredChatGPTBundleRequestId, disarmExpectedChatGPTBundle,
+  pendingChatGPTBundleDeliveries, CHAT_AGENT_AWAIT_PROBE_MS, chatgptTransportModes, chatGPTHumanActionMessage, AWAIT_STALL_ATTENTION_MS,
+  EXPECTED_BUNDLE_TTL_MS, desktopWindows, chatgptViews, touchChatGPTEntry, reusableSupervisor,
+  chatGPTEntryIsActiveVisible, ensureChatGPTView, chatSupervisorStates, chatAgentLane, sanitizeOptionalChatCacheKey,
+  supervisorBindingHeld, chatAgentTaskPayload, sanitizeChatCacheKey, chatAgentConversationURL, sameConversationURL,
+  loadOwnedChatGPTURL, waitForChatGPTSurfaceReady, isTrustedChatGPTOrigin, CHATGPT_URL, executeChatAgentWrite,
+  createChatGPTWorkerView, publishChatAgentRuntimeState, assignChatGPTWorker, loadAndSettleChatGPTWorkerConversation, executeChatAgentMarkdownTranslation,
+  chatAgentResidency, chatGPTWorkerEntries, retireChatGPTWorkerView, EPHEMERAL_WORKER_TASK_TYPES, EPHEMERAL_WORKER_IDLE_RETIRE_MS,
+  EPHEMERAL_WORKER_PACE_PRIORITY, chatAgentWorkerActivity, parkChatGPTWorkerAfterLoadFailure, releaseChatGPTConversationReadProbe, organizeChatGPTConversation,
+  accountFailureDetail, enqueueChatAgentTask, chatAgentConversationID, archiveChatGPTConversation, deleteChatGPTConversation,
+  parseBundleName, deleteChatGPTLibraryArtifact, workerEntryForIndex, chatAgentRateLimitDelayMs, chatGPTConversationReadGateMs,
+  ChatGPTRateLimitDeferral, CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS, executeChatAgentOrchestratorPlan, executeOrchestratorExecution, orchestratorExecutionWorkerRuntime,
+  executeChatAgentTodoClassification, executeReleaseNotesBundleTask, releaseNotesWorkerRuntime, probeChatAgentResponse, executeChatAgentTitleDiscover,
+  executeChatAgentTempTitle, executeChatAgentTitleAwait,
+  chatAgentLifecycleBlocked, chatGPTSupervisorOwnsExpectedResponse,
   desiredSupervisorSlots: () => desiredChatAgentSupervisorSlots,
-  reusableSupervisor, chatGPTEntryIsActiveVisible, ensureChatGPTView,
-  chatSupervisorStates, chatAgentLane, sanitizeOptionalChatCacheKey,
-  supervisorBindingHeld, chatAgentTaskPayload, sanitizeChatCacheKey,
-  chatAgentConversationURL, CHAT_SUPERVISOR_SLOT_WAIT_MS,
-  sameConversationURL, loadOwnedChatGPTURL, waitForChatGPTSurfaceReady,
-  isTrustedChatGPTOrigin, CHATGPT_URL, superviseChatAgentResponse,
-  executeChatAgentWrite,
+  getDownloadPoller: () => pollExpectedChatGPTDownloadKey,
 })
 
-const { executeChatTranslatorTask } = createTranslatorTaskRuntime({
-  desktopWindows, createChatGPTWorkerView, publishChatAgentRuntimeState,
-  chatAgentTaskPayload, assignChatGPTWorker, loadAndSettleChatGPTWorkerConversation,
-  CHATGPT_URL, executeChatAgentMarkdownTranslation, chatAgentResidency,
-  chatGPTWorkerEntries, retireChatGPTWorkerView,
-})
-
-const ephemeralWorkerViews = new Map()
-
-const { executeEphemeralWorkerTask } = createEphemeralWorkerRuntime({
-  EPHEMERAL_WORKER_TASK_TYPES, EPHEMERAL_WORKER_IDLE_RETIRE_MS,
-  EPHEMERAL_WORKER_PACE_PRIORITY, ephemeralWorkerViews, chatGPTWorkerEntries,
-  desktopWindows, retireChatGPTWorkerView, createChatGPTWorkerView,
-  publishChatAgentRuntimeState, chatAgentWorkerActivity,
-  executeChatTranslatorTask, executeChatAgentTask: (...args) => executeChatAgentTask(...args),
-  parkChatGPTWorkerAfterLoadFailure, releaseChatGPTConversationReadProbe,
-})
-
-const { executeChatAgentTask } = createChatAgentExecution({
-  organizeChatGPTConversation,
-  chatAgentBackoff,
-  accountFailureDetail,
-  persistWorkspaceChatRemote,
-  enqueueChatAgentTask,
-  chatAgentConversationID,
-  chatAgentLifecycleRetry,
-  chatAgentLifecycleBlocked,
-  archiveChatGPTConversation,
-  deleteChatGPTConversation,
-  parseBundleName,
-  deleteChatGPTLibraryArtifact,
-  workerEntryForIndex,
-  executeChatTranslatorTask,
-  chatAgentRateLimitDelayMs,
-  chatGPTConversationReadGateMs,
-  chatAgentTaskPayload,
-  sanitizeChatCacheKey,
-  chatAgentConversationURL,
-  chatGPTSupervisorOwnsExpectedResponse,
-  CHAT_AGENT_AWAIT_PROBE_MS,
-  assignChatGPTWorker,
-  chatAgentResidency,
-  sameConversationURL,
-  loadAndSettleChatGPTWorkerConversation,
-  isTrustedChatGPTOrigin,
-  CHATGPT_URL,
-  waitForChatGPTSurfaceReady,
-  ChatGPTRateLimitDeferral,
-  CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS,
-  executeChatAgentOrchestratorPlan,
-  executeOrchestratorExecution,
-  orchestratorExecutionWorkerRuntime,
-  executeChatAgentTodoClassification,
-  executeReleaseNotesBundleTask,
-  releaseNotesWorkerRuntime,
-  probeChatAgentResponse,
-  executeChatAgentWrite,
-  executeChatAgentTitleDiscover,
-  executeChatAgentTempTitle,
-  executeChatAgentTitleAwait,
-})
-
-const { queueChatGPTComment, hasPendingChatGPTComments, flushQueuedChatGPTComments } = createChatGPTCommentQueue({
-  sanitizeChatCacheKey, canonicalBundleFilename, normalizeChatGPTReasoningEffort,
-  pendingChatGPTComments, recentChatGPTCommentIds, recentChatGPTCommentFingerprints,
-  flushingChatGPTComments, sanitizeSessionId, chatgptViews,
-  withChatGPTTransportPreparation, targetChatGPTComposer, executeChatGPTDOMScript,
-  chatGPTComposerReadyScript, expectedChatGPTBundles, fillBundledChatGPTComposer,
-  chatGPTAssistantTurnCount, wait, submitChatGPTDraft, armExpectedChatGPTBundle,
-  touchChatGPTEntry, sendToChatGPTKey,
-})
-const { pollChatGPTVisibleActivity } = createChatGPTActivityPoll({
-  chatgptViews,
-  reconcileChatGPTThrottle,
-  isTrustedChatGPTOrigin,
-  chatgptTransportModes,
-  chatGPTHumanActionScript,
-  noteChatGPTRateLimitGate,
-  expectedChatGPTBundles,
-  noteChatGPTRecoveryProgress,
-  setChatGPTHumanAction,
-  clearChatGPTHumanAction,
-  chatGPTVisibleActivityScript,
-  chatGPTActivityFingerprints,
-  sendToChatGPTKey,
-  CHATGPT_DOM_PROBE_FAILURE_LIMIT,
-  noteChatGPTRendererFault,
+const {
+  queueChatGPTComment, hasPendingChatGPTComments, flushQueuedChatGPTComments,
+  pollChatGPTVisibleActivity, performChatGPTRecoveryAction,
+  escalateChatGPTContinuationFailure, recordChatGPTContinuationSent,
+  pollExpectedChatGPTDownloadKey, pollExpectedChatGPTDownloads,
+} = createRecoveryRuntime({
+  sanitizeChatCacheKey, canonicalBundleFilename, normalizeChatGPTReasoningEffort, pendingChatGPTComments, recentChatGPTCommentIds,
+  recentChatGPTCommentFingerprints, flushingChatGPTComments, sanitizeSessionId, chatgptViews, withChatGPTTransportPreparation,
+  targetChatGPTComposer, executeChatGPTDOMScript, chatGPTComposerReadyScript, expectedChatGPTBundles, fillBundledChatGPTComposer,
+  chatGPTAssistantTurnCount, wait, submitChatGPTDraft, armExpectedChatGPTBundle, touchChatGPTEntry,
+  sendToChatGPTKey, reconcileChatGPTThrottle, isTrustedChatGPTOrigin, chatgptTransportModes, chatGPTHumanActionScript,
+  noteChatGPTRateLimitGate, noteChatGPTRecoveryProgress, setChatGPTHumanAction, clearChatGPTHumanAction, chatGPTVisibleActivityScript,
+  chatGPTActivityFingerprints, CHATGPT_DOM_PROBE_FAILURE_LIMIT, noteChatGPTRendererFault, requireOwnedChatGPTEntry, isNetworkRecoveryFault,
+  claimNetworkFaultReloadSlot, commitChatGPTRecoveryAction, recordChatGPTTaskEvent, reloadOwnedChatGPTConversation, chatGPTBundleAlreadyValidated,
+  MAX_AUTOMATIC_BUNDLE_CONTINUATIONS, submitChatGPTContinuation, ChatGPTRateLimitDeferral, pollingExpectedChatGPTBundles, pendingChatGPTBundleDeliveries,
+  EXPECTED_BUNDLE_TTL_MS, chatGPTSupervisorOwnsExpectedResponse, chooseChatGPTRecoveryAction, noteChatGPTRecoveryFault, recentlyDeliveredChatGPTBundleRequestId,
+  disarmExpectedChatGPTBundle, chatAgentKeepFlowingRequestActive, DOM_DOWNLOAD_RETRY_MS, captureChatGPTProcessingDuration, chatGPTExpectedDownloadScript,
+  DOWNLOAD_INFLIGHT_TIMEOUT_MS, chatGPTResponseCompletionScript, noteChatGPTRecoveryAssistantCount, PROCESSING_SIGNAL_GRACE_MS, classifyChatGPTConversationTransport,
+  CONVERSATION_TRANSPORT_STALE_MS, reconcileChatGPTConversationTransport, PROCESSING_STALE_ATTENTION_MS, BUNDLE_COMPLETION_GRACE_MS, isChatGPTAffinityAwaitingSettlement,
+  CHATGPT_AFFINITY_RECOVERY_GRACE_MS,
   readPollingChatGPTVisibleActivity: () => pollingChatGPTVisibleActivity,
   setPollingChatGPTVisibleActivity: (value) => { pollingChatGPTVisibleActivity = value },
-})
-
-const { performChatGPTRecoveryAction, escalateChatGPTContinuationFailure, recordChatGPTContinuationSent } = createChatGPTRecoveryActions({
-  requireOwnedChatGPTEntry,
-  isNetworkRecoveryFault,
-  claimNetworkFaultReloadSlot,
-  commitChatGPTRecoveryAction,
-  recordChatGPTTaskEvent,
-  reloadOwnedChatGPTConversation,
-  sendToChatGPTKey,
-  setChatGPTHumanAction,
-  chatGPTBundleAlreadyValidated,
-  MAX_AUTOMATIC_BUNDLE_CONTINUATIONS,
-  withChatGPTTransportPreparation,
-  expectedChatGPTBundles,
-  submitChatGPTContinuation,
-  ChatGPTRateLimitDeferral,
-})
-
-const { pollExpectedChatGPTDownloadKey, pollExpectedChatGPTDownloads } = createExpectedBundleSupervision({
-  pollingExpectedChatGPTBundles,
-  expectedChatGPTBundles,
-  hasPendingChatGPTComments,
-  pendingChatGPTBundleDeliveries,
-  chatgptTransportModes,
-  EXPECTED_BUNDLE_TTL_MS,
-  sendToChatGPTKey,
-  chatgptViews,
-  chatGPTSupervisorOwnsExpectedResponse,
-  isTrustedChatGPTOrigin,
-  chooseChatGPTRecoveryAction,
-  performChatGPTRecoveryAction,
-  noteChatGPTRecoveryFault,
-  recentlyDeliveredChatGPTBundleRequestId,
-  disarmExpectedChatGPTBundle,
-  chatAgentKeepFlowingRequestActive,
-  DOM_DOWNLOAD_RETRY_MS,
-  captureChatGPTProcessingDuration,
-  chatGPTExpectedDownloadScript,
-  DOWNLOAD_INFLIGHT_TIMEOUT_MS,
-  chatGPTResponseCompletionScript,
-  noteChatGPTRecoveryAssistantCount,
-  PROCESSING_SIGNAL_GRACE_MS,
-  classifyChatGPTConversationTransport,
-  CONVERSATION_TRANSPORT_STALE_MS,
-  reconcileChatGPTConversationTransport,
-  setChatGPTHumanAction,
-  PROCESSING_STALE_ATTENTION_MS,
-  BUNDLE_COMPLETION_GRACE_MS,
-  isChatGPTAffinityAwaitingSettlement,
-  CHATGPT_AFFINITY_RECOVERY_GRACE_MS,
-  MAX_AUTOMATIC_BUNDLE_CONTINUATIONS,
-  CHATGPT_DOM_PROBE_FAILURE_LIMIT,
-  noteChatGPTRendererFault,
   setRecentExpectedDownload: (value) => { recentExpectedDownload = value },
 })
 

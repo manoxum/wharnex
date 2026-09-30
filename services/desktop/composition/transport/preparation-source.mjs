@@ -17,7 +17,7 @@ export async function expandPromptPreparationSource(main) {
   const rendererStart = renderer.indexOf('  async function waitForChatGPTSurfaceReady(')
   const rendererEnd = renderer.lastIndexOf('\n  return { executeChatGPTDOMScript, waitForChatGPTSurfaceReady }')
   const rendererCompositionStart = main.indexOf('const { executeChatGPTDOMScript, waitForChatGPTSurfaceReady } = createChatGPTRendererStability({')
-  const rendererCompositionEnd = main.indexOf('\nfunction serializeChatGPTAccountOperation(', rendererCompositionStart)
+  const rendererCompositionEnd = main.indexOf('\nconst chatGPTAccountDependencies = {', rendererCompositionStart)
   const viewsIndex = await readFile(new URL('../../chatgpt/session/views/index.mjs', import.meta.url), 'utf8')
   if (rendererStart < 0 || rendererEnd <= rendererStart || rendererCompositionStart < 0
       || rendererCompositionEnd <= rendererCompositionStart || !viewsIndex.includes("from './renderer-stability.mjs'")) {

@@ -126,6 +126,7 @@ test('activity polling is single-flight and reads visible reasoning only for an 
 test('every ChatGPT recovery/bundle/human-escalation choke point durably records a task event', async () => {
   const source = await readActivityRecoverySource()
   const bundle = await readFile(new URL('../../chatgpt/downloads/bundle.mjs', import.meta.url), 'utf8')
+  const downloadRuntime = await readFile(new URL('../downloads/runtime.mjs', import.meta.url), 'utf8')
   const attention = await readFile(new URL('../../chatgpt/session/attention/notice.mjs', import.meta.url), 'utf8')
 
   const performStart = source.indexOf('async function performChatGPTRecoveryAction(key, expected, entry, action, completion = {})')
@@ -141,7 +142,9 @@ test('every ChatGPT recovery/bundle/human-escalation choke point durably records
   assert.match(source, /createChatGPTHumanAttention\(\{/)
   assert.match(attention.slice(humanActionStart, humanActionEnd), /recordChatGPTTaskEvent\(expected, 'chatgpt\.human_action_required'/)
 
-  assert.match(source, /recordTaskEvent: \(\.\.\.args\) => recordChatGPTTaskEvent\(\.\.\.args\)/)
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  assert.match(main, /recordChatGPTTaskEvent: \(\.\.\.args\) => recordChatGPTTaskEvent\(\.\.\.args\)/)
+  assert.match(downloadRuntime, /recordTaskEvent: d\.recordChatGPTTaskEvent/)
   assert.match(bundle, /recordTaskEvent\(live, 'chatgpt\.bundle_validated'/)
   assert.match(bundle, /recordTaskEvent\(live, 'chatgpt\.bundle_rejected'/)
 

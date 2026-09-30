@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { createDesktopMessageRouting } from './index.mjs'
+import { createDesktopMessageRouting } from './message-routing.mjs'
 
 test('routes only trusted window and owned ChatGPT entry messages', () => {
   const messages = []
