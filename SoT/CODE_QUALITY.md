@@ -39,7 +39,7 @@ The cap does not apply to:
   loses its privileged bridge — losing the themed window controls and the
   native ChatGPT surfaces with it. Splitting such a file is therefore not a
   refactor but an outage, and it MUST stay self-contained. Its contract is
-  enforced by `services/desktop/preload-sandbox.test.mjs` instead of by the
+  enforced by `services/desktop/bridge/preload-sandbox.test.mjs` instead of by the
   line cap. Growth is still bounded: behavior belongs in main-process modules
   the preload reaches over named IPC, never in the preload itself.
 
@@ -70,8 +70,9 @@ Concretely:
   file/domain), not for "this is where the exception went";
 - have the legacy file import/call into the new file, so the legacy file's
   own line count goes down or stays flat rather than growing;
-- place the extracted file and its focused tests under the owning domain
-  directory (see `SoT/PROJECT_STRUCTURE.md`), never as another flat sibling;
+- place the extracted file and its focused tests under the owning domain or
+  subdomain directory (see `SoT/PROJECT_STRUCTURE.md`), never as another flat
+  sibling or in an overfull domain directory;
 - do not attempt to extract the *entire* legacy file in the same change
   unless that is the change being asked for — extract only what you are
   touching. The legacy file shrinks over many such changes, never through one

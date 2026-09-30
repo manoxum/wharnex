@@ -8,9 +8,9 @@ fixture="$temporary/repo"
 fake_bin="$temporary/bin"
 trace="$temporary/trace"
 
-mkdir -p "$fixture/scripts" "$fixture/services/desktop" "$fixture/.harness/run" "$fake_bin"
+mkdir -p "$fixture/scripts" "$fixture/services/desktop/splash" "$fixture/.harness/run" "$fake_bin"
 cp "$ROOT/scripts/launcher.sh" "$ROOT/scripts/source-fingerprint.sh" "$ROOT/scripts/splash-lib.sh" "$fixture/scripts/"
-cp "$ROOT/services/desktop/launcher-splash.mjs" "$fixture/services/desktop/launcher-splash.mjs"
+cp "$ROOT/services/desktop/splash/launcher-splash.mjs" "$fixture/services/desktop/splash/launcher-splash.mjs"
 chmod 0755 "$fixture/scripts/launcher.sh" "$fixture/scripts/source-fingerprint.sh"
 printf 'fixture source\n' >"$fixture/Makefile"
 

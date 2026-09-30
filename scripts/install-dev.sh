@@ -46,7 +46,7 @@ install -m 0644 "$ROOT/services/frontend/public/favicon.svg" "$icon_path"
 # simply absent; this rasterizes the same mark with the Node standard library.
 # Resolved from this script's own location, not $ROOT, for the same reason
 # desktop-profile.sh is.
-if node "$SCRIPT_DIR/../services/desktop/write-desktop-icon.mjs" "$icon_raster_path" 256; then
+if node "$SCRIPT_DIR/../services/desktop/icon/write-desktop-icon.mjs" "$icon_raster_path" 256; then
   desktop_icon="$icon_raster_path"
 fi
 

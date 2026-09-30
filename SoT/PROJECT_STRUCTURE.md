@@ -15,15 +15,24 @@ Every new or extracted project-owned source or test file MUST have a domain
 directory beneath its service's source root. A domain is the product capability
 that changes the file (for example `window`, `chatgpt`, `agent`, `editor`,
 `orchestrator`, `project`), not its language, framework, or generic role. Keep
-the domain's implementation and focused tests together. A second directory
-level MAY separate cohesive concerns inside a large domain; do not create a
-directory solely to satisfy the rule while placing unrelated files inside it.
+the domain's implementation and focused tests together. Any directory with
+more than 20 project-owned implementation and test files MUST be divided into
+named subdomains, each owning a coherent capability. Count production and test
+files together, across implementation extensions; configuration, documentation,
+fixtures and generated files do not count. Apply the same limit recursively:
+a subdomain that grows past 20 files also splits by responsibility. Existing
+overfull directories are migration debt; no new file may enlarge one, and a
+change touching an overfull concern MUST move that concern and its tests into
+the appropriate subdomain. Do not create a directory solely to satisfy the
+count while placing unrelated files inside it.
 
-- Desktop native code: `/services/desktop/<domain>/`. `main.mjs` remains the
-  Electron composition entry point; window persistence and recovery belong in
-  `window/`, ChatGPT browser state in `chatgpt/`, and subsequent extractions
-  follow the capability they own. New root-level Desktop helper files are
-  forbidden.
+- Desktop native code: `/services/desktop/<domain>/<subdomain>/` when the
+  domain exceeds the 20-file limit. `main.mjs` remains the Electron composition
+  entry point; ChatGPT account, transport, DOM and session code lives under
+  distinct `chatgpt/` subdomains; Agent scheduling, orchestration, automation
+  and supervision live under distinct `agent/` subdomains. Small cohesive
+  domains MAY keep files directly under `/services/desktop/<domain>/`. New
+  root-level Desktop helper files are forbidden.
 - Backend Go code: `/services/backend/internal/<domain>/`; executable entry
   points stay under `/services/backend/cmd/<command>/`.
 - Desktop and paired web UIs: `/services/frontend/src/<domain>/` and
@@ -46,6 +55,28 @@ Avoid catch-all `utils`, `helpers`, `common`, and `misc` directories: a truly
 shared module belongs to the domain that owns its contract, with cross-domain
 imports using that contract.
 
+## Recursive domain composition
+
+A multi-file domain MUST expose a narrow entry point for its owning service
+or parent domain. The service composition root imports that domain entry
+point; the domain entry point imports or explicitly re-exports its subdomain
+entry points; each subdomain reaches its own leaf modules. This keeps the
+composition root from listing every leaf file and makes ownership visible in
+the import graph. Prefer named exports and purpose-specific factories over
+unrestricted `export *` barrels. Direct cross-domain imports are permitted
+for a specific contract, but a convenience barrel MUST NOT hide a forbidden
+architecture dependency or create a cycle. Preserve lazy imports and
+initialization order when changing a runtime entry point. Existing long import
+preludes migrate by domain when touched.
+
+For CSS, `styles/index.css` imports ordered domain or cascade entry points,
+which import their own subdomain sheets recursively. Aggregators MUST keep
+the effective rule order, layers, asset resolution and output CSS unchanged
+when the work is only structural; group names alone never justify reordering
+the cascade. Go packages already provide entry points through exported APIs:
+the command/application composition layer calls package functions, and no
+synthetic Go barrel file is required.
+
 File-size limits, the extract-on-touch rule for legacy oversized files, and
 continuous-refactoring expectations are defined in `SoT/CODE_QUALITY.md`.
 Frontend styling direction (incremental Tailwind CSS migration) is defined in
@@ -54,10 +85,10 @@ Frontend styling direction (incremental Tailwind CSS migration) is defined in
 Desktop frontend project-owned CSS has one home, `/services/frontend/src/styles`, organized by
 domain rather than dropped at the root of `src`:
 
-- `/services/frontend/src/styles/index.css` — single entry point imported by `main.tsx`; new sheets register here.
+- `/services/frontend/src/styles/index.css` — single entry point imported by `main.tsx`; new sheets register with their domain aggregator.
 - `/services/frontend/src/styles/theme` — design tokens and Light/Dark appearance.
 - `/services/frontend/src/styles/base` — resets, element defaults, shared primitives.
-- `/services/frontend/src/styles/domains` — one sheet per product surface (agent, editor, orchestrator, terminal, git, …).
+- `/services/frontend/src/styles/domains/<surface>` — each product surface owns its styles; no CSS file sits directly in the `domains` container.
 - `/services/frontend/src/styles/vendor` — overrides for third-party DOM (Monaco, xterm, Quill).
 
 Creating a `.css` file at the root of `/services/frontend/src` is forbidden.
@@ -73,5 +104,5 @@ Orchestrator-specific implementation follows the same boundaries:
 - `/services/backend/internal/orchestrator` — project-scoped Plan/Task/TaskRun domain records, DAG/readiness rules and persistence adapter.
 - `/schemas/orchestrator-plan.schema.json` — JSON Schema for the planner-only `harness.orchestrator-plan/v1` proposal contract.
 - `/services/backend/internal/app/service_orchestrator_*.go` — orchestration use cases and delegation into the existing Agent pipeline.
-- `/services/frontend/src/components/orchestrator` — Overview/Tasks projections and interactions; it is not a transition or scheduling authority.
+- `/services/frontend/src/components/orchestrator/{workspace,planning,tasks,overview}` — Overview/Tasks projections and interactions; these are not transition or scheduling authorities.
 - `/adr/ADR-0032-orchestrator-mode.md` — accepted responsibility, persistence and concurrency decision.

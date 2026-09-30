@@ -21,18 +21,29 @@ do not establish ownership. `SoT/PROJECT_STRUCTURE.md` defines service-specific
 locations and exceptions, and `SoT/CODE_QUALITY.md` binds extract-on-touch to
 the same rule.
 
-The Desktop refactor begins with independent window recovery, layout, and
-restart-intent state under `services/desktop/window/`, plus the ChatGPT cache
-marker under `services/desktop/chatgpt/`. These modules accept the small runtime
-inputs they need. `main.mjs` composes them after Electron initializes; it does
-not move browser authority into a standalone testable module.
+Desktop's flat modules are relocated into owned domains. Large domains are
+further divided into named subdomains, so a directory cannot become a new
+dumping ground. A directory containing more than 20 project-owned source and
+test files MUST split by responsibility, recursively; new work cannot enlarge
+an existing overfull directory. Window lifecycle, ChatGPT account/session/DOM/
+transport and Agent scheduling/orchestration/supervision have distinct homes.
+`main.mjs` composes the extracted modules after Electron initializes.
 
-Existing flat files migrate by concern when touched. A mass rename of every
-service file is not required by this decision. Persisted filenames and wire
-identifiers retain their shipped spelling when compatibility requires it.
+Multi-file domains compose recursively through narrow named entry points.
+Service entry points import domain contracts, domain entry points compose
+subdomain contracts, and leaves stay inside their owner. CSS uses ordered
+aggregators so structural splits preserve the cascade and build output. Go
+uses package APIs rather than synthetic barrel files. This rule reduces the
+flat import lists that otherwise recreate the same coupling in an entry point.
+
+Existing flat files migrate by concern when touched; this change also
+reorganizes the currently selected frontend, backend and webapp concerns.
+Persisted filenames and wire identifiers retain their shipped spelling when
+compatibility requires it.
 `make domain-layout-check` rejects new implementation files without a domain
-owner in the normal quality gate. Review remains responsible for whether that
-named domain is the correct owner.
+owner and new files that push a directory beyond 20 source/test files in the
+normal quality gate. Review remains responsible for whether each named
+domain and subdomain is the correct owner.
 The check starts from the parent of the commit that adds this ADR, so legacy
 flat files introduced before this decision are not retroactively failed. While
 that commit has not yet been made, the pre-adoption commit `33f1c354` is the
@@ -43,8 +54,7 @@ bootstrap base. `WHARNEX_DOMAIN_LAYOUT_BASE` can override it explicitly.
 - New Desktop tests in domain directories are included by the Desktop test
   command; a moved assertion continues to check the same behavior at its new
   seam.
-- Future extractions identify the owner before creating a file. If ownership
-  is unclear, clarify the module interface instead of adding a root-level
-  helper.
+- Future extractions identify the domain and, when needed, subdomain before
+  creating a file. If ownership is unclear, clarify the module interface.
 - The 200-line limit remains in force for each new domain file; directory
   placement does not waive it.

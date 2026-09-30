@@ -83,7 +83,7 @@ Playwright session/bootstrap/manual-plan workflow plus Docker executor tests whe
 ## G8 Desktop shell
 
 - `node --check` for Electron main/preload/dev launcher.
-- `node --test services/desktop/security.test.mjs`.
+- `node --test services/desktop/security/security.test.mjs`.
 - Validate remote view sandbox/context-isolation/Node-integration invariants in review.
 - Validate clipboard session/URL/bounds guards.
 - Where Electron runtime is available, smoke: launch Desktop -> ChatGPT tab -> login/session persistence -> copy context ZIP -> paste attachment.
@@ -165,5 +165,8 @@ commit. Ignore repair MUST preserve existing rules and be idempotent.
   `SoT/PROJECT_STRUCTURE.md`. It runs as part of `make check` and
   `scripts/quality-gates.sh`.
 - The gate permits only named service domains and documented runtime entry
-  points. Reviewers verify semantic ownership and extract-on-touch for legacy
-  flat files, which path checks alone cannot determine.
+  points. It also rejects a new or relocated source/test file when its owning
+  directory would exceed 20 such files; `SoT/PROJECT_STRUCTURE.md` requires a
+  semantic subdomain then. Reviewers verify actual ownership and
+  extract-on-touch for legacy flat files, which path checks alone cannot
+  determine.

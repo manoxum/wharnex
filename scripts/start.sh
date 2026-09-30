@@ -131,7 +131,7 @@ GATEWAY_PORT=$(sed -n 's/^WHARNESS_GATEWAY_PORT=//p' "$ROOT/.harness/state/stack
     WHARNESS_LINUX_SANDBOX_MODE="${WHARNESS_LINUX_SANDBOX_MODE:-}" \
     WHARNESS_ELECTRON_BINARY="${WHARNESS_ELECTRON_BINARY:-}" \
     WHARNESS_BEHAVIOR_PROBE="${WHARNESS_BEHAVIOR_PROBE:-}" \
-    node dev.mjs >>"$LOG_FILE" 2>&1 </dev/null &
+    node lifecycle/dev.mjs >>"$LOG_FILE" 2>&1 </dev/null &
   echo $! > "$PID_FILE"
 )
 

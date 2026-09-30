@@ -22,8 +22,8 @@ the **up-whx-link**, connected to the host by `pasta` (passt, unprivileged
 userspace networking). Inside the namespace there is only `lo` and one
 interface configured once at start. Outbound traffic leaves through ordinary
 host sockets owned by `pasta`, so host interface churn never reaches Chromium.
-The implementation is `services/desktop/up-whx-link.mjs`, called by
-`services/desktop/dev.mjs`.
+The implementation is `services/desktop/host/up-whx-link.mjs`, called by
+`services/desktop/lifecycle/dev.mjs`.
 
 1. The namespaces (user, net and mount) are created with `unshare`. `pasta` is
    then attached to that process's PID. Letting `pasta` start the command
