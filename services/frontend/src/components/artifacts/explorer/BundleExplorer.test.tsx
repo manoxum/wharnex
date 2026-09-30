@@ -16,11 +16,12 @@ vi.mock('../../../lib/transport/http/api', () => ({ api: {
   chatFiles: mocks.chatFiles,
   saveChatFileToLibrary: mocks.saveChatFileToLibrary,
   artifactURL: (_sessionId: string, artifactId: string, preview = false) => `/artifact/${artifactId}${preview ? '?preview=1' : ''}`,
-  artifactEntryURL: (_sessionId: string, artifactId: string, path: string) => `/artifact/${artifactId}/entry?path=${encodeURIComponent(path)}`,
+  artifactEntryURL: (_sessionId: string, artifactId: string, path: string, download = false) => `/artifact/${artifactId}/entry?path=${encodeURIComponent(path)}${download ? '&download=1' : ''}`,
 } }))
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
   mocks.artifactEntries.mockClear()
   mocks.artifactPresentation.mockClear()
   mocks.chatFiles.mockReset()
@@ -155,6 +156,32 @@ describe('BundleExchangeBar', () => {
     expect(screen.getByText('chart.png')).toBeTruthy()
   })
 
+
+  it('opens direct and bundled Draw.io chat files with the shared visual renderer and raw downloads', async () => {
+    const requestId = 'req_20260905T225700_7777777777777777'
+    const bundle: ArtifactRecord = {
+      id: 'drawio-bundle', request_id: requestId, direction: 'output', kind: 'bundle', name: `whx_bundle_res_chat-1_${requestId}.zip`, content_type: 'application/zip',
+      size: 2048, sha256: 'f'.repeat(64), created_at: '2026-09-05T22:57:00Z', expires_at: '2026-10-05T22:57:00Z', bundle: true, entry_count: 1,
+    }
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n" value="Chat" vertex="1" parent="1"><mxGeometry x="10" y="10" width="120" height="60" as="geometry"/></mxCell></root></mxGraphModel>'
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, body: null, headers: { get: () => null }, text: async () => source }) as unknown as Response))
+    mocks.chatFiles.mockResolvedValueOnce({ files: [
+      { artifact_id: 'drawio-direct', request_id: requestId, direction: 'input', source: 'attachment', name: 'direct.drawio', content_type: 'application/vnd.jgraph.mxfile', size: source.length, created_at: '2026-09-05T22:56:00Z', direct: true },
+      { artifact_id: 'drawio-bundle', request_id: requestId, direction: 'output', source: 'returned', name: 'bundle.drawio', path: 'artifacts/bundle.drawio', content_type: 'application/vnd.jgraph.mxfile', size: source.length, created_at: '2026-09-05T22:57:00Z', direct: false },
+    ] satisfies ChatFileRecord[] })
+
+    render(<ChatArtifactLibrary sessionId="ses_1" artifacts={[bundle]} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Abrir direct.drawio' }))
+    expect(await screen.findByRole('img', { name: 'Diagrama Draw.io: direct.drawio' })).toBeTruthy()
+    expect(screen.getByTitle('Descarregar direct.drawio').getAttribute('href')).toBe('/artifact/drawio-direct')
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar viewer' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir bundle.drawio' }))
+    expect(await screen.findByRole('img', { name: 'Diagrama Draw.io: artifacts/bundle.drawio' })).toBeTruthy()
+    expect(screen.getByTitle('Descarregar artifacts/bundle.drawio').getAttribute('href')).toBe('/artifact/drawio-bundle/entry?path=artifacts%2Fbundle.drawio&download=1')
+  })
+
   it('renders user-facing files from artifacts/ in the matching response bundle', async () => {
     const requestId = 'req_20260905T230000_4444444444444444'
     const bundle: ArtifactRecord = {
@@ -181,6 +208,39 @@ describe('BundleExchangeBar', () => {
     view.rerender(<ReturnedArtifactGallery sessionId="ses_1" artifacts={[{ ...bundle }]} requestId={requestId} />)
     expect(mocks.artifactPresentation).toHaveBeenCalledTimes(1)
     expect(document.querySelector('img')?.getAttribute('src')).toContain('artifacts%2Fpreview.png')
+  })
+
+
+  it('uses preview_path as the visual representation while preserving the original artifact path', async () => {
+    const requestId = 'req_20260905T230100_8888888888888888'
+    const bundle: ArtifactRecord = {
+      id: 'response-preview-path', request_id: requestId, direction: 'output', kind: 'bundle', name: `whx_bundle_res_chat-1_${requestId}.zip`, content_type: 'application/zip',
+      size: 4096, sha256: '8'.repeat(64), created_at: '2026-09-05T23:01:00Z', expires_at: '2026-10-05T23:01:00Z', bundle: true, entry_count: 2,
+    }
+    mocks.artifactPresentation.mockResolvedValueOnce({
+      protocol: 'harness.artifact-presentation/v1', fallback: false, galleries: [{
+        id: 'drawio', layout: 'grid', sizing: 'adaptive', items: [{
+          path: 'artifacts/diagram.drawio', preview_path: 'artifacts/diagram.png', label: 'Arquitetura', size: 1024, content_type: 'application/vnd.jgraph.mxfile', kind: 'drawio',
+        }],
+      }],
+    })
+
+    render(<ReturnedArtifactGallery sessionId="ses_1" artifacts={[bundle]} requestId={requestId} />)
+
+    const previewImage = await screen.findByRole('img', { name: 'artifacts/diagram.png' })
+    expect(previewImage.getAttribute('src')).toBe('/artifact/response-preview-path/entry?path=artifacts%2Fdiagram.png')
+
+    const indexed: ArtifactIndexRequest[] = []
+    window.addEventListener(ARTIFACT_INDEX_EVENT, (event: Event) => indexed.push((event as CustomEvent<ArtifactIndexRequest>).detail), { once: true })
+    fireEvent.click(screen.getByTitle('Indexar no próximo prompt'))
+    expect(indexed).toEqual([{ kind: 'chat', value: 'entry|response-preview-path|artifacts/diagram.drawio' }])
+    expect(screen.getByTitle('Descarregar artifacts/diagram.drawio').getAttribute('href')).toBe('/artifact/response-preview-path/entry?path=artifacts%2Fdiagram.drawio&download=1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir Arquitetura' }))
+    expect(screen.getByRole('img', { name: 'Arquitetura' }).getAttribute('src')).toBe('/artifact/response-preview-path/entry?path=artifacts%2Fdiagram.png')
+    const originalDownloads = screen.getAllByTitle('Descarregar artifacts/diagram.drawio')
+    expect(originalDownloads).toHaveLength(2)
+    expect(originalDownloads.every((link) => link.getAttribute('href') === '/artifact/response-preview-path/entry?path=artifacts%2Fdiagram.drawio&download=1')).toBe(true)
   })
 
 })
