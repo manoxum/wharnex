@@ -39,8 +39,10 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const item = items[index]
-  const definition = useMemo(() => artifactPreviewDefinition(item?.path || '', item?.kind), [item])
-  const previewURL = item ? (bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path) : artifactId ? api.artifactURL(sessionId, artifactId, true) : '') : ''
+  const previewPath = item && bundleId ? (item.preview_path || item.path) : (item?.path || '')
+  const previewKind = item?.preview_path && bundleId ? undefined : item?.kind
+  const definition = useMemo(() => artifactPreviewDefinition(previewPath, previewKind), [previewKind, previewPath])
+  const previewURL = item ? (bundleId ? api.artifactEntryURL(sessionId, bundleId, previewPath) : artifactId ? api.artifactURL(sessionId, artifactId, true) : '') : ''
   const downloadURL = item ? (bundleId ? api.artifactEntryURL(sessionId, bundleId, item.path, true) : artifactId ? api.artifactURL(sessionId, artifactId) : '') : ''
 
   useEffect(() => {
@@ -225,7 +227,7 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
           ? <div className={`artifact-image-workbench ${drawing ? 'is-drawing' : ''}`} style={cropRatio === 'free' ? undefined : { aspectRatio: cropRatio }}><img src={previewURL} alt={item.alt || item.label || item.path} style={{ transform: `scale(${zoom}) rotate(${rotation}deg) scaleX(${flipX}) scaleY(${flipY})`, filter: `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) grayscale(${grayscale}%)`, objectFit: cropRatio === 'free' ? 'contain' : 'cover' }}/><canvas ref={drawCanvasRef} onPointerDown={drawPointer} onPointerMove={drawPointer} onPointerUp={drawPointer} onPointerCancel={drawPointer}/></div>
           : definition.kind === 'video' ? <video key={previewURL} src={previewURL} controls preload="metadata" ref={videoRef} onLoadedMetadata={(event) => { const duration = event.currentTarget.duration; if (Number.isFinite(duration)) setClipEnd(duration) }}/>
           : definition.kind === 'audio' ? <audio key={previewURL} src={previewURL} controls preload="metadata" ref={audioRef} onLoadedMetadata={(event) => { const duration = event.currentTarget.duration; if (Number.isFinite(duration)) setClipEnd(duration) }}/>
-          : <ArtifactPreview sessionId={sessionId} path={item.path} size={item.size} url={previewURL} kind={item.kind} mode={mode} wrap={wrap} highlight={documentMarker}/>}
+          : <ArtifactPreview sessionId={sessionId} path={previewPath} size={item.size} url={previewURL} kind={previewKind} mode={mode} wrap={wrap} highlight={documentMarker}/>}
       </div>
     </section>
   </InternalWindow>

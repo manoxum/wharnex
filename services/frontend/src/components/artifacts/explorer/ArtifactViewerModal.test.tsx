@@ -21,6 +21,26 @@ describe('ArtifactViewerModal', () => {
     expect(screen.getByTitle('Descarregar report.pdf').getAttribute('href')).toBe('/artifact/artifact_direct')
     expect(screen.getByTitle('Pré-visualização de report.pdf').getAttribute('src')).toBe('/artifact/artifact_direct?preview=1')
   })
+
+  it('uses preview_path only for bundle preview while keeping the original download identity', () => {
+    render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={[{
+      path: 'artifacts/diagram.drawio', preview_path: 'artifacts/diagram.png', label: 'Diagrama', size: 512, content_type: 'application/vnd.jgraph.mxfile', kind: 'drawio',
+    }]} initialIndex={0} onClose={vi.fn()}/>)
+
+    expect(screen.getByRole('img', { name: 'Diagrama' }).getAttribute('src')).toBe('/artifact/entry?path=artifacts%2Fdiagram.png')
+    expect(screen.getByTitle('Descarregar artifacts/diagram.drawio').getAttribute('href')).toBe('/artifact/entry?path=artifacts%2Fdiagram.drawio&download=1')
+    expect(screen.queryByRole('button', { name: 'Ver source' })).toBeNull()
+  })
+
+  it('renders a direct Draw.io artifact locally and keeps download on the raw artifact endpoint', async () => {
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n" value="Direct" vertex="1" parent="1"><mxGeometry x="10" y="10" width="120" height="60" as="geometry"/></mxCell></root></mxGraphModel>'
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, body: null, headers: { get: () => null }, text: async () => source }) as unknown as Response))
+    render(<ArtifactViewerModal sessionId="ses_1" artifactId="drawio_direct" items={[{ path: 'direct.drawio', size: source.length }]} initialIndex={0} onClose={vi.fn()}/>)
+
+    expect(await screen.findByRole('img', { name: 'Diagrama Draw.io: direct.drawio' })).toBeTruthy()
+    expect(screen.getByTitle('Descarregar direct.drawio').getAttribute('href')).toBe('/artifact/drawio_direct')
+  })
+
   it('navigates with keyboard and exposes non-destructive image controls', () => {
     const close = vi.fn()
     render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={items} initialIndex={0} onClose={close}/>)
