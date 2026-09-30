@@ -15,7 +15,39 @@ const agent = {
   artifacts: [], request_lineages: {},
 } as unknown as Session
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  delete window.wharnessDesktop
+  vi.restoreAllMocks()
+})
+
+
+function installDesktopAgents(initial: DesktopAgentRuntimeState) {
+  const listeners = new Set<(state: DesktopAgentRuntimeState) => void>()
+  let current = initial
+  const agents = {
+    state: vi.fn(async () => current),
+    onState: vi.fn((listener: (state: DesktopAgentRuntimeState) => void) => { listeners.add(listener); return () => listeners.delete(listener) }),
+    openMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, alreadyOpen: false })),
+    closeMonitor: vi.fn(async (agentId: string) => ({ ok: true, agentId, closed: true })),
+    openInteraction: vi.fn(async (agentId: string, bounds: DesktopBounds) => ({ ok: true, agentId, bounds })),
+    setInteractionBounds: vi.fn(async (agentId: string, bounds: DesktopBounds) => ({ ok: true, agentId, bounds })),
+    closeInteraction: vi.fn(async (agentId: string) => ({ ok: true, agentId, closed: true })),
+  }
+  window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
+  return {
+    agents,
+    publish(state: DesktopAgentRuntimeState) {
+      current = state
+      listeners.forEach((listener) => listener(state))
+    },
+  }
+}
+
+function runtimeWithWorker(workerTaskId = task.id) {
+  return {
+    agents: [{ id: 'worker-1', role: 'worker', label: 'Worker 1', pinned_task_id: workerTaskId, browser: { available: true } }],
+  } as unknown as DesktopAgentRuntimeState
+}
 
 function mockRuns() {
   vi.spyOn(api, 'orchestratorTaskRuns').mockResolvedValue({ runs: [
@@ -58,4 +90,59 @@ it('explains the Engine tab outside the Desktop', async () => {
   renderDrawer()
   fireEvent.click(screen.getByRole('tab', { name: 'Engine' }))
   expect(await screen.findByText(/só está disponível no Wharnex Desktop/)).not.toBeNull()
+})
+
+it('opens the task Worker directly inside Engine without using the native monitor', async () => {
+  const { agents } = installDesktopAgents(runtimeWithWorker())
+  mockRuns()
+  renderDrawer()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Engine' }))
+
+  expect(await screen.findByText('Worker 1 está nesta task')).not.toBeNull()
+  await waitFor(() => expect(agents.openInteraction).toHaveBeenCalledWith('worker-1', expect.any(Object)))
+  expect(screen.queryByRole('button', { name: 'Acompanhar instância' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Parar de acompanhar' })).toBeNull()
+  expect(agents.openMonitor).not.toHaveBeenCalled()
+  expect(agents.closeMonitor).not.toHaveBeenCalled()
+})
+
+it('keeps Engine informative when no Worker is associated with the task', async () => {
+  const { agents } = installDesktopAgents({ agents: [] } as unknown as DesktopAgentRuntimeState)
+  mockRuns()
+  renderDrawer()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Engine' }))
+
+  expect(await screen.findByText('Nenhum Worker nesta task agora')).not.toBeNull()
+  expect(agents.openInteraction).not.toHaveBeenCalled()
+  expect(agents.openMonitor).not.toHaveBeenCalled()
+})
+
+it('closes the embedded Worker when it leaves the task and restores the empty state', async () => {
+  const { agents, publish } = installDesktopAgents(runtimeWithWorker())
+  mockRuns()
+  renderDrawer()
+  fireEvent.click(screen.getByRole('tab', { name: 'Engine' }))
+  await waitFor(() => expect(agents.openInteraction).toHaveBeenCalledWith('worker-1', expect.any(Object)))
+
+  publish({ agents: [] } as unknown as DesktopAgentRuntimeState)
+
+  expect(await screen.findByText('Nenhum Worker nesta task agora')).not.toBeNull()
+  await waitFor(() => expect(agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
+  expect(agents.closeMonitor).not.toHaveBeenCalled()
+})
+
+it('unmounts the embedded Worker when leaving Engine without affecting the task', async () => {
+  const { agents } = installDesktopAgents(runtimeWithWorker())
+  mockRuns()
+  renderDrawer()
+  fireEvent.click(screen.getByRole('tab', { name: 'Engine' }))
+  await waitFor(() => expect(agents.openInteraction).toHaveBeenCalledWith('worker-1', expect.any(Object)))
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Overview' }))
+
+  await waitFor(() => expect(agents.closeInteraction).toHaveBeenCalledWith('worker-1'))
+  expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
+  expect(agents.openMonitor).not.toHaveBeenCalled()
 })

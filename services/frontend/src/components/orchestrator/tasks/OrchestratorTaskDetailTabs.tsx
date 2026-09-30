@@ -61,18 +61,18 @@ export function TaskExecutionTab({ agent, events, loading, error }: { agent?: Se
   return <ExecutionHistorySurface session={agent} events={events} loading={loading} error={error}/>
 }
 
-// The Worker pinned to this task plays its Supervisor (adr/ADR-0081); its
-// browser opens in the same full-size follow window the agentic Engine uses
-// for a hidden Worker.
+// The Worker pinned to this task plays its Supervisor (adr/ADR-0081).
+// Its browser is mounted directly inside the task Engine while it is assigned.
 export function TaskEngineTab({ task }: { task: OrchestratorTask }) {
   const bridge = desktopBridge()?.agents
   const [agentId, setAgentId] = useState<string>()
   const [label, setLabel] = useState('')
-  const [following, setFollowing] = useState(false)
 
   useEffect(() => {
     if (!bridge) return
     let alive = true
+    setAgentId(undefined)
+    setLabel('')
     const pick = (state: DesktopAgentRuntimeState) => {
       const holder = state.agents.find((agent) => agent.role === 'worker' && (agent.pinned_task_id === task.id || agent.task?.chat_id === task.id))
       if (!alive) return
@@ -84,19 +84,16 @@ export function TaskEngineTab({ task }: { task: OrchestratorTask }) {
     return () => { alive = false; off() }
   }, [bridge, task.id])
 
-  useEffect(() => { if (!agentId) setFollowing(false) }, [agentId])
-
   if (!bridge) return <p className="orchestrator-task-empty text-sm">A instância do navegador só está disponível no Wharnex Desktop.</p>
   return <div className="orchestrator-task-engine">
     <section>
       <div>
         <strong>{agentId ? `${label} está nesta task` : 'Nenhum Worker nesta task agora'}</strong>
-        <small>{agentId ? 'Fica preso à task até ela terminar e mantém a sua conversa do ChatGPT.' : task.status === 'DOING' ? 'A aguardar que um Worker retome a próxima ronda.' : 'Só uma task em execução tem um Worker associado.'}</small>
+        <small>{agentId ? 'O navegador deste Worker aparece abaixo enquanto ele permanecer associado à task.' : task.status === 'DOING' ? 'A aguardar que um Worker retome a próxima ronda.' : 'Só uma task em execução tem um Worker associado.'}</small>
         {task.conversation_url ? <code className="text-sm" title="Conversa permanente da task">{task.conversation_url}</code> : null}
       </div>
-      {agentId ? <button type="button" className="primary" aria-pressed={following} onClick={() => setFollowing((value) => !value)}><Icon name="monitor" size={14}/> {following ? 'Parar de acompanhar' : 'Acompanhar instância'}</button> : null}
     </section>
-    {agentId && following ? <WorkerFollowViewer agentId={agentId} onStop={() => setFollowing(false)}/> : null}
+    {agentId ? <WorkerFollowViewer agentId={agentId} onStop={() => { setAgentId(undefined); setLabel('') }}/> : null}
   </div>
 }
 
