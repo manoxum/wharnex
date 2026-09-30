@@ -27,6 +27,7 @@ test('auto scale never drains below a Worker pinned to an Orchestrator task', as
 test('translation, planning and release notes run on their own ephemeral Workers', async () => {
   const source = await readPromptTransportSource()
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const ephemeralSource = await readFile(new URL('../../agent/automation/artifact-workers/ephemeral-runtime.mjs', import.meta.url), 'utf8')
   assert.match(source, /const EPHEMERAL_WORKER_TASK_TYPES = new Set\(\['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES'\]\)/)
   assert.match(main, /createEphemeralWorkerRuntime\(\{/)
@@ -35,7 +36,8 @@ test('translation, planning and release notes run on their own ephemeral Workers
   assert.match(ephemeral.slice(0, 2500), /if \(String\(result\?\.status \|\| ''\) !== 'waiting'\) retireEphemeralWorkerView/)
   assert.match(ephemeral.slice(0, 2500), /\{ priority: EPHEMERAL_WORKER_PACE_PRIORITY \}/)
   const scheduler = source.slice(source.indexOf('chatTranslatorScheduler = new ChatAgentSchedulerClient('))
-  assert.match(main, /getDueChatTranslations: \(\) => dueChatTranslations/)
+  assert.match(main, /get dueTranslations\(\) \{ return dueChatTranslations \}/)
+  assert.match(context, /getDueChatTranslations: \(\) => state\.dueTranslations/)
   assert.match(scheduler.slice(0, 1500), /skip: !\[\.\.\.desktopWindows\.values\(\)\]\.some\(\(state\) => state\.window && !state\.window\.isDestroyed\(\)\) \|\| getDueChatTranslations\(\) === 0,/)
   assert.doesNotMatch(source, /chatAgentTranslationWorkersAvailable/)
 })

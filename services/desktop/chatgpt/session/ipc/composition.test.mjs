@@ -1,9 +1,10 @@
+import { readDesktopIPCSource } from '../../../composition/ipc/source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 test('new ChatGPT views open the requested conversation as part of their first visible show', async () => {
-  const source = await readFile(new URL('../../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopIPCSource()
   const visibility = await readFile(new URL('./visibility.mjs', import.meta.url), 'utf8')
   const create = await readFile(new URL('../views/supervisor.mjs', import.meta.url), 'utf8')
   const entry = await readFile(new URL('../views/entry.mjs', import.meta.url), 'utf8')
@@ -30,7 +31,7 @@ test('new ChatGPT views open the requested conversation as part of their first v
 })
 
 test('navigation only observes affinity and a stable late observer performs definitive settlement', async () => {
-  const source = await readFile(new URL('../../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopIPCSource()
   const navigation = await readFile(new URL('./navigation.mjs', import.meta.url), 'utf8')
   const create = await readFile(new URL('../views/supervisor.mjs', import.meta.url), 'utf8')
   const affinityRuntime = await readFile(new URL('../ownership/affinity-runtime.mjs', import.meta.url), 'utf8')

@@ -1,3 +1,4 @@
+import { readDesktopIPCSource } from '../ipc/source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -9,7 +10,7 @@ test('workspace toolbar owns the themed title bar and window controls', async ()
 
 
 test('desktop tray resolves the installed Wharnex raster icon before SVG fallback', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopIPCSource()
   const resolveStart = source.indexOf('function resolveDesktopIcon()')
   const resolveEnd = source.indexOf('\nconst DESKTOP_ICON = resolveDesktopIcon()', resolveStart)
   const resolve = source.slice(resolveStart, resolveEnd)
@@ -31,7 +32,7 @@ test('Linux Desktop uses software compositing to avoid GPU renderer traps', asyn
 })
 
 test('local frontend navigation uses a per-runtime cache token', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopIPCSource()
   assert.match(source, /const FRONTEND_RUNTIME_TOKEN = randomUUID\(\)/)
   assert.match(source, /createDesktopWindowCreator\(\{[\s\S]*FRONTEND_URL, FRONTEND_RUNTIME_TOKEN, FRONTEND_ORIGIN/)
   const create = await readFile(new URL('../../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')
@@ -39,7 +40,7 @@ test('local frontend navigation uses a per-runtime cache token', async () => {
 })
 
 test('desktop disables a broken IPv6 browser route before Electron becomes ready', async () => {
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopIPCSource()
   const bootstrap = await readFile(new URL('../../lifecycle/startup/desktop-process.mjs', import.meta.url), 'utf8')
   const configureAt = main.indexOf('configureDesktopProcess({')
   const readyAt = main.indexOf('app.whenReady()')
@@ -64,7 +65,7 @@ test('an uncaught main-process exception or rejection is logged instead of silen
 
 test('a second launch against the same userData profile hands off to the running instance instead of running two Chromium profiles at once', async () => {
   const source = await readFile(new URL('../../lifecycle/startup/desktop-process.mjs', import.meta.url), 'utf8')
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopIPCSource()
   const lockStart = source.indexOf('const customUserDataDir =')
   const lockEnd = source.length
   assert.notEqual(lockStart, -1)
@@ -100,7 +101,7 @@ test('a dead main-frame renderer in the trusted window reloads the frontend inst
 // geometry covers the whole Wharnex window for a frame, which reads as the
 // project closing and reopening.
 test('a parked chat surface is never shown while it carries layout-only bounds', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopIPCSource()
   const surface = await readFile(new URL('../../agent/supervision/surface/visibility.mjs', import.meta.url), 'utf8')
   const viewportSource = await readFile(new URL('../../chatgpt/account/control/viewport.mjs', import.meta.url), 'utf8')
   const authIPC = await readFile(new URL('../../chatgpt/session/ipc/authentication.mjs', import.meta.url), 'utf8')
@@ -159,7 +160,7 @@ test('a parked chat surface is never shown while it carries layout-only bounds',
 // single crash into a reload loop.
 test('frontend renderer crash recovery backs off and is bounded', async () => {
   const source = await readFile(new URL('../../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopIPCSource()
   const start = source.indexOf("win.webContents.on('render-process-gone'")
   const end = source.indexOf("win.webContents.on('unresponsive'", start)
   assert.notEqual(start, -1)

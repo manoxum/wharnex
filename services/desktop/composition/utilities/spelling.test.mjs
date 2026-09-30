@@ -1,3 +1,4 @@
+import { readDesktopIPCSource } from '../ipc/source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -11,7 +12,7 @@ test('Portuguese spell checking is configured from Chromium dictionaries', async
 
 
 test('local editable fields wire native spelling corrections into the Electron menu', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopIPCSource()
   const menu = await readFile(new URL('../../window/lifecycle/create/editor-menu.mjs', import.meta.url), 'utf8')
   const createWindow = await readFile(new URL('../../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')
   assert.match(source, /createDesktopWindowCreator\(\{[\s\S]*spellcheckContextMenuTemplate/)
@@ -25,7 +26,7 @@ test('local editable fields wire native spelling corrections into the Electron m
 
 test('Ctrl+Space can reopen native spelling suggestions at the composer caret', async () => {
   const [source, handlerSource, preload, menu] = await Promise.all([
-    readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readDesktopIPCSource(),
     readFile(new URL('../../window/interaction/spellcheck-ipc.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../preload.cjs', import.meta.url), 'utf8'),
     readFile(new URL('../../window/lifecycle/create/editor-menu.mjs', import.meta.url), 'utf8'),

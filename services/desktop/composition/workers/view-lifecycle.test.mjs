@@ -5,10 +5,13 @@ import { readFile } from 'node:fs/promises'
 const [viewEntry, viewSupervisor, viewWorker] = await Promise.all(['entry', 'supervisor', 'worker'].map((name) => readFile(new URL(`../../chatgpt/session/views/${name}.mjs`, import.meta.url), 'utf8')))
 
 test('agent Chromium workers start after the first local shell paint', async () => {
-  const source = await readActivityRecoverySource()
-  const delay = source.indexOf('CHAT_AGENT_STARTUP_DELAY_MS')
-  assert.ok(delay !== -1)
-  assert.match(source, /setTimeout\(async \(\) => \{[\s\S]*await primeChatGPTWorkerPool\(workerHost\)[\s\S]*chatAgentScheduler\.start\(\)[\s\S]*CHAT_AGENT_STARTUP_DELAY_MS/)
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
+  const runtime = await readFile(new URL('../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(main, /primeChatGPTWorkerPool, CHAT_AGENT_STARTUP_DELAY_MS/)
+  assert.match(context, /prime: primeChatGPTWorkerPool/)
+  assert.match(context, /startupDelayMs: CHAT_AGENT_STARTUP_DELAY_MS/)
+  assert.match(runtime, /scheduleWorkerStart\(async \(\) => \{[\s\S]*await worker\.prime\(workerHost\)[\s\S]*workerScheduler\.start\(\)[\s\S]*\}, worker\.startupDelayMs\)/)
   assert.match(await readFile(new URL('../../agent/scheduling/residency/worker-pool.mjs', import.meta.url), 'utf8'), /createChatGPTWorkerView\(`worker-\$\{index\}`, host\)[\s\S]*await wait\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
 })
 
@@ -62,7 +65,8 @@ test('the Supervisor bound to a chat owns its expected-bundle observation whethe
   // The poll is the only place that stamps structural progress, and the durable
   // supervision's stall bound reads that stamp.
   assert.match(poll, /if \(completion\?\.thinking === true \|\| completion\?\.complete === true\) expected\.progressAt = now/)
-  assert.match(source, /setInterval\(\(\) => \{ void flushQueuedChatGPTComments\(\); void pollChatGPTVisibleActivity\(\); void pollExpectedChatGPTDownloads\(\); void reconcileChatAgentAutoScale\(\) \}, DOM_DOWNLOAD_POLL_MS\)/)
+  const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
+  assert.match(context, /state\.downloadPoller = setInterval\(\(\) => \{[\s\S]*void flushQueuedChatGPTComments\(\)[\s\S]*void pollChatGPTVisibleActivity\(\)[\s\S]*void pollExpectedChatGPTDownloads\(\)[\s\S]*void reconcileChatAgentAutoScale\(\)[\s\S]*\}, DOM_DOWNLOAD_POLL_MS\)/)
 })
 
 test('the two pools partition the durable queue: Supervisors take chat-bound work and Workers take everything smaller', async () => {

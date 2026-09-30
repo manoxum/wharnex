@@ -3,19 +3,17 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 test('desktop close confirmation is renderer-owned while actions stay main-process authoritative', async () => {
-  const [main, windowIPC, preload, shell, host, coordinator] = await Promise.all([
+  const [main, closeFlow, windowIPC, preload, shell, host, coordinator] = await Promise.all([
     readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../composition/window/tray-lifecycle.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../project/ipc.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../preload.cjs', import.meta.url), 'utf8'),
     readFile(new URL('../../../frontend/src/components/workspace/shell/WorkspaceShell.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../../../frontend/src/components/workspace/window/DesktopCloseDialogHost.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./desktop-window-close.mjs', import.meta.url), 'utf8'),
   ])
-  const closeStart = main.indexOf('const desktopWindowClose = createDesktopWindowCloseCoordinator')
-  const closeEnd = main.indexOf('\nfunction promptDesktopRecoverySession', closeStart)
-  const closeFlow = main.slice(closeStart, closeEnd)
-
-  assert.ok(closeStart >= 0)
+  assert.match(main, /desktopWindowClose,\s*\}\s*= createDesktopTrayComposition\(/)
+  assert.match(closeFlow, /const desktopWindowClose = createDesktopWindowCloseCoordinator\(/)
   assert.match(closeFlow, /wharness:windows:confirm-close/)
   assert.doesNotMatch(closeFlow, /showMessageBoxSync/)
   assert.match(windowIPC, /ipcMain\.handle\('wharness:windows:resolve-close'/)

@@ -105,10 +105,14 @@ test('the layout viewport guard does not read native bounds as renderer evidence
 
 test('startup restores every saved window session without asking', async () => {
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
+  const runtime = await readFile(new URL('../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
   const restore = await readFile(new URL('../../window/lifecycle/startup/restore.mjs', import.meta.url), 'utf8')
   // A session waiting for a click stalled every Worker claim while nobody was
   // at the machine; restoring is the default.
-  assert.match(main, /restoreDesktopWindowsAtStartup\(\{/)
+  assert.match(main, /startDesktopRuntime\(createDesktopStartupContext\(\{/)
+  assert.match(context, /restoreDesktopWindows: restoreDesktopWindowsAtStartup/)
+  assert.ok(runtime.indexOf('restoreDesktopWindows(restoreWindowsOptions)') < runtime.indexOf('worker.create('))
   assert.match(restore, /const records = recoverableDesktopWindows\(recovery\)/)
   assert.match(restore, /recovery: \{ projects: record\.projects, activeProject: record\.activeProject, pending: false \}/)
 })

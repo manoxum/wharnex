@@ -95,7 +95,9 @@ test('AWAIT_RESPONSE confirms a completion before concluding the bundle is missi
 
 test('automatic bundle recovery is one wake-up and validation quiesces queued or in-flight recovery', async () => {
   const source = await readActivityRecoverySource()
-  assert.match(source, /const MAX_AUTOMATIC_BUNDLE_CONTINUATIONS = 1/)
+  const timing = await readFile(new URL('../../chatgpt/config/runtime-timing.mjs', import.meta.url), 'utf8')
+  assert.match(source, /MAX_AUTOMATIC_BUNDLE_CONTINUATIONS/)
+  assert.match(timing, /export const MAX_AUTOMATIC_BUNDLE_CONTINUATIONS = 1/)
 
   const quiesce = await readFile(new URL('../../chatgpt/transport/downloads/expectation/validated.mjs', import.meta.url), 'utf8')
   assert.match(source, /createValidatedBundleState\(\{/)
@@ -165,7 +167,8 @@ test('no AWAIT_RESPONSE outcome that never reached ChatGPT spends the attempt bu
   // and it has to be evidence-shaped rather than a retry counter.
   assert.match(probe, /AWAIT_STALL_ATTENTION_MS/)
   assert.match(probe, /expected\.progressAt/)
-  assert.match(source, /const AWAIT_STALL_ATTENTION_MS = 3 \* 60_000/)
+  const timing = await readFile(new URL('../../chatgpt/config/runtime-timing.mjs', import.meta.url), 'utf8')
+  assert.match(timing, /export const AWAIT_STALL_ATTENTION_MS = 3 \* 60_000/)
 
   // An active provider cooldown is likewise not an attempt.
   const execute = source.slice(source.indexOf('async function executeChatAgentTask('))
@@ -183,7 +186,9 @@ test('a conversation still producing a response is never concluded without evide
   // true of a turn that has not started and of a gap between reasoning phases.
   assert.match(probe, /expected\.processingObservedAt \? PROCESSING_SIGNAL_GRACE_MS : BUNDLE_UNOBSERVED_SETTLE_MS/)
   assert.match(probe, /now - idleSince < settleWindow/)
-  assert.match(source, /const BUNDLE_UNOBSERVED_SETTLE_MS = 3 \* 60_000/)
+  const timing = await readFile(new URL('../../chatgpt/config/runtime-timing.mjs', import.meta.url), 'utf8')
+  assert.match(source, /BUNDLE_UNOBSERVED_SETTLE_MS/)
+  assert.match(timing, /export const BUNDLE_UNOBSERVED_SETTLE_MS = 3 \* 60_000/)
 })
 
 test('supervision scheduled after a write waits for the turn to start', async () => {

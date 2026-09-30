@@ -1,3 +1,4 @@
+import { readDesktopIPCSource } from '../../composition/ipc/source.mjs'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { readFile } from 'node:fs/promises'
@@ -107,7 +108,7 @@ test('a settled Worker task closes its follow window and returns the view to par
 })
 
 test('monitor IPC remains a trusted, named Worker-only bridge', async () => {
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopIPCSource()
   const surfaceIPC = await readFile(new URL('../ipc/surfaces.mjs', import.meta.url), 'utf8')
   const preload = await readFile(new URL('../../preload.cjs', import.meta.url), 'utf8')
   const open = surfaceIPC.slice(surfaceIPC.indexOf("ipcMain.handle('wharness:agents:monitor-open'"), surfaceIPC.indexOf("ipcMain.handle('wharness:agents:monitor-close'"))

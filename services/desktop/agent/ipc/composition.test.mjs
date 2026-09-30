@@ -1,9 +1,10 @@
+import { readDesktopIPCSource } from '../../composition/ipc/source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 test('Worker live interaction uses bounded trusted IPC and fail-closed lifecycle cleanup', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopIPCSource()
   const interaction = await readFile(new URL('../supervision/surface/worker-interaction.mjs', import.meta.url), 'utf8')
   const cleanup = await readFile(new URL('../../chatgpt/session/views/cleanup.mjs', import.meta.url), 'utf8')
   const createWindow = await readFile(new URL('../../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')

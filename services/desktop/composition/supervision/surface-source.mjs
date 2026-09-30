@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { readDesktopIPCSource } from '../ipc/source.mjs'
 
 const sections = [
   ['slots', 'function retireChatGPTSupervisorSurface('],
@@ -9,7 +10,7 @@ const sections = [
 // Read the extracted slot, visibility and navigation logic in composition
 // order for source-level tests, with the recursive facade checked first.
 export async function readSupervisorSurfaceSource() {
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopIPCSource()
   const agent = await readFile(new URL('../../agent/index.mjs', import.meta.url), 'utf8')
   const supervision = await readFile(new URL('../../agent/supervision/index.mjs', import.meta.url), 'utf8')
   const surface = await readFile(new URL('../../agent/supervision/surface/index.mjs', import.meta.url), 'utf8')

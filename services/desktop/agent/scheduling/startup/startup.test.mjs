@@ -9,21 +9,30 @@ class CapturedScheduler {
 
 test('Desktop creates each scheduler before starting it and defers the Worker pool until after local paint', async () => {
   const main = await readFile(new URL('../../../main.mjs', import.meta.url), 'utf8')
-  const startup = main.slice(main.indexOf('app.whenReady().then('), main.indexOf("app.on('before-quit'"))
+  const context = await readFile(new URL('../../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
+  const startup = await readFile(new URL('../../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(main, /app\.whenReady\(\)\.then\(\(\) => startDesktopRuntime\(createDesktopStartupContext\(\{/)
+  assert.match(context, /create: createWorkerScheduler/)
+  assert.match(context, /create: createTranslatorScheduler/)
+  assert.match(context, /create: createSupervisorScheduler/)
+  assert.match(context, /prime: primeChatGPTWorkerPool/)
+  assert.match(context, /startupDelayMs: CHAT_AGENT_STARTUP_DELAY_MS/)
   const markers = [
-    'chatAgentScheduler = createWorkerScheduler({',
-    'setTimeout(async () => {',
-    'chatAgentScheduler.start()',
-    'chatTranslatorScheduler = createTranslatorScheduler({',
-    'chatTranslatorScheduler.start()',
-    'chatSupervisorScheduler = createSupervisorScheduler({',
-    'chatSupervisorScheduler.start()',
+    'const workerScheduler = worker.create(',
+    'worker.assign(workerScheduler)',
+    'scheduleWorkerStart(async () => {',
+    'const translatorScheduler = translator.create(',
+    'translator.assign(translatorScheduler)',
+    'translatorScheduler.start()',
+    'const supervisorScheduler = supervisor.create(',
+    'supervisor.assign(supervisorScheduler)',
+    'supervisorScheduler.start()',
     'void refreshChatAgentRuntimeState()',
   ]
   const positions = markers.map((marker) => startup.indexOf(marker))
   assert.ok(positions.every((position) => position >= 0), 'all startup steps are present')
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b))
-  assert.match(startup, /setTimeout\(async \(\) => \{[\s\S]*await primeChatGPTWorkerPool\(workerHost\)[\s\S]*chatAgentScheduler\.start\(\)[\s\S]*\}, CHAT_AGENT_STARTUP_DELAY_MS\)/)
+  assert.match(startup, /scheduleWorkerStart\(async \(\) => \{[\s\S]*await worker\.prime\(workerHost\)[\s\S]*workerScheduler\.start\(\)[\s\S]*\}, worker\.startupDelayMs\)/)
 })
 
 test('Worker claims obey current suspension and exclude Supervisor lanes before reaching the queue', () => {

@@ -41,10 +41,18 @@ test('only calls to the local backend carry the trace header', async () => {
 
 test('main traces every scheduler attempt and every transport preparation', async () => {
   const source = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
+  const context = await readFile(new URL('../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
+  const runtime = await readFile(new URL('../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
   const transport = await readFile(new URL('../chatgpt/transport/requests/transport-preparation.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createWorkerScheduler\(\{/)
-  assert.match(source, /createTranslatorScheduler\(\{/)
-  assert.match(source, /createSupervisorScheduler\(\{/)
+  assert.match(source, /startDesktopRuntime\(createDesktopStartupContext\(\{/)
+  for (const [factory, invocation] of [
+    ['createWorkerScheduler', /worker\.create\(\{ \.\.\.worker\.options, workerHost \}\)/],
+    ['createTranslatorScheduler', /translator\.create\(translator\.options\)/],
+    ['createSupervisorScheduler', /supervisor\.create\(supervisor\.options\)/],
+  ]) {
+    assert.match(context, new RegExp(`create: ${factory}`))
+    assert.match(runtime, invocation)
+  }
   for (const [file, executor] of [
     ['translator', 'executeEphemeralWorkerTask'],
     ['supervisor', 'executeChatSupervisorTask'],

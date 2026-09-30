@@ -19,11 +19,15 @@ test('the ChatGPT asset cache marker changes only with the Chromium version', as
 })
 
 test('Desktop clears the ChatGPT cache only after the version marker differs', async () => {
-  const [main, setup] = await Promise.all([
+  const [main, context, runtime, setup] = await Promise.all([
     readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('./session-setup.mjs', import.meta.url), 'utf8'),
   ])
-  assert.match(main, /cacheMarker: chatGPTCacheMarker/)
+  assert.match(main, /chatGPTCacheMarker,/)
+  assert.match(context, /cacheMarker: chatGPTCacheMarker/)
+  assert.match(runtime, /await configureChatGPTSession\(chatGPTSessionOptions\)/)
   const guardStart = setup.indexOf('if (!cacheMarker.current())')
   assert.notEqual(guardStart, -1)
   const guard = setup.slice(guardStart, setup.indexOf('\n  }', guardStart))

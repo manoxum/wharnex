@@ -1,21 +1,26 @@
+import { readDesktopIPCSource } from '../composition/ipc/source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { readSchedulerStartupSource } from '../composition/workers/scheduler-startup-source.mjs'
 
-const source = await readSchedulerStartupSource()
-const main = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
+const main = await readDesktopIPCSource()
+const trayComposition = await readFile(new URL('../composition/window/tray-lifecycle.mjs', import.meta.url), 'utf8')
 const tray = await readFile(new URL('./desktop-tray-control.mjs', import.meta.url), 'utf8')
 const preload = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')
 const windowIPC = await readFile(new URL('../window/project/ipc.mjs', import.meta.url), 'utf8')
 const projectNavigation = await readFile(new URL('../window/project/navigation.mjs', import.meta.url), 'utf8')
 const agentRuntimeIPC = await readFile(new URL('../agent/ipc/runtime.mjs', import.meta.url), 'utf8')
 const startupRestore = await readFile(new URL('../window/lifecycle/startup/restore.mjs', import.meta.url), 'utf8')
+const startupContext = await readFile(new URL('../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
+const startupRuntime = await readFile(new URL('../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
+const lifecycleHandlers = await readFile(new URL('../lifecycle/startup/handlers.mjs', import.meta.url), 'utf8')
 const autoScale = await readFile(new URL('../agent/scheduling/capacity/auto-scale-runtime.mjs', import.meta.url), 'utf8')
 const runtimeControls = await readFile(new URL('../agent/scheduling/diagnostics/controls.mjs', import.meta.url), 'utf8')
 
 test('desktop tray owns background lifecycle, project controls and recoverable shutdown', async () => {
-  assert.match(source, /createDesktopTrayControl/)
+  assert.match(main, /createDesktopTrayComposition\(\{/)
+  assert.match(trayComposition, /createDesktopTrayControl\(\{/)
   assert.match(tray, /new deps\.Tray\(deps\.icon\.resize/)
   assert.match(tray, /label: 'Abrir projeto'/)
   assert.match(tray, /label: 'Fechar projeto'/)
@@ -25,23 +30,27 @@ test('desktop tray owns background lifecycle, project controls and recoverable s
 
   const closePrompt = await readFile(new URL('../window/lifecycle/desktop-window-close-prompt.mjs', import.meta.url), 'utf8')
   assert.match(closePrompt, /buttons: \['Enviar para background', 'Fechar esta janela', 'Fechar todos os projetos', 'Abortar operação'\]/)
-  assert.match(source, /fallback: \(windowState, descriptor\) => nativeWindowCloseChoice\(dialog, windowState\.window, descriptor\)/)
-  assert.match(source, /persistDesktopRecoverySession\(\)/)
+  assert.match(trayComposition, /fallback: \(windowState, descriptor\) => nativeWindowCloseChoice\(dialog, windowState\.window, descriptor\)/)
+  assert.match(trayComposition, /persistDesktopRecoverySession\(\)/)
 
   const recoveryDialog = await readFile(new URL('../../frontend/src/components/workspace/window/DesktopRecoveryDialog.tsx', import.meta.url), 'utf8')
   assert.match(recoveryDialog, /Recuperar sessão/)
   assert.match(recoveryDialog, /Descartar sessão/)
-  assert.doesNotMatch(source, /buttons: \['Recuperar sessão', 'Descartar sessão'\]/)
-  assert.match(main, /restoreDesktopWindowsAtStartup\(\{/)
+  assert.doesNotMatch(trayComposition, /buttons: \['Recuperar sessão', 'Descartar sessão'\]/)
+  assert.match(main, /startDesktopRuntime\(createDesktopStartupContext\(\{/)
+  assert.match(startupContext, /restoreDesktopWindows: restoreDesktopWindowsAtStartup/)
+  assert.ok(startupRuntime.indexOf('restoreDesktopWindows(restoreWindowsOptions)') < startupRuntime.indexOf('worker.create('))
   assert.match(startupRestore, /recoverableDesktopWindows\(recovery\)/)
   assert.match(windowIPC, /pending: Boolean\(windowState\.recovery\?\.pending\)/)
   assert.match(windowIPC, /ipcMain\.handle\('wharness:windows:recovery'/)
   assert.match(main, /createDesktopProjectNavigation\(\{/)
   assert.match(projectNavigation, /sendToWindowState\(state, 'wharness:windows:close-project', \{ projectPath \}\)/)
-  assert.match(source, /app\.on\('window-all-closed', \(\) => \{[\s\S]*ensureDesktopTray\(\)/)
+  assert.match(main, /registerDesktopLifecycleHandlers\(\{/)
+  assert.match(lifecycleHandlers, /app\.on\('window-all-closed', \(\) => \{[\s\S]*if \(!getQuitting\(\)\) ensureDesktopTray\(\)/)
 })
 
-test('Worker suspension stays durable when tray and Agents panel share the control path', () => {
+test('Worker suspension stays durable when tray and Agents panel share the control path', async () => {
+  const source = await readSchedulerStartupSource()
   const controls = runtimeControls
   assert.match(source, /createChatAgentRuntimeControls\(\{/)
   const ipcStart = agentRuntimeIPC.indexOf("ipcMain.handle('wharness:agents:pause-workers'")
@@ -63,7 +72,8 @@ test('Worker suspension stays durable when tray and Agents panel share the contr
   assert.match(ipc, /resumeChatAgentWorkers\(\)/)
   assert.match(preload, /pauseWorkers: \(pausedUntil, taskTypes = \[\]\) => invoke\('wharness:agents:pause-workers'/)
   assert.match(preload, /resumeWorkers: \(\) => invoke\('wharness:agents:resume-workers'/)
-  assert.match(main, /getChatAgentPolicies: \(\) => chatAgentPolicies/)
+  assert.match(main, /get policies\(\) \{ return chatAgentPolicies \}/)
+  assert.match(startupContext, /getChatAgentPolicies: \(\) => state\.policies/)
   assert.match(workerScheduler, /workerSuspendsAllTaskTypes\(getChatAgentPolicies\(\)\)\) return \{ skip: true \}/)
   assert.match(workerScheduler, /excluded_types: manualSuspension\.paused \? manualSuspension\.task_types : \[\]/)
   assert.doesNotMatch(supervisorScheduler, /workerSuspensionState\(chatAgentPolicies\)/)

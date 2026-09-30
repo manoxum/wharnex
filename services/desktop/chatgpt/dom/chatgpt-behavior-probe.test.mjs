@@ -1,3 +1,4 @@
+import { readDesktopIPCSource } from '../../composition/ipc/source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -123,7 +124,7 @@ test('a missing viewport is reported rather than assumed', () => {
 
 test('the IPC handler is gated, owned, origin-checked and never plan-reachable', async () => {
   const [main, probeIPC, preload] = await Promise.all([
-    readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readDesktopIPCSource(),
     readFile(new URL('../session/ipc/probes.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../preload.cjs', import.meta.url), 'utf8'),
   ])

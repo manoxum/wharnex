@@ -1,1 +1,1 @@
-export { configureDesktopProcess } from './startup/index.mjs'
+export { configureDesktopProcess, createDesktopStartupContext, startDesktopRuntime, registerDesktopLifecycleHandlers } from './startup/index.mjs'

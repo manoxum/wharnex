@@ -24,10 +24,11 @@ test('transient protocol ZIPs are deleted promptly and included in storage clean
   assert.match(browserSession.slice(clearStart, clearEnd), /TEMP_DATA_NAMES/)
   assert.match(browserSession, /'wharness-chat-protocol'/)
 
-  const readyStart = source.indexOf('app.whenReady().then(async () => {')
-  const ready = source.slice(readyStart, readyStart + 500)
-  assert.match(ready, /wharness-chat-protocol/)
-  assert.match(ready, /recursive: true, force: true/)
+  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const runtime = await readFile(new URL('../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(main, /app\.whenReady\(\)\.then\(\(\) => startDesktopRuntime\(createDesktopStartupContext\(\{/)
+  assert.match(runtime, /rm\(path\.join\(app\.getPath\('temp'\), 'wharness-chat-protocol'\), \{ recursive: true, force: true \}\)/)
+  assert.ok(runtime.indexOf("'wharness-chat-protocol'") < runtime.indexOf('await configureChatGPTSession(chatGPTSessionOptions)'))
 })
 
 test('an expired ChatGPT artifact is re-requested instead of clicked forever', async () => {
