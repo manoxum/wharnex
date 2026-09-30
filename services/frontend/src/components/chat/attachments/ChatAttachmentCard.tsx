@@ -72,5 +72,6 @@ function useLocalImagePreview(file: File) {
 
 function extension(name: string) {
   const value = name.split('.').pop()?.trim().toUpperCase() || 'FILE'
+  if (value === 'DRAWIO') return value
   return value.length <= 5 ? value : 'FILE'
 }
