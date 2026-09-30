@@ -10,11 +10,6 @@ _(reserved — no entries yet)_
 - Context maps expose semantic role/relation hints, request-ranked candidates, groups and byte/round budget metadata; interactive v2 adds engine-classified `auto_observe` for bounded project filesystem reads.
 
 
-### Chat 553a4edc-1cf9-4951-a560-3661daa82aeb (2026-09-29)
-
-_(reserved — no entries yet)_
-
-
 - 2026-09-28 — Adiciona regressão Playwright para CI/browser-capable em viewport estreito: faixa horizontal sem wrap, controlos de extremidade, paginação COMPLETE/ARCHIVED, menu terminal, drag-and-drop após scroll, novo chat com diretiva `@task` e evidência visual lado a lado com `docs/orchestrator-test/kanban-before.png`.
 - 2026-09-28 — Consolida no backend o ciclo COMPLETE terminal → ARCHIVED e a paginação por cursor, preserva `was_completed`, bloqueia regressão para READY e rejeita limites de página inválidos no transporte antes de tocar no serviço.
 - 2026-09-28 — Mantém os gates existentes e não altera produção fora da superfície Orchestrator.
