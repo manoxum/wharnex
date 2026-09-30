@@ -24,6 +24,7 @@ import (
 	"kernl.local/harness/backend/internal/pairing"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
+	"kernl.local/harness/backend/internal/transport/httpapi/settings"
 	"kernl.local/harness/backend/internal/utility"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
@@ -39,6 +40,7 @@ type API struct {
 func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.Config) http.Handler {
 	a := &API{service: service, store: store, bus: bus, cfg: cfg, pairingStore: pairing.NewStore(filepath.Join(filepath.Dir(cfg.StateFile), "remote-pairing.json"))}
 	mux := http.NewServeMux()
+	settingsRoutes := settings.New(service, cfg)
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
 	mux.HandleFunc("GET /api/execution-concurrency", a.executionConcurrency)
@@ -55,18 +57,18 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/remote-storage/providers", a.remoteStorageProviders)
 	mux.HandleFunc("POST /api/remote-storage/connections", a.connectRemoteStorage)
 	mux.HandleFunc("POST /api/remote-storage/connections/check", a.checkRemoteStorage)
-	mux.HandleFunc("GET /api/artifact-settings", a.artifactSettings)
-	mux.HandleFunc("PUT /api/artifact-settings", a.updateArtifactSettings)
+	mux.HandleFunc("GET /api/artifact-settings", settingsRoutes.ArtifactSettings)
+	mux.HandleFunc("PUT /api/artifact-settings", settingsRoutes.UpdateArtifactSettings)
 	mux.HandleFunc("GET /api/artifacts", a.managedArtifacts)
 	mux.HandleFunc("DELETE /api/artifacts/{session_id}/{artifact_id}", a.deleteManagedArtifact)
 	mux.HandleFunc("POST /api/database/postgres/test", a.postgresTest)
 	mux.HandleFunc("POST /api/database/postgres/catalog", a.postgresCatalog)
 	mux.HandleFunc("POST /api/database/postgres/query", a.postgresQuery)
-	mux.HandleFunc("GET /api/language-settings", a.languageSettings)
-	mux.HandleFunc("PUT /api/language-settings", a.updateLanguageSettings)
-	mux.HandleFunc("GET /api/ui-preferences", a.uiPreferences)
-	mux.HandleFunc("PUT /api/ui-preferences", a.updateUIPreferences)
-	mux.HandleFunc("GET /api/bundle-quota", a.bundleQuota)
+	mux.HandleFunc("GET /api/language-settings", settingsRoutes.LanguageSettings)
+	mux.HandleFunc("PUT /api/language-settings", settingsRoutes.UpdateLanguageSettings)
+	mux.HandleFunc("GET /api/ui-preferences", settingsRoutes.UIPreferences)
+	mux.HandleFunc("PUT /api/ui-preferences", settingsRoutes.UpdateUIPreferences)
+	mux.HandleFunc("GET /api/bundle-quota", settingsRoutes.BundleQuota)
 	// One compact response for every chat of a project. The attention center
 	// previously fetched each chat's whole Session (1-2 MB each), which a
 	// workspace with many chats could not survive.
@@ -559,97 +561,6 @@ func (a *API) checkRemoteStorage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"connected": true})
 }
 
-func (a *API) artifactSettings(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.service.ArtifactSettings())
-}
-
-func (a *API) updateArtifactSettings(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		RetentionDays           int   `json:"retention_days"`
-		BundleWindowLimit       int   `json:"bundle_window_limit"`
-		AttachmentCountLimit    int   `json:"attachment_count_limit"`
-		RequestBundleTotalBytes int64 `json:"request_bundle_total_bytes"`
-		RequestBundlePartBytes  int64 `json:"request_bundle_part_bytes"`
-		RequestBundlePartLimit  int   `json:"request_bundle_part_limit"`
-	}
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	current := a.service.ArtifactSettings()
-	if body.BundleWindowLimit < 1 {
-		body.BundleWindowLimit = current.BundleWindowLimit
-	}
-	if body.RequestBundleTotalBytes < 1 {
-		body.RequestBundleTotalBytes = current.RequestBundleTotalBytes
-	}
-	if body.RequestBundlePartBytes < 1 {
-		body.RequestBundlePartBytes = current.RequestBundlePartBytes
-	}
-	if body.RequestBundlePartLimit < 1 {
-		body.RequestBundlePartLimit = current.RequestBundlePartLimit
-	}
-	document := config.ArtifactSettingsDocument{
-		Version: 1, RetentionDays: body.RetentionDays, BundleWindowLimit: body.BundleWindowLimit,
-		AttachmentCountLimit: body.AttachmentCountLimit, RequestBundleTotalBytes: body.RequestBundleTotalBytes,
-		RequestBundlePartBytes: body.RequestBundlePartBytes, RequestBundlePartLimit: body.RequestBundlePartLimit,
-	}
-	if err := config.SaveArtifactSettings(a.cfg.Artifacts, document); err != nil {
-		writeError(w, http.StatusBadRequest, "artifact_settings_invalid", err.Error())
-		return
-	}
-	a.service.SetArtifactRetentionDays(body.RetentionDays)
-	a.service.SetBundleWindowLimit(body.BundleWindowLimit)
-	a.service.SetChatInputLimits(body.AttachmentCountLimit, body.RequestBundleTotalBytes, body.RequestBundlePartBytes, body.RequestBundlePartLimit)
-	before := time.Now().UTC().Add(-time.Duration(body.RetentionDays) * 24 * time.Hour)
-	if err := a.service.CleanupArtifacts(r.Context(), before); err != nil {
-		writeError(w, http.StatusInternalServerError, "artifact_cleanup_failed", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, a.service.ArtifactSettings())
-}
-
-func (a *API) languageSettings(w http.ResponseWriter, _ *http.Request) {
-	document, err := config.ReadLanguageSettings(a.cfg.LanguageSettingsFile)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "language_settings_read_failed", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, document)
-}
-
-func (a *API) updateLanguageSettings(w http.ResponseWriter, r *http.Request) {
-	var document config.LanguageSettingsDocument
-	if !decodeJSON(w, r, &document) {
-		return
-	}
-	if err := config.SaveLanguageSettings(a.cfg.LanguageSettingsFile, document); err != nil {
-		writeError(w, http.StatusBadRequest, "language_settings_invalid", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, document)
-}
-
-func (a *API) uiPreferences(w http.ResponseWriter, _ *http.Request) {
-	document, err := config.ReadUIPreferences(a.cfg.UIPreferencesFile)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "ui_preferences_read_failed", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, document)
-}
-
-func (a *API) updateUIPreferences(w http.ResponseWriter, r *http.Request) {
-	var document config.UIPreferencesDocument
-	if !decodeJSON(w, r, &document) {
-		return
-	}
-	if err := config.SaveUIPreferences(a.cfg.UIPreferencesFile, document); err != nil {
-		writeError(w, http.StatusBadRequest, "ui_preferences_invalid", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, document)
-}
-
 func (a *API) translateMarkdown(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
 	var body struct {
@@ -691,10 +602,6 @@ func (a *API) translateMarkdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
-}
-
-func (a *API) bundleQuota(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.service.BundleQuota(time.Now().UTC()))
 }
 
 func (a *API) artifacts(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"kernl.local/harness/backend/internal/sandbox/terminalinit"
 )
 
 func TestLocalTerminalCommandUsesProjectScopedHistoryInsteadOfHostHistory(t *testing.T) {
@@ -29,24 +31,24 @@ func TestLocalTerminalCommandUsesProjectScopedHistoryInsteadOfHostHistory(t *tes
 	}
 
 	want := filepath.Join(project, ".harness", "terminal", "history", "bash")
-	if got := environmentValue(cmd.Env, "HISTFILE"); got != want {
+	if got := terminalinit.EnvironmentValue(cmd.Env, "HISTFILE"); got != want {
 		t.Fatalf("HISTFILE = %q, want project-scoped %q", got, want)
 	}
-	if got := environmentValue(cmd.Env, "WHARNEX_PROJECT_HISTFILE"); got != want {
+	if got := terminalinit.EnvironmentValue(cmd.Env, "WHARNEX_PROJECT_HISTFILE"); got != want {
 		t.Fatalf("WHARNEX_PROJECT_HISTFILE = %q, want %q", got, want)
 	}
-	if got := environmentValue(cmd.Env, "WHARNEX_OS_HISTFILE"); got != hostHistory {
+	if got := terminalinit.EnvironmentValue(cmd.Env, "WHARNEX_OS_HISTFILE"); got != hostHistory {
 		t.Fatalf("WHARNEX_OS_HISTFILE = %q, want %q", got, hostHistory)
 	}
 	wantGlobal := filepath.Join(wharnexRoot, ".harness", "terminal", "history", "wharnex", "commands")
-	if got := environmentValue(cmd.Env, "WHARNEX_GLOBAL_HISTFILE"); got != wantGlobal {
+	if got := terminalinit.EnvironmentValue(cmd.Env, "WHARNEX_GLOBAL_HISTFILE"); got != wantGlobal {
 		t.Fatalf("WHARNEX_GLOBAL_HISTFILE = %q, want %q", got, wantGlobal)
 	}
 	wantSession := filepath.Join(project, ".harness", "terminal", "history", ".session-term-one")
-	if got := environmentValue(cmd.Env, "WHARNEX_SESSION_HISTFILE"); got != wantSession {
+	if got := terminalinit.EnvironmentValue(cmd.Env, "WHARNEX_SESSION_HISTFILE"); got != wantSession {
 		t.Fatalf("WHARNEX_SESSION_HISTFILE = %q, want %q", got, wantSession)
 	}
-	initFile := filepath.Join(project, ".harness", "terminal", bashTerminalInitName)
+	initFile := filepath.Join(project, ".harness", "terminal", terminalinit.BashInitName)
 	if got := strings.Join(cmd.Args[1:], " "); got != "--rcfile "+initFile+" -i" {
 		t.Fatalf("bash must start through the project terminal init: %q", got)
 	}

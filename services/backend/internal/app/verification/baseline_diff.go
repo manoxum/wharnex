@@ -1,4 +1,4 @@
-package app
+package verification
 
 import (
 	"fmt"
@@ -79,9 +79,9 @@ func failureFingerprints(result domain.CommandResult) map[string]string {
 	return out
 }
 
-// newVerificationFailures returns the failures present after the patch that the
+// NewFailures returns the failures present after the patch that the
 // unmodified baseline did not already report, in stable order.
-func newVerificationFailures(baseline, post domain.CommandResult) []string {
+func NewFailures(baseline, post domain.CommandResult) []string {
 	baselineFailures := failureFingerprints(baseline)
 	postFailures := failureFingerprints(post)
 	if len(postFailures) == 0 {
@@ -97,8 +97,8 @@ func newVerificationFailures(baseline, post domain.CommandResult) []string {
 	return introduced
 }
 
-// preExistingVerificationFailures returns the failures both runs share.
-func preExistingVerificationFailures(baseline, post domain.CommandResult) []string {
+// PreExistingFailures returns the failures both runs share.
+func PreExistingFailures(baseline, post domain.CommandResult) []string {
 	baselineFailures := failureFingerprints(baseline)
 	shared := make([]string, 0, len(baselineFailures))
 	for key, description := range failureFingerprints(post) {
@@ -110,7 +110,7 @@ func preExistingVerificationFailures(baseline, post domain.CommandResult) []stri
 	return shared
 }
 
-// verificationFailureEquivalent reports whether the patch introduced nothing the
+// FailureEquivalent reports whether the patch introduced nothing the
 // baseline did not already fail on.
 //
 // The strict whole-output comparison comes first and is preserved exactly: when
@@ -118,7 +118,7 @@ func preExistingVerificationFailures(baseline, post domain.CommandResult) []stri
 // differ does the structured comparison decide, and only on the strength of
 // failures it actually parsed — an output we cannot decompose is treated as a
 // regression, never waved through.
-func verificationFailureEquivalent(baseline, post domain.CommandResult) bool {
+func FailureEquivalent(baseline, post domain.CommandResult) bool {
 	if normalizedVerificationOutput(baseline) == normalizedVerificationOutput(post) {
 		return true
 	}
@@ -127,10 +127,10 @@ func verificationFailureEquivalent(baseline, post domain.CommandResult) bool {
 	if len(baselineFailures) == 0 || len(postFailures) == 0 {
 		return false
 	}
-	return len(newVerificationFailures(baseline, post)) == 0
+	return len(NewFailures(baseline, post)) == 0
 }
 
-// describeVerificationAttribution renders the sentence the repair round is
+// DescribeAttribution renders the sentence the repair round is
 // actually steered by.
 //
 // It exists because the raw suite output is not a usable instruction: it lists
@@ -138,9 +138,9 @@ func verificationFailureEquivalent(baseline, post domain.CommandResult) bool {
 // of them its own patch caused. Naming the pre-existing ones explicitly, and
 // saying they must not be fixed, is what stops a repair round from wandering
 // into unrelated production code to silence a failure it did not cause.
-func describeVerificationAttribution(baseline, post domain.CommandResult) string {
-	introduced := newVerificationFailures(baseline, post)
-	preExisting := preExistingVerificationFailures(baseline, post)
+func DescribeAttribution(baseline, post domain.CommandResult) string {
+	introduced := NewFailures(baseline, post)
+	preExisting := PreExistingFailures(baseline, post)
 	if len(introduced) == 0 && len(preExisting) == 0 {
 		return ""
 	}
@@ -157,4 +157,10 @@ func describeVerificationAttribution(baseline, post domain.CommandResult) string
 		out.WriteString(strings.Join(preExisting, "; "))
 	}
 	return out.String()
+}
+
+func normalizedVerificationOutput(result domain.CommandResult) string {
+	stdout := strings.ReplaceAll(strings.TrimSpace(result.Stdout), "\r\n", "\n")
+	stderr := strings.ReplaceAll(strings.TrimSpace(result.Stderr), "\r\n", "\n")
+	return fmt.Sprintf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
 }

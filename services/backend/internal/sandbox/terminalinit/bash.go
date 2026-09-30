@@ -1,4 +1,4 @@
-package sandbox
+package terminalinit
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-const bashTerminalInitName = "bash-init.sh"
+const BashInitName = "bash-init.sh"
 
 // bashTerminalInit replaces `bash --login`. A login shell cannot take an
 // rcfile, and every hook it offers runs before the user's startup files, which
@@ -102,21 +102,21 @@ else
 fi
 `
 
-func isBashShell(shell string) bool {
+func IsBashShell(shell string) bool {
 	return filepath.Base(shell) == "bash"
 }
 
-// bashTerminalArgs keeps GNU long options ahead of single-letter ones: bash
+// BashArgs keeps GNU long options ahead of single-letter ones: bash
 // rejects a long option that follows a short one and exits 2 before any
 // prompt, which surfaced as every Host PTY closing immediately.
-func bashTerminalArgs(initFile string) []string {
+func BashArgs(initFile string) []string {
 	return []string{"--rcfile", initFile, "-i"}
 }
 
-// prepareBashTerminalInit writes the rcfile inside the already-validated
+// PrepareBash writes the rcfile inside the already-validated
 // project terminal directory.
-func prepareBashTerminalInit(terminalDir string) (string, error) {
-	return installTerminalInitFile(terminalDir, bashTerminalInitName, bashTerminalInit)
+func PrepareBash(terminalDir string) (string, error) {
+	return installTerminalInitFile(terminalDir, BashInitName, bashTerminalInit)
 }
 
 // installTerminalInitFile regenerates one Wharnex-owned startup file. The

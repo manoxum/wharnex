@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"kernl.local/harness/backend/internal/sandbox/terminalinit"
 )
 
 // Drives a real zsh through a PTY whose .zshrc points history back at a global
@@ -66,7 +68,7 @@ func TestZshTerminalRunsUserStartupAndKeepsHistoryInTheProject(t *testing.T) {
 
 func TestZshTerminalInitInstallsScopedHistoryBindings(t *testing.T) {
 	terminalDir := t.TempDir()
-	zdotdir, err := prepareZshTerminalInit(terminalDir)
+	zdotdir, err := terminalinit.PrepareZsh(terminalDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/verification"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/executionbundle"
 )
@@ -234,7 +235,7 @@ func executionFailureCauseSummary(result domain.ExecutionResult, cause error) st
 		if attribution := strings.TrimSpace(command.BaselineOutput); attribution != "" {
 			return attribution
 		}
-		if observed := newVerificationFailures(domain.CommandResult{}, command); len(observed) > 0 {
+		if observed := verification.NewFailures(domain.CommandResult{}, command); len(observed) > 0 {
 			return "Observed structured verification failures: " + strings.Join(observed, "; ")
 		}
 	}

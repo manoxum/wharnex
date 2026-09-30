@@ -1,4 +1,4 @@
-package app
+package verification
 
 import (
 	"strings"
@@ -40,7 +40,7 @@ func TestGoSuiteFailuresAreAttributedIndividually(t *testing.T) {
 	baseline := goSuite(baselineGoOutput)
 	post := goSuite(candidateGoOutput)
 
-	introduced := newVerificationFailures(baseline, post)
+	introduced := NewFailures(baseline, post)
 	for _, want := range []string{
 		"failing test TestOrchestratorRefusesSecondProjectMutationSlot",
 		"failing test TestOrchestratorStartQueuesWorkerRunBeforeDoing",
@@ -59,7 +59,7 @@ func TestGoSuiteFailuresAreAttributedIndividually(t *testing.T) {
 		}
 	}
 
-	preExisting := preExistingVerificationFailures(baseline, post)
+	preExisting := PreExistingFailures(baseline, post)
 	if !containsFailure(preExisting, "failing test TestCaptureWharnessRuntimeIncludesStatusAndBoundedRedactedLogs") {
 		t.Fatalf("pre-existing failures must be named, got %v", preExisting)
 	}
@@ -68,7 +68,7 @@ func TestGoSuiteFailuresAreAttributedIndividually(t *testing.T) {
 // This is the sentence the repair round is steered by; it has to say plainly
 // which failures are not the planner's to fix.
 func TestAttributionTellsThePlannerWhatIsNotItsToFix(t *testing.T) {
-	attribution := describeVerificationAttribution(goSuite(baselineGoOutput), goSuite(candidateGoOutput))
+	attribution := DescribeAttribution(goSuite(baselineGoOutput), goSuite(candidateGoOutput))
 	if !strings.Contains(attribution, "Introduced by this change (fix these):") {
 		t.Fatalf("attribution must name the candidate's own failures: %s", attribution)
 	}
@@ -83,10 +83,10 @@ func TestAttributionTellsThePlannerWhatIsNotItsToFix(t *testing.T) {
 // A repository whose suite already failed, with a candidate that adds nothing,
 // must pass verification rather than spend repair rounds on somebody else's bug.
 func TestAGoSuiteFailingOnlyAsBeforeIsNotARegression(t *testing.T) {
-	if !verificationFailureEquivalent(goSuite(baselineGoOutput), goSuite(baselineGoOutput+"\n")) {
+	if !FailureEquivalent(goSuite(baselineGoOutput), goSuite(baselineGoOutput+"\n")) {
 		t.Fatal("an unchanged Go failure set must be recognised as pre-existing")
 	}
-	if verificationFailureEquivalent(goSuite(baselineGoOutput), goSuite(candidateGoOutput)) {
+	if FailureEquivalent(goSuite(baselineGoOutput), goSuite(candidateGoOutput)) {
 		t.Fatal("a candidate that adds its own failures must still be a regression")
 	}
 }
@@ -98,11 +98,11 @@ func TestAPackageThatFailsToBuildIsStillARegression(t *testing.T) {
 	post := goSuite(`# kernl.local/harness/backend/internal/domain
 internal/domain/types.go:796:20: undefined: DebugRun
 FAIL	kernl.local/harness/backend/internal/domain [build failed]`)
-	if verificationFailureEquivalent(baseline, post) {
+	if FailureEquivalent(baseline, post) {
 		t.Fatal("a newly unbuildable package must not be waved through as pre-existing")
 	}
-	if !containsFailure(newVerificationFailures(baseline, post), "failing package kernl.local/harness/backend/internal/domain") {
-		t.Fatalf("the unbuildable package must be attributed, got %v", newVerificationFailures(baseline, post))
+	if !containsFailure(NewFailures(baseline, post), "failing package kernl.local/harness/backend/internal/domain") {
+		t.Fatalf("the unbuildable package must be attributed, got %v", NewFailures(baseline, post))
 	}
 }
 
@@ -111,7 +111,7 @@ FAIL	kernl.local/harness/backend/internal/domain [build failed]`)
 func TestUnparseableOutputIsTreatedAsARegression(t *testing.T) {
 	baseline := domain.CommandResult{ExitCode: 1, Stdout: "something went wrong"}
 	post := domain.CommandResult{ExitCode: 1, Stdout: "something else went wrong"}
-	if verificationFailureEquivalent(baseline, post) {
+	if FailureEquivalent(baseline, post) {
 		t.Fatal("output we cannot decompose must never be waved through")
 	}
 }
@@ -122,10 +122,10 @@ func TestTypescriptDiagnosticsStillSubtract(t *testing.T) {
 	baseline := domain.CommandResult{ExitCode: 2, Stdout: "src/App.tsx(18,136): error TS2307: Cannot find module './lib/x'"}
 	same := domain.CommandResult{ExitCode: 2, Stdout: "src/App.tsx(18,136): error TS2307: Cannot find module './lib/x'\n"}
 	extra := domain.CommandResult{ExitCode: 2, Stdout: "src/App.tsx(18,136): error TS2307: Cannot find module './lib/x'\nsrc/App.tsx(381,16): error TS2345: Argument of type X"}
-	if !verificationFailureEquivalent(baseline, same) {
+	if !FailureEquivalent(baseline, same) {
 		t.Fatal("an unchanged TypeScript diagnostic set must stay pre-existing")
 	}
-	if verificationFailureEquivalent(baseline, extra) {
+	if FailureEquivalent(baseline, extra) {
 		t.Fatal("a new TypeScript diagnostic must stay a regression")
 	}
 }
@@ -143,7 +143,7 @@ func TestVitestFailuresAreAttributedIndividuallyAndIgnoreANSI(t *testing.T) {
 	baseline := domain.CommandResult{ExitCode: 0}
 	post := domain.CommandResult{ExitCode: 1, Stdout: "\x1b[31mFAIL\x1b[39m src/components/Inspector.test.tsx > Inspector ChatGPT engine pool (desktop) > keeps exactly one Supervisor pane while the active chat changes\n\x1b[31mFAIL\x1b[39m src/lib/attentionCenter.test.ts > attention center > preserves active item"}
 
-	introduced := newVerificationFailures(baseline, post)
+	introduced := NewFailures(baseline, post)
 	for _, want := range []string{
 		"failing Vitest test src/components/Inspector.test.tsx > Inspector ChatGPT engine pool (desktop) > keeps exactly one Supervisor pane while the active chat changes",
 		"failing Vitest test src/lib/attentionCenter.test.ts > attention center > preserves active item",
@@ -152,8 +152,45 @@ func TestVitestFailuresAreAttributedIndividuallyAndIgnoreANSI(t *testing.T) {
 			t.Fatalf("introduced Vitest failures must include %q, got %v", want, introduced)
 		}
 	}
-	attribution := describeVerificationAttribution(baseline, post)
+	attribution := DescribeAttribution(baseline, post)
 	if !strings.Contains(attribution, "Introduced by this change (fix these):") || !strings.Contains(attribution, "Inspector.test.tsx") {
 		t.Fatalf("passing baseline must still produce actionable attribution: %s", attribution)
+	}
+}
+
+func TestVerificationFailureEquivalentAcceptsSameTypeScriptDiagnosticsWithDifferentNoise(t *testing.T) {
+	baseline := domain.CommandResult{
+		ExitCode: 2,
+		Stdout:   "> project@1.0.0 build\n> tsc --noEmit\n\nsrc/lib/zip.ts(80,26): error TS2322: Type X is not assignable to type Y.\nsrc/main.tsx(4,8): error TS2882: Cannot find module './styles.css'.\n",
+	}
+	post := domain.CommandResult{
+		ExitCode: 2,
+		Stdout:   "> project@1.0.0 build\n> tsc --noEmit\n",
+		Stderr:   "npm notice transient-noise\nsrc/lib/zip.ts(80,26): error TS2322:   Type X   is not assignable to type Y.\nsrc/main.tsx(4,8): error TS2882: Cannot find module './styles.css'.\n",
+	}
+	if !FailureEquivalent(baseline, post) {
+		t.Fatal("same TypeScript diagnostics should be treated as unchanged baseline debt")
+	}
+}
+
+func TestVerificationFailureEquivalentRejectsNewTypeScriptDiagnostic(t *testing.T) {
+	baseline := domain.CommandResult{
+		ExitCode: 2,
+		Stdout:   "src/lib/zip.ts(80,26): error TS2322: existing error\n",
+	}
+	post := domain.CommandResult{
+		ExitCode: 2,
+		Stdout:   "src/lib/zip.ts(80,26): error TS2322: existing error\nsrc/components/LocalActivityModal.tsx(120,4): error TS9999: new regression\n",
+	}
+	if FailureEquivalent(baseline, post) {
+		t.Fatal("new TypeScript diagnostic must be rejected")
+	}
+}
+
+func TestVerificationFailureEquivalentRejectsUnstructuredDifferentFailures(t *testing.T) {
+	baseline := domain.CommandResult{ExitCode: 1, Stderr: "old generic failure"}
+	post := domain.CommandResult{ExitCode: 1, Stderr: "different generic failure"}
+	if FailureEquivalent(baseline, post) {
+		t.Fatal("unstructured failures must retain strict comparison")
 	}
 }

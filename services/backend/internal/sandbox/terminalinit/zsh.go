@@ -1,4 +1,4 @@
-package sandbox
+package terminalinit
 
 import (
 	"errors"
@@ -107,12 +107,12 @@ if [[ -z ${__WHARNEX_HISTORY_WIDGETS_READY:-} ]]; then
 fi
 `
 
-func isZshShell(shell string) bool {
+func IsZshShell(shell string) bool {
 	return filepath.Base(shell) == "zsh"
 }
 
-// prepareZshTerminalInit writes the Wharnex ZDOTDIR and returns it.
-func prepareZshTerminalInit(terminalDir string) (string, error) {
+// PrepareZsh writes the Wharnex ZDOTDIR and returns it.
+func PrepareZsh(terminalDir string) (string, error) {
 	dir := filepath.Join(terminalDir, zshTerminalInitDirName)
 	if info, err := os.Lstat(dir); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
@@ -137,8 +137,8 @@ func prepareZshTerminalInit(terminalDir string) (string, error) {
 	return dir, nil
 }
 
-// zshTerminalEnvironment records the user's own ZDOTDIR before replacing it.
-func zshTerminalEnvironment(env []string, zdotdir string) []string {
-	env = replaceEnvironmentValue(env, "WHARNEX_USER_ZDOTDIR", environmentValue(env, "ZDOTDIR"))
-	return replaceEnvironmentValue(env, "ZDOTDIR", zdotdir)
+// ZshEnvironment records the user's own ZDOTDIR before replacing it.
+func ZshEnvironment(env []string, zdotdir string) []string {
+	env = ReplaceEnvironmentValue(env, "WHARNEX_USER_ZDOTDIR", EnvironmentValue(env, "ZDOTDIR"))
+	return ReplaceEnvironmentValue(env, "ZDOTDIR", zdotdir)
 }

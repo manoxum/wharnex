@@ -1393,43 +1393,6 @@ func TestProtectedExecutionRejectsChangedVerificationFailure(t *testing.T) {
 	}
 }
 
-func TestVerificationFailureEquivalentAcceptsSameTypeScriptDiagnosticsWithDifferentNoise(t *testing.T) {
-	baseline := domain.CommandResult{
-		ExitCode: 2,
-		Stdout:   "> project@1.0.0 build\n> tsc --noEmit\n\nsrc/lib/zip.ts(80,26): error TS2322: Type X is not assignable to type Y.\nsrc/main.tsx(4,8): error TS2882: Cannot find module './styles.css'.\n",
-	}
-	post := domain.CommandResult{
-		ExitCode: 2,
-		Stdout:   "> project@1.0.0 build\n> tsc --noEmit\n",
-		Stderr:   "npm notice transient-noise\nsrc/lib/zip.ts(80,26): error TS2322:   Type X   is not assignable to type Y.\nsrc/main.tsx(4,8): error TS2882: Cannot find module './styles.css'.\n",
-	}
-	if !verificationFailureEquivalent(baseline, post) {
-		t.Fatal("same TypeScript diagnostics should be treated as unchanged baseline debt")
-	}
-}
-
-func TestVerificationFailureEquivalentRejectsNewTypeScriptDiagnostic(t *testing.T) {
-	baseline := domain.CommandResult{
-		ExitCode: 2,
-		Stdout:   "src/lib/zip.ts(80,26): error TS2322: existing error\n",
-	}
-	post := domain.CommandResult{
-		ExitCode: 2,
-		Stdout:   "src/lib/zip.ts(80,26): error TS2322: existing error\nsrc/components/LocalActivityModal.tsx(120,4): error TS9999: new regression\n",
-	}
-	if verificationFailureEquivalent(baseline, post) {
-		t.Fatal("new TypeScript diagnostic must be rejected")
-	}
-}
-
-func TestVerificationFailureEquivalentRejectsUnstructuredDifferentFailures(t *testing.T) {
-	baseline := domain.CommandResult{ExitCode: 1, Stderr: "old generic failure"}
-	post := domain.CommandResult{ExitCode: 1, Stderr: "different generic failure"}
-	if verificationFailureEquivalent(baseline, post) {
-		t.Fatal("unstructured failures must retain strict comparison")
-	}
-}
-
 type repairFailureRunner struct{ runCount int }
 
 func (repairFailureRunner) Prepare(context.Context, string) (sandbox.Workspace, error) {

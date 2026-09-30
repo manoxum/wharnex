@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"kernl.local/harness/backend/internal/sandbox/terminalinit"
 )
 
 const wharnexTerminalHistoryDirName = "wharnex"
@@ -57,7 +59,7 @@ func prepareTerminalSessionHistory(historyDir, terminalID string) (string, error
 
 func terminalEnvironment(base []string, projectHistoryFile, wharnexHistoryFile, sessionHistoryFile string) []string {
 	env := append([]string(nil), base...)
-	osHistoryFile := environmentValue(base, "HISTFILE")
+	osHistoryFile := terminalinit.EnvironmentValue(base, "HISTFILE")
 	for key, value := range map[string]string{
 		"TERM":                     "xterm-256color",
 		"COLORTERM":                "truecolor",
@@ -67,7 +69,7 @@ func terminalEnvironment(base []string, projectHistoryFile, wharnexHistoryFile, 
 		"WHARNEX_SESSION_HISTFILE": sessionHistoryFile,
 		"WHARNEX_OS_HISTFILE":      osHistoryFile,
 	} {
-		env = replaceEnvironmentValue(env, key, value)
+		env = terminalinit.ReplaceEnvironmentValue(env, key, value)
 	}
 	return env
 }

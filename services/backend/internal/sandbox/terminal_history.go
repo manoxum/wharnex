@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"kernl.local/harness/backend/internal/sandbox/terminalinit"
 )
 
 const terminalHistoryRelativeDir = ".harness/terminal/history"
@@ -48,18 +50,18 @@ func localTerminalCommand(workspace Workspace, options TerminalOptions) (*exec.C
 	args := []string{"-l"}
 	env := terminalEnvironment(os.Environ(), historyFile, wharnexHistoryFile, sessionHistoryFile)
 	switch {
-	case isBashShell(shell):
-		initFile, err := prepareBashTerminalInit(terminalDir)
+	case terminalinit.IsBashShell(shell):
+		initFile, err := terminalinit.PrepareBash(terminalDir)
 		if err != nil {
 			return nil, err
 		}
-		args = bashTerminalArgs(initFile)
-	case isZshShell(shell):
-		zdotdir, err := prepareZshTerminalInit(terminalDir)
+		args = terminalinit.BashArgs(initFile)
+	case terminalinit.IsZshShell(shell):
+		zdotdir, err := terminalinit.PrepareZsh(terminalDir)
 		if err != nil {
 			return nil, err
 		}
-		env = zshTerminalEnvironment(env, zdotdir)
+		env = terminalinit.ZshEnvironment(env, zdotdir)
 	}
 	cmd := exec.Command(shell, args...)
 	cmd.Dir = cwd
@@ -155,25 +157,4 @@ func terminalHistoryShellName(shell string) string {
 		return "shell"
 	}
 	return safe.String()
-}
-
-func environmentValue(env []string, key string) string {
-	prefix := key + "="
-	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
-			return strings.TrimPrefix(entry, prefix)
-		}
-	}
-	return ""
-}
-
-func replaceEnvironmentValue(env []string, key, value string) []string {
-	prefix := key + "="
-	filtered := env[:0]
-	for _, entry := range env {
-		if !strings.HasPrefix(entry, prefix) {
-			filtered = append(filtered, entry)
-		}
-	}
-	return append(filtered, prefix+value)
 }

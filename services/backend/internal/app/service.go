@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/verification"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/bundlename"
 	"kernl.local/harness/backend/internal/changeset"
@@ -2341,13 +2342,13 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 					// failed, the same report separates candidate regressions from
 					// repository debt.
 					commandResult.BaselineExitCode = baselineResult.ExitCode
-					commandResult.BaselineOutput = describeVerificationAttribution(baselineResult, commandResult)
+					commandResult.BaselineOutput = verification.DescribeAttribution(baselineResult, commandResult)
 					s.bus.Publish(sessionID, "verification.baseline_changed", map[string]any{
 						"argv":                command.Argv,
 						"baseline_exit_code":  baselineResult.ExitCode,
 						"post_exit_code":      commandResult.ExitCode,
-						"introduced":          newVerificationFailures(baselineResult, commandResult),
-						"pre_existing":        preExistingVerificationFailures(baselineResult, commandResult),
+						"introduced":          verification.NewFailures(baselineResult, commandResult),
+						"pre_existing":        verification.PreExistingFailures(baselineResult, commandResult),
 						"baseline_diagnostic": commandResultDiagnostic(baselineResult),
 						"post_diagnostic":     commandResultDiagnostic(commandResult),
 					})
@@ -2545,13 +2546,7 @@ func (s *Service) compareVerificationBaseline(ctx context.Context, runner sandbo
 	if baseline.Success || baseline.ExitCode != post.ExitCode {
 		return baseline, false, nil
 	}
-	return baseline, verificationFailureEquivalent(baseline, post), nil
-}
-
-func normalizedVerificationOutput(result domain.CommandResult) string {
-	stdout := strings.ReplaceAll(strings.TrimSpace(result.Stdout), "\r\n", "\n")
-	stderr := strings.ReplaceAll(strings.TrimSpace(result.Stderr), "\r\n", "\n")
-	return fmt.Sprintf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	return baseline, verification.FailureEquivalent(baseline, post), nil
 }
 
 func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
@@ -3974,6 +3969,7 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 	if err != nil || status.SessionID == "" {
 		return
 	}
+	s.reconcileUnappliedRestartConfirmations(status)
 	state := ""
 	finalize := false
 	switch status.Phase {
