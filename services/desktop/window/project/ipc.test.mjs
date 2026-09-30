@@ -110,7 +110,7 @@ test('detached workbench surfaces stay transient and keep project ownership with
   assert.match(createWindowSource, /if \(surface\?\.projectPath\) \{[\s\S]*state\.projects\.add\(surface\.projectPath\)/)
   assert.match(createWindowSource, /if \(!state\.transientSurface\) \{[\s\S]*win\.on\('resize', scheduleWindowLayoutPersistence\)/)
   assert.match(createWindowSource, /if \(!isQuitting\(\) && !state\.transientSurface\) persistWindowLayout\(\)/)
-  assert.match(source, /isQuitting: \(\) => quitting/)
+  assert.match(source, /isQuitting: \(\) => desktopState\.window\.quitting/)
   const layoutSource = await readFile(new URL('../layout/layout.mjs', import.meta.url), 'utf8')
   assert.match(layoutSource, /function persist\(ids = \[\.\.\.windows\.values\(\)\]\.filter\(\(state\) => !state\.window\.isDestroyed\(\) && !state\.transientSurface\)/)
   assert.match(windowIPC, /find\(\(state\) => !state\.window\.isDestroyed\(\) && !state\.transientSurface && state\.projects\.has\(projectPath\)\)/)

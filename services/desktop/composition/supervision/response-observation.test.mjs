@@ -106,7 +106,7 @@ test('automatic bundle recovery is one wake-up and validation quiesces queued or
   assert.match(source, /createValidatedBundleState\(\{/)
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
   const transportComposition = await readFile(new URL('../session/transport-runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /scheduler: \(\) => chatAgentScheduler/)
+  assert.match(main, /scheduler: \(\) => desktopState\.agent\.chatAgentScheduler/)
   assert.match(transportComposition, /scheduler: d\.scheduler/)
   assert.match(quiesce, /abortChatGPTTransportPreparations/)
   assert.match(quiesce, /activeScheduler\.cancelLineage/)

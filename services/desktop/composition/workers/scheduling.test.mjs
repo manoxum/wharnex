@@ -16,7 +16,9 @@ test('Auto scale reconciles against the persisted policy ceiling', async () => {
 test('worker scheduling keeps residency and slot mutation explicit', async () => {
   const source = await readActivityRecoverySource()
   const transport = await readFile(new URL('../../chatgpt/transport/requests/transport-preparation.mjs', import.meta.url), 'utf8')
-  assert.match(source, /new ChatAgentResidency\(/)
+  const runtimeState = await readFile(new URL('../state/runtime.mjs', import.meta.url), 'utf8')
+  assert.match(source, /createDesktopRuntimeState\(\{/)
+  assert.match(runtimeState, /new ChatAgentResidency\(/)
   assert.match(source, /claimOptions: \(worker\) =>/)
   assert.match(source, /chatAgentResidency\.claimOptions\(entry\.slotId/)
   assert.match(transport, /const transportKey = entry\.role === 'worker' \? `slot:\$\{entry\.slotId\}` : `chat:\$\{key\}`/)
@@ -137,8 +139,8 @@ test('an account-wide rate-limit gate suspends Workers for the configured window
   assert.match(apply, /classifyChatGPTRateLimit\(state\.hits, \{ now, domGate \}\)/)
   assert.match(apply, /state\.policies\.rate_limit_cooldown_minutes/)
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
-  assert.match(main, /get hits\(\) \{ return chatGPTRateLimitHits \}, set hits\(value\) \{ chatGPTRateLimitHits = value \}/)
-  assert.match(main, /get policies\(\) \{ return chatAgentPolicies \}/)
+  assert.match(main, /get hits\(\) \{ return desktopState\.chatgpt\.chatGPTRateLimitHits \}, set hits\(value\) \{ desktopState\.chatgpt\.chatGPTRateLimitHits = value \}/)
+  assert.match(main, /get policies\(\) \{ return desktopState\.agent\.chatAgentPolicies \}/)
   assert.match(apply, /Math\.min\(60 \* 60_000, Math\.max\(60_000, requestedCooldownMs\)\)/)
   // The kind has to reach the durable store, or the backend keeps applying the
   // shorter pause to an account-wide block.

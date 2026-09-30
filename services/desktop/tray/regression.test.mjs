@@ -81,7 +81,7 @@ test('Worker suspension stays durable when tray and Agents panel share the contr
   assert.match(ipc, /resumeChatAgentWorkers\(\)/)
   assert.match(preload, /pauseWorkers: \(pausedUntil, taskTypes = \[\]\) => invoke\('wharness:agents:pause-workers'/)
   assert.match(preload, /resumeWorkers: \(\) => invoke\('wharness:agents:resume-workers'/)
-  assert.match(main, /get policies\(\) \{ return chatAgentPolicies \}/)
+  assert.match(main, /get policies\(\) \{ return desktopState\.agent\.chatAgentPolicies \}/)
   assert.match(startupContext, /getChatAgentPolicies: \(\) => state\.policies/)
   assert.match(workerScheduler, /workerSuspendsAllTaskTypes\(getChatAgentPolicies\(\)\)\) return \{ skip: true \}/)
   assert.match(workerScheduler, /excluded_types: manualSuspension\.paused \? manualSuspension\.task_types : \[\]/)

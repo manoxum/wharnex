@@ -74,7 +74,7 @@ test('a second launch against the same userData profile hands off to the running
   assert.match(lockBlock, /app\.setPath\('userData', path\.normalize\(customUserDataDir\)\)/)
   assert.match(lockBlock, /if \(!app\.requestSingleInstanceLock\(\)\) \{\s*app\.quit\(\)/)
   assert.match(lockBlock, /app\.on\('second-instance', \(\) => \{/)
-  assert.match(main, /configureDesktopProcess\(\{[\s\S]*getMainWindow: \(\) => mainWindow/)
+  assert.match(main, /configureDesktopProcess\(\{[\s\S]*getMainWindow: \(\) => desktopState\.window\.mainWindow/)
 })
 
 test('a dead main-frame renderer in the trusted window reloads the frontend instead of leaving a permanently blank window', async () => {
@@ -181,7 +181,7 @@ test('frontend renderer crash recovery backs off and is bounded', async () => {
   assert.ok(scheduled !== -1 && scheduled < immediate, 'reload must be scheduled, not immediate')
   assert.match(handler, /if \(isQuitting\(\) \|\| details\.reason === 'clean-exit'\) return/)
   const windowRuntime = await readFile(new URL('./creation-runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /getMainWindow: \(\) => mainWindow/)
+  assert.match(main, /getMainWindow: \(\) => desktopState\.window\.mainWindow/)
   assert.match(windowRuntime, /setMainWindow: d\.setMainWindow, getMainWindow: d\.getMainWindow,[\s\S]*isQuitting: d\.isQuitting/)
 
   // A renderer that stays up long enough clears the budget.

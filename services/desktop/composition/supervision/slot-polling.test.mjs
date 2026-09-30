@@ -11,7 +11,7 @@ test('switching chats reuses a released Supervisor slot and preserves visible in
   const ensure = source.slice(ensureStart, ensureEnd)
 
   assert.match(ensure, /chatgptViews\.size >= getDesiredChatAgentSupervisorSlots\(\)/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /getDesiredChatAgentSupervisorSlots: \(\) => desiredChatAgentSupervisorSlots/)
+  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /getDesiredChatAgentSupervisorSlots: \(\) => desktopState\.agent\.desiredChatAgentSupervisorSlots/)
   assert.match(ensure, /const reusable = reusableSupervisor\(key, resolved\)/)
   // Eligibility is the whole binding hold, not just an open transport: a chat
   // awaiting its response bundle must not lose its renderer to a chat switch.
@@ -112,8 +112,8 @@ test('activity polling is single-flight and reads visible reasoning only for an 
   assert.match(body, /setPollingChatGPTVisibleActivity\(true\)/)
   assert.match(body, /finally \{\s*setPollingChatGPTVisibleActivity\(false\)\s*}/)
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
-  assert.match(main, /readPollingChatGPTVisibleActivity: \(\) => pollingChatGPTVisibleActivity/)
-  assert.match(main, /setPollingChatGPTVisibleActivity: \(value\) => \{ pollingChatGPTVisibleActivity = value \}/)
+  assert.match(main, /readPollingChatGPTVisibleActivity: \(\) => desktopState\.chatgpt\.pollingChatGPTVisibleActivity/)
+  assert.match(main, /setPollingChatGPTVisibleActivity: \(value\) => \{ desktopState\.chatgpt\.pollingChatGPTVisibleActivity = value \}/)
 
   const expected = body.indexOf('const expectedActive = expectedChatGPTBundles.has(key)')
   const activityProbe = body.indexOf('executeJavaScript(chatGPTVisibleActivityScript()')

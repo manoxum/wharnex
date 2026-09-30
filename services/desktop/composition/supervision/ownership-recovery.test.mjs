@@ -142,7 +142,7 @@ test('a Supervisor releases its chat only after the request settled and another 
   // the visible one. Releasing on a timer would re-create the churn the binding
   // exists to remove.
   assert.match(evict, /const excess = chatgptViews\.size - getDesiredChatAgentSupervisorSlots\(\)/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /getDesiredChatAgentSupervisorSlots: \(\) => desiredChatAgentSupervisorSlots/)
+  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /getDesiredChatAgentSupervisorSlots: \(\) => desktopState\.agent\.desiredChatAgentSupervisorSlots/)
   assert.match(evict, /!supervisorBindingHeld\(key, entry\) && !chatGPTEntryIsActiveVisible\(key, entry\)/)
   assert.match(evict, /if \(released >= excess\) break/)
   assert.doesNotMatch(source, /setInterval\([^)]*evictIdleChatGPTViews/)
@@ -175,7 +175,7 @@ test('request cancellation clears only matching Desktop supervision state and a 
   assert.match(source, /createChatGPTRequestCancellation\(\{/)
   const transportComposition = await readFile(new URL('../session/transport-runtime.mjs', import.meta.url), 'utf8')
   const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
-  assert.match(main, /scheduler: \(\) => chatAgentScheduler/)
+  assert.match(main, /scheduler: \(\) => desktopState\.agent\.chatAgentScheduler/)
   assert.match(transportComposition, /scheduler: d\.scheduler/)
   assert.match(cancel, /expected\?\.requestId === id/)
   assert.match(cancel, /retryable\?\.request\?\.requestId/)

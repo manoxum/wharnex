@@ -64,7 +64,7 @@ test('a Desktop restart during a suspension adopts the durable deadline instead 
   assert.match(refresh, /observedAt >= state\.rateLimitAppliedAt/)
   const apply = source.slice(source.indexOf('function applyChatGPTRateLimit('), source.indexOf('\nfunction noteChatGPTRateLimitGate('))
   assert.match(apply, /state\.appliedAt = now/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /set appliedAt\(value\) \{ chatGPTRateLimitAppliedAt = value \}/)
+  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /set appliedAt\(value\) \{ desktopState\.chatgpt\.chatGPTRateLimitAppliedAt = value \}/)
 })
 
 test('a slot rebound before execution never charges the task attempt budget', async () => {
