@@ -431,9 +431,9 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
     } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível capturar o navegador') } finally { setBusy(false) }
   }
 
-  // Following a Worker places it in the Engine area; it does not dismiss this
-  // panel. The drawer closes only when the operator asks it to, so watching a
-  // Worker never costs them the runtime view they were reading.
+  // Following a Worker only selects it for the Engine. The embedded Engine
+  // surface owns openInteraction/closeInteraction, so this drawer never opens
+  // a separate native monitor before forwarding the selection.
   const followWorker = () => {
     if (!bridge || !selected || selected.role !== 'worker' || !selected.browser.available || selectedForeign) return
     const agentId = selected.id
@@ -442,9 +442,8 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
         await bridge.closeInteraction(agentId)
         setInteractionId(undefined)
       }
-      await bridge.openMonitor(agentId)
       window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId } }))
-    })().catch((error) => onErrorRef.current?.(error instanceof Error ? error.message : 'Não foi possível abrir a janela do Worker'))
+    })().catch((error) => onErrorRef.current?.(error instanceof Error ? error.message : 'Não foi possível encaminhar o Worker para o Engine'))
   }
 
   const selectRuntimeTab = (tab: 'agents' | 'runtime' | 'policies') => {

@@ -15,66 +15,75 @@ describe('ChatGPTDesktopPane Worker follow', () => {
   beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver); window.localStorage.clear() })
   afterEach(() => { cleanup(); delete window.wharnessDesktop; vi.unstubAllGlobals() })
 
-  it('follows a busy Worker in Engine without resizing its browser and restores the Supervisor on exit', async () => {
+  it('embeds a busy Worker in Engine and restores the Supervisor on exit', async () => {
     const desktop = followBridge()
     render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
 
     act(() => window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: 'worker-2' } })))
     expect(await screen.findByText('Seguindo Worker 2')).toBeTruthy()
-    await waitFor(() => expect(desktop.agents.openMonitor).toHaveBeenCalledWith('worker-2'))
+    await waitFor(() => expect(desktop.agents.openInteraction).toHaveBeenCalledWith('worker-2', expect.objectContaining({ width: 1, height: 1 })))
+    await waitFor(() => expect(desktop.agents.setInteractionBounds).toHaveBeenCalledWith('worker-2', expect.objectContaining({ width: 1, height: 1 })))
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalledWith('chat-1'))
-    expect(desktop.agents.openInteraction).not.toHaveBeenCalled()
-    expect(desktop.agents.setInteractionBounds).not.toHaveBeenCalled()
+    expect(desktop.agents.openMonitor).not.toHaveBeenCalled()
 
     const blocker = document.createElement('div')
     blocker.setAttribute('data-chatgpt-overlay-blocker', 'true')
     document.body.appendChild(blocker)
-    expect(screen.getByText('Seguindo Worker 2')).toBeTruthy()
+    await waitFor(() => expect(desktop.agents.closeInteraction).toHaveBeenCalledWith('worker-2'))
+    expect(screen.getByText('ChatGPT preservado')).toBeTruthy()
     blocker.remove()
-    expect(await screen.findByText('Seguindo Worker 2')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('Seguindo Worker 2')).toBeTruthy())
+    await waitFor(() => expect(vi.mocked(desktop.agents.openInteraction).mock.calls.length).toBeGreaterThan(1))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Parar de seguir' }))
-    await waitFor(() => expect(desktop.agents.closeMonitor).toHaveBeenCalledWith('worker-2'))
-    expect(desktop.agents.closeInteraction).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Voltar ao Supervisor' }))
+    await waitFor(() => expect(desktop.agents.closeInteraction).toHaveBeenCalledWith('worker-2'))
+    expect(desktop.agents.closeMonitor).not.toHaveBeenCalled()
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
   })
 
-  it('opens a Worker window while the Agents drawer blocks the embedded Supervisor', async () => {
+  it('keeps the Worker selected while an overlay blocks the embedded Engine surface', async () => {
     const desktop = followBridge()
     const blocker = document.createElement('div')
     blocker.setAttribute('data-chatgpt-overlay-blocker', 'true')
     document.body.appendChild(blocker)
     try {
       render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+      await screen.findByText('ChatGPT preservado')
       act(() => window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: 'worker-2' } })))
-      await waitFor(() => expect(desktop.agents.openMonitor).toHaveBeenCalledWith('worker-2'))
-      expect(screen.getByText('Seguindo Worker 2')).toBeTruthy()
+      await waitFor(() => expect((screen.getByRole('combobox', { name: 'Instância do Engine' }) as HTMLSelectElement).value).toBe('worker-2'))
+      expect(desktop.agents.openMonitor).not.toHaveBeenCalled()
+      expect(desktop.agents.openInteraction).not.toHaveBeenCalled()
+      blocker.remove()
+      await waitFor(() => expect(desktop.agents.openInteraction).toHaveBeenCalledWith('worker-2', expect.any(Object)))
     } finally {
       blocker.remove()
     }
   })
 
-  it('clears the follow panel when Desktop closes the Worker window after the task', async () => {
+  it('clears the embedded Worker when Desktop reports that the instance disappeared', async () => {
     const desktop = followBridge()
-    let publish: ((state: DesktopAgentRuntimeState) => void) | undefined
-    vi.mocked(desktop.agents.onState).mockImplementation((listener) => { publish = listener; return () => undefined })
+    const listeners: Array<(state: DesktopAgentRuntimeState) => void> = []
+    vi.mocked(desktop.agents.onState).mockImplementation((listener) => { listeners.push(listener); return () => undefined })
     const runtime = await desktop.agents.state()
     render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
     act(() => window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: 'worker-2' } })))
-    await waitFor(() => expect(desktop.agents.openMonitor).toHaveBeenCalledWith('worker-2'))
+    await waitFor(() => expect(desktop.agents.openInteraction).toHaveBeenCalledWith('worker-2', expect.any(Object)))
     expect(screen.getByText('Seguindo Worker 2')).toBeTruthy()
-    await screen.findByText('Janela do Worker aberta. A automação continua na mesma instância.')
-    act(() => publish?.({ ...runtime, agents: runtime.agents.map((agent) => agent.id === 'worker-2' ? { ...agent, monitor_open: false } : agent) }))
+
+    const withoutWorker = { ...runtime, agents: runtime.agents.filter((agent) => agent.id !== 'worker-2') }
+    act(() => listeners.forEach((listener) => listener(withoutWorker)))
     await waitFor(() => expect(screen.queryByText('Seguindo Worker 2')).toBeNull())
+    expect(desktop.agents.closeInteraction).toHaveBeenCalledWith('worker-2')
   })
 
-  it('keeps Worker DevTools and conversation link tied to the selected instance', async () => {
+  it('keeps Worker DevTools and conversation link tied to the selected embedded instance', async () => {
     const desktop = followBridge()
     render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
     const selector = await screen.findByRole('combobox', { name: 'Instância do Engine' })
     fireEvent.change(selector, { target: { value: 'worker-2' } })
-    await waitFor(() => expect(desktop.agents.openMonitor).toHaveBeenCalledWith('worker-2'))
+    await waitFor(() => expect(desktop.agents.openInteraction).toHaveBeenCalledWith('worker-2', expect.any(Object)))
+    expect(desktop.agents.openMonitor).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Abrir DevTools da instância atual' }))
     await waitFor(() => expect(desktop.agents.openDevTools).toHaveBeenCalledWith('worker-2'))
@@ -83,7 +92,8 @@ describe('ChatGPTDesktopPane Worker follow', () => {
     await waitFor(() => expect(desktop.clipboard.writeText).toHaveBeenCalledWith('https://chatgpt.com/c/worker'))
 
     fireEvent.change(selector, { target: { value: '' } })
-    expect(desktop.agents.closeInteraction).not.toHaveBeenCalled()
+    await waitFor(() => expect(desktop.agents.closeInteraction).toHaveBeenCalledWith('worker-2'))
+    expect(desktop.agents.closeMonitor).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Abrir DevTools da instância atual' }))
     await waitFor(() => expect(desktop.chatgpt.openDevTools).toHaveBeenCalledWith('chat-1'))
   })
