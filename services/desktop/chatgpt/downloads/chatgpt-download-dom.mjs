@@ -6,7 +6,10 @@ export function chooseChatGPTDownloadCandidate(candidates, expectedFilename) {
   const expected = String(expectedFilename || '').trim().toLowerCase()
   if (!expected || !Array.isArray(candidates)) return { index: -1, mode: '' }
   const usable = candidates.filter((candidate) => candidate && candidate.visible !== false && candidate.disabled !== true)
-  const exactMatches = usable.filter((candidate) => String(candidate.metadata || '').toLowerCase().includes(expected))
+  // Context increments and the final Orchestrator plan reuse one filename.
+  // Prefer the most recent matching card, while still choosing its actionable
+  // control over a surrounding resource-card wrapper.
+  const exactMatches = usable.filter((candidate) => String(candidate.metadata || '').toLowerCase().includes(expected)).reverse()
   const exact = exactMatches.find((candidate) => !candidate.nested && (candidate.downloadSemantic || candidate.fileLike))
     || exactMatches.find((candidate) => !candidate.nested)
     || exactMatches[0]
