@@ -1,7 +1,7 @@
 export function createWorkerInteraction({
   chatGPTWorkerEntries, isEphemeralAgentID, desktopWindows,
   windowStateForEntry, grantChatGPTLayoutViewport, publishChatAgentRuntimeState,
-  chatAgentWorkerStates, normalizeBounds, reconcileChatGPTWorkerPool,
+  normalizeBounds, reconcileChatGPTWorkerPool,
 }) {
   function workerEntryForAgentID(agentID) {
     const id = String(agentID || '').trim()
@@ -41,10 +41,6 @@ export function createWorkerInteraction({
   function showChatAgentInteraction(agentID, rawBounds, windowState) {
     const entry = workerEntryForAgentID(agentID)
     if (entry.monitorWindow && !entry.monitorWindow.isDestroyed()) throw new Error('Feche a janela do Worker antes de interagir aqui')
-    // A running task must keep its own renderer viewport while it is scraped.
-    if (chatAgentWorkerStates.get(Number(entry.slotId.slice(7)))?.task) {
-      throw new Error('Este Worker está a executar uma tarefa. Acompanhe na janela do Worker ou aguarde para interagir diretamente.')
-    }
     const bounds = normalizeBounds(rawBounds, windowState?.window?.getContentBounds?.())
     if (!bounds) throw new Error('Worker interaction bounds are invalid')
     const active = String(windowState.activeAgentInteractionId || '')
@@ -75,7 +71,14 @@ export function createWorkerInteraction({
 
   function setChatAgentInteractionBounds(agentID, rawBounds, windowState) {
     const entry = workerEntryForAgentID(agentID)
-    if (entry.interactionWindowId !== windowState?.id || windowState.activeAgentInteractionId !== entry.slotId) return { ok: false, agentId: entry.slotId }
+    const windowID = String(windowState?.id || '')
+    if (!windowID
+      || entry.interactionWindowId !== windowID
+      || entry.ownerWindowId !== windowID
+      || !entry.attached
+      || windowState.activeAgentInteractionId !== entry.slotId) {
+      return { ok: false, agentId: entry.slotId }
+    }
     const bounds = normalizeBounds(rawBounds, windowState.window.getContentBounds())
     if (!bounds) throw new Error('Worker interaction bounds are invalid')
     entry.view.setBounds(bounds)

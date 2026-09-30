@@ -71,12 +71,13 @@ test('agent browser snapshots present hidden workers at full size for capture', 
   assert.match(wiring, /async function chatAgentBrowserSnapshot\(agentID\)/)
 })
 
-test('a running Worker cannot be resized into the narrow interaction pane', async () => {
+test('a running Worker may reuse its renderer in the embedded interaction pane', async () => {
   const source = await readTaskExecutionSource()
   const start = source.indexOf('function showChatAgentInteraction(')
   const interaction = source.slice(start, source.indexOf('\nfunction setChatAgentInteractionBounds(', start))
-  assert.match(interaction, /chatAgentWorkerStates\.get\(Number\(entry\.slotId\.slice\(7\)\)\)\?\.task/)
-  assert.match(interaction, /throw new Error/)
+  assert.doesNotMatch(interaction, /chatAgentWorkerStates\.get\(Number\(entry\.slotId\.slice\(7\)\)\)\?\.task/)
+  assert.match(interaction, /entry\.monitorWindow && !entry\.monitorWindow\.isDestroyed\(\)/)
+  assert.match(interaction, /windowState\.window\.contentView\.addChildView\(entry\.view\)/)
   const claim = source.slice(source.indexOf('claimOptions: (worker) => {'), source.indexOf('    onIdle: (worker) => {'))
   assert.match(claim, /entry\.interactionWindowId/)
 })
