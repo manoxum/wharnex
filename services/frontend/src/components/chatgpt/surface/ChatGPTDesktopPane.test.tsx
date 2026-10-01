@@ -2,7 +2,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
 import { bridge, props, state } from './chatGPTDesktopPaneTestFixtures'
-import { chatGPTOverlayDocuments } from '../../../lib/chat/transport/chatGPTOverlay'
 
 class TestResizeObserver { observe() {}; disconnect() {}; unobserve() {} }
 
@@ -93,34 +92,19 @@ describe('ChatGPTDesktopPane', () => {
     expect(desktop.chatgpt.navigate).not.toHaveBeenCalled()
   })
 
-  it('keeps ordinary dialogs non-blocking and hides only for explicit overlay blockers', async () => {
+  it('keeps showing the Engine mirror while an app dialog is open over it', async () => {
     const desktop = bridge(); window.wharnessDesktop = desktop
     render(<ChatGPTDesktopPane {...props} />)
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
     const dialog = document.createElement('section')
-    dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'false')
+    dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true')
     document.body.appendChild(dialog)
     await new Promise((resolve) => window.setTimeout(resolve, 0))
+    // The real browser lives in its own window; nothing here can cover a dialog.
     expect(desktop.chatgpt.hide).not.toHaveBeenCalled()
-
-    dialog.setAttribute('data-chatgpt-overlay-blocker', 'true')
-    await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalled())
-    expect(await screen.findByText('ChatGPT preservado')).toBeTruthy()
-    const before = vi.mocked(desktop.chatgpt.show).mock.calls.length
+    expect(screen.getByRole('application', { name: /ChatGPT do Engine/ })).toBeTruthy()
     dialog.remove()
-    await waitFor(() => expect(vi.mocked(desktop.chatgpt.show).mock.calls.length).toBeGreaterThan(before))
-    await waitFor(() => expect(screen.queryByText('ChatGPT preservado')).toBeNull())
   })
-
-  it('includes blocking overlays owned by the same-origin parent WorkspaceShell', () => {
-    const projectDocument = document.implementation.createHTMLDocument('project')
-    const shellDocument = document.implementation.createHTMLDocument('shell')
-    const shellWindow = { document: shellDocument } as unknown as Window
-    const projectWindow = { document: projectDocument, parent: shellWindow } as unknown as Window
-
-    expect(chatGPTOverlayDocuments(projectWindow)).toEqual([projectDocument, shellDocument])
-  })
-
 
   it('copies the currently visible Supervisor conversation link from the Engine header', async () => {
     const desktop = bridge()

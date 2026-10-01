@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../../../lib/desktop/bridge/desktop'
 import { Icon } from '../../presentation/chrome/Icon'
 import { directChatGPTKey } from '../../../lib/chat/transport/directChatGPT'
-import { observeChatGPTOverlayBlockers } from '../../../lib/chat/transport/chatGPTOverlay'
+import { MirrorSurface } from '../mirror/MirrorSurface'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 
@@ -13,7 +13,6 @@ export function DirectChatGPTPane({ projectPath, suspended = false }: { projectP
   const key = directChatGPTKey(projectPath)
   const bridge = desktopBridge()
   const [state, setState] = useState<DesktopChatGPTState>({ url: CHATGPT_HOME, title: 'ChatGPT', loading: true, canGoBack: false, canGoForward: false })
-  const [overlayBlocked, setOverlayBlocked] = useState(false)
 
   const acceptState = useCallback((next: DesktopChatGPTState) => {
     if (!next.cacheKey || next.cacheKey === key) setState(next)
@@ -33,16 +32,19 @@ export function DirectChatGPTPane({ projectPath, suspended = false }: { projectP
     return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', sync); unsubscribe(); void bridge.chatgpt.hide(key) }
   }, [acceptState, bridge, key])
 
-  useEffect(() => observeChatGPTOverlayBlockers(window, (blocked) => {
-    if (blocked) void bridge?.chatgpt.hide(key)
-    setOverlayBlocked(blocked)
-  }), [bridge, key])
+  // The real view lives in the browser host; this pane mirrors it.
+  const mirrorFrames = useMemo(() => bridge?.chatgpt.onMirrorFrame
+    ? (callback: (frame: DesktopMirrorFrame) => void) => bridge.chatgpt.onMirrorFrame((frame) => { if (frame.cacheKey === key) callback(frame) })
+    : undefined, [bridge, key])
+  const mirrorInput = useMemo(() => bridge?.chatgpt.mirrorInput
+    ? (input: DesktopMirrorInput) => bridge.chatgpt.mirrorInput(key, input)
+    : undefined, [bridge, key])
 
   useEffect(() => {
     if (!bridge || !hostRef.current) return
-    if (suspended || overlayBlocked) { void bridge.chatgpt.hide(key); return }
+    if (suspended) { void bridge.chatgpt.hide(key); return }
     void bridge.chatgpt.show(elementBounds(hostRef.current), key, state.url || CHATGPT_HOME)
-  }, [bridge, key, state.url, suspended, overlayBlocked])
+  }, [bridge, key, state.url, suspended])
 
   return <section className="direct-chatgpt-shell">
     <header className="direct-chatgpt-toolbar">
@@ -54,6 +56,6 @@ export function DirectChatGPTPane({ projectPath, suspended = false }: { projectP
         <button onClick={() => void bridge?.chatgpt.openExternal(state.url || CHATGPT_HOME)} aria-label="Abrir externamente"><Icon name="external" size={14}/></button>
       </nav>
     </header>
-    <div ref={hostRef} className="desktop-chatgpt-host direct-chatgpt-host" aria-label="ChatGPT livre incorporado">{overlayBlocked ? <div className="desktop-chatgpt-suspended"><Icon name="chatgpt" size={24}/><strong>ChatGPT preservado</strong><span>A vista regressa ao fechar esta camada.</span></div> : state.loading ? <span>A carregar ChatGPT…</span> : null}</div>
+    <div ref={hostRef} className="desktop-chatgpt-host direct-chatgpt-host" aria-label="ChatGPT livre incorporado">{mirrorFrames && mirrorInput ? <MirrorSurface subscribe={mirrorFrames} send={mirrorInput} label="ChatGPT livre (espelho do navegador real)"/> : null}</div>
   </section>
 }

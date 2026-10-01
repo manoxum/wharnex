@@ -15,7 +15,7 @@ test('agent Chromium workers start after the first local shell paint', async () 
   assert.match(await readFile(new URL('../../agent/scheduling/residency/worker-pool.mjs', import.meta.url), 'utf8'), /createChatGPTWorkerView\(`worker-\$\{index\}`, host\)[\s\S]*await wait\(CHAT_AGENT_WORKER_SPAWN_GAP_MS\)/)
 })
 
-test('hidden Worker views stay out of the local shell compositor until explicitly surfaced', async () => {
+test('Worker views live in the browser host and are only mirrored into project windows', async () => {
   const source = await readActivityRecoverySource()
   const createStart = viewWorker.indexOf('function createChatGPTWorkerView(')
   const createEnd = viewWorker.indexOf('\n  function retireChatGPTWorkerView', createStart)
@@ -23,10 +23,9 @@ test('hidden Worker views stay out of the local shell compositor until explicitl
   const showStart = source.indexOf('function showChatAgentInteraction(')
   const showEnd = source.indexOf('\nfunction setChatAgentInteractionBounds', showStart)
   const show = source.slice(showStart, showEnd)
-  assert.match(create, /attached: false/)
-  assert.doesNotMatch(create, /contentView\.addChildView\(view\)/)
-  assert.match(show, /windowState\.window\.contentView\.addChildView\(entry\.view\)/)
-  assert.match(show, /entry\.attached = true/)
+  assert.doesNotMatch(create, /contentView\.addChildView/)
+  assert.match(create, /createHostedChatGPTSurface\(native, \{ View: browserHost\.View, host: browserHost \}\)/)
+  assert.doesNotMatch(show, /addChildView/)
 })
 
 test('the Supervisor bound to a chat owns its expected-bundle observation whether visible or not, and Workers stand down from that lane', async () => {

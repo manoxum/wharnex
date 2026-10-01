@@ -9,7 +9,7 @@ The v1.2.17 project-config flow exposed three integration problems: persisted se
 ## Decision
 
 1. `ProjectConfig` uses `projectconfig.Ensure` for every read. A missing file is recreated from the validated default, an audit event is emitted, and context refresh is attempted. The UI shows a retryable failure state if loading still fails.
-2. Renderer overlays that intersect ChatGPT suspend the native view through the existing narrow Desktop bridge. CSS z-index is not treated as a native-view isolation mechanism.
+2. Renderer overlays that intersect ChatGPT suspend the native view through the existing narrow Desktop bridge. CSS z-index is not treated as a native-view isolation mechanism. *(Superseded in v1.3.42: project windows show only a mirror of the ChatGPT view, so overlays render above it and never suspend it.)*
 3. Human terminal input has a dedicated Policy Engine profile. It still validates `CommandSpec`, relative cwd, argv shape and target rules. Normal developer argv commands may mutate the project; shell interpreters, privilege escalation, container/host administration and inline evaluator flags remain denied. This profile is never used for model execution plans.
 4. Explorer create/rename/delete are backend APIs. They reject absolute/traversal paths, context/security exclusions and symlink boundaries, and mirror successful host mutations into an already-existing sandbox devspace on a best-effort basis.
 5. Explorer rename uses PATCH and the local CORS contract explicitly allows PATCH.

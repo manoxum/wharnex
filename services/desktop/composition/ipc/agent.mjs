@@ -7,6 +7,7 @@ export function registerAgentDomainIPC(common, context) {
     resumeChatAgentWorkers, chatAgentBrowserSnapshot, workerEntryForAgentID, hideChatAgentInteractionEntry,
     openWorkerMonitor, BrowserWindow, closeWorkerMonitor, showChatAgentInteraction,
     setChatAgentInteractionBounds, closeChatAgentInteraction, state,
+    presentBrowserInMonitor, resizeBrowserInMonitor, releaseBrowserMonitor,
   } = context
   registerAgentIPC({
     ipcMain, trustedSender,
@@ -21,5 +22,6 @@ export function registerAgentDomainIPC(common, context) {
     hideChatAgentInteractionEntry, openWorkerMonitor, BrowserWindow,
     closeWorkerMonitor, showChatAgentInteraction,
     setChatAgentInteractionBounds, closeChatAgentInteraction,
+    presentBrowserInMonitor, resizeBrowserInMonitor, releaseBrowserMonitor,
   })
 }

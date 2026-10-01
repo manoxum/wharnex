@@ -27,38 +27,25 @@ describe('ChatGPTDesktopPane Worker follow', () => {
     await waitFor(() => expect(desktop.chatgpt.hide).toHaveBeenCalledWith('chat-1'))
     expect(desktop.agents.openMonitor).not.toHaveBeenCalled()
 
-    const blocker = document.createElement('div')
-    blocker.setAttribute('data-chatgpt-overlay-blocker', 'true')
-    document.body.appendChild(blocker)
-    await waitFor(() => expect(desktop.agents.closeInteraction).toHaveBeenCalledWith('worker-2'))
-    expect(screen.getByText('ChatGPT preservado')).toBeTruthy()
-    blocker.remove()
-    await waitFor(() => expect(screen.getByText('Seguindo Worker 2')).toBeTruthy())
-    await waitFor(() => expect(vi.mocked(desktop.agents.openInteraction).mock.calls.length).toBeGreaterThan(1))
-
     fireEvent.click(screen.getByRole('button', { name: 'Voltar ao Supervisor' }))
     await waitFor(() => expect(desktop.agents.closeInteraction).toHaveBeenCalledWith('worker-2'))
     expect(desktop.agents.closeMonitor).not.toHaveBeenCalled()
     await waitFor(() => expect(desktop.chatgpt.show).toHaveBeenCalled())
   })
 
-  it('keeps the Worker selected while an overlay blocks the embedded Engine surface', async () => {
+  it('follows an available ephemeral Orchestrator Worker selected from the runtime drawer', async () => {
     const desktop = followBridge()
-    const blocker = document.createElement('div')
-    blocker.setAttribute('data-chatgpt-overlay-blocker', 'true')
-    document.body.appendChild(blocker)
-    try {
-      render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
-      await screen.findByText('ChatGPT preservado')
-      act(() => window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId: 'worker-2' } })))
-      await waitFor(() => expect((screen.getByRole('combobox', { name: 'Instância do Engine' }) as HTMLSelectElement).value).toBe('worker-2'))
-      expect(desktop.agents.openMonitor).not.toHaveBeenCalled()
-      expect(desktop.agents.openInteraction).not.toHaveBeenCalled()
-      blocker.remove()
-      await waitFor(() => expect(desktop.agents.openInteraction).toHaveBeenCalledWith('worker-2', expect.any(Object)))
-    } finally {
-      blocker.remove()
-    }
+    const runtime = await desktop.agents.state()
+    const agentId = `ephemeral-cat_${'a'.repeat(20)}`
+    vi.mocked(desktop.agents.state).mockResolvedValue({
+      ...runtime,
+      agents: [...runtime.agents, { ...runtime.agents[0], id: agentId, role: 'worker', status: 'running' }],
+    })
+    render(<ChatGPTDesktopPane {...props} chatgptUrl="https://chatgpt.com/c/right" />)
+    await waitFor(() => expect((screen.getByRole('combobox', { name: 'Instância do Engine' }) as HTMLSelectElement).options.length).toBeGreaterThan(3))
+
+    act(() => window.dispatchEvent(new CustomEvent('wharnex:agent-follow', { detail: { agentId } })))
+    await waitFor(() => expect(desktop.agents.openInteraction).toHaveBeenCalledWith(agentId, expect.any(Object)))
   })
 
   it('clears the embedded Worker when Desktop reports that the instance disappeared', async () => {

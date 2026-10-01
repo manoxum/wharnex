@@ -1,5 +1,6 @@
 export { captureChatGPTAgentPage, captureParkedWorkerPage } from './chat-agent-snapshot.mjs'
 export { createResponseProbe, createSupervisorResponseLease, createAgentWrite, createResponseLineage, createChatAgentFollowups } from './response/index.mjs'
+export { createBrowserMonitorPresentation } from './surface/browser-monitor-presentation.mjs'
 export { createChatGPTActivityPoll } from './activity/index.mjs'
 export { closeWorkerMonitor, closeWorkerMonitorAfterState, openWorkerMonitor } from './chat-agent-monitor.mjs'
 export { chatAgentMemorySnapshot } from './chat-agent-memory.mjs'

@@ -19,8 +19,7 @@ describe('InterruptedExecutionRecovery', () => {
     const onOpenChat = vi.fn()
     const onOpenLogs = vi.fn()
     const { container } = render(<InterruptedExecutionRecovery items={[item]} busyChats={{}} onDecision={onDecision} onOpenChat={onOpenChat} onOpenLogs={onOpenLogs} onOpenChatGPT={vi.fn()}/>)
-    const center = container.querySelector('.execution-recovery-center')
-    expect(center?.getAttribute('data-chatgpt-overlay-blocker')).toBe('true')
+    expect(container.querySelector('.execution-recovery-center')).toBeTruthy()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.getByText('Aguardando decisão')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Abrir chat' }))
@@ -30,7 +29,6 @@ describe('InterruptedExecutionRecovery', () => {
     expect(onOpenLogs).toHaveBeenCalledWith(item)
     expect(onDecision).toHaveBeenCalledWith(item, 'continue')
     fireEvent.click(screen.getByRole('button', { name: 'Recolher centro de recuperação' }))
-    expect(center?.hasAttribute('data-chatgpt-overlay-blocker')).toBe(false)
   })
 
   it('surfaces human intervention and keeps execution decisions disabled while resume is active', () => {

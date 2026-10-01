@@ -98,7 +98,10 @@ export function createDesktopTrayControl(deps) {
       if (recent.length) template.push({ label: `Notificações${unread ? ` (${unread})` : ''}`, icon: icon('bell'), submenu: recent.slice(0, 12).map((record) => ({ label: `${record.read ? '' : '• '}${record.title} · ${deps.projectLabel(record.projectPath)}`, click: () => openNotification(record) })) }, { type: 'separator' })
       template.push(...projects.map(projectMenu))
       if (!projects.length) template.push({ label: 'Nenhum projeto aberto', enabled: false })
-      template.push({ type: 'separator' }, workerMenu(workers), { label: 'Mostrar Wharnex', icon: icon('project'), click: () => deps.showFallback() }, { type: 'separator' }, { label: 'Sair', icon: icon('close'), click: () => { void deps.quit() } })
+      template.push({ type: 'separator' }, workerMenu(workers),
+        { label: 'Acompanhar navegadores', icon: icon('workers'), click: () => deps.openBrowserMonitor() },
+        { label: 'Mostrar Wharnex', icon: icon('project'), click: () => deps.showFallback() },
+        { type: 'separator' }, { label: 'Sair', icon: icon('close'), click: () => { void deps.quit() } })
       tray.setToolTip(`Wharnex · ${deps.instanceName}${unread ? ` · ${unread} notificação${unread === 1 ? '' : 'ões'}` : ''}${workers.busy ? ` · ${workers.busy} Worker${workers.busy === 1 ? '' : 's'}` : ''}`)
       tray.setContextMenu(deps.Menu.buildFromTemplate(template))
     } catch (error) {

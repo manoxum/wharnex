@@ -87,7 +87,6 @@ export function ComposerDirectiveMenuLayer({ anchorRef, className, ariaLabel, ch
       className={`file-reference-menu directive-menu-layer ${className}`}
       role="listbox"
       aria-label={ariaLabel}
-      data-chatgpt-overlay-blocker="true"
       style={position}
     >
       {children}

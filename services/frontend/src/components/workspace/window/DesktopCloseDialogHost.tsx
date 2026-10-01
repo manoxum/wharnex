@@ -85,11 +85,11 @@ export function DesktopCloseDialogHost({ terminals = [] }: { terminals?: Termina
   if (!prompt) return null
   const subject = prompt.hasProject ? prompt.projectName : 'esta janela'
   const running = runningTerminalProcesses(terminals)
-  if (terminalAction) return createPortal(<div className="desktop-close-backdrop" data-chatgpt-overlay-blocker="true">
+  if (terminalAction) return createPortal(<div className="desktop-close-backdrop">
     <TerminalProcessCloseDialog count={running.length} subject={terminalAction === 'close-all' ? 'o Desktop' : 'esta janela'} busy={busy} error={error} onKeep={() => void finishTerminalChoice(false)} onTerminate={() => void finishTerminalChoice(true)} onCancel={() => { if (!busy) { setTerminalAction(undefined); setError('') } }} />
   </div>, document.body)
 
-  return createPortal(<div className="desktop-close-backdrop" data-chatgpt-overlay-blocker="true">
+  return createPortal(<div className="desktop-close-backdrop">
     <section className="desktop-close-dialog" role="alertdialog" aria-modal="true" aria-labelledby="desktop-close-title" aria-describedby="desktop-close-description">
       <header className="desktop-close-heading">
         <span className="desktop-close-symbol"><Icon name="workspace" size={20}/></span>

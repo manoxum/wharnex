@@ -10,7 +10,7 @@ export function createPlatformDependencies() {
   return {
     app: source0.app, BrowserWindow: source0.BrowserWindow, ClipboardItem: source0.ClipboardItem,
     Menu: source0.Menu, Notification: source0.Notification, Tray: source0.Tray,
-    WebContentsView: source0.WebContentsView, clipboard: source0.clipboard, dialog: source0.dialog,
+    View: source0.View, WebContentsView: source0.WebContentsView, clipboard: source0.clipboard, dialog: source0.dialog,
     ipcMain: source0.ipcMain, nativeImage: source0.nativeImage, screen: source0.screen,
     session: source0.session, shell: source0.shell,
     createHash: source1.createHash, randomUUID: source1.randomUUID,

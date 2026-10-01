@@ -1,9 +1,18 @@
 export function createChatGPTViewCleanup({
   internalChatGPTBrowsers, chatGPTAuthBrowsers, chatgptViews,
   chatGPTWorkerEntries, desktopWindows, hideChatAgentInteractionsForWindow,
-  grantChatGPTLayoutViewport, retireChatGPTSupervisorSurface,
+  retireChatGPTSupervisorSurface,
   closeManagedBrowserAuth,
 }) {
+  function detachMonitorEntry(entry) {
+    const monitor = desktopWindows.get(entry.monitorWindowId)
+    if (monitor?.activeMonitorAgentEntry === entry) {
+      monitor.activeMonitorAgentEntry = undefined
+      monitor.activeMonitorAgentId = ''
+    }
+    entry.monitorWindowId = ''
+  }
+
   function closeInternalChatGPTBrowserForWindow(windowState) {
     const browser = internalChatGPTBrowsers.get(windowState?.id)
     if (!browser) return false
@@ -19,20 +28,13 @@ export function createChatGPTViewCleanup({
 
   function rehomeChatGPTWorkers(windowState) {
     hideChatAgentInteractionsForWindow(windowState)
-    const replacement = [...desktopWindows.values()].find((state) => state.id !== windowState?.id && state.window && !state.window.isDestroyed())
+    const replacement = [...desktopWindows.values()].find((state) => state.id !== windowState?.id && !state.transientSurface && state.window && !state.window.isDestroyed())
     if (!replacement) return false
     for (const entry of chatGPTWorkerEntries) {
       if (entry.ownerWindowId !== windowState.id || entry.view.webContents.isDestroyed()) continue
-      if (entry.attached) {
-        try { windowState.window.contentView.removeChildView?.(entry.view) } catch { /* already detached */ }
-        replacement.window.contentView.addChildView(entry.view)
-      }
+      // Only ownership moves; the real view stays in the browser monitor.
       entry.ownerWindowId = replacement.id
       entry.interactionWindowId = ''
-      entry.parkedLayout = true
-      // Re-parenting rebuilds the native view hierarchy and its renderer viewport.
-      grantChatGPTLayoutViewport(entry.view)
-      entry.layoutViewportGranted = true
     }
     return true
   }
@@ -56,6 +58,7 @@ export function createChatGPTViewCleanup({
     chatgptViews.clear()
     for (const entry of chatGPTWorkerEntries.splice(0)) {
       clearTimeout(entry.affinitySettleTimer)
+      detachMonitorEntry(entry)
       if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
     }
     for (const state of desktopWindows.values()) { state.activeChatGPTKey = ''; state.chatgptVisible = false; state.activeAgentInteractionId = '' }

@@ -43,7 +43,6 @@ describe('DesktopCloseDialogHost', () => {
     await openDialog()
     const dialog = screen.getByRole('alertdialog')
     expect(dialog.getAttribute('aria-modal')).toBe('true')
-    expect(dialog.parentElement?.getAttribute('data-chatgpt-overlay-blocker')).toBe('true')
     expect(dialog.textContent).toContain('Continuar em background')
     expect(dialog.textContent).toContain('Fechar esta janela')
     expect(dialog.textContent).toContain('Guardar sessão e sair')

@@ -146,9 +146,9 @@ export function createDesktopAgentScheduling(d) {
     d.ensureChatGPTLayoutViewport(layoutKey, entry)
     let dataUrl
     try {
-      dataUrl = entry.role === 'worker' && !entry.interactionWindowId
-        ? await d.captureParkedWorkerPage(entry, d.BrowserWindow, { openMonitor: d.openWorkerMonitor, closeMonitor: d.closeWorkerMonitor })
-        : await d.captureChatGPTAgentPage(wc)
+      // Every agent view is attached in the browser monitor, so it can be
+      // captured where it is; nothing is presented just for the capture.
+      dataUrl = await d.captureChatGPTAgentPage(wc)
     } catch (error) {
       const category = String(error?.message || '').includes('excedeu') ? 'deadline' : 'capture-failed'
       console.warn(`[chat-agent-snapshot] agent=${id} category=${category}`)

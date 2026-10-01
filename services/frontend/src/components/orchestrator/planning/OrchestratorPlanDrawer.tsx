@@ -59,7 +59,6 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
   }, [request.request_id])
   return <div
     className="fixed inset-0 z-[1240] flex justify-end bg-[color-mix(in_srgb,var(--theme-backdrop)_65%,transparent)]"
-    data-chatgpt-overlay-blocker="true"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}
   >
     <aside

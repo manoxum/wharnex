@@ -34,13 +34,17 @@ test('a chat slot is given its layout viewport before it is ever hidden', async 
   const supervisorStart = supervisorSource.indexOf('function createChatGPTView(')
   const supervisor = supervisorSource.slice(supervisorStart, supervisorSource.indexOf('\n    const wc = view.webContents', supervisorStart))
   assert.doesNotMatch(supervisor, /view\.setVisible\(false\)/)
-  assert.match(supervisor, /addChildView\(view\)\n\s*grantChatGPTLayoutViewport\(view\)/)
+  // The real view is created in the browser host, never in a project window.
+  assert.doesNotMatch(supervisor, /addChildView/)
+  assert.match(supervisor, /createHostedChatGPTSurface\(native, \{ View: browserHost\.View, host: browserHost \}\)/)
+  assert.match(supervisor, /grantChatGPTLayoutViewport\(view\)/)
   assert.match(supervisor, /createChatGPTViewEntry\(view, cacheKey, windowState\.id/)
 
   const workerStart = workerSource.indexOf('function createChatGPTWorkerView(')
   const worker = workerSource.slice(workerStart, workerSource.indexOf('\n    const wc = view.webContents', workerStart))
   assert.doesNotMatch(worker, /view\.setVisible\(false\)/)
-  assert.doesNotMatch(worker, /addChildView\(view\)/)
+  assert.doesNotMatch(worker, /addChildView/)
+  assert.match(worker, /createHostedChatGPTSurface\(native, \{ View: browserHost\.View, host: browserHost \}\)/)
   assert.match(worker, /grantChatGPTLayoutViewport\(view\)/)
   assert.match(worker, /createChatGPTViewEntry\(view, '', windowState\.id/)
   assert.match(entrySource, /layoutViewportGranted: true/)
@@ -99,10 +103,10 @@ test('the layout viewport guard does not read native bounds as renderer evidence
   assert.match(viewport, /entry\.layoutViewportGranted === true\) return false/)
   assert.match(viewport, /grantChatGPTLayoutViewport\(entry\.view\)/)
 
-  // Re-parenting rebuilds the native hierarchy, so the grant has to be redone.
+  // Re-homing moves ownership only; the real view is never re-parented.
   const rehomeStart = source.indexOf('function rehomeChatGPTWorkers(')
-  const rehome = source.slice(rehomeStart, source.indexOf('\n}', rehomeStart))
-  assert.match(rehome, /grantChatGPTLayoutViewport\(entry\.view\)/)
+  const rehome = source.slice(rehomeStart, source.indexOf('\n  }', rehomeStart))
+  assert.doesNotMatch(rehome, /addChildView|removeChildView/)
 })
 
 test('startup restores every saved window session without asking', async () => {

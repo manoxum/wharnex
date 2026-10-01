@@ -13,7 +13,7 @@
 /* Multi-window / multi-project workspace shell */
 .desktop-shell-root { position: relative; width: 100vw; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr); overflow: hidden; background: var(--app-bg, #eceee7); }
 .multi-project-bar { min-width: 0; height: 48px; padding: 0 0 0 8px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; -webkit-app-region: drag; user-select: none; }
-.multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar [data-chatgpt-overlay-blocker='true'] { -webkit-app-region: no-drag; }
+.multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar .project-window-popover { -webkit-app-region: no-drag; }
 .multi-project-brand { min-width: 38px; height: 30px; padding: 0 9px 0 2px; display: flex; align-items: center; justify-content: center; border-right: 1px solid var(--theme-border-soft); color: var(--theme-text); }
 .project-quick-switch { min-width: 0; max-width: min(42vw, 560px); height: 100%; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .project-quick-switch:empty { flex: 0 0 0; }

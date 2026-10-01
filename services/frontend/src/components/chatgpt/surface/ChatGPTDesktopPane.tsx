@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { chatgptConversationURL, desktopBridge, elementBounds, formatBytes, sameChatGPTConversation } from '../../../lib/desktop/bridge/desktop'
 import { Icon } from '../../presentation/chrome/Icon'
 import { ChatBindingControl } from '../../chat/binding/ChatBindingControl'
@@ -6,15 +6,15 @@ import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
 import { expectedResponseBundleName } from '../../../lib/artifacts/bundles/bundlename'
 import { errorMessage } from '../../../lib/workspace/dialogs/errorMessage'
 import { supervisorInstanceLabel } from '../../../lib/agent/runtime/engineInstanceLabel'
-import { observeChatGPTOverlayBlockers } from '../../../lib/chat/transport/chatGPTOverlay'
 import { EngineInstanceSelector } from '../../agent/runtime/EngineInstanceSelector'
 import { WorkerFollowViewer } from '../../agent/runtime/WorkerFollowViewer'
 import { ManualChatGPTToolbar } from './ManualChatGPTToolbar'
 import { chatgptWriteInProgressNotice } from '../../../lib/chat/transport/chatgptWriteProgress'
+import { useAgentFollowEvent } from './useAgentFollowEvent'
+import { MirrorSurface } from '../mirror/MirrorSurface'
 
 const CHATGPT_HOME = 'https://chatgpt.com/'
 const CHATGPT_CONTROLS_KEY = 'wharness:chatgpt-auth-controls-expanded'
-const AGENT_FOLLOW_EVENT = 'wharnex:agent-follow'
 
 export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle, chatgptUrl, pendingRequestId, sessionId, chatHash, requestedAt, recoveryBootstrap, transportMode = 'scraper', manualPrompt = '', onChatGPTURL, onPlanFile, onBundleFile, onActivity, onTransportFailure, onCancelPendingRequest, onResendPendingRequest }: {
   suspended?: boolean
@@ -51,7 +51,6 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   const [linkReady, setLinkReady] = useState(false)
   const deferredSurfaceRef = useRef(false)
   const [externalAuth, setExternalAuth] = useState<{ provider: string; url: string } | null>(null)
-  const [overlayBlocked, setOverlayBlocked] = useState(false)
   const [requestAction, setRequestAction] = useState<'resume' | 'stop' | null>(null)
   const [followedAgentId, setFollowedAgentId] = useState('')
   const [agentRuntime, setAgentRuntime] = useState<DesktopAgentRuntimeState>()
@@ -154,17 +153,6 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     void bridge.chatgpt.setTransportMode?.(chatId, transportMode).catch(() => undefined)
   }, [bridge, chatId, transportMode])
 
-  useEffect(() => observeChatGPTOverlayBlockers(window, (blocked) => {
-    // A WebContentsView is composited above the renderer. Hide it in the
-    // observer callback itself; waiting for React to commit state and run the
-    // visibility effect leaves a visible frame in which the native surface can
-    // cover a modal or even the next selected workspace surface.
-    if (blocked) {
-      void bridge?.chatgpt.hide(chatIdRef.current)
-    }
-    setOverlayBlocked(blocked)
-  }), [bridge])
-
   useEffect(() => {
     const agents = bridge?.agents
     if (!agents) return
@@ -174,24 +162,25 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     return () => { active = false; off() }
   }, [bridge])
 
-  useEffect(() => {
-    const onFollow = (event: Event) => {
-      const agentId = String((event as CustomEvent<{ agentId?: string }>).detail?.agentId || '').trim()
-      if (/^worker-[1-6]$/.test(agentId)) setFollowedAgentId(agentId)
-    }
-    window.addEventListener(AGENT_FOLLOW_EVENT, onFollow)
-    return () => window.removeEventListener(AGENT_FOLLOW_EVENT, onFollow)
-  }, [])
+  useAgentFollowEvent(bridge, setFollowedAgentId)
+
+  // The real view lives in the browser monitor window; this pane mirrors it.
+  const mirrorFrames = useMemo(() => bridge?.chatgpt.onMirrorFrame
+    ? (callback: (frame: DesktopMirrorFrame) => void) => bridge.chatgpt.onMirrorFrame((frame) => { if (frame.cacheKey === chatId) callback(frame) })
+    : undefined, [bridge, chatId])
+  const mirrorInput = useMemo(() => bridge?.chatgpt.mirrorInput
+    ? (input: DesktopMirrorInput) => bridge.chatgpt.mirrorInput(chatId, input)
+    : undefined, [bridge, chatId])
 
   useEffect(() => {
     if (!bridge || !hostRef.current) return
-    if (suspended || overlayBlocked || externalAuth || followedAgentId) { void bridge.chatgpt.hide(chatIdRef.current); return }
+    if (suspended || externalAuth || followedAgentId) { void bridge.chatgpt.hide(chatIdRef.current); return }
     void bridge.chatgpt.show(elementBounds(hostRef.current), chatId, chatgptUrl || CHATGPT_HOME)
-  }, [bridge, chatId, suspended, overlayBlocked, externalAuth, followedAgentId])
+  }, [bridge, chatId, suspended, externalAuth, followedAgentId])
 
   useEffect(() => {
     if (!bridge || !chatId) return
-    if (suspended || overlayBlocked || externalAuth || followedAgentId || !hostRef.current) return
+    if (suspended || externalAuth || followedAgentId || !hostRef.current) return
     // This is the single human-facing Supervisor pane. It remains mounted while
     // its chatId/url props move between chats; background automation is handled
     // by hidden Desktop workers rather than additional React panes.
@@ -229,7 +218,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
       if (linkedConversation && linkedURLRef.current !== linkedConversation && onURLRef.current(linkedConversation)) linkedURLRef.current = linkedConversation
     }).catch((error) => { if (alive) setNotice(error instanceof Error ? error.message : 'Não foi possível abrir a conversa ChatGPT.') })
     return () => { alive = false }
-  }, [bridge, chatId, chatgptUrl, suspended, overlayBlocked, externalAuth, applyDesktopState])
+  }, [bridge, chatId, chatgptUrl, suspended, externalAuth, applyDesktopState])
 
   async function startAuthentication(mode: DesktopChatGPTAuthMode) {
     if (!bridge) return
@@ -441,7 +430,7 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
 
     {mismatch && <div className="chatgpt-link-warning"><span>Está a visualizar outra conversa; a vinculação permanente não será alterada.</span><button className="text-button" onClick={() => void restoreLinkedConversation()}>Repor vinculada</button></div>}
     {notice && <div className="desktop-chatgpt-notice">{notice}</div>}
-    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{followedAgentId && !suspended && !externalAuth && !overlayBlocked ? <WorkerFollowViewer agentId={followedAgentId} onStop={() => setFollowedAgentId('')}/> : state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharnex retomará esta vista automaticamente.</span></div> : overlayBlocked ? <div className="desktop-chatgpt-suspended"><Icon name="chatgpt" size={24}/><strong>ChatGPT preservado</strong><span>A vista regressa ao fechar esta camada, na mesma conversa e posição.</span></div> : state.loading ? <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div> : null}</div>
+    <div ref={hostRef} className="desktop-chatgpt-host" aria-label="ChatGPT incorporado">{followedAgentId && !suspended && !externalAuth ? <WorkerFollowViewer agentId={followedAgentId} onStop={() => setFollowedAgentId('')}/> : state.surfaceDeferred ? <div className="desktop-chatgpt-deferred"><Icon name="bridge" size={28}/><strong>A preparar este chat</strong><span>O Supervisor está a concluir o envio noutro chat. Este chat será carregado brevemente. Pode enviar novos prompts agora; ficarão em fila e serão enviados assim que este chat estiver pronto.</span></div> : externalAuth ? <div className="desktop-chatgpt-external-placeholder"><Icon name="external" size={28}/><strong>Autenticação externa</strong><span>Conclua o login no navegador seguro. O Wharnex retomará esta vista automaticamente.</span></div> : mirrorFrames && mirrorInput ? <MirrorSurface subscribe={mirrorFrames} send={mirrorInput} label="ChatGPT do Engine (espelho do navegador real)"/> : state.loading ? <div className="desktop-chatgpt-loading">A carregar ChatGPT…</div> : null}</div>
   </div>
 }
 

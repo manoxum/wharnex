@@ -7,8 +7,7 @@ function cleanupFixture() {
   const browser = { isDestroyed: () => false, close: () => calls.push('browser closed') }
   const supervisor = { ownerWindowId: 'closing', view: { webContents: browser } }
   const worker = {
-    ownerWindowId: 'closing', attached: true, interactionWindowId: 'closing',
-    parkedLayout: false, layoutViewportGranted: false,
+    ownerWindowId: 'closing', interactionWindowId: 'closing',
     view: { webContents: browser },
   }
   const closing = {
@@ -30,21 +29,18 @@ function cleanupFixture() {
     internalChatGPTBrowsers, chatGPTAuthBrowsers, chatgptViews,
     chatGPTWorkerEntries, desktopWindows,
     hideChatAgentInteractionsForWindow: () => calls.push('interaction hidden'),
-    grantChatGPTLayoutViewport: () => calls.push('viewport granted'),
     retireChatGPTSupervisorSurface: (key) => { calls.push(`retired ${key}`); chatgptViews.delete(key) },
     closeManagedBrowserAuth: () => {},
   })
   return { cleanup, calls, browser, worker, closing, internalChatGPTBrowsers, chatgptViews, chatGPTWorkerEntries }
 }
 
-test('re-homing a Worker re-grants its renderer viewport after native re-parenting', () => {
+test('re-homing a Worker moves only its ownership; the real view stays in the browser host', () => {
   const { cleanup, calls, worker, closing } = cleanupFixture()
   assert.equal(cleanup.rehomeChatGPTWorkers(closing), true)
-  assert.deepEqual(calls, ['interaction hidden', 'detached', 'attached', 'viewport granted'])
+  assert.deepEqual(calls, ['interaction hidden'])
   assert.equal(worker.ownerWindowId, 'replacement')
   assert.equal(worker.interactionWindowId, '')
-  assert.equal(worker.parkedLayout, true)
-  assert.equal(worker.layoutViewportGranted, true)
 })
 
 test('window and session cleanup releases owned views and preserves the shared map identity', () => {

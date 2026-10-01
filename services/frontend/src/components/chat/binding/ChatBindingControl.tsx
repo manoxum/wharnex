@@ -51,7 +51,6 @@ export function ChatBindingControl({ chatId, linkedUrl, mismatch = false, onBind
       className="absolute right-0 top-[calc(100%+7px)] z-[70] w-[min(620px,calc(100vw-24px))]"
       role="dialog"
       aria-label="Vínculo da conversa ChatGPT"
-      data-chatgpt-overlay-blocker="true"
     >
       <ChatBindingRecovery chatId={chatId} linkedUrl={linkedUrl} onBind={onBind} onLinked={() => setOpen(false)}/>
     </div>}

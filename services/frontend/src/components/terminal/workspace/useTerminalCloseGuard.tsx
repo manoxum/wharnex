@@ -70,7 +70,7 @@ export function useTerminalCloseGuard(frames: Frames, projects: string[], closeP
     setError(''); setPendingProject(projectPath)
   }
 
-  const dialog = pendingProject ? createPortal(<div className="desktop-close-backdrop" data-chatgpt-overlay-blocker="true">
+  const dialog = pendingProject ? createPortal(<div className="desktop-close-backdrop">
     <TerminalProcessCloseDialog
       count={pendingTerminals.length}
       subject="este projeto"

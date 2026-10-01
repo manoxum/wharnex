@@ -31,7 +31,7 @@ export function DesktopRecoveryDialog({ projects, busy, onRecover, onDiscard }: 
 
   const many = projects.length > 1
 
-  return createPortal(<div className="desktop-recovery-backdrop" data-chatgpt-overlay-blocker="true">
+  return createPortal(<div className="desktop-recovery-backdrop">
     <section className="desktop-recovery-dialog" role="alertdialog" aria-modal="true" aria-labelledby="desktop-recovery-title" aria-describedby="desktop-recovery-description">
       <header className="desktop-recovery-heading">
         <span className="desktop-recovery-symbol"><Icon name="archive" size={20}/></span>

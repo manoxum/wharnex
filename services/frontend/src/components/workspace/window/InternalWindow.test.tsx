@@ -29,7 +29,6 @@ describe('InternalWindow', () => {
     expect(dialog.getAttribute('aria-modal')).toBe('false')
     const layer = document.querySelector('.internal-window-layer')
     expect(layer?.className).toContain('example-layer')
-    expect(layer?.getAttribute('data-chatgpt-overlay-blocker')).toBe('true')
     expect(dialog.querySelector('.internal-window-controls')).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Minimizar Pré-visualização' }).closest('[role="dialog"]')).toBe(dialog)
     const draft = screen.getByRole('textbox', { name: 'Rascunho' }) as HTMLInputElement
@@ -37,12 +36,10 @@ describe('InternalWindow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Minimizar Pré-visualização' }))
     expect(screen.queryByRole('dialog', { name: 'Pré-visualização' })).toBeNull()
-    expect(layer?.hasAttribute('data-chatgpt-overlay-blocker')).toBe(false)
     expect(document.getElementById(INTERNAL_WINDOW_DOCK_ID)?.textContent).toContain('Pré-visualização')
 
     fireEvent.click(screen.getByTitle('Restaurar Pré-visualização'))
     expect(screen.getByRole('dialog', { name: 'Pré-visualização' })).toBeTruthy()
-    expect(layer?.getAttribute('data-chatgpt-overlay-blocker')).toBe('true')
     expect((screen.getByRole('textbox', { name: 'Rascunho' }) as HTMLInputElement).value).toBe('preservado')
 
     fireEvent.click(screen.getByRole('button', { name: 'Fechar Pré-visualização' }))

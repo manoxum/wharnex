@@ -164,7 +164,7 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
         <button type="button" className="terminal-add-tab" onClick={addTerminal} title="Nova instância de terminal" aria-label="Nova instância de terminal"><Icon name="plus" size={16}/></button>
         <div className={`terminal-overflow ${overflowOpen ? 'open' : ''}`}>
           <button type="button" className="terminal-toolbar-action" aria-expanded={overflowOpen} onClick={() => setOverflowOpen((open) => !open)} title="Mais ações do terminal" aria-label="Mais ações do terminal"><Icon name="more-horizontal" size={16}/></button>
-          {overflowOpen && <div className="terminal-overflow-menu" role="menu" aria-label="Ações adicionais do terminal" data-chatgpt-overlay-blocker="true">
+          {overflowOpen && <div className="terminal-overflow-menu" role="menu" aria-label="Ações adicionais do terminal">
             <button type="button" role="menuitem" onClick={() => { reconnectActive(); setOverflowOpen(false) }}><Icon name="refresh" size={14}/><span>Reconectar</span></button>
             <button type="button" role="menuitem" onClick={() => { onHeight(height < 320 ? 390 : 245); setOverflowOpen(false) }}><Icon name="collapse" size={14}/><span>{height < 320 ? 'Expandir painel' : 'Reduzir painel'}</span></button>
             {onDetachTerminal && <button type="button" role="menuitem" onClick={() => { onDetachTerminal(); setOverflowOpen(false) }}><Icon name="external" size={14}/><span>Abrir em janela</span></button>}

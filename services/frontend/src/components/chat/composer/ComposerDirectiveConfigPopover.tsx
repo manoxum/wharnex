@@ -61,7 +61,7 @@ export function ComposerDirectiveConfigPopover({ directive, anchor, referenceAtt
     : { left: anchor.left, bottom: window.innerHeight - anchor.top + 6 }
 
   return <div
-    ref={popoverRef} className="composer-directive-popover" data-chatgpt-overlay-blocker="true"
+    ref={popoverRef} className="composer-directive-popover"
     style={style} role="dialog" aria-label={`Configurar ${directiveKindLabel(directive.kind)}`}
   >
     <header>

@@ -58,7 +58,7 @@ export function QuickSwitcher({ compact = true }: { compact?: boolean }) {
 
   return <div className="quick-switcher" ref={rootRef}>
     <button type="button" className={`quick-switcher-trigger${compact ? ' compact' : ''}`} aria-label="Aparência rápida" aria-expanded={open} title="Aparência rápida · Ctrl/⌘ + Alt + Q" onClick={() => { if (!open) announceHeaderPopover('appearance'); setOpen((current) => !current) }}><Icon name="monitor" size={14}/>{!compact && <span>Aparência</span>}</button>
-    {open && <div className="quick-switcher-popover" role="dialog" aria-label="Aparência rápida" data-chatgpt-overlay-blocker="true">
+    {open && <div className="quick-switcher-popover" role="dialog" aria-label="Aparência rápida">
       <header>
         <div><span className="quick-switcher-eyebrow">Workbench</span><strong>Aparência</strong><small>{activeTheme.family} · {activeTheme.label}</small></div>
         <kbd>Ctrl/⌘ Alt Q</kbd>

@@ -192,7 +192,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
       {loading && !entries.length ? <ContentSkeleton label="A carregar ficheiros do projeto" rows={7}/> : tree.length ? tree.map((node) => <TreeItem key={node.path} node={node} depth={0} expanded={expanded} focusedPath={focusedPath} gitByPath={gitByPath} gitDirectoryCounts={gitDirectoryCounts} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu}/>) : <div className="agent-drawer-empty">Este projeto não contém ficheiros visíveis no Explorer.</div>}
     </div>
     <footer className="agent-project-footer"><span>{entries.filter((entry) => entry.kind === 'file').length} ficheiros</span><span>{gitFiles.length ? `${gitFiles.length} com alterações Git` : 'Git limpo'}</span></footer>
-    {menu && <div className="explorer-context-menu agent-explorer-context-menu" data-chatgpt-overlay-blocker="true" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()}>
+    {menu && <div className="explorer-context-menu agent-explorer-context-menu" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()}>
       {menu.node.kind === 'file' && <button type="button" onClick={() => { onOpen(menu.node.path); setMenu(undefined) }}><FileGlyph path={menu.node.path}/> Abrir no Editor</button>}
       {canOpenGitDiff(gitByPath.get(menu.node.path)) && <button type="button" onClick={() => { void openGitDiff(menu.node.path); setMenu(undefined) }}><Icon name="git" size={13}/> Ver alterações Git</button>}
       <button type="button" onClick={() => { void copyPath(menu.node); setMenu(undefined) }}><Icon name="copy" size={13}/> Copiar caminho</button>
@@ -200,7 +200,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
       <div className="menu-separator"/>
       <button type="button" className="danger" onClick={() => { void remove(menu.node); setMenu(undefined) }}><Icon name="trash" size={13}/> Eliminar</button>
     </div>}
-    {gitDiff && <div className="diff-inspector-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}><section className="diff-inspector editor-git-diff"><header><div><strong>{gitDiff.path}</strong><span>{gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Alterações locais em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff" title="Fechar diff"><Icon name="close" size={16}/></button></header>{gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile}/> : null}</section></div>}
+    {gitDiff && <div className="diff-inspector-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}><section className="diff-inspector editor-git-diff"><header><div><strong>{gitDiff.path}</strong><span>{gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Alterações locais em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff" title="Fechar diff"><Icon name="close" size={16}/></button></header>{gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile}/> : null}</section></div>}
   </section>
 }
 

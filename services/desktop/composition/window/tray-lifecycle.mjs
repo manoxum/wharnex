@@ -7,7 +7,7 @@ export function createDesktopTrayComposition({
   app, dialog, Menu, Notification, Tray, nativeImage, session, icon,
   instanceName, platform, getTrayControl, setTrayControl,
   listProjects, projectLabel, restoreProject, closeProject,
-  showFallback, sendProjectAction, projectWindowState, sendToWindowState,
+  showFallback, openBrowserMonitor, sendProjectAction, projectWindowState, sendToWindowState,
   workerState, pauseWorkers, resumeWorkers,
   canonicalProjectPath, hideAgentInteractionsForWindow,
   persistWindowLayout, persistDesktopRecoverySession,
@@ -18,7 +18,7 @@ export function createDesktopTrayComposition({
     if (existing) return existing
     const control = createDesktopTrayControl({
       Menu, Notification, Tray, nativeImage, icon, instanceName, platform,
-      listProjects, projectLabel, restoreProject, closeProject, showFallback,
+      listProjects, projectLabel, restoreProject, closeProject, showFallback, openBrowserMonitor,
       quit: requestFullDesktopQuit, sendProjectAction,
       sendNotificationOpen: (projectPath, record) => {
         const state = projectWindowState(projectPath)

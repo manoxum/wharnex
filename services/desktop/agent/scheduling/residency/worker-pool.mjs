@@ -21,7 +21,7 @@ export function createChatAgentWorkerPool({
       const candidate = persistent.sort((left, right) => Number(right.slotId.slice(7)) - Number(left.slotId.slice(7)))[0]
       const index = Number(candidate.slotId.slice(7))
       const runtime = chatAgentWorkerStates.get(index)
-      if (candidate?.interactionWindowId || runtime?.task || runtime?.active !== false) break
+      if (candidate?.interactionWindowId || candidate?.monitorWindowId || runtime?.task || runtime?.active !== false) break
       const position = chatGPTWorkerEntries.indexOf(candidate)
       if (position >= 0) chatGPTWorkerEntries.splice(position, 1)
       retireChatGPTWorkerView(candidate)

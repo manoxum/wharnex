@@ -1,3 +1,5 @@
+import { dispatchMirrorInput } from '../mirror/input.mjs'
+
 export function registerChatGPTVisibilityIPC({
   ipcMain, trustedSender, deferSupervisorNavigationIfBusy,
   activateChatGPTView, requireTrustedChatGPTURL, homeURL,
@@ -42,5 +44,16 @@ export function registerChatGPTVisibilityIPC({
     const key = sanitizeChatCacheKey(request?.cacheKey)
     if (key !== windowState.activeChatGPTKey || !windowState.chatgptVisible) return { ok: false }
     return { ok: setChatGPTBounds(request?.bounds, windowState) }
+  })
+  // The user's own pointer/key input on this window's Engine mirror, for the
+  // Supervisor this window shows and nothing else.
+  ipcMain.handle('wharness:chatgpt:mirror-input', (event, request) => {
+    const windowState = trustedSender(event)
+    const key = sanitizeChatCacheKey(request?.cacheKey)
+    const entry = chatgptViews.get(key)
+    if (!entry || entry.ownerWindowId !== windowState.id || windowState.activeChatGPTKey !== key || !entry.view.isVisible?.()) {
+      return { ok: false }
+    }
+    return dispatchMirrorInput(entry, request?.input)
   })
 }

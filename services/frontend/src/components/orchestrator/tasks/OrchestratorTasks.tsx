@@ -156,7 +156,7 @@ function NewTaskDrawer({ session, overview, busy, onClose, onRun }: { session: S
     const value = await onRun(() => api.createOrchestratorTask(session.id, { plan_id: planID || undefined, title: title.trim(), description: description.trim(), priority, depends_on: dependencies }))
     if (value) onClose()
   }
-  return <div className="orchestrator-drawer-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer">
+  return <div className="orchestrator-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer">
     <header><div><span className="truncate font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">Task manual</span><strong className="truncate text-lg">Nova Task</strong></div><button onClick={onClose} aria-label="Fechar"><Icon name="close" size={16}/></button></header>
     <div className="orchestrator-form">
       <label className="text-sm font-semibold">Título<input className="text-base" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus /></label>

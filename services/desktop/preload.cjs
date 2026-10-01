@@ -85,6 +85,13 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     show: (bounds, cacheKey, url) => invoke('wharness:chatgpt:show', { bounds, cacheKey, url: String(url || '') }),
     hide: (cacheKey) => invoke('wharness:chatgpt:hide', { cacheKey }),
     setBounds: (bounds, cacheKey) => invoke('wharness:chatgpt:set-bounds', { bounds, cacheKey }),
+    mirrorInput: (cacheKey, input) => invoke('wharness:chatgpt:mirror-input', { cacheKey, input }),
+    onMirrorFrame: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, frame) => callback(frame)
+      ipcRenderer.on('wharness:chatgpt:mirror-frame', handler)
+      return () => ipcRenderer.removeListener('wharness:chatgpt:mirror-frame', handler)
+    },
     navigate: (url, cacheKey, options = {}) => invoke('wharness:chatgpt:navigate', { url: String(url), cacheKey, resetToHomeIfConversation: Boolean(options?.resetToHomeIfConversation), bounds: options?.bounds }),
     confirmAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:confirm-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
     rejectAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:reject-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
@@ -220,6 +227,22 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     openInteraction: (agentId, bounds) => invoke('wharness:agents:interaction-open', { agentId: String(agentId || ''), bounds }),
     setInteractionBounds: (agentId, bounds) => invoke('wharness:agents:interaction-bounds', { agentId: String(agentId || ''), bounds }),
     closeInteraction: (agentId) => invoke('wharness:agents:interaction-close', { agentId: String(agentId || '') }),
+    presentInMonitor: (agentId, bounds) => invoke('wharness:agents:monitor-present', { agentId: String(agentId || ''), bounds }),
+    resizeInMonitor: (agentId, bounds) => invoke('wharness:agents:monitor-bounds', { agentId: String(agentId || ''), bounds }),
+    releaseFromMonitor: (agentId) => invoke('wharness:agents:monitor-release', { agentId: String(agentId || '') }),
+    mirrorInput: (agentId, input) => invoke('wharness:agents:mirror-input', { agentId: String(agentId || ''), input }),
+    onMirrorFrame: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, frame) => callback(frame)
+      ipcRenderer.on('wharness:agents:mirror-frame', handler)
+      return () => ipcRenderer.removeListener('wharness:agents:mirror-frame', handler)
+    },
+    onMonitorSelect: (callback) => {
+      if (typeof callback !== 'function') return () => {}
+      const handler = (_event, selection) => callback(selection)
+      ipcRenderer.on('wharness:agents:monitor-select', handler)
+      return () => ipcRenderer.removeListener('wharness:agents:monitor-select', handler)
+    },
     onState: (callback) => {
       if (typeof callback !== 'function') return () => {}
       const handler = (_event, state) => callback(state)

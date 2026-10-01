@@ -71,7 +71,8 @@ export function createSupervisorSurfaceSlots({
     const key = sanitizeChatCacheKey(cacheKey)
     let entry = chatgptViews.get(key)
     if (!entry) {
-      const resolved = windowState || [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+      const live = [...desktopWindows.values()].filter((state) => state.window && !state.window.isDestroyed())
+      const resolved = windowState || live.find((state) => !state.transientSurface) || live[0]
       if (chatgptViews.size >= getDesiredChatAgentSupervisorSlots()) {
         const reusable = reusableSupervisor(key, resolved)
         if (!reusable) throw new Error('Todos os slots de Supervisor estão vinculados a pedidos em curso')
@@ -84,9 +85,8 @@ export function createSupervisorSurfaceSlots({
       entry.slotId = supervisorSlotID()
     }
     if (windowState && entry.ownerWindowId !== windowState.id) {
+      // Ownership moves; the real view stays in the browser monitor.
       const previousState = windowStateForEntry(entry)
-      try { previousState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
-      windowState.window.contentView.addChildView(entry.view)
       if (previousState?.activeChatGPTKey === key) { previousState.activeChatGPTKey = ''; previousState.chatgptVisible = false }
       entry.ownerWindowId = windowState.id
     }

@@ -66,7 +66,7 @@ export function createAccountViewport(context) {
     // entry the Supervisor map actually holds for this key is the visible surface;
     // a Worker entry never is.
     const ownerState = windowStateForEntry(entry)
-    if (entry?.interactionWindowId && ownerState?.activeAgentInteractionId === entry.slotId) return false
+    if (entry?.monitorWindowId || (entry?.interactionWindowId && ownerState?.activeAgentInteractionId === entry.slotId)) return false
     if (ownerState?.activeChatGPTKey === key && chatgptViews.get(key) === entry) return false
     // The native bounds are NOT evidence the renderer has a viewport, and reading
     // them as if they were is what made this permanent: the first ineffective

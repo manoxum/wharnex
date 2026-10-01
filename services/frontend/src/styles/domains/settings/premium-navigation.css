@@ -105,31 +105,3 @@
   border-radius:0 2px 2px 0;
 }
 
-/* A native WebContentsView must briefly yield to trusted renderer overlays.
-   Keep its footprint themed and explicit instead of exposing a black native
-   host while the exact same conversation remains resident underneath. */
-.desktop-chatgpt-suspended {
-  position:absolute;
-  inset:0;
-  z-index:4;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:7px;
-  padding:24px;
-  background:var(--theme-bg);
-  color:var(--theme-text-muted);
-  text-align:center;
-}
-.desktop-chatgpt-suspended::before {
-  content:'';
-  width:min(320px,70%);
-  height:1px;
-  position:absolute;
-  top:calc(50% - 54px);
-  background:linear-gradient(90deg,transparent,var(--theme-border),transparent);
-}
-.desktop-chatgpt-suspended svg { color:var(--theme-accent); }
-.desktop-chatgpt-suspended strong { color:var(--theme-text); font-size:calc(10px * var(--ui-font-scale)); font-weight:650; }
-.desktop-chatgpt-suspended span { max-width:360px; font-size:calc(7.6px * var(--ui-font-scale)); line-height:1.45; }

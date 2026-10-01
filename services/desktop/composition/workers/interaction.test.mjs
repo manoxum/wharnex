@@ -34,7 +34,7 @@ test('two Supervisor slots double-buffer renderer IPC while bounded workers stay
   assert.match(workers, /createChatGPTWorkerView\(`worker-\$\{index\}`/)
   assert.match(workers, /persistent\.length <= state\.desiredChatAgentWorkerSlots/)
   assert.match(workers, /entry\.slotId === `worker-\$\{index\}`/)
-  assert.match(workers, /if \(candidate\?\.interactionWindowId \|\| runtime\?\.task \|\| runtime\?\.active !== false\) break/)
+  assert.match(workers, /if \(candidate\?\.interactionWindowId \|\| candidate\?\.monitorWindowId \|\| runtime\?\.task \|\| runtime\?\.active !== false\) break/)
   assert.match(workers, /reconcileChatGPTWorkerPool\(windowState\)/)
   assert.match(workerPool, /function workerEntryForIndex\(worker\)/)
   assert.match(workerPool, /entry\.role !== 'worker'/)
@@ -56,7 +56,7 @@ test('two Supervisor slots double-buffer renderer IPC while bounded workers stay
   assert.match(legacyPlanDownload, /publishPlan\(\{ cacheKey: sourceCacheKey, filename/)
 })
 
-test('agent browser snapshots present hidden workers at full size for capture', async () => {
+test('agent browser snapshots capture every agent where its view is parked', async () => {
   const source = await readTaskExecutionSource()
   const wiring = await readFile(new URL('../../agent/scheduling/wiring/desktop.mjs', import.meta.url), 'utf8')
   const start = source.indexOf('async function chatAgentBrowserSnapshot(agentID)')
@@ -64,8 +64,9 @@ test('agent browser snapshots present hidden workers at full size for capture', 
   assert.notEqual(start, -1)
   const snapshot = source.slice(start, end)
   assert.match(snapshot, /d\.ensureChatGPTLayoutViewport\(layoutKey, entry\)/)
-  assert.match(snapshot, /entry\.role === 'worker' && !entry\.interactionWindowId/)
-  assert.match(snapshot, /await d\.captureParkedWorkerPage\(entry, d\.BrowserWindow, \{ openMonitor: d\.openWorkerMonitor, closeMonitor: d\.closeWorkerMonitor \}\)/)
+  // Every agent view lives in the browser host, so nothing is moved to capture it.
+  assert.match(snapshot, /dataUrl = await d\.captureChatGPTAgentPage\(wc\)/)
+  assert.doesNotMatch(snapshot, /captureParkedWorkerPage|openWorkerMonitor/)
   assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor' \? d\.supervisorKey/)
   assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopAgentScheduling\(\{/)
   assert.match(wiring, /async function chatAgentBrowserSnapshot\(agentID\)/)
@@ -76,8 +77,8 @@ test('a running Worker may reuse its renderer in the embedded interaction pane',
   const start = source.indexOf('function showChatAgentInteraction(')
   const interaction = source.slice(start, source.indexOf('\nfunction setChatAgentInteractionBounds(', start))
   assert.doesNotMatch(interaction, /chatAgentWorkerStates\.get\(Number\(entry\.slotId\.slice\(7\)\)\)\?\.task/)
-  assert.match(interaction, /entry\.monitorWindow && !entry\.monitorWindow\.isDestroyed\(\)/)
-  assert.match(interaction, /windowState\.window\.contentView\.addChildView\(entry\.view\)/)
+  // The project window mirrors the Worker; its real view is never attached there.
+  assert.doesNotMatch(interaction, /addChildView/)
   const claim = source.slice(source.indexOf('claimOptions: (worker) => {'), source.indexOf('    onIdle: (worker) => {'))
   assert.match(claim, /entry\.interactionWindowId/)
 })

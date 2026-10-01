@@ -1,4 +1,5 @@
 import { createChatGPTViewEntry } from './entry.mjs'
+import { createHostedChatGPTSurface } from './surface.mjs'
 
 export function createChatGPTWorkerViewLifecycle({
   WebContentsView, securePreferences, CHATGPT_PARTITION,
@@ -9,18 +10,16 @@ export function createChatGPTWorkerViewLifecycle({
   publishChatAgentRuntimeState, observeChatGPTAffinityURL,
   scheduleChatGPTAffinitySettlement, sanitizeDiagnosticURL,
   isRecoverableChatGPTNetworkError, noteChatGPTRendererFault,
-  closeWorkerMonitor, hideChatAgentInteractionEntry, windowStateForEntry,
+  closeWorkerMonitor, hideChatAgentInteractionEntry, windowStateForEntry, browserHost,
 }) {
   function createChatGPTWorkerView(slotId, windowState) {
     if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT worker without a host window')
-    const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
-    view.setBackgroundColor('#ffffff')
-    // Hidden Workers do not need to participate in the visible window's native
-    // compositor tree. Keeping them detached avoids the Linux WebContentsView
-    // attachment trap that killed and reloaded the local frontend renderer as
-    // each background slot was created. A Worker is attached only while the
-    // operator explicitly surfaces it, then detached again when that pane closes.
-    const entry = createChatGPTViewEntry(view, '', windowState.id, createChatGPTAffinityTracker, { role: 'worker', slotId, interactionWindowId: '', attached: false })
+    const native = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
+    native.setBackgroundColor('#ffffff')
+    // Workers live in the browser monitor with the Supervisors, never in a
+    // project window: a project surfaces one only as a mirror.
+    const view = createHostedChatGPTSurface(native, { View: browserHost.View, host: browserHost })
+    const entry = createChatGPTViewEntry(view, '', windowState.id, createChatGPTAffinityTracker, { role: 'worker', slotId, interactionWindowId: '' })
     grantChatGPTLayoutViewport(view)
     chatGPTWorkerEntries.push(entry)
     chatAgentResidency.register(slotId)
@@ -59,12 +58,16 @@ export function createChatGPTWorkerViewLifecycle({
 
   function retireChatGPTWorkerView(entry) {
     if (!entry) return false
+    const monitor = entry.monitorWindowId ? windowStateForEntry({ ownerWindowId: entry.monitorWindowId }) : undefined
+    if (monitor?.activeMonitorAgentEntry === entry) {
+      monitor.activeMonitorAgentEntry = undefined
+      monitor.activeMonitorAgentId = ''
+    }
+    entry.monitorWindowId = ''
     chatAgentResidency.retire(entry.slotId)
     closeWorkerMonitor(entry)
     hideChatAgentInteractionEntry(entry)
     clearTimeout(entry.affinitySettleTimer)
-    const state = windowStateForEntry(entry)
-    if (entry.attached) try { state?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
     if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close()
     return true
   }

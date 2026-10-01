@@ -29,7 +29,9 @@ export function configureDesktopProcess({ app, BrowserWindow, environment, platf
     app.quit()
   } else {
     app.on('second-instance', () => {
-      const win = BrowserWindow.getAllWindows()[0] || getMainWindow()
+      // The browser host is a one-pixel, unfocusable window; never raise it.
+      const main = getMainWindow()
+      const win = main && main.isDestroyed?.() !== true ? main : BrowserWindow.getAllWindows().find((candidate) => candidate.isFocusable?.() !== false)
       if (!win) return
       if (win.isMinimized()) win.restore()
       win.show()

@@ -87,7 +87,7 @@ export function EditorSearchPalette({ mode, sessionId, files, onClose, onOpen }:
     if (match) { onOpen(match.path, match.line, match.column); onClose() }
   }
 
-  return <div className="editor-search-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
+  return <div className="editor-search-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose() }}>
     <section className={`editor-search-palette mode-${mode}`} role="dialog" aria-modal="true" aria-label={mode === 'files' ? 'Localizar ficheiro' : 'Pesquisar em todo o projeto'} onKeyDown={(event) => {
       if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
       if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex((index) => Math.min(Math.max(0, resultCount - 1), index + 1)); return }

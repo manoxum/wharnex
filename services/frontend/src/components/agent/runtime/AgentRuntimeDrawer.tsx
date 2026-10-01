@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../../../lib/desktop/bridge/desktop'
 import { api } from '../../../lib/transport/http/api'
-import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
-import { observeChatGPTOverlayBlockers } from '../../../lib/chat/transport/chatGPTOverlay'
 import type { ChatAgentTask } from '../../../types'
 import { Icon } from '../../presentation/chrome/Icon'
 import { ContentSkeleton } from '../../presentation/chrome/Skeleton'
+import { AgentRuntimePolicies } from './AgentRuntimePolicies'
+import { WorkerMirror } from '../../chatgpt/mirror/WorkerMirror'
 
 type Runtime = DesktopAgentRuntimeState
 
@@ -15,40 +15,6 @@ type OperationalState = 'idle' | 'writing' | 'listening' | 'waiting' | 'chat-emp
 
 const writingTaskTypes = new Set(['BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN'])
 
-type WorkerTaskTypeOption = readonly [type: string, label: string]
-type WorkerTaskTypeGroup = {
-  id: string
-  label: string
-  description: string
-  tasks: readonly WorkerTaskTypeOption[]
-}
-
-const workerTaskTypeGroups: readonly WorkerTaskTypeGroup[] = [
-  {
-    id: 'auxiliary',
-    label: 'Auxiliar',
-    description: 'Manutenção de chats, bundles e títulos.',
-    tasks: [
-      ['ORGANIZE_CHAT', 'Organizar chat'],
-      ['RENAME_CHAT', 'Renomear chat'],
-      ['ARCHIVE_CHAT', 'Arquivar chat'],
-      ['DELETE_CHAT', 'Eliminar chat'],
-      ['DELETE_TEMP_CHAT', 'Eliminar chat temporário'],
-      ['DELETE_BUNDLE', 'Eliminar bundle'],
-      ['TITLE_DISCOVER', 'Descobrir título'],
-      ['TITLE_GENERATE_TEMP', 'Gerar título temporário'],
-      ['TITLE_AWAIT', 'Aguardar título'],
-    ],
-  },
-  {
-    id: 'functional',
-    label: 'Funcional',
-    description: 'Trabalho funcional delegado ao pool de Workers.',
-    tasks: [
-      ['TODO_CLASSIFY', 'Classificar TODO'],
-    ],
-  },
-]
 
 // One entry per colour the list can show. A running task can be in several
 // of them (preparing, sending, waiting for ChatGPT), so each entry names the
@@ -214,12 +180,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
   const [runtime, setRuntime] = useState<Runtime>()
   const [selectedId, setSelectedId] = useState('supervisor-1')
   const [interactionId, setInteractionId] = useState<string>()
-  const [overlayBlocked, setOverlayBlocked] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [workerPauseMode, setWorkerPauseMode] = useState<'timed' | 'manual'>('timed')
-  const [workerPauseMinutes, setWorkerPauseMinutes] = useState('60')
-  const [workerPauseScope, setWorkerPauseScope] = useState<'all' | 'types'>('all')
-  const [workerPauseTaskTypes, setWorkerPauseTaskTypes] = useState<string[]>([])
   const [snapshot, setSnapshot] = useState<Snapshot>()
   const [taskPickerOpen, setTaskPickerOpen] = useState(false)
   const [availableTasks, setAvailableTasks] = useState<ChatAgentTask[]>([])
@@ -261,17 +222,8 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
     setTaskAssignmentMode('standard')
   }, [selected?.id])
 
-  useEffect(() => observeChatGPTOverlayBlockers(window, (blocked) => {
-    if (blocked && interactionId) void bridge?.closeInteraction(interactionId).catch(() => {})
-    setOverlayBlocked(blocked)
-  }), [bridge, interactionId])
-
   useEffect(() => {
     if (!bridge || !interactionId || selected?.id !== interactionId || selected.role !== 'worker') return
-    if (overlayBlocked) {
-      void bridge.closeInteraction(interactionId).catch(() => {})
-      return
-    }
     const host = interactionHostRef.current
     if (!host) return
     let active = true
@@ -299,91 +251,12 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       window.removeEventListener('scroll', sync, true)
       void bridge.closeInteraction(interactionId).catch(() => {})
     }
-  }, [bridge, interactionId, selected?.id, selected?.role, overlayBlocked])
-
-  const scaleSupervisors = async (delta: number) => {
-    if (!bridge || !runtime) return
-    const configured = runtime.configured_supervisors || runtime.desired_supervisors
-    const next = Math.max(runtime.limits.min_supervisors, Math.min(runtime.limits.max_supervisors, configured + delta))
-    if (next === configured) return
-    setBusy(true)
-    try { setRuntime(await bridge.setSupervisorCount(next)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível escalar os supervisores') } finally { setBusy(false) }
-  }
-
-  const scaleWorkers = async (delta: number) => {
-    if (!bridge || !runtime) return
-    const configured = runtime.configured_workers || runtime.desired_workers
-    const next = Math.max(runtime.limits.min_workers, Math.min(runtime.limits.max_workers, configured + delta))
-    if (next === configured) return
-    setBusy(true)
-    try { setRuntime(await bridge.setWorkerCount(next)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível escalar os workers') } finally { setBusy(false) }
-  }
-
-  const updatePolicies = async (changes: { auto_scale?: boolean; auto_scale_max_supervisors?: number; auto_scale_max_workers?: number; keep_flowing_global?: boolean; rate_limit_cooldown_minutes?: number }) => {
-    if (!bridge) return
-    setBusy(true)
-    try { setRuntime(await bridge.setPolicies(changes)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível atualizar as políticas') } finally { setBusy(false) }
-  }
-
-  const scaleAutoScaleCeiling = async (delta: number) => {
-    if (!runtime) return
-    const ceiling = runtime.policies.auto_scale_max_workers || runtime.limits.max_workers
-    const next = Math.max(runtime.limits.min_workers, Math.min(runtime.limits.max_workers, ceiling + delta))
-    if (next === ceiling) return
-    await updatePolicies({ auto_scale_max_workers: next })
-  }
-
-  const scaleAutoScaleSupervisorCeiling = async (delta: number) => {
-    if (!runtime) return
-    const ceiling = runtime.policies.auto_scale_max_supervisors || runtime.limits.max_supervisors
-    const next = Math.max(runtime.limits.min_supervisors, Math.min(runtime.limits.max_supervisors, ceiling + delta))
-    if (next === ceiling) return
-    await updatePolicies({ auto_scale_max_supervisors: next })
-  }
+  }, [bridge, interactionId, selected?.id, selected?.role])
 
   const setWorkerKeepFlowing = async (agentId: string, enabled: boolean) => {
     if (!bridge) return
     setBusy(true)
     try { setRuntime(await bridge.setWorkerKeepFlowing(agentId, enabled)) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível atualizar Keep flowing neste Worker') } finally { setBusy(false) }
-  }
-
-  const suspendWorkers = async () => {
-    if (!bridge) return
-    if (workerPauseScope === 'types' && workerPauseTaskTypes.length === 0) {
-      onError?.('Selecione pelo menos um tipo de tarefa para suspender.')
-      return
-    }
-    let pausedUntil: string | undefined
-    if (workerPauseMode === 'timed') {
-      const minutes = Number(workerPauseMinutes)
-      if (!Number.isFinite(minutes) || minutes < 1 || minutes > 10_080) {
-        onError?.('Defina uma duração dos Workers entre 1 minuto e 7 dias.')
-        return
-      }
-      pausedUntil = new Date(Date.now() + Math.floor(minutes) * 60_000).toISOString()
-    }
-    setBusy(true)
-    try { setRuntime(await bridge.pauseWorkers(pausedUntil, workerPauseScope === 'types' ? workerPauseTaskTypes : [])) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível suspender os Workers') } finally { setBusy(false) }
-  }
-
-  // Releasing early skips the cooldown that protects the account, so it is an
-  // explicit, confirmed operator decision.
-  const releaseRateLimit = async () => {
-    if (!bridge) return
-    const confirmed = await confirmDialog({
-      title: 'Libertar suspensão por rate limit?',
-      message: 'Os Workers voltam a enviar pedidos ao ChatGPT antes do fim do cooldown. Se a conta ainda estiver limitada, um novo HTTP 429 abre outra suspensão.',
-      tone: 'warning', confirmLabel: 'Libertar agora', cancelLabel: 'Manter suspensão',
-    })
-    if (!confirmed) return
-    setBusy(true)
-    try { setRuntime(await bridge.resumeProvider()) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível libertar a suspensão por rate limit') } finally { setBusy(false) }
-  }
-
-  const resumeWorkers = async () => {
-    if (!bridge) return
-    setBusy(true)
-    try { setRuntime(await bridge.resumeWorkers()) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível retomar os Workers') } finally { setBusy(false) }
   }
 
   const loadAssignableTasks = async () => {
@@ -495,52 +368,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
       </div>
       </div>}
       {activeTab === 'policies' && <div className="agent-runtime-tab-panel policies" role="tabpanel">
-        <section className="agent-runtime-policy-section" aria-label="Proteção do provedor">
-          <header className="agent-runtime-policy-heading">
-            <div><span>Proteção do provedor</span><h3>Retoma e rate limit</h3></div>
-            <small>Controla quando os Workers param, retomam e voltam a pressionar o ChatGPT.</small>
-          </header>
-          <div className="agent-runtime-policy-grid">
-            <div className={`agent-runtime-worker-policy agent-runtime-policy-wide${runtime.worker_pause?.paused ? ' is-paused' : ''}`}>
-              <div className="agent-runtime-worker-policy-heading">
-                <div className="agent-runtime-pause-copy"><span className="agent-runtime-policy-chip">Workers</span><strong>Cooldown durável dos Workers</strong><small>{runtime.worker_pause?.paused ? `${runtime.worker_pause.task_types?.length ? `${runtime.worker_pause.task_types.length} tipos suspensos` : 'Todos os tipos suspensos'} · ${runtime.worker_pause.paused_until ? `retoma automática em ${timeLabel(runtime.worker_pause.paused_until)}` : 'aguardam liberação manual'}` : 'Suspenda todos os novos claims ou apenas famílias de tarefas; o trabalho em curso termina normalmente.'}</small></div>
-                {runtime.worker_pause?.paused && <button type="button" className="agent-runtime-icon-button tone-success" disabled={busy} onClick={() => void resumeWorkers()} aria-label="Retomar Workers" title="Retomar Workers"><Icon name="play" size={14}/></button>}
-              </div>
-              {!runtime.worker_pause?.paused && <>
-                <div className="agent-runtime-pause-controls agent-runtime-worker-policy-controls"><select aria-label="Âmbito da suspensão dos Workers" value={workerPauseScope} disabled={busy} onChange={(event) => setWorkerPauseScope(event.target.value === 'types' ? 'types' : 'all')}><option value="all">Todos os tipos</option><option value="types">Tipos selecionados</option></select><select aria-label="Modo de retoma dos Workers" value={workerPauseMode} disabled={busy} onChange={(event) => setWorkerPauseMode(event.target.value === 'manual' ? 'manual' : 'timed')}><option value="timed">Retoma automática</option><option value="manual">Liberação manual</option></select>{workerPauseMode === 'timed' && <label><input aria-label="Minutos até retoma dos Workers" type="number" min="1" max="10080" step="1" value={workerPauseMinutes} disabled={busy} onChange={(event) => setWorkerPauseMinutes(event.target.value)}/><span>min</span></label>}<button type="button" className="agent-runtime-icon-button tone-warning" disabled={busy} onClick={() => void suspendWorkers()} aria-label="Suspender Workers" title="Suspender Workers"><Icon name="pause" size={14}/></button></div>
-                {workerPauseScope === 'types' && <fieldset className="agent-runtime-task-suspension"><legend>Tipos de tarefa a suspender</legend><div className="agent-runtime-task-tree"><div className="agent-runtime-task-tree-root"><span className="agent-runtime-task-tree-node-mark" aria-hidden="true"><Icon name="list" size={13}/></span><span><strong>Task</strong><small>Organize a suspensão por finalidade, sem perder o controlo por tipo.</small></span><em>{workerPauseTaskTypes.length} selecionados</em></div><div className="agent-runtime-task-tree-branches">{workerTaskTypeGroups.map((group) => { const selectedCount = group.tasks.filter(([type]) => workerPauseTaskTypes.includes(type)).length; const allSelected = selectedCount === group.tasks.length; return <section key={group.id} className="agent-runtime-task-tree-group" aria-label={group.label}><header><label><input type="checkbox" aria-label={`Suspender grupo ${group.label}`} checked={allSelected} disabled={busy} onChange={(event) => { const checked = event.currentTarget.checked; const types = group.tasks.map(([type]) => type); setWorkerPauseTaskTypes((current) => { const next = new Set(current); for (const type of types) { if (checked) next.add(type); else next.delete(type) } return [...next] }) }}/><span><strong>{group.label}</strong><small>{group.description}</small></span></label><em>{selectedCount}/{group.tasks.length}</em></header><div>{group.tasks.map(([type, label]) => <label key={type} className="agent-runtime-task-tree-leaf"><input type="checkbox" checked={workerPauseTaskTypes.includes(type)} disabled={busy} onChange={(event) => setWorkerPauseTaskTypes((current) => event.target.checked ? [...current, type] : current.filter((item) => item !== type))}/><span>{label}</span><code>{type}</code></label>)}</div></section> })}</div></div></fieldset>}
-              </>}
-            </div>
-            <div className={`agent-runtime-scale-card agent-runtime-rate-limit-policy agent-runtime-policy-wide${runtime.provider?.paused ? ' is-paused' : ''}`}>
-              <div><strong>Suspensão automática por rate limit</strong><small>Após HTTP 429 ou gate estrutural, apenas os Workers entram em cooldown; Supervisores e Translator permanecem ativos.</small>{runtime.provider?.paused && <span className="agent-runtime-inline-status">Rate limit ativo · {runtime.provider.paused_until ? `retoma em ${timeLabel(runtime.provider.paused_until)}` : short(runtime.provider.reason, 'aguarda liberação do provider')}</span>}{runtime.provider?.paused && <button type="button" className="agent-runtime-icon-button tone-success" disabled={busy} onClick={() => void releaseRateLimit()} aria-label="Libertar suspensão por rate limit" title="Libertar suspensão por rate limit agora"><Icon name="play" size={14}/></button>}</div>
-              <label className="agent-runtime-number-policy"><input key={runtime.policies.rate_limit_cooldown_minutes} aria-label="Minutos de suspensão automática por rate limit" type="number" min="1" max="60" step="0.5" defaultValue={runtime.policies.rate_limit_cooldown_minutes} disabled={busy} onBlur={(event) => { const minutes = Number(event.currentTarget.value); if (!Number.isFinite(minutes) || minutes < 1 || minutes > 60) { event.currentTarget.value = String(runtime.policies.rate_limit_cooldown_minutes); onError?.('Defina a suspensão automática entre 1 e 60 minutos.'); return } void updatePolicies({ rate_limit_cooldown_minutes: minutes }) }}/><span>min</span></label>
-            </div>
-          </div>
-        </section>
-
-        <section className="agent-runtime-policy-section" aria-label="Capacidade dos agentes">
-          <header className="agent-runtime-policy-heading">
-            <div><span>Capacidade</span><h3>Pool base e limites</h3></div>
-            <small>Ajusta a capacidade permanente e os tetos usados pelo crescimento automático.</small>
-          </header>
-          <div className="agent-runtime-policy-grid">
-            <div className="agent-runtime-scale-card"><div><strong>Supervisores</strong><small>Um por chat: abre a conversa, envia e recolhe o bundle, e só liberta o chat quando o pedido termina.</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.configured_supervisors <= runtime.limits.min_supervisors} onClick={() => void scaleSupervisors(-1)} aria-label="Diminuir supervisores" title="Diminuir supervisores"><Icon name="minus" size={13}/></button><b>{runtime.configured_supervisors}</b><button disabled={busy || runtime.configured_supervisors >= runtime.limits.max_supervisors} onClick={() => void scaleSupervisors(1)} aria-label="Aumentar supervisores" title="Aumentar supervisores"><Icon name="plus" size={13}/></button></div></div>
-            <div className="agent-runtime-scale-card"><div><strong>Workers</strong><small>Base configurada; extras podem ser geridos por Auto scale.</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.configured_workers <= runtime.limits.min_workers} onClick={() => void scaleWorkers(-1)} aria-label="Diminuir workers" title="Diminuir workers"><Icon name="minus" size={13}/></button><b>{runtime.configured_workers}</b><button disabled={busy || runtime.configured_workers >= runtime.limits.max_workers} onClick={() => void scaleWorkers(1)} aria-label="Aumentar workers" title="Aumentar workers"><Icon name="plus" size={13}/></button></div></div>
-            <div className="agent-runtime-scale-card"><div><strong>Teto Auto scale Supervisores</strong><small>Máximo total de Supervisores que o Auto scale pode atingir; a base manual nunca é reduzida por este teto.</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.policies.auto_scale_max_supervisors <= runtime.limits.min_supervisors} onClick={() => void scaleAutoScaleSupervisorCeiling(-1)} aria-label="Diminuir teto Auto scale Supervisores" title="Diminuir teto Auto scale Supervisores"><Icon name="minus" size={13}/></button><b>{runtime.policies.auto_scale_max_supervisors}</b><button disabled={busy || runtime.policies.auto_scale_max_supervisors >= runtime.limits.max_supervisors} onClick={() => void scaleAutoScaleSupervisorCeiling(1)} aria-label="Aumentar teto Auto scale Supervisores" title="Aumentar teto Auto scale Supervisores"><Icon name="plus" size={13}/></button></div></div>
-            <div className="agent-runtime-scale-card"><div><strong>Teto Auto scale Workers</strong><small>Máximo total de Workers que o Auto scale pode atingir; a base manual nunca é reduzida por este teto.</small></div><div className="agent-runtime-stepper"><button disabled={busy || runtime.policies.auto_scale_max_workers <= runtime.limits.min_workers} onClick={() => void scaleAutoScaleCeiling(-1)} aria-label="Diminuir teto Auto scale" title="Diminuir teto Auto scale"><Icon name="minus" size={13}/></button><b>{runtime.policies.auto_scale_max_workers}</b><button disabled={busy || runtime.policies.auto_scale_max_workers >= runtime.limits.max_workers} onClick={() => void scaleAutoScaleCeiling(1)} aria-label="Aumentar teto Auto scale" title="Aumentar teto Auto scale"><Icon name="plus" size={13}/></button></div></div>
-          </div>
-        </section>
-
-        <section className="agent-runtime-policy-section" aria-label="Automação dos Workers">
-          <header className="agent-runtime-policy-heading">
-            <div><span>Automação</span><h3>Comportamento dos Workers</h3></div>
-            <small>Define como o pool cresce e por quanto tempo cada Worker permanece dedicado a um pedido.</small>
-          </header>
-          <div className="agent-runtime-policy-grid">
-            <div className="agent-runtime-scale-card"><div><strong>Auto scale</strong><small>Cria um Worker extra quando chega trabalho executável e todos os Workers ativos estão ocupados, até ao teto configurado.</small></div><button type="button" className="agent-runtime-icon-button agent-runtime-toggle" aria-pressed={runtime.policies.auto_scale} aria-label={runtime.policies.auto_scale ? 'Ativo' : 'Inativo'} title={runtime.policies.auto_scale ? 'Desativar Auto scale' : 'Ativar Auto scale'} disabled={busy} onClick={() => void updatePolicies({ auto_scale: !runtime.policies.auto_scale })}><Icon name="agent" size={14}/></button></div>
-            <div className="agent-runtime-scale-card"><div><strong>Keep flowing</strong><small>Globalmente fixa cada Worker ao pedido até existir um bundle válido entregue ao processamento; 429 suspende sem abandonar a tarefa.</small></div><button type="button" className="agent-runtime-icon-button agent-runtime-toggle" aria-pressed={runtime.policies.keep_flowing_global} aria-label={runtime.policies.keep_flowing_global ? 'Global ativo' : 'Global inativo'} title={runtime.policies.keep_flowing_global ? 'Desativar Keep flowing global' : 'Ativar Keep flowing global'} disabled={busy} onClick={() => void updatePolicies({ keep_flowing_global: !runtime.policies.keep_flowing_global })}><Icon name="refresh" size={14}/></button></div>
-          </div>
-        </section>
+        <AgentRuntimePolicies runtime={runtime} onRuntime={setRuntime} onError={onError} />
       </div>}
       {activeTab === 'agents' && <div className="agent-runtime-tab-panel agents" role="tabpanel">
       <div className="agent-runtime-state-legend" aria-label="Legenda dos estados dos agentes">
@@ -574,7 +402,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
           {selected.role === 'worker' && selected.keep_flowing_active && (selected.task?.keep_flowing || selected.last_task?.keep_flowing) && !selected.keep_flowing && !runtime.policies.keep_flowing_global ? <p className="agent-runtime-task-keep-flowing" role="status">Keep flowing temporário ativo apenas para esta tarefa; mantém-se durante esperas/reclaims da mesma tarefa e termina quando ela concluir.</p> : null}
           {selected.role === 'worker' && taskPickerOpen && selected.status === 'idle' && selected.loop_active !== false && !selected.task && !selected.keep_flowing_active && !selectedForeign ? <div className="agent-runtime-task-picker"><div className="agent-runtime-task-picker-heading"><strong>Atribuir tarefas a {selected.label}</strong><small>O Worker executa uma tarefa de cada vez. Keep flowing temporário mantém a tarefa durante as esperas e termina quando ela concluir.</small></div>{availableTasks.length ? <div className="agent-runtime-task-picker-list">{availableTasks.map((task) => <label key={task.task_id}><input type="checkbox" checked={selectedTaskIds.includes(task.task_id)} onChange={(event) => setSelectedTaskIds((current) => event.target.checked ? [...current, task.task_id] : current.filter((id) => id !== task.task_id))}/><span><b>{task.type}</b><small>{task.task_id}</small></span></label>)}</div> : <p>Não existem tarefas por executar neste projeto.</p>}<div className="agent-runtime-task-picker-actions"><select aria-label="Modo das tarefas atribuídas" value={taskAssignmentMode} disabled={busy} onChange={(event) => setTaskAssignmentMode(event.target.value === 'keep_flowing' ? 'keep_flowing' : 'standard')}><option value="standard">Modo atual do Worker</option><option value="keep_flowing">Keep flowing temporário</option></select><button type="button" className="agent-runtime-icon-button" aria-label={selectedTaskIds.length ? `Atribuir ${selectedTaskIds.length}` : 'Atribuir tarefas'} title={selectedTaskIds.length ? `Atribuir ${selectedTaskIds.length} tarefas` : 'Selecione tarefas para atribuir'} disabled={busy || !selectedTaskIds.length} onClick={() => void assignSelectedTasks()}><Icon name="check" size={14}/></button></div></div> : null}
           {selected.role !== 'worker' && <div className="agent-runtime-worker-actions agent-runtime-browser-actions"><button type="button" className="agent-runtime-icon-button" aria-label="Capturar imagem" title="Capturar imagem" disabled={busy || !selected.browser.available} onClick={() => void capture()}><Icon name="camera" size={14}/></button></div>}
-          {interactionId === selected.id && selected.role === 'worker' && <div className="agent-runtime-interaction"><div className="agent-runtime-interaction-heading"><strong>Interação ao vivo</strong><span>{selected.task ? 'O Worker continua a executar a tarefa; ações manuais afetam a mesma instância.' : 'Está a interagir diretamente com esta instância.'}</span></div><div ref={interactionHostRef} className="agent-runtime-interaction-host" aria-label={`Navegador interativo de ${selected.label}`}/></div>}
+          {interactionId === selected.id && selected.role === 'worker' && <div className="agent-runtime-interaction"><div className="agent-runtime-interaction-heading"><strong>Interação ao vivo</strong><span>{selected.task ? 'O Worker continua a executar a tarefa; ações manuais afetam a mesma instância.' : 'Está a interagir diretamente com esta instância.'}</span></div><div ref={interactionHostRef} className="agent-runtime-interaction-host relative" aria-label={`Navegador interativo de ${selected.label}`}><WorkerMirror agentId={selected.id} label={`Espelho interativo de ${selected.label}`} /></div></div>}
           {snapshot?.agentId === selected.id && <figure className="agent-runtime-snapshot"><img src={snapshot.dataUrl} alt={`Captura do navegador de ${selected.label}`}/><figcaption>Capturado às {new Date(snapshot.capturedAt).toLocaleTimeString()}</figcaption></figure>}
         </div>}
       </div>

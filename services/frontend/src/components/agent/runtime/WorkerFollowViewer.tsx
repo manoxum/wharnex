@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../../../lib/desktop/bridge/desktop'
 import { Icon } from '../../presentation/chrome/Icon'
+import { WorkerMirror } from '../../chatgpt/mirror/WorkerMirror'
 
 export function WorkerFollowViewer({ agentId, onStop }: { agentId: string; onStop: () => void; onError?: (message?: string) => void }) {
   const bridge = desktopBridge()?.agents
@@ -90,6 +91,7 @@ export function WorkerFollowViewer({ agentId, onStop }: { agentId: string; onSto
       <div className="flex shrink-0 gap-2">{status === 'error' && <button type="button" className="min-h-7 cursor-pointer rounded-[7px] border border-whx-border bg-whx-elevated px-[10px] text-[calc(7px*var(--ui-font-scale))] font-semibold text-whx-text hover:bg-whx-hover" onClick={() => retryRef.current()}>Tentar novamente</button>}<button type="button" className="min-h-7 cursor-pointer rounded-[7px] border border-whx-border bg-whx-elevated px-[10px] text-[calc(7px*var(--ui-font-scale))] font-semibold text-whx-text hover:bg-whx-hover" onClick={stop}>Voltar ao Supervisor</button></div>
     </header>
     <div ref={hostRef} className="relative min-h-[160px] flex-1 bg-whx-surface" aria-label={`Worker incorporado ${workerLabel}`}>
+      {status === 'open' && <WorkerMirror agentId={agentId} label={`Espelho interativo de ${workerLabel}`} />}
       {status !== 'open' && <p role="status" className="absolute inset-0 grid place-items-center px-4 text-sm text-whx-faint">{status === 'opening' ? 'A abrir o Worker no Engine…' : 'Não foi possível abrir o Worker no Engine. Tente novamente ou volte ao Supervisor.'}</p>}
     </div>
   </section>

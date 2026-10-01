@@ -14,7 +14,7 @@ test('renderer window controls are closed preload IPC operations', async () => {
   assert.match(windowIPC, /ipcMain\.handle\('wharness:windows:toggle-maximize'/)
   assert.match(windowIPC, /ipcMain\.handle\('wharness:windows:close'/)
   assert.match(source, /createDesktopEntrypointRuntime\(\{/)
-  assert.match(await readFile(new URL('../../composition/entry/runtime.mjs', import.meta.url), 'utf8'), /createDesktopIPCRegistrar\(\{ \.\.\.deps, \.\.\.browser, \.\.\.window \}\)/)
+  assert.match(await readFile(new URL('../../composition/entry/runtime.mjs', import.meta.url), 'utf8'), /createDesktopIPCRegistrar\(\{ \.\.\.deps, \.\.\.browser, \.\.\.monitor, \.\.\.window \}\)/)
   assert.match(windowIPCComposition, /registerDesktopShellIPC\(\{/)
   assert.match(shellIPC, /ipcMain\.handle\('wharness:windows:activate-self-evolution'/)
   assert.match(preload, /minimize: \(\) => invoke\('wharness:windows:minimize'\)/)

@@ -65,6 +65,7 @@ export function createDesktopIPCRegistrar(d) {
     openWorkerMonitor, BrowserWindow, closeWorkerMonitor,
     showChatAgentInteraction, setChatAgentInteractionBounds,
     closeChatAgentInteraction, agentState,
+    presentBrowserInMonitor, resizeBrowserInMonitor, releaseBrowserMonitor,
     registerBrowserDataIPC, desktopStorageUsage, exportBrowserSession,
     importBrowserSession, clearBrowserSession, clearDesktopWharnexData,
     registerChatAttachmentIPC, fetchChatTransportLimits,
@@ -122,6 +123,7 @@ export function createDesktopIPCRegistrar(d) {
         resumeChatAgentWorkers, chatAgentBrowserSnapshot, workerEntryForAgentID, hideChatAgentInteractionEntry,
         openWorkerMonitor, BrowserWindow, closeWorkerMonitor, showChatAgentInteraction,
         setChatAgentInteractionBounds, closeChatAgentInteraction,
+        presentBrowserInMonitor, resizeBrowserInMonitor, releaseBrowserMonitor,
         state: agentState,
       },
       browser: {

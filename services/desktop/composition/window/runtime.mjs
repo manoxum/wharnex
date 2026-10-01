@@ -4,6 +4,7 @@ import {
   createDesktopRestartIntent, createDesktopCoordinatorRelaunch,
 } from '../../window/index.mjs'
 import { createDesktopTrayComposition } from './tray-lifecycle.mjs'
+import { createBrowserMonitorOpener } from '../../window/lifecycle/browser-monitor.mjs'
 
 export function createDesktopWindowRuntime(d) {
   const {
@@ -37,6 +38,8 @@ export function createDesktopWindowRuntime(d) {
     createWindow: d.createWindow, setMainWindow: d.setMainWindow,
   })
 
+  const openBrowserMonitor = createBrowserMonitorOpener(d.desktopWindows, d.createWindow)
+
   const {
     desktopTrayController, publishDesktopNotification, refreshDesktopTray,
     ensureDesktopTray, requestFullDesktopQuit, desktopWindowClose,
@@ -47,7 +50,7 @@ export function createDesktopWindowRuntime(d) {
     platform: d.platform, getTrayControl: d.getTrayControl,
     setTrayControl: d.setTrayControl, listProjects: activeDesktopProjects,
     projectLabel: projectMenuLabel, restoreProject: restoreProjectWindow,
-    closeProject: requestProjectClose, showFallback: showDesktopFallbackWindow,
+    closeProject: requestProjectClose, showFallback: showDesktopFallbackWindow, openBrowserMonitor,
     sendProjectAction: sendDesktopTrayProjectAction, projectWindowState,
     sendToWindowState: d.sendToWindowState, workerState: d.chatAgentRuntimeState,
     pauseWorkers: d.pauseChatAgentWorkers, resumeWorkers: d.resumeChatAgentWorkers,

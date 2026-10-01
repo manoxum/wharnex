@@ -56,6 +56,14 @@ test('tray menu exposes project color, execution, workers and tunnels', () => {
   assert.deepEqual(actions.at(-1), ['/work/alpha', 'pause-execution'])
 })
 
+test('tray opens one global browser monitor independently of projects', () => {
+  let opened = 0
+  const { control } = harness({ listProjects: () => [], openBrowserMonitor: () => { opened += 1 } })
+  const tray = control.ensure()
+  tray.menu.find((item) => item.label === 'Acompanhar navegadores').click()
+  assert.equal(opened, 1)
+})
+
 test('notifications are deduplicated and click routes back to the project', () => {
   FakeNotification.shown.length = 0
   const { control, opens } = harness()

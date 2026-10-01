@@ -59,7 +59,7 @@ export function OrchestratorTaskDrawer({ session, task, tasks, chatProps, busy, 
   }
 
   const runSelector = <TaskRunSelector runs={detail.runs} run={detail.run} onSelect={detail.selectRun}/>
-  return <div className="orchestrator-drawer-backdrop" data-chatgpt-overlay-blocker="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer task-detail">
+  return <div className="orchestrator-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer task-detail">
     <header><div><span className="truncate font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">{task.id}</span><strong className="truncate text-lg">{task.title}</strong></div><button onClick={onClose} aria-label="Fechar"><Icon name="close" size={16}/></button></header>
     <TaskDetailTabBar tab={tab} onTab={setTab}/>
     {tab === 'bundle' && <div className="orchestrator-task-detail-body wide">{runSelector}<TaskBundleTab agent={detail.agent} loading={detail.loading}/></div>}

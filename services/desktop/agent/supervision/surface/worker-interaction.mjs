@@ -1,6 +1,6 @@
 export function createWorkerInteraction({
   chatGPTWorkerEntries, isEphemeralAgentID, desktopWindows,
-  windowStateForEntry, grantChatGPTLayoutViewport, publishChatAgentRuntimeState,
+  grantChatGPTLayoutViewport, publishChatAgentRuntimeState,
   normalizeBounds, reconcileChatGPTWorkerPool,
 }) {
   function workerEntryForAgentID(agentID) {
@@ -15,15 +15,14 @@ export function createWorkerInteraction({
     if (!entry || entry.role !== 'worker') return false
     const state = desktopWindows.get(entry.interactionWindowId)
     if (state?.activeAgentInteractionId === entry.slotId) state.activeAgentInteractionId = ''
+    const surfaced = Boolean(entry.interactionWindowId)
     entry.interactionWindowId = ''
     entry.parkedLayout = true
-    try { entry.view.setVisible(false) } catch { /* renderer may already be gone */ }
-    if (entry.attached) {
-      const ownerState = windowStateForEntry(entry)
-      try { ownerState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
-      entry.attached = false
-      grantChatGPTLayoutViewport(entry.view)
-    }
+    try {
+      entry.view.setVisible(false)
+      // Back to the automation viewport the pane had replaced.
+      if (surfaced && !entry.view.webContents.isDestroyed()) grantChatGPTLayoutViewport(entry.view)
+    } catch { /* renderer may already be gone */ }
     return true
   }
 
@@ -40,7 +39,6 @@ export function createWorkerInteraction({
 
   function showChatAgentInteraction(agentID, rawBounds, windowState) {
     const entry = workerEntryForAgentID(agentID)
-    if (entry.monitorWindow && !entry.monitorWindow.isDestroyed()) throw new Error('Feche a janela do Worker antes de interagir aqui')
     const bounds = normalizeBounds(rawBounds, windowState?.window?.getContentBounds?.())
     if (!bounds) throw new Error('Worker interaction bounds are invalid')
     const active = String(windowState.activeAgentInteractionId || '')
@@ -52,13 +50,8 @@ export function createWorkerInteraction({
       const previousState = desktopWindows.get(entry.interactionWindowId)
       if (previousState?.activeAgentInteractionId === entry.slotId) previousState.activeAgentInteractionId = ''
     }
-    if (entry.ownerWindowId !== windowState.id || !entry.attached) {
-      const ownerState = windowStateForEntry(entry)
-      if (entry.attached) try { ownerState?.window?.contentView?.removeChildView?.(entry.view) } catch { /* already detached */ }
-      windowState.window.contentView.addChildView(entry.view)
-      entry.ownerWindowId = windowState.id
-      entry.attached = true
-    }
+    // The real view stays in the browser monitor; this window mirrors it.
+    entry.ownerWindowId = windowState.id
     entry.interactionWindowId = windowState.id
     windowState.activeAgentInteractionId = entry.slotId
     entry.view.setBounds(bounds)
@@ -75,7 +68,6 @@ export function createWorkerInteraction({
     if (!windowID
       || entry.interactionWindowId !== windowID
       || entry.ownerWindowId !== windowID
-      || !entry.attached
       || windowState.activeAgentInteractionId !== entry.slotId) {
       return { ok: false, agentId: entry.slotId }
     }

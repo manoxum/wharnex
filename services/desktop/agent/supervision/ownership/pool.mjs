@@ -9,7 +9,8 @@ export function createSupervisorPool({
   superviseChatAgentResponse, executeChatAgentWrite,
 }) {
   function chatSupervisorHostWindow() {
-    return [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
+    const live = [...desktopWindows.values()].filter((state) => state.window && !state.window.isDestroyed())
+    return live.find((state) => !state.transientSurface) || live[0]
   }
 
   // Keep an assigned conversation resident; reclaim only an unheld, hidden slot.

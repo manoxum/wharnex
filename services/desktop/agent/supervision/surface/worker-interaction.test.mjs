@@ -7,7 +7,7 @@ function fixture(activeTask = false) {
   const task = activeTask ? { task_id: 'busy', chat_id: 'otk-busy' } : undefined
   const entry = {
     slotId: 'worker-1', role: 'worker', ownerKey: 'otk-busy', ownerWindowId: 'win-1',
-    attached: false, parkedLayout: true, interactionWindowId: '',
+    parkedLayout: true, interactionWindowId: '',
     view: {
       webContents: { isDestroyed: () => false },
       setBounds: (bounds) => events.push(`bounds:${bounds.width}x${bounds.height}`),
@@ -54,21 +54,20 @@ test('active Worker task reuses its existing view in the embedded interaction su
   })
   assert.equal(entry.interactionWindowId, 'win-1')
   assert.equal(entry.ownerWindowId, 'win-1')
-  assert.equal(entry.attached, true)
-  assert.equal(entry.monitorWindow, undefined)
   assert.equal(entry.slotId, slotId)
   assert.equal(entry.ownerKey, ownerKey)
   assert.equal(chatAgentWorkerStates.get(1)?.task, task)
-  assert.deepEqual(events.slice(0, 4), ['attach', 'bounds:400x300', 'visible:true', 'publish'])
+  // The real view stays in the browser host; the window only mirrors it.
+  assert.deepEqual(events.slice(0, 3), ['bounds:400x300', 'visible:true', 'publish'])
 })
 
-test('an open monitor remains mutually exclusive with embedded interaction', () => {
+test('a Worker presented in the browser monitor can also be mirrored in a project window', () => {
   const { runtime, entry, windowState, events } = fixture(true)
-  entry.monitorWindow = { isDestroyed: () => false }
+  entry.monitorWindowId = 'browser-monitor'
 
-  assert.throws(() => runtime.showChatAgentInteraction('worker-1', { width: 400, height: 300 }, windowState), /Feche a janela do Worker/)
-  assert.equal(entry.interactionWindowId, '')
-  assert.deepEqual(events, [])
+  assert.equal(runtime.showChatAgentInteraction('worker-1', { width: 400, height: 300 }, windowState).ok, true)
+  assert.equal(entry.interactionWindowId, 'win-1')
+  assert.equal(events.includes('attach'), false)
 })
 
 test('interaction bounds update only the active embedded view owned by the caller window', () => {
@@ -98,12 +97,12 @@ test('closing embedded interaction detaches and parks the Worker without changin
   assert.equal(runtime.closeChatAgentInteraction('worker-1', windowState).closed, true)
   assert.equal(entry.interactionWindowId, '')
   assert.equal(windowState.activeAgentInteractionId, '')
-  assert.equal(entry.attached, false)
   assert.equal(entry.parkedLayout, true)
   assert.equal(entry.slotId, slotId)
   assert.equal(entry.ownerKey, ownerKey)
   assert.equal(chatAgentWorkerStates.get(1)?.task, task)
-  assert.deepEqual(events.slice(-5), ['visible:false', 'detach', 'grant', 'reconcile', 'publish'])
+  assert.deepEqual(events.slice(-4), ['visible:false', 'grant', 'reconcile', 'publish'])
+  assert.equal(events.includes('detach'), false)
 })
 
 test('unknown agent IDs cannot enter interaction mode', () => {

@@ -43,7 +43,7 @@ export function AttentionPopover({ items, activeChatId, busy, position, onOpen, 
     }
   }, [onClose])
 
-  return <section ref={rootRef} id="agent-attention-popover" className="agent-attention-popover" style={position} role="dialog" aria-modal="false" aria-label="Alertas ativos" aria-describedby="agent-attention-popover-description" data-chatgpt-overlay-blocker="true">
+  return <section ref={rootRef} id="agent-attention-popover" className="agent-attention-popover" style={position} role="dialog" aria-modal="false" aria-label="Alertas ativos" aria-describedby="agent-attention-popover-description">
     <header>
       <div className="agent-attention-popover-heading">
         <span className="agent-attention-popover-symbol" aria-hidden="true"><Icon name={summary.urgent ? 'shield' : 'bell'} size={16}/></span>

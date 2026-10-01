@@ -24,7 +24,7 @@ type Props = {
 
 export function InterruptedExecutionRecovery({ items, busyChats, onDecision, onOpenChat, onOpenLogs, onOpenChatGPT }: Props) {
   const [open, setOpen] = useState(true)
-  return <aside className={`execution-recovery-center ${open ? 'open' : ''}`} aria-label="Centro de recuperação de execuções" data-chatgpt-overlay-blocker={open ? 'true' : undefined}>
+  return <aside className={`execution-recovery-center ${open ? 'open' : ''}`} aria-label="Centro de recuperação de execuções">
     <button type="button" className="execution-recovery-trigger" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
       <Icon name="shield" size={14}/><strong>{items.length}</strong><span>{items.length === 1 ? 'execução precisa de atenção' : 'execuções precisam de atenção'}</span><Icon name="chevron" size={12}/>
     </button>

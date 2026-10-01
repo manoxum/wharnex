@@ -12,10 +12,9 @@ describe('ErrorToast', () => {
   it('shows a compact non-blocking summary and links to the chat instead of rendering the long error', () => {
     const onShowInChat = vi.fn()
     const onDismiss = vi.fn()
-    const { container } = render(<ErrorToast open onDismiss={onDismiss} onShowInChat={onShowInChat} />)
+    render(<ErrorToast open onDismiss={onDismiss} onShowInChat={onShowInChat} />)
     expect(screen.getByText('Ocorreu um erro')).toBeTruthy()
     expect(screen.getByText('Os detalhes foram adicionados ao chat.')).toBeTruthy()
-    expect(container.querySelector('[data-chatgpt-overlay-blocker]')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Ver erro no chat' }))
     expect(onShowInChat).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Fechar aviso de erro' }))

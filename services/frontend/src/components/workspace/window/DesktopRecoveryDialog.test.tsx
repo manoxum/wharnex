@@ -19,7 +19,6 @@ describe('DesktopRecoveryDialog', () => {
     expect(dialog.getAttribute('aria-modal')).toBe('true')
     // Native WebContentsViews paint above renderer DOM, so the backdrop has to
     // claim the ChatGPT overlay blocker exactly like the close modal does.
-    expect(dialog.parentElement?.getAttribute('data-chatgpt-overlay-blocker')).toBe('true')
     expect(dialog.textContent).toContain('Recuperar a última sessão de wharnex?')
     expect(screen.getByTitle('/workspace/wharnex')).toBeTruthy()
   })

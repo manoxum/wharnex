@@ -42,7 +42,6 @@ describe('ChatGPTDesktopPane binding control', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Vínculo ChatGPT: a vincular' }))
     expect(await screen.findByText('Este chat perdeu sua conversa')).toBeTruthy()
-    expect(screen.getByRole('dialog', { name: 'Vínculo da conversa ChatGPT' }).getAttribute('data-chatgpt-overlay-blocker')).toBe('true')
   })
 
   it('replaces the linked text status with an icon that opens the binding panel', async () => {

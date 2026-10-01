@@ -23,6 +23,7 @@ export function createDesktopWindowCreationRuntime(d) {
     scheduleWindowLayoutPersistence: d.scheduleWindowLayoutPersistence,
     desktopWindowClose: d.desktopWindowClose,
     hideChatAgentInteractionsForWindow: d.hideChatAgentInteractionsForWindow,
+    releaseBrowserMonitorForWindow: d.releaseBrowserMonitor,
     rehomeChatGPTWorkers: d.rehomeChatGPTWorkers,
     closeInternalChatGPTBrowserForWindow: d.closeInternalChatGPTBrowserForWindow,
     closeChatGPTViewsForWindow: d.closeChatGPTViewsForWindow,

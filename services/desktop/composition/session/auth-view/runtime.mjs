@@ -61,6 +61,7 @@ export function createDesktopAuthViewRuntime(deps) {
       publishChatAgentRuntimeState, closeWorkerMonitor,
       hideChatAgentInteractionEntry: (...args) => deps.getHideChatAgentInteractionEntry()(...args),
       classifyChatGPTConversationTransport, reconcileChatGPTConversationTransport,
+      browserHost: deps.browserHost,
     })
     return chatGPTViewOperations
   }

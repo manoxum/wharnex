@@ -1,4 +1,5 @@
 import { createChatGPTViewEntry } from './entry.mjs'
+import { createHostedChatGPTSurface } from './surface.mjs'
 
 export function createChatGPTSupervisorViewLifecycle({
   WebContentsView, securePreferences, CHATGPT_PARTITION,
@@ -12,15 +13,16 @@ export function createChatGPTSupervisorViewLifecycle({
   chatgptTransportModes, hideChatGPTSidebar, observeEmbeddedAuthURL,
   sanitizeDiagnosticURL, isRecoverableChatGPTNetworkError,
   noteChatGPTRendererFault, noteChatGPTRecoveryProgress,
-  clearChatGPTHumanAction,
+  clearChatGPTHumanAction, browserHost,
 }) {
   function createChatGPTView(cacheKey, windowState) {
     if (!windowState?.window || windowState.window.isDestroyed()) throw new Error('Cannot create ChatGPT view without an owning Wharnex window')
-    const view = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
-    view.setBackgroundColor('#ffffff')
+    const native = new WebContentsView({ webPreferences: securePreferences({ partition: CHATGPT_PARTITION, backgroundThrottling: false }) })
+    native.setBackgroundColor('#ffffff')
+    // The real view lives in the browser monitor; the project pane mirrors it.
+    const view = createHostedChatGPTSurface(native, { View: browserHost.View, host: browserHost })
     const entry = createChatGPTViewEntry(view, cacheKey, windowState.id, createChatGPTAffinityTracker)
     chatgptViews.set(cacheKey, entry)
-    windowState.window.contentView.addChildView(view)
     grantChatGPTLayoutViewport(view)
 
     const wc = view.webContents

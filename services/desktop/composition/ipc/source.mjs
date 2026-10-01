@@ -34,7 +34,8 @@ export async function readDesktopIPCSource() {
       || !index.includes("from './runtime.mjs'")
       || !index.includes("from './register.mjs'")
       || !main.includes("from './composition/entry/index.mjs'")
-      || !entry.includes('createDesktopIPCRegistrar({ ...deps, ...browser, ...window })')) {
+      || !entry.includes('const monitor = createBrowserMonitorPresentation({ ...deps, normalizeBounds })')
+      || !entry.includes('createDesktopIPCRegistrar({ ...deps, ...browser, ...monitor, ...window })')) {
     throw new Error('Desktop IPC composition is missing from main.mjs')
   }
   const body = runtime.slice(runtimeStart, runtimeEnd + '\n  }'.length).replace(/^  /gm, '')

@@ -3,6 +3,7 @@ export const WORKER_MONITOR_VIEWPORT = Object.freeze({ x: 0, y: 0, width: 1280, 
 // Moves the existing Worker view into a full-size user window. Its renderer,
 // session, conversation, and scheduler lease remain the same throughout.
 export function openWorkerMonitor(entry, BrowserWindow, onClosed = () => {}) {
+  if (entry.monitorWindowId) throw new Error('Esta instância já está apresentada no centro de navegadores')
   if (entry.monitorWindow && !entry.monitorWindow.isDestroyed()) {
     entry.monitorWindow.show()
     return { ok: true, agentId: entry.slotId, alreadyOpen: true }

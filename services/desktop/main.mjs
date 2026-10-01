@@ -10,10 +10,11 @@ import { createDesktopCompositionSettings } from './composition/config/index.mjs
 import { createDesktopChatGPTTransportStage } from './composition/transport/index.mjs'
 import { createDesktopWindowAssembly } from './composition/window/index.mjs'
 import { createDesktopEntrypointRuntime } from './composition/entry/index.mjs'
+import { createBrowserHost } from './window/lifecycle/browser-monitor.mjs'
 import { createDesktopAuthViewRuntime, createDesktopOwnershipRuntime, createDesktopChatWorkflowRuntime } from './composition/session/index.mjs'
 
 const {
-  app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, WebContentsView, clipboard,
+  app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, View, WebContentsView, clipboard,
   dialog, ipcMain, nativeImage, screen, session, shell, createHash, randomUUID,
   mkdirSync, rmSync, mkdir, readFile, readdir, rm, writeFile, path,
   fileURLToPath, TextDecoder, ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, dispatchChatGPTPointerPress, submitWithoutReplay, ChatGPTUploadCoordinator,
@@ -161,7 +162,7 @@ const {
   setMainWindow: (window) => { desktopState.window.mainWindow = window },
   getDeferredSupervisorNavigation: () => desktopState.chatgpt.deferredSupervisorNavigation,
   refreshDesktopTray: () => refreshDesktopTray(),
-  createWindow: (...args) => createWindow(...args),
+  createWindow: (...args) => desktopEntrypoint.createWindow(...args),
   hideAgentInteractionsForWindow: (...args) => hideChatAgentInteractionsForWindow(...args),
   persistWindowLayout: () => persistWindowLayout(),
   markExplicitDesktopExit: () => { desktopState.window.explicitDesktopExit = true },
@@ -240,6 +241,9 @@ const {
   },
 })
 
+// The browser monitor window physically hosts every ChatGPT agent view.
+const browserHost = createBrowserHost({ BrowserWindow, View, windows: desktopWindows, createWindow: (...args) => desktopEntrypoint.createWindow(...args) })
+
 const {
   publishAuthComplete, cancelExternalAuthentication, startExternalAuthentication,
   routeChatGPTNavigation, refreshEmbeddedChatGPTAuthentication,
@@ -260,6 +264,7 @@ const {
   getDownloadPoller: () => pollExpectedChatGPTDownloadKey,
   getHideChatGPTSidebar: () => hideChatGPTSidebar,
   getHideChatAgentInteractionEntry: () => hideChatAgentInteractionEntry,
+  browserHost,
 })
 
 const desktopAgentScheduling = createDesktopAgentScheduling({
@@ -618,7 +623,13 @@ const desktopEntrypoint = createDesktopEntrypointRuntime({
   submitPromptToChatGPT, queuePreparedPromptForWorker, preparePromptForChatGPT, retryPreparedChatGPTPrompt, attachContextToChatGPT, attachPromptToChatGPT, submitPreparedChatGPTDraft,
   queueChatGPTComment, cancelChatGPTRequestState, CHATGPT_URL, CHATGPT_LOGIN_URL, BEHAVIOR_PROBE_CONTROLS, registerAgentIPC, normalizeSupervisorSlotCount,
   normalizeWorkerSlotCount, setChatAgentSupervisorTarget, setChatAgentWorkerTarget, chatAgentKeepFlowingFloor, reconcileChatAgentAutoScale, normalizeChatAgentPolicies, persistChatAgentPolicies,
-  pauseChatAgentWorkers, resumeChatAgentWorkers, chatAgentBrowserSnapshot, workerEntryForAgentID, hideChatAgentInteractionEntry, openWorkerMonitor, BrowserWindow,
+  pauseChatAgentWorkers, resumeChatAgentWorkers, chatAgentBrowserSnapshot, workerEntryForAgentID, hideChatAgentInteractionEntry, BrowserWindow,
+  // A Worker's own window is now the browser monitor, with that Worker selected.
+  openWorkerMonitor: (entry) => {
+    const alreadyOpen = Boolean(desktopWindows.get('browser-monitor'))
+    browserHost.open(entry?.slotId)
+    return { ok: true, agentId: entry?.slotId || '', alreadyOpen }
+  },
   closeWorkerMonitor, showChatAgentInteraction, setChatAgentInteractionBounds, closeChatAgentInteraction, registerBrowserDataIPC, registerChatAttachmentIPC, fetchChatTransportLimits,
   decodeChatAttachmentSet, chatAttachmentRoot, createPersistentAttachmentPreview, registerClipboardIPC, clipboard, ClipboardItem, fetchContextZip,
   configureChatGPTSession, session, CHATGPT_PARTITION, CHATGPT_USER_AGENT, CHATGPT_ACCEPT_LANGUAGES, CHATGPT_CHROMIUM_VERSION, chatGPTUploads: desktopState.chatgpt.chatGPTUploads,

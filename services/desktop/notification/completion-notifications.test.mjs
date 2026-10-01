@@ -19,7 +19,7 @@ test('completion notifications are deduplicated and exposed through the tray con
   assert.match(windowRuntime, /createDesktopTrayComposition\(\{/)
   assert.match(trayComposition, /createDesktopTrayControl\(\{/)
   assert.match(main, /createDesktopEntrypointRuntime\(\{/)
-  assert.match(entry, /createDesktopIPCRegistrar\(\{ \.\.\.deps, \.\.\.browser, \.\.\.window \}\)/)
+  assert.match(entry, /createDesktopIPCRegistrar\(\{ \.\.\.deps, \.\.\.browser, \.\.\.monitor, \.\.\.window \}\)/)
   assert.match(ipcRuntime, /registerDesktopIPC\(\{/)
   assert.match(windowIPCComposition, /registerDesktopShellIPC\(\{/)
   assert.match(shellIPC, /ipcMain\.handle\('wharness:notifications:publish'/)

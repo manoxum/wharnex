@@ -10,6 +10,7 @@ export function createDesktopWindowCreator({
   spellcheckContextMenuTemplate, FRONTEND_RENDERER_RESTART_LIMIT,
   publishChatGPTState, scheduleWindowLayoutPersistence,
   desktopWindowClose, hideChatAgentInteractionsForWindow,
+  releaseBrowserMonitorForWindow,
   rehomeChatGPTWorkers, closeInternalChatGPTBrowserForWindow,
   closeChatGPTViewsForWindow, releaseWindowProjects,
   persistWindowLayout, refreshDesktopTray, isHTTPS,
@@ -17,6 +18,8 @@ export function createDesktopWindowCreator({
   function createWindow(windowId = `window-${randomUUID()}`, persistLayout = true, launch = {}) {
     const id = /^[A-Za-z0-9_-]{1,80}$/.test(String(windowId || '')) ? String(windowId) : `window-${randomUUID()}`
     const surface = launch?.surface && typeof launch.surface === 'object' ? launch.surface : undefined
+    const browserMonitor = launch?.browserMonitor === true
+    const selectAgent = browserMonitor && /^[a-z0-9_-]{1,80}$/i.test(String(launch?.selectAgent || '')) ? String(launch.selectAgent) : ''
     const recovery = launch?.recovery && typeof launch.recovery === 'object' ? {
       active: true,
       projects: Array.isArray(launch.recovery.projects) ? launch.recovery.projects.map(canonicalProjectPath) : [],
@@ -25,13 +28,14 @@ export function createDesktopWindowCreator({
       pending: Boolean(launch.recovery.pending),
     } : undefined
     const initialWindowPlacement = surface ? { width: 1280, height: 820, maximized: false } : loadWindowPlacement(id)
+    if (browserMonitor) Object.assign(initialWindowPlacement, { width: 1440, height: 860, maximized: false })
     const win = new BrowserWindow({
       width: initialWindowPlacement.width,
       height: initialWindowPlacement.height,
       ...(Number.isFinite(initialWindowPlacement.x) && Number.isFinite(initialWindowPlacement.y) ? { x: initialWindowPlacement.x, y: initialWindowPlacement.y } : {}),
-      minWidth: surface ? 760 : MIN_DESKTOP_WINDOW_SIZE.width,
-      minHeight: surface ? 520 : MIN_DESKTOP_WINDOW_SIZE.height,
-      title: desktopWindowTitle('', DESKTOP_INSTANCE),
+      minWidth: surface || browserMonitor ? 760 : MIN_DESKTOP_WINDOW_SIZE.width,
+      minHeight: surface || browserMonitor ? 520 : MIN_DESKTOP_WINDOW_SIZE.height,
+      title: browserMonitor ? 'Navegadores · Wharnex' : desktopWindowTitle('', DESKTOP_INSTANCE),
       icon: DESKTOP_ICON,
       name: `wharness-${id}`,
       backgroundColor: '#eceee7',
@@ -41,21 +45,25 @@ export function createDesktopWindowCreator({
       // the selected Wharnex theme instead of mixing native window buttons into
       // the project header.
       frame: false,
+      ...(browserMonitor ? { frame: true } : {}),
       webPreferences: securePreferences({ preload: path.join(here, 'preload.cjs') }),
     })
     const state = { id, window: win, projects: new Set(), activeProject: '', activeChatGPTKey: '', chatgptVisible: false, chatgptBounds: undefined, activeAgentInteractionId: '', transientSurface: Boolean(surface), recovery }
+    if (browserMonitor) state.transientSurface = true
     if (surface?.projectPath) {
       state.projects.add(surface.projectPath)
       state.activeProject = surface.projectPath
       win.setTitle(desktopWindowTitle(surface.projectPath, DESKTOP_INSTANCE))
     }
     desktopWindows.set(id, state)
-    setMainWindow(win)
+    if (!browserMonitor) setMainWindow(win)
     if (!surface && initialWindowPlacement.maximized) win.maximize()
 
     const target = new URL(FRONTEND_URL)
     target.searchParams.set('wharnessWindow', id)
     target.searchParams.set('wharnessRuntime', FRONTEND_RUNTIME_TOKEN)
+    if (browserMonitor) target.searchParams.set('browserMonitor', '1')
+    if (selectAgent) target.searchParams.set('agent', selectAgent)
     if (surface) {
       target.searchParams.set('embedded', '1')
       target.searchParams.set('active', '1')
@@ -120,7 +128,15 @@ export function createDesktopWindowCreator({
       win.on('unmaximize', scheduleWindowLayoutPersistence)
     }
     win.on('close', (event) => {
+      // Closing the monitor sends it to the background; the tray reopens it.
+      if (browserMonitor && !isQuitting()) {
+        event.preventDefault()
+        releaseBrowserMonitorForWindow?.(state)
+        win.hide()
+        return
+      }
       if (!isQuitting() && !state.transientSurface && desktopWindowClose.request(state, event)) return
+      if (browserMonitor) releaseBrowserMonitorForWindow?.(state)
       hideChatAgentInteractionsForWindow(state)
       if (!isQuitting()) rehomeChatGPTWorkers(state)
     })
@@ -130,7 +146,7 @@ export function createDesktopWindowCreator({
       closeChatGPTViewsForWindow(state)
       releaseWindowProjects(state)
       desktopWindows.delete(id)
-      if (getMainWindow() === win) setMainWindow(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0])
+      if (getMainWindow() === win) setMainWindow(BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows().find((candidate) => candidate !== win && candidate.isFocusable?.() !== false))
       if (!isQuitting() && !state.transientSurface) persistWindowLayout()
       refreshDesktopTray()
     })

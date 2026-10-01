@@ -107,7 +107,7 @@ test('a settled Worker task closes its follow window and returns the view to par
   assert.equal(entry.parkedLayout, true)
 })
 
-test('monitor IPC remains a trusted, named Worker-only bridge', async () => {
+test('monitor-open IPC remains a trusted, named Worker-only bridge', async () => {
   const main = await readDesktopIPCSource()
   const surfaceIPC = await readFile(new URL('../ipc/surfaces.mjs', import.meta.url), 'utf8')
   const preload = await readFile(new URL('../../preload.cjs', import.meta.url), 'utf8')
@@ -115,7 +115,8 @@ test('monitor IPC remains a trusted, named Worker-only bridge', async () => {
   assert.match(main, /registerAgentIPC\(\{/)
   assert.match(open, /trustedSender\(event\)/)
   assert.match(open, /const entry = workerEntryForAgentID\(request\?\.agentId\)/)
-  assert.match(open, /if \(entry\.interactionWindowId\) hideChatAgentInteractionEntry\(entry\)/)
+  // Opening the browser monitor no longer ends a project mirror of the Worker.
+  assert.doesNotMatch(open, /hideChatAgentInteractionEntry/)
   assert.match(open, /openWorkerMonitor\(entry, BrowserWindow, publishChatAgentRuntimeState\)/)
   assert.match(open, /publishChatAgentRuntimeState\(\)/)
   assert.match(surfaceIPC, /ipcMain\.handle\('wharness:agents:monitor-close', \(event, request\) => \{\s*trustedSender\(event\)\s*return closeWorkerMonitor\(workerEntryForAgentID\(request\?\.agentId\)\)/)

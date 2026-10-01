@@ -105,7 +105,7 @@ test('agent runtime drawer inherits the Desktop bridge through the workspace ifr
 
 test('agent runtime exposes created browser instances for capture and explicit Worker interaction', async () => {
   const drawer = await source('components/agent/runtime/AgentRuntimeDrawer.tsx')
-  const desktopTypes = await source('desktop/bridge.d.ts')
+  const desktopTypes = await source('desktop/bridge/agents.d.ts')
   assert.match(drawer, /disabled=\{busy \|\| !selected\.browser\.available\}/)
   assert.doesNotMatch(drawer, /!selected\.browser\.url/)
   assert.match(drawer, /bridge\.openInteraction\(interactionId, interactionBounds\(host\)\)/)
