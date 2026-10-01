@@ -4,6 +4,7 @@ import { createBrowserMonitorPresentation } from './browser-monitor-presentation
 
 function fixture() {
   const events = []
+  const presented = {}
   const surface = (name) => {
     let zoom = 1
     return {
@@ -11,7 +12,7 @@ function fixture() {
         isDestroyed: () => false, getZoomFactor: () => zoom,
         setZoomFactor: (value) => { zoom = value; events.push(`${name}:zoom:${value}`) },
       },
-      present: (window, bounds) => events.push(`${name}:present:${window.name}:${bounds.width}x${bounds.height}`),
+      present: (window, bounds, options) => { presented[name] = options; events.push(`${name}:present:${window.name}:${bounds.width}x${bounds.height}`) },
       resizePresented: (bounds) => events.push(`${name}:resize:${bounds.width}x${bounds.height}`),
       release: () => events.push(`${name}:release`),
     }
@@ -27,7 +28,7 @@ function fixture() {
     normalizeBounds: (bounds) => bounds?.width > 0 && bounds?.height > 0 ? bounds : undefined,
     publishChatAgentRuntimeState: () => events.push('publish-runtime'),
   })
-  return { presentation, supervisor, worker, owner, monitor, events }
+  return { presentation, supervisor, worker, owner, monitor, events, presented }
 }
 
 const bounds = { x: 600, y: 120, width: 800, height: 700 }
@@ -47,18 +48,19 @@ test('presents the real Supervisor view in the monitor and releases it back to t
   assert.ok(events.includes('supervisor:release'))
 })
 
-test('a running Worker keeps its automation viewport through zoom and returns on switch', () => {
-  const { presentation, worker, monitor, events } = fixture()
+test('a Worker is presented at its own content size, never through the shared zoom', () => {
+  const { presentation, worker, monitor, events, presented } = fixture()
   const task = { task_id: 'task-1' }
   worker.task = task
   presentation.presentBrowserInMonitor('worker-1', bounds, monitor)
   assert.equal(worker.task, task)
-  assert.equal(worker.view.webContents.getZoomFactor(), 0.625)
+  assert.deepEqual(presented.worker, { keepContentSize: true })
+  assert.equal(worker.view.webContents.getZoomFactor(), 1)
   assert.equal(worker.monitorWindowId, 'browser-monitor')
   assert.deepEqual(presentation.releaseBrowserMonitor(monitor, 'supervisor-1'), { ok: true, agentId: 'supervisor-1', released: false })
   presentation.presentBrowserInMonitor('supervisor-1', bounds, monitor)
-  assert.equal(worker.view.webContents.getZoomFactor(), 1)
   assert.equal(worker.monitorWindowId, '')
+  assert.equal(events.some((event) => event.includes(':zoom:')), false)
   assert.ok(events.indexOf('worker:release') < events.indexOf('supervisor:present:monitor:800x700'))
 })
 

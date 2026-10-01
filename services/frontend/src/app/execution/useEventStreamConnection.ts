@@ -43,7 +43,7 @@ export function useEventStreamConnection({ sourceRef, coalescerRef, sessionCache
         // One workspace-chat read for the whole batch, not two per frame.
         const needsOwner = batch.some((parsed) => parsed.type === 'execution.started' || (parsed.data.plan_id && EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)))
         const owner = needsOwner ? loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId) : undefined
-        const sessionMutationEvents = new Set(['plan.received', 'plan.control_changed', 'plan.reversal_requested', 'repair.prompt_ready', 'baseline.continuation_ready', 'conflict.prompt_ready', 'git.conflict_obsolete', 'conflict.bundle_obsolete', 'host.applied', 'host.apply_paused', 'automation.paused', 'host.reverted', 'host.restored'])
+        const sessionMutationEvents = new Set(['plan.received', 'plan.control_changed', 'plan.reversal_requested', 'repair.prompt_ready', 'baseline.continuation_ready', 'conflict.prompt_ready', 'git.conflict_obsolete', 'conflict.bundle_obsolete', 'host.applied', 'host.apply_settled', 'host.apply_paused', 'automation.paused', 'host.reverted', 'host.restored'])
         if (batch.some((parsed) => (parsed.type === 'artifact.persisted' && parsed.data.kind === 'bundle') || sessionMutationEvents.has(parsed.type))) {
           void api.getSession(id).then((updated) => {
             sessionCacheRef.current[chatId] = updated
@@ -51,7 +51,7 @@ export function useEventStreamConnection({ sourceRef, coalescerRef, sessionCache
           }).catch(() => undefined)
         }
         for (const parsed of batch) {
-          if (parsed.type === 'host.applied') setHostAppliedPresentation({ eventId: parsed.id, sessionId: id, projectPath, chatId })
+          if (parsed.type === 'host.applied' || parsed.type === 'host.apply_settled') setHostAppliedPresentation({ eventId: parsed.id, sessionId: id, projectPath, chatId })
           if (parsed.type === 'execution.started' && owner) appendChatItem(owner, projectPath, executionStartedNotice(parsed))
           const planId = String(parsed.data.plan_id || '')
           if (!planId) continue

@@ -52,7 +52,20 @@ const sessions = new WeakMap()
 
 // Delivered over the WebContents debugger, like hidden-surface automation: a
 // view that is not composited silently drops sendInputEvent pointer presses.
+// Automation attaches the same debugger for its own short operations and
+// detaches when it finishes; a mirror command caught by that detach fails with
+// "target closed". It is replayed once on a fresh attachment of our own.
 async function withDebugger(wc, action) {
+  try {
+    return await withDebuggerSession(wc, action)
+  } catch (error) {
+    if (wc.isDestroyed() || !/target closed|not attached|detached/i.test(String(error?.message || ''))) throw error
+    sessions.delete(wc)
+    return withDebuggerSession(wc, action)
+  }
+}
+
+async function withDebuggerSession(wc, action) {
   let session = sessions.get(wc)
   if (!wc.debugger.isAttached()) {
     wc.debugger.attach('1.3')
@@ -67,6 +80,8 @@ async function withDebugger(wc, action) {
     return await action((method, params) => wc.debugger.sendCommand(method, params))
   } finally {
     session.timer = setTimeout(() => {
+      // A replaced session must not detach the attachment that replaced it.
+      if (sessions.get(wc) !== session) return
       sessions.delete(wc)
       if (session.ownsAttachment && !wc.isDestroyed() && wc.debugger.isAttached()) {
         void wc.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false }).catch(() => undefined)
