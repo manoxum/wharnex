@@ -15,7 +15,7 @@ import { createDesktopAuthViewRuntime, createDesktopOwnershipRuntime, createDesk
 
 const {
   app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, View, WebContentsView, clipboard,
-  dialog, ipcMain, nativeImage, screen, session, shell, createHash, randomUUID,
+  dialog, ipcMain, MessageChannelMain, nativeImage, screen, session, shell, createHash, randomUUID,
   mkdirSync, rmSync, mkdir, readFile, readdir, rm, writeFile, path,
   fileURLToPath, TextDecoder, ChatGPTSubmitCoordinator, dispatchChatGPTAccountKey, dispatchChatGPTPointerClick, dispatchChatGPTPointerPress, submitWithoutReplay, ChatGPTUploadCoordinator,
   chatGPTUploadThumbnailScript, pasteWithUploadRetry, plannerPromptMarkdown, selectChatGPTUploadFile, waitForChatGPTReady, createChatGPTFileUpload, registerExpectedBundleRecoveryIPC, registerChatGPTBundleIPC,
@@ -604,7 +604,7 @@ const {
 })
 
 const desktopEntrypoint = createDesktopEntrypointRuntime({
-  ipcMain, trustedSender, registerWindowIPC, registerDesktopShellIPC, registerSpellcheckIPC, desktopWindows, acquireProjectForWindow,
+  ipcMain, MessageChannelMain, trustedSender, registerWindowIPC, registerDesktopShellIPC, registerSpellcheckIPC, desktopWindows, acquireProjectForWindow,
   releaseProjectForWindow, suspendNativeSurfacesForWindow, sendToWindowState, desktopWindowClose, DESKTOP_INSTANCE, publishDesktopNotification, canonicalProjectPath,
   desktopTrayController, persistWindowLayout, persistRestartIntent, waitForSelfEvolutionActivation, scheduleDesktopCoordinatorRelaunch, app, registerChatGPTSurfaceIPC,
   registerChatGPTAccountIPC, registerChatGPTSessionControlIPC, registerExpectedBundleRecoveryIPC, registerChatGPTBundleIPC, registerChatGPTPromptIPC, deferSupervisorNavigationIfBusy, activateChatGPTView,

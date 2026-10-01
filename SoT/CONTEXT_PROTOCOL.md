@@ -17,7 +17,12 @@ request evidence, but no project/reference/attachment file bodies. A completed
 engine read of one or more exact file paths from those three content roots. Wharnex
 MUST validate each path against the captured eligible snapshot, reject
 traversal, missing/excluded files, repeated requests with no new file, and
-requests beyond the bounded round/size limits. It opens no model-supplied
+requests beyond the cumulative selected-bytes budget. There is no increment-round
+limit: the planner alone decides when the selected evidence suffices, and
+Wharnex MUST NOT reject an increment, or tell the planner its increments are
+final, because of how many rounds it has taken. Increments are reads, not
+executed workflow steps, and MUST NOT spend the workflow step budget
+(`SoT/AI_PROTOCOL.md`). It opens no model-supplied
 host path and executes no model-supplied shell. The next derived ZIP carries
 the cumulative selected file bodies plus the maps and ordinary history.
 Selected paths do not confer write authority.
@@ -26,7 +31,7 @@ Selected paths do not confer write authority.
 carries maps first; a response ZIP with `context-request.json` and protocol
 `harness.orchestrator-context-request/v1` asks for one or more exact captured file
 paths, and the Worker sends a follow-up request ZIP with cumulative selected
-bodies in the same conversation. At most six increments are permitted. A
+bodies in the same conversation. Increments are not round-limited. A
 normal `plan.json` response ends planning. Because the context-request answer
 and the final plan share one canonical result filename, after an increment the
 Worker MUST accept only an artifact from a turn newer than its resubmission; a
@@ -359,6 +364,6 @@ source and MUST stay.
 
 ## Semantic map and observation evolution
 
-`context-map/<source>/maps` remains the exact `harness.context-map/v1` inventory fallback. `context-map/<source>/semantic-index` uses `harness.context-semantic-index/v1` to add role/language/top-level-symbol/module signals, related-file hints, request-ranked candidates, module groups and an explicit byte/round budget. Candidate/group size is advisory only; it never changes snapshot authorization or imposes a file-count limit. Increment audit events record selected path count, cumulative selected bytes and round.
+`context-map/<source>/maps` remains the exact `harness.context-map/v1` inventory fallback. `context-map/<source>/semantic-index` uses `harness.context-semantic-index/v1` to add role/language/top-level-symbol/module signals, related-file hints, request-ranked candidates, module groups and an explicit budget that reports cumulative selected bytes, rounds used and `round_limit: "none"` (it carries no remaining-rounds count). Candidate/group size is advisory only; it never changes snapshot authorization or imposes a file-count limit. Increment audit events record selected path count, cumulative selected bytes and round.
 
 Interactive diagnostics may request `debug.auto_observe=true` only with `harness.interactive/v2` host/observe. Policy independently grants automatic observation only to typed filesystem `read`/`stat`/`list` operations inside declared project-relative scopes; reads are bounded to at most 1 MiB. Shell, network, SQL/log/process/container/service capabilities, mutations, ambiguous scope and any other approval boundary remain consent-gated or denied. Policy decisions persist the requested and effective auto-observe classification for audit.

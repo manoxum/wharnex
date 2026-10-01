@@ -93,7 +93,7 @@ After the step, Wharness captures structured argv/cwd/exit/stdout/stderr evidenc
 
 The planner MAY therefore return a `workflow` bundle specifically to request missing local information. Its human explanation states what evidence is needed, while its command-only plan is the complete machine-readable extraction instruction. Wharness classifies this as an **evidence iteration**, executes it locally under the restrictions above, and returns the structured observations to the same Main Request.
 
-The workflow is bounded to six local rounds per original user turn. The final continuation explicitly requires a terminal result. An additional `workflow` bundle after the cap MUST be rejected while leaving the current request pending so a terminal bundle can still be supplied.
+The workflow is bounded to six executed local steps per original user turn (interactive protocols: twenty-four). Partial context increments are planner-paced snapshot reads, not executed steps: they never spend this budget and have no round ceiling of their own (`SoT/CONTEXT_PROTOCOL.md`). The final executed-step continuation explicitly requires a terminal result. An additional `workflow` bundle after the cap MUST be rejected while leaving the current request pending so a terminal bundle can still be supplied.
 
 Command failure in a workflow is evidence, not an automatic repair trigger. Automatic repair remains specific to a requested `change` plan.
 

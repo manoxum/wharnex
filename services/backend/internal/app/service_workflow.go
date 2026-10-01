@@ -7,21 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/workflowbudget"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/planner"
 	"kernl.local/harness/backend/internal/protocol"
 )
-
-const maxWorkflowRounds = 6
-const maxInteractiveWorkflowRounds = maxWorkflowRounds * 4
-
-func workflowRoundLimit(plan *domain.ExecutionPlan) int {
-	if plan != nil && plan.Debug != nil && (plan.Debug.Protocol == domain.InteractiveProtocolV1 || plan.Debug.Protocol == domain.InteractiveProtocolV2) {
-		return maxInteractiveWorkflowRounds
-	}
-	return maxWorkflowRounds
-}
 
 func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport string) (BundleSubmission, error) {
 	result := BundleSubmission{}
@@ -48,10 +39,13 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 			result.AutoError = "iterative workflow requires Protected execution mode"
 			return result, nil
 		}
-		limit := workflowRoundLimit(current.Plan)
-		if current.WorkflowRound >= limit {
+		limit, exhausted := workflowbudget.Exhausted(current, current.Plan)
+		if exhausted {
 			result.AutoError = fmt.Sprintf("workflow round limit reached (%d)", limit)
 			return result, nil
+		}
+		message := func(execution domain.ExecutionResult) string {
+			return buildWorkflowObservationMessage(execution, workflowbudget.StepsUsed(current)+1, limit)
 		}
 		if err := protocol.ValidateWorkflowPlan(*current.Plan); err != nil {
 			return result, err
@@ -77,7 +71,7 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 			}
 			result.WorkflowExecuted = false
 			result.Execution = &execution
-			if err := s.prepareWorkflowContinuation(ctx, sessionID, execution, current.WorkflowRound+1, workflowRoundLimit(current.Plan)); err != nil {
+			if err := s.prepareWorkflowContinuation(ctx, sessionID, execution, current.WorkflowRound+1, message(execution)); err != nil {
 				return result, err
 			}
 		} else {
@@ -88,7 +82,7 @@ func (s *Service) runWorkflowLoop(ctx context.Context, sessionID, transport stri
 				// Command failure is observation, not an automatic repair trigger.
 				s.bus.Publish(sessionID, "workflow.step_failed", map[string]any{"plan_id": current.Plan.PlanID, "error": err.Error(), "transport": transport})
 			}
-			if err := s.prepareWorkflowContinuation(ctx, sessionID, execution, current.WorkflowRound+1, workflowRoundLimit(current.Plan)); err != nil {
+			if err := s.prepareWorkflowContinuation(ctx, sessionID, execution, current.WorkflowRound+1, message(execution)); err != nil {
 				return result, err
 			}
 		}
@@ -220,7 +214,7 @@ func (s *Service) storeWorkflowObservation(sessionID string, result domain.Execu
 	})
 }
 
-func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID string, execution domain.ExecutionResult, round, limit int) error {
+func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID string, execution domain.ExecutionResult, round int, message string) error {
 	refreshed, err := s.refreshContext(sessionID)
 	if err != nil {
 		return fmt.Errorf("refresh context for workflow continuation: %w", err)
@@ -242,7 +236,6 @@ func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID str
 			item.LastRequestID, requestKindEvidence, execution, domain.AttemptOutcomeObservation, "workflow observation round completed"))
 		return nil
 	})
-	message := buildWorkflowObservationMessage(execution, round, limit)
 	s.bus.Publish(sessionID, "workflow.continuation_started", map[string]any{"request_id": requestID, "round": round, "plan_id": execution.PlanID})
 	knowledgeSnapshot, err := s.loadRequestKnowledge(sessionID, refreshed.ProjectPath)
 	if err != nil {

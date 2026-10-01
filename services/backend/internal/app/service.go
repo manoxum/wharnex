@@ -13,6 +13,7 @@ import (
 
 	"kernl.local/harness/backend/internal/app/translationflow"
 	"kernl.local/harness/backend/internal/app/verification"
+	"kernl.local/harness/backend/internal/app/workflowbudget"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/bundlename"
 	"kernl.local/harness/backend/internal/changeset"
@@ -836,6 +837,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		current.RepairParentPlanID = ""
 		clearSessionFailure(current)
 		current.WorkflowRound = 0
+		current.ContextIncrements = 0
 		current.LastRequestMode = planningMode
 		current.LastTurn = result.Turn
 		if result.Plan == nil && result.ManualPrompt != "" {
@@ -1250,8 +1252,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 		if parsed.Plan == nil {
 			return BundleSubmission{}, errors.New("workflow bundle requires plan.json")
 		}
-		limit := workflowRoundLimit(parsed.Plan)
-		if current.WorkflowRound >= limit {
+		if limit, exhausted := workflowbudget.Exhausted(current, parsed.Plan); exhausted {
 			return BundleSubmission{}, fmt.Errorf("workflow round limit reached (%d); return a terminal answer, investigation, clarification, change, or blocked bundle for request %s", limit, parsed.Turn.RequestID)
 		}
 		if err := protocol.ValidateWorkflowPlan(*parsed.Plan); err != nil {

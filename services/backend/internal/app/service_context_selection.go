@@ -10,10 +10,11 @@ import (
 	"sort"
 	"strings"
 
+	"kernl.local/harness/backend/internal/app/contextbudget"
 	"kernl.local/harness/backend/internal/domain"
 )
 
-const maxSelectedContextBytes = 64 << 20
+const maxSelectedContextBytes = contextbudget.MaxSelectedBytes
 
 func contextArchiveEntries(contextPath string) (map[string]*zip.File, *zip.ReadCloser, error) {
 	source, err := zip.OpenReader(filepath.Clean(contextPath))

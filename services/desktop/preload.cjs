@@ -10,6 +10,42 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload)
 
+// A pane follows one agent view through a dedicated stream: it subscribes, gets
+// its own MessagePort, and acknowledges each drawn frame before the next one is
+// sent. A refused subscription (the surface is not this window's yet) retries.
+let mirrorRequestSequence = 0
+const mirrorPortWaiters = new Map()
+ipcRenderer.on('wharness:mirror:port', (event, reply) => {
+  const waiter = mirrorPortWaiters.get(reply?.requestId)
+  if (!waiter) { for (const port of event.ports || []) port.close(); return }
+  mirrorPortWaiters.delete(reply.requestId)
+  waiter(reply?.ok ? event.ports?.[0] : undefined)
+})
+const subscribeMirror = (channel, request, onFrame) => {
+  if (typeof onFrame !== 'function') return () => {}
+  let active = true
+  let port
+  let retry
+  const open = () => {
+    if (!active) return
+    const requestId = `mirror-${++mirrorRequestSequence}`
+    mirrorPortWaiters.set(requestId, (granted) => {
+      if (!active) { granted?.close(); return }
+      if (!granted) { retry = setTimeout(open, 500); return }
+      port = granted
+      port.onmessage = (message) => {
+        const frame = message.data || {}
+        onFrame({ width: Number(frame.width) || 0, height: Number(frame.height) || 0, data: frame.data }, () => { if (active) port.postMessage('ready') })
+      }
+      port.addEventListener('close', () => { if (active) retry = setTimeout(open, 500) })
+      port.start()
+    })
+    ipcRenderer.send(channel, { ...request, requestId })
+  }
+  open()
+  return () => { active = false; clearTimeout(retry); port?.close() }
+}
+
 contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
   platform: process.platform,
   projects: Object.freeze({
@@ -86,12 +122,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     hide: (cacheKey) => invoke('wharness:chatgpt:hide', { cacheKey }),
     setBounds: (bounds, cacheKey) => invoke('wharness:chatgpt:set-bounds', { bounds, cacheKey }),
     mirrorInput: (cacheKey, input) => invoke('wharness:chatgpt:mirror-input', { cacheKey, input }),
-    onMirrorFrame: (callback) => {
-      if (typeof callback !== 'function') return () => {}
-      const handler = (_event, frame) => callback(frame)
-      ipcRenderer.on('wharness:chatgpt:mirror-frame', handler)
-      return () => ipcRenderer.removeListener('wharness:chatgpt:mirror-frame', handler)
-    },
+    subscribeMirror: (cacheKey, onFrame) => subscribeMirror('wharness:chatgpt:mirror-subscribe', { cacheKey: String(cacheKey || '') }, onFrame),
     navigate: (url, cacheKey, options = {}) => invoke('wharness:chatgpt:navigate', { url: String(url), cacheKey, resetToHomeIfConversation: Boolean(options?.resetToHomeIfConversation), bounds: options?.bounds }),
     confirmAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:confirm-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
     rejectAffinity: (cacheKey, conversationUrl) => invoke('wharness:chatgpt:reject-affinity', { cacheKey, conversationUrl: String(conversationUrl || '') }),
@@ -231,12 +262,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     resizeInMonitor: (agentId, bounds) => invoke('wharness:agents:monitor-bounds', { agentId: String(agentId || ''), bounds }),
     releaseFromMonitor: (agentId) => invoke('wharness:agents:monitor-release', { agentId: String(agentId || '') }),
     mirrorInput: (agentId, input) => invoke('wharness:agents:mirror-input', { agentId: String(agentId || ''), input }),
-    onMirrorFrame: (callback) => {
-      if (typeof callback !== 'function') return () => {}
-      const handler = (_event, frame) => callback(frame)
-      ipcRenderer.on('wharness:agents:mirror-frame', handler)
-      return () => ipcRenderer.removeListener('wharness:agents:mirror-frame', handler)
-    },
+    subscribeMirror: (agentId, onFrame) => subscribeMirror('wharness:agents:mirror-subscribe', { agentId: String(agentId || '') }, onFrame),
     onMonitorSelect: (callback) => {
       if (typeof callback !== 'function') return () => {}
       const handler = (_event, selection) => callback(selection)

@@ -43,6 +43,7 @@ type DesktopAgentRuntimeState = {
   agents: DesktopAgentRuntimeAgent[]
 }
 type DesktopMirrorFrame = { width: number; height: number; data: Uint8Array<ArrayBuffer> }
+type DesktopMirrorFrameHandler = (frame: DesktopMirrorFrame, ready: () => void) => void
 type DesktopMirrorInput = {
   type: 'mousePressed' | 'mouseReleased' | 'mouseMoved' | 'mouseWheel' | 'keyDown' | 'keyUp'
   modifiers: number; nx?: number; ny?: number; button?: 'none' | 'left' | 'middle' | 'right'; buttons?: number; clickCount?: number
@@ -73,7 +74,7 @@ interface WharnessDesktopBridge {
     onMonitorSelect(callback: (selection: { agentId: string }) => void): () => void
     // A surfaced Worker is shown in the project as a mirror of its real view.
     mirrorInput(agentId: string, input: DesktopMirrorInput): Promise<{ ok: boolean }>
-    onMirrorFrame(callback: (frame: DesktopMirrorFrame & { agentId: string }) => void): () => void
+    subscribeMirror(agentId: string, onFrame: DesktopMirrorFrameHandler): () => void
     onState(callback: (state: DesktopAgentRuntimeState) => void): () => void
   }
 }
