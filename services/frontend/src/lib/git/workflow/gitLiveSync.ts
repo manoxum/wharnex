@@ -1,35 +1,43 @@
-import { api } from '../../transport/http/api'
+import { API_URL, invalidatePendingReads } from '../../transport/http/apiRequest'
+import { openSessionEvents } from '../../transport/http/sessionEvents'
+import type { LiveEventStream } from '../../transport/http/liveEventStream'
 
 type Listener = () => void
-type Watch = { sessionId: string; repository: string; listeners: Set<Listener>; timer?: number; signature?: string; running: boolean }
+type Watch = { sessionId: string; repository: string; listeners: Set<Listener> }
+type SessionWatch = { source: LiveEventStream; watches: Set<Watch> }
 
 const watches = new Map<string, Watch>()
-const POLL_MS = 1000
+const sessions = new Map<string, SessionWatch>()
 
 function watchKey(sessionId: string, repository: string) {
   return `${sessionId}\0${repository}`
 }
 
-function signatureOf(head: Awaited<ReturnType<typeof api.gitHead>>) {
-  return `${head.current_branch || ''}|${head.detached ? '1' : '0'}|${head.commit_sha || ''}`
+function notify(watch: Watch) {
+  // A read started before this signal may contain the old overview.
+  invalidatePendingReads(`/api/sessions/${encodeURIComponent(watch.sessionId)}/git/`)
+  for (const listener of watch.listeners) listener()
 }
 
-async function sample(watch: Watch) {
-  if (watch.running) return
-  watch.running = true
-  try {
-    const head = await api.gitHead(watch.sessionId, watch.repository)
-    const signature = signatureOf(head)
-    if (watch.signature === undefined) watch.signature = signature
-    else if (watch.signature !== signature) {
-      watch.signature = signature
-      for (const listener of watch.listeners) listener()
-    }
-  } catch {
-    // Live sync is best-effort. Explicit Git actions still surface failures.
-  } finally {
-    watch.running = false
+function connectSession(sessionId: string): SessionWatch {
+  const source = openSessionEvents(`${API_URL}/api/sessions/${encodeURIComponent(sessionId)}/events`)
+  const session: SessionWatch = { source, watches: new Set() }
+  source.onopen = () => {
+    // A first connection or reconnect may have missed a change between the
+    // mounted view's initial read and the backend's first Git sample.
+    for (const watch of session.watches) notify(watch)
   }
+  source.onmessage = ({ data }) => {
+    try {
+      const event = JSON.parse(data) as { type?: string; data?: { repository?: string } }
+      if (event.type !== 'git.changed') return
+      for (const watch of session.watches) {
+        if (event.data?.repository === undefined || event.data.repository === watch.repository) notify(watch)
+      }
+    } catch { /* malformed transport frame */ }
+  }
+  sessions.set(sessionId, session)
+  return session
 }
 
 export function subscribeGitLiveSync(sessionId: string, repository: string, listener: Listener): () => void
@@ -42,30 +50,29 @@ export function subscribeGitLiveSync(sessionId: string, repositoryOrListener: st
   const key = watchKey(sessionId, repository)
   let watch = watches.get(key)
   if (!watch) {
-    const created: Watch = { sessionId, repository, listeners: new Set(), running: false }
-    watches.set(key, created)
-    void sample(created)
-    created.timer = window.setInterval(() => { void sample(created) }, POLL_MS)
-    watch = created
+    watch = { sessionId, repository, listeners: new Set() }
+    watches.set(key, watch)
+    const session = sessions.get(sessionId) || connectSession(sessionId)
+    session.watches.add(watch)
   }
   watch.listeners.add(listener)
   return () => {
     const current = watches.get(key)
     if (!current) return
     current.listeners.delete(listener)
-    if (current.listeners.size === 0) {
-      if (current.timer !== undefined) window.clearInterval(current.timer)
-      watches.delete(key)
+    if (current.listeners.size) return
+    watches.delete(key)
+    const session = sessions.get(sessionId)
+    session?.watches.delete(current)
+    if (session && !session.watches.size) {
+      session.source.close()
+      sessions.delete(sessionId)
     }
   }
 }
 
 export function announceGitChanged(sessionId: string, repository?: string) {
   for (const watch of watches.values()) {
-    if (watch.sessionId !== sessionId) continue
-    if (repository !== undefined && watch.repository !== repository) continue
-    watch.signature = undefined
-    for (const listener of watch.listeners) listener()
-    void sample(watch)
+    if (watch.sessionId === sessionId && (repository === undefined || watch.repository === repository)) notify(watch)
   }
 }

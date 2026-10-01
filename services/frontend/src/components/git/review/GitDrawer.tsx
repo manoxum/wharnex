@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { GitAuthorSettings, GitBranch, GitCommitMode, GitConflictStrategy, GitFileDiff, GitOperationPreview, GitOverview, GitPendingCommit, Session } from '../../../types'
 import { api, APIError } from '../../../lib/transport/http/api'
-import { announceGitChanged, subscribeGitLiveSync } from '../../../lib/git/workflow/gitLiveSync'
+import { announceGitChanged } from '../../../lib/git/workflow/gitLiveSync'
+import { useGitLiveRefresh } from '../../../lib/git/workflow/useGitLiveRefresh'
 import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
 import { Icon } from '../../presentation/chrome/Icon'
 import { InternalWindow } from '../../workspace/window/InternalWindow'
@@ -80,12 +81,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { void refresh() }, [session.last_host_applied_at, session.state, refresh])
-  const repositoryPathsKey = useMemo(() => repositoryEntries.map((entry) => entry.repository.path).join('\u0000'), [repositoryEntries])
-  useEffect(() => {
-    const paths = repositoryEntries.length ? repositoryEntries.map((entry) => entry.repository.path) : ['']
-    const cleanups = paths.map((path) => subscribeGitLiveSync(session.id, path, () => { void refresh() }))
-    return () => cleanups.forEach((cleanup) => cleanup())
-  }, [session.id, repositoryEntries, repositoryPathsKey, refresh])
+  useGitLiveRefresh(session.id, refresh)
   useEffect(() => {
     const committable = new Set(repositoryEntries.flatMap((entry) => (entry.overview?.working.files || [])
       .filter((file) => file.kind === 'change' || file.kind === 'gitlink')

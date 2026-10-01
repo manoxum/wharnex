@@ -5,6 +5,7 @@ import { disposeEditorModel } from '../../../lib/editor/runtime/monaco'
 import { editorExecutableOptions, loadEditorRunHistory, parentDirectory, recentEditorRunOptions, rememberEditorRun, selectionCommand } from '../../../lib/editor/runtime/editorExecution'
 import { workspaceDragEndedOutside, type WorkspaceSurfaceTransferPoint } from '../../../lib/workspace/layout/workspaceSurface'
 import { parseEditorGitChanges, type EditorGitChange } from '../../../lib/editor/runtime/editorGitChanges'
+import { useGitLiveRefresh } from '../../../lib/git/workflow/useGitLiveRefresh'
 import { dockerComposeRuntimeMarkers } from '../../../lib/editor/runtime/editorRuntimeMarkers'
 import type { DockerOverview, FileEntry, GitFileDiff, GitWorkingFile, Session, TerminalRunInput, WorkspaceFile } from '../../../types'
 import { CodeEditor } from './CodeEditor'
@@ -126,10 +127,10 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     void refreshGitState()
     if (!active) return
     const sync = () => { if (document.visibilityState === 'visible') void refreshGitState() }
-    const timer = window.setInterval(sync, 4500)
     window.addEventListener('wharnex:git-working-tree-changed', sync)
-    return () => { window.clearInterval(timer); window.removeEventListener('wharnex:git-working-tree-changed', sync) }
+    return () => window.removeEventListener('wharnex:git-working-tree-changed', sync)
   }, [active, refreshGitState])
+  useGitLiveRefresh(active ? session.id : '', refreshGitState)
   useEffect(() => {
     const path = selectedPath
     if (!active || !path || !/\.ya?ml$/i.test(path)) {

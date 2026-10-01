@@ -60,6 +60,10 @@ class SocketEventStream implements LiveEventStream {
 
   private connect() {
     if (this.closed) return
+    if (typeof WebSocket === 'undefined') {
+      if (typeof EventSource !== 'undefined') this.connectEventSource()
+      return
+    }
     if (!socketEverOpened && failedHandshakes >= FALLBACK_AFTER_FAILED_HANDSHAKES) return this.connectEventSource()
     let opened = false
     const socket = new WebSocket(webSocketURL(this.url))
@@ -78,6 +82,7 @@ class SocketEventStream implements LiveEventStream {
   }
 
   private connectEventSource() {
+    if (typeof EventSource === 'undefined') return
     console.warn(`[live-stream] WebSocket unavailable after ${failedHandshakes} handshakes; using EventSource for ${this.url}`)
     const source = new EventSource(this.url)
     this.fallback = source

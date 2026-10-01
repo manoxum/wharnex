@@ -3,7 +3,8 @@ import type { ChatItem, HarnessEvent, Session } from '../../types'
 import type { WorkspaceChat } from '../../lib/chat/history/workspaceMemory'
 import { loadExecutionHistory, loadWorkspaceChats, saveExecutionHistory } from '../../lib/chat/history/workspaceMemory'
 import { api } from '../../lib/transport/http/api'
-import { openLiveEventStream, type LiveEventStream } from '../../lib/transport/http/liveEventStream'
+import type { LiveEventStream } from '../../lib/transport/http/liveEventStream'
+import { openSessionEvents } from '../../lib/transport/http/sessionEvents'
 import { createEventStreamCoalescer, type EventStreamCoalescer } from '../../lib/transport/http/eventStream'
 import { executionStartedNotice } from '../../lib/execution/history/executionNotice'
 import { finishExecutionQueueItem, upsertExecutionQueueItem, type ExecutionFIFOItem } from '../../lib/execution/history/executionQueueView'
@@ -30,7 +31,7 @@ export function useEventStreamConnection({ sourceRef, coalescerRef, sessionCache
     const restored = loadExecutionHistory(projectPath, chatId)
     setEvents(restored)
 
-    const source = openLiveEventStream(api.eventsURL(id))
+    const source = openSessionEvents(api.eventsURL(id))
     const coalescer = createEventStreamCoalescer({
       restored,
       // A timer that outlives its stream must not write another chat's window;
@@ -71,7 +72,10 @@ export function useEventStreamConnection({ sourceRef, coalescerRef, sessionCache
       },
     })
     source.onmessage = (event) => {
-      try { coalescer.accept(JSON.parse(event.data) as HarnessEvent) }
+      try {
+        const parsed = JSON.parse(event.data) as HarnessEvent
+        if (parsed.type !== 'git.changed') coalescer.accept(parsed)
+      }
       catch { /* ignore malformed stream frame */ }
     }
     coalescerRef.current = coalescer

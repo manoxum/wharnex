@@ -79,6 +79,17 @@ describe('live event stream', () => {
     expect(messages).toEqual(['frame'])
   })
 
+  it('does not throw in a renderer without an EventSource implementation', () => {
+    vi.stubGlobal('EventSource', undefined)
+    const stream = openLiveEventStream('http://h/api/x')
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      FakeSocket.all[attempt].drop()
+      vi.advanceTimersByTime(15_000)
+    }
+    expect(FakeSocket.all).toHaveLength(3)
+    stream.close()
+  })
+
   it('keeps retrying WebSocket after a restart once one has worked', () => {
     openLiveEventStream('http://h/api/x')
     FakeSocket.all[0].open()

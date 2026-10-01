@@ -21,6 +21,7 @@ import (
 	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/documentpreview"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/gitlive"
 	"kernl.local/harness/backend/internal/pairing"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
@@ -35,10 +36,14 @@ type API struct {
 	bus          *audit.Bus
 	cfg          config.Config
 	pairingStore *pairing.Store
+	gitHub       *gitlive.Hub
 }
 
 func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.Config) http.Handler {
 	a := &API{service: service, store: store, bus: bus, cfg: cfg, pairingStore: pairing.NewStore(filepath.Join(filepath.Dir(cfg.StateFile), "remote-pairing.json"))}
+	a.gitHub = gitlive.NewHub(3*time.Second, gitlive.Snapshot, func(sessionID string) {
+		bus.Publish(sessionID, "git.changed", map[string]any{})
+	})
 	mux := http.NewServeMux()
 	settingsRoutes := settings.New(service, cfg)
 	mux.HandleFunc("GET /api/health", a.health)

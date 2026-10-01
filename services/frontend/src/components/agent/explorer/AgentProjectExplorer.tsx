@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { api, APIError } from '../../../lib/transport/http/api'
+import { useGitLiveRefresh } from '../../../lib/git/workflow/useGitLiveRefresh'
 import { confirmDialog, promptDialog } from '../../../lib/desktop/bridge/appDialog'
 import type { FileEntry, GitFileDiff, GitWorkingFile, Session } from '../../../types'
 import { DirectoryGlyph, FileGlyph } from '../../editor/canvas/FileGlyph'
@@ -53,14 +54,15 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
       if (showLoading) setLoading(false)
     }
   }, [session.id, onError])
+  const refreshQuietly = useCallback(() => refresh(false), [refresh])
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
-    const sync = () => { if (document.visibilityState === 'visible') void refresh(false) }
-    const timer = window.setInterval(sync, 4500)
+    const sync = () => { if (document.visibilityState === 'visible') void refreshQuietly() }
     window.addEventListener('wharnex:git-working-tree-changed', sync)
-    return () => { window.clearInterval(timer); window.removeEventListener('wharnex:git-working-tree-changed', sync) }
-  }, [refresh])
+    return () => window.removeEventListener('wharnex:git-working-tree-changed', sync)
+  }, [refreshQuietly])
+  useGitLiveRefresh(session.id, refreshQuietly)
   useEffect(() => {
     if (!revealPath || !findNode(fullTree, revealPath)) return
     setFocusedPath(revealPath)
