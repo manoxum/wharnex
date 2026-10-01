@@ -46,6 +46,9 @@ describe('BundleExchangeBar', () => {
     const summary = screen.getByRole('region', { name: 'Resumo dos bundles trocados' })
     expect(summary.textContent).toContain('Bundles trocados2')
     expect(summary.textContent).toMatch(/Ocupação em disco6(?:\.0)? KB/)
+    expect(summary.classList.contains('sticky')).toBe(true)
+    expect(summary.classList.contains('bottom-0')).toBe(true)
+    expect(summary.classList.contains('grid-cols-2')).toBe(true)
     expect(document.querySelector('.bundle-explorer-backdrop')?.parentElement).toBe(document.body)
   })
   it('ignores auxiliary ZIP artifacts even when legacy metadata marks them as bundles', () => {
