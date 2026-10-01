@@ -42,6 +42,29 @@ describe('GitOperationModal', () => {
     expect(onConfirmTargets).toHaveBeenCalledWith([''])
   })
 
+  it('renders the operation result as a token-based Tailwind status card', () => {
+    const onClose = vi.fn()
+    const operation: GitOperation = {
+      title: 'A criar commit manual',
+      detail: 'Escolha em quais repositórios os ficheiros selecionados serão commitados.',
+      phase: 'success',
+      message: 'Commit b0a31826 criado com 24 ficheiro(s).',
+    }
+    render(<GitOperationModal operation={operation} onClose={onClose}/>)
+
+    const dialog = screen.getByRole('dialog', { name: 'A criar commit manual' })
+    expect(dialog.className).toContain('rounded-2xl')
+    expect(dialog.className).toContain('bg-whx-elevated')
+    expect(dialog.className).not.toContain('git-operation-modal')
+    expect(within(dialog).getByText('Operação Git')).toBeTruthy()
+    expect(within(dialog).getByText('Commit b0a31826 criado com 24 ficheiro(s).')).toBeTruthy()
+    expect(within(dialog).getByText('Concluído')).toBeTruthy()
+    expect(within(dialog).getByRole('list', { name: 'Progresso da operação' }).children).toHaveLength(3)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Fechar' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps review confirmation above the diff surface and forwards the click', () => {
     const onConfirmReview = vi.fn()
     const operation: GitOperation = {
