@@ -1,9 +1,4 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
-### Chat bb715277-cba3-4278-922e-e5b2ae60f32a (2026-09-30)
-
-_(reserved — no entries yet)_
-
-
 ### Chat 0274c282-e529-442c-9af2-913cd0a85f4f (2026-09-29)
 
 - Partial context selection is now limited by cumulative bytes and rounds rather than an artificial file-count ceiling, including Orchestrator and cumulative manifest transport.
