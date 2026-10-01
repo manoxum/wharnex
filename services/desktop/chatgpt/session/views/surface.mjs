@@ -21,6 +21,7 @@ export function createHostedChatGPTSurface(native, { View, host }) {
   let bounds
   let visible = false
   let presentedIn
+  let keepsContentSize = false
   let sized = { width: 0, height: 0 }
 
   // Electron delivers a resize to the renderer only while the view is visible;
@@ -41,12 +42,31 @@ export function createHostedChatGPTSurface(native, { View, host }) {
     height: Math.max(1, Math.floor(Number(bounds?.height) || PARKED_SIZE.height)),
   })
 
+  // A view just attached to the monitor shows nothing until its renderer
+  // produces a new frame, and a page that is not repainting never does on its
+  // own. A visible one-pixel capture forces that frame; invalidate() does not
+  // (measured on Electron 44). It runs again shortly after, once the native
+  // attachment has settled.
+  function refreshFrame() {
+    const wc = native.webContents
+    const force = () => {
+      if (presentedIn && !wc.isDestroyed()) void wc.capturePage({ x: 0, y: 0, width: 1, height: 1 }).catch(() => undefined)
+    }
+    force()
+    setTimeout(force, 200)
+  }
+
   function detachFrom(window) {
     try { if (window && !window.isDestroyed()) window.contentView.removeChildView(box) } catch { /* window is closing */ }
   }
 
   host.attach(box)
   native.webContents.once('destroyed', () => { detachFrom(presentedIn); host.detach(box) })
+  // Earlier builds compensated a presented Worker with zoom, which Chromium
+  // applies to the whole origin and persists; agent views always render at 1.
+  native.webContents.on('did-finish-load', () => {
+    if (!native.webContents.isDestroyed() && native.webContents.getZoomFactor() !== 1) native.webContents.setZoomFactor(1)
+  })
 
   return {
     native,
@@ -64,30 +84,35 @@ export function createHostedChatGPTSurface(native, { View, host }) {
     getVisible() { return Boolean(presentedIn) && native.getVisible() },
     setBackgroundColor(color) { native.setBackgroundColor(color) },
     isPresented() { return Boolean(presentedIn) },
-    present(window, target) {
+    // A Worker presented mid-task keeps its content size so its automation
+    // layout never changes; the container then crops or pads it.
+    present(window, target, { keepContentSize = false } = {}) {
       if (presentedIn === window) return this.resizePresented(target)
       if (presentedIn) this.release()
       host.detach(box)
-      native.setBounds({ x: 0, y: 0, width: target.width, height: target.height })
+      keepsContentSize = keepContentSize
+      if (!keepsContentSize) native.setBounds({ x: 0, y: 0, width: target.width, height: target.height })
       native.setVisible(true)
       window.contentView.addChildView(box)
       box.setBounds(target)
       presentedIn = window
+      refreshFrame()
     },
     resizePresented(target) {
       if (!presentedIn) return
       const current = box.getBounds()
-      if (current.width !== target.width || current.height !== target.height) {
+      if (!keepsContentSize && (current.width !== target.width || current.height !== target.height)) {
         presentedIn.contentView.removeChildView(box)
         native.setBounds({ x: 0, y: 0, width: target.width, height: target.height })
         presentedIn.contentView.addChildView(box)
       }
       box.setBounds(target)
+      refreshFrame()
     },
     release() {
       if (!presentedIn) return
-      native.setVisible(false)
       detachFrom(presentedIn)
+      native.setVisible(false)
       presentedIn = undefined
       host.attach(box)
       const size = requestedSize()

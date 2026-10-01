@@ -43,6 +43,30 @@ func TestEnsureIgnoresRuntimeBeforeInitialCommit(t *testing.T) {
 	gitText(t, root, "check-ignore", "-q", ".harness/state/runtime.json")
 }
 
+func TestEnsureDoesNotTakeIndexLockWhenRuntimeIsUntracked(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	gitText(t, root, "init", "-q")
+	gitText(t, root, "config", "user.name", "Wharnex Test")
+	gitText(t, root, "config", "user.email", "test@example.invalid")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("project\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitText(t, root, "add", "-A")
+	gitText(t, root, "commit", "-qm", "existing project")
+	writeRuntimeFile(t, root)
+	lock := filepath.Join(root, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Ensure(context.Background(), root); err != nil {
+		t.Fatalf("Ensure failed on a foreign index lock with nothing to untrack: %v", err)
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Fatalf("Ensure must never remove a foreign index lock: %v", err)
+	}
+}
+
 func TestEnsureRepairsExistingRepositoryAndUntracksRuntime(t *testing.T) {
 	requireGit(t)
 	root := t.TempDir()

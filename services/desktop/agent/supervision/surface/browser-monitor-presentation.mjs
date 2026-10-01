@@ -1,5 +1,4 @@
 const MONITOR_WINDOW_ID = 'browser-monitor'
-const PARKED_SIZE = Object.freeze({ width: 1280, height: 900 })
 
 // Presenting moves an agent view's container from the browser host into the
 // monitor pane and back (see chatgpt/session/views/surface.mjs); the view keeps
@@ -23,14 +22,10 @@ export function createBrowserMonitorPresentation({
     return entry
   }
 
-  // A running Worker keeps an automation-sized effective viewport: the zoom
-  // compensates for a monitor pane smaller than the parked layout.
-  function fit(entry, bounds) {
-    const wc = entry.view.webContents
-    if (entry.role === 'worker' && typeof wc.setZoomFactor === 'function') {
-      wc.setZoomFactor(Math.max(0.25, Math.min(1, bounds.width / PARKED_SIZE.width, bounds.height / PARKED_SIZE.height)))
-    }
-  }
+  // Zoom is shared by every view of an origin (Chromium's zoom policy), so it
+  // cannot compensate one Worker's layout without rescaling every ChatGPT
+  // view; a Worker is presented at its own content size instead.
+  const presentOptions = (entry) => ({ keepContentSize: entry.role === 'worker' })
 
   function releaseBrowserMonitor(windowState, agentId = '') {
     requireMonitor(windowState)
@@ -39,12 +34,7 @@ export function createBrowserMonitorPresentation({
     windowState.activeMonitorAgentEntry = undefined
     windowState.activeMonitorAgentId = ''
     entry.monitorWindowId = ''
-    const wc = entry.view.webContents
-    if (!wc.isDestroyed()) {
-      if (Number.isFinite(entry.monitorPreviousZoomFactor)) wc.setZoomFactor(entry.monitorPreviousZoomFactor)
-      entry.view.release()
-    }
-    entry.monitorPreviousZoomFactor = undefined
+    if (!entry.view.webContents.isDestroyed()) entry.view.release()
     publishChatAgentRuntimeState()
     return { ok: true, agentId: entry.slotId, released: true }
   }
@@ -61,10 +51,8 @@ export function createBrowserMonitorPresentation({
     const bounds = normalizedMonitorBounds(rawBounds, windowState)
     if (windowState.activeMonitorAgentEntry === entry) return resizeBrowserInMonitor(entry.slotId, bounds, windowState)
     releaseBrowserMonitor(windowState)
-    entry.monitorPreviousZoomFactor = entry.view.webContents.getZoomFactor?.() ?? 1
     entry.monitorWindowId = windowState.id
-    fit(entry, bounds)
-    entry.view.present(windowState.window, bounds)
+    entry.view.present(windowState.window, bounds, presentOptions(entry))
     windowState.activeMonitorAgentEntry = entry
     windowState.activeMonitorAgentId = entry.slotId
     publishChatAgentRuntimeState()
@@ -76,7 +64,6 @@ export function createBrowserMonitorPresentation({
     const entry = windowState.activeMonitorAgentEntry
     if (!entry || entry.slotId !== agentId || entry.view.webContents.isDestroyed()) return { ok: false, agentId }
     const bounds = normalizedMonitorBounds(rawBounds, windowState)
-    fit(entry, bounds)
     entry.view.resizePresented(bounds)
     return { ok: true, agentId, bounds }
   }
