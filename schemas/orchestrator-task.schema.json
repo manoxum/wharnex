@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wharnex.local/schemas/orchestrator-task.schema.json",
+  "title": "Wharnex Orchestrator task",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "project_path", "title", "status", "condition", "priority", "parallelizable", "created_at", "updated_at"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "project_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "plan_id": {"type": "string", "maxLength": 128},
+    "title": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "description": {"type": "string"},
+    "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+    "status": {"$ref": "#/$defs/status"},
+    "condition": {"enum": ["none", "dependency", "plan_approval", "manual_pause", "missing_context", "approval", "conflict", "failed_run", "stale_dependency"]},
+    "priority": {"enum": ["low", "normal", "high", "urgent"]},
+    "depends_on": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 128}, "uniqueItems": true},
+    "capability": {"type": "string"},
+    "complexity": {"type": "string"},
+    "parallelizable": {"type": "boolean"},
+    "impact_files": {"$ref": "#/$defs/pathList"},
+    "read_files": {"$ref": "#/$defs/pathList"},
+    "barrier_files": {"$ref": "#/$defs/pathList"},
+    "reasoning_effort": {"enum": ["instant", "medium", "high"]},
+    "first_doing_at": {"type": "string", "format": "date-time"},
+    "was_completed": {"type": "boolean"},
+    "allowed_transitions": {"type": "array", "items": {"$ref": "#/$defs/status"}, "uniqueItems": true},
+    "effort_level": {"enum": ["low", "medium", "high", "extra_high", "max", "ultra"]},
+    "retry_context": {"$ref": "#/$defs/retryContext"},
+    "conversation_url": {"type": "string", "pattern": "^https://chatgpt\\.com/c/[A-Za-z0-9-]{1,128}$"},
+    "conversation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "status": {"enum": ["PENDING", "WAITING", "READY", "DOING", "REVIEW", "FAILED", "COMPLETE", "ARCHIVED"]},
+    "pathList": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 4096}, "uniqueItems": true},
+    "retryContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "guidance": {"type": "string", "maxLength": 32768},
+        "project_files": {"$ref": "#/$defs/pathList"},
+        "attachment_cache_key": {"type": "string"},
+        "attachments": {"type": "array", "items": {"$ref": "#/$defs/attachment"}}
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "size", "mime", "storage_ref"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "size": {"type": "integer", "minimum": 0},
+        "mime": {"type": "string"},
+        "storage_ref": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

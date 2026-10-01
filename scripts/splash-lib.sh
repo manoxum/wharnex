@@ -49,7 +49,7 @@ wharness_splash_open() {
   [ -n "$wharness_splash_electron" ] || wharness_splash_electron="$ROOT/services/desktop/node_modules/.bin/electron"
   WHARNESS_SPLASH_STATUS_FILE="$WHARNESS_SPLASH_STATUS_FILE" \
   WHARNESS_SPLASH_READY_FILE="$WHARNESS_SPLASH_READY_FILE" \
-  "$wharness_splash_electron" "$ROOT/services/desktop/launcher-splash.mjs" >>"$LOG_FILE" 2>&1 &
+  "$wharness_splash_electron" "$ROOT/services/desktop/splash/launcher-splash.mjs" >>"$LOG_FILE" 2>&1 &
   WHARNESS_SPLASH_PID=$!
   wharness_splash_ready=0
   wharness_splash_attempt=0

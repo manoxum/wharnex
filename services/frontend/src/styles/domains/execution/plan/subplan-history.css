@@ -1,0 +1,28 @@
+.plan-history-sequence,
+.execution-subtask-index {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  background: var(--theme-subtle);
+  color: var(--theme-text-muted);
+  font: 750 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family);
+}
+
+.main-request-plan-copy strong,
+.execution-subtask-copy strong {
+  overflow: hidden;
+  color: var(--theme-text);
+  font-size: calc(9px * var(--ui-font-scale));
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-request-plan-detail,
+.main-request-execution-detail {
+  padding: 10px;
+  background: color-mix(in srgb, var(--theme-bg) 36%, transparent);
+}

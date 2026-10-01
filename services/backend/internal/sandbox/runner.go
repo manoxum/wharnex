@@ -52,11 +52,12 @@ type StreamingRunner interface {
 // TerminalOptions describes a human-owned interactive terminal. Unlike model
 // execution, its input is an opaque PTY byte stream rather than command argv.
 type TerminalOptions struct {
-	ID      string
-	Cwd     string
-	Network bool
-	Cols    uint16
-	Rows    uint16
+	ID        string
+	Reconnect bool
+	Cwd       string
+	Network   bool
+	Cols      uint16
+	Rows      uint16
 }
 
 type InteractiveTerminal interface {

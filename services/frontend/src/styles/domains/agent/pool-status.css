@@ -1,0 +1,125 @@
+/* Cross-project occupancy. The agent pool is shared across every open project,
+   so an agent busy elsewhere has to be legible as busy rather than idle. */
+.agent-runtime-scope { margin:0; padding:8px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(8.8px * var(--ui-font-scale)); line-height:1.5; }
+.agent-runtime-list > button.foreign-project { box-shadow:inset 2px 0 0 color-mix(in srgb, var(--warning) 64%, var(--theme-border)); }
+.agent-runtime-foreign { overflow:hidden; color:color-mix(in srgb, var(--warning) 78%, var(--theme-text-muted)); font:650 calc(8.2px * var(--ui-font-scale))/1.35 var(--font-family); font-style:normal; text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-foreign-note { margin:0 0 9px; padding:8px 10px; border:1px solid color-mix(in srgb, var(--warning) 38%, var(--theme-border-soft)); border-radius:9px; background:color-mix(in srgb, var(--warning) 9%, var(--theme-surface)); color:var(--theme-text-muted); font-size:calc(9px * var(--ui-font-scale)); line-height:1.5; }
+.agent-runtime-foreign-note b { color:var(--theme-text); font-family:var(--mono-font-family); }
+.agent-runtime-list code { max-width:98px; overflow:hidden; padding:3px 6px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(7.8px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-agent-stats { min-width:0; display:grid; justify-items:end; gap:4px; }
+.agent-runtime-agent-stats code { max-width:112px; }
+.agent-runtime-agent-stats .agent-runtime-memory-pill { color:var(--theme-text-soft); font-variant-numeric:tabular-nums; }
+.agent-runtime-list > button.state-idle { --agent-state:#7c8aa0; }
+.agent-runtime-list > button.state-writing { --agent-state:#9b6cff; }
+.agent-runtime-list > button.state-listening { --agent-state:#16a6c9; }
+.agent-runtime-list > button.state-waiting { --agent-state:#df9c24; }
+.agent-runtime-list > button.state-chat-empty { --agent-state:#3f86d9; }
+.agent-runtime-list > button.state-working { --agent-state:#25a86b; }
+.agent-runtime-list > button.state-loading { --agent-state:#d6ad34; }
+.agent-runtime-list > button.state-error { --agent-state:var(--danger); }
+.agent-runtime-list > button.state-stopped { --agent-state:#68707f; }
+.agent-runtime-list > button.state-draining { --agent-state:#c27535; }
+.agent-runtime-list > button.state-paused { --agent-state:var(--warning); }
+.agent-runtime-dot { width:9px; height:9px; display:inline-block; border-radius:50%; background:var(--theme-text-muted); }
+.agent-runtime-dot.state-idle { background:#7c8aa0; }
+.agent-runtime-dot.state-paused { background:var(--warning); box-shadow:0 0 0 4px color-mix(in srgb,var(--warning) 14%,transparent); }
+.agent-runtime-dot.state-writing { background:#9b6cff; box-shadow:0 0 0 4px color-mix(in srgb,#9b6cff 15%,transparent); }
+.agent-runtime-dot.state-listening { background:#16a6c9; box-shadow:0 0 0 4px color-mix(in srgb,#16a6c9 15%,transparent); }
+.agent-runtime-dot.state-waiting { background:#df9c24; }
+.agent-runtime-dot.state-chat-empty { background:#3f86d9; }
+.agent-runtime-dot.state-working { background:#25a86b; box-shadow:0 0 0 4px color-mix(in srgb,#25a86b 15%,transparent); }
+.agent-runtime-dot.state-loading { background:#d6ad34; }
+.agent-runtime-dot.state-error { background:var(--danger); box-shadow:0 0 0 4px color-mix(in srgb,var(--danger) 15%,transparent); }
+.agent-runtime-dot.state-stopped { background:#68707f; opacity:.6; }
+.agent-runtime-dot.state-draining { background:#c27535; }
+.agent-runtime-dot.running { background:var(--success); box-shadow:0 0 0 4px color-mix(in srgb, var(--success) 15%, transparent); }
+.agent-runtime-dot.claimed { background:var(--warning); box-shadow:0 0 0 4px color-mix(in srgb, var(--warning) 13%, transparent); }
+.agent-runtime-dot.stopped { opacity:.55; }
+.agent-runtime-dot.loading { background:var(--warning); }
+.agent-runtime-dot.error { background:var(--danger); box-shadow:0 0 0 4px color-mix(in srgb, var(--danger) 15%, transparent); }
+.agent-runtime-detail { min-width:0; min-height:0; overflow:auto; padding:13px 14px 15px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
+.agent-runtime-detail-heading { margin-bottom:10px; padding-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:9px; border-bottom:1px solid var(--theme-border-soft); }
+.agent-runtime-detail-heading > div { min-width:0; display:flex; align-items:center; gap:8px; }
+.agent-runtime-detail-heading strong { overflow:hidden; font-size:calc(12px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-status-pill { max-width:46%; overflow:hidden; padding:4px 9px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-detail dl { margin:0; display:grid; gap:4px; }
+.agent-runtime-detail dl > div { min-width:0; padding:7px 9px; display:grid; grid-template-columns:88px minmax(0,1fr); gap:9px; border:1px solid transparent; border-radius:7px; background:color-mix(in srgb, var(--theme-elevated) 62%, transparent); }
+.agent-runtime-detail dl > div:hover { border-color:var(--theme-border-soft); }
+.agent-runtime-detail dt { color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); }
+.agent-runtime-detail dd { margin:0; overflow:hidden; color:var(--theme-text-soft); font:500 calc(8.8px * var(--ui-font-scale))/1.45 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
+/* A value the operator can act on: the name stays the value and the affordance
+   sits beside it, so the row reads as a fact rather than as a control. */
+.agent-runtime-detail dd.agent-runtime-link-value { display:flex; align-items:center; gap:6px; }
+.agent-runtime-detail dd.agent-runtime-link-value > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-inline-link { flex:none; width:19px; height:19px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--theme-border-soft); border-radius:6px; background:var(--theme-bg); color:var(--theme-text-muted); cursor:pointer; }
+.agent-runtime-inline-link:hover:not(:disabled) { border-color:color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border)); background:var(--theme-hover); color:var(--theme-text); }
+.agent-runtime-inline-link:disabled { opacity:.4; cursor:default; }
+.agent-runtime-worker-actions { margin-top:11px; display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+.agent-runtime-icon-button { width:34px; height:34px; min-width:34px; min-height:34px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--theme-border); border-radius:9px; background:var(--theme-elevated); color:var(--theme-text-muted); box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 5%,transparent); cursor:pointer; transition:border-color .14s ease,background .14s ease,color .14s ease,transform .14s ease; }
+.agent-runtime-icon-button:hover:not(:disabled) { border-color:color-mix(in srgb,var(--theme-accent) 52%,var(--theme-border)); background:color-mix(in srgb,var(--theme-accent) 8%,var(--theme-hover)); color:var(--theme-text); transform:translateY(-1px); }
+.agent-runtime-icon-button:active:not(:disabled) { transform:translateY(0); }
+.agent-runtime-icon-button[aria-pressed='true'] { border-color:color-mix(in srgb,var(--theme-accent) 62%,var(--theme-border)); background:color-mix(in srgb,var(--theme-accent) 14%,var(--theme-surface)); color:var(--theme-text); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--theme-accent) 14%,transparent); }
+.agent-runtime-icon-button.tone-warning { border-color:color-mix(in srgb,var(--warning) 42%,var(--theme-border)); background:color-mix(in srgb,var(--warning) 7%,var(--theme-elevated)); }
+.agent-runtime-icon-button.tone-success { border-color:color-mix(in srgb,var(--success) 42%,var(--theme-border)); background:color-mix(in srgb,var(--success) 7%,var(--theme-elevated)); }
+.agent-runtime-icon-button:disabled { opacity:.4; cursor:default; transform:none; }
+.agent-runtime-interaction { margin-top:12px; display:grid; gap:8px; }
+.agent-runtime-interaction-heading { display:grid; gap:3px; }
+.agent-runtime-interaction-heading strong { color:var(--theme-text-soft); font-size:calc(10.2px * var(--ui-font-scale)); }
+.agent-runtime-interaction-heading span { color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); line-height:1.5; }
+.agent-runtime-interaction-host { width:100%; height:340px; min-height:240px; border:1px solid var(--theme-border); border-radius:9px; background:#fff; }
+.agent-runtime-snapshot { margin:12px 0 0; overflow:hidden; border:1px solid var(--theme-border); border-radius:9px; background:var(--theme-elevated); }
+.agent-runtime-snapshot img { width:100%; max-height:260px; display:block; object-fit:contain; background:#fff; }
+.agent-runtime-snapshot figcaption { padding:7px 9px; color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); }
+@media (max-width: 980px) {
+  .agent-runtime-summary,.agent-runtime-memory-summary,.agent-runtime-diagnostics { padding-inline:10px; }
+  .agent-runtime-memory-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .agent-runtime-memory-summary span:last-child { grid-column:1 / -1; }
+  .agent-runtime-pause { grid-template-columns:1fr; padding-inline:10px; }
+  .agent-runtime-pause-controls { justify-content:flex-start; flex-wrap:wrap; }
+  .agent-runtime-scale { grid-template-columns:1fr; padding-inline:10px; }
+  .agent-runtime-body { grid-template-columns:minmax(160px,.75fr) minmax(230px,1.25fr); padding-inline:10px; }
+}
+
+/* Three-way conflict workbench: modeled after familiar IDE merge tools while
+   remaining app-owned and usable for candidate and host Git conflicts. */
+.policy-box.conflict-choice { margin: 10px 0; align-items: center; gap: 12px; }
+.policy-box.conflict-choice > div:nth-child(2) { min-width: 0; flex: 1; }
+.policy-box.conflict-choice > .conflict-choice-actions { margin-left: auto; display: flex; flex: 0 0 auto; flex-direction: row; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.chat-agent-task-assignment { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:6px; align-items:center; }
+.chat-agent-task-assignment select,.agent-runtime-task-picker-actions select { min-width:0; min-height:30px; padding:0 7px; border:1px solid var(--theme-border); border-radius:7px; background:var(--theme-bg); color:var(--theme-text-soft); font-size:calc(7px * var(--ui-font-scale)); }
+.chat-agent-task-assignment button { min-height:30px; padding:0 10px; border:1px solid color-mix(in srgb,var(--theme-accent) 50%,var(--theme-border)); border-radius:7px; background:color-mix(in srgb,var(--theme-accent) 10%,var(--theme-surface)); color:var(--theme-text); font-size:calc(7px * var(--ui-font-scale)); font-weight:700; cursor:pointer; }
+.agent-runtime-task-picker-actions .agent-runtime-icon-button { width:34px; min-width:34px; padding:0; }
+.chat-agent-task-assignment button:disabled,.agent-runtime-task-picker-actions button:disabled { opacity:.45; cursor:default; }
+/* The Agents panel reads at a larger scale than the Tasks drawer this markup
+   is shared with, so its own picker/actions font sizes are bumped back up
+   here after the shared rules above. */
+.agent-runtime-task-picker-actions select,.agent-runtime-task-picker-actions button { min-height:34px; font-size:calc(9px * var(--ui-font-scale)); }
+.agent-runtime-task-keep-flowing { margin:9px 0 0; padding:8px 9px; border:1px solid color-mix(in srgb,var(--theme-accent) 30%,var(--theme-border)); border-radius:8px; color:var(--theme-text-soft); font-size:calc(8.8px * var(--ui-font-scale)); line-height:1.45; }
+.agent-runtime-task-picker { margin-top:11px; padding:11px; display:grid; gap:9px; border:1px solid var(--theme-border); border-radius:9px; background:var(--theme-bg); }
+.agent-runtime-task-picker-heading { display:grid; gap:3px; }
+.agent-runtime-task-picker-heading strong { font-size:calc(10px * var(--ui-font-scale)); }
+.agent-runtime-task-picker-heading small,.agent-runtime-task-picker > p { margin:0; color:var(--theme-text-muted); font-size:calc(8.5px * var(--ui-font-scale)); line-height:1.45; }
+.agent-runtime-task-picker-list { max-height:200px; overflow:auto; display:grid; gap:5px; }
+.agent-runtime-task-picker-list label { min-width:0; padding:7px 9px; display:flex; align-items:center; gap:8px; border:1px solid var(--theme-border-soft); border-radius:7px; cursor:pointer; }
+.agent-runtime-task-picker-list label > span { min-width:0; display:grid; gap:2px; }
+.agent-runtime-task-picker-list b,.agent-runtime-task-picker-list small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.agent-runtime-task-picker-list b { color:var(--theme-text-soft); font-size:calc(9.2px * var(--ui-font-scale)); }
+.agent-runtime-task-picker-list small { color:var(--theme-text-muted); font:500 calc(8px * var(--ui-font-scale))/1.35 var(--mono-font-family); }
+.agent-runtime-task-picker-actions { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; }
+
+/* v1.3.10 — the composer's rich editor (Quill) and its directive chips.
+   `.composer-rich-editor` replaces the old textarea+mirror box exactly: same
+   padding/font/line-height/wrapping, so growing the composer or switching
+   themes behaves identically to before. Quill's own chrome (border, focus
+   ring, toolbar spacing) is stripped down to nothing here — the composer's
+   own `.composer-editor-shell` supplies the visible box. */
+.composer-rich-editor { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 100%; display: flex; }
+.composer-rich-editor > .quill { flex: 1 1 auto; min-height: 100%; display: flex; flex-direction: column; }
+.composer-rich-editor .ql-container.ql-bubble { flex: 1 1 auto; border: 0; font: inherit; width: 100%; min-width: 0; min-height: 100%; }
+.composer-rich-editor .ql-editor {
+  width: 100%; min-width: 0; box-sizing: border-box; min-height: 100%; padding: 14px 15px 9px; border: 0;
+  font: inherit; font-size: calc(14px * var(--ui-font-scale)); line-height: 1.62; letter-spacing: .002em;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; tab-size: 4;
+  color: var(--theme-text);
+}
+.composer-rich-editor .ql-editor.ql-blank::before { color: var(--theme-text-muted); font-style: normal; left: 15px; right: 15px; }

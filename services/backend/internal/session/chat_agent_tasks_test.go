@@ -290,7 +290,7 @@ func TestChatAgentTranslationHasPriorityAndReturnsCompletionPayload(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claimed == nil || claimed.TaskID != translation.TaskID || claimed.Priority != -1 {
+	if claimed == nil || claimed.TaskID != translation.TaskID || claimed.Priority != -3 {
 		t.Fatalf("translation claim=%#v want highest-priority task %s", claimed, translation.TaskID)
 	}
 	resultPayload := json.RawMessage(`{"protocol":"harness.utility/v1","task":"translate_markdown","target_language":"pt","markdown":"Olá"}`)

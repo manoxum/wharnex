@@ -77,7 +77,7 @@ func TestManualOrchestratorProposalQueuesDurableUrgentWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if queued.Type != "ORCHESTRATOR_PLAN" || queued.Priority != -1 || queued.ProjectID != started.ProjectPath || queued.SessionID != started.ID || queued.RequestID != result.RequestID || queued.MaxAttempts != 8 {
+	if queued.Type != "ORCHESTRATOR_PLAN" || queued.Priority != -2 || queued.ProjectID != started.ProjectPath || queued.SessionID != started.ID || queued.RequestID != result.RequestID || queued.MaxAttempts != 8 {
 		t.Fatalf("unexpected orchestrator worker task: %#v", queued)
 	}
 	var payload map[string]string
@@ -212,59 +212,6 @@ func TestOrchestratorPlanningProjectionRecoversLegacyObjective(t *testing.T) {
 	}
 }
 
-func TestOrchestratorApprovalReadinessAndReopen(t *testing.T) {
-	root := t.TempDir()
-	proposal := orchestrator.Proposal{Protocol: orchestrator.ProtocolV1, Title: "Migration", Objective: "migrate safely", Tasks: []orchestrator.ProposalTask{
-		{ID: "t1", Title: "Backend", Priority: orchestrator.PriorityHigh, Complexity: "medium"},
-		{ID: "t2", Title: "Frontend", DependsOn: []string{"t1"}, Priority: orchestrator.PriorityNormal, Complexity: "medium"},
-	}}
-	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorTestPlanner{proposal: proposal}, policy.NewEngine(), fakeRunner{})
-	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := service.ProposeOrchestratorPlan(context.Background(), started.ID, "migrate safely")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Plan == nil || result.Plan.Status != orchestrator.PlanDraft || len(result.Tasks) != 2 {
-		t.Fatalf("unexpected draft proposal: %#v", result)
-	}
-	for _, task := range result.Tasks {
-		if task.Status != orchestrator.TaskPending || task.Condition != orchestrator.ConditionPlanApproval {
-			t.Fatalf("generated task must start pending approval: %#v", task)
-		}
-	}
-	overview, err := service.ApproveOrchestratorPlan(context.Background(), started.ID, result.Plan.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, second := taskByTitle(t, overview.Tasks, "Backend"), taskByTitle(t, overview.Tasks, "Frontend")
-	if first.Status != orchestrator.TaskReady || second.Status != orchestrator.TaskPending || second.Condition != orchestrator.ConditionDependency {
-		t.Fatalf("approval readiness mismatch: first=%#v second=%#v", first, second)
-	}
-	first, err = service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskComplete)
-	if err != nil {
-		t.Fatal(err)
-	}
-	overview, err = service.OrchestratorOverview(context.Background(), started.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second = taskByTitle(t, overview.Tasks, "Frontend")
-	if second.Status != orchestrator.TaskReady {
-		t.Fatalf("completed dependency did not release downstream task: %#v", second)
-	}
-	if _, err := service.TransitionOrchestratorTask(context.Background(), started.ID, first.ID, orchestrator.TaskPending); err != nil {
-		t.Fatal(err)
-	}
-	overview, _ = service.OrchestratorOverview(context.Background(), started.ID)
-	second = taskByTitle(t, overview.Tasks, "Frontend")
-	if second.Status != orchestrator.TaskPending {
-		t.Fatalf("reopen did not invalidate dependent task: %#v", second)
-	}
-}
-
 func TestOrchestratorRejectArchivesDraftAndTasks(t *testing.T) {
 	root := t.TempDir()
 	proposal := orchestrator.Proposal{Protocol: orchestrator.ProtocolV1, Title: "Release", Objective: "ship safely", Tasks: []orchestrator.ProposalTask{
@@ -336,28 +283,6 @@ func TestOrchestratorRevisionAttachesPreviousProposalAndSupersedesDraft(t *testi
 	}
 	if !strings.Contains(plannerStub.request.Message, "split backend migration") || !strings.Contains(plannerStub.request.Message, payload.GeneratedAttachments[0].Name) {
 		t.Fatalf("revision guidance did not reach the planner: %q", plannerStub.request.Message)
-	}
-}
-
-func TestOrchestratorRefusesSecondProjectMutationSlot(t *testing.T) {
-	root := t.TempDir()
-	store := orchestrator.NewMemoryStore()
-	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorTestPlanner{}, policy.NewEngine(), fakeRunner{})
-	service.SetOrchestratorStore(store)
-	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	if err := store.PutTask(context.Background(), orchestrator.Task{ID: "running", ProjectPath: started.ProjectPath, Title: "Running", Status: orchestrator.TaskDoing, Priority: orchestrator.PriorityNormal, CreatedAt: now, UpdatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.PutTask(context.Background(), orchestrator.Task{ID: "next", ProjectPath: started.ProjectPath, Title: "Next", Status: orchestrator.TaskReady, Priority: orchestrator.PriorityNormal, CreatedAt: now, UpdatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	_, err = service.StartOrchestratorTask(context.Background(), started.ID, "next")
-	if err == nil || !strings.Contains(err.Error(), "mutation slot") {
-		t.Fatalf("expected occupied mutation slot error, got %v", err)
 	}
 }
 

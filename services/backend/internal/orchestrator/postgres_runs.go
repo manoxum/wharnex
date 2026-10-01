@@ -40,3 +40,68 @@ func (s *Store) postgresListRuns(ctx context.Context, taskID string) ([]TaskRun,
 	}
 	return runs, rows.Err()
 }
+
+func (s *Store) postgresListTaskConclusions(ctx context.Context, projectPath string, limit int) ([]TaskConclusion, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id,r.task_id,t.title,t.status,r.completed_at
+		FROM harness_task_runs r
+		JOIN harness_tasks t ON t.task_id=r.task_id
+		WHERE r.project_path=$1
+		  AND t.source='orchestrator'
+		  AND t.project_id=$1
+		  AND t.status IN ('REVIEW','COMPLETE','ARCHIVED')
+		  AND r.status='review'
+		  AND r.completed_at IS NOT NULL
+		ORDER BY r.completed_at DESC,r.id DESC
+		LIMIT $2`, projectPath, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list orchestrator task conclusions: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]TaskConclusion, 0, limit)
+	for rows.Next() {
+		var item TaskConclusion
+		if err := rows.Scan(&item.RunID, &item.TaskID, &item.Title, &item.Status, &item.CompletedAt); err != nil {
+			return nil, err
+		}
+		item.CompletedAt = item.CompletedAt.UTC()
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) postgresListPendingTaskReviews(ctx context.Context, projectPath string, limit int) ([]TaskConclusion, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT recent.id,recent.task_id,recent.title,recent.status,recent.completed_at
+		FROM (
+			SELECT DISTINCT ON (r.task_id)
+				r.id,r.task_id,t.title,t.status,r.completed_at
+			FROM harness_task_runs r
+			JOIN harness_tasks t ON t.task_id=r.task_id
+			WHERE r.project_path=$1
+			  AND t.source='orchestrator'
+			  AND t.project_id=$1
+			  AND t.status='REVIEW'
+			  AND r.status='review'
+			  AND r.completed_at IS NOT NULL
+			ORDER BY r.task_id,r.completed_at DESC,r.id DESC
+		) recent
+		ORDER BY recent.completed_at DESC,recent.id DESC
+		LIMIT $2`, projectPath, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list pending orchestrator task reviews: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]TaskConclusion, 0, limit)
+	for rows.Next() {
+		var item TaskConclusion
+		if err := rows.Scan(&item.RunID, &item.TaskID, &item.Title, &item.Status, &item.CompletedAt); err != nil {
+			return nil, err
+		}
+		item.CompletedAt = item.CompletedAt.UTC()
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}

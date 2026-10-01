@@ -138,7 +138,7 @@ func (s *Service) undoBatchMerges(ctx context.Context, sessionID, planID, projec
 	if len(merged) == 0 {
 		return
 	}
-	if err := s.revertHostMerge(ctx, sessionID, planID, projectPath, preMergeSHA, integratedSubmodules(merged, true)); err != nil {
+	if err := s.revertHostMerge(ctx, sessionID, planID, projectPath, preMergeSHA, integratedSubmodules(merged, true), merged[len(merged)-1].afterSHA); err != nil {
 		s.bus.Publish(sessionID, "integration.batch_revert_failed", map[string]any{
 			"plan_id": planID, "pre_merge_sha": preMergeSHA, "merged_branches": len(merged), "error": err.Error(),
 			"remedy": "the host still carries this batch's earlier merges; reset it to pre_merge_sha once no other Git process is running, or apply again",

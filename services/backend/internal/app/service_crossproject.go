@@ -181,7 +181,13 @@ func (s *Service) liveSessionForProject(projectPath string) (domain.Session, boo
 			found = true
 		}
 	}
-	return newest, found
+	if !found {
+		return domain.Session{}, false
+	}
+	// The scan yields a slim view; the derived plan is installed on the whole
+	// session.
+	full, err := s.store.Get(newest.ID)
+	return full, err == nil
 }
 
 // crossProjectBusyReason names what a target project is already doing, or "".

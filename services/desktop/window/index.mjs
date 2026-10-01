@@ -1,0 +1,6 @@
+export { preserveLocalFocusDuringBackgroundOperation, installNativeSurfaceLifecycleGuard, createDesktopWindowCloseCoordinator, createDesktopWindowRecovery, recoverableDesktopWindows, createDesktopRestartIntent, nativeWindowCloseChoice, createDesktopCoordinatorRelaunch, restoreDesktopWindowsAtStartup } from './lifecycle/index.mjs'
+export { createDesktopWindowLayout, MIN_DESKTOP_WINDOW_SIZE } from './layout/index.mjs'
+export { ProjectWindowRegistry, canonicalProjectPath, registerWindowIPC, createProjectWindowOwnership, createDesktopProjectNavigation, createWorkspaceSurfaceRouting } from './project/index.mjs'
+export { spellcheckContextMenuTemplate, registerSpellcheckIPC } from './interaction/index.mjs'
+export { registerDesktopShellIPC } from './control/index.mjs'
+export { createDesktopWindowCreator, securePreferences } from './lifecycle/create/index.mjs'

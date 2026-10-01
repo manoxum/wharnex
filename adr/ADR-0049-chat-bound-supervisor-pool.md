@@ -80,12 +80,12 @@ for every pool.
 
 The claim takes a `role` (`supervisor` | `worker` | empty):
 
-- **Supervisor types**: `AWAIT_RESPONSE`, `BOT_WRITE`, `RECOVERY_WRITE`, `ORCHESTRATOR_PLAN` — opening the
-  chat, submitting the request bundle, following the remote instance, collecting the response bundle. This
-  covers chats created by both the Agent and the Orchestrator.
+- **Supervisor types**: `AWAIT_RESPONSE`, `BOT_WRITE`, `RECOVERY_WRITE` — opening the Agent chat,
+  submitting the request bundle, following the remote instance, collecting the response bundle.
 - **Worker types**: everything else — `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`,
   `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT`,
-  `TRANSLATE_MARKDOWN`.
+  `TRANSLATE_MARKDOWN`, `RELEASE_NOTES`, `ORCHESTRATOR_PLAN`. Orchestrator planning owns a temporary
+  Worker conversation and follows its request/response bundles there.
 - **Empty role** stays unrestricted, for callers that run no role-partitioned pool.
 
 The partition is enforced by the durable claim, in both the SQL query and the in-memory fallback, for the

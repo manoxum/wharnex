@@ -13,38 +13,15 @@ const (
 	PlanArchived  PlanStatus = "ARCHIVED"
 )
 
-type TaskStatus string
+type OrchestrationPhase string
 
 const (
-	TaskPending  TaskStatus = "PENDING"
-	TaskReady    TaskStatus = "READY"
-	TaskDoing    TaskStatus = "DOING"
-	TaskReview   TaskStatus = "REVIEW"
-	TaskComplete TaskStatus = "COMPLETE"
-	TaskArchived TaskStatus = "ARCHIVED"
-)
-
-type TaskCondition string
-
-const (
-	ConditionNone            TaskCondition = "none"
-	ConditionDependency      TaskCondition = "dependency"
-	ConditionPlanApproval    TaskCondition = "plan_approval"
-	ConditionManualPause     TaskCondition = "manual_pause"
-	ConditionMissingContext  TaskCondition = "missing_context"
-	ConditionApproval        TaskCondition = "approval"
-	ConditionConflict        TaskCondition = "conflict"
-	ConditionFailedRun       TaskCondition = "failed_run"
-	ConditionStaleDependency TaskCondition = "stale_dependency"
-)
-
-type Priority string
-
-const (
-	PriorityLow    Priority = "low"
-	PriorityNormal Priority = "normal"
-	PriorityHigh   Priority = "high"
-	PriorityUrgent Priority = "urgent"
+	OrchestrationPhasePlanning         OrchestrationPhase = "PLANNING"
+	OrchestrationPhaseAwaitingApproval OrchestrationPhase = "AWAITING_APPROVAL"
+	OrchestrationPhaseExecuting        OrchestrationPhase = "EXECUTING"
+	OrchestrationPhaseReview           OrchestrationPhase = "REVIEW"
+	OrchestrationPhaseCompleted        OrchestrationPhase = "COMPLETED"
+	OrchestrationPhaseArchived         OrchestrationPhase = "ARCHIVED"
 )
 
 type Plan struct {
@@ -55,43 +32,9 @@ type Plan struct {
 	Status           PlanStatus `json:"status"`
 	PlannerRequestID string     `json:"planner_request_id,omitempty"`
 	Assumptions      []string   `json:"assumptions,omitempty"`
+	ReasoningEffort  string     `json:"reasoning_effort,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
-}
-
-type Task struct {
-	ID                 string        `json:"id"`
-	ProjectPath        string        `json:"project_path"`
-	PlanID             string        `json:"plan_id,omitempty"`
-	Title              string        `json:"title"`
-	Description        string        `json:"description,omitempty"`
-	AcceptanceCriteria []string      `json:"acceptance_criteria,omitempty"`
-	Status             TaskStatus    `json:"status"`
-	Condition          TaskCondition `json:"condition"`
-	Priority           Priority      `json:"priority"`
-	DependsOn          []string      `json:"depends_on,omitempty"`
-	Capability         string        `json:"capability,omitempty"`
-	Complexity         string        `json:"complexity,omitempty"`
-	Parallelizable     bool          `json:"parallelizable"`
-	ImpactFiles        []string      `json:"impact_files,omitempty"`
-	ReadFiles          []string      `json:"read_files,omitempty"`
-	BarrierFiles       []string      `json:"barrier_files,omitempty"`
-	CreatedAt          time.Time     `json:"created_at"`
-	UpdatedAt          time.Time     `json:"updated_at"`
-}
-
-type TaskRun struct {
-	ID          string     `json:"id"`
-	TaskID      string     `json:"task_id"`
-	ProjectPath string     `json:"project_path"`
-	SessionID   string     `json:"session_id,omitempty"`
-	RequestID   string     `json:"request_id,omitempty"`
-	PlanID      string     `json:"execution_plan_id,omitempty"`
-	Attempt     int        `json:"attempt"`
-	Status      string     `json:"status"`
-	Error       string     `json:"error,omitempty"`
-	StartedAt   time.Time  `json:"started_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 type Proposal struct {
@@ -118,23 +61,87 @@ type ProposalTask struct {
 }
 
 type Overview struct {
-	Plans             []Plan            `json:"plans"`
-	Tasks             []Task            `json:"tasks"`
-	PlanningRequests  []PlanningRequest `json:"planning_requests"`
-	MutationSlots     int               `json:"mutation_slots"`
-	MutationSlotsUsed int               `json:"mutation_slots_used"`
+	Plans             []Plan             `json:"plans"`
+	Tasks             []Task             `json:"tasks"`
+	TaskCounts        map[TaskStatus]int `json:"task_counts"`
+	PlanningRequests  []PlanningRequest  `json:"planning_requests"`
+	RecentReviews     []TaskConclusion   `json:"recent_reviews"`
+	MutationSlots     int                `json:"mutation_slots"`
+	MutationSlotsUsed int                `json:"mutation_slots_used"`
 }
 
 type PlanningRequest struct {
-	RequestID   string    `json:"request_id"`
+	RequestID string `json:"request_id"`
+	TaskID    string `json:"task_id"`
+	Objective string `json:"objective,omitempty"`
+	// Status is the technical planning Worker status. Phase is the derived
+	// functional lifecycle of the orchestration request.
+	Status      string             `json:"status"`
+	Phase       OrchestrationPhase `json:"phase"`
+	Attempt     int                `json:"attempt"`
+	MaxAttempts int                `json:"max_attempts"`
+	LastError   string             `json:"last_error,omitempty"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+}
+
+type PlanningAttempt struct {
 	TaskID      string    `json:"task_id"`
-	Objective   string    `json:"objective,omitempty"`
 	Status      string    `json:"status"`
 	Attempt     int       `json:"attempt"`
 	MaxAttempts int       `json:"max_attempts"`
 	LastError   string    `json:"last_error,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type PlanningAttachment struct {
+	Name      string `json:"name"`
+	Size      int64  `json:"size,omitempty"`
+	MIME      string `json:"mime,omitempty"`
+	Generated bool   `json:"generated,omitempty"`
+}
+
+type PlanningTaskDetail struct {
+	Task Task      `json:"task"`
+	Runs []TaskRun `json:"runs"`
+}
+
+type PlanningRequestDetail struct {
+	RequestID       string               `json:"request_id"`
+	TaskID          string               `json:"task_id,omitempty"`
+	Objective       string               `json:"objective,omitempty"`
+	Prompt          string               `json:"prompt,omitempty"`
+	Status          string               `json:"status,omitempty"`
+	Attempt         int                  `json:"attempt,omitempty"`
+	MaxAttempts     int                  `json:"max_attempts,omitempty"`
+	LastError       string               `json:"last_error,omitempty"`
+	IncludeContext  bool                 `json:"include_context"`
+	ProjectFiles    []string             `json:"project_files"`
+	Attachments     []PlanningAttachment `json:"attachments"`
+	ReasoningEffort string               `json:"reasoning_effort,omitempty"`
+	Attempts        []PlanningAttempt    `json:"attempts"`
+	Plan            *Plan                `json:"plan,omitempty"`
+	Tasks           []PlanningTaskDetail `json:"tasks"`
+	// Bundles are the request and response ZIPs exchanged with ChatGPT to
+	// produce this plan, in the artifact shape the bundle explorer reads.
+	Bundles []PlanningBundle `json:"bundles"`
+}
+
+type PlanningBundle struct {
+	ID          string    `json:"id"`
+	RequestID   string    `json:"request_id,omitempty"`
+	Direction   string    `json:"direction"`
+	Kind        string    `json:"kind"`
+	Name        string    `json:"name"`
+	ContentType string    `json:"content_type,omitempty"`
+	Size        int64     `json:"size"`
+	SHA256      string    `json:"sha256"`
+	CreatedAt   time.Time `json:"created_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	Bundle      bool      `json:"bundle"`
+	BundleType  string    `json:"bundle_type,omitempty"`
+	EntryCount  int       `json:"entry_count,omitempty"`
 }
 
 func orchestratorPriorityRank(priority Priority) int {

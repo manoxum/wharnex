@@ -8,95 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"kernl.local/harness/backend/internal/hostrepo"
 )
 
 var ErrGitUnavailable = errors.New("git executable not found")
-
-// Ensure initializes a Git repository at root when that project does not
-// already own a .git directory/file, and guarantees it has at least one
-// commit. A parent repository does not count: the Wharnex project root
-// receives its own repository so host apply and IDE Git operations have a
-// stable boundary.
-//
-// The commit guarantee matters beyond mere bookkeeping: a repository with no
-// commits has no resolvable HEAD, which breaks any real Git operation that
-// needs one — including the sandbox-to-host integration merge (see
-// internal/sandbox/gitintegration.go), which every Protected project now
-// goes through. A brand-new project (just `git init`, nothing committed
-// yet, e.g. one created via Wharnex's own "Create Project") is exactly the
-// case that would otherwise hit this on its very first change.
-func Ensure(ctx context.Context, root string) (initialized bool, err error) {
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		return false, fmt.Errorf("resolve project root: %w", err)
-	}
-	info, err := os.Stat(abs)
-	if err != nil || !info.IsDir() {
-		return false, errors.New("project path must be an existing directory")
-	}
-	if _, statErr := os.Lstat(filepath.Join(abs, ".git")); statErr == nil {
-		if err := ensureInitialCommit(ctx, abs); err != nil {
-			return false, err
-		}
-		return false, nil
-	} else if !os.IsNotExist(statErr) {
-		return false, fmt.Errorf("inspect .git: %w", statErr)
-	}
-	if _, err := exec.LookPath("git"); err != nil {
-		return false, ErrGitUnavailable
-	}
-	cmd := exec.CommandContext(ctx, "git", "-C", abs, "init", "-q")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return false, fmt.Errorf("git init: %s", strings.TrimSpace(string(output)))
-	}
-	if _, err := os.Lstat(filepath.Join(abs, ".git")); err != nil {
-		return false, fmt.Errorf("git init completed without creating .git: %w", err)
-	}
-	if err := ensureInitialCommit(ctx, abs); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// ensureInitialCommit gives an unborn-HEAD repository (freshly init'd, or
-// pre-existing but never committed to) exactly one baseline commit of
-// whatever is currently on disk. A no-op when HEAD already resolves.
-func ensureInitialCommit(ctx context.Context, abs string) error {
-	verify := exec.CommandContext(ctx, "git", "-C", abs, "rev-parse", "--verify", "-q", "HEAD")
-	if err := verify.Run(); err == nil {
-		return nil
-	}
-	// Embedded repositories are excluded from the baseline for the same reason
-	// the pre-merge snapshot excludes them: `git add -A` records one as a bare
-	// gitlink, so the commit would claim to hold the operator's files while
-	// containing only an unresolvable pointer. Hooks are disabled because this
-	// commit is Wharnex's own bootstrap, not the operator's contribution — a
-	// project's failing pre-commit lint must not block opening it.
-	state, stateErr := hostrepo.Working(ctx, abs)
-	stageArgs := []string{"add", "-A"}
-	if stateErr == nil {
-		stageArgs = hostrepo.StageArgs(state.EmbeddedRepositories)
-	}
-	commit := []string{
-		"-c", "user.name=Wharnex", "-c", "user.email=wharness@localhost",
-		"-c", "commit.gpgSign=false", "-c", "core.hooksPath=" + filepath.Join(abs, ".git", "wharnex-hooks-disabled"),
-		"commit", "-q", "--no-verify", "--allow-empty", "-m", "Wharnex project baseline",
-	}
-	commands := [][]string{
-		append([]string{"git", "-C", abs}, stageArgs...),
-		append([]string{"git", "-C", abs}, commit...),
-	}
-	for _, args := range commands {
-		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("%s: %s", strings.Join(args, " "), strings.TrimSpace(string(output)))
-		}
-	}
-	return nil
-}
 
 // Clone creates a new project checkout and recursively initializes every Git
 // submodule. The destination must not already exist, which prevents accidental
@@ -134,6 +48,9 @@ func Clone(ctx context.Context, source, parent, directory string) (string, error
 	if output, err := cmd.CombinedOutput(); err != nil {
 		message := strings.ReplaceAll(strings.TrimSpace(string(output)), source, "<repository>")
 		return "", fmt.Errorf("git clone --recurse-submodules: %s", message)
+	}
+	if _, err := Ensure(ctx, destination); err != nil {
+		return "", fmt.Errorf("prepare cloned project: %w", err)
 	}
 	return destination, nil
 }

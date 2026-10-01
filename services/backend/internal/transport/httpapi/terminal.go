@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/sandbox"
 )
 
 func (a *API) openInteractiveTerminal(w http.ResponseWriter, r *http.Request) {
@@ -32,6 +34,19 @@ func (a *API) openInteractiveTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	descriptor, err := a.service.StartOrReconnectInteractiveTerminal(r.Context(), r.PathValue("id"), body.TerminalID, target, body.Cwd, body.Network, body.Cols, body.Rows)
 	if err != nil {
+		if errors.Is(err, sandbox.ErrTerminalDaemonUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, "terminal_daemon_unavailable", err.Error())
+			return
+		}
+		if errors.Is(err, sandbox.ErrTerminalExpired) {
+			var expired *sandbox.TerminalExpiredError
+			if errors.As(err, &expired) {
+				writeJSONError(w, http.StatusGone, "terminal_expired", err.Error(), map[string]string{"generation": expired.Generation})
+				return
+			}
+			writeError(w, http.StatusGone, "terminal_expired", err.Error())
+			return
+		}
 		writeError(w, http.StatusBadRequest, "terminal_open_failed", err.Error())
 		return
 	}

@@ -1,4 +1,4 @@
-FROM golang:1.23-bookworm AS go
+FROM golang:1.26.3-bookworm AS go
 
 FROM node:22-bookworm
 ARG PNPM_VERSION=10.17.1

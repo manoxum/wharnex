@@ -1,0 +1,9 @@
+@import '../../domains/git/git-repositories.css';
+@import '../../domains/git/git-operations.css';
+@import '../../domains/git/git-panel.css';
+@import '../../domains/git/git-panel-spacing.css';
+@import '../../domains/chat/chat-prompt-directives.css';
+@import '../../domains/window/desktop-close-dialog.css';
+@import '../../domains/workspace/layout/workspace-shell-stage.css';
+@import '../../domains/window/desktop-recovery-dialog.css';
+@import '../../domains/execution/execution-approval.css';

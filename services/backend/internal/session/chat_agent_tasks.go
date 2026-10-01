@@ -79,20 +79,11 @@ func chatAgentTaskSource(taskType string) string {
 		return "todo"
 	case "ORCHESTRATOR_PLAN":
 		return "orchestration"
+	case "ORCHESTRATOR_EXECUTE":
+		return "orchestration"
 	default:
 		return "chat"
 	}
-}
-
-var chatAgentPriorities = map[string]int{
-	"TRANSLATE_MARKDOWN": -1, "RELEASE_NOTES": -1, "ORCHESTRATOR_PLAN": -1,
-	"BOT_WRITE": 0, "RECOVERY_WRITE": 0,
-	"AWAIT_RESPONSE": 1,
-	"TITLE_DISCOVER": 2, "TITLE_GENERATE_TEMP": 2, "TITLE_AWAIT": 2,
-	"ORGANIZE_CHAT": 2, "RENAME_CHAT": 2,
-	"ARCHIVE_CHAT": 3, "DELETE_CHAT": 3,
-	"DELETE_BUNDLE": 4, "DELETE_TEMP_CHAT": 4,
-	"TODO_CLASSIFY": 5,
 }
 
 // NewChatAgentTaskID mints an id before the task is enqueued.
@@ -176,7 +167,7 @@ func chatAgentTaskActive(status string) bool {
 }
 
 var chatAgentWriterTypes = []string{
-	"TRANSLATE_MARKDOWN", "RELEASE_NOTES", "TODO_CLASSIFY", "ORCHESTRATOR_PLAN", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
+	"TRANSLATE_MARKDOWN", "RELEASE_NOTES", "TODO_CLASSIFY", "ORCHESTRATOR_PLAN", "ORCHESTRATOR_EXECUTE", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
 }
 
 var chatAgentAccountTypes = []string{
@@ -195,7 +186,7 @@ var chatAgentAccountTypes = []string{
 // small account-lifecycle or utility work that no Supervisor may take, so a
 // rename or an archive can never evict a conversation that is mid-request.
 var chatAgentSupervisorTypes = []string{
-	"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE", "ORCHESTRATOR_PLAN",
+	"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE",
 }
 
 func chatAgentTaskTypeIn(taskType string, values []string) bool {
@@ -265,20 +256,47 @@ func chatAgentTaskSupervisorSQL(column string) string {
 	return chatAgentTaskTypesSQL(column, chatAgentSupervisorTypes)
 }
 
-var chatAgentQuietTypes = []string{
-	"ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "TITLE_DISCOVER", "TITLE_GENERATE_TEMP",
+// An Orchestrator task is one agentic Main Request whose chat is the task
+// itself (chat id "otk_…"). Its write, supervision and recovery tasks are the
+// agentic ones, but a Worker serves them in the Supervisor's role (ADR-0081),
+// and they share the task's lane "h:<task id>" whatever their conversation, so
+// the Worker pinned to the task (ADR-0082) serves every round of it.
+const chatAgentOrchestratorChatPrefix = "otk_"
+
+func chatAgentTaskOrchestratorChat(task ChatAgentTask) bool {
+	return strings.HasPrefix(strings.TrimSpace(task.ChatID), chatAgentOrchestratorChatPrefix)
 }
 
-func chatAgentEffectivePriority(task ChatAgentTask, now time.Time) int {
-	if task.Priority <= 1 {
-		return task.Priority
-	}
-	aged := int(now.Sub(task.CreatedAt) / (15 * time.Minute))
-	value := task.Priority - aged
-	if value < 1 {
-		return 1
-	}
-	return value
+func chatAgentTaskOrchestratorChatSQL(alias string) string {
+	return alias + `.chat_id LIKE 'otk\_%'`
+}
+
+// chatAgentTaskForSupervisor reports whether the Supervisor pool serves this
+// task: a Supervisor type in a person's chat.
+func chatAgentTaskForSupervisor(task ChatAgentTask) bool {
+	return chatAgentTaskSupervisor(task.Type) && !chatAgentTaskOrchestratorChat(task)
+}
+
+func chatAgentTaskForSupervisorSQL(alias string) string {
+	return "(" + chatAgentTaskSupervisorSQL(alias+".type") + " AND NOT " + chatAgentTaskOrchestratorChatSQL(alias) + ")"
+}
+
+// chatAgentEphemeralTypes are served by the ephemeral utility pool (role
+// "translator"): each claim gets its own browser that lives until the task
+// settles. They never wait behind, or take a slot of, the persistent Workers,
+// whose configured count and auto scale serve Orchestrator execution.
+var chatAgentEphemeralTypes = []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES"}
+
+func chatAgentTaskEphemeral(taskType string) bool {
+	return chatAgentTaskTypeIn(taskType, chatAgentEphemeralTypes)
+}
+
+func chatAgentTaskEphemeralSQL(column string) string {
+	return chatAgentTaskTypesSQL(column, chatAgentEphemeralTypes)
+}
+
+var chatAgentQuietTypes = []string{
+	"ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "TITLE_DISCOVER", "TITLE_GENERATE_TEMP",
 }
 
 func (s *Store) chatAgentFallback() map[string]ChatAgentTask {

@@ -1,0 +1,115 @@
+export function createDesktopStartupContext(deps) {
+  const {
+    app, applyPendingBrowserSessionImport, logger, configureChatGPTSession,
+    session, CHATGPT_PARTITION, CHATGPT_USER_AGENT, CHATGPT_ACCEPT_LANGUAGES,
+    CHATGPT_CHROMIUM_VERSION, chatGPTUploads, chatGPTSubmissions,
+    chatGPTCacheMarker, registerChatGPTPlanDownloads,
+    noteChatGPTNetworkActivity, noteChatGPTNetworkFailure,
+    noteChatGPTHTTPStatus, loadChatAgentPolicies, registerIPC,
+    ensureDesktopTray, flushQueuedChatGPTComments,
+    pollChatGPTVisibleActivity, pollExpectedChatGPTDownloads,
+    reconcileChatAgentAutoScale, DOM_DOWNLOAD_POLL_MS,
+    restoreDesktopWindowsAtStartup, loadWindowLayout,
+    consumeRestartIntent, consumeDesktopRecoverySession,
+    recoverableDesktopWindows, createWindow, persistWindowLayout,
+    refreshDesktopTray, desktopWindows, createWorkerScheduler,
+    primeChatGPTWorkerPool, CHAT_AGENT_STARTUP_DELAY_MS,
+    ChatAgentSchedulerClient, BACKEND_URL, desiredChatAgentWorkerSlots,
+    HARD_MAX_WORKER_SLOTS, withTrace, traceForTask,
+    chatAgentWorkerActivity, executeChatAgentTask,
+    noteOrchestrationTaskPin, parkChatGPTWorkerAfterLoadFailure,
+    workerEntryForIndex, releaseChatGPTConversationReadProbe,
+    workerSuspensionState, workerSuspendsAllTaskTypes,
+    chatAgentRateLimitResumeBlocked, chatSupervisorBoundLanes,
+    chatAgentResidency, chatAgentKeepFlowingActive,
+    chatAgentSupervisingLiveResponse, projectWindowRegistry,
+    orchestrationTaskPins, chatGPTWorkerEntries,
+    publishChatAgentRuntimeState, chatAgentWorkerStates,
+    closeWorkerMonitorAfterState, reconcileChatGPTWorkerPool,
+    refreshChatAgentRuntimeState, createTranslatorScheduler,
+    MAX_TRANSLATOR_SLOTS, executeEphemeralWorkerTask,
+    activeChatTranslatorSlots, createSupervisorScheduler,
+    desiredChatAgentSupervisorSlots, HARD_MAX_SUPERVISOR_SLOTS,
+    executeChatSupervisorTask, chatSupervisorSlotID,
+    chatSupervisorHostWindow, chatSupervisorStates,
+    sanitizeOptionalChatCacheKey, chatgptViews,
+    supervisorBindingHeld, chatSupervisorLanesHeldByOthers,
+    state,
+  } = deps
+
+  return {
+    app, applyPendingBrowserSessionImport, logger, configureChatGPTSession,
+    chatGPTSessionOptions: {
+      electronSession: session, partition: CHATGPT_PARTITION,
+      userAgent: CHATGPT_USER_AGENT, acceptLanguages: CHATGPT_ACCEPT_LANGUAGES,
+      chromiumVersion: CHATGPT_CHROMIUM_VERSION, uploads: chatGPTUploads,
+      submissions: chatGPTSubmissions, cacheMarker: chatGPTCacheMarker,
+      registerChatGPTPlanDownloads, noteChatGPTNetworkActivity,
+      noteChatGPTNetworkFailure, noteChatGPTHTTPStatus,
+    },
+    loadChatAgentPolicies,
+    setChatAgentPolicies: (policies) => { state.policies = policies },
+    registerIPC, ensureDesktopTray,
+    beginDownloadPoller: () => {
+      state.downloadPoller = setInterval(() => {
+        void flushQueuedChatGPTComments()
+        void pollChatGPTVisibleActivity()
+        void pollExpectedChatGPTDownloads()
+        void reconcileChatAgentAutoScale()
+      }, DOM_DOWNLOAD_POLL_MS)
+    },
+    restoreDesktopWindows: restoreDesktopWindowsAtStartup,
+    restoreWindowsOptions: {
+      loadWindowLayout, consumeRestartIntent, consumeDesktopRecoverySession,
+      recoverableDesktopWindows, createWindow, persistWindowLayout,
+      windows: desktopWindows,
+    },
+    refreshDesktopTray, desktopWindows,
+    worker: {
+      create: createWorkerScheduler,
+      assign: (scheduler) => { state.workerScheduler = scheduler },
+      prime: primeChatGPTWorkerPool,
+      isQuitting: () => state.quitting,
+      startupDelayMs: CHAT_AGENT_STARTUP_DELAY_MS,
+      options: {
+        ChatAgentSchedulerClient, BACKEND_URL, desiredChatAgentWorkerSlots,
+        HARD_MAX_WORKER_SLOTS, withTrace, traceForTask, chatAgentWorkerActivity,
+        executeChatAgentTask, noteOrchestrationTaskPin,
+        parkChatGPTWorkerAfterLoadFailure, workerEntryForIndex,
+        releaseChatGPTConversationReadProbe, workerSuspensionState,
+        getChatAgentPolicies: () => state.policies, workerSuspendsAllTaskTypes,
+        chatAgentRateLimitResumeBlocked, chatSupervisorBoundLanes,
+        chatAgentResidency, chatAgentKeepFlowingActive,
+        chatAgentSupervisingLiveResponse, projectWindowRegistry,
+        orchestrationTaskPins, chatGPTWorkerEntries,
+        publishChatAgentRuntimeState, chatAgentWorkerStates,
+        closeWorkerMonitorAfterState, reconcileChatGPTWorkerPool,
+        refreshChatAgentRuntimeState,
+      },
+    },
+    translator: {
+      create: createTranslatorScheduler,
+      assign: (scheduler) => { state.translatorScheduler = scheduler },
+      options: {
+        ChatAgentSchedulerClient, BACKEND_URL, MAX_TRANSLATOR_SLOTS,
+        withTrace, traceForTask, executeEphemeralWorkerTask, desktopWindows,
+        getDueChatTranslations: () => state.dueTranslations,
+        projectWindowRegistry, activeChatTranslatorSlots,
+      },
+    },
+    supervisor: {
+      create: createSupervisorScheduler,
+      assign: (scheduler) => { state.supervisorScheduler = scheduler },
+      options: {
+        ChatAgentSchedulerClient, BACKEND_URL, desiredChatAgentSupervisorSlots,
+        HARD_MAX_SUPERVISOR_SLOTS, withTrace, traceForTask,
+        executeChatSupervisorTask, chatSupervisorSlotID,
+        chatSupervisorHostWindow, chatSupervisorStates,
+        sanitizeOptionalChatCacheKey, chatgptViews, projectWindowRegistry,
+        supervisorBindingHeld, chatSupervisorLanesHeldByOthers,
+        publishChatAgentRuntimeState,
+      },
+    },
+    refreshChatAgentRuntimeState, publishChatAgentRuntimeState,
+  }
+}

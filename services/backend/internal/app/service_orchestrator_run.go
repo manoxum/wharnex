@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -22,17 +23,11 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	if err != nil {
 		return OrchestratorRunResult{}, err
 	}
+	if orchestrator.TaskHasCompleted(task) {
+		return OrchestratorRunResult{}, errors.New("completed task cannot be executed again")
+	}
 	if task.ProjectPath != owner.ProjectPath || task.Status != orchestrator.TaskReady {
 		return OrchestratorRunResult{}, errors.New("task is not READY in this project")
-	}
-	tasks, err := s.orchestrator.ListTasks(ctx, owner.ProjectPath)
-	if err != nil {
-		return OrchestratorRunResult{}, err
-	}
-	for _, candidate := range tasks {
-		if candidate.Status == orchestrator.TaskDoing {
-			return OrchestratorRunResult{}, errors.New("the project mutation slot is already occupied")
-		}
 	}
 	runs, err := s.orchestrator.ListRuns(ctx, task.ID)
 	if err != nil {
@@ -40,6 +35,10 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	}
 	now := time.Now().UTC()
 	run := orchestrator.TaskRun{ID: ids.New("orun"), TaskID: task.ID, ProjectPath: task.ProjectPath, Attempt: len(runs) + 1, Status: "starting", StartedAt: now}
+	if task.FirstDoingAt == nil {
+		firstDoingAt := now
+		task.FirstDoingAt = &firstDoingAt
+	}
 	task.Status = orchestrator.TaskDoing
 	task.Condition = orchestrator.ConditionNone
 	task.UpdatedAt = now
@@ -52,18 +51,30 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 		_ = s.orchestrator.PutTask(ctx, task)
 		return OrchestratorRunResult{}, err
 	}
-	agentSession, err := s.StartSessionWithModes(ctx, task.ProjectPath, owner.ExecutionMode, owner.AutomationMode, owner.EffortLevel)
+	effort := domain.ReasoningEffort(task.ReasoningEffort)
+	if !domain.ValidReasoningEffort(effort) {
+		effort = normalizeReasoningEffort(owner.ReasoningEffort)
+	}
+	agentSession, err := s.StartSessionWithModes(ctx, task.ProjectPath, owner.ExecutionMode, owner.AutomationMode, orchestratorTaskEffortLevel(task, owner))
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}
-	agentSession, err = s.SetReasoningEffort(agentSession.ID, normalizeReasoningEffort(owner.ReasoningEffort))
+	agentSession, err = s.SetChatID(agentSession.ID, strings.ReplaceAll(task.ID, "_", "-"))
+	if err != nil {
+		return s.failOrchestratorRun(ctx, task, run, err)
+	}
+	agentSession, err = s.SetReasoningEffort(agentSession.ID, effort)
+	if err != nil {
+		return s.failOrchestratorRun(ctx, task, run, err)
+	}
+	agentSession, err = s.SetContextMode(agentSession.ID, domain.EffectiveContextMode(owner.ContextMode))
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}
 	run.SessionID = agentSession.ID
 	run.Status = "planning"
 	_ = s.orchestrator.AppendRun(ctx, run)
-	result, agentSession, err := s.SubmitMessage(ctx, agentSession.ID, orchestratorTaskPrompt(task))
+	result, agentSession, err := s.SubmitMessage(ctx, agentSession.ID, s.orchestratorTaskMessage(ctx, task))
 	if err != nil {
 		return s.failOrchestratorRun(ctx, task, run, err)
 	}
@@ -73,19 +84,19 @@ func (s *Service) StartOrchestratorTask(ctx context.Context, sessionID, taskID s
 	}
 	run.Status = "running"
 	manualPrompt := result.ManualPrompt
-	switch agentSession.State {
-	case "applied", "verified", "restart_pending", "ready":
+	switch orchestratorAgentOutcome(agentSession) {
+	case "review":
 		completed := time.Now().UTC()
 		run.Status = "review"
 		run.CompletedAt = &completed
 		task.Status = orchestrator.TaskReview
 		task.Condition = orchestrator.ConditionNone
-	case "failed", "repair_pending":
+	case "failed":
 		completed := time.Now().UTC()
 		run.Status = "failed"
-		run.Error = agentSession.LastRepairError
+		run.Error = orchestratorAgentOutcomeError(agentSession)
 		run.CompletedAt = &completed
-		task.Status = orchestrator.TaskPending
+		task.Status = orchestrator.TaskFailed
 		task.Condition = orchestrator.ConditionFailedRun
 	default:
 		if manualPrompt != "" || agentSession.State == "awaiting_plan" {
@@ -124,7 +135,7 @@ func (s *Service) failOrchestratorRun(ctx context.Context, task orchestrator.Tas
 	run.Status = "failed"
 	run.Error = cause.Error()
 	run.CompletedAt = &completed
-	task.Status = orchestrator.TaskPending
+	task.Status = orchestrator.TaskFailed
 	task.Condition = orchestrator.ConditionFailedRun
 	task.UpdatedAt = completed
 	_ = s.orchestrator.PutTask(ctx, task)

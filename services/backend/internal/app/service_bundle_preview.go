@@ -97,6 +97,7 @@ func (s *Service) PreviewComposerBundle(ctx context.Context, sessionID string, i
 		Message:                message,
 		ContextTextPath:        bundle.TextPath,
 		ContextManifest:        bundle.Manifest,
+		ContextMode:            domain.EffectiveContextMode(item.ContextMode),
 		PreviousResponseID:     item.LastProviderResponseID,
 		AutomationMode:         item.AutomationMode,
 		SelfEvolution:          s.isSelfEvolution(item),
@@ -119,7 +120,7 @@ func (s *Service) PreviewComposerBundle(ctx context.Context, sessionID string, i
 	if err != nil {
 		return domain.ArtifactRecord{}, err
 	}
-	request := RemoteInputRequest{RequestID: previewID, Prompt: prompt, IncludeContext: true, ProjectFiles: projectFiles}
+	request := RemoteInputRequest{RequestID: previewID, Prompt: prompt, IncludeContext: true, ContextMode: domain.EffectiveContextMode(item.ContextMode), ProjectFiles: projectFiles}
 	target, err := os.CreateTemp("", "whx-composer-preview-*.zip")
 	if err != nil {
 		return domain.ArtifactRecord{}, err

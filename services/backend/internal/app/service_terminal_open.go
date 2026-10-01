@@ -79,7 +79,7 @@ func (s *Service) StartOrReconnectInteractiveTerminal(ctx context.Context, sessi
 	}
 	s.terminals[id] = state
 	s.terminalMu.Unlock()
-	handle, err := interactive.StartInteractive(workspace, sandbox.TerminalOptions{ID: id, Cwd: cwd, Network: network, Cols: uint16(cols), Rows: uint16(rows)}, state.publishOutput, func(code int, exitErr error) {
+	handle, err := interactive.StartInteractive(workspace, sandbox.TerminalOptions{ID: id, Reconnect: requestedID != "", Cwd: cwd, Network: network, Cols: uint16(cols), Rows: uint16(rows)}, state.publishOutput, func(code int, exitErr error) {
 		state.publishExit(code, exitErr)
 		s.terminalMu.Lock()
 		ownerSessionID := state.sessionID
@@ -96,17 +96,21 @@ func (s *Service) StartOrReconnectInteractiveTerminal(ctx context.Context, sessi
 	alreadyExited := state.exited
 	if !alreadyExited {
 		state.terminal = handle
+		if versioned, ok := handle.(interface{ TerminalGeneration() string }); ok {
+			state.generation = versioned.TerminalGeneration()
+		}
 		if target != domain.TerminalTargetHost {
 			state.orphanTimer = s.newTerminalOrphanTimer(sessionID, id, state)
 		}
 	}
+	generation := state.generation
 	state.mu.Unlock()
 	if alreadyExited {
 		_ = handle.Close()
 		return TerminalSessionDescriptor{}, errors.New("terminal session was closed while starting")
 	}
 	s.bus.Publish(sessionID, "terminal.session_started", map[string]any{"terminal_id": id, "target": target, "network": network, "reconnect": requestedID != ""})
-	return TerminalSessionDescriptor{TerminalID: id, Target: target}, nil
+	return TerminalSessionDescriptor{TerminalID: id, Target: target, Generation: generation}, nil
 }
 
 func (s *Service) activeTerminalDescriptor(sessionID, terminalID, projectPath string, target domain.TerminalTarget) (TerminalSessionDescriptor, bool, error) {
@@ -130,6 +134,7 @@ func (s *Service) activeTerminalDescriptor(sessionID, terminalID, projectPath st
 	s.terminalMu.Unlock()
 	state.mu.Lock()
 	exited := state.exited
+	generation := state.generation
 	state.mu.Unlock()
 	if exited && target == domain.TerminalTargetHost {
 		s.terminalMu.Lock()
@@ -142,7 +147,7 @@ func (s *Service) activeTerminalDescriptor(sessionID, terminalID, projectPath st
 	if exited {
 		return TerminalSessionDescriptor{}, true, errors.New("terminal session is closed")
 	}
-	return TerminalSessionDescriptor{TerminalID: terminalID, Target: target}, true, nil
+	return TerminalSessionDescriptor{TerminalID: terminalID, Target: target, Generation: generation}, true, nil
 }
 
 func validReconnectTerminalID(id string) bool {

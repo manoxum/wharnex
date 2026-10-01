@@ -1,0 +1,8 @@
+export { preserveLocalFocusDuringBackgroundOperation } from './local-focus-guard.mjs'
+export { installNativeSurfaceLifecycleGuard } from './native-surface-lifecycle.mjs'
+export { createDesktopWindowCloseCoordinator } from './desktop-window-close.mjs'
+export { createDesktopWindowRecovery, recoverableDesktopWindows } from './recovery.mjs'
+export { createDesktopRestartIntent } from './restart-intent.mjs'
+export { nativeWindowCloseChoice } from './desktop-window-close-prompt.mjs'
+export { createDesktopCoordinatorRelaunch } from './relaunch.mjs'
+export { restoreDesktopWindowsAtStartup } from './startup/index.mjs'

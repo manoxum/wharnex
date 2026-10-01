@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -25,8 +26,10 @@ func (s *Service) reconcileGitIntegrationStartup() {
 // back a durable pending candidate.
 func (s *Service) reconcileOrphanedIntegrationBranches() {
 	type cleanupProject struct {
-		path       string
-		sessionIDs []string
+		path                string
+		sessionIDs          []string
+		pendingSessionIDs   []string
+		pendingCandidateCnt int
 	}
 	projects := map[string]*cleanupProject{}
 	keep := map[string]map[string]struct{}{}
@@ -51,7 +54,12 @@ func (s *Service) reconcileOrphanedIntegrationBranches() {
 			s.discardArchivedPendingCandidates(item)
 			continue
 		}
-		for _, pending := range hostApplicablePendingChanges(pendingHostChanges(item)) {
+		pendingChanges := hostApplicablePendingChanges(pendingHostChanges(item))
+		if len(pendingChanges) > 0 {
+			project.pendingSessionIDs = append(project.pendingSessionIDs, item.ID)
+			project.pendingCandidateCnt += len(pendingChanges)
+		}
+		for _, pending := range pendingChanges {
 			retainIntegrationBranch(keep, projectPath, pending.IntegrationBranch)
 			for _, integration := range pending.SubmoduleIntegrations {
 				repository := filepath.Join(projectPath, filepath.FromSlash(integration.Path))
@@ -63,6 +71,13 @@ func (s *Service) reconcileOrphanedIntegrationBranches() {
 	ctx := context.Background()
 	seenRepositories := map[string]struct{}{}
 	for _, project := range projects {
+		if _, err := os.Stat(project.path); err != nil && os.IsNotExist(err) {
+			if project.pendingCandidateCnt > 0 {
+				fields := map[string]any{"repository": project.path, "reason": "startup_repository_unavailable", "candidate_count": project.pendingCandidateCnt, "action": "restore_project_root_or_discard_candidate"}
+				s.publishIntegrationCleanup(project.pendingSessionIDs, "integration.branch_cleanup_deferred", fields)
+			}
+			continue
+		}
 		units, err := hostrepo.InspectUnits(ctx, project.path)
 		if err != nil {
 			s.publishIntegrationCleanup(project.sessionIDs, "integration.branch_cleanup_failed", map[string]any{"error": err.Error(), "reason": "startup_repository_inventory"})

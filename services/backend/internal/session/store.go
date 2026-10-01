@@ -118,8 +118,11 @@ func externalizeLegacyConflictCapsule(item *domain.Session) {
 type Store struct {
 	mu    sync.RWMutex
 	items map[string]domain.Session
-	path  string
-	db    *sql.DB
+	// tier bounds which PostgreSQL-backed sessions stay whole in memory; the
+	// rest remain resident only as slim scan views (see session_tier.go).
+	tier *sessionTier
+	path string
+	db   *sql.DB
 	// knowledge is the in-memory fallback for ProjectKnowledge, used only
 	// when db is nil (tests/dev). Production always runs with a Postgres
 	// store (see cmd/harness/main.go), where harness_project_knowledge is
@@ -193,10 +196,11 @@ func (s *Store) Put(item domain.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.db != nil {
-		if err := s.postgresPut(item); err != nil {
+		bytes, err := s.postgresPut(item)
+		if err != nil {
 			return err
 		}
-		s.items[item.ID] = item
+		s.keepWholeLocked(item, bytes)
 		return nil
 	}
 	s.items[item.ID] = item
@@ -207,7 +211,14 @@ func (s *Store) Put(item domain.Session) error {
 	return nil
 }
 
+// Get returns the whole session, hydrating it from PostgreSQL when only its
+// slim scan view is resident.
 func (s *Store) Get(id string) (domain.Session, error) {
+	if s.tier != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.residentLocked(id)
+	}
 	s.mu.RLock()
 	item, ok := s.items[id]
 	s.mu.RUnlock()
@@ -229,6 +240,7 @@ func (s *Store) Delete(id string) error {
 			return err
 		}
 		delete(s.items, id)
+		s.tier.forget(id)
 		return nil
 	}
 	delete(s.items, id)
@@ -242,6 +254,21 @@ func (s *Store) Delete(id string) error {
 func (s *Store) Update(id string, fn func(*domain.Session) error) (domain.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.db != nil {
+		item, err := s.residentLocked(id)
+		if err != nil {
+			return domain.Session{}, err
+		}
+		if err := fn(&item); err != nil {
+			return domain.Session{}, err
+		}
+		bytes, err := s.postgresPut(item)
+		if err != nil {
+			return domain.Session{}, err
+		}
+		s.keepWholeLocked(item, bytes)
+		return item, nil
+	}
 	item, ok := s.items[id]
 	if !ok {
 		return domain.Session{}, ErrNotFound
@@ -249,13 +276,6 @@ func (s *Store) Update(id string, fn func(*domain.Session) error) (domain.Sessio
 	original := item
 	if err := fn(&item); err != nil {
 		return domain.Session{}, err
-	}
-	if s.db != nil {
-		if err := s.postgresPut(item); err != nil {
-			return domain.Session{}, err
-		}
-		s.items[id] = item
-		return item, nil
 	}
 	s.items[id] = item
 	if err := s.persistLocked(); err != nil {
@@ -265,6 +285,10 @@ func (s *Store) Update(id string, fn func(*domain.Session) error) (domain.Sessio
 	return item, nil
 }
 
+// List returns every session for scanning. With PostgreSQL, sessions outside
+// the whole-resident set are slim views without their context file list,
+// per-request knowledge and baseline file snapshots; call Get before reading
+// those fields or before handing a scanned session to request/apply logic.
 func (s *Store) List() []domain.Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -308,6 +332,7 @@ func (s *Store) Clear() error {
 			return err
 		}
 		s.items = make(map[string]domain.Session)
+		s.tier.reset()
 		s.executionErrors = make(map[string]domain.ExecutionErrorRecord)
 		return nil
 	}

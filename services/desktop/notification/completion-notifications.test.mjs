@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import test from 'node:test'
+
+const main = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
+const windowIPCComposition = await readFile(new URL('../composition/ipc/window.mjs', import.meta.url), 'utf8')
+const trayComposition = await readFile(new URL('../composition/window/tray-lifecycle.mjs', import.meta.url), 'utf8')
+const windowRuntime = await readFile(new URL('../composition/window/runtime.mjs', import.meta.url), 'utf8')
+const windowAssembly = await readFile(new URL('../composition/window/assembly/runtime.mjs', import.meta.url), 'utf8')
+const ipcRuntime = await readFile(new URL('../composition/ipc/runtime.mjs', import.meta.url), 'utf8')
+const entry = await readFile(new URL('../composition/entry/runtime.mjs', import.meta.url), 'utf8')
+const shellIPC = await readFile(new URL('../window/control/ipc.mjs', import.meta.url), 'utf8')
+const preload = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')
+const tray = await readFile(new URL('../tray/desktop-tray-control.mjs', import.meta.url), 'utf8')
+
+test('completion notifications are deduplicated and exposed through the tray controller', () => {
+  assert.match(main, /createDesktopWindowAssembly\(\{/)
+  assert.match(windowAssembly, /createDesktopWindowRuntime\(\{/)
+  assert.match(windowRuntime, /createDesktopTrayComposition\(\{/)
+  assert.match(trayComposition, /createDesktopTrayControl\(\{/)
+  assert.match(main, /createDesktopEntrypointRuntime\(\{/)
+  assert.match(entry, /createDesktopIPCRegistrar\(\{ \.\.\.deps, \.\.\.browser, \.\.\.monitor, \.\.\.window \}\)/)
+  assert.match(ipcRuntime, /registerDesktopIPC\(\{/)
+  assert.match(windowIPCComposition, /registerDesktopShellIPC\(\{/)
+  assert.match(shellIPC, /ipcMain\.handle\('wharness:notifications:publish'/)
+  assert.match(tray, /notifications\.has\(record\.id\)/)
+  assert.match(tray, /label: `Notificações\$\{unread/)
+  assert.match(tray, /find\(\(record\) => !record\.read\)/)
+  assert.match(trayComposition, /'wharness:notifications:open'/)
+})
+
+test('preload exposes notification and tray actions without renderer Node access', () => {
+  assert.match(preload, /notifications: Object\.freeze\(\{/)
+  assert.match(preload, /invoke\('wharness:notifications:publish'/)
+  assert.match(preload, /tray: Object\.freeze\(\{/)
+  assert.match(preload, /invoke\('wharness:tray:update-project-state'/)
+  assert.match(preload, /ipcRenderer\.on\('wharness:tray:action'/)
+})

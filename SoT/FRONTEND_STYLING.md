@@ -7,31 +7,27 @@ UI must look like and how it must behave. The independent `services/webapp`
 remote application is Tailwind-first and owns its own styling entry point;
 these legacy Desktop stylesheet-location rules do not make it a frontend build mode.
 
-## 1. Current state (measured 2026-09-22)
+## 1. Current state (measured 2026-09-29)
 
-All frontend styling today is hand-written CSS, concentrated in six legacy
-files. They no longer sit flat at the root of `src/`: the wholesale
-relocation §4 reserved for an explicitly requested change has been carried
-out, so `src/` now holds no stylesheet at all and every sheet is reached
-through the single `src/styles/index.css` entry point:
+The Desktop frontend combines legacy CSS and incremental Tailwind utilities.
+No stylesheet sits flat at the root of `src/`; every sheet is reached through
+the single `src/styles/index.css` entry point. Cascade stage, legacy chapter,
+domain and palette aggregators recursively import their own ordered leaves:
 
-| file | lines |
+| location | current shape |
 | --- | --- |
-| `src/styles/legacy/styles.css` | 10119 |
-| `src/styles/theme/theme.css` | 1791 |
-| `src/styles/domains/operational-panels.css` | 812 |
-| `src/styles/domains/plan-control.css` | 669 |
-| `src/styles/domains/restart-confirmation.css` | 357 |
-| `src/styles/domains/activity-history.css` | 193 |
+| `src/styles/index.css` | four ordered stage imports |
+| `src/styles/legacy/styles.css` | six ordered chapter imports leading to 62 domain sheets |
+| `src/styles/theme/theme.css` | four palette group imports leading to 12 palette sheets |
+| `src/styles/domains/` | surface directories only; no direct CSS files |
+| largest CSS leaf | `src/styles/domains/activity/activity-history.css`, 194 lines |
 
-The move was content-preserving and cascade-preserving: the files were
-relocated with `git mv`, and `index.css` reproduces the exact order
-`main.tsx` previously applied, which is what keeps appearance identical
-(the production CSS bundle hashes identically before and after). Relocation
-does not unfreeze them — §4's rule that no change may add rules to these six
-files still applies, and `src/styles/legacy/` exists to hold the one
-monolith that has not been decomposed into domains yet, not as a
-destination for new sheets.
+The split preserved every declaration and its cascade order. Expanding the
+recursive imports reproduces the prior `styles.css` and `theme.css` rules, and
+the production build still emits `index-CaOcUVqi.css`, the same CSS bundle
+hash as before the split. New styling follows §3 and §4; aggregators are
+composition entry points, not places for new rules. Existing domain sheets
+shrink as their owning surfaces migrate to Tailwind.
 
 `styles.css` grew by roughly
 1800 lines in a single day (8459 → 10257) *after* the first version of these
@@ -55,9 +51,14 @@ can proceed safely, and each is a measured fact, not an assumption:
 
 [Tailwind CSS](https://tailwindcss.com) is the target styling engine for the
 frontend. The migration is explicitly incremental — there is no scheduled or
-authorized big-bang rewrite of the files in §1. They shrink only as the code
-that uses them is touched, the same extract-on-touch spirit as
-`SoT/CODE_QUALITY.md` §2.
+authorized big-bang visual or Tailwind rewrite of the files in §1. The
+operator authorized a structural split of the oversized legacy and theme
+sheets on 2026-09-29: existing rules MAY move into ordered, domain-owned
+stylesheets without changing selectors, declarations, cascade order, or
+appearance. This is a file-organization change, not a shortcut around the
+incremental Tailwind migration. New rules still follow §3 and §4; after the
+structural split, legacy rules shrink only as the code that uses them is
+touched, in the extract-on-touch spirit of `SoT/CODE_QUALITY.md` §2.
 
 ### Why this cannot silently break untouched UI
 
@@ -111,43 +112,43 @@ When a CSS file *is* justified:
 
 - It MUST live under `services/frontend/src/styles/`, the dedicated styling
   domain. Project-owned CSS MUST NOT be created anywhere else — above all
-  not at the root of `src/`, which is what happened to the six files in §1.
+  not at the root of `src/`, where six legacy stylesheets formerly lived.
 - It MUST be organized by domain inside that directory, named for the
   surface it styles, not for the change that created it:
   - `src/styles/index.css` — the single entry point imported by `main.tsx`,
-    which aggregates the rest. New sheets are registered here rather than
-    lengthening the import list in `main.tsx`.
+    which imports a small ordered set of domain/cascade aggregators. Each
+    aggregator imports its own subdomain sheets recursively; new leaf sheets
+    are registered with their owner, not appended to `main.tsx` or a flat
+    import list in `styles/index.css`. Aggregation MUST preserve cascade order.
   - `src/styles/theme/` — design tokens and appearance (Light/Dark).
   - `src/styles/base/` — resets, element defaults, shared primitives.
-  - `src/styles/domains/` — one sheet per product surface (agent, editor,
-    orchestrator, terminal, git, …).
+  - `src/styles/domains/<surface>/` — CSS grouped by product surface (agent,
+    editor, orchestrator, terminal, git, …), then by a named concern where
+    needed. No project-owned CSS file lives directly in `styles/domains/`;
+    that directory is only a container for surface directories.
   - `src/styles/vendor/` — overrides for third-party DOM.
+  - `src/styles/legacy/` — ordered import manifests for the rules split from
+    the former root stylesheet. New declarations belong to their owning
+    surface, never to a legacy manifest.
 - Each file is subject to the 200-line cap in `SoT/CODE_QUALITY.md` §1, like
   any other new implementation file. Splitting a domain sheet that would
   exceed it is expected, not an exception to request.
-  - `src/styles/legacy/` — the undecomposed monolith only. Nothing new is
-    ever added here; it shrinks as domains are extracted out of it.
-- The six legacy files in §1 are **frozen**: no change may add rules to
-  them. Anything extracted from one of them under the extract-on-touch rule
-  lands in `src/styles/` in its proper domain, and the legacy file shrinks
-  accordingly. Their wholesale relocation into `src/styles/` was such an
-  explicitly requested change and has now happened (§1); being frozen is
-  about their contents, not their path, so it still holds. The 200-line cap
-  applies to new sheets, not retroactively to these six.
+- The legacy declarations represented by the sheets in §1 are **frozen**:
+  file moves and ordered import composition may preserve them, but new UI
+  styling follows §3. An owner migrating a surface to Tailwind removes its
+  corresponding legacy declarations in the same change. The 200-line cap
+  applies to all newly created sheets and split leaves.
 
 ## 5. Bootstrap requirements
 
-Adding the dependency and build wiring is a one-time prerequisite before any
-component can migrate, and §3's obligation cannot be satisfied until it
-lands. It is its own reviewed, tested change under the normal `AGENTS.md` §6
-protocol — it is **not** part of `adr/ADR-0066`. That change MUST satisfy
-every constraint below, each of which protects existing appearance:
+Tailwind CSS v4 and its Vite plugin are installed for the Desktop frontend.
+The active configuration MUST keep these constraints, each of which protects
+the existing appearance:
 
 - **Preflight (Tailwind's base reset) MUST NOT be enabled globally.** The
   legacy stylesheet relies on browser defaults in places; a global reset
-  changes those defaults underneath 10257 lines of CSS nobody is reviewing
-  in that change. Import Tailwind's theme and utilities layers without the
-  preflight layer.
+  changes those defaults underneath the legacy cascade. Import Tailwind's
+  theme and utilities layers without the preflight layer.
 - **The theme is generated from the existing tokens**, so a utility resolves
   to `var(--theme-*)` rather than a Tailwind colour. Because those tokens
   already swap under `:root[data-theme='dark']`, a correctly configured
@@ -162,17 +163,9 @@ every constraint below, each of which protects existing appearance:
   `` `text-${tone}` `` produces no CSS and renders unstyled. Use complete
   class strings selected by a lookup/`switch`, never string interpolation.
 - Vite plugin wiring belongs in the existing `vite.config.ts` plugins array.
-- The change MUST pass `npm run typecheck`, `npm run lint`,
-  `npm test -- --run` and `npm run build`, and MUST state that it produced no
-  visual change — at bootstrap, nothing is migrated yet, so any visual
-  difference is a defect in the bootstrap itself.
-
-Until that bootstrap lands, §3's Tailwind obligation is suspended and new
-work continues on legacy CSS — but §4 applies immediately and in full: a new
-sheet goes to `src/styles/`, never to the root of `src/`, and the six legacy
-files stay frozen. New work SHOULD also be written so the eventual migration
-is mechanical (component-scoped class names, no reliance on unrelated global
-selectors bleeding into the component).
+- Styling changes MUST pass `npm run typecheck`, `npm run lint`,
+  `npm test -- --run` and `npm run build`, with visual parity verified for
+  the surface touched. The Tailwind obligation in §3 is active.
 
 ## 6. Non-goals
 

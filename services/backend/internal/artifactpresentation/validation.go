@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const drawioContentType = "application/vnd.jgraph.mxfile"
+
 func normalizeItem(input itemWire, entries map[string]*zip.File) (Item, error) {
 	input.Path = strings.TrimSpace(input.Path)
 	if !safeArtifactPath(input.Path) {
@@ -71,6 +73,11 @@ func trustedContentType(name string) string {
 	if ext == ".txt" {
 		return "text/plain"
 	}
+	// draw.io registers its own MIME type, but the host MIME database may not.
+	// Keep the presentation contract stable by deriving it from the extension.
+	if ext == ".drawio" {
+		return drawioContentType
+	}
 	value := mime.TypeByExtension(ext)
 	if value == "" {
 		return "application/octet-stream"
@@ -90,6 +97,8 @@ func previewKind(name, contentType string) string {
 		return "video"
 	case strings.HasPrefix(contentType, "audio/"):
 		return "audio"
+	case ext == ".drawio":
+		return "drawio"
 	case ext == ".pdf":
 		return "pdf"
 	case ext == ".html" || ext == ".htm":

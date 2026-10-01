@@ -1,0 +1,110 @@
+/* Light settings navigation and provider-management surfaces. */
+:root[data-theme='light'] .settings-navigation {
+  border-color: var(--theme-border);
+  background: #eef1ea;
+}
+:root[data-theme='light'] .settings-navigation button { color: #667163; }
+:root[data-theme='light'] .settings-navigation button:hover { background: #e3e8df; color: #30382d; }
+:root[data-theme='light'] .settings-navigation button.active {
+  border-color: transparent;
+  background: #f8f9f5;
+  color: var(--theme-text);
+  box-shadow: inset 2px 0 var(--theme-accent);
+}
+:root[data-theme='light'] .settings-navigation small { color: #7b8578; }
+:root[data-theme='light'] .settings-navigation button.active small { color: #667163; }
+:root[data-theme='light'] .settings-content,
+:root[data-theme='light'] .remote-storage-settings { background: #f7f8f4; color: var(--theme-text-soft); }
+
+:root[data-theme='light'] .remote-storage-glyph {
+  border-color: #c5d0bc;
+  background: #e8efe2;
+  color: #557d24;
+  box-shadow: none;
+}
+:root[data-theme='light'] .remote-storage-hero .eyebrow { color: #718067; }
+:root[data-theme='light'] .remote-storage-hero h3 { color: var(--theme-text); }
+:root[data-theme='light'] .remote-storage-hero p { color: var(--theme-text-muted); }
+:root[data-theme='light'] .remote-storage-retention {
+  border-color: #bdccaf;
+  background: #edf4e7;
+  color: #596d50;
+}
+:root[data-theme='light'] .remote-storage-retention svg { color: var(--theme-accent); }
+:root[data-theme='light'] .remote-storage-restart { border-color: #d7c18f; background: #f5ecd9; }
+:root[data-theme='light'] .remote-storage-restart > span { background: #b88327; box-shadow: 0 0 0 4px rgba(184,131,39,.1); }
+:root[data-theme='light'] .remote-storage-restart strong { color: #76551d; }
+:root[data-theme='light'] .remote-storage-restart small { color: #8b744b; }
+:root[data-theme='light'] .tunnel-instance-identity { color: var(--theme-text-soft); }
+:root[data-theme='light'] .tunnel-instance-identity small { color: var(--theme-text-muted); }
+:root[data-theme='light'] .tunnel-instance-identity input {
+  border-color: var(--theme-border);
+  background: #fff;
+  color: var(--theme-text);
+}
+
+:root[data-theme='light'] .provider-catalog { border-color: var(--theme-border); background: #f5f7f2; }
+:root[data-theme='light'] .provider-catalog > header { border-color: var(--theme-border-soft); background: #eef1ea; }
+:root[data-theme='light'] .provider-catalog > header strong,
+:root[data-theme='light'] .provider-catalog button strong { color: var(--theme-text); }
+:root[data-theme='light'] .provider-catalog > header span,
+:root[data-theme='light'] .provider-catalog button small { color: var(--theme-text-muted); }
+:root[data-theme='light'] .provider-catalog button { color: var(--theme-text-soft); }
+:root[data-theme='light'] .provider-catalog button:hover:not(:disabled) {
+  border-color: #b8c5af;
+  background: #e9eee5;
+  color: var(--theme-text);
+}
+:root[data-theme='light'] .remote-storage-empty {
+  border-color: var(--theme-border);
+  background: #f5f7f2;
+  color: var(--theme-text-muted);
+}
+:root[data-theme='light'] .remote-storage-empty svg { color: #798475; }
+:root[data-theme='light'] .remote-storage-empty strong { color: var(--theme-text); }
+
+:root[data-theme='light'] .remote-instance-card { border-color: var(--theme-border); background: #f8f9f5; }
+:root[data-theme='light'] .remote-instance-card > header { border-color: var(--theme-border-soft); background: #eef1ea; }
+:root[data-theme='light'] .provider-mark { border-color: #c5d1bc; background: #e8efe2; color: #557d24; }
+:root[data-theme='light'] .remote-instance-card > header strong { color: var(--theme-text); }
+:root[data-theme='light'] .remote-instance-card > header span { color: var(--theme-text-muted); }
+:root[data-theme='light'] .connection-state { border-color: var(--theme-border); color: var(--theme-text-muted); }
+:root[data-theme='light'] .connection-state i { background: #8e988a; }
+:root[data-theme='light'] .connection-state.connected { border-color: #b7c9a7; background: #e7f0df; color: #55752f; }
+:root[data-theme='light'] .connection-state.connected i { background: #6b9b35; box-shadow: 0 0 0 3px rgba(107,155,53,.09); }
+
+:root[data-theme='light'] .remote-instance-grid label,
+:root[data-theme='light'] .remote-limit-grid label { color: var(--theme-text-soft); }
+:root[data-theme='light'] .remote-instance-grid label > small,
+:root[data-theme='light'] .remote-limit-grid label small { color: var(--theme-text-muted); }
+:root[data-theme='light'] .remote-instance-grid input,
+:root[data-theme='light'] .remote-instance-grid select,
+:root[data-theme='light'] .remote-limit-grid input {
+  border-color: var(--theme-border);
+  background: #fff;
+  color: var(--theme-text);
+}
+:root[data-theme='light'] .remote-instance-grid input::placeholder { color: #939b90; }
+:root[data-theme='light'] .remote-instance-grid input:focus,
+:root[data-theme='light'] .remote-instance-grid select:focus,
+:root[data-theme='light'] .remote-limit-grid input:focus {
+  border-color: #8da17d;
+  box-shadow: 0 0 0 2px rgba(85,125,36,.08);
+}
+:root[data-theme='light'] .provider-connection-panel { border-color: var(--theme-border-soft); background: #f2f4ee; }
+:root[data-theme='light'] .connect-provider-row strong { color: var(--theme-text); }
+:root[data-theme='light'] .connect-provider-row span { color: var(--theme-text-muted); }
+:root[data-theme='light'] .connected-provider-row > div { color: #5d8730; }
+:root[data-theme='light'] .connected-provider-row strong { color: #4f7429; }
+:root[data-theme='light'] .connected-provider-row small { color: #718067; }
+:root[data-theme='light'] .legacy-provider-note { color: #85641f; }
+:root[data-theme='light'] .remote-auth-note { background: #eef1ea; color: var(--theme-text-muted); }
+:root[data-theme='light'] .remote-auth-note code { color: #557d24; }
+:root[data-theme='light'] .remote-limits { border-color: var(--theme-border-soft); }
+:root[data-theme='light'] .remote-limits summary { color: var(--theme-text-soft); }
+:root[data-theme='light'] .remote-limits summary small { color: var(--theme-text-muted); }
+:root[data-theme='light'] .remote-storage-actions {
+  border-color: var(--theme-border);
+  background: rgba(247,248,244,.96);
+}
+:root[data-theme='light'] .remote-storage-actions > span { color: var(--theme-text-muted); }

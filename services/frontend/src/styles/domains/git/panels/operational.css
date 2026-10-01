@@ -1,0 +1,25 @@
+/* Git */
+.git-heading-branch {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 999px;
+  background: var(--theme-muted);
+}
+.git-tabs { padding-inline: 10px; background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg)); }
+.git-tab-content { padding: 14px; gap: 12px; background: transparent; }
+.git-changes-tabs { background: transparent; }
+.git-section,
+.git-worktree-card,
+.git-branch-hero {
+  border-color: color-mix(in srgb, var(--theme-border) 76%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-elevated));
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--theme-shadow) 14%, transparent);
+}
+.git-section { padding: 14px; gap: 12px; }
+.git-worktree-card { padding: 13px 14px; }
+.git-worktree-status { width: 36px; height: 36px; border-radius: 10px; }
+.git-action { border-radius: 8px; }
+.git-notice { padding-inline: 14px; }

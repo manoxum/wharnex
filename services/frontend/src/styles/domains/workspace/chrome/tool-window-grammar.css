@@ -1,0 +1,16 @@
+/* Final IDE tool-window grammar: flat lists, separators and quiet state accents. */
+.agent-runtime-drawer,
+.git-drawer,
+.chat-agent-tasks-drawer,
+.project-knowledge-drawer {
+  background: var(--theme-bg);
+}
+.agent-runtime-drawer .agent-drawer-heading,
+.git-drawer .agent-drawer-heading,
+.chat-agent-tasks-drawer .agent-drawer-heading,
+.project-knowledge-drawer .agent-drawer-heading {
+  min-height: 44px;
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--theme-border);
+  background: var(--theme-surface);
+}

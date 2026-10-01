@@ -22,9 +22,11 @@ const (
 const (
 	ChatAgentRoleSupervisor = "supervisor"
 	ChatAgentRoleWorker     = "worker"
-	// Translator is an ephemeral utility browser. It uses the same hardened
-	// browser transport as a Worker, but may claim only TRANSLATE_MARKDOWN and
-	// is destroyed as soon as that one task settles.
+	// Translator is the ephemeral utility pool. It uses the same hardened
+	// browser transport as a Worker, but claims only translation, Orchestrator
+	// planning and release notes (chatAgentEphemeralTypes); each claimed task
+	// gets its own browser, destroyed as soon as that task settles. Workers
+	// never claim these types.
 	ChatAgentRoleTranslator = "translator"
 )
 
@@ -53,6 +55,9 @@ type ChatAgentClaimOptions struct {
 }
 
 func chatAgentTaskLane(task ChatAgentTask) string {
+	if chatAgentTaskOrchestratorChat(task) {
+		return "h:" + strings.TrimSpace(task.ChatID)
+	}
 	if value := strings.TrimSpace(task.ConversationID); value != "" {
 		return "c:" + value
 	}
@@ -181,12 +186,12 @@ func chatAgentClaimRoleAllows(task ChatAgentTask, options ChatAgentClaimOptions)
 		return true
 	}
 	if options.Role == ChatAgentRoleSupervisor {
-		return chatAgentTaskSupervisor(task.Type)
+		return chatAgentTaskForSupervisor(task)
 	}
 	if options.Role == ChatAgentRoleTranslator {
-		return task.Type == "TRANSLATE_MARKDOWN"
+		return chatAgentTaskEphemeral(task.Type)
 	}
-	return !chatAgentTaskSupervisor(task.Type) && task.Type != "TRANSLATE_MARKDOWN"
+	return !chatAgentTaskForSupervisor(task) && !chatAgentTaskEphemeral(task.Type)
 }
 
 func chatAgentClaimAllows(task ChatAgentTask, options ChatAgentClaimOptions) bool {
@@ -301,7 +306,7 @@ func (s *Store) ClaimChatAgentTaskWithOptions(owner string, lease time.Duration,
 		eligible = append(eligible, task)
 	}
 	sort.Slice(eligible, func(i, j int) bool {
-		if options.PreferredLane != "" {
+		if options.Role == ChatAgentRoleSupervisor && options.PreferredLane != "" {
 			iPreferred := chatAgentTaskLane(eligible[i]) == options.PreferredLane
 			jPreferred := chatAgentTaskLane(eligible[j]) == options.PreferredLane
 			if iPreferred != jPreferred {

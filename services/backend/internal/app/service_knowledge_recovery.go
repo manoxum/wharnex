@@ -88,6 +88,13 @@ func (s *Service) normalizeKnowledgeReviewSessions() {
 		if requestID == "" || !knowledgeReviewRequest(item, requestID) {
 			continue
 		}
+		// The scan yields a slim view without per-request knowledge; judging
+		// the snapshot from it would discard a healthy review.
+		full, getErr := s.store.Get(item.ID)
+		if getErr != nil {
+			continue
+		}
+		item = full
 		restoreState, restoreTask := recoverPostApplyState(item)
 		snapshot, snapshotErr := requestKnowledgeSnapshot(item, requestID)
 		promptNeedsRepair := snapshotErr == nil && !knowledgeReviewPromptMatches(item, requestID, snapshot)

@@ -83,7 +83,7 @@ Playwright session/bootstrap/manual-plan workflow plus Docker executor tests whe
 ## G8 Desktop shell
 
 - `node --check` for Electron main/preload/dev launcher.
-- `node --test services/desktop/security.test.mjs`.
+- `node --test services/desktop/security/security.test.mjs`.
 - Validate remote view sandbox/context-isolation/Node-integration invariants in review.
 - Validate clipboard session/URL/bounds guards.
 - Where Electron runtime is available, smoke: launch Desktop -> ChatGPT tab -> login/session persistence -> copy context ZIP -> paste attachment.
@@ -105,7 +105,12 @@ The OS launcher MUST stage a source-change build before stopping the current Des
 Normal `make build`/`make start` MUST use `--no-recreate` for PostgreSQL and tunnel containers. Backend/frontend may roll independently with `--no-deps`; this preserves active temporary tunnel base URLs across application restart/self-evolution. First stack initialization migrates compatible PostgreSQL 17 data from the former checkout-owned PGDATA into the named volume before the new database starts. A distinct logical reconciliation marker MUST repair skipped/partial first migrations by idempotently merging the legacy PostgreSQL rows after the Compose database becomes healthy and verifying session counts before backend activation.
 Stack self-evolution MUST NOT execute its restart worker inside the backend container that will be replaced. The backend image MUST contain the local build/control toolchain required by `make build-stage`, and activation MUST be delegated to a detached supervisor container. Application rollout MUST retain the previous backend/frontend image IDs long enough to restore them on failed health checks; tunnel/database containers remain excluded from that rollback boundary.
 
-Runtime state belongs under `.harness/` and must never be committed.
+Runtime state belongs under `.harness/` and must never be committed. Creating,
+cloning, or opening a project MUST ensure its root `.gitignore` contains
+`/.harness/` before any Wharnex baseline commit. If runtime files are already
+tracked, Wharnex MUST remove them from the Git index without deleting their
+working-tree copies; the staged removal then travels with the project's next
+commit. Ignore repair MUST preserve existing rules and be idempotent.
 
 ## G10 Orchestrator
 
@@ -125,3 +130,43 @@ Runtime state belongs under `.harness/` and must never be committed.
   until deliberately promoted to a blocking gate. Reviewers enforce the
   extract-on-touch rule for legacy oversized files by inspection, since that
   rule is not mechanically checkable.
+
+## G12 Database identities and migration
+
+- Run `go test ./internal/dbidentity -count=1` from `services/backend` with
+  `WHARNESS_TEST_DATABASE_URL` set to a disposable PostgreSQL 17 database.
+  `scripts/quality-gates.sh` executes this gate when that URL is configured;
+  set `WHARNEX_REQUIRE_DATABASE_GATE=1` to make an absent URL fail, as required
+  in CI and release jobs that change this contract.
+- With a PostgreSQL test database configured, a catalog integration test MUST
+  initialize the legacy schema, apply the shared identity migration twice, and
+  assert every project-owned base table has `id bigint` as its sole identity
+  primary key, and non-null unique `sid text` and `uid uuid` columns. Every
+  declared relational foreign key MUST use `bigint` and target an `id` key.
+- Seeded legacy data MUST keep its former string key as `sid`; repeated migration
+  MUST preserve `id`, `sid`, `uid`, row counts and numeric relationships. The
+  gate MUST reject collisions, missing required references and incomplete prior upgrades
+  rather than repairing them through data loss or weakened assertions.
+- Persistence tests MUST prove relationship lookup and joins use numeric IDs;
+  transport tests MUST prove callers can use `sid` or `uid` and cannot supply a
+  numeric database ID as a record identifier. Newly introduced reference columns
+  and endpoints MUST add focused regression tests at those boundaries.
+- CI and releases that modify schema, persistence or backend identity contracts
+  MUST run this gate against PostgreSQL. A local run without a configured test
+  database MAY report the integration portion as skipped, but that skipped run
+  does not satisfy the release gate.
+
+## G13 Domain-owned source layout
+
+- `make domain-layout-check` validates every newly added implementation and
+  test file since the parent of the ADR-0085 adoption commit (or
+  `WHARNEX_DOMAIN_LAYOUT_BASE`),
+  staged addition, and untracked file against
+  `SoT/PROJECT_STRUCTURE.md`. It runs as part of `make check` and
+  `scripts/quality-gates.sh`.
+- The gate permits only named service domains and documented runtime entry
+  points. It also rejects a new or relocated source/test file when its owning
+  directory would exceed 20 such files; `SoT/PROJECT_STRUCTURE.md` requires a
+  semantic subdomain then. Reviewers verify actual ownership and
+  extract-on-touch for legacy flat files, which path checks alone cannot
+  determine.

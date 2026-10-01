@@ -114,6 +114,11 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.6-sol}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+      # Runtime memory governance/diagnostics (SoT/OBSERVABILITY.md). pprof is
+      # loopback-only: reachable through `docker exec`, never the gateway.
+      WHARNEX_BACKEND_MEMORY_LIMIT_MB: "${WHARNEX_BACKEND_MEMORY_LIMIT_MB:-1024}"
+      WHARNEX_RUNTIME_STATS_INTERVAL: "${WHARNEX_RUNTIME_STATS_INTERVAL:-60s}"
+      WHARNEX_PPROF_ADDR: "${WHARNEX_PPROF_ADDR:-127.0.0.1:6060}"
     volumes:
       - "${WHARNESS_HOME}:${WHARNESS_HOME}"
       - "${WHARNESS_STATE_DIR}:${WHARNESS_STATE_DIR}"

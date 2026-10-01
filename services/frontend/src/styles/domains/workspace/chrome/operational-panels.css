@@ -1,0 +1,13 @@
+@import './operational-foundations.css';
+@import '../../agent/runtime/overview.css';
+@import '../../agent/runtime/instances.css';
+@import '../../agent/runtime/details.css';
+@import '../../git/panels/operational.css';
+@import '../../chat/management/operational.css';
+@import '../../execution/queue/operational.css';
+@import '../../project/knowledge/operational.css';
+@import './tool-window-grammar.css';
+@import '../../agent/runtime/flat-inspection.css';
+@import '../../git/panels/flat-rows.css';
+@import '../../chat/management/task-rows.css';
+@import '../../project/knowledge/reader.css';

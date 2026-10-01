@@ -3,11 +3,14 @@ package orchestrator
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -136,27 +139,126 @@ func (s *Store) ListTasks(ctx context.Context, projectPath string) ([]Task, erro
 	return items, nil
 }
 
-func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
+const (
+	defaultTaskPageLimit = 50
+	maxTaskPageLimit     = 100
+)
+
+type taskPageCursor struct {
+	UpdatedAt time.Time `json:"updated_at"`
+	TaskID    string    `json:"task_id"`
+}
+
+func (s *Store) ListTaskPage(ctx context.Context, projectPath string, filter TaskPageFilter) (TaskPage, error) {
+	normalized, cursor, err := normalizeTaskPageFilter(filter)
+	if err != nil {
+		return TaskPage{}, err
+	}
 	if s.db != nil {
-		return s.postgresGetTask(ctx, id)
+		return s.postgresListTaskPage(ctx, projectPath, normalized, cursor)
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	task, ok := s.tasks[id]
-	if !ok {
-		return Task{}, ErrNotFound
+
+	matching := make([]Task, 0)
+	for _, task := range s.tasks {
+		if taskMatchesPageFilter(task, projectPath, normalized) {
+			matching = append(matching, cloneTask(task))
+		}
 	}
-	return cloneTask(task), nil
+	sort.Slice(matching, func(i, j int) bool {
+		if matching[i].UpdatedAt.Equal(matching[j].UpdatedAt) {
+			return matching[i].ID > matching[j].ID
+		}
+		return matching[i].UpdatedAt.After(matching[j].UpdatedAt)
+	})
+
+	total := len(matching)
+	pageItems := make([]Task, 0, normalized.Limit+1)
+	for _, task := range matching {
+		if cursor != nil && !taskAfterPageCursor(task, *cursor) {
+			continue
+		}
+		pageItems = append(pageItems, task)
+		if len(pageItems) > normalized.Limit {
+			break
+		}
+	}
+	hasMore := len(pageItems) > normalized.Limit
+	if hasMore {
+		pageItems = pageItems[:normalized.Limit]
+	}
+	page := TaskPage{Tasks: pageItems, Total: total, HasMore: hasMore}
+	if hasMore && len(pageItems) > 0 {
+		page.NextCursor, err = encodeTaskPageCursor(pageItems[len(pageItems)-1])
+		if err != nil {
+			return TaskPage{}, err
+		}
+	}
+	return page, nil
 }
 
-func (s *Store) PutTask(ctx context.Context, task Task) error {
-	if s.db != nil {
-		return s.postgresPutTask(ctx, task)
+func normalizeTaskPageFilter(filter TaskPageFilter) (TaskPageFilter, *taskPageCursor, error) {
+	filter.Search = strings.TrimSpace(filter.Search)
+	filter.Cursor = strings.TrimSpace(filter.Cursor)
+	if filter.Limit <= 0 {
+		filter.Limit = defaultTaskPageLimit
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.tasks[task.ID] = cloneTask(task)
-	return nil
+	if filter.Limit > maxTaskPageLimit {
+		filter.Limit = maxTaskPageLimit
+	}
+	if filter.Status != "" && filter.Status != TaskComplete && filter.Status != TaskArchived {
+		return TaskPageFilter{}, nil, fmt.Errorf("terminal task status must be %s or %s", TaskComplete, TaskArchived)
+	}
+	if filter.Cursor == "" {
+		return filter, nil, nil
+	}
+	cursor, err := decodeTaskPageCursor(filter.Cursor)
+	if err != nil {
+		return TaskPageFilter{}, nil, err
+	}
+	return filter, &cursor, nil
+}
+
+func taskMatchesPageFilter(task Task, projectPath string, filter TaskPageFilter) bool {
+	if task.ProjectPath != projectPath || (task.Status != TaskComplete && task.Status != TaskArchived) {
+		return false
+	}
+	if filter.Status != "" && task.Status != filter.Status {
+		return false
+	}
+	if filter.Search == "" {
+		return true
+	}
+	needle := strings.ToLower(filter.Search)
+	return strings.Contains(strings.ToLower(task.Title), needle) || strings.Contains(strings.ToLower(task.Description), needle)
+}
+
+func taskAfterPageCursor(task Task, cursor taskPageCursor) bool {
+	if task.UpdatedAt.Before(cursor.UpdatedAt) {
+		return true
+	}
+	return task.UpdatedAt.Equal(cursor.UpdatedAt) && task.ID < cursor.TaskID
+}
+
+func encodeTaskPageCursor(task Task) (string, error) {
+	raw, err := json.Marshal(taskPageCursor{UpdatedAt: task.UpdatedAt.UTC(), TaskID: task.ID})
+	if err != nil {
+		return "", fmt.Errorf("encode orchestrator task cursor: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func decodeTaskPageCursor(value string) (taskPageCursor, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return taskPageCursor{}, errors.New("invalid orchestrator task cursor")
+	}
+	var cursor taskPageCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil || cursor.UpdatedAt.IsZero() || strings.TrimSpace(cursor.TaskID) == "" {
+		return taskPageCursor{}, errors.New("invalid orchestrator task cursor")
+	}
+	return cursor, nil
 }
 
 func (s *Store) AppendRun(ctx context.Context, run TaskRun) error {
@@ -191,15 +293,6 @@ func (s *Store) ListRuns(ctx context.Context, taskID string) ([]TaskRun, error) 
 func clonePlan(plan Plan) Plan {
 	plan.Assumptions = append([]string(nil), plan.Assumptions...)
 	return plan
-}
-
-func cloneTask(task Task) Task {
-	task.AcceptanceCriteria = append([]string(nil), task.AcceptanceCriteria...)
-	task.DependsOn = append([]string(nil), task.DependsOn...)
-	task.ImpactFiles = append([]string(nil), task.ImpactFiles...)
-	task.ReadFiles = append([]string(nil), task.ReadFiles...)
-	task.BarrierFiles = append([]string(nil), task.BarrierFiles...)
-	return task
 }
 
 func marshalPayload(value any) ([]byte, error) {

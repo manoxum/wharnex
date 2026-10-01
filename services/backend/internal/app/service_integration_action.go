@@ -47,10 +47,11 @@ func (s *Service) recoverIntegrationAction(ctx context.Context, sessionID, reque
 	}
 	pending := hostApplicablePendingChanges(pendingHostChanges(item))
 	event := map[string]any{"request_id": requestID, "reason_code": reasonCode, "candidates": len(pending)}
-	if integrationRecoveryEligible(item) && s.integrationConflictReleasable(ctx, item, pending) && pendingBatchProvenClean(ctx, item.ProjectPath, pending) {
+	stateKey, lockOpen := s.lockRetryState(item)
+	if integrationRecoveryEligible(item) && lockOpen && s.integrationConflictReleasable(ctx, item, pending) && pendingBatchProvenClean(ctx, item.ProjectPath, pending) {
 		event["action"] = "reapply"
 		s.bus.Publish(sessionID, "integration.action_started", event)
-		s.resumeParkedIntegration(ctx, item, pending)
+		s.resumeParkedIntegration(ctx, item, pending, stateKey)
 		return
 	}
 	automatic := item.ExecutionMode == domain.ExecutionModeProtected && domain.AutomationModeIsAutomatic(item.AutomationMode)

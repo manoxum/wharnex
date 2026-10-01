@@ -242,3 +242,22 @@ func TestInteractiveV2ModifyAlwaysBecomesHighRisk(t *testing.T) {
 		t.Fatalf("interactive modify must stay high-risk and approval-gated: %#v", decision)
 	}
 }
+
+func TestInteractiveV2AutoObserveGrantsOnlyBoundedProjectFilesystemRead(t *testing.T) {
+	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV2, PlanID: "plan_auto_observe", RequestID: "req_auto_observe", Status: "ready", Summary: "Inspect a project file", Risk: "medium", Debug: &domain.DebugSpec{Protocol: domain.InteractiveProtocolV2, Target: "host", Access: domain.DebugAccessObserve, AutoObserve: true, Rationale: "Inspect captured project state", Capabilities: []string{domain.InteractiveCapabilityFilesystem}, Scope: domain.InteractiveScope{Paths: []string{"services/backend"}}}, Operations: []domain.Operation{{Type: "filesystem", Rationale: "Read bounded project source", Filesystem: &domain.InteractiveFilesystemSpec{Action: "read", Path: "services/backend/main.go", MaxBytes: 4096}}}}
+	decision := NewEngine().Evaluate(plan)
+	if !decision.Allowed || decision.RequiresApproval || !decision.AutoObserveGranted {
+		t.Fatalf("bounded read should auto-observe: %#v", decision)
+	}
+	plan.Operations[0].Filesystem.Path = "../outside"
+	decision = NewEngine().Evaluate(plan)
+	if !decision.RequiresApproval || decision.AutoObserveGranted {
+		t.Fatalf("out-of-scope read must require approval: %#v", decision)
+	}
+	plan.Debug.Scope.Paths = []string{"services/backend"}
+	plan.Operations[0].Filesystem.Path = "services/backend/.env"
+	decision = NewEngine().Evaluate(plan)
+	if !decision.RequiresApproval || decision.AutoObserveGranted {
+		t.Fatalf("potentially sensitive reads must require approval: %#v", decision)
+	}
+}

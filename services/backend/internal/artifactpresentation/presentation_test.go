@@ -9,9 +9,10 @@ import (
 
 func TestParseBundleNormalizesTrustedArtifactMetadata(t *testing.T) {
 	raw := presentationZIP(t, map[string]string{
-		"artifacts/photo.png": "png",
-		"artifacts/readme.md": "# hello",
-		ManifestPath:          `{"protocol":"harness.artifact-presentation/v1","galleries":[{"id":"mixed","layout":"masonry","items":[{"path":"artifacts/photo.png","label":"Foto"},{"path":"artifacts/readme.md"}]}]}`,
+		"artifacts/photo.png":      "png",
+		"artifacts/readme.md":      "# hello",
+		"artifacts/diagram.drawio": "<mxfile/>",
+		ManifestPath:               `{"protocol":"harness.artifact-presentation/v1","galleries":[{"id":"mixed","layout":"masonry","items":[{"path":"artifacts/photo.png","label":"Foto"},{"path":"artifacts/readme.md"},{"path":"artifacts/diagram.drawio"}]}]}`,
 	})
 	presentation, err := ParseBundle(raw)
 	if err != nil {
@@ -26,6 +27,9 @@ func TestParseBundleNormalizesTrustedArtifactMetadata(t *testing.T) {
 	}
 	if items[1].Kind != "markdown" || items[1].ContentType == "" {
 		t.Fatalf("unexpected markdown metadata: %+v", items[1])
+	}
+	if items[2].Kind != "drawio" || items[2].ContentType != drawioContentType {
+		t.Fatalf("unexpected drawio metadata: %+v", items[2])
 	}
 }
 
@@ -68,19 +72,44 @@ func TestParseBundleFallsBackForDuplicateIDsAndItems(t *testing.T) {
 }
 
 func TestParseBundleRejectsClientDeclaredTrustedMetadata(t *testing.T) {
-	raw := presentationZIP(t, map[string]string{
-		"artifacts/a.txt": "a",
-		ManifestPath:      `{"protocol":"harness.artifact-presentation/v1","galleries":[{"id":"x","items":[{"path":"artifacts/a.txt","kind":"image"}]}]}`,
-	})
-	presentation, err := ParseBundle(raw)
-	if err != nil {
-		t.Fatal(err)
+	manifests := []string{
+		`{"protocol":"harness.artifact-presentation/v1","galleries":[{"id":"x","items":[{"path":"artifacts/a.txt","kind":"image"}]}]}`,
+		`{"protocol":"harness.artifact-presentation/v1","galleries":[{"id":"x","items":[{"path":"artifacts/a.txt","content_type":"image/png"}]}]}`,
 	}
-	if !presentation.Fallback || presentation.Warning == "" {
-		t.Fatalf("expected strict fallback: %+v", presentation)
+	for _, manifest := range manifests {
+		raw := presentationZIP(t, map[string]string{"artifacts/a.txt": "a", ManifestPath: manifest})
+		presentation, err := ParseBundle(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !presentation.Fallback || presentation.Warning == "" {
+			t.Fatalf("expected strict fallback: %+v", presentation)
+		}
+		item := presentation.Galleries[0].Items[0]
+		if item.Kind != "text" || item.ContentType != "text/plain" {
+			t.Fatalf("trusted metadata must be server-derived, got %+v", item)
+		}
 	}
-	if got := presentation.Galleries[0].Items[0].Kind; got != "text" {
-		t.Fatalf("kind must be server-derived, got %q", got)
+}
+
+func TestDrawioClassificationDoesNotDependOnSystemMIMEDatabase(t *testing.T) {
+	if got := trustedContentType("artifacts/diagram.drawio"); got != "application/vnd.jgraph.mxfile" {
+		t.Fatalf("drawio content type must be deterministic, got %q", got)
+	}
+	if got := previewKind("artifacts/diagram.drawio", "application/octet-stream"); got != "drawio" {
+		t.Fatalf("drawio extension must select the dedicated preview kind, got %q", got)
+	}
+}
+
+func TestDrawioCompositeExtensionsRemainImages(t *testing.T) {
+	cases := map[string]string{
+		"artifacts/diagram.drawio.png": "image/png",
+		"artifacts/diagram.drawio.svg": "image/svg+xml",
+	}
+	for name, contentType := range cases {
+		if got := previewKind(name, contentType); got != "image" {
+			t.Fatalf("%s must remain an image, got %q", name, got)
+		}
 	}
 }
 
@@ -129,6 +158,21 @@ func TestParseBundleSynthesizesPresentationWithoutManifest(t *testing.T) {
 	}
 	if presentation.Galleries[0].Items[0].Path != "artifacts/a.txt" {
 		t.Fatal("fallback should be stable and sorted")
+	}
+}
+
+func TestParseBundleSynthesizesDrawioMetadataWithoutManifest(t *testing.T) {
+	raw := presentationZIP(t, map[string]string{"artifacts/diagram.drawio": "<mxfile/>"})
+	presentation, err := ParseBundle(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !presentation.Fallback || len(presentation.Galleries) != 1 || len(presentation.Galleries[0].Items) != 1 {
+		t.Fatalf("unexpected fallback: %+v", presentation)
+	}
+	item := presentation.Galleries[0].Items[0]
+	if item.Kind != "drawio" || item.ContentType != drawioContentType {
+		t.Fatalf("unexpected drawio fallback metadata: %+v", item)
 	}
 }
 

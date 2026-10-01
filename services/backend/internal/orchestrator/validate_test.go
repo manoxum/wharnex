@@ -17,13 +17,18 @@ func TestEvaluateReadinessRequiresCompleteDependencies(t *testing.T) {
 	dependency := Task{ID: "a", Status: TaskReady}
 	task := Task{ID: "b", PlanID: plan.ID, Status: TaskPending, DependsOn: []string{"a"}}
 	status, condition := EvaluateReadiness(task, []Task{dependency, task}, plan.Status)
-	if status != TaskPending || condition != ConditionDependency {
+	if status != TaskWaiting || condition != ConditionDependency {
 		t.Fatalf("got %s/%s", status, condition)
 	}
 	dependency.Status = TaskComplete
 	status, condition = EvaluateReadiness(task, []Task{dependency, task}, plan.Status)
-	if status != TaskReady || condition != ConditionNone {
+	if status != TaskPending || condition != ConditionNone {
 		t.Fatalf("got %s/%s after dependency completion", status, condition)
+	}
+	task.Status = TaskReady
+	status, condition = EvaluateReadiness(task, []Task{dependency, task}, plan.Status)
+	if status != TaskReady || condition != ConditionNone {
+		t.Fatalf("released task lost READY after recalculation: %s/%s", status, condition)
 	}
 }
 
@@ -41,5 +46,8 @@ func TestValidTaskStatusRejectsUnknownValue(t *testing.T) {
 	}
 	if !ValidTaskStatus(TaskReview) {
 		t.Fatal("REVIEW must be a valid task status")
+	}
+	if !ValidTaskStatus(TaskWaiting) {
+		t.Fatal("WAITING must be a valid task status")
 	}
 }

@@ -114,7 +114,7 @@ func TestTranslateMarkdownDispatchesARequestBundle(t *testing.T) {
 	resultCh := startTranslation(ctx, service, "# Hello")
 
 	task, payload := awaitTranslationTask(t, store)
-	if task.Type != "TRANSLATE_MARKDOWN" || task.Priority != -1 {
+	if task.Type != "TRANSLATE_MARKDOWN" || task.Priority != -3 {
 		t.Fatalf("translation task=%#v", task)
 	}
 	if task.MaxAttempts != 1 || task.RootRequestID != task.TaskID {

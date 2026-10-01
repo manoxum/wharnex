@@ -31,9 +31,9 @@ func claimTypes(t *testing.T, store *Store, role string, count int) []string {
 // charging a task's own bounded attempt budget.
 func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 	store := NewStore()
-	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE", "ORCHESTRATOR_PLAN"}
-	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "RELEASE_NOTES", "TITLE_DISCOVER"}
-	translatorTypes := []string{"TRANSLATE_MARKDOWN"}
+	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE"}
+	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "ORCHESTRATOR_EXECUTE", "TITLE_DISCOVER"}
+	translatorTypes := []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES"}
 	allTypes := append(append(append([]string{}, supervisorTypes...), workerTypes...), translatorTypes...)
 	for index, taskType := range allTypes {
 		task := testChatAgentTask(taskType, "chat-"+taskType, "conv-"+taskType, taskType+":"+string(rune('a'+index)))
@@ -47,15 +47,30 @@ func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 			t.Fatalf("Supervisor pool claimed small Worker work %q", taskType)
 		}
 	}
-	for _, taskType := range claimTypes(t, store, ChatAgentRoleWorker, len(workerTypes)+len(supervisorTypes)) {
-		if chatAgentTaskSupervisor(taskType) || taskType == "TRANSLATE_MARKDOWN" {
-			t.Fatalf("Worker pool claimed chat-bound Supervisor work %q", taskType)
+	for _, taskType := range claimTypes(t, store, ChatAgentRoleTranslator, len(allTypes)) {
+		if !chatAgentTaskEphemeral(taskType) {
+			t.Fatalf("ephemeral pool claimed foreign work %q", taskType)
 		}
 	}
-	for _, taskType := range claimTypes(t, store, ChatAgentRoleTranslator, len(allTypes)) {
-		if taskType != "TRANSLATE_MARKDOWN" {
-			t.Fatalf("Translator claimed foreign work %q", taskType)
+	for _, taskType := range claimTypes(t, store, ChatAgentRoleWorker, len(workerTypes)+len(supervisorTypes)) {
+		if chatAgentTaskSupervisor(taskType) || chatAgentTaskEphemeral(taskType) {
+			t.Fatalf("Worker pool claimed work of another pool %q", taskType)
 		}
+	}
+}
+
+// Translation, planning and release notes never borrow an idle Orchestrator
+// execution Worker: they always get their own ephemeral browser.
+func TestIdleWorkerNeverClaimsEphemeralWork(t *testing.T) {
+	store := NewStore()
+	for _, taskType := range []string{"ORCHESTRATOR_PLAN", "TRANSLATE_MARKDOWN", "RELEASE_NOTES"} {
+		if _, err := store.EnqueueChatAgentTask(testChatAgentTask(taskType, "chat-"+taskType, "", "borrow:"+taskType)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claimed, err := store.ClaimChatAgentTaskWithOptions("worker-1", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1"})
+	if err != nil || claimed != nil {
+		t.Fatalf("Worker claimed ephemeral work %#v err=%v", claimed, err)
 	}
 }
 
@@ -165,5 +180,29 @@ func TestChatAgentSupervisorSQLMatchesTheTypeList(t *testing.T) {
 		if strings.Contains(rendered, "'"+taskType+"'") {
 			t.Fatalf("supervisor SQL predicate must not contain small Worker work %q", taskType)
 		}
+	}
+}
+
+// An Orchestrator task's Main Request uses the agentic write and supervision
+// types, but a Worker serves them in the Supervisor's role, all on the task's
+// lane whatever conversation they name (ADR-0081, ADR-0082).
+func TestOrchestratorTaskChatRoundsGoToWorkersOnTheTaskLane(t *testing.T) {
+	store := NewStore()
+	for _, taskType := range []string{"BOT_WRITE", "AWAIT_RESPONSE", "RECOVERY_WRITE"} {
+		task := testChatAgentTask(taskType, "otk_20260928T000000_aaaaaaaaaaaaaaaa", "conv-"+taskType, "task:"+taskType)
+		if lane := chatAgentTaskLane(task); lane != "h:otk_20260928T000000_aaaaaaaaaaaaaaaa" {
+			t.Fatalf("%s lane=%q", taskType, lane)
+		}
+		if _, err := store.EnqueueChatAgentTask(task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if claimed, err := store.ClaimChatAgentTaskWithOptions("supervisor-owner", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleSupervisor, WorkerID: "supervisor-1"}); err != nil || claimed != nil {
+		t.Fatalf("Supervisor claimed a task round %#v err=%v", claimed, err)
+	}
+	options := ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1", PreferredLane: "h:otk_20260928T000000_aaaaaaaaaaaaaaaa", FallbackMode: ChatAgentClaimResidentOnly}
+	claimed, err := store.ClaimChatAgentTaskWithOptions("worker-owner", time.Minute, options)
+	if err != nil || claimed == nil || !chatAgentTaskSupervisor(claimed.Type) {
+		t.Fatalf("pinned Worker claim=%#v err=%v", claimed, err)
 	}
 }

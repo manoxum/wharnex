@@ -2,7 +2,7 @@
 // operator writes inside a prompt to point at something Wharnex should resolve.
 //
 // There is one grammar for project paths, cross-project references, external
-// attachments, stored chat/library artifacts, TODOs and spotlight references.
+// attachments, stored chat/library artifacts, TODOs, completed tasks and spotlight references.
 // `@file` can name a file or directory anywhere inside the request's project;
 // the app may expand the request-local context to include it. `@see` adds no
 // bytes or write authority: it only spotlights a target already reachable via
@@ -35,8 +35,6 @@ package directives
 import (
 	"fmt"
 	"path"
-	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -63,11 +61,13 @@ const (
 	KindLib Kind = "lib"
 	// KindTodo points at one project TODO by its stable ID.
 	KindTodo Kind = "todo"
+	// KindTask points at one completed Orchestrator task in the current project.
+	KindTask Kind = "task"
 )
 
 const (
-	// MaxValueLength bounds one directive's payload. Values are project paths;
-	// anything longer is not one.
+	// MaxValueLength bounds one directive's payload, whether it is a path or a
+	// stable record identifier.
 	MaxValueLength = 512
 	// MaxDirectives bounds how many one prompt may carry, so a pathological
 	// paste cannot turn into unbounded work downstream.
@@ -80,82 +80,11 @@ const (
 	MaxAttachPathLength = 4096
 )
 
-// KeywordSpec pairs one directive kind's canonical keyword with the alternate
-// spellings accepted when typing (never when reading the canonical form).
-type KeywordSpec struct {
-	Kind    Kind
-	Keyword string
-	Aliases []string
-}
-
-// keywords is the single source of truth for the typed vocabulary. The regex
-// alternation and the alias lookup are both built from it, so a keyword can
-// never be accepted by one and rejected by the other.
-var keywords = []KeywordSpec{
-	{Kind: KindFile, Keyword: "file"},
-	{Kind: KindRef, Keyword: "ref", Aliases: []string{"reference", "references", "project"}},
-	{Kind: KindAttach, Keyword: "attach", Aliases: []string{"att", "attch", "attche", "attaches", "attahes", "dir"}},
-	{Kind: KindSee, Keyword: "see", Aliases: []string{"look"}},
-	{Kind: KindChat, Keyword: "chat"},
-	{Kind: KindLib, Keyword: "lib", Aliases: []string{"library"}},
-	{Kind: KindTodo, Keyword: "todo", Aliases: []string{"TODO"}},
-}
-
-// Keywords returns the directive vocabulary, so a menu — or a test — can
-// enumerate it without hardcoding a second copy.
-func Keywords() []KeywordSpec { return append([]KeywordSpec(nil), keywords...) }
-
-var kindAliases = func() map[string]Kind {
-	table := make(map[string]Kind)
-	for _, spec := range keywords {
-		table[spec.Keyword] = spec.Kind
-		for _, alias := range spec.Aliases {
-			table[alias] = spec.Kind
-		}
-	}
-	return table
-}()
-
-// typedKeywordAlternation renders every accepted typed spelling as one regex
-// alternation, longest first. Go's regexp engine finds the leftmost overall
-// match regardless of alternative order — a short alias followed by letters
-// that do not form a `:` simply fails to complete the pattern — but ordering
-// longest-first keeps the source readable as the vocabulary grows.
-func typedKeywordAlternation() string {
-	all := make([]string, 0, len(kindAliases))
-	for keyword := range kindAliases {
-		all = append(all, keyword)
-	}
-	sort.Slice(all, func(i, j int) bool {
-		if len(all[i]) != len(all[j]) {
-			return len(all[i]) > len(all[j])
-		}
-		return all[i] < all[j]
-	})
-	return strings.Join(all, "|")
-}
-
-// pattern matches every spelling in one pass, so a prompt mixing them — which
-// happens the moment a canonicalized prompt is edited by hand, or an operator
-// simply prefers a different alias — parses the same way throughout.
-//
-// The canonical form is matched first because `@{[file]…}` would otherwise also
-// satisfy nothing in the typed alternatives and be left as prose. It accepts
-// only real kind names, never an alias: nothing writes an alias into the
-// canonical form, so the reader never needs to expect one there.
-//
-// The unbracketed alternative stops at the punctuation that ends a clause as
-// well as at whitespace, because a directive normally sits inside a sentence:
-// "change @ref:core, then stop" refers to `core`, not to `core,`. A value that
-// genuinely contains one of those characters needs the bracketed form, which is
-// what it is for.
-var pattern = regexp.MustCompile(`@\{\[(file|ref|attach|see|chat|lib|todo)\]([^{}\n]*)\}|@(` + typedKeywordAlternation() + `):(?:<<([^<>\n]*)>>|([^\s<>{}(),;:!?"'` + "`" + `]*))`)
-
 // Directive is one parsed reference, with the byte range it occupied.
 type Directive struct {
 	Kind Kind
-	// Value is the whole payload: a project-relative path for KindFile, and
-	// `project` or `project/path` for KindRef.
+	// Value is the whole payload: a project-relative path for KindFile,
+	// `project` or `project/path` for KindRef, or a stable record ID.
 	Value string
 	// Project and Path split Value for KindRef. For KindFile and KindAttach,
 	// Path is the path half of Value and Project is empty.
@@ -175,8 +104,6 @@ type Directive struct {
 	Start int
 	End   int
 }
-
-var namePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // Parse extracts every well-formed directive, in the order they appear.
 //
@@ -273,6 +200,8 @@ func build(kind Kind, raw string) (Directive, bool) {
 			return Directive{}, false
 		}
 		return Directive{Kind: KindTodo, Value: value, Path: value}, true
+	case KindTask:
+		return parseTaskValue(value)
 	case KindRef:
 		segments := strings.Split(raw, "|")
 		target := strings.TrimRight(strings.TrimSpace(segments[0]), "/.")

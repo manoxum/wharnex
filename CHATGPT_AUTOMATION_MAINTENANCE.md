@@ -2,7 +2,7 @@
 
 Este documento descreve o contrato atualmente implementado para a automação do ChatGPT no Desktop, como investigar mudanças estruturais da página e como validar uma correção. Use-o quando uma atualização do ChatGPT quebrar uma operação, quando houver HTTP 429/“too many requests” ou antes de aceitar uma alteração no engine.
 
-Última revisão estrutural e operacional: **2026-09-25**.
+Última revisão estrutural e operacional: **2026-09-27**.
 
 ## 1. Limites de segurança
 
@@ -17,9 +17,9 @@ Este documento descreve o contrato atualmente implementado para a automação do
 
 | Pool | Operações | Cadência normal |
 |---|---|---:|
-| Supervisor | `BOT_WRITE`, `RECOVERY_WRITE`, `ORCHESTRATOR_PLAN`, `AWAIT_RESPONSE` e observação do bundle esperado do chat vinculado | Não usa o pacer comum de Worker |
-| Worker | `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT` e `TODO_CLASSIFY` | 30 s globais mínimos |
-| Translator efêmero | Somente `TRANSLATE_MARKDOWN`; cria uma instância por tarefa e destrói ao terminar | 5 s globais mínimos |
+| Supervisor | `BOT_WRITE`, `RECOVERY_WRITE`, `AWAIT_RESPONSE` e observação do bundle esperado do chat vinculado | Não usa o pacer comum de Worker |
+| Worker | `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT`, `TODO_CLASSIFY`, `RELEASE_NOTES`, `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` | 10 s globais mínimos (alargados por pressão de 429) |
+| Worker efémero (role `translator`) | `TRANSLATE_MARKDOWN`, `ORCHESTRATOR_PLAN` e `RELEASE_NOTES`; cria uma instância por tarefa, que vive até a tarefa terminar (um plano em WAITING mantém a conversa aberta), sem limite de política nem competição com os Workers | 5 s para tradução; 10 s para os outros, com prioridade máxima no pacer |
 
 `DELETE_DOUBLE` não é um tipo durável atual. A remoção de artefato duplicado/expirado é representada por `DELETE_BUNDLE`; duplicidade de tarefas é controlada por `dedupe_key`.
 
@@ -29,9 +29,11 @@ Por padrão ficam seletivamente suspensos `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHI
 
 ## 3. Cadência global dos Workers
 
-- Navegação, reload, tentativa de upload, submit e operação de conta de qualquer Worker compartilham o mesmo relógio global de 30 segundos por perfil.
-- `TRANSLATE_MARKDOWN` não entra no pool persistente de Workers. Um scheduler dedicado reivindica somente esse tipo, cria o `Translator`, dispara automaticamente a operação e destrói a instância no fim.
-- O `Translator` usa o relógio global de tradução, com mínimo normativo de 5 segundos; ele não aguarda a cadência de 30 segundos dos Workers comuns.
+- Navegação, reload, tentativa de upload, submit e operação de conta de qualquer Worker compartilham o mesmo relógio global de 10 segundos por perfil com a conta saudável; a pressão durável de 429 alarga esse intervalo até 60 segundos.
+- A fila desse relógio dá a vez primeiro às ações de tarefas que já chegaram ao ChatGPT (upload e submit) e só depois a novas navegações; o intervalo mínimo não muda. A aba Agentes mostra a fase de cada Worker (na fila de envio, a abrir conversa, a preparar, a carregar ZIP, a submeter, GPT a processar, a descarregar, a validar).
+- Uma conversa longa recarregada só desenha as últimas mensagens, e a contagem de respostas do assistente pode ficar igual ou abaixo da referência registada no envio. Assim a resposta nunca parecia concluída, a supervisão declarava "sem sinal estrutural" e o pedido era reenviado. Agora, se a página não está a gerar, o composer está pronto e a última mensagem desenhada é do assistente, a resposta conta como concluída e a referência acompanha a página (`[chatgpt-supervision] baseline-rebased`). Um Worker preso a uma tarefa que não esteja na conversa dela volta a abri-la antes de supervisionar (`orchestrator-task-return`).
+- Desde o `adr/ADR-0081` (implementado), uma tarefa do Orchestrator é um Main Request agentic. A tentativa `ORCHESTRATOR_EXECUTE` só conduz as rondas: envia cada pedido pendente pelo mesmo `preparePromptForChatGPT` de um chat. A supervisão (`AWAIT_RESPONSE`), o keep-continue (`RECOVERY_WRITE`), o download e o ack são os do agentic, servidos pelo Worker preso à tarefa. O ZIP de uma tarefa vai diretamente para `POST /api/orchestrator/tasks/{task_id}/bundle`, sem passar pelo renderer. Uma rejeição corrigível gera um `RECOVERY_WRITE` na mesma conversa; outra termina a execução (`fail-run`). Cada tarefa tem uma única conversa ChatGPT (`conversation_url` na tarefa), fixada no primeiro envio e usada em todas as rondas, correções, tentativas e retries. No log: `[orchestrator-round] submitted|adopted` e `[orchestrator-delivery] delivered|repair|failed-run|retry`. Desde o `adr/ADR-0082`, os Workers persistentes nunca reivindicam tradução, planeamento do Orchestrator nem release notes: essas tarefas criam sempre o seu próprio Worker efémero. Um Worker que executa uma tarefa do Orchestrator fica preso a ela (reivindica só a lane `h:<id da tarefa>`) até uma tentativa terminar em DONE, FAILED ou ATTENTION, ou até a lane ficar 15 minutos sem trabalho. Os outros Workers excluem essa lane, e ela não conta como capacidade livre para o auto scale. No log: `[chat-agent] orchestration-pin … pinned|released`, `orchestration-pin-released … reason=idle` e `[ephemeral-worker] created|destroyed`. Texto histórico: `TRANSLATE_MARKDOWN` entra primeiro num Worker persistente elegível e livre. Um scheduler dedicado mantém um loop temporário por tradução que excede a capacidade livre, cria um `Translator` por tarefa reivindicada e destrói a instância no fim. O limite dos Workers persistentes não limita as traduções; os IDs canónicos `translator-N` admitem até 64 instâncias simultâneas.
+- O `Translator` usa o relógio global de tradução, com mínimo normativo de 5 segundos; ele não aguarda a cadência de 10 segundos dos Workers comuns.
 - A tarefa de tradução tem `max_attempts=1`. Autenticação, gate humano, timeout ou falha de transporte terminam a operação sem retry e a interface mostra **“A tradução falhou. Tente novamente mais tarde.”**
 - A cadência é aplicada também aos retries que realmente podem alcançar o ChatGPT.
 - Antes da última ação de navegação, upload ou submit, o engine consulta novamente a suspensão. Se ela começou enquanto a operação aguardava o pacer, a ação é adiada sem alcançar o provedor.
@@ -44,11 +46,9 @@ Implementação principal: `services/desktop/chat-agent-pacer.mjs` e os limites 
 
 ### 4.1 Detecção
 
-Qualquer uma destas evidências abre a suspensão dos Workers:
+Só o controle estrutural de rate limit exposto pela página do ChatGPT (DOM) abre a suspensão dos Workers.
 
-- HTTP 429 observado num endpoint backend confiável de `chatgpt.com`;
-- controle estrutural de rate limit exposto pela página;
-- repetição de recusas classificada como gate da conta.
+Um HTTP 429, de qualquer endpoint e mesmo repetido, é apenas registado no log `[chatgpt-http]`. As páginas do ChatGPT fazem pedidos de fundo próprios, e o ChatGPT recusa alguns (sobretudo a lista de conversas da barra lateral) enquanto a conta continua a submeter normalmente. Numa noite, 48 recusas desse tipo suspenderam os Workers 19 vezes sem qualquer limite visível.
 
 A detecção é estrutural e independente do idioma. Não use texto localizado da página para decidir.
 
@@ -84,7 +84,7 @@ O fim de `paused_until` não libera a fila por si só:
 4. Depois de `reload()`, o engine aguarda o início real da navegação e a estabilização do carregamento/rede.
 5. O engine executa `chatGPTHumanActionScript()` e exige um objeto estrutural válido com `rateLimited === false`.
 6. Autenticação, CAPTCHA, acesso negado, resultado ausente ou página ambígua mantêm a fila bloqueada e reagendam a confirmação.
-7. Um 429 durante o reload, ou um gate ainda presente, abre outra suspensão completa usando a política atual.
+7. Um gate de limite ainda presente no DOM abre outra suspensão completa usando a política atual; um 429 durante o reload é só registado.
 8. O backend pode limpar o estado temporal expirado ao ser consultado, mas o bloqueio local de retomada dos Workers permanece. Somente a confirmação saudável permite novos claims de Worker.
 
 O log de sucesso esperado é:
@@ -118,7 +118,12 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
 - Itens de ação expõem `data-testid` específicos. `role="menuitem"` pode estar no mesmo nó ou num ancestral; resolva o `data-testid`, suba somente até o controle acionável e mantenha labels localizados como fallback fechado.
 - Scripts de conta localizam controles e retornam o alvo. O clique final precisa ser input nativo confiável.
 - O popover de esforço pode apresentar um slider utilizável sem `aria-expanded="true"`. Um único slider definido em `effortSlider` e limitado ao composer é a evidência de menu aberto.
+- O inverso também acontece: o gatilho fica `aria-expanded="true"`/`data-state="open"` com um `[role="slider"]` no documento que `effortSlider` não aceita. Um gatilho aberto nunca volta a ser premido nem recebe Enter/Space/Down, porque isso fecha o menu (o Worker abria e fechava o menu várias vezes seguidas). O slider é procurado dentro do menu indicado por `aria-controls` (ou no único menu aberto); se não aparecer após observações limitadas, o menu é fechado uma vez com Escape e o log `[chatgpt-effort] slider-unavailable … sliders=[…]` regista a forma de cada slider (`usable`, `visible`, `now`, `max`, `inMenu`, `hiddenBy`) para atualizar o mapa.
 - Worker oculto não pode depender de `webContents.sendInputEvent` sem viewport/hit-testing válidos. Use a operação estreita `pressChatGPTControl`; não substitua por click DOM.
+- **Interagir aqui** mostra a mesma instância num painel de 340 px de altura e muda o viewport do ChatGPT para o layout compacto. Enquanto uma tarefa corre, essa mudança interferiria com os controles que o scraper está a localizar; a abertura é recusada. **Acompanhar instância** e **Seguir (flow)** abrem a própria vista do Worker numa janela local fixa de 1280 × 900, sem navegar, focar explicitamente o conteúdo remoto ou fazer claims; fechar a janela devolve a instância ao estado oculto. A captura de imagem de uma vista oculta tem prazo de 5 s e pode falhar quando Chromium não produz frames; não é usada para acompanhar em tempo real. Um Worker já em interação não faz novos claims até a interação terminar.
+- O acompanhamento fecha a janela quando a tarefa seguida termina. Um ZIP exato já visível após retoma deve ser procurado mesmo que a contagem de turnos do assistente não avance; o Worker tenta novamente o controle de transferência após 20 s se nenhum download arrancar, e para de clicar assim que Chromium sinaliza o início.
+- **Seguir (flow)** abre imediatamente a janela nativa do Worker mesmo quando o painel de Agentes cobre a aba Engine. **Interagir aqui** usa essa janela em tamanho real quando o Worker está ocupado; a interação embutida continua disponível quando está ocioso. **Capturar imagem** apresenta temporariamente a vista do Worker em 1280 × 900 para obter um frame do compositor e depois repõe a vista oculta. Um probe DOM que não responde termina após 8 s por tentativa, sem prender uma tarefa indefinidamente.
+- A entrega de um bundle `ORCHESTRATOR_EXECUTE` ao backend pode incluir verificação e aplicação Protected. O POST local usa um cliente HTTP com prazo explícito de 29 min, inferior ao limite de escrita de 30 min do backend, e preserva `X-Wharnex-Trace`; o `fetch` padrão cortava a resposta aos cinco minutos e cancelava a execução depois de o ZIP já ter sido descarregado.
 - Todo gerador de script de conta deve entrar em `ALL_SCRIPTS` e passar por compilação com `new Function`. Regex dentro de template strings precisam preservar dupla fuga (`\\/`).
 - O composer atual pode expor três `input[type=file]`: vídeo/imagem,
   imagem e ficheiro geral sem `accept`. O upload de ZIP deve preferir o ID ou
@@ -189,6 +194,13 @@ compositor → upload → submit → `PATCH …/workspace-chats/<chat>/remote` �
 
 ### Padrões de bloqueio conhecidos
 
+- **Task do Orchestrator presa em DOING com plano aceite.** Um restart interrompeu a execução e a sessão ficou em `interrupted_execution.status=awaiting_decision`, à espera de um "retomar ou descartar" que numa task ninguém dá. A reconciliação retoma sozinha uma interrupção aprovada em modo Protected do run atual. Se a execução acabou em `failure_kind=execution_context_canceled` (sem intenção retomável), a task volta a READY com contexto, até três vezes.
+- **Worker à espera de um ZIP já entregue.** O `worker-start` só oferece o pedido se ainda estiver em `pending_manual_request_ids`; com o bundle aceite, o Worker observa sem reabrir a conversa.
+- **Leituras de conversa a cada claim.** Um claim de `ORCHESTRATOR_EXECUTE` já não abre a conversa da task; o executor abre-a, com ritmo, apenas para retomar ou submeter.
+- **Envio não confirmado (`dispatched-unconfirmed`).** Acontece segundos depois de confirmar o upload de ZIPs grandes. A prova é o turno do utilizador com o ZIP exato na conversa: sem ela, o pedido é reenviado uma vez e, se continuar ausente, a tentativa falha antes de gravar checkpoint.
+- **Worktree a "reverter" uma integração.** Um build de host morto a meio fazia o rollback restaurar os ficheiros mas deixar o HEAD no merge. O rollback repõe agora também o HEAD quando só há commits da integração do próprio Wharnex depois da baseline.
+- **Deploy seguro.** `make restart` recria o backend e cancela execuções e builds de auto-evolução em curso. Só reiniciar sem `self-evolution/status` em `building` e sem sessões de tasks em DOING em `planned`/execução; as interrupções que escapem retomam-se ou relançam-se pelas regras acima.
+- **"Não foi possível carregar esta conversa".** A página termina de carregar numa conversa (`/c/<id>`) sem composer, sem turnos de mensagem e com um único botão na área principal ("Voltar a tentar"). É o sintoma de um `GET /backend-api/conversations/<id>` recusado com 429. `waitForChatGPTSurfaceReady` deteta esta forma estruturalmente, sem ler texto, confirma-a em duas sondas com 2 s de intervalo e, passando pelo ritmo global quando é um Worker, prime esse botão uma única vez (ou recarrega se o botão não for único). Se a conversa continuar sem carregar, a ação é adiada sem gastar tentativa, com espera crescente por conversa (2, 4, 8 e depois 10 min), para o throttle de leitura passar. A espera só é reiniciada quando a conversa carrega de facto (turnos ou composer visíveis). Quando duas conversas diferentes falham em 2 minutos, é a leitura de conversas da conta que está limitada: os Workers deixam de abrir conversas de tarefas do Orchestrator durante 3 minutos, sem gastar tentativas. Quando esse período termina, só uma tarefa sonda (as outras esperam 30 s sem gastar tentativa); se a sonda também falhar, o período volta a armar-se com o dobro da duração (3, 6, 12 até 24 min). Só uma conversa que renderiza de facto (não o composer da página inicial) encerra a sequência e liberta as restantes. Antes, todas as tarefas reabriam a conversa ao mesmo tempo no fim do período, e essa rajada renovava o throttle, deixando as tarefas em DOING com todos os Workers parados. Uma página deixada nessa superfície volta sozinha a pedir a conversa a cada ~5 s, e cada 429 renova o throttle de leitura deste browser (a mesma URL abre sem problema noutro browser). Por isso, quando a tentativa termina, um Worker oculto (sem janela "Interagir aqui") devolve a sua lane e fica em `about:blank`; a próxima reivindicação volta a abrir a conversa. O log HTTP ≥ 400 inclui `wc=<id>` e `retry_after=` para identificar a página que insiste. No log: `[chatgpt-load] conversation-load-recovered|conversation-load-failed … backoff_ms=…`, `worker-parked` e `conversation-read-cooldown`.
 - **Só heartbeats depois dos insumos.** A tarefa arranca, descarrega tudo no
   mesmo segundo e depois só aparecem `…/heartbeat` durante minutos. É a fase
   local (ZIP/persistência) presa. Antes de 2026-09-25 só o timeout implícito de
@@ -320,6 +332,7 @@ Para cada tipo alterado ou habilitado, crie cinco tarefas novas, isoladas e rast
 - `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP` e `TITLE_AWAIT` quando aplicáveis;
 - `TODO_CLASSIFY`;
 - `TRANSLATE_MARKDOWN`.
+- `RELEASE_NOTES`, `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` quando alterados.
 
 Critérios:
 
@@ -414,7 +427,7 @@ Também execute `npm run build` no frontend quando a aba Políticas for alterada
 ## 11. Checklist final
 
 - [ ] Política configurável aparece em **Agentes → Políticas** e persiste o valor normalizado.
-- [ ] Cadência global é 30 s para Worker comum e 5 s para tradução.
+- [ ] Cadência global é 10 s para Worker comum (alargada por 429) e 5 s para tradução.
 - [ ] Supervisores e Translator ignoram a suspensão automática dos Workers; evidência 429 observada por eles ainda atualiza o cooldown durável dos Workers.
 - [ ] Suspensão manual seletiva impede claims apenas dos tipos escolhidos e não incrementa `attempt`.
 - [ ] Nenhum diagnóstico contém prosa remota, DOM bruto, cookies ou credenciais.
@@ -429,3 +442,27 @@ Também execute `npm run build` no frontend quando a aba Políticas for alterada
 - [ ] Leituras de sessão repetidas não regravam a sessão nem geram eventos.
 - [ ] Falhas atribuídas contra o baseline, com cada suíte corrida isoladamente.
 - [ ] Regressões focadas, build aplicável e gates sem regressão nova foram concluídos.
+
+## 12. Rodada controlada de 2026-09-27
+
+Todas as entradas abaixo pertencem à fixture do projeto Wharnex, chegaram ao bundle exato, terminaram em `DONE` na primeira tentativa e não produziram HTTP 429. Horários em UTC. A resposta de tradução e o corpo das release notes foram validados pelo backend; o diagnóstico não leu prosa remota.
+
+| Tipo | Task ID | Criada | Concluída |
+|---|---|---|---|
+| `ORCHESTRATOR_PLAN` | `cat_6e8ea96dc9fd74bcc416` | 21:14:22 | 21:30:49 |
+| `ORCHESTRATOR_EXECUTE` | `cat_36d16632653cd9877fd2` | 21:31:28 | 21:45:12 |
+| `ORCHESTRATOR_EXECUTE` | `cat_befe96d25867f3473c9c` | 21:41:08 | 21:55:35 |
+| `TRANSLATE_MARKDOWN` | `cat_3da439e3265d5d4d1b7a` | 22:02:24 | 22:03:44 |
+| `TRANSLATE_MARKDOWN` | `cat_d34dca51825c57e48d18` | 22:07:21 | 22:08:38 |
+| `TRANSLATE_MARKDOWN` | `cat_825559372b7592adc84d` | 22:20:10 | 22:21:28 |
+| `TRANSLATE_MARKDOWN` | `cat_d63a1b7a2ef4b5065c9e` | 22:28:58 | 22:30:10 |
+| `TRANSLATE_MARKDOWN` | `cat_1d6aadf2181f47470527` | 22:32:25 | 22:34:02 |
+| `RELEASE_NOTES` | `cat_103cf5844800e744ac73` | 22:39:39 | 22:41:44 |
+| `RELEASE_NOTES` | `cat_b532b0f17d7c5d5be0db` | 22:45:29 | 22:47:36 |
+| `RELEASE_NOTES` | `cat_7619b85acf49f6d2d72d` | 22:49:24 | 22:51:01 |
+| `RELEASE_NOTES` | `cat_a7e73939108318b62970` | 22:51:55 | 22:53:32 |
+| `RELEASE_NOTES` | `cat_2e31a0af9c27f7cb559e` | 22:56:06 | 22:58:20 |
+
+A tradução `cat_0159bb49b339548bf400` (23:14:33–23:15:58 UTC) foi uma sexta amostra diagnóstica, também `DONE` na primeira tentativa. O plano de teste passou `DRAFT → ACTIVE → COMPLETED`; as tarefas passaram `READY → DOING → REVIEW → COMPLETE` e `WAITING → READY → DOING → REVIEW → COMPLETE`. A promoção da segunda ocorreu sem ação manual. Os dois ficheiros de teste foram removidos após a confirmação.
+
+A aceitação 4/5 de transporte foi atingida para `TRANSLATE_MARKDOWN` e `RELEASE_NOTES`. A pedido do operador, esta rodada usou uma única orchestration de raiz; `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` têm respetivamente uma e duas amostras, abaixo das cinco exigidas para aceitação estatística por tipo. O esforço `instant` das tarefas utilitárias e da segunda tarefa do Orchestrator permaneceu **não confirmado** no ChatGPT: na vista Worker oculta, o botão estava ativo, tinha geometria válida e recebia hover, mas as tentativas nativas não abriram o slider. O backend guardou corretamente o esforço pedido; o nível aplicado pelo provedor não pode ser afirmado. A tentativa antes do upload, o fallback de ponteiro e o ajuste do evento de teclado foram testados e retirados por não corrigirem a falha.

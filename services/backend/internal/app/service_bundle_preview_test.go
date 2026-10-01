@@ -10,6 +10,7 @@ import (
 
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/contextbundle"
+	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/planner/manual"
 	"kernl.local/harness/backend/internal/policy"
 	"kernl.local/harness/backend/internal/sandbox"
@@ -26,6 +27,10 @@ func TestPreviewComposerBundleBuildsDisposableNextRequestWithoutAllocatingIt(t *
 	objects := &memoryArtifactStore{objects: map[string][]byte{}}
 	service.SetArtifactStore(objects, 30)
 	started, err := service.StartSession(context.Background(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err = service.SetContextMode(started.ID, domain.ContextModeFull)
 	if err != nil {
 		t.Fatal(err)
 	}

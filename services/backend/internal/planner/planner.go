@@ -13,6 +13,8 @@ type Request struct {
 	Message            string
 	ContextTextPath    string
 	ContextManifest    domain.ContextManifest
+	ContextMode        domain.ContextMode
+	ContextPaths       []string
 	PreviousResponseID string
 	AutomationMode     domain.AutomationMode
 	DebugEnabled       bool
@@ -35,6 +37,9 @@ type Request struct {
 	// dependencies; empty when the environment could not be measured, in
 	// which case the prompt simply omits the section.
 	ExecutionEnvironment string
+	// InteractiveConnections names only engine-registered SQL handles and their
+	// purpose. It never contains DSNs, passwords or project-discovered secrets.
+	InteractiveConnections string
 	// RepositoryTopology is the pre-rendered LOCAL REPOSITORY TOPOLOGY section
 	// (internal/repomanifest): which repositories this project is actually made
 	// of, and which of them a patch can be delivered into. Empty for an

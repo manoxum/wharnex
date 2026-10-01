@@ -1,0 +1,133 @@
+/*
+ * Wharnex colour system
+ *
+ * The base stylesheet owns layout. This layer owns appearance so the light and
+ * dark experiences stay visually complete without duplicating component geometry.
+ */
+:root,
+:root[data-theme='light'] {
+  --app-bg: #f1f3ed;
+  --ink: #20241d;
+  --muted: #697066;
+  --line: #d4d9cf;
+  --paper: #fafbf7;
+  --paper-2: #edf1e9;
+  --dark: #171a15;
+  --acid: #a8e557;
+  --acid-dark: #557d24;
+  --danger: #a54038;
+  --warning: #996117;
+  --success: #39734b;
+  --theme-danger: var(--danger);
+  --theme-warning: var(--warning);
+  --theme-success: var(--success);
+  --theme-bg: #f1f3ed;
+  --theme-surface: #f8faf5;
+  --theme-elevated: #fdfefb;
+  --theme-muted: #ebefe7;
+  --theme-subtle: #e2e7de;
+  --theme-hover: #e5eadf;
+  --theme-text: #20241d;
+  --theme-text-soft: #555e52;
+  --theme-text-muted: #687166;
+  --theme-border: #c9d0c4;
+  --theme-border-soft: #dce2d8;
+  --theme-accent: #557d24;
+  --theme-accent-soft: #e3efd7;
+  --theme-shadow: rgba(23, 29, 19, .12);
+  --theme-overlay: rgba(18, 22, 16, .46);
+  color: var(--theme-text);
+  background: var(--theme-bg);
+}
+
+:root[data-theme='dark'] {
+  /* Structural surfaces (background/border/card) are neutral black/gray by
+   * design: green is reserved for accent and selected-state use only (see
+   * --theme-accent / --theme-accent-soft below). Each value here is a
+   * straight desaturation (equal R=G=B, luminance preserved) of the former
+   * green-tinted tone, so contrast against text tokens is unchanged. */
+  --app-bg: #121212;
+  --ink: #edf1e9;
+  --muted: #aeb7aa;
+  --line: #3a3a3a;
+  --paper: #1a1a1a;
+  --paper-2: #232323;
+  --dark: #0c0c0c;
+  --acid: #a8d66d;
+  --acid-dark: #b9df88;
+  --danger: #ec8176;
+  --warning: #e3b35f;
+  --success: #7fbe88;
+  --theme-bg: #121212;
+  --theme-surface: #1a1a1a;
+  --theme-elevated: #232323;
+  --theme-muted: #1f1f1f;
+  --theme-subtle: #212121;
+  --theme-hover: #2b2b2b;
+  --theme-text: #edf1e9;
+  --theme-text-soft: #cbd3c6;
+  --theme-text-muted: #99a395;
+  --theme-border: #3b3b3b;
+  --theme-border-soft: #2f2f2f;
+  --theme-accent: #a8d66d;
+  --theme-accent-soft: #293820;
+  --theme-shadow: rgba(0, 0, 0, .38);
+  --theme-overlay: rgba(3, 5, 3, .7);
+  color: var(--theme-text);
+  background: var(--theme-bg);
+}
+
+body { color: var(--theme-text); background: var(--theme-bg); }
+input, textarea, select { color-scheme: inherit; }
+::selection { background: color-mix(in srgb, var(--theme-accent) 28%, transparent); }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline-color: var(--theme-accent);
+}
+
+.theme-toggle {
+  min-height: 30px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-elevated);
+  color: var(--theme-text-soft);
+  font-size: calc(9px * var(--ui-font-scale));
+  font-weight: 650;
+  cursor: pointer;
+}
+.theme-toggle:hover { background: var(--theme-hover); color: var(--theme-text); }
+.theme-toggle.compact { width: 29px; height: 29px; min-height: 29px; padding: 0; }
+.workspace-topbar .theme-toggle { border-color: var(--theme-border); background: var(--theme-muted); }
+.bootstrap-theme-toggle { position: absolute; z-index: 3; top: 28px; right: 30px; }
+
+.theme-preference-control { margin: 11px 0 2px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.theme-preference-control > button {
+  min-width: 0;
+  min-height: 48px;
+  padding: 6px 8px;
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-muted);
+  color: var(--theme-text-soft);
+  text-align: left;
+  cursor: pointer;
+}
+.theme-preference-control > button:hover { border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border)); background: var(--theme-hover); }
+.theme-preference-control > button.selected { border-color: var(--theme-accent); background: var(--theme-accent-soft); color: var(--theme-text); }
+.theme-preference-control > button > span:nth-child(2) { min-width: 0; display: grid; gap: 2px; }
+.theme-preference-control strong { font-size: calc(9px * var(--ui-font-scale)); }
+.theme-preference-control small { overflow: hidden; color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); text-overflow: ellipsis; white-space: nowrap; }
+.theme-preference-control i { width: 8px; height: 8px; border: 1px solid var(--theme-border); border-radius: 50%; }
+.theme-preference-control > button.selected i { border: 2px solid var(--theme-surface); background: var(--theme-accent); box-shadow: 0 0 0 1px var(--theme-accent); }
+.theme-preview { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid; border-radius: 7px; }
+.theme-preview-light { border-color: #ced3c8; background: #fafbf7; color: #596253; }
+.theme-preview-dark { border-color: #424242; background: #171717; color: #ececec; }
+.theme-preview-system { border-color: var(--theme-border); background: linear-gradient(135deg, #fafbf7 0 49%, #171717 51%); color: #7a7a7a; }

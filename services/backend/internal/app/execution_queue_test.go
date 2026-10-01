@@ -19,6 +19,7 @@ import (
 
 func TestProjectExecutionQueueIsFIFO(t *testing.T) {
 	queue := newProjectExecutionQueue()
+	queue.setCapacity(1)
 	first, err := queue.acquire(context.Background(), "/project", "session-1")
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +63,7 @@ func TestCancelledQueuedExecutionRemainsRecoverableUntilExplicitDiscard(t *testi
 	}
 	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "recover-plan", RequestID: "recover-request", Status: "ready", Summary: "recover", Risk: "low", Operations: []domain.Operation{}}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	service.executionQueue.setCapacity(1)
 	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
 	if err != nil {
 		t.Fatal(err)
@@ -105,6 +107,7 @@ func TestExecuteRejectsDuplicateWhileSamePlanIsAlreadyPending(t *testing.T) {
 	}
 	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "single-flight-plan", RequestID: "single-flight-request", Status: "ready", Summary: "single flight", Risk: "low", Operations: []domain.Operation{}}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	service.executionQueue.setCapacity(1)
 	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +166,7 @@ func TestProjectExecutionQueueAllowsDifferentProjects(t *testing.T) {
 
 func TestProjectExecutionQueueRemovesCancelledWaiter(t *testing.T) {
 	queue := newProjectExecutionQueue()
+	queue.setCapacity(1)
 	first, err := queue.acquire(context.Background(), "/project", "session-1")
 	if err != nil {
 		t.Fatal(err)
@@ -190,6 +194,7 @@ func TestInterruptedExecutionResumeIsAsyncAndIdempotent(t *testing.T) {
 	}
 	plan := domain.ExecutionPlan{Protocol: domain.ProtocolV1, PlanID: "resume-plan", RequestID: "resume-request", Status: "ready", Summary: "resume", Risk: "low", Operations: []domain.Operation{}}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), fakeRunner{})
+	service.executionQueue.setCapacity(1)
 	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
 	if err != nil {
 		t.Fatal(err)
@@ -289,6 +294,7 @@ func TestInterruptedExecutionResumeAppliesToHostWithoutASecondApproval(t *testin
 		Operations: []domain.Operation{{Type: "apply_patch", Patch: "--- a/shared.txt\n+++ b/shared.txt\n@@ -1,2 +1,3 @@\n one\n two\n+MINE\n"}},
 	}
 	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), fakePlanner{plan}, policy.NewEngine(), sandbox.NewLocalRunner())
+	service.executionQueue.setCapacity(1)
 	started, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeManual)
 	if err != nil {
 		t.Fatal(err)

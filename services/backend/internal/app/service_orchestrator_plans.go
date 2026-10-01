@@ -17,6 +17,7 @@ import (
 
 type OrchestratorProposalResult struct {
 	RequestID    string              `json:"request_id"`
+	ContextPaths []string            `json:"context_paths,omitempty"`
 	Plan         *orchestrator.Plan  `json:"plan,omitempty"`
 	Tasks        []orchestrator.Task `json:"tasks,omitempty"`
 	ManualPrompt string              `json:"manual_prompt,omitempty"`
@@ -25,28 +26,6 @@ type OrchestratorProposalResult struct {
 }
 
 const orchestratorPlanningWorkerProtocol = "harness.orchestrator-planning/v1"
-
-type OrchestratorPlanningAttachment struct {
-	Name       string `json:"name"`
-	Size       int64  `json:"size"`
-	MIME       string `json:"mime"`
-	StorageRef string `json:"storage_ref"`
-}
-
-type OrchestratorGeneratedAttachment struct {
-	Name    string `json:"name"`
-	MIME    string `json:"mime"`
-	Content string `json:"content"`
-}
-
-type OrchestratorComposerContext struct {
-	IncludeContext       bool                              `json:"include_context,omitempty"`
-	ProjectFiles         []string                          `json:"project_files,omitempty"`
-	AttachmentCacheKey   string                            `json:"attachment_cache_key,omitempty"`
-	Attachments          []OrchestratorPlanningAttachment  `json:"attachments,omitempty"`
-	TodoIDs              []string                          `json:"todo_ids,omitempty"`
-	GeneratedAttachments []OrchestratorGeneratedAttachment `json:"-"`
-}
 
 type OrchestratorTaskInput struct {
 	PlanID             string                `json:"plan_id,omitempty"`
@@ -96,6 +75,7 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 	result, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{
 		SessionID: item.ID, RequestID: requestID, Message: planningMessage,
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
+		ContextMode:    domain.EffectiveContextMode(item.ContextMode),
 		AutomationMode: item.AutomationMode, EffortLevel: item.EffortLevel, SelfEvolution: s.isSelfEvolution(item),
 		ReasoningEffort: normalizeReasoningEffort(item.ReasoningEffort),
 		PlanningMode:    "orchestrator",
@@ -106,22 +86,11 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 	}
 	if result.OrchestratorPlan == nil {
 		if result.ManualPrompt != "" {
-			payload, marshalErr := json.Marshal(struct {
-				Protocol             string                            `json:"protocol"`
-				SessionID            string                            `json:"session_id"`
-				RequestID            string                            `json:"request_id"`
-				Objective            string                            `json:"objective"`
-				Prompt               string                            `json:"prompt"`
-				IncludeContext       bool                              `json:"include_context,omitempty"`
-				AttachmentCacheKey   string                            `json:"attachment_cache_key,omitempty"`
-				Attachments          []OrchestratorPlanningAttachment  `json:"attachments,omitempty"`
-				GeneratedAttachments []OrchestratorGeneratedAttachment `json:"generated_attachments,omitempty"`
-				ReasoningEffort      string                            `json:"reasoning_effort"`
-			}{
-				Protocol: orchestratorPlanningWorkerProtocol, SessionID: sessionID, RequestID: requestID, Objective: objective, Prompt: result.ManualPrompt,
-				IncludeContext: input.IncludeContext || len(input.ProjectFiles) > 0, AttachmentCacheKey: input.AttachmentCacheKey, Attachments: input.Attachments,
-				GeneratedAttachments: input.GeneratedAttachments, ReasoningEffort: string(normalizeReasoningEffort(item.ReasoningEffort)),
-			})
+			payload, marshalErr := encodeOrchestratorPlanningWorkerPayload(
+				sessionID, requestID, objective, result.ManualPrompt, input,
+				string(normalizeReasoningEffort(item.ReasoningEffort)),
+				domain.EffectiveContextMode(item.ContextMode),
+			)
 			if marshalErr != nil {
 				s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, marshalErr.Error())
 				return OrchestratorProposalResult{}, fmt.Errorf("encode orchestrator planning worker: %w", marshalErr)
@@ -261,6 +230,11 @@ func (s *Service) ImportOrchestratorProposal(ctx context.Context, sessionID, req
 	}
 	if result.Plan != nil {
 		s.bindProjectTodosToOrchestratorPlan(requestID, result.Plan.ID)
+		_, _ = s.store.Update(sessionID, func(item *domain.Session) error {
+			delete(item.OrchestratorContextPaths, requestID)
+			delete(item.OrchestratorContextRounds, requestID)
+			return nil
+		})
 	}
 	return result, nil
 }
@@ -300,7 +274,8 @@ func (s *Service) RetryOrchestratorPlanning(sessionID, requestID string) (orches
 		return orchestrator.PlanningRequest{}, fmt.Errorf("decode orchestrator planning request: %w", err)
 	}
 	payload["session_id"] = sessionID
-	payload["reasoning_effort"] = string(normalizeReasoningEffort(item.ReasoningEffort))
+	// A retry belongs to the original planning request and retains its selected
+	// effort even if the operator later changes the session default.
 	// The checkpoint belongs to the attempt that wrote it, not to the request.
 	// Its expected filename is derived from that task's own id, so carrying it
 	// into a retry makes the new task fail its own filename check immediately
@@ -326,131 +301,6 @@ func (s *Service) RetryOrchestratorPlanning(sessionID, requestID string) (orches
 		"project_path": item.ProjectPath, "request_id": requestID, "worker_task_id": retried.TaskID,
 	})
 	return orchestratorPlanningRequest(retried), nil
-}
-
-func (s *Service) persistOrchestratorProposal(ctx context.Context, sessionID, projectPath, requestID string, proposal orchestrator.Proposal) (OrchestratorProposalResult, error) {
-	if err := orchestrator.ValidateProposal(proposal); err != nil {
-		return OrchestratorProposalResult{}, err
-	}
-	now := time.Now().UTC()
-	plan := orchestrator.Plan{
-		ID: ids.New("opl"), ProjectPath: projectPath, Title: strings.TrimSpace(proposal.Title),
-		Objective: strings.TrimSpace(proposal.Objective), Status: orchestrator.PlanDraft,
-		PlannerRequestID: requestID, Assumptions: append([]string(nil), proposal.Assumptions...), CreatedAt: now, UpdatedAt: now,
-	}
-	idMap := make(map[string]string, len(proposal.Tasks))
-	for _, candidate := range proposal.Tasks {
-		idMap[candidate.ID] = ids.New("otk")
-	}
-	tasks := make([]orchestrator.Task, 0, len(proposal.Tasks))
-	for _, candidate := range proposal.Tasks {
-		dependencies := make([]string, 0, len(candidate.DependsOn))
-		for _, dependency := range candidate.DependsOn {
-			dependencies = append(dependencies, idMap[dependency])
-		}
-		priority := candidate.Priority
-		if priority == "" {
-			priority = orchestrator.PriorityNormal
-		}
-		tasks = append(tasks, orchestrator.Task{
-			ID: idMap[candidate.ID], ProjectPath: projectPath, PlanID: plan.ID,
-			Title: candidate.Title, Description: candidate.Description,
-			AcceptanceCriteria: append([]string(nil), candidate.AcceptanceCriteria...),
-			Status:             orchestrator.TaskPending, Condition: orchestrator.ConditionPlanApproval,
-			Priority: priority, DependsOn: dependencies, Capability: candidate.Capability,
-			Complexity: candidate.Complexity, Parallelizable: candidate.Parallelizable,
-			ImpactFiles: append([]string(nil), candidate.ImpactFiles...), ReadFiles: append([]string(nil), candidate.ReadFiles...),
-			BarrierFiles: append([]string(nil), candidate.BarrierFiles...), CreatedAt: now, UpdatedAt: now,
-		})
-	}
-	if err := s.orchestrator.CreatePlan(ctx, plan, tasks); err != nil {
-		return OrchestratorProposalResult{}, err
-	}
-	s.bus.Publish(sessionID, "orchestrator.plan_proposed", map[string]any{"project_path": projectPath, "plan_id": plan.ID, "request_id": requestID, "tasks": len(tasks)})
-	return OrchestratorProposalResult{RequestID: requestID, Plan: &plan, Tasks: tasks}, nil
-}
-
-func (s *Service) OrchestratorOverview(ctx context.Context, sessionID string) (orchestrator.Overview, error) {
-	item, err := s.store.Get(sessionID)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	plans, err := s.orchestrator.ListPlans(ctx, item.ProjectPath)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	tasks, err := s.orchestrator.ListTasks(ctx, item.ProjectPath)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	planningTasks, err := s.store.ListChatAgentTasks(session.ChatAgentTaskFilter{
-		ProjectID: item.ProjectPath, Type: "ORCHESTRATOR_PLAN", Limit: 200,
-	})
-	if err != nil {
-		return orchestrator.Overview{}, fmt.Errorf("list orchestrator planning requests: %w", err)
-	}
-	planningByRequest := make(map[string]orchestrator.PlanningRequest, len(planningTasks))
-	for _, task := range planningTasks {
-		candidate := orchestratorPlanningRequest(task)
-		if previous, ok := planningByRequest[candidate.RequestID]; !ok || candidate.UpdatedAt.After(previous.UpdatedAt) || (candidate.UpdatedAt.Equal(previous.UpdatedAt) && candidate.CreatedAt.After(previous.CreatedAt)) {
-			planningByRequest[candidate.RequestID] = candidate
-		}
-	}
-	planning := make([]orchestrator.PlanningRequest, 0, len(planningByRequest))
-	for _, candidate := range planningByRequest {
-		planning = append(planning, candidate)
-	}
-	used := 0
-	for _, task := range tasks {
-		if task.Status == orchestrator.TaskDoing {
-			used++
-		}
-	}
-	return orchestrator.Overview{Plans: plans, Tasks: tasks, PlanningRequests: planning, MutationSlots: 1, MutationSlotsUsed: used}, nil
-}
-
-func orchestratorPlanningRequest(task session.ChatAgentTask) orchestrator.PlanningRequest {
-	var payload struct {
-		Objective string `json:"objective"`
-		Prompt    string `json:"prompt"`
-	}
-	_ = json.Unmarshal(task.Payload, &payload)
-	objective := strings.TrimSpace(payload.Objective)
-	if objective == "" {
-		const objectiveMarker = "\nOBJECTIVE:\n"
-		const manifestMarker = "\n\nPROJECT MANIFEST:\n"
-		if start := strings.Index(payload.Prompt, objectiveMarker); start >= 0 {
-			value := payload.Prompt[start+len(objectiveMarker):]
-			if end := strings.Index(value, manifestMarker); end >= 0 {
-				objective = strings.TrimSpace(value[:end])
-			}
-		}
-	}
-	return orchestrator.PlanningRequest{
-		RequestID: task.RequestID, TaskID: task.TaskID, Objective: objective, Status: task.Status,
-		Attempt: task.Attempt, MaxAttempts: task.MaxAttempts, LastError: task.LastError,
-		CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt,
-	}
-}
-
-func (s *Service) RejectOrchestratorPlan(ctx context.Context, sessionID, planID string) (orchestrator.Overview, error) {
-	item, err := s.store.Get(sessionID)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	lock := s.orchestratorProjectLock(item.ProjectPath)
-	lock.Lock()
-	defer lock.Unlock()
-	plan, tasks, err := s.orchestratorDraftSnapshot(ctx, item.ProjectPath, planID)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	if err := s.archiveOrchestratorDraft(ctx, plan, tasks); err != nil {
-		return orchestrator.Overview{}, err
-	}
-	s.setProjectTodosByPlan(item.ProjectPath, plan.ID, domain.ProjectTodoExecutionOpen, "")
-	s.bus.Publish(sessionID, "orchestrator.plan_rejected", map[string]any{"plan_id": plan.ID, "request_id": plan.PlannerRequestID})
-	return s.OrchestratorOverview(ctx, sessionID)
 }
 
 func (s *Service) ReviseOrchestratorPlan(ctx context.Context, sessionID, planID, guidance string) (OrchestratorProposalResult, error) {
@@ -563,34 +413,4 @@ func orchestratorProposalFromStoredDraft(plan orchestrator.Plan, tasks []orchest
 		Protocol: orchestrator.ProtocolV1, Title: plan.Title, Objective: plan.Objective,
 		Assumptions: append([]string(nil), plan.Assumptions...), Tasks: proposalTasks,
 	}
-}
-
-func (s *Service) ApproveOrchestratorPlan(ctx context.Context, sessionID, planID string) (orchestrator.Overview, error) {
-	item, err := s.store.Get(sessionID)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	lock := s.orchestratorProjectLock(item.ProjectPath)
-	lock.Lock()
-	defer lock.Unlock()
-	plan, err := s.orchestrator.GetPlan(ctx, planID)
-	if err != nil {
-		return orchestrator.Overview{}, err
-	}
-	if plan.ProjectPath != item.ProjectPath {
-		return orchestrator.Overview{}, errors.New("plan does not belong to this project")
-	}
-	if plan.Status != orchestrator.PlanDraft {
-		return orchestrator.Overview{}, errors.New("orchestrator plan approval requires a draft plan")
-	}
-	plan.Status = orchestrator.PlanActive
-	plan.UpdatedAt = time.Now().UTC()
-	if err := s.orchestrator.PutPlan(ctx, plan); err != nil {
-		return orchestrator.Overview{}, err
-	}
-	if err := s.recalculateOrchestratorTasks(ctx, item.ProjectPath); err != nil {
-		return orchestrator.Overview{}, err
-	}
-	s.bus.Publish(sessionID, "orchestrator.plan_approved", map[string]any{"plan_id": plan.ID})
-	return s.OrchestratorOverview(ctx, sessionID)
 }

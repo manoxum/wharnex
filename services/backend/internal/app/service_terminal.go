@@ -18,6 +18,7 @@ const (
 type TerminalSessionDescriptor struct {
 	TerminalID string                `json:"terminal_id"`
 	Target     domain.TerminalTarget `json:"target"`
+	Generation string                `json:"generation,omitempty"`
 }
 
 type TerminalFrame struct {
@@ -31,6 +32,7 @@ type terminalSessionState struct {
 	mu          sync.Mutex
 	sessionID   string
 	projectPath string
+	generation  string
 	target      domain.TerminalTarget
 	terminal    sandbox.InteractiveTerminal
 	frames      []TerminalFrame

@@ -349,3 +349,46 @@ func isMergeConflictError(err error, target **MergeConflictError) bool {
 	}
 	return ok
 }
+
+// A commit a person made on the branch after the integration merged is not the
+// integration's to discard: a failed integration's revert keeps it.
+func TestRevertHostMergeKeepsACommitMadeAfterTheIntegration(t *testing.T) {
+	requireGit(t)
+	host := newTestHostRepo(t, "hello.txt", "before\n")
+	sandbox := cloneSandbox(t, host)
+	if err := os.WriteFile(filepath.Join(sandbox, "hello.txt"), []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitVerifiedPatch(context.Background(), sandbox, "whx/req-5", "fix: update hello.txt", []string{"hello.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := PushBranchToHost(context.Background(), sandbox, host, "whx/req-5"); err != nil {
+		t.Fatal(err)
+	}
+	merge, err := MergeBranchOnHost(context.Background(), host, "whx/req-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tip, err := CurrentHeadSHA(context.Background(), host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, host, "notes.txt", "a person's work\n")
+	mustGit(t, host, "add", "notes.txt")
+	mustGit(t, host, "-c", "user.name=Person", "-c", "user.email=p@example.invalid", "commit", "-qm", "docs: a person's commit")
+	if _, err := RevertHostMergeKeepingLater(context.Background(), host, merge.PreMergeSHA, tip); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(host, "hello.txt")); err != nil || string(data) != "before\n" {
+		t.Fatalf("the integration must be undone, got %q err=%v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(host, "notes.txt")); err != nil || string(data) != "a person's work\n" {
+		t.Fatalf("the later commit must be kept, got %q err=%v", data, err)
+	}
+	if parent := mustGit(t, host, "rev-parse", "HEAD^"); parent != merge.PreMergeSHA {
+		t.Fatalf("the kept commit must sit on the restored base, parent=%s want %s", parent, merge.PreMergeSHA)
+	}
+	if subject := mustGit(t, host, "log", "-1", "--format=%s"); subject != "docs: a person's commit" {
+		t.Fatalf("HEAD subject=%q", subject)
+	}
+}

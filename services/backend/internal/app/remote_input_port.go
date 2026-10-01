@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"kernl.local/harness/backend/internal/domain"
 	"time"
 )
 
@@ -155,15 +156,18 @@ type RemoteInputFile struct {
 }
 
 type RemoteInputRequest struct {
-	RequestID         string            `json:"request_id"`
-	Prompt            string            `json:"prompt"`
-	BootstrapText     string            `json:"bootstrap_text"`
-	IncludeContext    bool              `json:"include_context"`
-	Attachments       []RemoteInputFile `json:"attachments"`
-	Artifacts         []RemoteInputFile `json:"artifacts"`
-	ProjectFiles      []string          `json:"project_files"`
-	TunnelInstanceIDs []string          `json:"tunnel_instance_ids"`
-	RequestMetadata   RequestMetadata   `json:"request_metadata"`
+	RequestID         string             `json:"request_id"`
+	Prompt            string             `json:"prompt"`
+	BootstrapText     string             `json:"bootstrap_text"`
+	IncludeContext    bool               `json:"include_context"`
+	ContextMode       domain.ContextMode `json:"-"`
+	ContextPaths      []string           `json:"-"`
+	ContextRound      int                `json:"-"`
+	Attachments       []RemoteInputFile  `json:"attachments"`
+	Artifacts         []RemoteInputFile  `json:"artifacts"`
+	ProjectFiles      []string           `json:"project_files"`
+	TunnelInstanceIDs []string           `json:"tunnel_instance_ids"`
+	RequestMetadata   RequestMetadata    `json:"request_metadata"`
 }
 
 type RequestMetadata struct {

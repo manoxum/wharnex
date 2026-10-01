@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"kernl.local/harness/backend/internal/app"
+	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/orchestrator"
 )
 
@@ -20,7 +22,40 @@ func (a *API) orchestratorOverview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "orchestrator_overview_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, overview)
+	writeJSON(w, http.StatusOK, orchestratorClientOverview(overview))
+}
+
+func (a *API) orchestratorTasks(w http.ResponseWriter, r *http.Request) {
+	limit := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			writeError(w, http.StatusBadRequest, "orchestrator_tasks_invalid", "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+	page, err := a.service.OrchestratorTasksPage(r.Context(), r.PathValue("id"), orchestrator.TaskPageFilter{
+		Status: orchestrator.TaskStatus(strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("status")))),
+		Search: r.URL.Query().Get("q"), Limit: limit, Cursor: r.URL.Query().Get("cursor"),
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_tasks_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
+func orchestratorClientOverview(overview orchestrator.Overview) orchestrator.Overview {
+	active := make([]orchestrator.Task, 0, len(overview.Tasks))
+	for _, task := range overview.Tasks {
+		if task.Status == orchestrator.TaskComplete || task.Status == orchestrator.TaskArchived {
+			continue
+		}
+		active = append(active, task)
+	}
+	overview.Tasks = active
+	return overview
 }
 
 func (a *API) orchestratorProposePlan(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +127,19 @@ func (a *API) orchestratorImportPlanBundle(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, result)
 }
 
+func (a *API) orchestratorPlanningDetail(w http.ResponseWriter, r *http.Request) {
+	detail, err := a.service.OrchestratorPlanningRequestDetail(r.Context(), r.PathValue("id"), r.PathValue("request_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "orchestrator_planning_detail_failed", err.Error())
+		return
+	}
+	if detail.TaskID == "" && detail.Plan == nil && len(detail.Attempts) == 0 {
+		writeError(w, http.StatusNotFound, "orchestrator_planning_not_found", "orchestrator planning request was not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
 func (a *API) orchestratorRetryPlan(w http.ResponseWriter, r *http.Request) {
 	result, err := a.service.RetryOrchestratorPlanning(r.PathValue("id"), r.PathValue("request_id"))
 	if err != nil {
@@ -107,7 +155,7 @@ func (a *API) orchestratorApprovePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "orchestrator_approve_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, overview)
+	writeJSON(w, http.StatusOK, orchestratorClientOverview(overview))
 }
 
 func (a *API) orchestratorRejectPlan(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +164,7 @@ func (a *API) orchestratorRejectPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "orchestrator_reject_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, overview)
+	writeJSON(w, http.StatusOK, orchestratorClientOverview(overview))
 }
 
 func (a *API) orchestratorRevisePlan(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +212,49 @@ func (a *API) orchestratorTransitionTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+func (a *API) orchestratorTaskEffort(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ReasoningEffort domain.ReasoningEffort `json:"reasoning_effort"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	task, err := a.service.SetOrchestratorTaskEffort(r.Context(), r.PathValue("id"), r.PathValue("task_id"), body.ReasoningEffort)
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_effort_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (a *API) orchestratorTaskEffortLevel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		EffortLevel domain.EffortLevel `json:"effort_level"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	task, err := a.service.SetOrchestratorTaskEffortLevel(r.Context(), r.PathValue("id"), r.PathValue("task_id"), body.EffortLevel)
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_effort_level_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (a *API) orchestratorRetryTask(w http.ResponseWriter, r *http.Request) {
+	var input orchestrator.TaskRetryContext
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	task, err := a.service.RetryOrchestratorTask(r.Context(), r.PathValue("id"), r.PathValue("task_id"), input)
+	if err != nil {
+		writeError(w, http.StatusConflict, "orchestrator_retry_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
 }
 
 func (a *API) orchestratorStartTask(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -92,5 +93,27 @@ func TestValidateTurnRejectsOversizedChatTitle(t *testing.T) {
 	}
 	if err := ValidateTurn(turn); err == nil {
 		t.Fatal("expected oversized chat_title to be rejected")
+	}
+}
+
+func TestValidateTurnContextRequestHasNoPathCountCeiling(t *testing.T) {
+	turn := domain.AgentTurn{Protocol: domain.TurnProtocolV1, RequestID: "req_12345678", Kind: domain.TurnKindContextRequest, Message: "Need captured files.", Outcome: &domain.TurnOutcome{Status: domain.TurnOutcomeCompleted}}
+	for _, count := range []int{33, 64, 500} {
+		paths := make([]string, count)
+		for i := range paths {
+			paths[i] = fmt.Sprintf("context/file-%03d.txt", i)
+		}
+		turn.ContextPaths = paths
+		if err := ValidateTurn(turn); err != nil {
+			t.Fatalf("%d context paths should be valid: %v", count, err)
+		}
+	}
+	turn.ContextPaths = nil
+	if err := ValidateTurn(turn); err == nil {
+		t.Fatal("empty context request must be rejected")
+	}
+	turn.ContextPaths = []string{"context/a", "context/a"}
+	if err := ValidateTurn(turn); err == nil {
+		t.Fatal("duplicate context paths must be rejected")
 	}
 }

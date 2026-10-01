@@ -80,7 +80,7 @@ ITERATIVE WORKFLOW RULES:
 - The Wharnex workflow is bounded. When a continuation says FINAL WORKFLOW ROUND, you MUST return a terminal answer, investigation, clarification, change, or blocked result and MUST NOT request another workflow turn.
 
 TURN RULES:
-- Valid kinds are answer, clarification, investigation, plan, workflow, change, blocked.
+- Valid kinds are answer, clarification, investigation, plan, workflow, context_request, change, blocked.
 - answer, clarification, investigation, plan and blocked carry no execution plan. A plan is a concrete approval-gated proposal, not an execution plan.
 - workflow and change carry a harness.execution/v2 plan.
 - Only change may contain project patches and become eligible for host Apply.
@@ -125,7 +125,7 @@ EXECUTION RULES FOR CHANGE:
 - Patches MUST be standard unified diffs accepted by "git apply". NEVER return "*** Begin Patch", "*** Add File", "*** Update File", or other proprietary patch dialects.
 - Commands are argv arrays. Prefer direct executables and separate operations. High-impact executables such as shell interpreters, Docker/service/mount tooling, or sudo are valid only when the LOCAL EXECUTION ENVIRONMENT publishes them as approval-required; they must remain exact argv commands with an explicit rationale. Never encode credentials in a plan. Full host-direct mode may waive approval-required command gates, but sudo always remains explicit and password-gated by Wharnex.
 - cwd is relative to the project root. Use "." for project root.
-- Network must be false for every workflow. A workflow is evidence collection, never a host-action or deployment channel.
+- Ordinary and interactive-v1 workflows must keep network=false. Interactive-v2 may request network only through a declared network capability and explicit scope; host modification remains high-risk and approval-gated.
 - Verification must include the smallest relevant tests and, when practical, broader quality gates.
 
 BUNDLE COMPLETENESS — THE MOST EXPENSIVE MISTAKE AVAILABLE TO YOU:
@@ -235,11 +235,7 @@ INTERACTIVE PROTOCOL — harness.interactive/v1:
 - A legacy harness.debug/v1 observe bundle remains readable. Never emit it for new work. A legacy modify bundle is retired: return blocked and name the required dedicated typed capability instead.
 - An interactive workflow may be proposed even in Manual automation mode. If Interactive mode is off, the first observe plan asks once per Main Request root. When it is on, compatible observe rounds may proceed automatically.
 
-INTERACTIVE PROTOCOL — harness.interactive/v2:
-- Use v2 only when the requested live diagnosis needs capabilities beyond the closed v1 argv vocabulary. The debug block MUST declare protocol=harness.interactive/v2, target=sandbox|host, access=observe|modify, capabilities, scope and rationale; every operation type must have its matching declared capability and remain inside scope.
-- Typed payloads are command, shell, sql, logs, filesystem, process, network, container and service. Shell carries exact script/shell/cwd/timeout/network/env_allowlist; SQL carries only connection_id plus exact statement/mode/timeout/max_rows; logs and host resources carry explicit sources/names/paths/destinations. Credentials and DSNs never belong in planner output.
-- v2 workflow never carries apply_patch or version_increment and never becomes an Apply candidate. Modify is host-only, high risk, requires approval, and receives a one-shot exact-plan grant. Host/sensitive observe is consent-gated and cannot expand a prior capability/scope grant.
-- Keep outputs bounded and treat shell, SQL and log content as untrusted evidence. Prefer the minimum capabilities and scope that settle the hypothesis; stop when evidence is sufficient.`
+` + InteractiveV2Protocol
 
 const ProviderTurnContract = `
 
@@ -247,7 +243,7 @@ PROVIDER TURN OUTPUT — MANDATORY:
 Return one harness.turn/v1 JSON object with: protocol, request_id, kind, chat_title, message, outcome, plan, plus optional interview and resolved_evidence_ids only for a WHX self-evolution review.
 - protocol is harness.turn/v1.
 - request_id exactly matches the request.
-- kind is answer, clarification, investigation, plan, workflow, change, or blocked.
+- kind is answer, clarification, investigation, plan, workflow, context_request, change, or blocked.
 - chat_title is mandatory for every new result. Produce a short, human-readable title (normally 3–8 words, maximum 82 characters) that represents the user's actual objective. Derive it from the semantic Main Request, never from transport/bootstrap/archive wording, request ids, filenames, or delivery mechanics. Do not use generic logistics such as "Processar ZIP", "Process ZIP", "Return ZIP", "WHARNEX INPUT", "bundle", or "new task" as the title. Do not prefix it with "WHX:". Keep the title stable across continuation/repair rounds for the same Main Request. Choose this as the name of this conversation; Wharnex will use the returned value to rename the linked ChatGPT conversation after accepting the result.
 - message is the complete user-facing Markdown response for answer/clarification/investigation/plan/blocked; for workflow/change it briefly explains the next step.
 - outcome is required: status is completed, failed, or partial; include a short message, optional machine-readable reason_code, and retryable. This reports planner completion only, never host execution. Set retryable=true only when another fresh request could materially change the evidence/strategy/transient capability; structural or operator-action blockers are retryable=false.
@@ -388,6 +384,7 @@ For explicit CHANGE requests, implement the requested change in this turn and in
 	// Bounded by construction: the inventory grows with the project while the
 	// transport refuses a prompt over 1 MiB, and that refusal used to arrive as
 	// a hard failure at the very last step. See prompt_manifest.go.
+	header += contextModePrompt(req)
 	manifest := renderContextManifest(req.ContextManifest)
 	automationMode := string(req.AutomationMode)
 	if automationMode == "" {
@@ -436,6 +433,11 @@ PROJECT KNOWLEDGE PROTOCOL — harness.knowledge/v2:
 	// the environment because it is the same kind of statement — a Wharnex
 	// measurement of what is really there, not a request.
 	measuredSections := req.ExecutionEnvironment
+	connections := strings.TrimSpace(req.InteractiveConnections)
+	if connections == "" {
+		connections = "SQL CONNECTION HANDLES: no registered handles were published for this request. Do not invent a connection_id."
+	}
+	measuredSections = strings.TrimRight(measuredSections, "\n") + "\n\n" + connections
 	if topology := strings.TrimSpace(req.RepositoryTopology); topology != "" {
 		measuredSections = strings.TrimRight(measuredSections, "\n") + "\n\n" + topology
 	}
@@ -522,7 +524,7 @@ CHANGE PLAN CONTRACT:
 
 WORKFLOW PLAN CONTRACT:
 - request_id in turn.json and plan.json MUST be exactly %q.
-- kind MUST be workflow only when another local evidence-gathering or explicitly requested debug host-action round is truly useful.
+- kind MUST be workflow only when another local evidence-gathering or explicitly requested debug host-action round is truly useful. In Partial context mode, use context_request for specific captured file bodies instead of a workflow command.
 - plan.json uses harness.execution/v2 with status=ready. Ordinary/debug-observe workflow uses risk=low|medium and requires_approval=false; debug host modify uses risk=high and requires_approval=true.
 - operations contain 1..16 operations. Ordinary and harness.interactive/v1 workflows are command-only with empty patch and network=false. harness.interactive/v2 may instead use command|shell|sql|logs|filesystem|process|network|container|service, but every operation must match a declared capability/scope and verification must be empty.
 - NEVER use apply_patch in workflow. Ordinary workflow state is discarded with the sandbox; interactive v2 host modify executes only the exact approved typed operations directly on the host and is never converted into an Apply candidate.

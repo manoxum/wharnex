@@ -324,6 +324,18 @@ func TestBuildManualPromptOrchestratorUsesDedicatedPlanningProtocol(t *testing.T
 	}
 }
 
+// Tasks run concurrently on separate Workers. A barrier task generated without
+// depends_on started beside the work it validated and failed three times on an
+// unstable baseline.
+func TestOrchestratorPromptRequiresDependenciesForBarrierTasks(t *testing.T) {
+	prompt := BuildManualPrompt(Request{RequestID: "req-orchestrator", PlanningMode: "orchestrator", Message: "ship the migration"})
+	for _, want := range []string{"run concurrently", "validates, stabilizes, fixes a baseline", "MUST list", "same file"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("orchestrator prompt missing %q", want)
+		}
+	}
+}
+
 func TestBuildManualPromptCarriesEffortLevelAndCostBenefitContract(t *testing.T) {
 	prompt := BuildManualPrompt(Request{
 		RequestID:      "req-effort",

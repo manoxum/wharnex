@@ -1,0 +1,5 @@
+@import '../../domains/execution/plan-control.css';
+@import '../../domains/activity/activity-history.css';
+@import '../../domains/workspace/chrome/operational-panels.css';
+@import '../../domains/evolution/restart-confirmation.css';
+@import '../../domains/evolution/restart-confirmation-reports.css';

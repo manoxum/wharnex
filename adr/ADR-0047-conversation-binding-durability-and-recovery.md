@@ -87,3 +87,9 @@ still omits fields its copy does not know. The server-side guard makes that
 harmless for the binding specifically; making the wire format express "unchanged"
 distinctly from "cleared" — so the same class of loss cannot appear in another
 field — is left open.
+
+## Orchestrator task affinity extension (2026-09-29)
+
+An Orchestrator task, rather than one transient Worker attempt, is the affinity owner for agentic execution. The task persists one definitive concrete `conversation_url` plus derived `conversation_id`; the Worker lease that first observes a valid ChatGPT conversation may establish that pair, but no later attempt may clear or replace it.
+
+Retries, automatic repairs, restart recovery and a reclaim by a different Worker all resume that same task conversation. The Worker must load and verify the task binding before adopting a pending response, preparing a follow-up or submitting the next Main Request. A URL/id mismatch, malformed binding, backend disagreement after submit, or observed navigation to another conversation is terminal for that attempt and fails closed before any second submit. This makes conversation continuity task-scoped and durable across Agent Session/run boundaries without creating a second remote thread.

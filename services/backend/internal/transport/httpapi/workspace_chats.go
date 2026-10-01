@@ -7,6 +7,7 @@ import (
 
 	"kernl.local/harness/backend/internal/app"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/orchestrator"
 )
 
 // HTTP surface for the workspace chat index and transcripts.
@@ -160,8 +161,13 @@ func writeWorkspaceChatError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, "workspace_chat_failed", err.Error())
 }
 
+type workspaceAttentionResponse struct {
+	Records                 []app.AttentionRecord         `json:"records"`
+	OrchestratorConclusions []orchestrator.TaskConclusion `json:"orchestrator_conclusions"`
+}
+
 func (a *API) workspaceAttention(w http.ResponseWriter, r *http.Request) {
-	records, err := a.service.WorkspaceAttention(r.URL.Query().Get("project_path"))
+	records, conclusions, err := a.service.WorkspaceAttention(r.Context(), r.URL.Query().Get("project_path"))
 	if err != nil {
 		writeWorkspaceChatError(w, err)
 		return
@@ -169,5 +175,8 @@ func (a *API) workspaceAttention(w http.ResponseWriter, r *http.Request) {
 	if records == nil {
 		records = []app.AttentionRecord{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"records": records})
+	if conclusions == nil {
+		conclusions = []orchestrator.TaskConclusion{}
+	}
+	writeJSON(w, http.StatusOK, workspaceAttentionResponse{Records: records, OrchestratorConclusions: conclusions})
 }

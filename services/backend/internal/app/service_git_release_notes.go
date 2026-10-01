@@ -33,6 +33,11 @@ type gitReleaseNotesWorkerResult struct {
 	BundleBase64 string `json:"bundle_base64"`
 }
 
+// Three bounded Worker attempts each have a four-minute response window.
+// Claim, navigation and pacing happen before that window begins, so the
+// synchronous caller must outlive the complete durable task budget.
+const gitReleaseNotesAwaitTimeout = 18 * time.Minute
+
 func (s *Service) GenerateGitReleaseNotes(ctx context.Context, sessionID, branch string) (GitReleaseNotesResult, error) {
 	item, err := s.store.Get(sessionID)
 	if err != nil {
@@ -106,7 +111,7 @@ func (s *Service) GenerateGitReleaseNotes(ctx context.Context, sessionID, branch
 func (s *Service) awaitGitReleaseNotes(ctx context.Context, taskID string, request releasenotes.TransportManifest, commitCount int) (GitReleaseNotesResult, error) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
-	timeout := time.NewTimer(5 * time.Minute)
+	timeout := time.NewTimer(gitReleaseNotesAwaitTimeout)
 	defer timeout.Stop()
 	for {
 		current, err := s.store.GetChatAgentTask(taskID)

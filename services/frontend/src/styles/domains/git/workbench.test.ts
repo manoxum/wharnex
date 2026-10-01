@@ -1,0 +1,90 @@
+import { describe, expect, it } from 'vitest'
+import { css, lastRule, firstRule } from '../../cascade/styleRules'
+
+describe('Git workbench CSS', () => {
+  it('uses project theme tokens instead of the old green-tinted dark island', () => {
+    const drawer = lastRule('.git-drawer')
+    const section = lastRule('.git-section')
+    const tabs = lastRule('.git-tabs')
+
+    expect(drawer).toContain('background: var(--theme-bg)')
+    expect(drawer).toContain('color: var(--theme-text)')
+    expect(section).toContain('background: var(--theme-surface)')
+    expect(section).toContain('border: 1px solid var(--theme-border-soft)')
+    expect(tabs).toContain('background: var(--theme-surface)')
+    expect(tabs).not.toContain('#1b1e19')
+    expect(section).not.toContain('#1a1d18')
+  })
+
+  it('keeps Git tabs fully visible and increases the working-copy reading density', () => {
+    const tabs = lastRule('.git-tabs')
+    const changeTabs = lastRule('.git-changes-tabs')
+    const pendingCommit = lastRule('.git-unpushed-list li')
+    expect(tabs).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))')
+    expect(tabs).toContain('overflow: visible')
+    expect(changeTabs).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(changeTabs).toContain('overflow: visible')
+    expect(pendingCommit).toContain('min-height: 52px')
+    expect(lastRule('.agent-tree-row')).toContain('height: 30px')
+  })
+
+  it('gives Git mutations a modal processing surface with visible progress', () => {
+    const backdrop = firstRule('.git-operation-backdrop')
+    const modal = firstRule('.git-operation-modal')
+    const progress = firstRule('.git-operation-progress')
+
+    expect(backdrop).toContain('position: absolute')
+    expect(backdrop).toContain('backdrop-filter: blur(5px)')
+    expect(lastRule('.project-git-operation-layer')).toContain('position: fixed')
+    expect(lastRule('.project-git-operation-layer')).toContain('inset: 0')
+    expect(modal).toContain('grid-template-columns: 42px minmax(0,1fr)')
+    expect(progress).toContain('height: 4px')
+    expect(css).toContain('@keyframes git-operation-progress')
+  })
+
+  it('lets generic Git diff windows use the viewport width and keeps the worktree file rail visible', () => {
+    const modal = lastRule('.git-diff-modal')
+    const worktreeReview = firstRule('.git-worktree-diff-review')
+
+    expect(modal).toContain('width: min(1680px, calc(100vw - clamp(16px, 4vw, 48px)))')
+    expect(worktreeReview).toContain('grid-template-columns: minmax(240px, 24%) minmax(0, 1fr)')
+  })
+
+  it('gives branch-history commit diffs a dedicated review hierarchy', () => {
+    const modal = firstRule('.git-history-commit-modal')
+    const header = firstRule('.git-history-commit-modal > .git-history-commit-header')
+    const heading = firstRule('.git-history-commit-modal > .git-history-commit-header > .git-history-commit-heading')
+    const actions = firstRule('.git-history-commit-modal > .git-history-commit-header > .git-history-commit-actions')
+    const stats = firstRule('.git-history-commit-stats')
+    const activeFile = lastRule('.git-history-commit-modal .git-diff-review-file-list > button.active')
+
+    expect(modal).toContain('width: min(1680px, calc(100vw - 32px))')
+    expect(modal).toContain('border-radius: 16px')
+    expect(header).toContain('min-height: 78px')
+    expect(header).toContain('linear-gradient')
+    expect(heading).toContain('display: flex')
+    expect(actions).toContain('display: flex')
+    expect(stats).toContain('grid-template-columns: repeat(3, minmax(54px, auto))')
+    expect(activeFile).toContain('box-shadow: inset 2px 0 0 var(--theme-accent)')
+  })
+
+  it('keeps history rows graph-first and compact', () => {
+    const row = lastRule('.git-history-row')
+    const compactRow = lastRule('.git-drawer .git-history-row')
+    const graph = lastRule('.git-commit-graph')
+    const compactGraph = lastRule('.git-drawer .git-commit-graph')
+    const graphLines = lastRule('.git-commit-graph-lines')
+    const historyTail = lastRule('.git-history-tail')
+    const compactTail = lastRule('.git-drawer .git-history-tail')
+    expect(row).toContain('grid-template-columns: auto minmax(0, 1fr) auto')
+    expect(compactRow).toContain('grid-template-columns: auto minmax(0, 1fr)')
+    expect(graph).toContain('min-height: 38px')
+    expect(graph).toContain('height: auto')
+    expect(compactGraph).toContain('grid-row: 1 / span 2')
+    expect(graphLines).toContain('height: 100%')
+    expect(historyTail).toContain('display: inline-flex')
+    expect(compactTail).toContain('grid-column: 2')
+    expect(css).toContain('--git-lane-0: #5e9cff')
+    expect(css).toContain('.git-graph-node')
+  })
+})

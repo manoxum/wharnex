@@ -1,0 +1,79 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ArtifactPresentationItem } from '../../../types'
+import { ArtifactViewerModal } from './ArtifactViewerModal'
+
+vi.mock('../../../lib/transport/http/api', () => ({ api: {
+  artifactEntryURL: (_sessionId: string, _bundleId: string, path: string, download = false) => `/artifact/entry?path=${encodeURIComponent(path)}${download ? '&download=1' : ''}`,
+  artifactURL: (_sessionId: string, artifactId: string, preview = false) => `/artifact/${artifactId}${preview ? '?preview=1' : ''}`,
+} }))
+
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+describe('ArtifactViewerModal', () => {
+  const items: ArtifactPresentationItem[] = [
+    { path: 'artifacts/a.png', label: 'Imagem A', size: 120, content_type: 'image/png', kind: 'image' },
+    { path: 'artifacts/b.png', label: 'Imagem B', size: 140, content_type: 'image/png', kind: 'image' },
+  ]
+
+  it('keeps direct artifact downloads on the raw endpoint while preview stays inline', () => {
+    render(<ArtifactViewerModal sessionId="ses_1" artifactId="artifact_direct" items={[{ path: 'report.pdf', size: 512, content_type: 'application/pdf', kind: 'pdf' }]} initialIndex={0} onClose={vi.fn()}/>)
+    expect(screen.getByTitle('Descarregar report.pdf').getAttribute('href')).toBe('/artifact/artifact_direct')
+    expect(screen.getByTitle('Pré-visualização de report.pdf').getAttribute('src')).toBe('/artifact/artifact_direct?preview=1')
+  })
+
+  it('uses preview_path only for bundle preview while keeping the original download identity', () => {
+    render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={[{
+      path: 'artifacts/diagram.drawio', preview_path: 'artifacts/diagram.png', label: 'Diagrama', size: 512, content_type: 'application/vnd.jgraph.mxfile', kind: 'drawio',
+    }]} initialIndex={0} onClose={vi.fn()}/>)
+
+    expect(screen.getByRole('img', { name: 'Diagrama' }).getAttribute('src')).toBe('/artifact/entry?path=artifacts%2Fdiagram.png')
+    expect(screen.getByTitle('Descarregar artifacts/diagram.drawio').getAttribute('href')).toBe('/artifact/entry?path=artifacts%2Fdiagram.drawio&download=1')
+    expect(screen.queryByRole('button', { name: 'Ver source' })).toBeNull()
+  })
+
+  it('renders a direct Draw.io artifact locally and keeps download on the raw artifact endpoint', async () => {
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n" value="Direct" vertex="1" parent="1"><mxGeometry x="10" y="10" width="120" height="60" as="geometry"/></mxCell></root></mxGraphModel>'
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, body: null, headers: { get: () => null }, text: async () => source }) as unknown as Response))
+    render(<ArtifactViewerModal sessionId="ses_1" artifactId="drawio_direct" items={[{ path: 'direct.drawio', size: source.length }]} initialIndex={0} onClose={vi.fn()}/>)
+
+    expect(await screen.findByRole('img', { name: 'Diagrama Draw.io: direct.drawio' })).toBeTruthy()
+    expect(screen.getByTitle('Descarregar direct.drawio').getAttribute('href')).toBe('/artifact/drawio_direct')
+  })
+
+  it('navigates with keyboard and exposes non-destructive image controls', () => {
+    const close = vi.fn()
+    render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={items} initialIndex={0} onClose={close}/>)
+    expect(screen.getByText('Imagem A')).toBeTruthy()
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    expect(screen.getByText('Imagem B')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '+ Zoom' }))
+    expect(screen.getByLabelText('Zoom atual').textContent).toBe('125%')
+    fireEvent.click(screen.getByRole('button', { name: '↻' }))
+    const image = screen.getByRole('img')
+    expect(image.getAttribute('style')).toContain('scale(1.25)')
+    expect(image.getAttribute('style')).toContain('rotate(90deg)')
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+  it('does not use arrow-key navigation while an adjustment control is active', () => {
+    render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={items} initialIndex={0} onClose={vi.fn()}/>)
+    const brightness = screen.getByRole('slider', { name: 'Brilho' })
+    brightness.focus()
+    fireEvent.keyDown(brightness, { key: 'ArrowRight' })
+    expect(screen.getByText('Imagem A')).toBeTruthy()
+  })
+
+  it('switches Draw.io between the local visual preview and raw source', async () => {
+    const source = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="n" value="Gateway" vertex="1" parent="1"><mxGeometry x="10" y="10" width="120" height="60" as="geometry"/></mxCell></root></mxGraphModel>'
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, body: null, headers: { get: () => null }, text: async () => source }) as unknown as Response))
+    render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={[{ path: 'artifacts/flow.drawio', size: source.length }]} initialIndex={0} onClose={vi.fn()}/>)
+
+    expect(await screen.findByRole('img', { name: 'Diagrama Draw.io: artifacts/flow.drawio' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Ver source' }))
+    const pre = await screen.findByText((_content, element) => element?.tagName === 'PRE' && Boolean(element.textContent?.includes('<mxGraphModel>')))
+    expect(pre.textContent).toContain('Gateway')
+    expect(screen.getByRole('button', { name: 'Ver preview' })).toBeTruthy()
+  })
+
+})

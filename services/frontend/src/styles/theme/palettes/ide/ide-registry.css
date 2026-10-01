@@ -1,0 +1,163 @@
+/* Workbench theme registry extensions. `data-theme` remains the compatibility
+ * bridge for existing component selectors; `data-ui-theme` is the durable UI
+ * theme identity and can grow without changing component JSX. */
+:root[data-ui-theme='high-contrast'] {
+  --app-bg: #000;
+  --ink: #fff;
+  --muted: #d8d8d8;
+  --line: #fff;
+  --paper: #000;
+  --paper-2: #111;
+  --dark: #000;
+  --acid: #d7ff76;
+  --acid-dark: #d7ff76;
+  --danger: #ff8d86;
+  --warning: #ffe07a;
+  --success: #9dffab;
+  --theme-bg: #000;
+  --theme-surface: #050505;
+  --theme-elevated: #0d0d0d;
+  --theme-muted: #111;
+  --theme-subtle: #181818;
+  --theme-hover: #262626;
+  --theme-text: #fff;
+  --theme-text-soft: #f0f0f0;
+  --theme-text-muted: #d3d3d3;
+  --theme-border: #fff;
+  --theme-border-soft: #9b9b9b;
+  --theme-accent: #d7ff76;
+  --theme-accent-soft: #253300;
+  --theme-shadow: rgba(0,0,0,.72);
+}
+:root[data-ui-theme='high-contrast'] .workspace-topbar,
+:root[data-ui-theme='high-contrast'] .multi-project-bar,
+:root[data-ui-theme='high-contrast'] .agent-activity-bar,
+:root[data-ui-theme='high-contrast'] .agent-drawer,
+:root[data-ui-theme='high-contrast'] .terminal-workspace,
+:root[data-ui-theme='high-contrast'] .workbench-status-bar,
+:root[data-ui-theme='high-contrast'] .quick-switcher-popover { border-color: #fff !important; background: #000 !important; color: #fff !important; }
+:root[data-ui-theme='high-contrast'] button:focus-visible,
+:root[data-ui-theme='high-contrast'] input:focus-visible,
+:root[data-ui-theme='high-contrast'] select:focus-visible,
+:root[data-ui-theme='high-contrast'] textarea:focus-visible { outline: 2px solid #d7ff76; outline-offset: 2px; }
+
+.theme-preference-control { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.theme-preview-original { border-color: var(--theme-border); background: linear-gradient(135deg, #fafbf7 0 49%, #171717 51%); color: var(--theme-accent); }
+.theme-preview-high-contrast { border-color: #fff; background: #000; color: #fff; box-shadow: inset 0 0 0 1px #000; }
+
+/* IDE theme families -------------------------------------------------------
+ * Presets own semantic tokens, while component geometry stays shared. This
+ * keeps JetBrains/VS Code recognizable without forking the workbench markup. */
+:root[data-ui-theme='jetbrains-darcula'] {
+  --app-bg:#1e1f22; --ink:#bcbec4; --muted:#8b8d92; --line:#393b40; --paper:#2b2d30; --paper-2:#25262a; --dark:#17181a;
+  --acid:#3574f0; --acid-dark:#3574f0; --theme-bg:#1e1f22; --theme-surface:#2b2d30; --theme-elevated:#303033; --theme-muted:#25262a; --theme-subtle:#323438;
+  --theme-hover:#393b40; --theme-text:#d7d8da; --theme-text-soft:#bcbec4; --theme-text-muted:#8b8d92; --theme-border:#393b40; --theme-border-soft:#323438;
+  --theme-accent:#3574f0; --theme-accent-soft:#25324a; --theme-shadow:rgba(0,0,0,.42); --theme-overlay:rgba(14,15,17,.72);
+}
+:root[data-ui-theme='jetbrains-light'] {
+  --app-bg:#f7f8fa; --ink:#1f2329; --muted:#6c7078; --line:#dfe1e5; --paper:#fff; --paper-2:#f2f3f5; --dark:#202124;
+  --acid:#3574f0; --acid-dark:#245fc5; --theme-bg:#f7f8fa; --theme-surface:#fff; --theme-elevated:#fff; --theme-muted:#f2f3f5; --theme-subtle:#eceef1;
+  --theme-hover:#e8eaed; --theme-text:#1f2329; --theme-text-soft:#4f545d; --theme-text-muted:#7a7f87; --theme-border:#d8dbe0; --theme-border-soft:#e6e8eb;
+  --theme-accent:#3574f0; --theme-accent-soft:#e8f0fe; --theme-shadow:rgba(31,35,41,.14); --theme-overlay:rgba(31,35,41,.38);
+}
+:root[data-ui-theme='vscode-dark'] {
+  --app-bg:#1e1e1e; --ink:#d4d4d4; --muted:#969696; --line:#3c3c3c; --paper:#252526; --paper-2:#2d2d2d; --dark:#181818;
+  --acid:#007acc; --acid-dark:#007acc; --theme-bg:#1e1e1e; --theme-surface:#252526; --theme-elevated:#2d2d30; --theme-muted:#252526; --theme-subtle:#2a2d2e;
+  --theme-hover:#2a2d2e; --theme-text:#e7e7e7; --theme-text-soft:#cccccc; --theme-text-muted:#969696; --theme-border:#3c3c3c; --theme-border-soft:#333333;
+  --theme-accent:#007acc; --theme-accent-soft:#07395a; --theme-shadow:rgba(0,0,0,.46); --theme-overlay:rgba(0,0,0,.7);
+}
+:root[data-ui-theme='vscode-light'] {
+  --app-bg:#f3f3f3; --ink:#333; --muted:#717171; --line:#d4d4d4; --paper:#fff; --paper-2:#f3f3f3; --dark:#252526;
+  --acid:#007acc; --acid-dark:#0065a9; --theme-bg:#f3f3f3; --theme-surface:#fff; --theme-elevated:#fff; --theme-muted:#f3f3f3; --theme-subtle:#ebebeb;
+  --theme-hover:#e8e8e8; --theme-text:#333; --theme-text-soft:#515151; --theme-text-muted:#717171; --theme-border:#d4d4d4; --theme-border-soft:#e5e5e5;
+  --theme-accent:#007acc; --theme-accent-soft:#e5f3ff; --theme-shadow:rgba(0,0,0,.14); --theme-overlay:rgba(0,0,0,.34);
+}
+
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='blue'] { --theme-accent:#3574f0; --theme-accent-soft:color-mix(in srgb,#3574f0 15%,var(--theme-surface)); --acid:#3574f0; --acid-dark:#3574f0; }
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='violet'] { --theme-accent:#8b5cf6; --theme-accent-soft:color-mix(in srgb,#8b5cf6 15%,var(--theme-surface)); --acid:#8b5cf6; --acid-dark:#8b5cf6; }
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='orange'] { --theme-accent:#d97706; --theme-accent-soft:color-mix(in srgb,#d97706 15%,var(--theme-surface)); --acid:#d97706; --acid-dark:#d97706; }
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='rose'] { --theme-accent:#e05278; --theme-accent-soft:color-mix(in srgb,#e05278 15%,var(--theme-surface)); --acid:#e05278; --acid-dark:#e05278; }
+:root:not([data-ui-theme='high-contrast'])[data-ui-accent='cyan'] { --theme-accent:#169ab5; --theme-accent-soft:color-mix(in srgb,#169ab5 15%,var(--theme-surface)); --acid:#169ab5; --acid-dark:#169ab5; }
+
+:root[data-ui-theme]:not([data-ui-theme='original']) .workspace-topbar,
+:root[data-ui-theme]:not([data-ui-theme='original']) .agent-commandbar,
+:root[data-ui-theme]:not([data-ui-theme='original']) .multi-project-bar,
+:root[data-ui-theme]:not([data-ui-theme='original']) .agent-activity-bar,
+:root[data-ui-theme]:not([data-ui-theme='original']) .agent-drawer,
+:root[data-ui-theme]:not([data-ui-theme='original']) .terminal-tabbar,
+:root[data-ui-theme]:not([data-ui-theme='original']) .workbench-status-bar,
+:root[data-ui-theme]:not([data-ui-theme='original']) .file-explorer,
+:root[data-ui-theme]:not([data-ui-theme='original']) .editor-contextbar {
+  border-color:var(--theme-border); background:var(--theme-surface); color:var(--theme-text-soft);
+}
+:root[data-ui-theme]:not([data-ui-theme='original']) .agent-drawer-heading,
+:root[data-ui-theme]:not([data-ui-theme='original']) .editor-tabs,
+:root[data-ui-theme]:not([data-ui-theme='original']) .terminal-tabs { border-color:var(--theme-border); background:var(--theme-muted); }
+:root[data-ui-theme]:not([data-ui-theme='original']) .agent-tree-row:hover,
+:root[data-ui-theme]:not([data-ui-theme='original']) .workspace-side-rail button:hover,
+:root[data-ui-theme]:not([data-ui-theme='original']) .editor-tab:hover { background:var(--theme-hover); color:var(--theme-text); }
+:root[data-ui-theme]:not([data-ui-theme='original']) .agent-tree-row.selected-node,
+:root[data-ui-theme]:not([data-ui-theme='original']) .workspace-side-rail button.active { background:var(--theme-accent-soft); color:var(--theme-text); }
+
+.theme-preference-control em { color:var(--theme-text-muted); font-size:calc(6px * var(--ui-font-scale)); font-style:normal; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+.theme-preview-jetbrains-darcula { border-color:#44464b; background:#1e1f22; color:#3574f0; }
+.theme-preview-jetbrains-light { border-color:#d8dbe0; background:#fff; color:#3574f0; }
+.theme-preview-vscode-dark { border-color:#3c3c3c; background:#1e1e1e; color:#4daafc; }
+.theme-preview-vscode-light { border-color:#d4d4d4; background:#fff; color:#007acc; }
+
+
+/* v1.2.47 — keep the right-side Agent rail and title-bar actions theme-neutral. */
+:root[data-theme='light'] .agent-direct-chatgpt-tab button.active,
+:root[data-theme='light'] .agent-surface-tabs button.active,
+:root[data-theme='dark'] .agent-direct-chatgpt-tab button.active,
+:root[data-theme='dark'] .agent-surface-tabs button.active {
+  border-left-color: var(--theme-accent);
+  border-bottom-color: transparent;
+}
+:root[data-theme='dark'] .multi-project-actions > button,
+:root[data-theme='dark'] .multi-project-actions > .quick-switcher > .quick-switcher-trigger,
+:root[data-theme='dark'] .multi-project-actions > .project-actions-menu > .project-actions-trigger {
+  border-color: transparent;
+  background: transparent;
+}
+:root[data-theme='dark'] .window-chrome-controls { background: transparent; }
+@media (max-width: 820px) {
+  :root[data-theme='light'] .agent-direct-chatgpt-tab button.active,
+  :root[data-theme='light'] .agent-surface-tabs button.active,
+  :root[data-theme='dark'] .agent-direct-chatgpt-tab button.active,
+  :root[data-theme='dark'] .agent-surface-tabs button.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--theme-accent);
+  }
+}
+
+/* Unified Agent shortcuts inherit the workspace rail selection indicator. */
+:root .workspace-agent-rail-slot .agent-direct-chatgpt-tab button.active,
+:root .workspace-agent-rail-slot .agent-surface-tabs button.active {
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+}
+
+/* Settings and native controls inherit the complete selected IDE palette. */
+:root[data-ui-theme] .context-settings-dialog,
+:root[data-ui-theme] .context-settings-dialog .project-settings-body,
+:root[data-ui-theme] .context-settings-dialog > header,
+:root[data-ui-theme] .context-settings-dialog > footer {
+  border-color: var(--theme-border);
+  background: var(--theme-elevated);
+  color: var(--theme-text);
+}
+:root[data-ui-theme] .settings-navigation {
+  border-color: var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-bg) 76%, var(--theme-elevated));
+}
+:root[data-ui-theme] .settings-content,
+:root[data-ui-theme] .appearance-settings-section { background: var(--theme-bg); color: var(--theme-text); }
+:root[data-ui-theme] .settings-premium-card,
+:root[data-ui-theme] .settings-project-summary { border-color: var(--theme-border-soft); background: var(--theme-elevated); color: var(--theme-text); }
+:root[data-ui-theme] .settings-navigation button:hover { background: var(--theme-hover); color: var(--theme-text); }
+:root[data-ui-theme] .settings-navigation button.active { border-color: transparent; background: var(--theme-accent-soft); color: var(--theme-text); box-shadow: inset 2px 0 var(--theme-accent); }
+:root[data-ui-theme] .context-settings-dialog select,
+:root[data-ui-theme] .quick-switcher-select-shell select { color: var(--theme-text); }
+:root[data-ui-theme] .context-settings-dialog select option,
+:root[data-ui-theme] .quick-switcher-select-shell select option { background: var(--theme-elevated); color: var(--theme-text); }

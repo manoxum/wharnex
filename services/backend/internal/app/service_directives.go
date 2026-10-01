@@ -41,7 +41,8 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	chatFiles := directives.Values(parsed, directives.KindChat)
 	libraryFiles := directives.Values(parsed, directives.KindLib)
 	todos := directives.Values(parsed, directives.KindTodo)
-	if len(files) == 0 && len(refs) == 0 && len(attached) == 0 && len(seen) == 0 && len(chatFiles) == 0 && len(libraryFiles) == 0 && len(todos) == 0 {
+	tasks := directives.Values(parsed, directives.KindTask)
+	if len(files) == 0 && len(refs) == 0 && len(attached) == 0 && len(seen) == 0 && len(chatFiles) == 0 && len(libraryFiles) == 0 && len(todos) == 0 && len(tasks) == 0 {
 		return ""
 	}
 	var shapes []string
@@ -65,6 +66,9 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	}
 	if len(todos) > 0 {
 		shapes = append(shapes, "@{[todo]<todo id>}")
+	}
+	if len(tasks) > 0 {
+		shapes = append(shapes, "@{[task]<task id>}")
 	}
 	var builder strings.Builder
 	builder.WriteString("\n\nINLINE REFERENCE MARKERS (Wharnex-owned scope metadata):\n")
@@ -92,6 +96,9 @@ func directiveLegendWithContext(message string, context domain.ContextBundle) st
 	}
 	if len(todos) > 0 {
 		builder.WriteString("- @{[todo]…} identifies a project TODO. Wharnex resolves the stable ID into its original text plus Worker classification, context and pre-plan; the composer also carries a synthetic Markdown pre-analysis and the TODO's stored artifacts in the request attachment transport.\n")
+	}
+	if len(tasks) > 0 {
+		builder.WriteString("- @{[task]…} identifies a completed task from this project. Wharnex may add a bounded read-only snapshot of its task metadata and execution references; missing, cross-project or not-yet-completed tasks are explicitly unavailable and never grant lifecycle or write authority.\n")
 	}
 	if missing := missingContextFiles(files, context.Manifest); len(missing) > 0 {
 		builder.WriteString("Requested with @{[file]…} but still unavailable after request-local context inclusion (for example because a mandatory security/secret/size boundary excluded it): " + strings.Join(missing, ", ") + ".\n")

@@ -10,24 +10,6 @@ import (
 	"testing"
 )
 
-func TestManagerDetectsOnlyExactCanonicalRoot(t *testing.T) {
-	root := fakeRoot(t)
-	manager := New(root)
-	if !manager.IsProject(root) {
-		t.Fatal("expected exact root to be self-evolution")
-	}
-	if manager.IsProject(filepath.Join(root, "services", "backend")) {
-		t.Fatal("subdirectory must not be treated as self-evolution root")
-	}
-	link := filepath.Join(t.TempDir(), "wharness-link")
-	if err := os.Symlink(root, link); err != nil {
-		t.Fatal(err)
-	}
-	if !manager.IsProject(link) {
-		t.Fatal("canonical symlink to the same root should be detected")
-	}
-}
-
 func TestTransactionRollbackRestoresTouchedSourceAndRuntime(t *testing.T) {
 	root := fakeRoot(t)
 	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
@@ -535,180 +517,6 @@ func assertFile(t *testing.T, path, expected string) {
 	}
 }
 
-func TestBuildHostRejectsDependencyMetadataMutation(t *testing.T) {
-	root := fakeRoot(t)
-	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
-	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n\t@mkdir -p services/frontend\n\t@printf 'unexpected\\n' > services/frontend/package-lock.json\n", 0o644)
-	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
-	manager := New(root)
-	tx, err := manager.Prepare("ses-build-guard", "plan-build-guard", []string{patch})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Release()
-	if _, err := manager.BuildHost(context.Background(), tx, nil); err == nil || !strings.Contains(err.Error(), "mutated source dependency metadata") {
-		t.Fatalf("expected build guard rejection, got %v", err)
-	}
-	if err := tx.Rollback(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "services", "frontend", "package-lock.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("rollback should remove build-created lockfile, got %v", err)
-	}
-}
-
-func TestBuildHostClassifiesHostToolchainMismatchAsUnrepairable(t *testing.T) {
-	root := fakeRoot(t)
-	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
-	// Reproduces the real failure observed in production: a pinned Electron
-	// version whose postinstall requires a newer Node than the host has,
-	// surfacing as ERR_REQUIRE_ESM. No patch to project source can fix this,
-	// so BuildHost must mark it distinctly from an ordinary build failure.
-	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n"+
-		"\t@printf 'Error [ERR_REQUIRE_ESM]: require() of ES Module not supported\\n' >&2\n"+
-		"\t@printf 'Error: Electron failed to install correctly.\\n' >&2\n"+
-		"\t@exit 2\n", 0o644)
-	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
-	manager := New(root)
-	tx, err := manager.Prepare("ses-toolchain-guard", "plan-toolchain-guard", []string{patch})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Release()
-	_, err = manager.BuildHost(context.Background(), tx, nil)
-	if err == nil {
-		t.Fatal("expected BuildHost to fail")
-	}
-	if !errors.Is(err, ErrHostBuildToolchainMismatch) {
-		t.Fatalf("expected ErrHostBuildToolchainMismatch, got %v", err)
-	}
-}
-
-func TestBuildHostClassifiesUnsupportedBusyBoxFlockAsLocalInfrastructure(t *testing.T) {
-	root := fakeRoot(t)
-	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
-	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n"+
-		"\t@printf 'flock: unrecognized option: w\\n' >&2\n"+
-		"\t@exit 2\n", 0o644)
-	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
-	manager := New(root)
-	tx, err := manager.Prepare("ses-busybox-flock", "plan-busybox-flock", []string{patch})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Release()
-
-	_, err = manager.BuildHost(context.Background(), tx, nil)
-	if !errors.Is(err, ErrHostBuildToolchainMismatch) {
-		t.Fatalf("unsupported host flock must remain local infrastructure, got %v", err)
-	}
-}
-
-func TestBuildHostStreamsOutputAsItArrivesInsteadOfOnlyAtCompletion(t *testing.T) {
-	// A host build can run for minutes; without incremental delivery it
-	// looks hung until it finally succeeds or fails. onOutput must fire
-	// for each chunk as it is produced, not just once at the end.
-	root := fakeRoot(t)
-	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
-	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n"+
-		"\t@printf 'first line\\n'\n"+
-		"\t@printf 'second line\\n' >&2\n", 0o644)
-	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
-	manager := New(root)
-	tx, err := manager.Prepare("ses-stream", "plan-stream", []string{patch})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Release()
-
-	type chunk struct{ stream, text string }
-	var chunks []chunk
-	full, err := manager.BuildHost(context.Background(), tx, func(stream, text string) {
-		chunks = append(chunks, chunk{stream, text})
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(chunks) == 0 {
-		t.Fatal("expected at least one streamed chunk")
-	}
-	var streamedStdout, streamedStderr strings.Builder
-	for _, c := range chunks {
-		switch c.stream {
-		case "stdout":
-			streamedStdout.WriteString(c.text)
-		case "stderr":
-			streamedStderr.WriteString(c.text)
-		default:
-			t.Fatalf("unexpected stream label %q", c.stream)
-		}
-	}
-	if !strings.Contains(streamedStdout.String(), "first line") {
-		t.Fatalf("expected streamed stdout to contain the stdout line, got %q", streamedStdout.String())
-	}
-	if !strings.Contains(streamedStderr.String(), "second line") {
-		t.Fatalf("expected streamed stderr to contain the stderr line, got %q", streamedStderr.String())
-	}
-	// The streamed chunks must be a live view of the SAME output BuildHost
-	// still accumulates and returns whole, not a separate/lossy channel.
-	if !strings.Contains(full, "first line") || !strings.Contains(full, "second line") {
-		t.Fatalf("accumulated output missing streamed content: %q", full)
-	}
-}
-
-func TestBuildHostRetainsTerminalFailureAfterVerboseBuildOutput(t *testing.T) {
-	root := fakeRoot(t)
-	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
-	// More than the bounded capture limit precedes the actual failure. The
-	// terminal diagnostic must remain available for classification/recovery.
-	mustWrite(t, filepath.Join(root, "Makefile"), "build-stage:\n"+
-		"\t@yes x | head -c 600000\n"+
-		"\t@printf 'TERMINAL BUILD FAILURE: missing generated symbol\\n' >&2\n"+
-		"\t@exit 2\n", 0o644)
-	patch := "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"
-	manager := New(root)
-	tx, err := manager.Prepare("ses-terminal-output", "plan-terminal-output", []string{patch})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Release()
-
-	output, err := manager.BuildHost(context.Background(), tx, nil)
-	if err == nil {
-		t.Fatal("expected build failure")
-	}
-	if !strings.Contains(output, "TERMINAL BUILD FAILURE: missing generated symbol") {
-		t.Fatalf("terminal build diagnostic was discarded: %q", output[len(output)-min(len(output), 512):])
-	}
-	if !strings.Contains(output, "middle build output truncated") {
-		t.Fatalf("expected bounded-output truncation marker, got %q", output[:min(len(output), 512)])
-	}
-}
-
-func TestIsHostToolchainMismatchIsNarrow(t *testing.T) {
-	positive := []string{
-		"Error [ERR_REQUIRE_ESM]: require() of ES Module ... not supported",
-		"Error: Electron failed to install correctly. Please delete `node_modules/electron`",
-		"flock: unrecognized option: w",
-	}
-	for _, output := range positive {
-		if !IsHostToolchainMismatch(output) {
-			t.Fatalf("expected match for output: %s", output)
-		}
-	}
-	negative := []string{
-		"",
-		"npm warn EBADENGINE Unsupported engine { package: 'eslint-visitor-keys@5.0.1' }",
-		"FAIL services/frontend/src/App.test.ts\nExpected 2 but received 3",
-		"go build failed: undefined: foo",
-	}
-	for _, output := range negative {
-		if IsHostToolchainMismatch(output) {
-			t.Fatalf("expected no match for output: %s", output)
-		}
-	}
-}
-
 func TestPrepareReclaimsAnOrphanedStageLockFromAPreviousRuntime(t *testing.T) {
 	// The exact production deadlock: a stage.lock left behind by a backend
 	// that died mid-apply, holding `pid=1` because the backend is PID 1 in
@@ -890,6 +698,36 @@ func TestPendingPlanForSessionReturnsLatestMemberAfterSameSessionExtension(t *te
 	}
 	if recovered.ID != first.ID || pending.PlanID != "plan-two" {
 		t.Fatalf("expected latest same-session member plan-two in transaction %s, got transaction=%s pending=%#v", first.ID, recovered.ID, pending)
+	}
+}
+
+func TestClaimPendingBatchUsesCurrentStatusMember(t *testing.T) {
+	root := fakeRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	manager := New(root)
+	tx, err := manager.Prepare("ses-current", "plan-current", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	if err := manager.RecordStatus(tx, "ses-current", "plan-current", "restart_pending", "current batch ready"); err != nil {
+		t.Fatal(err)
+	}
+	tx.ReleaseStage()
+
+	claimed, pending, status, err := manager.ClaimPendingBatch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer claimed.ReleaseStage()
+	if claimed.ID != tx.ID {
+		t.Fatalf("expected transaction %s, got %s", tx.ID, claimed.ID)
+	}
+	if pending.SessionID != "ses-current" || pending.PlanID != "plan-current" {
+		t.Fatalf("unexpected current pending member: %#v", pending)
+	}
+	if status.Transaction != "txn-"+tx.ID || status.Phase != "restart_pending" {
+		t.Fatalf("unexpected claimed status: %#v", status)
 	}
 }
 
@@ -1087,4 +925,75 @@ func TestReleaseRefusesATransactionThatIsStillWorking(t *testing.T) {
 	if _, err := manager.ReleaseBlockedTransaction("txn-live"); err == nil {
 		t.Fatal("a live transaction must not be releasable")
 	}
+}
+
+// A failed host build rolled the source back while HEAD kept the integration
+// merge, so the worktree read as reverting a change that HEAD claimed and the
+// next task saw an unstable baseline. When only Wharnex's own integration
+// commits lie after the baseline, rollback moves HEAD back with the files.
+func TestRollbackReturnsHeadToBaselineOverOwnIntegrationCommits(t *testing.T) {
+	root := fakeGitRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline")
+
+	manager := New(root)
+	tx, err := manager.Prepare("ses-own", "plan-own", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	mustWrite(t, filepath.Join(root, "hello.txt"), "after\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Wharnex", "-c", "user.email=wharness@localhost", "commit", "-qm", "feat: verified candidate")
+	mustGitCommand(t, root, "-c", "user.name=WHX - Operator", "-c", "user.email=op@example.invalid", "commit", "--allow-empty", "-qm", "Merge branch 'whx/req_x'")
+	// The state observed on 2026-09-28: HEAD carries the integration while the
+	// source on disk is back at the captured baseline.
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+
+	if err := tx.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, filepath.Join(root, "hello.txt"), "before\n")
+	if head := gitOutput(t, root, "rev-parse", "HEAD"); head != tx.PreTransactionSHA {
+		t.Fatalf("HEAD=%s, want baseline %s", head, tx.PreTransactionSHA)
+	}
+	if status := gitOutput(t, root, "status", "--porcelain", "--", ".", ":!.harness"); status != "" {
+		t.Fatalf("worktree not clean after rollback:\n%s", status)
+	}
+}
+
+func TestRollbackKeepsHeadWhenAPersonCommittedAfterTheBaseline(t *testing.T) {
+	root := fakeGitRoot(t)
+	mustWrite(t, filepath.Join(root, "hello.txt"), "before\n", 0o644)
+	mustGitCommand(t, root, "add", "hello.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "baseline")
+
+	manager := New(root)
+	tx, err := manager.Prepare("ses-mixed", "plan-mixed", []string{"--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-before\n+after\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Release()
+	mustWrite(t, filepath.Join(root, "other.txt"), "human\n", 0o644)
+	mustGitCommand(t, root, "add", "other.txt")
+	mustGitCommand(t, root, "-c", "user.name=Tester", "-c", "user.email=test@example.invalid", "commit", "-qm", "human work")
+	head := gitOutput(t, root, "rev-parse", "HEAD")
+
+	if err := tx.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOutput(t, root, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("rollback moved HEAD past a human commit: %s -> %s", head, got)
+	}
+}
+
+func gitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(output))
 }

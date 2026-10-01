@@ -1,4 +1,32 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat bb715277-cba3-4278-922e-e5b2ae60f32a (2026-09-30)
+
+_(reserved — no entries yet)_
+
+
+### Chat 0274c282-e529-442c-9af2-913cd0a85f4f (2026-09-29)
+
+- Partial context selection is now limited by cumulative bytes and rounds rather than an artificial file-count ceiling, including Orchestrator and cumulative manifest transport.
+- Context maps expose semantic role/relation hints, request-ranked candidates, groups and byte/round budget metadata; interactive v2 adds engine-classified `auto_observe` for bounded project filesystem reads.
+
+
+- 2026-09-28 — Adiciona regressão Playwright para CI/browser-capable em viewport estreito: faixa horizontal sem wrap, controlos de extremidade, paginação COMPLETE/ARCHIVED, menu terminal, drag-and-drop após scroll, novo chat com diretiva `@task` e evidência visual lado a lado com `docs/orchestrator-test/kanban-before.png`.
+- 2026-09-28 — Consolida no backend o ciclo COMPLETE terminal → ARCHIVED e a paginação por cursor, preserva `was_completed`, bloqueia regressão para READY e rejeita limites de página inválidos no transporte antes de tocar no serviço.
+- 2026-09-28 — Mantém os gates existentes e não altera produção fora da superfície Orchestrator.
+
+
+### Chat 263284aa-461b-40c1-b165-36d9560539c4 (2026-09-27)
+
+- Corrige o fecho dos popups de projetos recentes, projetos abertos, aparência e alertas quando o clique/foco sai da superfície, incluindo interações capturadas e perda de foco para o workspace embutido.
+- Corrige o fechamento de janelas Desktop para encerrar a própria janela e libertar os projetos vinculados, mantendo a ação da tray de fechar apenas um projeto separada.
+- Ao fechar uma janela ou desvincular um projeto com terminais Host ativos, pergunta se os processos devem continuar em background para tentativa de recuperação posterior ou ser encerrados antes do fechamento.
+
+
+### Chat d6fa2696-bd5e-4005-b421-9c068109cedf (2026-09-27)
+
+- Corrigida a reconciliação Git de arranque para ignorar roots de projeto ausentes sem candidatos vivos, preservar candidatos pendentes com um evento `integration.branch_cleanup_deferred` acionável e continuar a reportar falhas reais em repositórios existentes.
+
+
 ### Chat b637e555-721d-4126-a949-c4dea1d3f99d (2026-09-26)
 
 - Corrige a publicação de releases para manter os erros da operação visíveis no próprio formulário, evitando que a ação pareça inerte quando a criação da tag/release falha.

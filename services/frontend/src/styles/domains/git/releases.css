@@ -1,0 +1,187 @@
+.git-release-empty > span,
+.git-release-list-icon {
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--theme-muted);
+  color: var(--theme-text-soft);
+}
+.git-release-empty > span { width: 30px; height: 30px; flex: 0 0 auto; }
+.git-release-empty > div { min-width: 0; display: grid; gap: 2px; }
+.git-release-empty strong { color: var(--theme-text-soft); font-size: calc(7.9px * var(--ui-font-scale)); }
+.git-release-empty small { color: var(--theme-text-muted); font-size: calc(6.7px * var(--ui-font-scale)); line-height: 1.35; }
+.git-release-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 9px;
+  background: var(--theme-surface);
+}
+.git-release-list li {
+  min-width: 0;
+  min-height: 46px;
+  padding: 7px 8px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto 26px;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--theme-border-soft);
+}
+.git-release-list li:last-child { border-bottom: 0; }
+.git-release-list li:hover { background: var(--theme-hover); }
+.git-release-list-icon { width: 28px; height: 28px; }
+.git-release-list-copy { min-width: 0; display: grid; gap: 2px; }
+.git-release-list-copy strong,
+.git-release-list-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-release-list-copy strong { color: var(--theme-text); font: 720 calc(8px * var(--ui-font-scale))/1.2 var(--mono-font-family, monospace); }
+.git-release-list-copy small { color: var(--theme-text-muted); font-size: calc(6.6px * var(--ui-font-scale)); }
+.git-release-list-state {
+  min-height: 23px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--success) 30%, var(--theme-border-soft));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 8%, var(--theme-surface));
+  color: var(--success);
+  font-size: calc(6.4px * var(--ui-font-scale));
+  font-weight: 720;
+}
+.git-release-copy { width: 26px; height: 26px; }
+
+.git-release-backdrop { z-index: 440; padding: clamp(12px, 3vw, 34px); }
+.git-release-modal {
+  width: min(920px, 100%);
+  max-height: min(900px, calc(100dvh - clamp(24px, 6vw, 68px)));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--theme-border);
+  border-radius: 13px;
+  background: var(--theme-elevated);
+  box-shadow: 0 26px 80px var(--theme-shadow);
+}
+.git-release-modal-header {
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 10px 8px 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-surface) 96%, var(--theme-accent) 4%);
+}
+.git-release-modal-header > div { min-width: 0; display: grid; gap: 2px; }
+.git-release-modal-header .panel-kicker { color: var(--theme-text-muted); font-size: calc(6.4px * var(--ui-font-scale)); letter-spacing: .07em; text-transform: uppercase; }
+.git-release-modal-header strong { color: var(--theme-text); font-size: calc(10px * var(--ui-font-scale)); }
+.git-release-modal-header small { color: var(--theme-text-muted); font-size: calc(6.8px * var(--ui-font-scale)); }
+.git-release-modal-body { min-height: 0; overflow: auto; padding: 12px; }
+
+.git-release-grid label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--theme-text-soft);
+  font-size: calc(7.2px * var(--ui-font-scale));
+  font-weight: 650;
+}
+.git-release-grid input,
+.git-release-grid select,
+.git-release-gpt textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-bg) 94%, var(--theme-elevated));
+  color: var(--theme-text);
+  outline: none;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.git-release-grid input,
+.git-release-grid select { height: 34px; padding: 0 10px; }
+.git-release-grid input:focus,
+.git-release-grid select:focus,
+.git-release-gpt textarea:focus,
+.git-release-editable:focus { border-color: color-mix(in srgb, var(--theme-accent) 70%, var(--theme-border)); box-shadow: 0 0 0 2px var(--theme-accent-soft); background: var(--theme-bg); }
+
+.git-release-panel {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 76%, var(--theme-accent));
+  border-radius: 12px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--theme-elevated) 88%, var(--theme-accent) 12%), color-mix(in srgb, var(--theme-bg) 94%, var(--theme-elevated)) 42%);
+}
+.git-release-hero {
+  min-width: 0;
+  padding: 10px 11px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 80%, var(--theme-accent));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface) 95%, var(--theme-accent) 5%);
+}
+.git-release-hero-icon,
+.git-release-card-icon {
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-border-soft) 78%, var(--theme-accent));
+  background: var(--theme-accent-soft);
+  color: var(--theme-accent);
+}
+.git-release-hero-icon { width: 36px; height: 36px; border-radius: 10px; }
+.git-release-hero-copy { min-width: 0; display: grid; gap: 2px; }
+.git-release-hero-copy > span,
+.git-release-card-heading > div > span,
+.git-release-notes-heading > div > span {
+  color: var(--theme-text-muted);
+  font-size: calc(6.5px * var(--ui-font-scale));
+  font-weight: 760;
+  letter-spacing: .075em;
+  text-transform: uppercase;
+}
+.git-release-hero-copy > strong { overflow: hidden; color: var(--theme-text); font: 740 calc(9.4px * var(--ui-font-scale))/1.2 var(--mono-font-family, monospace); text-overflow: ellipsis; white-space: nowrap; }
+.git-release-hero-copy > small,
+.git-release-notes-heading > div > small { color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); line-height: 1.4; }
+.git-release-readiness {
+  min-height: 26px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 999px;
+  background: var(--theme-muted);
+  color: var(--theme-text-muted);
+  font-size: calc(6.7px * var(--ui-font-scale));
+  font-weight: 700;
+  white-space: nowrap;
+}
+.git-release-readiness.ready { border-color: color-mix(in srgb, var(--success) 38%, var(--theme-border-soft)); background: color-mix(in srgb, var(--success) 10%, var(--theme-surface)); color: var(--success); }
+.git-release-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.git-release-card,
+.git-release-notes-card {
+  min-width: 0;
+  padding: 10px;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--theme-surface) 97%, var(--theme-bg));
+}
+.git-release-card-heading { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.git-release-card-heading > div { min-width: 0; display: grid; gap: 2px; }
+.git-release-card-heading > div > strong,
+.git-release-notes-heading > div > strong { color: var(--theme-text); font-size: calc(8.7px * var(--ui-font-scale)); }
+.git-release-card-icon { width: 27px; height: 27px; flex: 0 0 auto; border-radius: 8px; }
+.git-release-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.git-release-grid .git-hint { margin: 0; }

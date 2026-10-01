@@ -86,7 +86,7 @@ func rewriteRequestContextSources(raw []byte) ([]byte, error) {
 	for index := range document.Attachments {
 		document.Attachments[index].Prefix = requestArchiveAttachmentPrefix(document.Attachments[index].Prefix)
 	}
-	document.Rule = "context/ contains only the primary project snapshot. ref-context/ contains related project snapshots whose write authority is controlled by the request grant. att-context/ contains read-only external @attach material and is never a patch target. context-map/ contains generated path inventory and redacted sensitive configuration key-state metadata; it is never a patch target."
+	document.Rule = "context/ contains only the primary project snapshot. ref-context/ contains related project snapshots whose write authority is controlled by the request grant. att-context/ contains read-only external @attach material and is never a patch target. context-map/ contains generated path inventory, deterministic semantic guidance with byte/round budget metadata, and redacted sensitive configuration key-state metadata; semantic ranking is advisory and context-map/ is never a patch target."
 	encoded, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("encode context sources index: %w", err)

@@ -1,0 +1,188 @@
+.git-merge-card-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 8px;
+  background: var(--theme-muted);
+  color: var(--theme-text-soft);
+}
+.git-merge-inline-controls { padding-top: 1px; }
+.git-merge-inline-controls select { min-width: 170px; }
+.git-remote-merge-card { background: color-mix(in srgb, var(--theme-surface) 97%, var(--theme-accent) 3%); }
+.git-remote-merge-card .git-merge-card-icon { background: var(--theme-accent-soft); color: var(--theme-accent); }
+.git-remote-merge-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; align-items: stretch; }
+.git-remote-target-field { display: grid; gap: 5px; }
+.git-remote-target-field > span,
+.git-remote-source-picker > legend {
+  color: var(--theme-text-muted);
+  font-size: calc(7px * var(--ui-font-scale));
+  font-weight: 680;
+}
+.git-remote-target-field select {
+  width: 100%;
+  height: 31px;
+  padding: 0 9px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  background: var(--theme-bg);
+  color: var(--theme-text-soft);
+  font-size: calc(8px * var(--ui-font-scale));
+}
+.git-remote-source-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.git-remote-source-picker > legend { margin-bottom: 5px; padding: 0; }
+.git-remote-source-picker > p {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px dashed var(--theme-border-soft);
+  border-radius: 8px;
+  color: var(--theme-text-muted);
+  font-size: calc(7.3px * var(--ui-font-scale));
+}
+.git-remote-source-list {
+  max-height: 126px;
+  padding: 4px;
+  display: grid;
+  gap: 3px;
+  overflow-y: auto;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 9px;
+  background: var(--theme-bg);
+}
+.git-remote-source-option {
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 7px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  color: var(--theme-text-soft);
+  cursor: pointer;
+  font-size: calc(7.8px * var(--ui-font-scale));
+}
+.git-remote-source-option:hover { background: var(--theme-hover); color: var(--theme-text); }
+.git-remote-source-option.selected { background: var(--theme-accent-soft); color: var(--theme-text); }
+.git-remote-source-option input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.git-remote-source-check {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 6px;
+  background: var(--theme-surface);
+  color: var(--theme-text-muted);
+}
+.git-remote-source-option.selected .git-remote-source-check { border-color: color-mix(in srgb, var(--theme-accent) 44%, var(--theme-border)); color: var(--theme-accent); }
+.git-remote-source-option > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-remote-merge-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.git-remote-merge-footer .git-hint { min-width: 0; }
+.git-remote-merge-footer .git-action { flex: 0 0 auto; }
+
+.git-branch-directory {
+  display: grid;
+  gap: 9px;
+  padding-top: 2px;
+}
+.git-branch-group {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 10px;
+  background: var(--theme-surface);
+}
+.git-branch-group-heading {
+  min-height: 42px;
+  padding: 7px 9px 7px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--theme-border-soft);
+  background: color-mix(in srgb, var(--theme-muted) 58%, transparent);
+}
+.git-branch-group-title { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.git-branch-group-title > div { min-width: 0; display: grid; gap: 1px; }
+.git-branch-group-title strong { color: var(--theme-text); font-size: calc(8.3px * var(--ui-font-scale)); }
+.git-branch-group-title small { overflow: hidden; color: var(--theme-text-muted); font-size: calc(6.8px * var(--ui-font-scale)); text-overflow: ellipsis; white-space: nowrap; }
+.git-branch-group-icon {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 7px;
+  background: var(--theme-surface);
+  color: var(--theme-text-muted);
+}
+.git-branches-section .git-branch-list { gap: 0; overflow: hidden; border: 0; border-radius: 0; }
+.git-branches-section .git-branch-list li {
+  min-height: 48px;
+  padding: 7px 8px 7px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-bottom: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: transparent;
+  color: var(--theme-text-soft);
+}
+.git-branches-section .git-branch-list li:last-child { border-bottom: 0; }
+.git-branches-section .git-branch-list li:hover { background: var(--theme-hover); }
+.git-branches-section .git-branch-list li.current {
+  background: linear-gradient(90deg, var(--theme-accent-soft), color-mix(in srgb, var(--theme-accent-soft) 22%, transparent) 56%, transparent);
+  box-shadow: inset 2px 0 0 var(--theme-accent);
+}
+.git-branches-section .git-branch-list li.remote:not(.current) { color: var(--theme-text-soft); }
+.git-branch-primary { min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 7px; }
+.git-branch-marker { color: var(--theme-text-muted); }
+.git-branch-list li.current .git-branch-marker { color: var(--theme-accent); }
+.git-branch-copy { min-width: 0; display: grid; gap: 2px; }
+.git-branch-name { color: var(--theme-text); font-size: calc(8.2px * var(--ui-font-scale)); font-weight: 680; }
+.git-branch-subject { color: var(--theme-text-muted); font-size: calc(6.9px * var(--ui-font-scale)); }
+.git-branch-row-meta { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.git-branch-current-badge {
+  height: 20px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border-soft));
+  border-radius: 999px;
+  background: var(--theme-accent-soft);
+  color: var(--theme-accent);
+  font-size: calc(6.6px * var(--ui-font-scale));
+  font-weight: 760;
+  white-space: nowrap;
+}
+.git-branch-sync { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.git-branch-sync > span {
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  gap: 3px;
+  border: 1px solid var(--theme-border-soft);
+  border-radius: 999px;
+  background: var(--theme-bg);
+  color: var(--theme-text-muted);
+}
+.git-branch-sync > span.active { border-color: var(--theme-border); color: var(--theme-text); }
+.git-branch-sync > span.outgoing.active { color: var(--success); }
+.git-branch-sync > span.incoming.active { color: var(--warning); }
+.git-branch-sync > span.clean { color: var(--success); }
+.git-branch-sync b { font-size: calc(6.6px * var(--ui-font-scale)); font-weight: 720; }
+.git-branch-counterpart.active { color: var(--theme-accent) !important; }
+.git-branch-copy-action { width: 24px; height: 24px; }
+.git-branch-row-action { width: 26px; min-width: 26px; height: 26px; padding: 0; flex: 0 0 26px; }
+.git-branch-switch { justify-self: end; border-radius: 7px; }

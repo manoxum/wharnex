@@ -30,6 +30,8 @@ import (
 )
 
 func main() {
+	stopDiagnostics := configureRuntimeDiagnostics()
+	defer stopDiagnostics()
 	cfg := config.Load()
 	if cfg.DatabaseURL == "" {
 		log.Fatal("HARNESS_DATABASE_URL is required; start Wharnex with the canonical Docker-backed lifecycle")

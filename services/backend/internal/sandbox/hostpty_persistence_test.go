@@ -39,7 +39,7 @@ func TestHostPTYBridgeKeepsShellAliveAcrossClientDetach(t *testing.T) {
 	var mu sync.Mutex
 	var output strings.Builder
 	exited := make(chan int, 1)
-	second, err := (&HostRunner{}).StartInteractive(workspace, TerminalOptions{ID: terminalID, Cwd: ".", Cols: 80, Rows: 24}, func(data []byte) {
+	second, err := (&HostRunner{}).StartInteractive(workspace, TerminalOptions{ID: terminalID, Reconnect: true, Cwd: ".", Cols: 80, Rows: 24}, func(data []byte) {
 		mu.Lock()
 		output.Write(data)
 		mu.Unlock()

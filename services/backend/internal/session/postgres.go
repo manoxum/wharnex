@@ -235,15 +235,10 @@ DROP INDEX IF EXISTS harness_chat_agent_tasks_request_idx;
 DROP INDEX IF EXISTS harness_chat_agent_tasks_terminal_idx;
 CREATE INDEX IF NOT EXISTS harness_tasks_ready_idx
     ON harness_tasks (status, not_before, priority, created_at);
-CREATE INDEX IF NOT EXISTS harness_tasks_project_idx
-    ON harness_tasks (project_id, source, updated_at DESC, task_id);
 CREATE INDEX IF NOT EXISTS harness_tasks_conversation_idx
     ON harness_tasks (conversation_id, status);
 CREATE INDEX IF NOT EXISTS harness_tasks_request_idx
     ON harness_tasks (root_request_id, request_id, status);
-CREATE INDEX IF NOT EXISTS harness_tasks_terminal_idx
-    ON harness_tasks (updated_at)
-    WHERE status IN ('DONE','FAILED','CANCELLED','COMPLETE','ARCHIVED');
 DROP INDEX IF EXISTS harness_chat_agent_tasks_dedupe_active_idx;
 DROP INDEX IF EXISTS harness_chat_agent_tasks_dedupe_active_v2_idx;
 WITH ranked_active_tasks AS (
@@ -317,6 +312,10 @@ func NewPostgresStore(ctx context.Context, databaseURL, legacyPath string) (*Sto
 		db.Close()
 		return nil, fmt.Errorf("initialize PostgreSQL session schema: %w", err)
 	}
+	if err := ensureUnifiedTaskLedgerIndexes(ctx, db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := ensureOperationalLogSchema(ctx, db); err != nil {
 		db.Close()
 		return nil, err
@@ -325,11 +324,12 @@ func NewPostgresStore(ctx context.Context, databaseURL, legacyPath string) (*Sto
 		db.Close()
 		return nil, err
 	}
-	items, err := store.postgresList()
+	items, err := store.postgresListSlim()
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
+	store.tier = newSessionTier(true)
 	for _, item := range items {
 		store.items[item.ID] = item
 	}
@@ -417,15 +417,6 @@ func (s *Store) migrateLegacySnapshot(ctx context.Context, path string) error {
 	return nil
 }
 
-func (s *Store) postgresPut(item domain.Session) error {
-	payload, err := json.Marshal(persistSession(item))
-	if err != nil {
-		return fmt.Errorf("encode session: %w", err)
-	}
-	_, err = s.db.Exec(`INSERT INTO harness_sessions (id, project_path, state, created_at, updated_at, payload) VALUES ($1, $2, $3, $4, now(), $5) ON CONFLICT (id) DO UPDATE SET project_path = EXCLUDED.project_path, state = EXCLUDED.state, created_at = EXCLUDED.created_at, updated_at = now(), payload = EXCLUDED.payload`, item.ID, item.ProjectPath, item.State, item.CreatedAt, payload)
-	return wrapPostgresError("persist session", err)
-}
-
 func (s *Store) postgresDelete(id string) error {
 	result, err := s.db.Exec(`DELETE FROM harness_sessions WHERE id = $1`, id)
 	if err != nil {
@@ -435,27 +426,6 @@ func (s *Store) postgresDelete(id string) error {
 		return ErrNotFound
 	}
 	return nil
-}
-
-func (s *Store) postgresList() ([]domain.Session, error) {
-	rows, err := s.db.Query(`SELECT payload FROM harness_sessions ORDER BY created_at, id`)
-	if err != nil {
-		return nil, wrapPostgresError("list sessions", err)
-	}
-	defer rows.Close()
-	items := make([]domain.Session, 0)
-	for rows.Next() {
-		var payload []byte
-		if err := rows.Scan(&payload); err != nil {
-			return nil, wrapPostgresError("scan session", err)
-		}
-		item, err := decodePostgresSession(payload)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, wrapPostgresError("iterate sessions", rows.Err())
 }
 
 func (s *Store) postgresClear() error {

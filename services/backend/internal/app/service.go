@@ -2,18 +2,17 @@ package app
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/translationflow"
+	"kernl.local/harness/backend/internal/app/verification"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/bundlename"
 	"kernl.local/harness/backend/internal/changeset"
@@ -37,7 +36,6 @@ import (
 	"kernl.local/harness/backend/internal/sandboxenv"
 	"kernl.local/harness/backend/internal/selfevolution"
 	"kernl.local/harness/backend/internal/session"
-	"kernl.local/harness/backend/internal/translation"
 	"kernl.local/harness/backend/internal/utility"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
@@ -75,6 +73,7 @@ type BundleSubmission struct {
 	ConflictPrepared       bool                    `json:"conflict_prepared,omitempty"`
 	WorkflowExecuted       bool                    `json:"workflow_executed,omitempty"`
 	WorkflowPrepared       bool                    `json:"workflow_prepared,omitempty"`
+	ContextIncremented     bool                    `json:"context_incremented,omitempty"`
 	WorkflowRound          int                     `json:"workflow_round,omitempty"`
 	RestartScheduled       bool                    `json:"restart_scheduled,omitempty"`
 	RestartRequired        bool                    `json:"restart_required,omitempty"`
@@ -143,131 +142,16 @@ type Service struct {
 
 func (s *Service) SetRuntimeInstanceID(id string) { s.runtimeInstanceID = strings.TrimSpace(id) }
 
-// translationWorkerPayload is what the Desktop worker is handed.
-//
-// It carries the request bundle itself, already built and already sealed by the
-// engine that will validate the answer. The worker's job is reduced to
-// transport: upload this archive, ask for exactly this filename back, and
-// return the bytes. It composes no instruction and reads no prose, so there is
-// nothing left for it to get subtly wrong.
-type translationWorkerPayload struct {
-	Protocol        string `json:"protocol"`
-	Task            string `json:"task"`
-	TaskID          string `json:"task_id"`
-	TargetLanguage  string `json:"target_language"`
-	RequestFilename string `json:"request_filename"`
-	ResultFilename  string `json:"result_filename"`
-	Bootstrap       string `json:"bootstrap"`
-	ArchiveBase64   string `json:"archive_base64"`
-	ReasoningEffort string `json:"reasoning_effort"`
-}
-
-// translationWorkerResult is what the worker returns on completion: the exact
-// bytes it downloaded, unread and uninterpreted.
-type translationWorkerResult struct {
-	Protocol     string `json:"protocol"`
-	TaskID       string `json:"task_id"`
-	Filename     string `json:"filename"`
-	BundleBase64 string `json:"bundle_base64"`
-}
+// The worker payload aliases preserve the existing integration test contract.
+type translationWorkerPayload = translationflow.WorkerPayload
+type translationWorkerResult = translationflow.WorkerResult
 
 func (s *Service) TranslateMarkdown(ctx context.Context, sessionID string, target utility.LanguageCode, markdown string) (utility.Result, error) {
 	currentSession, err := s.GetSession(sessionID)
 	if err != nil {
 		return utility.Result{}, err
 	}
-	request := utility.Request{Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown, TargetLanguage: target, Markdown: markdown}
-	if err := utility.ValidateRequest(request); err != nil {
-		return utility.Result{}, err
-	}
-	if markdown == "" {
-		return utility.Result{Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown, TargetLanguage: target}, nil
-	}
-	// The id is minted here because the protocol's filenames are derived from
-	// it: the request bundle cannot be built without knowing what the answer
-	// will be called.
-	taskID := session.NewChatAgentTaskID()
-	chatID := currentSession.ChatID
-	if chatID == "" {
-		chatID = currentSession.ID
-	}
-	chatHash := currentSession.Context.WorkspaceSHA256
-	if chatHash == "" {
-		chatHash = currentSession.Context.Manifest.SHA256
-	}
-	manifest, archive, err := translation.BuildRequestWithMetadata(taskID, string(target), markdown, translation.RequestMetadata{
-		ChatTitle: "Document translation", ChatID: chatID, ChatHash: chatHash, RequestedAt: time.Now().UTC().Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		return utility.Result{}, err
-	}
-	payload, err := json.Marshal(translationWorkerPayload{
-		Protocol: translation.RequestProtocolV1, Task: translation.TaskTranslateDocument, TaskID: taskID,
-		TargetLanguage: manifest.TargetLanguage, RequestFilename: manifest.RequestFilename,
-		ResultFilename: manifest.ResultFilename, Bootstrap: translation.RequestBootstrap(manifest),
-		ArchiveBase64: base64.StdEncoding.EncodeToString(archive), ReasoningEffort: string(domain.ReasoningEffortInstant),
-	})
-	if err != nil {
-		return utility.Result{}, fmt.Errorf("encode translation task: %w", err)
-	}
-	task, err := s.store.EnqueueChatAgentTask(session.ChatAgentTask{
-		Type: "TRANSLATE_MARKDOWN", TaskID: taskID, ChatID: sessionID, SessionID: sessionID,
-		RootRequestID: taskID, Payload: payload, MaxAttempts: 1,
-	})
-	if err != nil {
-		return utility.Result{}, fmt.Errorf("enqueue translation worker: %w", err)
-	}
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-	timeout := time.NewTimer(12 * time.Minute)
-	defer timeout.Stop()
-	for {
-		current, getErr := s.store.GetChatAgentTask(task.TaskID)
-		if getErr != nil {
-			return utility.Result{}, fmt.Errorf("read translation worker: %w", getErr)
-		}
-		switch current.Status {
-		case session.ChatAgentTaskDone:
-			return s.finishTranslation(current.Payload, manifest, target)
-		case session.ChatAgentTaskFailed, session.ChatAgentTaskAttention, session.ChatAgentTaskCancelled:
-			detail := strings.TrimSpace(current.LastError)
-			if detail == "" {
-				detail = "translation worker did not complete"
-			}
-			return utility.Result{}, fmt.Errorf("%w: %s", utility.ErrUnavailable, detail)
-		}
-		select {
-		case <-ctx.Done():
-			_, _ = s.store.CancelChatAgentLineage(taskID)
-			return utility.Result{}, ctx.Err()
-		case <-timeout.C:
-			_, _ = s.store.CancelChatAgentLineage(taskID)
-			return utility.Result{}, fmt.Errorf("%w: translation worker timed out", utility.ErrUnavailable)
-		case <-ticker.C:
-		}
-	}
-}
-
-// finishTranslation validates the downloaded bundle against the request it
-// answers. Validation lives here, not in the worker, so the side that authored
-// the contract is the side that enforces it.
-func (s *Service) finishTranslation(raw json.RawMessage, manifest translation.TransportManifest, target utility.LanguageCode) (utility.Result, error) {
-	var delivered translationWorkerResult
-	if err := json.Unmarshal(raw, &delivered); err != nil {
-		return utility.Result{}, fmt.Errorf("decode translation worker result: %w", err)
-	}
-	bundle, err := base64.StdEncoding.DecodeString(delivered.BundleBase64)
-	if err != nil {
-		return utility.Result{}, fmt.Errorf("decode translation bundle bytes: %w", err)
-	}
-	parsed, err := translation.ParseResult(delivered.Filename, bundle, manifest)
-	if err != nil {
-		return utility.Result{}, fmt.Errorf("%w: %s", utility.ErrUnavailable, err.Error())
-	}
-	return utility.Result{
-		Protocol: utility.ProtocolV1, Task: utility.TaskTranslateMarkdown,
-		TargetLanguage: target, Markdown: parsed.Markdown,
-	}, nil
+	return translationflow.Translate(ctx, s.store, sessionID, currentSession, target, markdown)
 }
 
 func (s *Service) SetOrchestratorStore(store *orchestrator.Store) {
@@ -457,7 +341,7 @@ func (s *Service) StartSessionWithModes(ctx context.Context, projectPath string,
 		return domain.Session{}, err
 	}
 	knowledgeSharing := true
-	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, EffortLevel: effortLevel, ReasoningEffort: domain.ReasoningEffortHigh, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
+	item := domain.Session{ID: id, ProjectPath: bundle.Manifest.ProjectRoot, ExecutionMode: executionMode, AutomationMode: automationMode, EffortLevel: effortLevel, ReasoningEffort: domain.ReasoningEffortHigh, ContextMode: domain.ContextModePartial, ChatTransportMode: domain.ChatTransportModeScraper, KnowledgeSharingEnabled: &knowledgeSharing, SelfEvolution: selfEvolution, WharnexInstanceID: detectedWharnexInstance(bundle.Manifest.ProjectRoot), State: "ready", CreatedAt: time.Now().UTC(), Context: bundle}
 	if selfEvolution {
 		item.WharnexInstanceID = ""
 	}
@@ -577,34 +461,6 @@ func removeContextDirectory(zipPath string) {
 	if strings.HasPrefix(filepath.Base(directory), "wharness-context-") {
 		_ = os.RemoveAll(directory)
 	}
-}
-
-// chatIDPattern is deliberately stricter than the desktop's own cacheKey
-// pattern (which allows '_'): '_' is the field separator in the
-// whx_bundle_<req|res>_<chatid>_<request_id>[_<subrequest_id>].zip naming
-// scheme, so a chat id containing one would make the name ambiguous to
-// parse. Every real chat id is a crypto.randomUUID() (hex and hyphens only),
-// so this never rejects an actual chat in practice.
-var chatIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
-
-// SetChatID records the frontend's chat identifier against a session so
-// bundle filenames can be scoped to it. It is validated, not trusted: a
-// value containing '_' would make whx_bundle_* names ambiguous to parse.
-func (s *Service) SetChatID(sessionID, chatID string) (domain.Session, error) {
-	chatID = strings.TrimSpace(chatID)
-	if chatID == "" {
-		return s.store.Get(sessionID)
-	}
-	if !chatIDPattern.MatchString(chatID) {
-		return domain.Session{}, fmt.Errorf("invalid chat_id %q", chatID)
-	}
-	return s.store.Update(sessionID, func(item *domain.Session) error {
-		if item.ChatID != "" && item.ChatID != chatID {
-			return fmt.Errorf("session is already owned by chat_id %q", item.ChatID)
-		}
-		item.ChatID = chatID
-		return nil
-	})
 }
 
 func (s *Service) DeleteSession(sessionID string) error {
@@ -812,6 +668,10 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		return planner.Result{}, domain.Session{}, err
 	}
 	requestID := ids.New("req")
+	taskRefs, err := s.resolveOrchestratorTaskReferences(ctx, item.ProjectPath, orchestratorTaskIDsFromMessage(operatorMessage))
+	if err != nil {
+		return planner.Result{}, item, err
+	}
 	linkedTodos, err := s.resolveProjectTodos(item.ProjectPath, projectTodoIDsFromMessage(message))
 	if err != nil {
 		return planner.Result{}, item, err
@@ -846,6 +706,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	message = messageWithRelatedProjects(message, item.ProjectPath, item.Context.RelatedProjects, crossproject.GrantedPaths(crossGrant))
 	message = messageWithCrossProjectGrant(message, crossGrant, unresolvedRefs, s.openGrantedProjects(crossGrant))
 	message = messageWithAttachments(message, item.Context.Attachments, refusedAttachments)
+	message = messageWithOrchestratorTaskReferences(message, taskRefs)
 	message = messageWithPendingHostChanges(message, item.PendingHostChanges, item.LastRepairError)
 	requestBaselineSHA := strings.TrimSpace(item.Context.Manifest.SHA256)
 	if parentRequestID == "" {
@@ -903,6 +764,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		// replaces it, including replacing it with nothing.
 		if strings.TrimSpace(parentRequestID) == "" {
 			current.CrossProjectGrant = crossGrant
+			current.ContextPaths = nil
 		}
 		current.RemoteRecoveryAttempt = 0
 		recordRequestLineage(current, requestID, parentRequestID, requestKind)
@@ -993,7 +855,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 			current.Plan = result.Plan
 			current.Policy = &decision
 			if result.Turn != nil && result.Turn.Kind == domain.TurnKindWorkflow {
-				if result.Plan.Debug != nil && !debugAuthorized(*current) {
+				if result.Plan.Debug != nil && !debugAuthorizedWithPolicy(*current, decision) {
 					current.State = "debug_approval_required"
 				} else {
 					current.State = "workflow_planned"
@@ -1041,7 +903,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	}
 	if result.Plan != nil && result.Turn != nil && result.Turn.Kind == domain.TurnKindWorkflow {
 		isDebug := result.Plan.Debug != nil
-		if isDebug && !debugAuthorized(updated) {
+		if isDebug && (updated.Policy == nil || !debugAuthorizedWithPolicy(updated, *updated.Policy)) {
 			s.bus.Publish(sessionID, "debug.approval_required", map[string]any{"plan_id": result.Plan.PlanID, "request_id": result.Plan.RequestID, "target": result.Plan.Debug.Target})
 			return result, updated, nil
 		}
@@ -1373,6 +1235,9 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 	}
 	if current.LastRequestMode == "adjust_plan" && parsed.Turn.RequestID == current.LastRequestID && parsed.Turn.Kind == domain.TurnKindPlan {
 		return BundleSubmission{}, errors.New("adjust_plan request must return a revised executable result, not a planning-only proposal")
+	}
+	if parsed.Turn.Kind == domain.TurnKindContextRequest {
+		return s.acceptContextRequest(ctx, sessionID, current, parsed.Turn, parsed.Info)
 	}
 	if parsed.Turn.Kind == domain.TurnKindWorkflow {
 		isDebug := parsed.Plan != nil && parsed.Plan.Debug != nil
@@ -2360,13 +2225,13 @@ func (s *Service) executeRecordedForPlan(ctx context.Context, sessionID string, 
 					// failed, the same report separates candidate regressions from
 					// repository debt.
 					commandResult.BaselineExitCode = baselineResult.ExitCode
-					commandResult.BaselineOutput = describeVerificationAttribution(baselineResult, commandResult)
+					commandResult.BaselineOutput = verification.DescribeAttribution(baselineResult, commandResult)
 					s.bus.Publish(sessionID, "verification.baseline_changed", map[string]any{
 						"argv":                command.Argv,
 						"baseline_exit_code":  baselineResult.ExitCode,
 						"post_exit_code":      commandResult.ExitCode,
-						"introduced":          newVerificationFailures(baselineResult, commandResult),
-						"pre_existing":        preExistingVerificationFailures(baselineResult, commandResult),
+						"introduced":          verification.NewFailures(baselineResult, commandResult),
+						"pre_existing":        verification.PreExistingFailures(baselineResult, commandResult),
 						"baseline_diagnostic": commandResultDiagnostic(baselineResult),
 						"post_diagnostic":     commandResultDiagnostic(commandResult),
 					})
@@ -2564,13 +2429,7 @@ func (s *Service) compareVerificationBaseline(ctx context.Context, runner sandbo
 	if baseline.Success || baseline.ExitCode != post.ExitCode {
 		return baseline, false, nil
 	}
-	return baseline, verificationFailureEquivalent(baseline, post), nil
-}
-
-func normalizedVerificationOutput(result domain.CommandResult) string {
-	stdout := strings.ReplaceAll(strings.TrimSpace(result.Stdout), "\r\n", "\n")
-	stderr := strings.ReplaceAll(strings.TrimSpace(result.Stderr), "\r\n", "\n")
-	return fmt.Sprintf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	return baseline, verification.FailureEquivalent(baseline, post), nil
 }
 
 func (s *Service) runCommandWithRunner(ctx context.Context, sessionID string, runner sandbox.Runner, workspace sandbox.Workspace, command domain.CommandSpec, target string) (domain.CommandResult, error) {
@@ -3435,6 +3294,13 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 	var preMergeIntegrationSHA string
 	var versionChange appliedVersionChange
 	failApply := func(cause error) error {
+		// Undoing a partial integration must not inherit the cancellation that
+		// may have caused it: a Wharnex restart cancelled an Apply after its
+		// merge, the revert ran on the same cancelled context and failed at
+		// once, and the host kept an unverified merge the session reported as
+		// failed. Recovery gets its own bounded context.
+		ctx, cancelRecovery := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+		defer cancelRecovery()
 		if !useIntegrationBranches && versionChange.After != "" {
 			if restoreErr := restoreProjectVersion(item.ProjectPath, versionChange.After, versionChange.Before); restoreErr != nil {
 				cause = fmt.Errorf("%w; VERSION rollback also failed: %v", cause, restoreErr)
@@ -3451,7 +3317,12 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 			// file/build-artifact snapshots, but knows nothing about Git
 			// refs, so HEAD would otherwise keep pointing at the merge
 			// commit while the working tree no longer matches it.
-			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true)); revertErr != nil {
+			// Commits made after this integration's last merge are kept.
+			integrationTip := ""
+			if n := len(mergedIntegrationBranches); n > 0 {
+				integrationTip = mergedIntegrationBranches[n-1].afterSHA
+			}
+			if revertErr := s.revertHostMerge(ctx, sessionID, latestPlanID, item.ProjectPath, preMergeIntegrationSHA, integratedSubmodules(mergedIntegrationBranches, true), integrationTip); revertErr != nil {
 				cause = localApplyRecoveryFailure(fmt.Errorf("%w; git revert also failed: %v", cause, revertErr))
 			}
 			if selfEvolution {
@@ -3877,35 +3748,6 @@ func (s *Service) RevertHostChange(ctx context.Context, sessionID string) (domai
 	return updated, nil
 }
 
-func (s *Service) RestartSelfEvolution(sessionID string) (domain.Session, error) {
-	item, err := s.store.Get(sessionID)
-	if err != nil {
-		return item, err
-	}
-	if !s.isSelfEvolution(item) || (item.SelfEvolutionActivation != "restart_pending" && item.State != "restart_pending") {
-		return item, errors.New("no Wharnex self-evolution restart is pending confirmation")
-	}
-	transaction, pending, err := s.selfEvolution.ClaimPendingForSession(sessionID)
-	if err != nil {
-		return item, fmt.Errorf("recover pending Wharnex self-evolution transaction: %w", err)
-	}
-	if err := s.selfEvolution.ScheduleRestart(transaction, sessionID, pending.PlanID); err != nil {
-		_ = s.selfEvolution.RecordStatus(transaction, sessionID, pending.PlanID, "restart_pending", "restart confirmation accepted but detached handoff failed: "+err.Error())
-		transaction.ReleaseStage()
-		return item, fmt.Errorf("schedule Wharnex restart: %w", err)
-	}
-	_ = s.selfEvolution.RecordStatus(transaction, sessionID, pending.PlanID, "restart_scheduled", "detached restart supervisor accepted the pending self-evolution batch")
-	s.updateSelfEvolutionBatchSessions(transaction, "restart_scheduled", "")
-	transaction.ReleaseStage()
-	updated, err := s.store.Get(sessionID)
-	if err != nil {
-		return item, err
-	}
-	s.bus.Publish(sessionID, "self_evolution.restart_scheduled", map[string]any{"plan_id": pending.PlanID, "transaction_id": transaction.ID})
-	go s.awaitSelfEvolutionActivation(transaction.ID)
-	return updated, nil
-}
-
 func (s *Service) awaitSelfEvolutionActivation(transactionID string) {
 	deadline := time.NewTimer(10 * time.Minute)
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -4010,6 +3852,7 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 	if err != nil || status.SessionID == "" {
 		return
 	}
+	s.reconcileUnappliedRestartConfirmations(status)
 	state := ""
 	finalize := false
 	switch status.Phase {
@@ -4072,19 +3915,22 @@ func (s *Service) reconcileSelfEvolutionStatus() {
 // A successful runtime restart activates the complete host tree that existed
 // at that instant, not only the session named by the latest transaction. This
 // repairs older sessions whose own transaction evidence was lost after a
-// duplicate pre-mutation Apply, while requiring temporal proof that their host
-// Apply completed before the healthy restart.
+// duplicate pre-mutation Apply, including confirmations already handed to a
+// newer covering batch, while requiring temporal proof that their host Apply
+// completed before the healthy restart.
 func (s *Service) reconcileEarlierRestartPending(status selfevolution.Status) {
 	restartedAt, err := time.Parse(time.RFC3339, status.UpdatedAt)
 	if err != nil {
 		return
 	}
 	for _, candidate := range s.store.List() {
-		if !s.isSelfEvolution(candidate) || candidate.SelfEvolutionActivation != "restart_pending" || candidate.LastHostAppliedAt.IsZero() || candidate.LastHostAppliedAt.After(restartedAt) {
+		activationPending := candidate.SelfEvolutionActivation == "restart_pending" || candidate.SelfEvolutionActivation == "restart_scheduled"
+		if !s.isSelfEvolution(candidate) || !activationPending || candidate.LastHostAppliedAt.IsZero() || candidate.LastHostAppliedAt.After(restartedAt) {
 			continue
 		}
 		updated, updateErr := s.store.Update(candidate.ID, func(current *domain.Session) error {
-			if current.SelfEvolutionActivation != "restart_pending" || current.LastHostAppliedAt.IsZero() || current.LastHostAppliedAt.After(restartedAt) {
+			activationPending := current.SelfEvolutionActivation == "restart_pending" || current.SelfEvolutionActivation == "restart_scheduled"
+			if !activationPending || current.LastHostAppliedAt.IsZero() || current.LastHostAppliedAt.After(restartedAt) {
 				return nil
 			}
 			current.SelfEvolutionActivation = ""

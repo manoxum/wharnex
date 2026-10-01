@@ -1,0 +1,10 @@
+@import '../../domains/base/foundations.css';
+@import '../../domains/execution/briefing-foundations.css';
+@import '../../domains/chatgpt/desktop-composition.css';
+@import '../../domains/terminal/target-and-recovery.css';
+@import '../../domains/settings/context-layout.css';
+@import '../../domains/settings/storage-and-archive.css';
+@import '../../domains/chat/composer-artifacts.css';
+@import '../../domains/chat/composer-and-notices.css';
+@import '../../domains/chat/queued-requests.css';
+@import '../../domains/chat/project-cue.css';
