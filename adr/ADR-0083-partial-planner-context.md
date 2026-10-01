@@ -36,4 +36,22 @@ already checkpointed tasks.
 
 ## 2026-09-30 clarification
 
-Partial context selection is byte-budgeted rather than file-count-budgeted. A request may name any number of unique captured paths that fit within the immutable snapshot, the 64 MiB cumulative selected-context budget and the six-increment bound. Ranking/grouping in context maps is advisory and MUST NOT impose a path-count ceiling.
+Partial context selection is byte-budgeted rather than file-count-budgeted. A request may name any number of unique captured paths that fit within the immutable snapshot, the 64 MiB cumulative selected-context budget (the six-increment bound originally stated here was removed on 2026-10-01). Ranking/grouping in context maps is advisory and MUST NOT impose a path-count ceiling.
+
+## 2026-10-01 amendment — no increment-round limit
+
+The six-increment bound is removed for both Agent `context_request` and
+Orchestrator `context-request.json` increments. The planner decides when the
+selected evidence suffices; Wharnex no longer rejects an increment by round
+count, and the continuation prompt and semantic-index budget no longer state a
+ceiling (`round_limit: "none"`, `rounds_remaining` dropped). Snapshot
+membership, path safety, repeated-request rejection and the 64 MiB cumulative
+byte budget remain the bounds.
+
+Increments still advance the Main Request's round counter, but they are now
+counted separately (`context_increments` on the session) and no longer spend
+the executed workflow step budget, which stays at six ordinary steps.
+
+Compatibility: sessions persisted without `context_increments` treat every
+earlier round as an executed step, which is the previous, more conservative
+behavior. Planners that read `rounds_remaining` simply no longer see it.

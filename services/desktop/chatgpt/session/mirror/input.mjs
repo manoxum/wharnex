@@ -81,6 +81,8 @@ export async function dispatchMirrorInput(entry, raw) {
   const input = sanitizeMirrorInput(raw)
   const wc = entry?.view?.webContents
   if (!wc || wc.isDestroyed()) throw new Error('Instância do navegador indisponível')
+  // The mirror streams faster for a moment after the user's own input.
+  entry.mirrorInputAt = Date.now()
   const native = entry.view.native || entry.view
   const size = native.getBounds()
   const zoom = Number(wc.getZoomFactor?.()) || 1

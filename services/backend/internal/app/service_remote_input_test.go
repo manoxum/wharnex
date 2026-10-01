@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"kernl.local/harness/backend/internal/app/contextbudget"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
@@ -367,7 +368,7 @@ func TestRequestContextSemanticIndexRanksRequestAndTracksBudget(t *testing.T) {
 			}
 		}
 	}
-	if semantic.Protocol != requestContextSemanticIndexProtocol || semantic.Budget.RoundsUsed != 2 || semantic.Budget.RoundsRemaining != 4 {
+	if semantic.Protocol != requestContextSemanticIndexProtocol || semantic.Budget.RoundsUsed != 2 || semantic.Budget.RoundLimit != contextbudget.RoundLimitNone {
 		t.Fatalf("unexpected semantic budget: %#v", semantic)
 	}
 	if semantic.Budget.SelectedBytes != int64(len(contents["services/widget_test.go"])) {

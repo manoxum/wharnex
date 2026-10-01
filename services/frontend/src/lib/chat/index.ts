@@ -2,3 +2,4 @@ export { archiveChat, archiveSavedChat, clearActiveWorkspace, deriveChatTitle, p
 export { attachmentPromptSuffix, encodeChatAttachments } from './attachments'
 export { canonicalizeDirectives, projectFileReferenceSuffix, requiresProjectContextTransport } from './composer'
 export { promptDeliveryFailureKind, type PromptDeliveryFailureKind } from './transport'
+export { contextIncrementMeta, contextIncrementNotice } from './context'

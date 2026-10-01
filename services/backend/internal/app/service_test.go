@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/workflowbudget"
 	"kernl.local/harness/backend/internal/audit"
 	contextbundle "kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
@@ -2899,7 +2900,7 @@ func TestWorkflowRoundLimitKeepsTerminalRequestPending(t *testing.T) {
 	}
 	requestID := prompted.LastRequestID
 	if _, err := service.store.Update(started.ID, func(item *domain.Session) error {
-		item.WorkflowRound = maxWorkflowRounds
+		item.WorkflowRound = workflowbudget.OrdinaryLimit
 		return nil
 	}); err != nil {
 		t.Fatal(err)

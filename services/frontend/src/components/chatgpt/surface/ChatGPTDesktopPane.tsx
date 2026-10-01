@@ -165,8 +165,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   useAgentFollowEvent(bridge, setFollowedAgentId)
 
   // The real view lives in the browser monitor window; this pane mirrors it.
-  const mirrorFrames = useMemo(() => bridge?.chatgpt.onMirrorFrame
-    ? (callback: (frame: DesktopMirrorFrame) => void) => bridge.chatgpt.onMirrorFrame((frame) => { if (frame.cacheKey === chatId) callback(frame) })
+  const mirrorFrames = useMemo(() => bridge?.chatgpt.subscribeMirror
+    ? (onFrame: DesktopMirrorFrameHandler) => bridge.chatgpt.subscribeMirror(chatId, onFrame)
     : undefined, [bridge, chatId])
   const mirrorInput = useMemo(() => bridge?.chatgpt.mirrorInput
     ? (input: DesktopMirrorInput) => bridge.chatgpt.mirrorInput(chatId, input)

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type WheelEvent } from 'react'
 
-type Frame = { url: string; width: number; height: number }
+type FrameSize = { width: number; height: number }
 type MouseButton = NonNullable<DesktopMirrorInput['button']>
 
 const BUTTONS: MouseButton[] = ['left', 'middle', 'right']
@@ -12,29 +12,50 @@ function modifiers(event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean;
 // The real ChatGPT view lives in the browser monitor window; this shows its
 // live frames and forwards the user's own pointer and keys back to it.
 export function MirrorSurface({ subscribe, send, label }: {
-  subscribe: (callback: (frame: DesktopMirrorFrame) => void) => () => void
+  subscribe: (onFrame: DesktopMirrorFrameHandler) => () => void
   send: (input: DesktopMirrorInput) => Promise<unknown>
   label: string
 }) {
-  const [frame, setFrame] = useState<Frame>()
+  const [frame, setFrame] = useState<FrameSize>()
   const surface = useRef<HTMLDivElement>(null)
-  const image = useRef<HTMLImageElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   const moving = useRef(0)
 
+  // Frames are decoded straight into a canvas: no object URL, no image load.
+  // The stream sends the next frame only after `ready`, so drawing paces it;
+  // a frame that still arrives mid-decode replaces the queued one.
   useEffect(() => {
-    let current = ''
-    const off = subscribe((next) => {
-      const url = URL.createObjectURL(new Blob([next.data], { type: 'image/jpeg' }))
-      if (current) URL.revokeObjectURL(current)
-      current = url
-      setFrame({ url, width: next.width, height: next.height })
-    })
-    return () => { off(); if (current) URL.revokeObjectURL(current); cancelAnimationFrame(moving.current) }
+    let alive = true
+    let latest: { frame: DesktopMirrorFrame; ready: () => void } | undefined
+    let decoding = false
+    const draw = async () => {
+      if (decoding || !latest) return
+      decoding = true
+      const { frame: next, ready } = latest
+      latest = undefined
+      try {
+        const bitmap = await createImageBitmap(new Blob([next.data], { type: 'image/jpeg' }))
+        const canvas = canvasRef.current
+        if (alive && canvas) {
+          if (canvas.width !== bitmap.width) canvas.width = bitmap.width
+          if (canvas.height !== bitmap.height) canvas.height = bitmap.height
+          canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
+          setFrame((current) => current?.width === next.width && current.height === next.height ? current : { width: next.width, height: next.height })
+        }
+        bitmap.close()
+      } catch { /* a corrupt frame is replaced by the next one */ } finally {
+        decoding = false
+        if (alive) ready()
+        if (alive && latest) void draw()
+      }
+    }
+    const off = subscribe((frame, ready) => { latest = { frame, ready }; void draw() })
+    return () => { alive = false; off(); cancelAnimationFrame(moving.current) }
   }, [subscribe])
 
   // Normalised to the drawn image, which object-contain may letterbox.
   const point = (event: { clientX: number; clientY: number }) => {
-    const rect = image.current?.getBoundingClientRect()
+    const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect || !frame) return undefined
     const scale = Math.min(rect.width / frame.width, rect.height / frame.height)
     const width = frame.width * scale
@@ -81,6 +102,7 @@ export function MirrorSurface({ subscribe, send, label }: {
     onContextMenu={(event) => event.preventDefault()}
     onKeyDown={(event) => key('keyDown', event)}
     onKeyUp={(event) => key('keyUp', event)}>
-    {frame ? <img ref={image} src={frame.url} alt="" draggable={false} /> : <span className="desktop-chatgpt-mirror-waiting">A ligar ao navegador…</span>}
+    <canvas ref={canvasRef} aria-hidden="true" hidden={!frame} />
+    {frame ? null : <span className="desktop-chatgpt-mirror-waiting">A ligar ao navegador…</span>}
   </div>
 }

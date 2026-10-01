@@ -40,7 +40,8 @@
 .desktop-chatgpt-host { flex: 1; min-height: 230px; position: relative; background: #fff; overflow: hidden; }
 .desktop-chatgpt-mirror { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; background: inherit; outline: none; cursor: default; user-select: none; }
 .desktop-chatgpt-mirror:focus-visible { box-shadow: inset 0 0 0 2px #7aa33a; }
-.desktop-chatgpt-mirror img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.desktop-chatgpt-mirror canvas { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.desktop-chatgpt-mirror canvas[hidden] { display: none; }
 .desktop-chatgpt-mirror-waiting { color: #969b91; font-size: calc(10px * var(--ui-font-scale)); }
 .desktop-chatgpt-loading { position: absolute; inset: 0; display: grid; place-items: center; color: #969b91; font-size: calc(10px * var(--ui-font-scale)); }
 .desktop-chatgpt-deferred { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 28px; background: #f3f5ef; color: #30352d; text-align: center; }
