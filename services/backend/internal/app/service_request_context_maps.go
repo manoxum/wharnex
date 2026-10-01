@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"kernl.local/harness/backend/internal/app/contextbudget"
 	"kernl.local/harness/backend/internal/domain"
 )
 
@@ -53,19 +54,11 @@ type requestContextSemanticIndex struct {
 	Protocol   string                    `json:"protocol"`
 	Source     string                    `json:"source"`
 	Project    string                    `json:"project"`
-	Budget     requestContextMapBudget   `json:"budget"`
+	Budget     contextbudget.Budget      `json:"budget"`
 	Entries    []requestContextSemantic  `json:"entries"`
 	Candidates []requestContextCandidate `json:"candidates"`
 	Groups     []requestContextMapGroup  `json:"groups"`
 	Note       string                    `json:"note"`
-}
-
-type requestContextMapBudget struct {
-	MaxSelectedBytes int64 `json:"max_selected_bytes"`
-	SelectedBytes    int64 `json:"selected_bytes"`
-	RemainingBytes   int64 `json:"remaining_bytes"`
-	RoundsUsed       int   `json:"rounds_used"`
-	RoundsRemaining  int   `json:"rounds_remaining"`
 }
 
 type requestContextSemantic struct {
@@ -239,28 +232,15 @@ func requestContextSemanticIndexJSON(source requestContextMapSource, state reque
 		entries = append(entries, entry)
 	}
 	applyContextRelations(entries)
-	roundsUsed := state.RoundsUsed
-	if roundsUsed < 0 {
-		roundsUsed = 0
-	}
-	if roundsUsed > maxWorkflowRounds {
-		roundsUsed = maxWorkflowRounds
-	}
 	document := requestContextSemanticIndex{
-		Protocol: requestContextSemanticIndexProtocol,
-		Source:   source.label,
-		Project:  source.project,
-		Budget: requestContextMapBudget{
-			MaxSelectedBytes: maxSelectedContextBytes,
-			SelectedBytes:    selectedBytes,
-			RemainingBytes:   maxSelectedContextBytes - selectedBytes,
-			RoundsUsed:       roundsUsed,
-			RoundsRemaining:  maxWorkflowRounds - roundsUsed,
-		},
+		Protocol:   requestContextSemanticIndexProtocol,
+		Source:     source.label,
+		Project:    source.project,
+		Budget:     contextbudget.New(selectedBytes, state.RoundsUsed),
 		Entries:    entries,
 		Candidates: contextMapCandidates(entries, selected, state.Query),
 		Groups:     contextMapGroups(entries),
-		Note:       "This index is advisory. Ranking and groups never authorize paths or impose a path-count limit; snapshot membership, cumulative bytes, increment rounds and path-safety validation remain authoritative.",
+		Note:       "This index is advisory. Ranking and groups never authorize paths or impose a path-count limit; snapshot membership, cumulative bytes and path-safety validation remain authoritative. There is no increment-round limit: request more files only while they are needed and stop when the evidence suffices.",
 	}
 	raw, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {

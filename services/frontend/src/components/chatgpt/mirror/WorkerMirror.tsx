@@ -5,8 +5,8 @@ import { MirrorSurface } from './MirrorSurface'
 // A surfaced Worker's real view stays in the browser host; this mirrors it.
 export function WorkerMirror({ agentId, label }: { agentId: string; label: string }) {
   const bridge = desktopBridge()?.agents
-  const subscribe = useMemo(() => bridge?.onMirrorFrame
-    ? (callback: (frame: DesktopMirrorFrame) => void) => bridge.onMirrorFrame((frame) => { if (frame.agentId === agentId) callback(frame) })
+  const subscribe = useMemo(() => bridge?.subscribeMirror
+    ? (onFrame: DesktopMirrorFrameHandler) => bridge.subscribeMirror(agentId, onFrame)
     : undefined, [bridge, agentId])
   const send = useMemo(() => bridge?.mirrorInput
     ? (input: DesktopMirrorInput) => bridge.mirrorInput(agentId, input)

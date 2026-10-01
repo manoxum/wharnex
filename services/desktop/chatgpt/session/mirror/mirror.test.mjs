@@ -1,66 +1,176 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createProjectSurfaceMirror } from './frames.mjs'
+import { createAgentMirrorStreams, registerAgentMirrorStreamIPC } from './frames.mjs'
 import { dispatchMirrorInput, sanitizeMirrorInput } from './input.mjs'
 
-function window(sent, { visible = true, minimized = false } = {}) {
-  return {
-    isDestroyed: () => false, isVisible: () => visible, isMinimized: () => minimized,
-    webContents: { isDestroyed: () => false, send: (channel, payload) => sent.push([channel, payload]) },
-  }
+const image = (label) => ({ isEmpty: () => false, getSize: () => ({ width: 900, height: 700 }), toJPEG: () => Buffer.from(label) })
+
+function window({ visible = true, minimized = false } = {}) {
+  const state = { visible, minimized }
+  return { state, isDestroyed: () => false, isVisible: () => state.visible, isMinimized: () => state.minimized }
 }
 
-function surface(frames, calls = []) {
+// A view whose renderer paints only when the test says so.
+function surface(seeds, calls = []) {
   let index = 0
+  const listeners = new Map()
+  const wc = {
+    isDestroyed: () => false,
+    paintFrame: undefined,
+    capturePage: async (_rect, options) => {
+      calls.push(`capture:${options.stayHidden}`)
+      const frame = seeds[Math.min(index++, seeds.length - 1)]
+      if (frame instanceof Error) throw frame
+      return image(frame)
+    },
+    beginFrameSubscription: (onlyDirty, callback) => { calls.push(`subscribe:${onlyDirty}`); wc.paintFrame = callback },
+    endFrameSubscription: () => { calls.push('unsubscribe'); wc.paintFrame = undefined },
+    on: (event, callback) => listeners.set(event, callback),
+    once: (event, callback) => listeners.set(event, callback),
+    removeListener: (event) => listeners.delete(event),
+    emit: (event) => listeners.get(event)?.(),
+  }
+  return { isVisible: () => true, paint: () => calls.push('paint'), webContents: wc }
+}
+
+class FakePort {
+  constructor() { this.sent = []; this.handlers = {}; this.closed = false }
+  on(event, handler) { this.handlers[event] = handler }
+  start() {}
+  postMessage(message) { this.sent.push(message) }
+  close() { if (this.closed) return; this.closed = true; this.handlers.close?.() }
+  ready() { this.handlers.message?.({ data: 'ready' }) }
+}
+class MessageChannelMain { constructor() { this.port1 = new FakePort(); this.port2 = { renderer: true } } }
+
+function clock() {
+  let time = 0
+  const timers = []
   return {
-    isVisible: () => true,
-    paint: () => calls.push('paint'),
-    webContents: {
-      isDestroyed: () => false,
-      capturePage: async (_rect, options) => {
-        calls.push(`capture:${options.stayHidden}`)
-        const frame = frames[Math.min(index++, frames.length - 1)]
-        if (frame instanceof Error) throw frame
-        return { isEmpty: () => false, getSize: () => ({ width: 900, height: 700 }), toJPEG: () => Buffer.from(frame) }
-      },
+    now: () => time,
+    setTimeout: (callback, wait) => { const timer = { callback, at: time + wait }; timers.push(timer); return timer },
+    clearTimeout: (timer) => { const index = timers.indexOf(timer); if (index >= 0) timers.splice(index, 1) },
+    advance(ms) {
+      time += ms
+      for (const timer of [...timers].sort((a, b) => a.at - b.at)) {
+        if (timer.at > time) continue
+        timers.splice(timers.indexOf(timer), 1)
+        timer.callback()
+      }
     },
   }
 }
 
-test('mirrors each project window its own Supervisor and surfaced Worker only', async () => {
-  const sent = []
-  const project = { id: 'project', window: window(sent), activeChatGPTKey: 'chat-1', activeAgentInteractionId: 'worker-1' }
-  const other = { id: 'other', window: window([], { minimized: true }), activeChatGPTKey: 'chat-2' }
-  const monitor = { id: 'browser-monitor', window: window([]), activeChatGPTKey: 'chat-1' }
-  const supervisor = { ownerWindowId: 'project', view: surface(['a']) }
-  const foreign = { ownerWindowId: 'other', view: surface(['b']) }
-  const worker = { slotId: 'worker-1', interactionWindowId: 'project', view: surface(['w']) }
-  const mirror = createProjectSurfaceMirror({
-    desktopWindows: new Map([['project', project], ['other', other], ['browser-monitor', monitor]]),
-    chatgptViews: new Map([['chat-1', supervisor], ['chat-2', foreign]]), chatGPTWorkerEntries: [worker],
-  })
-  assert.deepEqual(mirror.mirrorTargets().map((target) => [target.state.id, target.channel]), [
-    ['project', 'wharness:chatgpt:mirror-frame'], ['project', 'wharness:agents:mirror-frame'],
-  ])
-  mirror.tick()
-  await new Promise((resolve) => setImmediate(resolve))
-  assert.deepEqual(sent.map(([channel, frame]) => [channel, frame.cacheKey || frame.agentId, String(frame.data)]), [
-    ['wharness:chatgpt:mirror-frame', 'chat-1', 'a'], ['wharness:agents:mirror-frame', 'worker-1', 'w'],
-  ])
+const settle = () => new Promise((resolve) => setImmediate(resolve))
+const frames = (port) => port.sent.map((frame) => String(frame.data))
+
+function fixture(seeds = ['seed']) {
+  const calls = []
+  const time = clock()
+  const project = { id: 'project', window: window() }
+  const desktopWindows = new Map([['project', project]])
+  const entry = { view: surface(seeds, calls) }
+  const streams = createAgentMirrorStreams({ MessageChannelMain, desktopWindows, ...time })
+  const open = (allowed = () => true) => {
+    streams.subscribe(entry, project, allowed)
+    return [...streams.streams.get(entry).subscribers].at(-1).port
+  }
+  return { streams, entry, project, desktopWindows, calls, time, open }
+}
+
+test('a subscriber is seeded once, then fed only by paints, one frame per acknowledgement', async () => {
+  const { entry, calls, time, open } = fixture()
+  const port = open()
+  await settle(); time.advance(0)
+  assert.deepEqual(calls, ['subscribe:false', 'capture:true'])
+  assert.deepEqual(frames(port), ['seed'])
+  // Paints while the frame is unacknowledged are coalesced and held back.
+  const paint = entry.view.webContents.paintFrame
+  paint(image('p1')); paint(image('p2'))
+  time.advance(200)
+  assert.deepEqual(frames(port), ['seed'])
+  port.ready()
+  assert.deepEqual(frames(port), ['seed', 'p2'])
+  // A static page sends nothing, even when acknowledged.
+  port.ready(); time.advance(2_000)
+  assert.equal(port.sent.length, 2)
+  assert.equal(calls.filter((call) => call.startsWith('capture')).length, 1)
 })
 
-test('an unchanged frame is not resent and a missing surface is repainted', async () => {
-  const sent = []
-  const calls = []
-  const project = { id: 'project', window: window(sent), activeChatGPTKey: 'chat-1' }
-  const supervisor = { ownerWindowId: 'project', view: surface([new Error('UnknownVizError'), 'a', 'a', 'b'], calls) }
-  const mirror = createProjectSurfaceMirror({ desktopWindows: new Map([['project', project]]), chatgptViews: new Map([['chat-1', supervisor]]), chatGPTWorkerEntries: [] })
-  for (let round = 0; round < 4; round += 1) {
-    mirror.tick()
-    await new Promise((resolve) => setImmediate(resolve))
-  }
-  assert.deepEqual(calls, ['capture:true', 'paint', 'capture:true', 'capture:true', 'capture:true'])
-  assert.deepEqual(sent.map(([, frame]) => String(frame.data)), ['a', 'b'])
+test('paints are encoded at a bounded rate that rises after the user input', async () => {
+  const { entry, time, open } = fixture()
+  const port = open()
+  await settle(); time.advance(0); port.ready()
+  const paint = entry.view.webContents.paintFrame
+  paint(image('idle'))
+  time.advance(100)
+  assert.equal(port.sent.length, 1)
+  time.advance(25)
+  assert.deepEqual(frames(port), ['seed', 'idle'])
+  port.ready()
+  entry.mirrorInputAt = time.now()
+  paint(image('typing'))
+  time.advance(66)
+  assert.deepEqual(frames(port), ['seed', 'idle', 'typing'])
+})
+
+test('subscribers share one stream, and capture stops with the last one or while no window shows it', async () => {
+  const { streams, entry, project, calls, time, open } = fixture(['seed', 'again'])
+  const first = open()
+  const second = open()
+  await settle(); time.advance(0)
+  assert.deepEqual(frames(first), ['seed'])
+  assert.deepEqual(frames(second), ['seed'])
+  assert.equal(calls.filter((call) => call === 'subscribe:false').length, 1)
+  project.window.state.minimized = true
+  streams.reconcile()
+  assert.equal(calls.at(-1), 'unsubscribe')
+  project.window.state.minimized = false
+  streams.reconcile(); await settle(); time.advance(0)
+  assert.equal(calls.filter((call) => call === 'subscribe:false').length, 2)
+  first.close()
+  assert.equal(entry.view.webContents.paintFrame !== undefined, true)
+  second.close()
+  assert.equal(calls.at(-1), 'unsubscribe')
+  assert.equal(streams.streams.size, 0)
+})
+
+test('a revoked subscription is closed and a dropped surface is repainted', async () => {
+  const { streams, entry, calls, time, open } = fixture([new Error('UnknownVizError'), 'seed'])
+  let allowed = true
+  const port = open(() => allowed)
+  await settle()
+  assert.ok(calls.includes('paint'))
+  streams.reconcile(); await settle(); time.advance(0)
+  assert.deepEqual(frames(port), ['seed'])
+  entry.view.webContents.emit('did-navigate')
+  allowed = false
+  streams.reconcile()
+  assert.equal(port.closed, true)
+  assert.equal(streams.streams.size, 0)
+})
+
+test('only the owning window may subscribe to a Supervisor or surfaced Worker stream', () => {
+  const handlers = {}
+  const replies = []
+  const ipcMain = { on: (channel, handler) => { handlers[channel] = handler } }
+  const project = { id: 'project', activeChatGPTKey: 'chat-1', activeAgentInteractionId: 'worker-1' }
+  const other = { id: 'other', activeChatGPTKey: 'chat-1' }
+  const supervisor = { ownerWindowId: 'project', view: surface(['s']) }
+  const worker = { slotId: 'worker-1', interactionWindowId: 'project', view: surface(['w']) }
+  const subscribed = []
+  registerAgentMirrorStreamIPC({
+    ipcMain, trustedSender: (event) => event.state, sanitizeChatCacheKey: (value) => String(value || ''),
+    chatgptViews: new Map([['chat-1', supervisor]]), chatGPTWorkerEntries: [worker],
+    mirrorStreams: { subscribe: (entry, state) => { subscribed.push([entry, state.id]); return { port: true } } },
+  })
+  const event = (state) => ({ state, sender: { postMessage: (channel, reply, ports) => replies.push([reply.ok, ports.length]) } })
+  handlers['wharness:chatgpt:mirror-subscribe'](event(project), { cacheKey: 'chat-1', requestId: 'r1' })
+  handlers['wharness:chatgpt:mirror-subscribe'](event(other), { cacheKey: 'chat-1', requestId: 'r2' })
+  handlers['wharness:agents:mirror-subscribe'](event(project), { agentId: 'worker-1', requestId: 'r3' })
+  handlers['wharness:agents:mirror-subscribe'](event(other), { agentId: 'worker-1', requestId: 'r4' })
+  assert.deepEqual(replies, [[true, 1], [false, 0], [true, 1], [false, 0]])
+  assert.deepEqual(subscribed.map(([entry, id]) => [entry === supervisor ? 'supervisor' : 'worker', id]), [['supervisor', 'project'], ['worker', 'project']])
 })
 
 test('mirror input is a closed vocabulary with page-derived text', () => {

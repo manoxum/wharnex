@@ -18,7 +18,7 @@ import { OrchestratorWorkspace } from '../../components/orchestrator'
 import { AttentionPopover, ErrorToast } from '../../components/attention'
 import { ProjectSettings } from '../../components/project'
 import { Icon } from '../../components/presentation'
-import { clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat, loadAutomationMode, loadEffortLevel, loadRecentWorkspaces, loadWorkspaceChats, loadPendingProjectLaunch, loadPendingProjectPrompt, newWorkspaceChat, rememberRecent, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveComposerDraft, saveComposerFileDraft, BOOTSTRAP_PROMPT_PREFIX, clearPendingProjectLaunch, clearPendingProjectPrompt, durableWorkspaceChat, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionMode, saveWorkspaceChats, type ChatNaming, type WorkspaceChat, attachmentPromptSuffix, encodeChatAttachments, canonicalizeDirectives, projectFileReferenceSuffix, requiresProjectContextTransport, promptDeliveryFailureKind, type PromptDeliveryFailureKind, mergeDurableChatItems, activeChatBusy } from '../../lib/chat'
+import { clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat, loadAutomationMode, loadEffortLevel, loadRecentWorkspaces, loadWorkspaceChats, loadPendingProjectLaunch, loadPendingProjectPrompt, newWorkspaceChat, rememberRecent, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveComposerDraft, saveComposerFileDraft, BOOTSTRAP_PROMPT_PREFIX, clearPendingProjectLaunch, clearPendingProjectPrompt, durableWorkspaceChat, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionMode, saveWorkspaceChats, type ChatNaming, type WorkspaceChat, attachmentPromptSuffix, encodeChatAttachments, canonicalizeDirectives, projectFileReferenceSuffix, requiresProjectContextTransport, promptDeliveryFailureKind, type PromptDeliveryFailureKind, mergeDurableChatItems, activeChatBusy, contextIncrementMeta, contextIncrementNotice } from '../../lib/chat'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation, confirmDialog, subscribeHeaderPopover, buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from '../../lib/desktop'
 import { conflictAutoDispatchable, gitConflictChatTitle } from '../../lib/git'
 import { embeddedProjectInitiallyActive, embeddedProjectPath, persistOperationalEvidence, storedAttachmentFile, withProjectTodoPrePlan, reconcileTunnelConfig } from '../../lib/project'
@@ -1711,7 +1711,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		: submission.conflict_prepared
 		  ? `O ChangeSet foi verificado, mas encontrou um conflito real. O Wharnex preparou uma janela ChatGPT dedicada para resolver apenas ${updated.integration_conflict?.paths.join(', ') || 'os caminhos conflitantes'}.`
         : contextIncrement
-          ? `Contexto incrementado (${workflowRound}/6). Os ficheiros pedidos pelo GPT seguem na continuação automática.`
+          ? contextIncrementNotice(workflowRound)
         : submission.workflow_prepared
           ? `Passo local ${workflowRound}/6 concluído na sandbox Protected. Os resultados foram incorporados numa continuação para o mesmo ChatGPT; o Wharnex vai submetê-la automaticamente.`
           : submission.workflow_executed
@@ -1745,7 +1745,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		  : submission.conflict_prepared
 		  ? 'Conflito real · GPT dedicado'
           : contextIncrement
-            ? `Contexto Parcial ${workflowRound}/6 · ${updated.context_paths?.length || 0} ficheiros`
+            ? contextIncrementMeta(workflowRound, updated.context_paths?.length || 0)
           : submission.workflow_prepared || submission.workflow_executed
             ? `Workflow ${workflowRound}/6 · sandbox Protected`
             : pendingApproval

@@ -98,13 +98,17 @@ type Session struct {
 	// arrive at a conflict with fewer automatic attempts left than another
 	// plan, for no reason related to the conflict itself. Reset to 0
 	// whenever a conflict with a new ID begins.
-	ConflictAttempt  int               `json:"conflict_attempt,omitempty"`
-	LastRepairError  string            `json:"last_repair_error,omitempty"`
-	FailureKind      string            `json:"failure_kind,omitempty"`
-	WorkflowRound    int               `json:"workflow_round,omitempty"`
-	LastRequestMode  string            `json:"last_request_mode,omitempty"`
-	PlannerInFlight  bool              `json:"planner_in_flight,omitempty"`
-	RequestBaselines map[string]string `json:"request_baselines,omitempty"`
+	ConflictAttempt int    `json:"conflict_attempt,omitempty"`
+	LastRepairError string `json:"last_repair_error,omitempty"`
+	FailureKind     string `json:"failure_kind,omitempty"`
+	WorkflowRound   int    `json:"workflow_round,omitempty"`
+	// ContextIncrements counts the Partial context increments among the Main
+	// Request's WorkflowRound rounds. They are planner-paced reads, not
+	// executed steps, so they never spend the workflow step budget.
+	ContextIncrements int               `json:"context_increments,omitempty"`
+	LastRequestMode   string            `json:"last_request_mode,omitempty"`
+	PlannerInFlight   bool              `json:"planner_in_flight,omitempty"`
+	RequestBaselines  map[string]string `json:"request_baselines,omitempty"`
 	// RequestBaseCommits records, per request id, the host commit whose tree is
 	// exactly what that request's planner context was snapshotted from —
 	// anchored in the host repository under refs/wharnex/base/<request_id>.

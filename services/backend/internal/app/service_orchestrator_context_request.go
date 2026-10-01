@@ -109,9 +109,6 @@ func (s *Service) importOrchestratorContextRequest(ctx context.Context, sessionI
 	if repeated {
 		return OrchestratorProposalResult{RequestID: requestID, ContextPaths: append([]string(nil), previous...), Delivery: "context_increment"}, nil
 	}
-	if item.OrchestratorContextRounds[requestID] >= maxWorkflowRounds {
-		return OrchestratorProposalResult{}, errors.New("orchestrator context increment limit reached")
-	}
 	paths, err := selectContextPaths(item.Context.ZipPath, previous, request.ContextPaths)
 	if err != nil {
 		return OrchestratorProposalResult{}, err
