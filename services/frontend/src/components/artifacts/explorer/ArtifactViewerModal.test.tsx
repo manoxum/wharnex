@@ -8,7 +8,7 @@ vi.mock('../../../lib/transport/http/api', () => ({ api: {
   artifactURL: (_sessionId: string, artifactId: string, preview = false) => `/artifact/${artifactId}${preview ? '?preview=1' : ''}`,
 } }))
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe('ArtifactViewerModal', () => {
   const items: ArtifactPresentationItem[] = [
@@ -39,6 +39,12 @@ describe('ArtifactViewerModal', () => {
 
     expect(await screen.findByRole('img', { name: 'Diagrama Draw.io: direct.drawio' })).toBeTruthy()
     expect(screen.getByTitle('Descarregar direct.drawio').getAttribute('href')).toBe('/artifact/drawio_direct')
+  })
+
+  it('does not acquire a 2D canvas context until drawing is enabled', () => {
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+    render(<ArtifactViewerModal sessionId="ses_1" bundleId="bundle_1" items={items} initialIndex={0} onClose={vi.fn()}/>)
+    expect(getContext).not.toHaveBeenCalled()
   })
 
   it('navigates with keyboard and exposes non-destructive image controls', () => {
