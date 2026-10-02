@@ -4,7 +4,7 @@ export function createChatGPTDownloadRouter({
   tempPath, registerChatGPTOrchestratorPlanDownload,
   registerChatGPTMarkdownTranslationDownload,
   registerReleaseNotesBundleDownload, expectedChatGPTReleaseNotes,
-  registerChatGPTTodoClassificationDownload, expectedChatGPTBundleForDownload,
+  registerChatGPTTodoClassificationDownload, registerChatGPTUITestDiscoveryDownload = () => false, expectedChatGPTBundleForDownload,
   chatGPTKeyForWebContents, canonicalWharnessBundleDownload,
   BundleOwnershipError, path, publishBundleDownloadError,
   handleBundleDownload, handleLegacyPlanDownload,
@@ -25,6 +25,7 @@ export function createChatGPTDownloadRouter({
       if (registerChatGPTMarkdownTranslationDownload(item, sourceFilename)) return
       if (registerReleaseNotesBundleDownload(item, sourceFilename, expectedChatGPTReleaseNotes, tempPath())) return
       if (registerChatGPTTodoClassificationDownload(item, sourceFilename)) return
+      if (registerChatGPTUITestDiscoveryDownload(item, sourceFilename)) return
       const expectedBundle = expectedChatGPTBundleForDownload(sourceWebContents, sourceFilename)
       const sourceCacheKey = expectedBundle?.key || chatGPTKeyForWebContents(sourceWebContents)
       let bundleCandidate
