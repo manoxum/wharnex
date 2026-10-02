@@ -14,11 +14,6 @@ _(reserved — no entries yet)_
 _(reserved — no entries yet)_
 
 
-### Chat 16fa74df-d4e2-4049-974b-e91d81259860 (2026-10-01)
-
-_(reserved — no entries yet)_
-
-
 ### Chat 0274c282-e529-442c-9af2-913cd0a85f4f (2026-09-29)
 
 - Partial context selection is now limited by cumulative bytes and rounds rather than an artificial file-count ceiling, including Orchestrator and cumulative manifest transport.
