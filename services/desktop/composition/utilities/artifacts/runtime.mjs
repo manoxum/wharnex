@@ -15,6 +15,6 @@ export function createArtifactWorkerRuntime(deps) {
   // was indistinguishable from no answer, so the job sat in the queue until it
   // timed out. A bundle can be wrong in ways that have names.
   
-  const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification } = createArtifactWorkers(deps)
-  return { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification }
+  const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification, executeUITestingTask } = createArtifactWorkers(deps)
+  return { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification, executeUITestingTask }
 }

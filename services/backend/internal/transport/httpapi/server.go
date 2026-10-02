@@ -26,6 +26,7 @@ import (
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/transport/httpapi/settings"
+	uitestinghttp "kernl.local/harness/backend/internal/uitesting/httpapi"
 	"kernl.local/harness/backend/internal/utility"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
@@ -46,6 +47,11 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	})
 	mux := http.NewServeMux()
 	settingsRoutes := settings.New(service, cfg)
+	uiTestingRoutes, err := uitestinghttp.New(store, filepath.Dir(cfg.StateFile))
+	if err != nil {
+		panic(fmt.Sprintf("initialize UI testing routes: %v", err))
+	}
+	uiTestingRoutes.Register(mux)
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
 	mux.HandleFunc("GET /api/execution-concurrency", a.executionConcurrency)

@@ -5,7 +5,7 @@ export function createChatAgentTaskDispatcher(context) {
     CHAT_AGENT_AWAIT_PROBE_MS, assignChatGPTWorker, chatAgentResidency, sameConversationURL,
     loadAndSettleChatGPTWorkerConversation, isTrustedChatGPTOrigin, CHATGPT_URL, waitForChatGPTSurfaceReady,
     ChatGPTRateLimitDeferral, CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS, executeChatAgentOrchestratorPlan, executeOrchestratorExecution,
-    orchestratorExecutionWorkerRuntime, executeChatAgentTodoClassification, executeReleaseNotesBundleTask, releaseNotesWorkerRuntime,
+    orchestratorExecutionWorkerRuntime, executeChatAgentTodoClassification, executeReleaseNotesBundleTask, releaseNotesWorkerRuntime, executeUITestingTask,
     probeChatAgentResponse, executeChatAgentWrite, executeChatAgentTitleDiscover, executeChatAgentTempTitle,
     executeChatAgentTitleAwait, executeChatAgentAccountTask,
   } = context
@@ -86,6 +86,8 @@ export function createChatAgentTaskDispatcher(context) {
       case 'ORCHESTRATOR_EXECUTE': return executeOrchestratorExecution(task, entry, key, payload, owner, orchestratorExecutionWorkerRuntime())
       case 'TODO_CLASSIFY': return executeChatAgentTodoClassification(task, entry, key, payload)
       case 'RELEASE_NOTES': return executeReleaseNotesBundleTask(task, entry, key, payload, releaseNotesWorkerRuntime())
+      case 'UI_TEST_DISCOVER':
+      case 'UI_TEST_RUN': return executeUITestingTask(task, entry, key, payload)
       case 'AWAIT_RESPONSE': return probeChatAgentResponse(task, entry, key, payload, conversationURL)
       case 'BOT_WRITE':
       case 'RECOVERY_WRITE': return executeChatAgentWrite(task, entry, key, payload, conversationURL)

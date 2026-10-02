@@ -15,7 +15,7 @@ export async function readArtifactWorkersSource() {
     if (start < 0 || end <= start) throw new Error(`Artifact worker section missing: ${file}`)
     return module.slice(start, end).replace(/^  /gm, '').trim()
   }))
-  const start = main.indexOf('const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification } = createArtifactWorkers(deps)')
+  const start = main.indexOf('const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification, executeUITestingTask } = createArtifactWorkers(deps)')
   const end = main.indexOf('\nasync function chatAgentLifecycleRetry(', start)
   const agent = await readFile(new URL('../../agent/index.mjs', import.meta.url), 'utf8')
   const automation = await readFile(new URL('../../agent/automation/index.mjs', import.meta.url), 'utf8')

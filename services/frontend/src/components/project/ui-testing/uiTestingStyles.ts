@@ -1,0 +1,2 @@
+export const uiPrimaryButtonClass = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--acid)]/40 bg-[var(--acid)]/15 px-3 py-2 text-xs font-semibold text-[var(--acid)] transition hover:bg-[var(--acid)]/25 disabled:cursor-not-allowed disabled:opacity-40'
+export const uiSecondaryButtonClass = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-[var(--theme-text)] transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40'

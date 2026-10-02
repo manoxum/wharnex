@@ -541,7 +541,7 @@ const { releaseNotesWorkerRuntime, orchestratorExecutionWorkerRuntime,
   getScheduler: () => desktopState.agent.chatAgentScheduler,
 })
 
-const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification } = createArtifactWorkerRuntime({
+const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification, executeUITestingTask } = createArtifactWorkerRuntime({
   markdownTranslationFilename, MAX_MARKDOWN_TRANSLATION_BYTES, paceChatGPTWorkerSubmission, path,
   app, rm, mkdir, writeFile,
   expectedChatGPTTranslations, reconcileChatGPTThrottleForKey, requireOwnedChatGPTEntry, waitForChatGPTSurfaceReady,
@@ -551,7 +551,7 @@ const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification 
   chatGPTHumanActionScript, noteChatGPTRateLimitGate, setChatGPTHumanAction, chatGPTHumanActionMessage,
   pollWorkerExpectedDownload, chatGPTExpectedDownloadScript, enqueueChatAgentTask, chatAgentConversationID,
   todoClassificationFilename, MAX_TODO_CLASSIFICATION_BYTES, chatAgentRateLimitDelayMs, expectedChatGPTTodoClassifications,
-  TODO_CLASSIFICATION_TIMEOUT_MS, chatGPTResponseCompletionScript,
+  TODO_CLASSIFICATION_TIMEOUT_MS, chatGPTResponseCompletionScript, BrowserWindow, BACKEND_URL, fetch,
 })
 
 const {
@@ -571,7 +571,7 @@ const {
   accountFailureDetail, enqueueChatAgentTask, chatAgentConversationID, archiveChatGPTConversation, deleteChatGPTConversation,
   parseBundleName, deleteChatGPTLibraryArtifact, workerEntryForIndex, chatAgentRateLimitDelayMs, chatGPTConversationReadGateMs,
   ChatGPTRateLimitDeferral, CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS, executeChatAgentOrchestratorPlan, executeOrchestratorExecution, orchestratorExecutionWorkerRuntime,
-  executeChatAgentTodoClassification, executeReleaseNotesBundleTask, releaseNotesWorkerRuntime, probeChatAgentResponse, executeChatAgentTitleDiscover,
+  executeChatAgentTodoClassification, executeReleaseNotesBundleTask, releaseNotesWorkerRuntime, executeUITestingTask, probeChatAgentResponse, executeChatAgentTitleDiscover,
   executeChatAgentTempTitle, executeChatAgentTitleAwait,
   chatAgentLifecycleBlocked, chatGPTSupervisorOwnsExpectedResponse,
   desiredSupervisorSlots: () => desktopState.agent.desiredChatAgentSupervisorSlots,

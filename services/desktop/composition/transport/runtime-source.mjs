@@ -13,7 +13,7 @@ const sections = [
   },
   {
     file: '../utilities/artifacts/runtime.mjs', index: '../utilities/artifacts/index.mjs', exportName: 'createArtifactWorkerRuntime',
-    call: 'const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification } = createArtifactWorkerRuntime({',
+    call: 'const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification, executeUITestingTask } = createArtifactWorkerRuntime({',
     next: '\nconst {\n  chatSupervisorHostWindow, bindChatSupervisor, noteChatSupervisorLane,', body: '  // Transport for one translation request.',
   },
   {
