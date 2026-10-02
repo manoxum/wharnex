@@ -14,9 +14,10 @@ func TestReconcileSyncTaskSurfacesTerminalFailureAndAllowsRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := "/workspace/demo"
+	taskID := session.NewChatAgentTaskID()
 	queued, err := sessions.EnqueueChatAgentTask(session.ChatAgentTask{
-		TaskID: session.NewChatAgentTaskID(), Type: "UI_TEST_DISCOVER", ProjectID: project,
-		ChatID: "ui-discovery:test", MaxAttempts: 1, NotBefore: time.Now().UTC(),
+		TaskID: taskID, Type: "UI_TEST_DISCOVER", ProjectID: project,
+		ChatID: taskID, MaxAttempts: 1, NotBefore: time.Now().UTC(),
 	})
 	if err != nil {
 		t.Fatal(err)
