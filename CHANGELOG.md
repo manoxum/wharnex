@@ -1,6 +1,7 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
 ### Chat 9c2ddb50-7c1f-48df-a13f-d436ed75b5f3 (2026-10-01)
 
+- Corrige as tarefas efémeras do UI Lab para usarem o próprio `task_id` como chave de cache ChatGPT, eliminando os `:` rejeitados pelo Desktop tanto na descoberta como na execução de testes.
 - Corrige o UI Lab para reconciliar tarefas de descoberta que terminam sem catálogo, mostrar o erro e permitir nova sincronização em vez de ficar indefinidamente em “A analisar…”.
 
 

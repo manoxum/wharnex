@@ -92,7 +92,7 @@ func (h *Routes) enqueueRun(sessionID, project string, test uitesting.TestCase, 
 	taskID := session.NewChatAgentTaskID()
 	runID := "run_" + strings.TrimPrefix(taskID, "cat_")
 	payload, _ := json.Marshal(map[string]any{"protocol": "harness.ui-test-run/v1", "run_id": runID, "test": test, "environment": map[string]any{"id": env.ID, "name": env.Name, "url": env.URL}, "profile": map[string]any{"id": profile.ID, "label": profile.Label, "role": profile.Role}, "max_steps": 24})
-	task, err := h.sessions.EnqueueChatAgentTask(session.ChatAgentTask{TaskID: taskID, Type: "UI_TEST_RUN", ProjectID: project, SessionID: sessionID, ChatID: "ui-run:" + sessionID + ":" + test.ID, RequestID: taskID, RootRequestID: taskID, DedupeKey: "ui-run:" + project + ":" + test.ID + ":" + doc.ContextSHA256, Payload: payload, MaxAttempts: 2, NotBefore: time.Now().UTC(), Title: "Teste UI · " + test.Title, Description: test.Goal})
+	task, err := h.sessions.EnqueueChatAgentTask(session.ChatAgentTask{TaskID: taskID, Type: "UI_TEST_RUN", ProjectID: project, SessionID: sessionID, ChatID: taskID, RequestID: taskID, RootRequestID: taskID, DedupeKey: "ui-run:" + project + ":" + test.ID + ":" + doc.ContextSHA256, Payload: payload, MaxAttempts: 2, NotBefore: time.Now().UTC(), Title: "Teste UI · " + test.Title, Description: test.Goal})
 	if err != nil {
 		return "", err
 	}

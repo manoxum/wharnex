@@ -109,7 +109,7 @@ func (h *Routes) sync(w http.ResponseWriter, r *http.Request) {
 		"archive_name": "wharnex-ui-context.zip", "archive_base64": base64.StdEncoding.EncodeToString(raw),
 		"bootstrap": discoveryPrompt(item.Context.Manifest.SHA256),
 	})
-	task, err := h.sessions.EnqueueChatAgentTask(session.ChatAgentTask{TaskID: taskID, Type: "UI_TEST_DISCOVER", ProjectID: item.ProjectPath, SessionID: item.ID, ChatID: "ui-discovery:" + item.ID, RequestID: taskID, RootRequestID: taskID, DedupeKey: "ui-discovery:" + item.ProjectPath + ":" + item.Context.Manifest.SHA256, Payload: payload, MaxAttempts: 3, NotBefore: time.Now().UTC(), Title: "Descobrir testes UI", Description: "Gerar catálogo de ambientes e testes a partir do contexto completo do projeto."})
+	task, err := h.sessions.EnqueueChatAgentTask(session.ChatAgentTask{TaskID: taskID, Type: "UI_TEST_DISCOVER", ProjectID: item.ProjectPath, SessionID: item.ID, ChatID: taskID, RequestID: taskID, RootRequestID: taskID, DedupeKey: "ui-discovery:" + item.ProjectPath + ":" + item.Context.Manifest.SHA256, Payload: payload, MaxAttempts: 3, NotBefore: time.Now().UTC(), Title: "Descobrir testes UI", Description: "Gerar catálogo de ambientes e testes a partir do contexto completo do projeto."})
 	if err != nil {
 		writeErr(w, 409, err)
 		return
