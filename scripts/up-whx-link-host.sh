@@ -26,7 +26,10 @@ is_linux() {
 require_runtime_tools() {
   is_linux || return 0
   mode=$(printf '%s' "${WHARNESS_UP_LINK:-required}" | tr '[:upper:]' '[:lower:]')
-  case "$mode" in auto|off|0|false|disabled) return 0 ;; esac
+  case "$mode" in
+    required|'') ;;
+    *) echo 'up-whx-link is required on Linux; WHARNESS_UP_LINK=auto/off is not supported.' >&2; return 1 ;;
+  esac
   if ! command -v pasta >/dev/null 2>&1; then
     echo 'up-whx-link requires pasta. Install passt (Debian/Ubuntu 24.04+: sudo apt install passt), then retry.' >&2
     return 1

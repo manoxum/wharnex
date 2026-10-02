@@ -38,7 +38,7 @@ if ! grep -Fq 'WHARNEX_BOOT_PREVIOUS=1' "$LAUNCHER" || ! grep -Fq 'make stop && 
   echo 'lifecycle regression: failed updates must keep the last built Desktop available' >&2
   exit 1
 fi
-if ! grep -Fq 'Requested foreground handoff to the running Desktop.' "$START" || ! grep -Fq '"$focus_electron" "$ROOT/services/desktop/main.mjs"' "$START"; then
+if ! grep -Fq 'Requested foreground handoff to the running Desktop.' "$START" || ! grep -Fq 'kill -USR1 "$focus_pid"' "$START"; then
   echo 'lifecycle regression: an already-running Desktop must receive a foreground handoff' >&2
   exit 1
 fi

@@ -12,6 +12,7 @@ import { createDesktopWindowAssembly } from './composition/window/index.mjs'
 import { createDesktopEntrypointRuntime } from './composition/entry/index.mjs'
 import { createBrowserHost } from './window/lifecycle/browser-monitor.mjs'
 import { createDesktopAuthViewRuntime, createDesktopOwnershipRuntime, createDesktopChatWorkflowRuntime } from './composition/session/index.mjs'
+import { createOwnedBrowserShell } from './browser/index.mjs'
 
 const {
   app, BrowserWindow, ClipboardItem, Menu, Notification, Tray, View, WebContentsView, clipboard,
@@ -53,6 +54,9 @@ const {
   withChatGPTNavigationDeadline, desktopInstanceName, desktopWindowTitle, initializeDesktopIdentity, configureDesktopProcess, registerClipboardIPC, traceForTask, traceId,
   withTrace,
 } = createDesktopBaseDependencies()
+
+const ownedBrowserShell = createOwnedBrowserShell({ app, nativeShell: shell })
+app.on('before-quit', ownedBrowserShell.closeAll)
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const { DESKTOP_INSTANCE, DESKTOP_ICON, FRONTEND_URL, BACKEND_URL, FRONTEND_ORIGIN, FRONTEND_RUNTIME_TOKEN } =
@@ -254,7 +258,7 @@ const {
   chatgptViews, chatGPTAuthBrowsers, chatGPTKeyForEntry, windowStateForEntry, sendToWindowState, publishChatGPTState,
   sanitizeDiagnosticURL, CHATGPT_LOGIN_URL, CHATGPT_URL, managedAuthProfilePath, closeManagedBrowserAuth, launchManagedBrowserAuth,
   electronCookieDetails, session, CHATGPT_PARTITION, isTrustedChatGPTOrigin, isChatGPTAuthURL, chatGPTNavigationDisposition,
-  shell, chatGPTSessionProbeExpression, sanitizeChatCacheKey, requireTrustedChatGPTURL, requireOwnedChatGPTEntry, sameConversationURL,
+  shell: ownedBrowserShell, chatGPTSessionProbeExpression, sanitizeChatCacheKey, requireTrustedChatGPTURL, requireOwnedChatGPTEntry, sameConversationURL,
   currentChatGPTState, chatAgentWorkerActivity: desktopState.agent.chatAgentWorkerActivity, withChatGPTNavigationDeadline, CHATGPT_USER_AGENT, wait, WebContentsView,
   securePreferences, createChatGPTAffinityTracker, touchChatGPTEntry, observeChatGPTAffinityURL, scheduleChatGPTAffinitySettlement, expectedChatGPTBundles,
   chatgptTransportModes, isRecoverableChatGPTNetworkError, noteChatGPTRendererFault, noteChatGPTRecoveryProgress, clearChatGPTHumanAction, chatGPTWorkerEntries,
@@ -614,7 +618,7 @@ const desktopEntrypoint = createDesktopEntrypointRuntime({
   publicChatGPTAffinity, rejectChatGPTAffinity, reloadOwnedChatGPTConversation, releaseChatGPTView, enqueueChatAgentLifecycleTask, stopChatGPTConversation, publishChatGPTAccountAction,
   suggestChatGPTConversationTitle, hideChatGPTSidebar, isBehaviorProbeEnabled, sanitizeBehaviorProbeControl, ensureChatGPTLayoutViewport, executeChatGPTDOMScript, behaviorProbeScript,
   normalizeBehaviorProbeResult, sanitizeChatGPTAuthMode, cancelExternalAuthentication, chatGPTSurfaceShouldBeVisible, chatgptTransportModes, abortChatGPTTransportPreparations, preparedChatGPTDrafts,
-  retryableChatGPTPrompts, expectedChatGPTBundles, manualChatGPTTransport: desktopState.chatgpt.manualChatGPTTransport, startExternalAuthentication, shell, authoritativeBundleFilename, classifyChatGPTRequestDelivery,
+  retryableChatGPTPrompts, expectedChatGPTBundles, manualChatGPTTransport: desktopState.chatgpt.manualChatGPTTransport, startExternalAuthentication, shell: ownedBrowserShell, authoritativeBundleFilename, classifyChatGPTRequestDelivery,
   withChatGPTTransportPreparation, targetChatGPTComposer, chatGPTSubmittedRequestEvidenceScript, chatInputArchiveFilename, disarmExpectedChatGPTBundle, refreshChatAgentRuntimeState, publishChatAgentRuntimeState,
   armExpectedChatGPTBundle, chatAgentInitialRequestWaitMs, durableWorkspaceChatID, persistWorkspaceChatRemoteBestEffort, expectedChatAgentPayload, enqueueChatAgentTask, setChatGPTHumanAction,
   chatGPTResponseCompletionScript, classifyChatGPTConversationTransport, CONVERSATION_TRANSPORT_STALE_MS, reconcileChatGPTConversationTransport, submitChatGPTContinuation, ChatGPTRateLimitDeferral, escalateChatGPTContinuationFailure,

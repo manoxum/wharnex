@@ -146,19 +146,18 @@ function defaultPreflight(plan, env) {
 // cannot gain privileges inside a user namespace.
 export function prepareUpLink(env, { runtimeDir, platform = process.platform, preflight = defaultPreflight, uid = process.getuid?.(), gid = process.getgid?.(), unsharePath = UP_LINK_UNSHARE } = {}) {
   const mode = upLinkMode(env)
-  const inactive = (reason) => {
-    const remedy = reason.includes('pasta') ? ' (install passt; Debian/Ubuntu 24.04+: sudo apt install passt)' : ''
-    if (mode === 'required' && reason !== 'disabled') throw new Error(`up-whx-link is required but unavailable: ${reason}${remedy}`)
-    return { active: false, mode, reason }
-  }
-  if (mode === 'off') return inactive('disabled')
   if (platform !== 'linux') return { active: false, mode, reason: 'unsupported-platform' }
+  if (mode !== 'required') throw new Error('up-whx-link é obrigatório no Linux; WHARNESS_UP_LINK=auto/off não é permitido.')
+  const fail = (reason) => {
+    const remedy = reason.includes('pasta') ? ' (install passt; Debian/Ubuntu 24.04+: sudo apt install passt)' : ''
+    throw new Error(`up-whx-link is required but unavailable: ${reason}${remedy}`)
+  }
   const missing = REQUIRED_TOOLS.filter((tool) => !onPath(tool, env))
   const unshareCommand = upLinkUnshare(env, unsharePath)
   if (!executable(unshareCommand, env)) missing.push(unshareCommand)
-  if (missing.length) return inactive(`missing ${missing.join(', ')}`)
+  if (missing.length) fail(`missing ${missing.join(', ')}`)
   const ports = upLinkPorts(env)
-  if (!ports.length) return inactive('no loopback endpoint to forward')
+  if (!ports.length) fail('no loopback endpoint to forward')
   mkdirSync(runtimeDir, { recursive: true })
   const resolvPath = path.join(runtimeDir, 'up-whx-link.resolv.conf')
   writeFileSync(resolvPath, `nameserver ${UP_LINK_DNS}\noptions edns0 trust-ad\n`, { mode: 0o644 })
@@ -172,7 +171,7 @@ export function prepareUpLink(env, { runtimeDir, platform = process.platform, pr
       break
     } catch (error) {
       if (attempt < PREFLIGHT_ATTEMPTS) continue
-      return inactive(`preflight failed: ${String(error?.message || error).split('\n')[0]}`)
+      fail(`preflight failed: ${String(error?.message || error).split('\n')[0]}`)
     }
   }
   env.WHARNESS_LINUX_SANDBOX_MODE = 'userns'
@@ -193,5 +192,6 @@ export function startUpLink(env, runtimeDir) {
 }
 
 export function upLinkTarget(plan, command, args) {
+  if (process.platform === 'linux' && !plan.active) throw new Error('Desktop bloqueado: up-whx-link inativo.')
   return plan.active ? upLinkCommand({ ...plan, command, args }) : { command, args }
 }

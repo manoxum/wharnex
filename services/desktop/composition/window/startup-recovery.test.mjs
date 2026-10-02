@@ -73,7 +73,8 @@ test('a second launch against the same userData profile hands off to the running
   assert.match(lockBlock, /if \(!path\.isAbsolute\(customUserDataDir\)\) throw new Error\('WHARNESS_DESKTOP_USER_DATA_DIR must be an absolute path'\)/)
   assert.match(lockBlock, /app\.setPath\('userData', path\.normalize\(customUserDataDir\)\)/)
   assert.match(lockBlock, /if \(!app\.requestSingleInstanceLock\(\)\) \{\s*app\.quit\(\)/)
-  assert.match(lockBlock, /app\.on\('second-instance', \(\) => \{/)
+  assert.match(lockBlock, /app\.on\('second-instance', showDesktop\)/)
+  assert.match(lockBlock, /registerDesktopFocusSignal\(\{[\s\S]*showDesktop,/)
   assert.match(main, /configureDesktopProcess\(\{[\s\S]*getMainWindow: \(\) => desktopState\.window\.mainWindow/)
 })
 

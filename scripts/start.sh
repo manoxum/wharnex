@@ -30,21 +30,22 @@ alive() {
 if [ -f "$PID_FILE" ]; then
   pid=$(cat "$PID_FILE" 2>/dev/null || true)
   if alive "$pid"; then
-    # A launcher invocation while the coordinator is alive must still bring
-    # the Desktop back to the foreground. Starting this short-lived second
-    # Electron instance is the narrow, native handoff Electron requires: the
-    # primary process receives `second-instance`, restores a minimized window
-    # and focuses it, while this process immediately exits under its existing
-    # single-instance lock. Merely returning here left the OS launcher inert.
+    # A launcher invocation while the coordinator is alive must bring the
+    # Desktop back to the foreground. On Linux, signal the already-isolated
+    # Electron instead of launching another Chromium process on the host.
     if [ "$(uname -s 2>/dev/null || printf unknown)" = "Linux" ]; then
-      focus_electron=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-runtime.sh" path 2>/dev/null || true)
+      focus_pid=$(cat "$RUN_DIR/electron-main.pid" 2>/dev/null || true)
+      wrapper_pid=$(cat "$RUN_DIR/electron.pid" 2>/dev/null || true)
+      focus_parent=$(awk '/^PPid:/ { print $2 }' "/proc/$focus_pid/status" 2>/dev/null || true)
+      if ! alive "$focus_pid" || [ "$focus_parent" != "$wrapper_pid" ] || ! kill -USR1 "$focus_pid" 2>/dev/null; then
+        echo 'Wharnex coordinator is running without a reachable Desktop; use make restart.' >&2
+        exit 1
+      fi
     else
-      focus_electron=''
+      focus_electron="$ROOT/services/desktop/node_modules/.bin/electron"
+      nohup env WHARNESS_DESKTOP_USER_DATA_DIR="${WHARNESS_DESKTOP_USER_DATA_DIR:-}" "$focus_electron" "$ROOT/services/desktop/main.mjs" \
+        >>"$LOG_FILE" 2>&1 </dev/null &
     fi
-    [ -n "${focus_electron:-}" ] || focus_electron="$ROOT/services/desktop/node_modules/.bin/electron"
-    unset ELECTRON_RUN_AS_NODE 2>/dev/null || true
-    nohup env WHARNESS_DESKTOP_USER_DATA_DIR="${WHARNESS_DESKTOP_USER_DATA_DIR:-}" "$focus_electron" "$ROOT/services/desktop/main.mjs" \
-      >>"$LOG_FILE" 2>&1 </dev/null &
     printf 'Wharnex Desktop is already running (pid %s).\n' "$pid"
     printf 'Requested foreground handoff to the running Desktop.\n'
     printf 'Use: make status | make logs | make stop\n'

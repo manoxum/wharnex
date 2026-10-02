@@ -26,6 +26,7 @@ test('desktop IPC domains register in the original order with live state callbac
   context.agent.state = state
   context.chatgpt.CHATGPT_URL = 'https://chatgpt.com/'
   context.chatgpt.CHATGPT_LOGIN_URL = 'https://chatgpt.com/auth/login'
+  context.chatgpt.shell = { openExternal: async () => {} }
   context.chatgpt.BEHAVIOR_PROBE_CONTROLS = ['closed-control']
   context.chatgpt.getChatAgentScheduler = getScheduler
 
@@ -39,6 +40,7 @@ test('desktop IPC domains register in the original order with live state callbac
   assert.equal(options.get('registerChatGPTSurfaceIPC').homeURL, context.chatgpt.CHATGPT_URL)
   assert.equal(options.get('registerChatGPTAccountIPC').behaviorProbeControls, context.chatgpt.BEHAVIOR_PROBE_CONTROLS)
   assert.equal(options.get('registerChatGPTSessionControlIPC').loginURL, context.chatgpt.CHATGPT_LOGIN_URL)
+  assert.equal(options.get('registerChatGPTSessionControlIPC').openOwnedChatGPTBrowser, context.chatgpt.shell.openExternal)
   assert.equal(options.get('registerExpectedBundleRecoveryIPC').getChatAgentScheduler, getScheduler)
   assert.equal(options.get('registerAgentIPC').state, state)
 })
@@ -55,7 +57,7 @@ test('entrypoint registrar delays IPC setup and passes live agent state', () => 
   ]
   const state = { get scheduler() { return 'live' } }
   const d = Object.fromEntries(names.map((name) => [name, (options) => order.push([name, options])]))
-  Object.assign(d, { ipcMain: {}, trustedSender: () => undefined, agentState: state })
+  Object.assign(d, { ipcMain: {}, trustedSender: () => undefined, agentState: state, shell: { openExternal: async () => {} } })
   const registerIPC = createDesktopIPCRegistrar(d)
   assert.deepEqual(order, [])
   registerIPC()

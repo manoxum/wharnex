@@ -65,7 +65,8 @@ export function registerChatGPTDomainIPC(common, context) {
     manualChatGPTTransport, chatgptViews,
     startExternalAuthentication, loadOwnedChatGPTURL,
     loginURL: CHATGPT_LOGIN_URL, requireTrustedChatGPTURL,
-    homeURL: CHATGPT_URL, shell, openInternalChatGPTBrowser,
+    homeURL: CHATGPT_URL, openOwnedChatGPTBrowser: shell.openExternal,
+    openInternalChatGPTBrowser,
     isTrustedChatGPTOrigin,
   })
   registerExpectedBundleRecoveryIPC({

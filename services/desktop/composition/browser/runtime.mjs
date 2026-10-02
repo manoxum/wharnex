@@ -11,6 +11,8 @@ export function createDesktopBrowserRuntime(d) {
     closeViews: d.closeAllChatGPTViews,
     closeInternalBrowsers: d.closeAllInternalChatGPTBrowsers,
     closeManagedAuth: d.closeManagedBrowserAuth,
+    closeOwnedBrowser: d.shell.closeAll,
+    ownedBrowserProfilePath: d.shell.profileRoot,
     authBrowsers: d.chatGPTAuthBrowsers,
     preparedDrafts: d.preparedChatGPTDrafts,
     retryablePrompts: d.retryableChatGPTPrompts,

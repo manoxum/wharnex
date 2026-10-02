@@ -20,6 +20,12 @@ grep -Fq 'sudo apt install passt' "$fixture/missing.log" || {
   echo 'up-whx-link host check did not explain how to install pasta' >&2
   exit 1
 }
+if WHARNESS_UP_LINK=off PATH="$fixture/path" WHARNESS_ROOT="$ROOT" \
+  /bin/sh "$INSTALLER" check >"$fixture/disabled.log" 2>&1; then
+  echo 'up-whx-link host check accepted an unisolated Desktop' >&2
+  exit 1
+fi
+grep -Fq 'up-whx-link is required on Linux' "$fixture/disabled.log"
 
 printf '#!/usr/bin/env sh\nexit 0\n' >"$fake_unshare"
 chmod 0755 "$fake_unshare"
