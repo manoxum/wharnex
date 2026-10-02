@@ -26,7 +26,7 @@ export function createAgentDependencies() {
     CHAT_AGENT_NAVIGATION_GAP_MS: source9.CHAT_AGENT_NAVIGATION_GAP_MS, CHAT_AGENT_AWAIT_PROBE_MS: source9.CHAT_AGENT_AWAIT_PROBE_MS, chatAgentLane: source9.chatAgentLane,
     orchestratorTaskChat: source9.orchestratorTaskChat, createWorkerPacing: source9.createWorkerPacing, CHATGPT_BEHAVIOR: source9.CHATGPT_BEHAVIOR,
     reasoningEffortStateScript: source9.reasoningEffortStateScript, executeReleaseNotesBundleTask: source9.executeReleaseNotesBundleTask, registerReleaseNotesBundleDownload: source9.registerReleaseNotesBundleDownload,
-    markdownTranslationFilename: source9.markdownTranslationFilename, todoClassificationFilename: source9.todoClassificationFilename, EPHEMERAL_WORKER_TASK_TYPES: source9.EPHEMERAL_WORKER_TASK_TYPES,
+    markdownTranslationFilename: source9.markdownTranslationFilename, todoClassificationFilename: source9.todoClassificationFilename, uiTestingDiscoveryFilename: source9.uiTestingDiscoveryFilename, EPHEMERAL_WORKER_TASK_TYPES: source9.EPHEMERAL_WORKER_TASK_TYPES,
     EPHEMERAL_AGENT_ID: source9.EPHEMERAL_AGENT_ID, EPHEMERAL_WORKER_LABELS: source9.EPHEMERAL_WORKER_LABELS, EPHEMERAL_WORKER_IDLE_RETIRE_MS: source9.EPHEMERAL_WORKER_IDLE_RETIRE_MS,
     EPHEMERAL_WORKER_PACE_PRIORITY: source9.EPHEMERAL_WORKER_PACE_PRIORITY, pollWorkerExpectedDownload: source9.pollWorkerExpectedDownload, registerAgentIPC: source9.registerAgentIPC,
   }

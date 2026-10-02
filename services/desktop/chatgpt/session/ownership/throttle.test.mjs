@@ -9,9 +9,10 @@ test('hidden utility artifacts keep their Worker renderer at full speed until di
     view: { webContents: { isDestroyed: () => false, setBackgroundThrottling: (allowed) => toggles.push(allowed) } },
   }
   const expectedChatGPTTodoClassifications = new Map([['result.zip', { key: 'chat' }]])
+  const expectedChatGPTUITestDiscoveries = new Map([['discovery.zip', { key: 'chat' }]])
   const throttle = createChatGPTThrottle({
     expectedChatGPTBundles: new Map(), expectedChatGPTTranslations: new Map(),
-    expectedChatGPTReleaseNotes: new Map(), expectedChatGPTTodoClassifications,
+    expectedChatGPTReleaseNotes: new Map(), expectedChatGPTTodoClassifications, expectedChatGPTUITestDiscoveries,
     expectedChatGPTOrchestratorPlans: new Map(), chatgptViews: new Map(),
     pendingChatGPTComments: new Map(), windowStateForEntry: () => undefined,
   })
@@ -22,6 +23,9 @@ test('hidden utility artifacts keep their Worker renderer at full speed until di
   throttle.reconcileChatGPTThrottleForKey('chat', worker)
   assert.deepEqual(toggles, [false])
   expectedChatGPTTodoClassifications.clear()
+  throttle.reconcileChatGPTThrottleForKey('chat', worker)
+  assert.deepEqual(toggles, [false])
+  expectedChatGPTUITestDiscoveries.clear()
   throttle.reconcileChatGPTThrottleForKey('chat', worker)
   assert.deepEqual(toggles, [false, true])
   assert.equal(worker.backgroundThrottled, true)

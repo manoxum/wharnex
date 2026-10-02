@@ -1,12 +1,12 @@
 export function createChatGPTThrottle({
   expectedChatGPTBundles, expectedChatGPTTranslations,
-  expectedChatGPTReleaseNotes, expectedChatGPTTodoClassifications,
+  expectedChatGPTReleaseNotes, expectedChatGPTTodoClassifications, expectedChatGPTUITestDiscoveries = new Map(),
   expectedChatGPTOrchestratorPlans, chatgptViews, pendingChatGPTComments,
   windowStateForEntry,
 }) {
   function chatGPTArtifactExpectationArmed(key) {
     if (expectedChatGPTBundles.has(key)) return true
-    for (const map of [expectedChatGPTTranslations, expectedChatGPTReleaseNotes, expectedChatGPTTodoClassifications, expectedChatGPTOrchestratorPlans]) {
+    for (const map of [expectedChatGPTTranslations, expectedChatGPTReleaseNotes, expectedChatGPTTodoClassifications, expectedChatGPTUITestDiscoveries, expectedChatGPTOrchestratorPlans]) {
       for (const expected of map.values()) if (expected?.key === key) return true
     }
     return false

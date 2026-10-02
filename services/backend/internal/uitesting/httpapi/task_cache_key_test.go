@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"kernl.local/harness/backend/internal/domain"
@@ -26,9 +27,10 @@ func TestSyncUsesTaskIDAsDesktopSafeChatCacheKey(t *testing.T) {
 	if err := os.WriteFile(archive, []byte("context"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	contextSHA := strings.Repeat("a", 64)
 	item := domain.Session{
 		ID: "ses_ui", ProjectPath: t.TempDir(),
-		Context: domain.ContextBundle{ZipPath: archive, Manifest: domain.ContextManifest{SHA256: "ctx-sha"}},
+		Context: domain.ContextBundle{ZipPath: archive, Manifest: domain.ContextManifest{SHA256: contextSHA}},
 	}
 	if err := sessions.Put(item); err != nil {
 		t.Fatal(err)
@@ -50,6 +52,13 @@ func TestSyncUsesTaskIDAsDesktopSafeChatCacheKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertDesktopSafeTaskChatID(t, task)
+	var payload discoveryTaskPayload
+	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Protocol != uitesting.DiscoveryRequestProtocolV1 || payload.Request.ContextSHA256 != contextSHA || payload.Request.ResultFilename == "" || payload.ArchiveBase64 == "" {
+		t.Fatalf("unexpected UI discovery transport payload: %#v", payload)
+	}
 }
 
 func TestRunUsesTaskIDAsDesktopSafeChatCacheKey(t *testing.T) {

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,9 +12,8 @@ import (
 )
 
 type discoveryInput struct {
-	ContextSHA256 string                  `json:"context_sha256"`
-	Environments  []uitesting.Environment `json:"environments"`
-	Tests         []uitesting.TestCase    `json:"tests"`
+	Filename     string `json:"filename"`
+	BundleBase64 string `json:"bundle_base64"`
 }
 type credentialInput struct {
 	RunID         string `json:"run_id"`
@@ -36,12 +36,23 @@ func (h *Routes) discovery(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, errors.New("invalid UI discovery result"))
 		return
 	}
-	if strings.TrimSpace(input.ContextSHA256) == "" {
-		writeErr(w, 400, errors.New("context_sha256 is required"))
+	var payload discoveryTaskPayload
+	if json.Unmarshal(task.Payload, &payload) != nil || payload.Protocol != uitesting.DiscoveryRequestProtocolV1 {
+		writeErr(w, 409, errors.New("UI discovery task payload is invalid"))
+		return
+	}
+	bundle, err := base64.StdEncoding.DecodeString(strings.TrimSpace(input.BundleBase64))
+	if err != nil {
+		writeErr(w, 400, errors.New("UI discovery bundle is not valid base64"))
+		return
+	}
+	discovery, err := uitesting.ParseDiscoveryResult(strings.TrimSpace(input.Filename), bundle, payload.Request)
+	if err != nil {
+		writeErr(w, 400, err)
 		return
 	}
 	previous, _ := h.store.Load(task.ProjectID)
-	doc, err := h.store.SaveDiscovery(task.ProjectID, uitesting.Discovery{ContextSHA256: input.ContextSHA256, Environments: input.Environments, Tests: input.Tests})
+	doc, err := h.store.SaveDiscovery(task.ProjectID, discovery)
 	if err != nil {
 		writeErr(w, 500, err)
 		return
