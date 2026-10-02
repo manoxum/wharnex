@@ -9,6 +9,7 @@ export type UITestingDocument = {
   context_sha256?: string
   sync_status: string
   sync_task_id?: string
+  sync_error?: string
   auto_run_changes: boolean
   environments: UITestEnvironment[]
   tests: UITestCase[]

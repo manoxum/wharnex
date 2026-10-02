@@ -11,7 +11,7 @@ export function useUITestingContextSync(session: Session, drawer: Drawer, tools:
     void (async () => {
       try {
         const document = await uiTestingApi.get(session.id)
-        if (!cancelled && document.sync_status !== 'syncing' && document.context_sha256 !== session.context.manifest.sha256) {
+        if (!cancelled && document.sync_status !== 'syncing' && document.sync_status !== 'failed' && document.context_sha256 !== session.context.manifest.sha256) {
           await uiTestingApi.sync(session.id)
         }
       } catch { /* The operator can still synchronize UI Lab manually. */ }

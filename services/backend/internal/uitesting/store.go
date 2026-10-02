@@ -74,6 +74,7 @@ func (s *Store) SaveDiscovery(project string, discovery Discovery) (Document, er
 	state.Document.ContextSHA256 = discovery.ContextSHA256
 	state.Document.SyncStatus = "ready"
 	state.Document.SyncTaskID = ""
+	state.Document.SyncError = ""
 	state.Document.Environments = discovery.Environments
 	state.Document.Tests = discovery.Tests
 	state.Document.UpdatedAt = time.Now().UTC()
@@ -89,6 +90,23 @@ func (s *Store) SetSyncing(project, taskID string) (Document, error) {
 	}
 	state.Document.SyncStatus = "syncing"
 	state.Document.SyncTaskID = taskID
+	state.Document.SyncError = ""
+	state.Document.UpdatedAt = time.Now().UTC()
+	return state.Document, s.save(project, state)
+}
+
+func (s *Store) FailSync(project, taskID, detail string) (Document, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.load(project)
+	if err != nil {
+		return Document{}, err
+	}
+	if state.Document.SyncStatus != "syncing" || state.Document.SyncTaskID != strings.TrimSpace(taskID) {
+		return state.Document, nil
+	}
+	state.Document.SyncStatus = "failed"
+	state.Document.SyncError = strings.TrimSpace(detail)
 	state.Document.UpdatedAt = time.Now().UTC()
 	return state.Document, s.save(project, state)
 }
