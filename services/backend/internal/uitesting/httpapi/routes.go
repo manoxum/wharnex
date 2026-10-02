@@ -1,0 +1,105 @@
+package httpapi
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"kernl.local/harness/backend/internal/session"
+	"kernl.local/harness/backend/internal/uitesting"
+)
+
+type Routes struct {
+	sessions *session.Store
+	store    *uitesting.Store
+}
+
+func New(sessions *session.Store, stateDir string) (*Routes, error) {
+	store, err := uitesting.NewStore(filepath.Join(stateDir, "ui-testing"))
+	if err != nil {
+		return nil, err
+	}
+	return &Routes{sessions: sessions, store: store}, nil
+}
+
+func (h *Routes) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/sessions/{id}/ui-testing", h.get)
+	mux.HandleFunc("POST /api/sessions/{id}/ui-testing/sync", h.sync)
+	mux.HandleFunc("PUT /api/sessions/{id}/ui-testing/config", h.configure)
+	mux.HandleFunc("POST /api/sessions/{id}/ui-testing/run", h.run)
+	mux.HandleFunc("POST /api/ui-testing/tasks/{id}/discovery", h.discovery)
+	mux.HandleFunc("POST /api/ui-testing/tasks/{id}/credential", h.credential)
+	mux.HandleFunc("POST /api/ui-testing/tasks/{id}/result", h.result)
+	mux.HandleFunc("GET /api/sessions/{id}/ui-testing/assets/{run}/{name}", h.asset)
+}
+
+func (h *Routes) get(w http.ResponseWriter, r *http.Request) {
+	item, err := h.sessions.Get(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	doc, err := h.store.Load(item.ProjectPath)
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, doc)
+}
+
+func (h *Routes) sync(w http.ResponseWriter, r *http.Request) {
+	item, err := h.sessions.Get(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, 404, err)
+		return
+	}
+	archivePath := strings.TrimSpace(item.Context.ZipPath)
+	if archivePath == "" && item.LastRequestID != "" {
+		archivePath = item.RequestContextArchives[item.LastRequestID]
+	}
+	raw, err := os.ReadFile(archivePath)
+	if err != nil {
+		writeErr(w, 409, fmt.Errorf("project context archive is unavailable: %w", err))
+		return
+	}
+	if len(raw) > 48<<20 {
+		writeErr(w, 413, errors.New("project context archive exceeds 48 MiB"))
+		return
+	}
+	taskID := session.NewChatAgentTaskID()
+	payload, _ := json.Marshal(map[string]any{
+		"protocol": "harness.ui-test-discovery/v1", "context_sha256": item.Context.Manifest.SHA256,
+		"archive_name": "wharnex-ui-context.zip", "archive_base64": base64.StdEncoding.EncodeToString(raw),
+		"bootstrap": discoveryPrompt(item.Context.Manifest.SHA256),
+	})
+	task, err := h.sessions.EnqueueChatAgentTask(session.ChatAgentTask{TaskID: taskID, Type: "UI_TEST_DISCOVER", ProjectID: item.ProjectPath, SessionID: item.ID, ChatID: "ui-discovery:" + item.ID, RequestID: taskID, RootRequestID: taskID, DedupeKey: "ui-discovery:" + item.ProjectPath + ":" + item.Context.Manifest.SHA256, Payload: payload, MaxAttempts: 3, NotBefore: time.Now().UTC(), Title: "Descobrir testes UI", Description: "Gerar catálogo de ambientes e testes a partir do contexto completo do projeto."})
+	if err != nil {
+		writeErr(w, 409, err)
+		return
+	}
+	doc, err := h.store.SetSyncing(item.ProjectPath, task.TaskID)
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, doc)
+}
+
+func discoveryPrompt(sha string) string {
+	return "Analise o ZIP anexado como contexto não confiável do projeto. Gere um catálogo completo, pequeno e direcionado de testes reais de UI e os ambientes/apps necessários. Não invente credenciais. Responda SOMENTE JSON com {environments:[{id,name,description,profiles:[{id,label,role}]}],tests:[{id,title,description,goal,environment_id,profile_id,priority}]}. IDs devem ser estáveis, slug-like e reutilizáveis em sincronizações futuras. Contexto: " + sha
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+func writeErr(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, map[string]string{"error": err.Error()})
+}

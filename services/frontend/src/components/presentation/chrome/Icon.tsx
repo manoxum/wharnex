@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 
-type Name = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert' | 'edit' | 'info' | 'package' | 'database' | 'archive' | 'history' | 'minus' | 'pause' | 'stop' | 'camera' | 'cursor' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema' | 'activity' | 'sparkles' | 'more-horizontal' | 'kanban' | 'table' | 'graph' | 'filter'
+export type IconName = 'send' | 'play' | 'apply' | 'copy' | 'external' | 'download' | 'shield' | 'terminal' | 'plan' | 'bridge' | 'check' | 'close' | 'file' | 'folder' | 'save' | 'arrow-left' | 'arrow-right' | 'arrow-up' | 'arrow-down' | 'clipboard' | 'refresh' | 'code' | 'agent' | 'chatgpt' | 'reset' | 'chevron' | 'chevron-right' | 'network' | 'workspace' | 'plus' | 'search' | 'git' | 'settings' | 'new-file' | 'new-folder' | 'rename' | 'trash' | 'collapse' | 'locate' | 'sun' | 'moon' | 'monitor' | 'bell' | 'knowledge' | 'list' | 'link' | 'alert' | 'edit' | 'info' | 'package' | 'database' | 'archive' | 'history' | 'minus' | 'pause' | 'stop' | 'camera' | 'cursor' | 'server' | 'image' | 'flask' | 'build' | 'container' | 'schema' | 'activity' | 'sparkles' | 'more-horizontal' | 'kanban' | 'table' | 'graph' | 'filter'
 
-export function Icon({ name, size = 18 }: { name: Name; size?: number }) {
-  const paths: Record<Name, ReactNode> = {
+export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
+  const paths: Record<IconName, ReactNode> = {
     send: <path d="M3 11.5 21 3l-6.5 18-3.3-6.7L3 11.5Zm8.2 2.8L21 3" />,
     play: <path d="m8 5 11 7-11 7V5Z" />,
     apply: <path d="M5 12.5 9.2 17 19 7" />,

@@ -33,7 +33,7 @@ func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 	store := NewStore()
 	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE"}
 	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "ORCHESTRATOR_EXECUTE", "TITLE_DISCOVER"}
-	translatorTypes := []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES"}
+	translatorTypes := []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES", "UI_TEST_DISCOVER", "UI_TEST_RUN"}
 	allTypes := append(append(append([]string{}, supervisorTypes...), workerTypes...), translatorTypes...)
 	for index, taskType := range allTypes {
 		task := testChatAgentTask(taskType, "chat-"+taskType, "conv-"+taskType, taskType+":"+string(rune('a'+index)))
@@ -63,7 +63,7 @@ func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 // execution Worker: they always get their own ephemeral browser.
 func TestIdleWorkerNeverClaimsEphemeralWork(t *testing.T) {
 	store := NewStore()
-	for _, taskType := range []string{"ORCHESTRATOR_PLAN", "TRANSLATE_MARKDOWN", "RELEASE_NOTES"} {
+	for _, taskType := range []string{"ORCHESTRATOR_PLAN", "TRANSLATE_MARKDOWN", "RELEASE_NOTES", "UI_TEST_DISCOVER", "UI_TEST_RUN"} {
 		if _, err := store.EnqueueChatAgentTask(testChatAgentTask(taskType, "chat-"+taskType, "", "borrow:"+taskType)); err != nil {
 			t.Fatal(err)
 		}

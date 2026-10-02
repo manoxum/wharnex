@@ -117,7 +117,7 @@ test('TODO classification stays behind user-facing work but ages normally', asyn
 })
 
 test('task catalog covers approved scheduler verbs', () => {
-  for (const type of ['TRANSLATE_MARKDOWN', 'RELEASE_NOTES', 'TODO_CLASSIFY', 'ORCHESTRATOR_PLAN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT']) {
+  for (const type of ['TRANSLATE_MARKDOWN', 'RELEASE_NOTES', 'UI_TEST_DISCOVER', 'UI_TEST_RUN', 'TODO_CLASSIFY', 'ORCHESTRATOR_PLAN', 'BOT_WRITE', 'RECOVERY_WRITE', 'AWAIT_RESPONSE', 'TITLE_DISCOVER', 'ORGANIZE_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_BUNDLE', 'DELETE_TEMP_CHAT']) {
     assert.ok(TASK_TYPES.includes(type), type)
   }
 })

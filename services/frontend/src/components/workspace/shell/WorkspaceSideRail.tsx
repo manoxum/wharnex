@@ -14,6 +14,8 @@ import { WORKSPACE_DRAWERS, workspaceDrawerLabel, type Drawer } from '../../../l
 import { drawerResizeCeiling, WORKBENCH_SIDE_PANEL_MIN_PX } from '../../../lib/workspace/layout/workbenchResize'
 import { InternalWindowPersistenceContext, usePersistentInternalWindowOwners } from '../../../lib/workspace/layout/internalWindowPersistence'
 import { ChatManagementDrawer } from '../../chat/panel/ChatManagementDrawer'
+import { useUITestingContextSync } from '../../project/ui-testing/useUITestingContextSync'
+import { isWorkspaceTool, workspaceToolMeta } from './workspaceToolPresentation'
 
 export type { Drawer } from '../../../lib/workspace/layout/workspaceDrawer'
 
@@ -35,6 +37,7 @@ const ArtifactExplorerPanel = lazy(() => import('../../artifacts/explorer/Artifa
 const DatabaseExplorerPanel = lazy(() => import('../../database/browser/DatabaseExplorerPanel').then((m) => ({ default: m.DatabaseExplorerPanel })))
 const ProjectTodoPanel = lazy(() => import('../../project/tasks/ProjectTodoPanel').then((m) => ({ default: m.ProjectTodoPanel })))
 const DockerServicesPanel = lazy(() => import('../../docker/services/DockerServicesPanel').then((m) => ({ default: m.DockerServicesPanel })))
+const UITestingPanel = lazy(() => import('../../project/ui-testing/UITestingPanel').then((m) => ({ default: m.UITestingPanel })))
 
 function DrawerFallback() {
   return <PanelSkeleton/>
@@ -112,8 +115,6 @@ export type WorkspaceSideRailProps = {
   onDrawerWidth?: (width: number) => void
 }
 
-type ToolMeta = { label: string; title: string; icon: ComponentProps<typeof Icon>['name']; drawer?: Exclude<Drawer, ''>; badge?: number }
-
 export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const { session, busy, drawer, onDrawer, archivedChats, attentionItems, executionFIFO, onError } = props
   const attentionHistoryItems = props.attentionHistoryItems || []
@@ -139,6 +140,8 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     return () => { cancelled = true }
   }, [session.id, session.last_host_applied_at, drawer, pinnedTools, tools])
 
+  useUITestingContextSync(session, drawer, tools, pinnedTools)
+
   const persistenceScope = `${session.project_path}\n${side}`
   const { mountedOwners: mountedDrawers, ownerFor: drawerOwner, register: registerPersistentWindow } = usePersistentInternalWindowOwners(persistenceScope, WORKSPACE_DRAWERS, drawer)
   const toggle = (next: Exclude<Drawer, ''>) => onDrawer(drawer === next ? '' : next)
@@ -154,22 +157,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   }
   const reloadPanel = (candidate: Exclude<Drawer, ''>) => setPanelReloads((current) => ({ ...current, [candidate]: (current[candidate] || 0) + 1 }))
 
-  function toolMeta(tool: WorkspaceTool): ToolMeta {
-    if (tool === 'todo') return { label: 'TODO do projeto', title: 'Ideias, necessidades, erros e melhorias', icon: 'check', drawer: 'todo' }
-    if (tool === 'archive') return { label: 'Gestão de chats', title: 'Chats guardados e arquivados', icon: 'archive', drawer: 'archive', badge: savedChats.length + archivedChats.length }
-    if (tool === 'project') return { label: 'Explorador do projeto', title: 'Explorador do projeto', icon: 'workspace', drawer: 'project' }
-    if (tool === 'library') return { label: 'Biblioteca de ficheiros', title: 'Biblioteca de ficheiros', icon: 'package', drawer: 'library' }
-    if (tool === 'knowledge') return { label: 'Conhecimento do projeto', title: 'Conhecimento adquirido', icon: 'knowledge', drawer: 'knowledge' }
-    if (tool === 'git') return { label: 'Git do projeto', title: 'Git do projeto', icon: 'git', drawer: 'git', badge: pendingCommitCount }
-    if (tool === 'agents') return { label: 'Gestão de agentes', title: 'Supervisor e Workers', icon: 'agent', drawer: 'agents' }
-    if (tool === 'external-agents') return { label: 'Hub de agentes IA', title: 'Codex, Claude Code e Cline', icon: 'sparkles', drawer: 'external-agents' }
-    if (tool === 'tasks') return { label: 'Tarefas do projeto', title: 'Chats, workers, traduções, orquestração e execuções', icon: 'list', drawer: 'tasks' }
-    if (tool === 'errors') return { label: 'Erros de execução', title: 'Ocorrências, causas, logs e soluções', icon: 'alert', drawer: 'errors' }
-    if (tool === 'evolution') return { label: 'Logs de auto-evolução', title: 'Logs e análise de auto-evolução', icon: 'refresh', drawer: 'evolution' }
-    if (tool === 'database') return { label: 'Database connection', title: 'Database connection', icon: 'database', drawer: 'database' }
-    if (tool === 'docker') return { label: 'Docker', title: 'Containers, imagens, volumes e redes', icon: 'container', drawer: 'docker' }
-    return { label: props.terminalOpen ? 'Fechar terminal' : 'Abrir terminal', title: props.terminalOpen ? 'Fechar terminal' : 'Abrir terminal do projeto', icon: 'terminal' }
-  }
+
 
   function beginToolDrag(event: React.DragEvent<HTMLButtonElement>, tool: WorkspaceTool) {
     event.dataTransfer.effectAllowed = 'move'
@@ -207,7 +195,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   }
 
   const renderTool = (tool: WorkspaceTool, pinned: boolean) => {
-    const meta = toolMeta(tool)
+    const meta = workspaceToolMeta(tool, { terminalOpen: props.terminalOpen, pendingCommitCount, savedChatCount: savedChats.length + archivedChats.length })
     const active = tool === 'terminal' ? props.terminalOpen : meta.drawer === drawer
     return <button key={tool} type="button" draggable={Boolean(props.onMoveTool)} data-workspace-tool={tool} data-pinned={pinned ? 'true' : 'false'} className={`${active ? 'active' : ''} ${tool === 'terminal' ? 'workspace-rail-terminal' : ''}`.trim()} onDragStart={(event) => beginToolDrag(event, tool)} onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event, tool, pinned)} onClick={() => tool === 'terminal' ? props.onToggleTerminal() : meta.drawer && toggle(meta.drawer)} aria-pressed={tool === 'terminal' ? props.terminalOpen : undefined} aria-label={meta.label} title={`${meta.title}${props.onMoveTool ? pinned ? ' · fixado em baixo · arraste para mover' : ' · arraste para reorganizar ou fixe em baixo' : ''}`}><Icon name={meta.icon} size={20}/>{Boolean(meta.badge) && <b>{meta.badge}</b>}</button>
   }
@@ -255,6 +243,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
         {candidate === 'errors' ? <ExecutionErrorsDrawer chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} onClose={close}/> : null}
         {candidate === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
         {candidate === 'database' ? <div className="workspace-database-drawer"><DatabaseExplorerPanel onError={onError}/><button type="button" className="workspace-right-close" onClick={close} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button></div> : null}
+        {candidate === 'ui-testing' ? <UITestingPanel session={session} onError={onError}/> : null}
         {candidate === 'docker' ? <DockerServicesPanel session={session} onError={onError} onClose={close} onRunInTerminal={props.onRunInTerminal}/> : null}
         </Suspense>
       </InternalWindowPersistenceContext.Provider>
@@ -284,9 +273,6 @@ function rootUIFontScale() {
   if (typeof document === 'undefined') return 1
   const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-font-scale'))
   return Number.isFinite(value) && value > 0 ? value : 1
-}
-function isWorkspaceTool(value: string): value is WorkspaceTool {
-  return ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'external-agents', 'tasks', 'errors', 'evolution', 'terminal', 'database', 'docker'].includes(value)
 }
 function AttentionCenterDrawer({ items, historyItems, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; historyItems: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
   const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable' | 'history'>('all')

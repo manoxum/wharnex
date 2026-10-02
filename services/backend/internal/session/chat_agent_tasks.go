@@ -77,6 +77,8 @@ func chatAgentTaskSource(taskType string) string {
 		return "release"
 	case "TODO_CLASSIFY":
 		return "todo"
+	case "UI_TEST_DISCOVER", "UI_TEST_RUN":
+		return "ui-testing"
 	case "ORCHESTRATOR_PLAN":
 		return "orchestration"
 	case "ORCHESTRATOR_EXECUTE":
@@ -167,7 +169,7 @@ func chatAgentTaskActive(status string) bool {
 }
 
 var chatAgentWriterTypes = []string{
-	"TRANSLATE_MARKDOWN", "RELEASE_NOTES", "TODO_CLASSIFY", "ORCHESTRATOR_PLAN", "ORCHESTRATOR_EXECUTE", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
+	"TRANSLATE_MARKDOWN", "RELEASE_NOTES", "TODO_CLASSIFY", "UI_TEST_DISCOVER", "UI_TEST_RUN", "ORCHESTRATOR_PLAN", "ORCHESTRATOR_EXECUTE", "BOT_WRITE", "RECOVERY_WRITE", "ORGANIZE_CHAT", "RENAME_CHAT", "ARCHIVE_CHAT", "DELETE_CHAT", "DELETE_TEMP_CHAT",
 }
 
 var chatAgentAccountTypes = []string{
@@ -285,7 +287,7 @@ func chatAgentTaskForSupervisorSQL(alias string) string {
 // "translator"): each claim gets its own browser that lives until the task
 // settles. They never wait behind, or take a slot of, the persistent Workers,
 // whose configured count and auto scale serve Orchestrator execution.
-var chatAgentEphemeralTypes = []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES"}
+var chatAgentEphemeralTypes = []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES", "UI_TEST_DISCOVER", "UI_TEST_RUN"}
 
 func chatAgentTaskEphemeral(taskType string) bool {
 	return chatAgentTaskTypeIn(taskType, chatAgentEphemeralTypes)

@@ -8,6 +8,8 @@ var chatAgentPriorities = map[string]int{
 	"ORCHESTRATOR_PLAN":    -2,
 	"ORCHESTRATOR_EXECUTE": -1,
 	"RELEASE_NOTES":        -1,
+	"UI_TEST_DISCOVER":     -1,
+	"UI_TEST_RUN":          0,
 	"BOT_WRITE":            0, "RECOVERY_WRITE": 0,
 	"AWAIT_RESPONSE": 1,
 	"TITLE_DISCOVER": 2, "TITLE_GENERATE_TEMP": 2, "TITLE_AWAIT": 2,
