@@ -50,7 +50,38 @@ func (h *Routes) get(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err)
 		return
 	}
+	doc, err = h.reconcileSyncTask(item.ProjectPath, doc)
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
 	writeJSON(w, 200, doc)
+}
+
+func (h *Routes) reconcileSyncTask(project string, doc uitesting.Document) (uitesting.Document, error) {
+	if doc.SyncStatus != "syncing" || strings.TrimSpace(doc.SyncTaskID) == "" {
+		return doc, nil
+	}
+	task, err := h.sessions.GetChatAgentTask(doc.SyncTaskID)
+	if errors.Is(err, session.ErrChatAgentTaskNotFound) {
+		return h.store.FailSync(project, doc.SyncTaskID, "A tarefa de sincronização já não está disponível. Tente sincronizar novamente.")
+	}
+	if err != nil {
+		return doc, err
+	}
+	var detail string
+	switch task.Status {
+	case session.ChatAgentTaskFailed, session.ChatAgentTaskAttention, session.ChatAgentTaskCancelled:
+		detail = strings.TrimSpace(task.LastError)
+		if detail == "" {
+			detail = "A sincronização do UI Lab terminou sem concluir a descoberta."
+		}
+	case session.ChatAgentTaskDone:
+		detail = "A tarefa de sincronização terminou sem guardar o catálogo de testes. Tente sincronizar novamente."
+	default:
+		return doc, nil
+	}
+	return h.store.FailSync(project, doc.SyncTaskID, detail)
 }
 
 func (h *Routes) sync(w http.ResponseWriter, r *http.Request) {

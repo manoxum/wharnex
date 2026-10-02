@@ -64,6 +64,7 @@ type Document struct {
 	ContextSHA256  string        `json:"context_sha256,omitempty"`
 	SyncStatus     string        `json:"sync_status"`
 	SyncTaskID     string        `json:"sync_task_id,omitempty"`
+	SyncError      string        `json:"sync_error,omitempty"`
 	AutoRunChanges bool          `json:"auto_run_changes"`
 	Environments   []Environment `json:"environments"`
 	Tests          []TestCase    `json:"tests"`

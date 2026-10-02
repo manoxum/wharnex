@@ -6,7 +6,7 @@ _(reserved — no entries yet)_
 
 ### Chat 9c2ddb50-7c1f-48df-a13f-d436ed75b5f3 (2026-10-01)
 
-_(reserved — no entries yet)_
+- Corrige o UI Lab para reconciliar tarefas de descoberta que terminam sem catálogo, mostrar o erro e permitir nova sincronização em vez de ficar indefinidamente em “A analisar…”.
 
 
 ### Chat 84dab7d2-6ecf-4945-9f85-09d954e5d25f (2026-10-01)
