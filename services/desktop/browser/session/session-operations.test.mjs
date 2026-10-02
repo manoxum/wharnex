@@ -28,6 +28,8 @@ test('pending session import restores the validated archive and deletes its stag
 test('clear session drops pending requests and private browser state', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wharnex-browser-'))
   const profile = path.join(root, 'auth-profile')
+  const linkProfile = path.join(root, 'link-profile')
+  await writeFile(linkProfile, 'private browser state')
   const cleared = []
   const chatSession = {
     clearStorageData: async () => { cleared.push('storage') },
@@ -41,6 +43,8 @@ test('clear session drops pending requests and private browser state', async () 
   const operations = createBrowserSessionOperations({
     session: { fromPartition: () => chatSession }, partition: 'persist:chatgpt',
     authProfilePath: () => profile, closeViews: () => cleared.push('views'),
+    ownedBrowserProfilePath: () => linkProfile,
+    closeOwnedBrowser: () => cleared.push('owned'),
     closeInternalBrowsers: () => cleared.push('browsers'),
     closeManagedAuth: async () => { cleared.push('auth') },
     authBrowsers: new Map([['one', {}]]), preparedDrafts: drafts,
@@ -49,7 +53,8 @@ test('clear session drops pending requests and private browser state', async () 
   })
   try {
     assert.deepEqual(await operations.clearSession(), { ok: true })
-    assert.deepEqual(cleared, ['views', 'browsers', 'auth', 'storage', 'cache', 'flush'])
+    assert.deepEqual(cleared, ['views', 'browsers', 'auth', 'owned', 'storage', 'cache', 'flush'])
+    await assert.rejects(readFile(linkProfile), { code: 'ENOENT' })
     assert.equal(drafts.size + prompts.size + bundles.size, 0)
     assert.equal(recentCleared, true)
   } finally { await rm(root, { recursive: true, force: true }) }

@@ -9,6 +9,7 @@ export function createBrowserSessionOperations({
   pendingImportPath, attachmentRoot, closeViews, closeInternalBrowsers,
   closeManagedAuth, authBrowsers, preparedDrafts, retryablePrompts,
   expectedBundles, clearRecentDownload, snapshot, restore, size,
+  closeOwnedBrowser = () => {}, ownedBrowserProfilePath,
 }) {
   async function exportSession(windowState) {
     const chatSession = session.fromPartition(partition)
@@ -59,6 +60,7 @@ export function createBrowserSessionOperations({
     closeViews()
     closeInternalBrowsers()
     for (const record of records) await closeManagedAuth(record)
+    closeOwnedBrowser()
     preparedDrafts.clear()
     retryablePrompts.clear()
     expectedBundles.clear()
@@ -68,12 +70,14 @@ export function createBrowserSessionOperations({
     await chatSession.clearCache()
     await chatSession.flushStorageData()
     await rm(authProfilePath(), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    if (ownedBrowserProfilePath) await rm(ownedBrowserProfilePath(), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     return { ok: true }
   }
 
   async function storageUsage() {
     const userData = app.getPath('userData')
     const browserBytes = await size(partitionPath()) + await size(authProfilePath())
+      + (ownedBrowserProfilePath ? await size(ownedBrowserProfilePath()) : 0)
     const attachmentBytes = await size(attachmentRoot())
     let tempBytes = 0
     let entries = []

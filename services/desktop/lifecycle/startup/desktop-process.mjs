@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { registerDesktopFocusSignal } from './focus-signal.mjs'
 
 export function configureDesktopProcess({ app, BrowserWindow, environment, platform, processTarget, logger, getMainWindow }) {
   // Some Linux networks advertise IPv6 while dropping HTTPS connections on
@@ -28,7 +29,7 @@ export function configureDesktopProcess({ app, BrowserWindow, environment, platf
   if (!app.requestSingleInstanceLock()) {
     app.quit()
   } else {
-    app.on('second-instance', () => {
+    const showDesktop = () => {
       // The browser host is a one-pixel, unfocusable window; never raise it.
       const main = getMainWindow()
       const win = main && main.isDestroyed?.() !== true ? main : BrowserWindow.getAllWindows().find((candidate) => candidate.isFocusable?.() !== false)
@@ -36,6 +37,10 @@ export function configureDesktopProcess({ app, BrowserWindow, environment, platf
       if (win.isMinimized()) win.restore()
       win.show()
       win.focus()
+    }
+    app.on('second-instance', showDesktop)
+    if (platform === 'linux') registerDesktopFocusSignal({
+      processTarget, runtimeDir: environment.WHARNESS_RUNTIME_DIR, showDesktop,
     })
   }
 }

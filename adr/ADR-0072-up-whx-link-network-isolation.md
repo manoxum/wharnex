@@ -1,4 +1,4 @@
-# ADR-0072 — up-whx-link: network isolation for the Desktop's embedded ChatGPT
+# ADR-0072 — up-whx-link: network isolation for Desktop browsers
 
 - Status: accepted
 - Date: 2026-09-24
@@ -68,15 +68,23 @@ The implementation is `services/desktop/host/up-whx-link.mjs`, called by
    the `passt` package provides `pasta`; a missing package is reported with an
    installation command rather than becoming an unexplained Desktop crash.
 
-`WHARNESS_UP_LINK` selects the mode:
+`WHARNESS_UP_LINK=required` is the Linux mode. Legacy `auto` and `off` settings
+are rejected: a Desktop without the namespace would recreate the reported
+network-change failures. The build's host dependency check also rejects those
+settings, so an unusable installation fails before launch.
 
-- `required` (default on Linux): refuse to start without the up-link. An
-  embedded automated ChatGPT pool must not silently run in the host network
-  namespace because that recreates the failure this ADR exists to prevent.
-- `auto`: compatibility mode for an explicitly selected unisolated fallback.
-  It uses the up-link when its dependencies and preflight are ready; otherwise
-  it records the reason and launches without it.
-- `off`: never use it.
+Every HTTP(S) link the Desktop opens externally starts Chrome/Chromium/Brave
+directly with a Wharnex-owned per-Desktop profile under
+`ManagedBrowser/LinkProfile`. Electron's
+`shell.openExternal` is not used for browser URLs because a system URL handler
+can hand them to a Chrome instance already running in the host namespace.
+The external launcher compares its network namespace to its host-side parent before
+spawning and refuses the request if they match. Embedded Supervisor, Worker,
+and internal views inherit Electron's namespace; the managed authentication
+browser is spawned by Electron and inherits it too. Browser-session clearing
+closes the owned link browser and removes its private profile. When `make start`
+finds an existing Linux Desktop, it signals that isolated Electron to raise its
+window instead of starting a second Electron in the host namespace.
 
 The decision is logged (`[up-whx-link] active|inactive …`), recorded in
 `.harness/run/up-whx-link.state`, and shown by `make status`.
@@ -112,10 +120,9 @@ turned a flap into a request burst that ChatGPT answered with HTTP 429.
   roams, for example the WireGuard tunnel of ADR-0069. That is not decided here.
 - Start-up takes about 1.5 s longer: the preflight, plus waiting for the
   namespace to settle.
-- Processes started by the Desktop (managed authentication browser,
-  `xdg-open`) inherit the namespace. `xdg-open` normally hands the URL to an
-  already-running browser outside it.
-- Hosts without `pasta` keep the previous behaviour in `auto` mode.
+- Wharnex-owned external browsers inherit the namespace and use a separate
+  profile, so they cannot delegate to a pre-existing host Chrome instance.
+- Hosts without `pasta` cannot start the Linux Desktop until it is installed.
 - A normal operator `make build` may request privilege once when the scoped
   AppArmor profile/helper is absent or stale. Subsequent builds verify the
   installed bytes and live namespace probe without privilege or mutation.
