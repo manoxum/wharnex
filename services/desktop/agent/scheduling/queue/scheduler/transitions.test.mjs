@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ChatAgentSchedulerClient } from './chat-agent-scheduler.mjs'
+import { ChatAgentSchedulerClient } from './client.mjs'
 
 test('task transitions ask the engine for a minimal acknowledgement', async () => {
   const seen = []

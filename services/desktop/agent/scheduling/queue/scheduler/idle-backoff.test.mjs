@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { chatAgentIdleDelay, DEFAULT_CHAT_AGENT_IDLE_CEILING_MS } from './chat-agent-idle-backoff.mjs'
+import { chatAgentIdleDelay, DEFAULT_CHAT_AGENT_IDLE_CEILING_MS } from './idle-backoff.mjs'
 
 test('empty claims back off exponentially up to the ceiling', () => {
   assert.deepEqual([1, 2, 3, 4, 5].map((streak) => chatAgentIdleDelay(streak, 750)), [750, 1500, 3000, 3000, 3000])
