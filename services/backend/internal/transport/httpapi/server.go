@@ -25,6 +25,7 @@ import (
 	"kernl.local/harness/backend/internal/pairing"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
+	monitorhttp "kernl.local/harness/backend/internal/transport/httpapi/browsermonitor"
 	"kernl.local/harness/backend/internal/transport/httpapi/settings"
 	uitestinghttp "kernl.local/harness/backend/internal/uitesting/httpapi"
 	"kernl.local/harness/backend/internal/utility"
@@ -88,7 +89,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/workspace-attention", a.workspaceAttention)
 	// Durable workspace chat index and transcripts (previously localStorage).
 	mux.HandleFunc("GET /api/workspace-chats", a.listWorkspaceChats)
-	a.registerBrowserMonitorRoutes(mux)
+	monitorhttp.Register(mux, service.BrowserMonitorChats)
 	mux.HandleFunc("PUT /api/workspace-chats/{id}", a.saveWorkspaceChat)
 	mux.HandleFunc("PATCH /api/workspace-chats/{id}/remote", a.updateWorkspaceChatRemote)
 	mux.HandleFunc("GET /api/workspace-chats/{id}/binding-recovery", a.recoverWorkspaceChatBinding)
