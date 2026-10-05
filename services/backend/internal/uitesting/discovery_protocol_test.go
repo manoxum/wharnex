@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"io"
+	"io/fs"
 	"strings"
 	"testing"
 )
@@ -68,4 +70,92 @@ func discoveryResultBundle(t *testing.T, payload []byte) []byte {
 		t.Fatal(err)
 	}
 	return buffer.Bytes()
+}
+
+func TestDiscoveryBundleRejectsTrailingResponseData(t *testing.T) {
+	manifest, _, err := BuildDiscoveryRequest("cat_1234567890abcdef1234", strings.Repeat("a", 64), []byte("ctx"), DiscoveryRequestMetadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(DiscoveryResult{Protocol: DiscoveryResultProtocolV1, Task: DiscoveryTask, TaskID: manifest.TaskID, ContextSHA256: manifest.ContextSHA256, SourceSHA256: manifest.SourceSHA256})
+	for _, trailing := range []string{`{}`, `false`, `untrusted trailing prose`} {
+		t.Run(trailing, func(t *testing.T) {
+			if _, err := ParseDiscoveryResult(manifest.ResultFilename, discoveryResultBundle(t, append(payload, []byte(trailing)...)), manifest); err == nil {
+				t.Fatal("trailing response data must be rejected")
+			}
+		})
+	}
+}
+
+func TestDiscoveryRequestContainsInstructionsAndExactContext(t *testing.T) {
+	context := []byte("untrusted project input")
+	manifest, bundle, err := BuildDiscoveryRequest("cat_1234567890abcdef1234", strings.Repeat("a", 64), context, DiscoveryRequestMetadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(bundle), int64(len(bundle)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reader.File) != 3 {
+		t.Fatalf("got %d entries", len(reader.File))
+	}
+	entries := map[string][]byte{}
+	for _, entry := range reader.File {
+		opened, err := entry.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := io.ReadAll(opened)
+		opened.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries[entry.Name] = raw
+	}
+	var stored DiscoveryTransportManifest
+	if err := json.Unmarshal(entries[DiscoveryTransportPath], &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != manifest {
+		t.Fatal("transport differs from engine contract")
+	}
+	if !bytes.Equal(entries[DiscoveryContextPath], context) {
+		t.Fatal("context changed")
+	}
+	if !bytes.Contains(entries[DiscoveryPromptPath], []byte(manifest.ResultFilename)) {
+		t.Fatal("instructions omit expected response")
+	}
+	if strings.Contains(DiscoveryRequestBootstrap(manifest), string(context)) {
+		t.Fatal("project input leaked into composer")
+	}
+}
+
+func TestDiscoveryBundleRejectsUnsafeResultEntries(t *testing.T) {
+	manifest, _, err := BuildDiscoveryRequest("cat_1234567890abcdef1234", strings.Repeat("a", 64), []byte("ctx"), DiscoveryRequestMetadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(DiscoveryResult{Protocol: DiscoveryResultProtocolV1, Task: DiscoveryTask, TaskID: manifest.TaskID, ContextSHA256: manifest.ContextSHA256, SourceSHA256: manifest.SourceSHA256})
+	for _, mode := range []fs.FileMode{fs.ModeSymlink, fs.ModeNamedPipe, fs.ModeSocket, fs.ModeDevice, fs.ModeDir} {
+		t.Run(mode.String(), func(t *testing.T) {
+			var buffer bytes.Buffer
+			writer := zip.NewWriter(&buffer)
+			header := &zip.FileHeader{Name: DiscoveryResultPath}
+			header.SetMode(mode | 0600)
+			entry, err := writer.CreateHeader(header)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := entry.Write(payload); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ParseDiscoveryResult(manifest.ResultFilename, buffer.Bytes(), manifest); err == nil {
+				t.Fatal("non-regular result entry accepted")
+			}
+		})
+	}
 }

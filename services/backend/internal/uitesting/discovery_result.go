@@ -30,7 +30,7 @@ func ParseDiscoveryResult(filename string, bundle []byte, request DiscoveryTrans
 	}
 	entry := reader.File[0]
 	name := strings.ReplaceAll(entry.Name, "\\", "/")
-	if name != DiscoveryResultPath || path.Clean(name) != name || entry.FileInfo().IsDir() || entry.Mode()&0o120000 != 0 {
+	if name != DiscoveryResultPath || path.Clean(name) != name || !entry.Mode().IsRegular() {
 		return Discovery{}, fmt.Errorf("UI discovery bundle has an invalid result entry")
 	}
 	opened, err := entry.Open()
@@ -42,11 +42,12 @@ func ParseDiscoveryResult(filename string, bundle []byte, request DiscoveryTrans
 	if err != nil || len(raw) > MaxDiscoveryResultSize {
 		return Discovery{}, fmt.Errorf("read UI discovery result")
 	}
+	if request.Protocol == DiscoveryRequestProtocolV2 {
+		return parseDiscoveryResultV2(raw, request)
+	}
 	var result DiscoveryResult
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&result); err != nil {
-		return Discovery{}, fmt.Errorf("decode UI discovery result: %w", err)
+	if err := decodeSingleDocument(raw, &result); err != nil {
+		return Discovery{}, err
 	}
 	if result.Protocol != DiscoveryResultProtocolV1 || result.Task != DiscoveryTask || result.TaskID != request.TaskID || result.ContextSHA256 != request.ContextSHA256 || result.SourceSHA256 != request.SourceSHA256 {
 		return Discovery{}, fmt.Errorf("UI discovery result does not match its request")
@@ -54,7 +55,20 @@ func ParseDiscoveryResult(filename string, bundle []byte, request DiscoveryTrans
 	if err := validateDiscoveryCatalog(result.Environments, result.Tests); err != nil {
 		return Discovery{}, err
 	}
-	return Discovery{ContextSHA256: result.ContextSHA256, Environments: result.Environments, Tests: result.Tests}, nil
+	return Discovery{ContextSHA256: result.ContextSHA256, Origin: DiscoveryOriginSync, Replace: true, Environments: result.Environments, Tests: result.Tests}, nil
+}
+
+// decodeSingleDocument strictly decodes exactly one JSON document.
+func decodeSingleDocument(raw []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("decode UI discovery result: %w", err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return fmt.Errorf("UI discovery result must contain exactly one JSON document")
+	}
+	return nil
 }
 
 func validateDiscoveryCatalog(environments []Environment, tests []TestCase) error {

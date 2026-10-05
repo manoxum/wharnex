@@ -93,7 +93,7 @@ test('Translator claim eligibility tracks current demand and a live Desktop wind
   assert.equal(scheduler.options.role, 'translator')
   assert.equal(scheduler.options.claimOptions().skip, true)
   due = 1
-  assert.deepEqual(scheduler.options.claimOptions(), { skip: false, project_scoped: true, open_projects: ['/project'] })
+  assert.deepEqual(scheduler.options.claimOptions(), { skip: false, project_scoped: true, open_projects: ['/project'], excluded_types: [] })
   windows.clear()
   assert.equal(scheduler.options.claimOptions().skip, true)
 })

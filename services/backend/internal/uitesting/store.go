@@ -45,42 +45,6 @@ func (s *Store) Load(project string) (Document, error) {
 	return state.Document, err
 }
 
-func (s *Store) SaveDiscovery(project string, discovery Discovery) (Document, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	state, err := s.load(project)
-	if err != nil {
-		return Document{}, err
-	}
-	oldEnv := map[string]Environment{}
-	for _, env := range state.Document.Environments {
-		oldEnv[env.ID] = env
-	}
-	for i := range discovery.Environments {
-		if old, ok := oldEnv[discovery.Environments[i].ID]; ok {
-			discovery.Environments[i].URL = old.URL
-			configured := map[string]bool{}
-			for _, p := range old.Profiles {
-				configured[p.ID] = p.Configured
-			}
-			for j := range discovery.Environments[i].Profiles {
-				discovery.Environments[i].Profiles[j].Configured = configured[discovery.Environments[i].Profiles[j].ID]
-			}
-		}
-	}
-	for i := range discovery.Tests {
-		discovery.Tests[i].Status = "ready"
-	}
-	state.Document.ContextSHA256 = discovery.ContextSHA256
-	state.Document.SyncStatus = "ready"
-	state.Document.SyncTaskID = ""
-	state.Document.SyncError = ""
-	state.Document.Environments = discovery.Environments
-	state.Document.Tests = discovery.Tests
-	state.Document.UpdatedAt = time.Now().UTC()
-	return state.Document, s.save(project, state)
-}
-
 func (s *Store) SetSyncing(project, taskID string) (Document, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

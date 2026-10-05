@@ -7,11 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func (s *Store) load(project string) (diskState, error) {
-	state := diskState{Document: Document{ProjectID: project, SyncStatus: "idle", AutoRunChanges: true, Environments: []Environment{}, Tests: []TestCase{}, Runs: []Run{}, Guides: []Guide{}}, Secrets: map[string]secretPair{}}
+	state := diskState{Document: Document{ProjectID: project, SyncStatus: "idle", AutoRunChanges: true}, Secrets: map[string]secretPair{}}
+	normalizeDocument(&state.Document)
 	raw, err := os.ReadFile(filepath.Join(s.dir, projectKey(project)+".json"))
 	if os.IsNotExist(err) {
 		return state, nil
@@ -25,6 +25,7 @@ func (s *Store) load(project string) (diskState, error) {
 	if state.Secrets == nil {
 		state.Secrets = map[string]secretPair{}
 	}
+	normalizeDocument(&state.Document)
 	state.Document.ProjectID = project
 	return state, nil
 }
@@ -43,82 +44,6 @@ func (s *Store) save(project string, state diskState) error {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-func (s *Store) BeginRun(project string, run Run) (Document, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	state, err := s.load(project)
-	if err != nil {
-		return Document{}, err
-	}
-	state.Document.Runs = append([]Run{run}, state.Document.Runs...)
-	if len(state.Document.Runs) > 100 {
-		state.Document.Runs = state.Document.Runs[:100]
-	}
-	for i := range state.Document.Tests {
-		if state.Document.Tests[i].ID == run.TestID {
-			state.Document.Tests[i].Status = "running"
-			state.Document.Tests[i].LastRunID = run.ID
-		}
-	}
-	state.Document.UpdatedAt = time.Now().UTC()
-	return state.Document, s.save(project, state)
-}
-
-func (s *Store) CompleteRun(project, runID string, result RunResult) (Document, error) {
-	if !safePathComponent(runID) {
-		return Document{}, fmt.Errorf("invalid ui testing run id")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	state, err := s.load(project)
-	if err != nil {
-		return Document{}, err
-	}
-	var testID string
-	for i := range state.Document.Runs {
-		if state.Document.Runs[i].ID == runID {
-			state.Document.Runs[i].Status = result.Status
-			state.Document.Runs[i].Error = result.Error
-			state.Document.Runs[i].Steps = result.Steps
-			state.Document.Runs[i].CompletedAt = time.Now().UTC()
-			testID = state.Document.Runs[i].TestID
-		}
-	}
-	if testID == "" {
-		return Document{}, fmt.Errorf("ui testing run not found")
-	}
-	assetDir := filepath.Join(s.dir, "assets", projectKey(project), runID)
-	if err := os.MkdirAll(assetDir, 0o700); err != nil {
-		return Document{}, err
-	}
-	for _, shot := range result.Screenshots {
-		if err := writeAsset(assetDir, shot.Name, shot.ContentBase64); err != nil {
-			return Document{}, err
-		}
-	}
-	pdfReady := false
-	if result.PDFBase64 != "" {
-		if err := writeAsset(assetDir, "guide.pdf", result.PDFBase64); err != nil {
-			return Document{}, err
-		}
-		pdfReady = true
-	}
-	if result.GuideMD != "" {
-		if err := os.WriteFile(filepath.Join(assetDir, "guide.md"), []byte(result.GuideMD), 0o600); err != nil {
-			return Document{}, err
-		}
-	}
-	guide := Guide{ID: "guide:" + testID, TestID: testID, RunID: runID, Title: result.GuideTitle, Markdown: result.GuideMD, PDFReady: pdfReady, Screenshots: result.Steps, UpdatedAt: time.Now().UTC()}
-	upsertGuide(&state.Document, guide)
-	for i := range state.Document.Tests {
-		if state.Document.Tests[i].ID == testID {
-			state.Document.Tests[i].Status = map[bool]string{true: "passed", false: "failed"}[result.Status == "passed"]
-		}
-	}
-	state.Document.UpdatedAt = time.Now().UTC()
-	return state.Document, s.save(project, state)
 }
 
 func (s *Store) AssetPath(project, runID, name string) (string, error) {
@@ -145,16 +70,32 @@ func writeAsset(dir, name, value string) error {
 	}
 	return os.WriteFile(filepath.Join(dir, name), raw, 0o600)
 }
-func upsertGuide(doc *Document, guide Guide) {
-	for i := range doc.Guides {
-		if doc.Guides[i].TestID == guide.TestID {
-			doc.Guides[i] = guide
-			return
-		}
-	}
-	doc.Guides = append([]Guide{guide}, doc.Guides...)
-}
-
 func safePathComponent(value string) bool {
 	return value != "" && value != "." && value != ".." && value == filepath.Base(value) && !strings.ContainsAny(value, "/\\")
+}
+
+// normalizeDocument gives every collection a non-nil value, so documents
+// written before a field existed still serialize as arrays.
+func normalizeDocument(doc *Document) {
+	if doc.Environments == nil {
+		doc.Environments = []Environment{}
+	}
+	for i := range doc.Environments {
+		if doc.Environments[i].Profiles == nil {
+			doc.Environments[i].Profiles = []Profile{}
+		}
+	}
+	if doc.Tests == nil {
+		doc.Tests = []TestCase{}
+	}
+	if doc.Runs == nil {
+		doc.Runs = []Run{}
+	}
+	if doc.Guides == nil {
+		doc.Guides = []Guide{}
+	}
+	if doc.Designs == nil {
+		doc.Designs = []DesignRequest{}
+	}
+	doc.Sessions = []SessionSummary{}
 }

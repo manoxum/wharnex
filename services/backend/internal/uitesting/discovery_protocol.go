@@ -11,14 +11,21 @@ import (
 
 const (
 	DiscoveryRequestProtocolV1 = "wharnex.ui-test-discovery-input/v1"
+	DiscoveryRequestProtocolV2 = "wharnex.ui-test-discovery-input/v2"
 	DiscoveryResultProtocolV1  = "harness.ui-test-discovery/v1"
+	DiscoveryResultProtocolV2  = "wharnex.ui-test-discovery/v2"
+	CatalogInputProtocolV1     = "wharnex.ui-test-catalog/v1"
 	DiscoveryTask              = "discover_ui_tests"
+	DesignTask                 = "design_ui_test"
 
 	DiscoveryTransportPath = "transport.json"
 	DiscoveryPromptPath    = "prompt/wharnex-ui-test-discovery-prompt.md"
 	DiscoveryContextPath   = "context/project-context.zip"
+	DiscoveryCatalogPath   = "catalog/current.json"
+	DiscoveryBriefPath     = "brief/request.md"
 	DiscoveryResultPath    = "discovery.json"
 	MaxDiscoveryResultSize = 2 << 20
+	MaxDesignBrief         = 8000
 )
 
 var discoveryTaskIDPattern = regexp.MustCompile(`^cat_[a-f0-9]{20}$`)
@@ -42,6 +49,9 @@ type DiscoveryTransportManifest struct {
 	ResultFilename  string                   `json:"result_filename"`
 	ContextPath     string                   `json:"context_path"`
 	ResultPath      string                   `json:"result_path"`
+	CatalogPath     string                   `json:"catalog_path,omitempty"`
+	CatalogSHA256   string                   `json:"catalog_sha256,omitempty"`
+	BriefPath       string                   `json:"brief_path,omitempty"`
 	RequestMetadata DiscoveryRequestMetadata `json:"request_metadata"`
 }
 

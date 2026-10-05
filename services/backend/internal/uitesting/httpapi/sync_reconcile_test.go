@@ -9,7 +9,7 @@ import (
 
 func TestReconcileSyncTaskSurfacesTerminalFailureAndAllowsRetry(t *testing.T) {
 	sessions := session.NewStore()
-	routes, err := New(sessions, t.TempDir())
+	routes, err := New(sessions, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestReconcileSyncTaskSurfacesTerminalFailureAndAllowsRetry(t *testing.T) {
 
 func TestReconcileSyncTaskRecoversOrphanedPersistedSync(t *testing.T) {
 	sessions := session.NewStore()
-	routes, err := New(sessions, t.TempDir())
+	routes, err := New(sessions, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

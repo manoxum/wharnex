@@ -119,7 +119,8 @@ export function createChatGPTUtilityDownloads({
     const rawFilename = path.basename(String(sourceFilename || ''))
     const filename = stripChatGPTDownloadDuplicateSuffix(rawFilename)
     const expected = expectedChatGPTUITestDiscoveries.get(filename)
-    const looksInternal = /^whx_ui_test_discovery_res_cat_[a-f0-9]{20}\.zip$/.test(filename)
+    // Discovery, run-step and user-guide answers share one UI Lab expectation map.
+    const looksInternal = /^whx_ui_test_(?:discovery|step|guide)_res_cat_[a-f0-9]{20}(?:_[0-9]{1,3})?\.zip$/.test(filename)
     if (!expected && !looksInternal) return false
     if (rawFilename !== filename) console.warn(`[ui-test-discovery] normalized duplicate-suffixed download name=${rawFilename} -> ${filename}`)
     if (!expected || Date.now() - expected.armedAt > UI_TEST_DISCOVERY_TIMEOUT_MS + 60_000) {

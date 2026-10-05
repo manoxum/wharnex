@@ -31,7 +31,7 @@ export {
 export {
   CHATGPT_BEHAVIOR, reasoningEffortStateScript, executeReleaseNotesBundleTask, registerReleaseNotesBundleDownload,
   createArtifactWorkers, createEphemeralWorkerRuntime, pollWorkerExpectedDownload,
-  markdownTranslationFilename, todoClassificationFilename,
+  markdownTranslationFilename, todoClassificationFilename, uiTestingDiscoveryFilename,
   EPHEMERAL_WORKER_TASK_TYPES, EPHEMERAL_AGENT_ID, EPHEMERAL_WORKER_LABELS, EPHEMERAL_WORKER_IDLE_RETIRE_MS, EPHEMERAL_WORKER_PACE_PRIORITY,
   createTranslatorTaskRuntime,
 } from './automation/index.mjs'

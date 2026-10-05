@@ -37,7 +37,7 @@ func (h *Routes) discovery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload discoveryTaskPayload
-	if json.Unmarshal(task.Payload, &payload) != nil || payload.Protocol != uitesting.DiscoveryRequestProtocolV1 {
+	if json.Unmarshal(task.Payload, &payload) != nil || (payload.Protocol != uitesting.DiscoveryRequestProtocolV1 && payload.Protocol != uitesting.DiscoveryRequestProtocolV2) || payload.Protocol != payload.Request.Protocol {
 		writeErr(w, 409, errors.New("UI discovery task payload is invalid"))
 		return
 	}
@@ -52,15 +52,13 @@ func (h *Routes) discovery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	previous, _ := h.store.Load(task.ProjectID)
-	doc, err := h.store.SaveDiscovery(task.ProjectID, discovery)
+	doc, err := h.store.SaveDiscovery(task.ProjectID, discovery, task.TaskID)
 	if err != nil {
-		writeErr(w, 500, err)
+		writeErr(w, 400, err)
 		return
 	}
-	if previous.ContextSHA256 != "" && previous.ContextSHA256 != doc.ContextSHA256 && doc.AutoRunChanges {
-		for _, test := range doc.Tests {
-			_, _ = h.enqueueRun(task.SessionID, task.ProjectID, test, doc)
-		}
+	if discovery.Origin == uitesting.DiscoveryOriginSync && previous.ContextSHA256 != "" && previous.ContextSHA256 != doc.ContextSHA256 && doc.AutoRunChanges {
+		_, _ = h.enqueueSelection(r.Context(), task.SessionID, task.ProjectID, doc, nil, false)
 	}
 	writeJSON(w, 200, doc)
 }
@@ -113,14 +111,21 @@ func (h *Routes) result(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, errors.New("invalid UI test result"))
 		return
 	}
-	var payload struct {
-		RunID string `json:"run_id"`
+	var payload runPayload
+	if json.Unmarshal(task.Payload, &payload) != nil {
+		writeErr(w, 409, errors.New("UI test task payload is invalid"))
+		return
 	}
-	if json.Unmarshal(task.Payload, &payload) != nil || payload.RunID != input.RunID {
+	item, _, found := payload.chainRun(input.RunID)
+	if !found {
 		writeErr(w, 403, errors.New("result does not match this run"))
 		return
 	}
-	doc, err := h.store.CompleteRun(task.ProjectID, input.RunID, input.Result)
+	run := uitesting.Run{ID: input.RunID, TaskID: task.TaskID, TestID: item.Test.ID, Role: item.Role, Status: "running"}
+	if item.Role == uitesting.RunRoleDependency {
+		run.ParentRunID = payload.RunID
+	}
+	doc, err := h.store.CompleteRun(task.ProjectID, run, input.Result)
 	if err != nil {
 		writeErr(w, 500, err)
 		return

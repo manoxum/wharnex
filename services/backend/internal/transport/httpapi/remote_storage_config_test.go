@@ -13,7 +13,7 @@ import (
 
 func TestRemoteStorageConfigAPIReadsAndWritesDocument(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "remote-storage.json")
-	handler := New(nil, nil, nil, config.Config{RemoteStorage: config.RemoteStorageConfig{ConfigFile: file}})
+	handler := New(nil, nil, nil, config.Config{StateFile: filepath.Join(t.TempDir(), "state.json"), RemoteStorage: config.RemoteStorageConfig{ConfigFile: file}})
 	body := []byte(`{"version":1,"instances":[{"id":"backup","provider":"rclone","priority":20,"rclone_remote":"backup"}]}`)
 
 	put := httptest.NewRequest(http.MethodPut, "/api/remote-storage-config", bytes.NewReader(body))
@@ -38,7 +38,7 @@ func TestRemoteStorageConfigAPIReadsAndWritesDocument(t *testing.T) {
 }
 
 func TestRemoteStorageConfigAPIRejectsUnknownFields(t *testing.T) {
-	handler := New(nil, nil, nil, config.Config{RemoteStorage: config.RemoteStorageConfig{ConfigFile: filepath.Join(t.TempDir(), "remote-storage.json")}})
+	handler := New(nil, nil, nil, config.Config{StateFile: filepath.Join(t.TempDir(), "state.json"), RemoteStorage: config.RemoteStorageConfig{ConfigFile: filepath.Join(t.TempDir(), "remote-storage.json")}})
 	request := httptest.NewRequest(http.MethodPut, "/api/remote-storage-config", bytes.NewBufferString(`{"version":1,"instances":[],"secret":"no"}`))
 	result := httptest.NewRecorder()
 	handler.ServeHTTP(result, request)

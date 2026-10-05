@@ -74,3 +74,13 @@ func (b *cipherBox) open(value string) (string, error) {
 	}
 	return string(plain), nil
 }
+
+// SealSecret encrypts secret material (a captured browser session) with the
+// same local key that protects profile credentials.
+func (s *Store) SealSecret(plain []byte) (string, error) { return s.box.seal(string(plain)) }
+
+// OpenSecret decrypts material sealed by SealSecret.
+func (s *Store) OpenSecret(sealed string) ([]byte, error) {
+	plain, err := s.box.open(sealed)
+	return []byte(plain), err
+}

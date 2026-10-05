@@ -85,3 +85,28 @@ func TestStoreRejectsPartialCredentialUpdatesAndUnsafeAssetPaths(t *testing.T) {
 		t.Fatal("unsafe asset name must be rejected")
 	}
 }
+
+func TestEnvironmentNotesAreLocalAndSurviveSynchronization(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := "/workspace/notes"
+	if _, err := store.SaveDiscovery(project, Discovery{Origin: DiscoveryOriginSync, Environments: []Environment{{ID: "site", Name: "Site", Notes: "from GPT"}}}); err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := store.Load(project)
+	if doc.Environments[0].Notes != "" {
+		t.Fatal("GPT must not author local notes")
+	}
+	if _, err := store.SetNotes(project, "site", "Documento emitido: EM-1"); err != nil {
+		t.Fatal(err)
+	}
+	doc, err = store.SaveDiscovery(project, Discovery{Origin: DiscoveryOriginSync, Environments: []Environment{{ID: "site", Name: "Site novo", Notes: "overwrite"}}})
+	if err != nil || doc.Environments[0].Notes != "Documento emitido: EM-1" || doc.Environments[0].Name != "Site novo" {
+		t.Fatalf("notes=%q err=%v", doc.Environments[0].Notes, err)
+	}
+	if _, err := store.SetNotes(project, "site", strings.Repeat("x", MaxEnvironmentNotes+1)); err == nil {
+		t.Fatal("oversized notes accepted")
+	}
+}

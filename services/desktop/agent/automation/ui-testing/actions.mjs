@@ -1,7 +1,7 @@
 const ACTIONS = new Set(['navigate', 'click', 'fill', 'fill_credential', 'press', 'wait', 'assert_text', 'finish'])
 const KEYS = new Set(['Enter', 'Escape', 'Tab', 'ArrowDown', 'ArrowUp', 'Space'])
 
-export function parseUIAction(text) {
+export function parseUIAction(text, { allowSessionInvalid = false } = {}) {
   const fence = String.fromCharCode(96).repeat(3); let raw = String(text || '').trim(); if (raw.startsWith(fence)) raw = raw.slice(fence.length).replace(/^json\s*/i, '').trimStart(); if (raw.endsWith(fence)) raw = raw.slice(0, -fence.length).trimEnd()
   const value = JSON.parse(raw)
   if (!value || typeof value !== 'object' || Array.isArray(value) || !ACTIONS.has(value.action)) throw new Error('GPT returned an unsupported UI action')
@@ -19,7 +19,7 @@ export function parseUIAction(text) {
   if (out.action === 'navigate') out.url = bounded(value.url, 2048)
   if (out.action === 'wait') out.ms = Math.max(50, Math.min(5000, Number(value.ms) || 500))
   if (out.action === 'assert_text') out.text = bounded(value.text, 500)
-  if (out.action === 'finish') out.status = value.status === 'passed' ? 'passed' : 'failed'
+  if (out.action === 'finish') out.status = finishStatus(value.status, allowSessionInvalid)
   return out
 }
 
@@ -42,6 +42,14 @@ export async function executeUIAction(wc, action, { origin, credentials, wait })
 function uiActionScript(action) {
   const encoded = JSON.stringify(action).replace(/</g, '\\u003c')
   return `(() => { const a=${encoded}; try { const el=document.querySelector(a.selector); if(!el) return {ok:false,error:'selector not found: '+a.selector}; if(a.action==='click'){el.click();return {ok:true,outcome:'clicked '+a.selector}} if(a.action==='fill'){el.focus(); const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),'value')?.set; if(setter)setter.call(el,a.value);else el.value=a.value; el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true,outcome:'filled '+a.selector}} if(a.action==='press'){el.focus();el.dispatchEvent(new KeyboardEvent('keydown',{key:a.key,bubbles:true}));el.dispatchEvent(new KeyboardEvent('keyup',{key:a.key,bubbles:true}));return {ok:true,outcome:'pressed '+a.key}} if(a.action==='assert_text'){const actual=(el.textContent||'').trim();return actual.includes(a.text)?{ok:true,outcome:'asserted text'}:{ok:false,error:'expected text not found'}} return {ok:false,error:'unsupported action'} } catch(e){ return {ok:false,error:String(e?.message||e)} } })()`
+}
+
+// session_invalid is meaningful only right after a restored session: it tells
+// the runner to discard that session and replay the prerequisites.
+function finishStatus(value, allowSessionInvalid) {
+  if (value === 'passed') return 'passed'
+  if (value === 'session_invalid' && allowSessionInvalid) return 'session_invalid'
+  return 'failed'
 }
 
 function bounded(value, max) { const text = String(value ?? '').trim(); if (text.length > max) throw new Error('UI action field exceeds its bound'); return text }

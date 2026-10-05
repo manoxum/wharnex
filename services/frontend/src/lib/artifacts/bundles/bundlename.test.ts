@@ -6,6 +6,12 @@ const rootReq = 'req_20260906T192238_1adfea24039ba474'
 const derivedId = 'req_20260906T193501_a512a09f68dd0c96'
 
 describe('bundlename parsing', () => {
+  it('recognizes Orchestrator planning bundles from the same transport', () => {
+    const requestId = 'orp_20261005T100000_1234567890abcdef'
+    const filename = `whx_bundle_res_orchestrator_${requestId}.zip`
+    expect(parseBundleName(filename)).toMatchObject({ kind: 'res', requestId })
+    expect(requestIdFromBundleName(filename)).toBe(requestId)
+  })
   it('parses a main-request bundle name', () => {
     const name = `whx_bundle_req_${chatId}_${rootReq}.zip`
     expect(parseBundleName(name)).toEqual({ kind: 'req', chatId, requestId: rootReq, subrequestId: '' })

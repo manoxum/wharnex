@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,7 @@ var desktopChatCacheKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 func TestSyncUsesTaskIDAsDesktopSafeChatCacheKey(t *testing.T) {
 	sessions := session.NewStore()
-	routes, err := New(sessions, t.TempDir())
+	routes, err := New(sessions, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,23 +57,24 @@ func TestSyncUsesTaskIDAsDesktopSafeChatCacheKey(t *testing.T) {
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Protocol != uitesting.DiscoveryRequestProtocolV1 || payload.Request.ContextSHA256 != contextSHA || payload.Request.ResultFilename == "" || payload.ArchiveBase64 == "" {
+	if payload.Protocol != uitesting.DiscoveryRequestProtocolV2 || payload.Request.CatalogSHA256 == "" || payload.Request.ContextSHA256 != contextSHA || payload.Request.ResultFilename == "" || payload.ArchiveBase64 == "" {
 		t.Fatalf("unexpected UI discovery transport payload: %#v", payload)
 	}
 }
 
 func TestRunUsesTaskIDAsDesktopSafeChatCacheKey(t *testing.T) {
 	sessions := session.NewStore()
-	routes, err := New(sessions, t.TempDir())
+	routes, err := New(sessions, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	testCase := uitesting.TestCase{ID: "smoke", Title: "Smoke", Goal: "Open the page", EnvironmentID: "web"}
 	doc := uitesting.Document{
 		ContextSHA256: "ctx-sha",
 		Environments:  []uitesting.Environment{{ID: "web", Name: "Web", URL: "https://example.test"}},
+		Tests:         []uitesting.TestCase{testCase},
 	}
-	testCase := uitesting.TestCase{ID: "smoke", Title: "Smoke", Goal: "Open the page", EnvironmentID: "web"}
-	taskID, err := routes.enqueueRun("ses_ui", t.TempDir(), testCase, doc)
+	taskID, err := routes.enqueueRun(context.Background(), "ses_ui", t.TempDir(), testCase, doc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

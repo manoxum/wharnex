@@ -1,3 +1,5 @@
+import { uiTestRunSlots } from '../../automation/artifact-workers/ui-test-capacity.mjs'
+
 export function createTranslatorScheduler({
   ChatAgentSchedulerClient, BACKEND_URL, MAX_TRANSLATOR_SLOTS,
   withTrace, traceForTask, executeEphemeralWorkerTask, desktopWindows,
@@ -14,6 +16,7 @@ export function createTranslatorScheduler({
       // gate without touching ChatGPT.
       skip: ![...desktopWindows.values()].some((state) => state.window && !state.window.isDestroyed()) || getDueChatTranslations() === 0,
       project_scoped: true, open_projects: projectWindowRegistry.openProjects(),
+      excluded_types: uiTestRunSlots.excludedTypes(),
     }),
     onState: (state) => {
       if (state?.kind === 'running') activeChatTranslatorSlots.add(state.worker)

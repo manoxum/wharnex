@@ -7,7 +7,7 @@
 //
 //   whx_bundle_<req|res>_<chat_id>_<request_id>[_<subrequest_id>].zip
 
-const ID_SEGMENT = 'req_[0-9]{8}T[0-9]{6}_[0-9a-f]{16}'
+const ID_SEGMENT = '(?:req|orp)_[0-9]{8}T[0-9]{6}_[0-9a-f]{16}'
 
 const NAME_PATTERN = new RegExp(`^whx_bundle_(req|res)_([A-Za-z0-9-]{1,128})_(${ID_SEGMENT})(?:_(${ID_SEGMENT}))?\\.zip$`)
 

@@ -47,11 +47,13 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	})
 	mux := http.NewServeMux()
 	settingsRoutes := settings.New(service, cfg)
-	uiTestingRoutes, err := uitestinghttp.New(store, filepath.Dir(cfg.StateFile))
-	if err != nil {
+	var refreshContext func(string) (domain.Session, error)
+	if service != nil {
+		refreshContext = service.RefreshContext
+	}
+	if err := uitestinghttp.Mount(mux, store, filepath.Dir(cfg.StateFile), cfg.DatabaseURL, refreshContext); err != nil {
 		panic(fmt.Sprintf("initialize UI testing routes: %v", err))
 	}
-	uiTestingRoutes.Register(mux)
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
 	mux.HandleFunc("GET /api/execution-concurrency", a.executionConcurrency)

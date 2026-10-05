@@ -1,3 +1,6 @@
+const DISCOVERY_PROTOCOLS = new Set(['wharnex.ui-test-discovery-input/v1', 'wharnex.ui-test-discovery-input/v2'])
+const DISCOVERY_TASKS = new Set(['discover_ui_tests', 'design_ui_test'])
+
 export function createUITestingDiscoveryWorker(context) {
   const {
     uiTestingDiscoveryFilename, MAX_UI_TEST_DISCOVERY_REQUEST_BYTES,
@@ -14,13 +17,13 @@ export function createUITestingDiscoveryWorker(context) {
 
   async function discover(task, entry, key, payload) {
     const request = payload?.request || {}
-    if (payload?.protocol !== 'wharnex.ui-test-discovery-input/v1' || request?.task !== 'discover_ui_tests') {
+    if (!DISCOVERY_PROTOCOLS.has(payload?.protocol) || !DISCOVERY_TASKS.has(request?.task)) {
       return { status:'failed', error:'invalid UI discovery worker protocol payload' }
     }
     const filename = String(request.result_filename || '')
     if (filename !== uiTestingDiscoveryFilename(task.task_id)) return { status:'failed', error:'UI discovery payload names a foreign result artifact' }
     const requestFilename = String(request.request_filename || '')
-    if (!/^whx_ui_test_discovery_req_cat_[a-f0-9]{20}\.zip$/.test(requestFilename) || request.task_id !== task.task_id) {
+    if (!/^whx_ui_test_discovery_req_cat_[a-f0-9]{20}\.zip$/.test(requestFilename) || requestFilename !== `whx_ui_test_discovery_req_${task.task_id}.zip` || request.task_id !== task.task_id) {
       return { status:'failed', error:'UI discovery payload names an invalid request archive' }
     }
     const bootstrap = String(payload.bootstrap || '').trim()
@@ -65,7 +68,9 @@ export function createUITestingDiscoveryWorker(context) {
       }
       await pasteChatGPTFile(target.entry, sourcePath, 1, 1, { pacedWorker:true })
       await wait(chatInputSettleDelay(archive.byteLength, 1))
-      await executeChatGPTDOMScript(key, target.entry, 'ui-discovery-refill', chatGPTFillComposerScript(bootstrap))
+      if (!await executeChatGPTDOMScript(key, target.entry, 'ui-discovery-refill', chatGPTFillComposerScript(bootstrap))) {
+        throw new Error('ChatGPT UI discovery composer could not be restored after attachment')
+      }
       expected.assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
       await submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort:false, rateLimitExempt:false })
       conversationUrl = await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl)
@@ -93,6 +98,13 @@ export function createUITestingDiscoveryWorker(context) {
           (script) => executeChatGPTDOMScript(key, target.entry, 'ui-discovery-download', script), chatGPTExpectedDownloadScript)
       }
       throw new Error(`ChatGPT did not provide ${filename} before the UI discovery timeout`)
+    } catch (error) {
+      // A sign-in, verification or access gate needs a person; retrying the
+      // task would only reload the same gate and spend its attempts.
+      if (error?.humanAction) return { status:'attention', providerWide:true, error:error.message }
+      // ChatGPT's per-account file-upload allowance is spent: wait for it.
+      if (/did not start the file upload/.test(String(error?.message || ''))) return { status:'waiting', delayMs:20 * 60 * 1000, observation:true, error:`ChatGPT file-upload allowance exhausted: ${error.message}` }
+      throw error
     } finally {
       if (expectedChatGPTUITestDiscoveries.get(filename) === expected) {
         expectedChatGPTUITestDiscoveries.delete(filename)
