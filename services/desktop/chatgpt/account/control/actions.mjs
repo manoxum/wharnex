@@ -1,4 +1,4 @@
-import { chatGPTOpenConversationMenuScript, chatGPTMenuItemRectScript } from '../chatgpt-account.mjs'
+import { chatGPTOpenConversationMenuScript, chatGPTMenuItemRectScript } from '../scripts/index.mjs'
 
 export function createAccountActions(context) {
   const {

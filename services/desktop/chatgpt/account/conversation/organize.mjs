@@ -1,4 +1,5 @@
-import { chatGPTShowSidebarScript, normalizeChatGPTProjectName, chatGPTProjectItemRectScript, chatGPTCommitConversationTitleScript, chatGPTConversationTitleScript, normalizeWHXTitle } from '../chatgpt-account.mjs'
+import { normalizeChatGPTProjectName, normalizeWHXTitle } from '../naming.mjs'
+import { chatGPTShowSidebarScript, chatGPTProjectItemRectScript, chatGPTCommitConversationTitleScript, chatGPTConversationTitleScript } from '../scripts/index.mjs'
 
 export function createAccountOrganize(context) {
   const {

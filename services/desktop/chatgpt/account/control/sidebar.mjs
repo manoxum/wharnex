@@ -1,4 +1,4 @@
-import { chatGPTHideSidebarScript } from '../chatgpt-account.mjs'
+import { chatGPTHideSidebarScript } from '../scripts/index.mjs'
 
 export function createAccountSidebar(context) {
   const {

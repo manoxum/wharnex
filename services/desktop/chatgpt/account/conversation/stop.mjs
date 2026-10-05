@@ -1,4 +1,4 @@
-import { chatGPTStopConversationScript } from '../chatgpt-account.mjs'
+import { chatGPTStopConversationScript } from '../scripts/index.mjs'
 
 export function createAccountStop(context) {
   const {

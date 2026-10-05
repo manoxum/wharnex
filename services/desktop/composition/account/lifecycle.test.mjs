@@ -39,7 +39,8 @@ test('deferred remote archive reuses a leased worker and never allocates a new c
 
 test('an offscreen account control reports the viewport that measured it', async () => {
   const [account, agent, effort, builder] = await Promise.all([
-    readFile(new URL('../../chatgpt/account/chatgpt-account.mjs', import.meta.url), 'utf8'),
+    Promise.all(['prelude', 'sidebar', 'conversation-menu', 'project', 'library'].map((name) =>
+      readFile(new URL(`../../chatgpt/account/scripts/${name}.mjs`, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
     readFile(new URL('../../agent/automation/chat-agent-scripts.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../agent/automation/chat-agent-reasoning-effort-scripts.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../agent/automation/chat-agent-script-builder.mjs', import.meta.url), 'utf8'),
@@ -55,7 +56,7 @@ test('an offscreen account control reports the viewport that measured it', async
       assert.match(source, occurrence, `${state} must report the measuring viewport`)
     }
   }
-  // chatgpt-account.mjs still inlines its own copy of the shared runtime;
+  // The account scripts keep their own prelude (chatgpt/account/scripts/prelude.mjs);
   // chat-agent-scripts.mjs and the script families built with `script()` share
   // one definition from chat-agent-script-builder.mjs.
   assert.match(account, /const viewport = \(\) => \(\{ w: innerWidth, h: innerHeight \}\)/)

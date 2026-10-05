@@ -1,4 +1,5 @@
-import { normalizeChatGPTProjectName, chatGPTOpenConversationMenuScript, chatGPTMenuItemRectScript, chatGPTProjectItemRectScript, chatGPTNewProjectDialogScript } from '../chatgpt-account.mjs'
+import { normalizeChatGPTProjectName } from '../naming.mjs'
+import { chatGPTOpenConversationMenuScript, chatGPTMenuItemRectScript, chatGPTProjectItemRectScript, chatGPTNewProjectDialogScript } from '../scripts/index.mjs'
 
 export function createAccountProject(context) {
   const {

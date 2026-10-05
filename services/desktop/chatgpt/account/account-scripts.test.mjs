@@ -1,24 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {
-  accountFailureDetail,
-  chatGPTCommitConversationTitleScript,
-  chatGPTConversationTitleScript,
-  chatGPTHideSidebarScript,
-  chatGPTLibraryArtifactRectScript,
-  chatGPTLibraryArtifactStateScript,
-  chatGPTMenuItemRectScript,
-  chatGPTNewProjectDialogScript,
-  chatGPTOpenConversationMenuScript,
-  chatGPTProjectInventoryScript,
-  chatGPTProjectItemRectScript,
-  chatGPTRenameEditorScript,
-  chatGPTShowSidebarScript,
-  chatGPTStopConversationScript,
-  normalizeChatGPTProjectName,
-  normalizeWHXTitle,
-  sameChatGPTProjectName,
-} from './chatgpt-account.mjs'
+import { normalizeChatGPTProjectName, normalizeWHXTitle, sameChatGPTProjectName } from './naming.mjs'
+import { accountFailureDetail } from './failure-detail.mjs'
+import { chatGPTCommitConversationTitleScript, chatGPTConversationTitleScript, chatGPTHideSidebarScript, chatGPTLibraryArtifactRectScript, chatGPTLibraryArtifactStateScript, chatGPTMenuItemRectScript, chatGPTNewProjectDialogScript, chatGPTOpenConversationMenuScript, chatGPTProjectInventoryScript, chatGPTProjectItemRectScript, chatGPTRenameEditorScript, chatGPTShowSidebarScript, chatGPTStopConversationScript } from './scripts/index.mjs'
 
 const ALL_SCRIPTS = [
   chatGPTHideSidebarScript(),
