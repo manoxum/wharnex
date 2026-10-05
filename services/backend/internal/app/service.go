@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/normativecontext"
 	"kernl.local/harness/backend/internal/app/translationflow"
 	"kernl.local/harness/backend/internal/app/verification"
 	"kernl.local/harness/backend/internal/app/workflowbudget"
@@ -757,15 +758,21 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 	contextDelta := s.computeContextDelta(ctx, item, knowledgeReviewRoot(item, parentRequestID), requestID, baseCommit)
 	var releasedBases []string
 	var prunedContexts []string
+	mainRequest := strings.TrimSpace(parentRequestID) == ""
+	var normativeSeed normativecontext.Selection
+	if mainRequest {
+		normativeSeed = normativeContextSeed(item.ContextMode, item.Context.ZipPath)
+	}
 	trackedItem, err := s.store.Update(sessionID, func(current *domain.Session) error {
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
 		current.PlannerInFlight = true
-		// A continuation inherits the grant unchanged; a new Main Request
-		// replaces it, including replacing it with nothing.
-		if strings.TrimSpace(parentRequestID) == "" {
+		// A continuation inherits the grant and the cumulative selection
+		// unchanged; a new Main Request replaces both. Its selection restarts
+		// from the normative documents, never from nothing.
+		if mainRequest {
 			current.CrossProjectGrant = crossGrant
-			current.ContextPaths = nil
+			current.ContextPaths = normativeSeed.Paths
 		}
 		current.RemoteRecoveryAttempt = 0
 		recordRequestLineage(current, requestID, parentRequestID, requestKind)
@@ -786,6 +793,9 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		return planner.Result{}, item, err
 	}
 	item = trackedItem
+	if len(normativeSeed.Paths) > 0 || len(normativeSeed.Omitted) > 0 {
+		s.bus.Publish(sessionID, "context.normative_seeded", normativeSeedEvent(requestID, normativeSeed))
+	}
 	s.cleanupPrunedRequestContexts(prunedContexts)
 	s.releaseRequestBaseRefs(ctx, sessionID, item.ProjectPath, releasedBases)
 	if err := s.linkProjectTodos(linkedTodos, item, requestID, "chat"); err != nil {

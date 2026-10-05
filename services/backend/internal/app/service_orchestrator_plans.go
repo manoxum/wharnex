@@ -72,10 +72,11 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 		return OrchestratorProposalResult{}, err
 	}
 	planningMessage := messageWithProjectTodos(orchestratorPlanningMessage(objective, input), linkedTodos)
+	seed := orchestratorNormativeSeed(item, input)
 	result, err := s.planner.Plan(ctx, withPlannerKnowledge(planner.Request{
 		SessionID: item.ID, RequestID: requestID, Message: planningMessage,
 		ContextTextPath: item.Context.TextPath, ContextManifest: item.Context.Manifest,
-		ContextMode:    domain.EffectiveContextMode(item.ContextMode),
+		ContextMode: domain.EffectiveContextMode(item.ContextMode), ContextPaths: seed.Paths,
 		AutomationMode: item.AutomationMode, EffortLevel: item.EffortLevel, SelfEvolution: s.isSelfEvolution(item),
 		ReasoningEffort: normalizeReasoningEffort(item.ReasoningEffort),
 		PlanningMode:    "orchestrator",
@@ -86,31 +87,7 @@ func (s *Service) ProposeOrchestratorPlan(ctx context.Context, sessionID, object
 	}
 	if result.OrchestratorPlan == nil {
 		if result.ManualPrompt != "" {
-			payload, marshalErr := encodeOrchestratorPlanningWorkerPayload(
-				sessionID, requestID, objective, result.ManualPrompt, input,
-				string(normalizeReasoningEffort(item.ReasoningEffort)),
-				domain.EffectiveContextMode(item.ContextMode),
-			)
-			if marshalErr != nil {
-				s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, marshalErr.Error())
-				return OrchestratorProposalResult{}, fmt.Errorf("encode orchestrator planning worker: %w", marshalErr)
-			}
-			worker, enqueueErr := s.store.EnqueueChatAgentTask(session.ChatAgentTask{
-				Type: "ORCHESTRATOR_PLAN", ProjectID: item.ProjectPath, ChatID: requestID, SessionID: sessionID,
-				RequestID: requestID, RootRequestID: requestID,
-				DedupeKey: "orchestrator-plan:" + requestID, Payload: payload, MaxAttempts: 8,
-			})
-			if enqueueErr != nil {
-				s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, enqueueErr.Error())
-				return OrchestratorProposalResult{}, fmt.Errorf("enqueue orchestrator planning worker: %w", enqueueErr)
-			}
-			s.bus.Publish(sessionID, "orchestrator.plan_queued", map[string]any{
-				"project_path": item.ProjectPath, "request_id": requestID, "worker_task_id": worker.TaskID,
-			})
-			return OrchestratorProposalResult{
-				RequestID: requestID, ManualPrompt: result.ManualPrompt,
-				WorkerTaskID: worker.TaskID, Delivery: worker.Status,
-			}, nil
+			return s.enqueueOrchestratorPlanningWorker(item, requestID, objective, result.ManualPrompt, input, seed)
 		}
 		err := errors.New("planner returned no orchestrator proposal")
 		s.setProjectTodosByRequest(requestID, domain.ProjectTodoExecutionFailed, err.Error())

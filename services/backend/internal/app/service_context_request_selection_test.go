@@ -17,6 +17,57 @@ import (
 	"kernl.local/harness/backend/internal/session"
 )
 
+// A Partial Main Request carries the normative documents from its first
+// archive, and every increment accumulates on top of them.
+func TestPartialMainRequestCarriesNormativeDocumentsFromTheStart(t *testing.T) {
+	project := t.TempDir()
+	for name, value := range map[string]string{"AGENTS.md": "# rules", "SoT/RULES.md": "# sot", "main.txt": "main body"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(project, name)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(project, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 2<<20), manual.New(), policy.NewEngine(), sandbox.NewLocalRunner())
+	remote := &capturingRemoteStore{}
+	service.SetRemoteInputStore(remote)
+	started, err := service.StartSession(context.Background(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, first, err := service.SubmitMessage(context.Background(), started.ID, "change main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := []string{"context/AGENTS.md", "context/SoT/RULES.md"}
+	if strings.Join(first.ContextPaths, ",") != strings.Join(seed, ",") {
+		t.Fatalf("Main Request selection must start from the normative documents: %#v", first.ContextPaths)
+	}
+	if !strings.Contains(first.LastManualPrompt, "- context/AGENTS.md\n") {
+		t.Fatal("Partial prompt must list the preselected normative documents")
+	}
+	if _, err := service.PublishRemoteInput(context.Background(), started.ID, RemoteInputRequest{RequestID: first.LastRequestID, Prompt: first.LastManualPrompt}); err != nil {
+		t.Fatal(err)
+	}
+	if _, entries, _ := remote.snapshot(); !entries["context/AGENTS.md"] || !entries["context/SoT/RULES.md"] || entries["context/main.txt"] {
+		t.Fatalf("first Partial archive must carry exactly the normative bodies: %#v", entries)
+	}
+	bundle := testArtifactZIP(t, map[string]string{
+		"README.md":            "# More context",
+		"turn.json":            `{"protocol":"harness.turn/v1","request_id":"` + first.LastRequestID + `","kind":"context_request","message":"Preciso de main.txt.","context_paths":["context/main.txt"],"outcome":{"status":"completed","retryable":false}}`,
+		"summary.md":           "Resumo cumulativo.\n\n## Conhecimento adquirido\nNenhum.",
+		"knowledge/index.json": `{"protocol":"harness.knowledge/v2","base_revision":0,"mode":"replace","entries":[]}`,
+	})
+	submitted, err := service.SubmitExecutionBundle(context.Background(), started.ID, expectedResponseBundleFilename(first, first.LastRequestID), bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(submitted.Session.ContextPaths, ","); got != "context/AGENTS.md,context/SoT/RULES.md,context/main.txt" {
+		t.Fatalf("increment must accumulate on top of the normative seed: %s", got)
+	}
+}
+
 // The planner, not the engine, decides when it has read enough: increments
 // beyond the old six-round ceiling are accepted and spend no workflow steps.
 func TestPartialContextRequestHasNoIncrementRoundLimit(t *testing.T) {

@@ -3,6 +3,7 @@ package planner
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"kernl.local/harness/backend/internal/orchestrator"
 )
@@ -57,5 +58,14 @@ func orchestratorContextModePrompt(req Request) string {
 	if req.ContextMode != "partial" {
 		return "CONTEXT DELIVERY: Full. The project snapshot is attached when context is enabled for this planning request."
 	}
-	return `CONTEXT DELIVERY: Partial. The request carries context-map/<source>/maps plus context-map/<source>/semantic-index first. Inspect the exact inventories and use the semantic candidates/groups and remaining byte budget only as advisory guidance. If you need specific file bodies, return a ZIP response containing context-request.json instead of plan.json. The JSON must have exactly protocol="harness.orchestrator-context-request/v1", request_id equal to this request, and context_paths with one or more exact context/, ref-context/, or att-context/ archive paths that form the coherent evidence set you need; do not split a necessary set merely to satisfy a path count. Wharnex validates and reads those files from the captured snapshot, then sends a new request ZIP in this conversation containing the cumulative selected files. Wharnex imposes no increment-round limit: you decide when the evidence suffices. Once enough evidence is present, return the ordinary plan.json bundle. Do not emit commands, patches, or prose as the result.`
+	return `CONTEXT DELIVERY: Partial.` + orchestratorNormativeSeedPrompt(req.ContextPaths) + `The request carries context-map/<source>/maps plus context-map/<source>/semantic-index first. Inspect the exact inventories and use the semantic candidates/groups and remaining byte budget only as advisory guidance. If you need specific file bodies, return a ZIP response containing context-request.json instead of plan.json. The JSON must have exactly protocol="harness.orchestrator-context-request/v1", request_id equal to this request, and context_paths with one or more exact context/, ref-context/, or att-context/ archive paths that form the coherent evidence set you need; do not split a necessary set merely to satisfy a path count. Wharnex validates and reads those files from the captured snapshot, then sends a new request ZIP in this conversation containing the cumulative selected files. Wharnex imposes no increment-round limit: you decide when the evidence suffices. Once enough evidence is present, return the ordinary plan.json bundle. Do not emit commands, patches, or prose as the result.`
+}
+
+// The project's normative documents travel from the first planning archive,
+// so a plan is shaped by the rules instead of being checked against them later.
+func orchestratorNormativeSeedPrompt(paths []string) string {
+	if len(paths) == 0 {
+		return " "
+	}
+	return " The project's normative documents are preselected in this first archive; read them before planning, follow them, and never request them again: " + strings.Join(paths, ", ") + ". "
 }

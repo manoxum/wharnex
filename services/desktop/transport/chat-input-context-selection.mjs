@@ -13,10 +13,13 @@ export function contextSelectionFromSession(state) {
   return { mode: 'partial', paths: Array.isArray(state.context_paths) ? state.context_paths.map(String) : [] }
 }
 
+// Path count is not a protocol limit (adr/ADR-0083): the backend bounds the
+// selection by bytes, and every Partial Main Request already starts from the
+// project's normative documents.
 export function selectArchiveContextEntries(entries, context) {
   if (context?.mode !== 'partial') return entries
   const paths = Array.isArray(context?.paths) ? context.paths : []
-  if (paths.length > 128 || new Set(paths).size !== paths.length) throw new Error('Invalid selected context paths')
+  if (new Set(paths).size !== paths.length) throw new Error('Invalid selected context paths')
   const available = new Map(entries.map((entry) => [entry.name, entry]))
   const selected = new Set()
   for (const name of paths) {
