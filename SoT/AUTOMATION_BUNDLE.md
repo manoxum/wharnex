@@ -1,6 +1,6 @@
 # Automation and Execution Bundle SoT
 
-## Bundle-only provider protocol (v1.3.10 — see `adr/ADR-0052`, `adr/ADR-0054`, `adr/ADR-0056`)
+## Bundle-only provider protocol (v1.3.11 — see `adr/ADR-0052`, `adr/ADR-0054`, `adr/ADR-0056`, `adr/ADR-0087`)
 
 Every exchange Wharnex has with the model provider is a bundle in both directions. Wharnex sends exactly one logical request archive and accepts exactly one response bundle; no other format or convention is a valid way to ask the provider for something or to accept its answer. The logical request is uploaded unchanged as one ZIP when it fits the configured per-part transport limit; otherwise Wharnex sends one canonical main part followed by ordered continuation ZIPs whose chunk payloads reconstruct the logical archive byte-for-byte.
 
@@ -8,10 +8,10 @@ Every exchange Wharnex has with the model provider is a bundle in both direction
 - Wharnex MUST accept exactly one response bundle per exchange, named by an exact canonical filename derived from that exchange's own durable identity, carrying its own protocol identity in a root manifest, and validated fail-closed before any byte of it is used. A response in any other shape — prose, a bare file, a differently named archive — is refused, not repaired.
 - Every response bundle is parsed under the same structural boundary: relative, normalized, traversal-free entry names; no symlinks; bounded entry count; bounded compressed and expanded size; unknown fields refused in canonical manifests. Provider output is untrusted data in every exchange, never instructions.
 - The protocol engine that builds a request MUST be the one that validates its response. A request assembled on one side of a boundary and validated on the other is a contract that can drift out of agreement with itself while every structural check still passes.
-- This rule governs what Wharnex asks the provider to produce. It does not extend to the narrow account-management operations, which act on ChatGPT's own account objects and produce no artifact, nor to the temporary-title conversation, which sends a bounded prompt and derives its answer from ChatGPT's own conversation label rather than from any produced artifact (see `adr/ADR-0037`).
+- This rule governs every Wharnex-owned request for GPT processing or reasoning, including utility workers, discovery, title generation, follow-ups and recovery. Only deterministic account-management controls and direct human browsing are outside it. The historical temporary-title prompt exception is superseded: it MUST NOT be used as precedent for a non-bundle processing flow.
 - Legacy non-bundle shapes remain parseable only where an already in-flight request was checkpointed under one — the orchestrator's historical per-task JSON artifact. Nothing new is ever requested in those shapes.
 
-The exchanges this rule covers are the planner request/response bundle pair below, the orchestrator planning bundle, and the document translation bundle pair in `AI_PROTOCOL.md`.
+The exchanges include planner, orchestrator, translation, classification, release notes and `UI_TEST_DISCOVER`; this list is not exhaustive. New or maintained provider-processing paths MUST prove request attachment, exact response correlation and fail-closed validation with automated tests. See `adr/ADR-0087-gpt-bundle-contract.md`.
 
 ## Automation mode
 
@@ -154,6 +154,8 @@ Each chat's DOM/download supervisor is single-flight. Processing classification 
 
 ## Request knowledge artifact
 
+An explicit `Retomar pedido` for an unbound first request MAY route to full persisted-archive delivery at the exact ChatGPT home URL. Before touching ChatGPT, Desktop MUST verify locally that the request is still the session's latest pending request awaiting a plan, the session belongs to that chat, binding recovery has neither a binding nor any conversation candidate, and the durable task ledger has no response observation or active/completed write for the request. Unavailable or ambiguous evidence fails closed. This is first delivery, never a short continuation or automatic restart replay. Confirmed submission MUST establish concrete conversation affinity and durable response supervision (ADR-0091).
+
 Direct ZIP, remote one-shot, live-channel, and Desktop archive request transports carry a first-class immutable project-knowledge snapshot. Before creating that snapshot, Wharnex reads the managed project catalog under `.wharnex/knowledge/` and imports a changed valid file catalog into the local DB; the subtree is excluded from ordinary context capture so knowledge is not sent twice. Under `harness.knowledge/v2`, each record is transported as a separate `knowledge/<id>.md`; metadata includes `state`, `sharing_enabled`, catalog `revision`, catalog `sha256`, updater, and every entry's `id`, `path`, `version`, SHA-256, and updater. The bytes MUST match those hashes. The planner prompt identifies the v2 protocol and catalog revision/count but MUST NOT inline the knowledge bodies. `state: none` means no knowledge files are attached (because sharing is off or the catalog is empty).
 
 ## Account operations and chat maintenance (v1.3.3 — see `adr/ADR-0037`)
@@ -199,9 +201,9 @@ needs for a request in progress (see `adr/ADR-0049`).
 
 A chat opens with a provisional locally-derived title. After the first confirmed
 submission, native-title discovery and project organization are queued
-independently from response waiting. The native title must stabilize before use;
-a temporary title conversation is a bounded fallback. A title explicitly chosen
-by the user remains definitive.
+independently from response waiting. The native title must stabilize before use.
+Legacy temporary-title tasks are compatibility sinks and MUST NOT submit a model
+request. A title explicitly chosen by the user remains definitive.
 
 Bundle files in the account library are cleanup candidates only after local
 persistence/ingestion and the configured retention boundary. A cleanup task must

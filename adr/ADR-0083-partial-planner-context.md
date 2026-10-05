@@ -55,3 +55,24 @@ the executed workflow step budget, which stays at six ordinary steps.
 Compatibility: sessions persisted without `context_increments` treat every
 earlier round as an executed step, which is the previous, more conservative
 behavior. Planners that read `rounds_remaining` simply no longer see it.
+
+## 2026-10-05 amendment — normative seed from the first archive
+
+A Partial Main Request no longer starts from maps alone. Before the planner is
+asked, Wharnex seeds the cumulative selection with the primary project's
+normative documents — root `AGENTS.md`, `SoT/**/*.md`, root `SECURITY.md` and
+every scoped `AGENTS.md`, in that authority order, bounded to 8 MiB — so the
+first request archive already carries the rules the change must follow. A
+planner that reads the rules only after it has planned, or never asks for
+them, produces work the project's own gates then reject.
+
+The seed is ordinary selected context: the prompt lists it as already
+selected, increments accumulate on top of it, and it counts toward the 64 MiB
+budget. An Orchestrator planning request is seeded the same way when it
+includes context, and its seed is recorded as that request's cumulative
+selection. The Desktop path-count ceiling on a selection (128) is removed:
+path count was never a protocol limit, and the seed alone could reach it.
+
+Compatibility: no wire field changes. Older planners simply see more selected
+bodies; a `context_request` that names only seeded files adds nothing and is
+rejected exactly like any other repeated request.

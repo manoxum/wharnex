@@ -86,7 +86,7 @@ While an expected Auto bundle is pending, Wharness presents bounded self-recover
 
 The rate-limit suspension scope is Worker-only: the **Policies** tab reports the durable cooldown as “Workers suspensos”, while Supervisors and Translator remain active. The **Agentes** tab additionally offers manual Worker suspension for either all ordinary Worker types or a selected set of validated task types. Account-maintenance and title types start selectively suspended by default, and the UI shows the active count/scope. This paragraph supersedes the broader whole-provider wording in the preceding historical description.
 
-Anti-bot/CAPTCHA/Turnstile, authentication and access-block conditions are detected only through allowlisted structural selectors/URL/title state; generated assistant prose is not inspected. While such a human gate is active, automatic reload/prompt recovery is paused so Wharness does not reset the challenge. The owning window raises operating-system attention (notification when supported plus taskbar/dock attention) and the Agent command bar keeps a persistent **Ação no ChatGPT** control. Activating that trusted control may switch to the affected Harness chat and ChatGPT tab because it is an explicit human action. The notice clears only after the structural gate is gone and the compositor is usable, or after a successful relevant transport recovery. Recovery state remains per Harness chat/request and MUST be bounded to avoid infinite reload or prompt loops.
+Anti-bot/CAPTCHA/Turnstile, authentication and access-block conditions are detected only through allowlisted structural selectors/URL/title state; generated assistant prose is not inspected. An authentication gate is either a `chatgpt.com/auth/*` route or ChatGPT's visible structural sign-in controls (`data-testid` `login-button`/`signup-button`) on any trusted page, because a signed-out or token-rejected session can stay on `chatgpt.com` and still render a composer. Every file upload MUST check these gates before selecting a file: a detected gate is human attention, not a transport fault, so the upload stops without consuming its bounded retries and the owning task returns provider-wide attention instead of failing into its own retries. While such a human gate is active, automatic reload/prompt recovery is paused so Wharness does not reset the challenge. The owning window raises operating-system attention (notification when supported plus taskbar/dock attention) and the Agent command bar keeps a persistent **Ação no ChatGPT** control. Activating that trusted control may switch to the affected Harness chat and ChatGPT tab because it is an explicit human action. The notice clears only after the structural gate is gone and the compositor is usable, or after a successful relevant transport recovery. Recovery state remains per Harness chat/request and MUST be bounded to avoid infinite reload or prompt loops.
 
 ## Project bootstrap and settings (v1.2.17)
 
@@ -350,3 +350,36 @@ The `WHX · AUTO-EVOLUÇÃO` drawer MUST treat operational events, eligible cate
 **Interagir aqui** and **Seguir (flow)** may surface an idle Worker for direct interaction. A Worker executing a durable task keeps its desktop-sized hidden automation viewport; a request to surface it in the narrow pane is refused with an actionable message. **Capturar imagem** remains available for observing that Worker without resizing the live renderer. While direct interaction is open, that Worker does not claim a new task.
 
 The Orchestrator may follow several distinct Worker instances at the same time. Each follow remains bound to the task and Worker identity that opened it: opening a monitor for another task MUST NOT close, detach or replace an existing monitor for a different Worker, while opening the same Worker again MUST reuse that Worker's existing monitor window. A single Worker view MUST NOT be owned by direct interaction and monitoring simultaneously. Monitoring reparents the Worker's existing `WebContentsView`; it MUST NOT create another ChatGPT renderer, read remote content for the follow surface, or persist additional remote content. Closing one monitor returns only that Worker to its parked layout and leaves every other active monitor attached.
+
+## UI Lab catalog, design and sessions (see `adr/ADR-0088`)
+
+The UI Lab panel ("Debug, testes e user guide") lists tests and user guides
+grouped by environment, in catalog order, each group naming its environment and
+URL state. A test card states its access — **Público**, or the profile it uses,
+marked *herdado* when inherited from its prerequisites — its category and
+priority, the prerequisite chain (`depende de: A → B`), whether a valid session
+is stored, and whether configuration is pending; its execution strategy
+(pre-conditions, steps with expected outcomes, expected result, test data and,
+for operator-requested tests, the original request) is a collapsed disclosure.
+**Novo** opens an application-owned composer (never a native dialog) where the
+operator describes a test and may pin an environment; a failed submission keeps
+the draft. In-flight, failed and finished design requests stay visible above the
+catalog until dismissed. A public test needs only its environment URL, so the
+configuration tab MUST allow saving a URL independently of any profile. Each
+environment also has **Notas para o GPT** (reference data such as identifiers
+of existing records) with a visible warning that they are sent to GPT and must
+never contain passwords or tokens. It also
+lists the environment's stored sessions (valid or out of date) with **Limpar
+sessões**; session contents are never shown.
+
+The **Documentação** tab opens on **Manual por ambiente**: one user manual per
+environment with an index and every guide of that environment, grouped by
+category in reading order (first-use flows first; within a group a prerequisite
+before what depends on it), captures rendered inline from that run's assets,
+and a marker on guides whose last run did not pass. **Guias individuais** keeps
+the per-guide Live/MD/PDF views. Every guide follows the same sections — Para
+que serve, Quem pode usar, Antes de começar, Passo a passo (with the capture of
+each step), Resultado esperado, Erros comuns e soluções, Funcionalidades
+relacionadas — so guides read as one manual.
+
+The standalone **Instâncias dos navegadores** monitor has tabs **Instâncias** and **Links GPT**. The latter lists durable created chats by their recorded titles, including Supervisor and Worker conversations. Selecting a row follows its resident browser if present; otherwise it opens a temporary human-only viewer for that exact chat. Both paths show instance-style details and a list of exchanged request/response bundles as the final section. The bundle explorer takes foreground priority: the native browser view is released before the explorer opens, and the explorer follows the selected interface theme.

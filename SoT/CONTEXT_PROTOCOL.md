@@ -11,8 +11,22 @@ integration authority are identical in both modes.
 
 In Full, a request ZIP carries every eligible body under `context/`,
 `ref-context/` and `att-context/`. In Partial, its first ZIP carries generated
-`context-map/` inventories, the source/authority index and the ordinary
-request evidence, but no project/reference/attachment file bodies. A completed
+`context-map/` inventories, the source/authority index, the ordinary request
+evidence and the primary project's **normative documents**, but no other
+project/reference/attachment file bodies.
+
+The normative seed is engine-owned and MUST be present from the first archive
+of every Partial Main Request, so a plan is shaped by the project's rules
+instead of being checked against them afterwards. It mirrors the authority
+order the planner prompt names: root `AGENTS.md`, `SoT/**/*.md`, root
+`SECURITY.md`, then every scoped `AGENTS.md` below the root, taken in that
+order up to an 8 MiB seed bound; a normative file beyond the bound is reported
+in the `context.normative_seeded` event and stays requestable. The seed is the
+start of the Main Request's cumulative selection: it is listed in the prompt as
+already selected, travels in every continuation, counts toward the cumulative
+selected-bytes budget, and a later increment accumulates on top of it rather
+than replacing it. A new Main Request re-seeds from its own snapshot.
+Reference and attachment snapshots are not seeded. A completed
 `harness.turn/v1` `context_request` response with `context_paths` is a typed
 engine read of one or more exact file paths from those three content roots. Wharnex
 MUST validate each path against the captured eligible snapshot, reject
@@ -28,7 +42,8 @@ the cumulative selected file bodies plus the maps and ordinary history.
 Selected paths do not confer write authority.
 
 `ORCHESTRATOR_PLAN` uses the owning session's modality. Its Partial request ZIP
-carries maps first; a response ZIP with `context-request.json` and protocol
+carries maps first, plus the same normative seed when the request includes
+context; a response ZIP with `context-request.json` and protocol
 `harness.orchestrator-context-request/v1` asks for one or more exact captured file
 paths, and the Worker sends a follow-up request ZIP with cumulative selected
 bodies in the same conversation. Increments are not round-limited. A
