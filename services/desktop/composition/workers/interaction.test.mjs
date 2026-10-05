@@ -2,6 +2,7 @@ import { readTaskExecutionSource } from './task-execution-source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 
 test('two Supervisor slots double-buffer renderer IPC while bounded workers stay outside chat view ownership', async () => {
@@ -20,14 +21,14 @@ test('two Supervisor slots double-buffer renderer IPC while bounded workers stay
   const workerEnd = workerPool.indexOf('\n  function assignChatGPTWorker', workerStart)
   const workers = workerPool.slice(workerStart, workerEnd)
   assert.match(collections, /chatGPTWorkerEntries: \[\]/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopCollections\(ProjectWindowRegistry\)/)
+  assert.match(await readDesktopCompositionSource(), /createDesktopCollections\(ctx\.ProjectWindowRegistry\)/)
   assert.match(source, /createDesktopRuntimeState\(\{/)
   assert.match(runtimeState, /desiredChatAgentSupervisorSlots: DEFAULT_SUPERVISOR_SLOTS/)
   assert.match(runtimeState, /desiredChatAgentWorkerSlots: DEFAULT_WORKER_SLOTS/)
   assert.match(ensure, /entry\.role = 'supervisor'/)
   assert.match(ensure, /entry\.slotId = supervisorSlotID\(\)/)
   assert.match(ensure, /chatgptViews\.size >= getDesiredChatAgentSupervisorSlots\(\)/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /getDesiredChatAgentSupervisorSlots: \(\) => desktopState\.agent\.desiredChatAgentSupervisorSlots/)
+  assert.match(await readDesktopCompositionSource(), /getDesiredChatAgentSupervisorSlots: \(\) => desktopState\.agent\.desiredChatAgentSupervisorSlots/)
   assert.match(ensure, /const reusable = reusableSupervisor\(key, resolved\)/)
   assert.match(ensure, /retireChatGPTSupervisorSurface\(reusable\[0\]\)/)
   assert.match(workers, /index <= state\.desiredChatAgentWorkerSlots/)
@@ -68,7 +69,7 @@ test('agent browser snapshots capture every agent where its view is parked', asy
   assert.match(snapshot, /dataUrl = await d\.captureChatGPTAgentPage\(wc\)/)
   assert.doesNotMatch(snapshot, /captureParkedWorkerPage|openWorkerMonitor/)
   assert.match(snapshot, /entry\.ownerKey \|\| \(entry\.role === 'supervisor' \? d\.supervisorKey/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopAgentScheduling\(\{/)
+  assert.match(await readDesktopCompositionSource(), /compose\(ctx, 'agent-scheduling', ctx\.createDesktopAgentScheduling, \{/)
   assert.match(wiring, /async function chatAgentBrowserSnapshot\(agentID\)/)
 })
 
@@ -126,7 +127,7 @@ test('autonomous workers pace chat switches, wait for page settle, and pause on 
 
   const settings = await readFile(new URL('../config/runtime.mjs', import.meta.url), 'utf8')
   assert.match(source, /CHATGPT_WORKER_NAVIGATION_GAP_MS/)
-  assert.match(settings, /navigationGapMs: CHAT_AGENT_NAVIGATION_GAP_MS/)
+  assert.match(settings, /CHATGPT_WORKER_NAVIGATION_GAP_MS: CHAT_AGENT_NAVIGATION_GAP_MS/)
   assert.match(pacing, /chatGPTWorkerPacer\.pace/)
   assert.match(pacing, /await loadOwnedChatGPTURL/)
   assert.match(pacing, /await waitForChatGPTSurfaceReady/)
@@ -140,7 +141,7 @@ test('autonomous workers pace chat switches, wait for page settle, and pause on 
   // the sole evidence that suspends Workers.
   assert.doesNotMatch(httpStatus, /applyChatGPTRateLimit\(/)
   assert.match(apply, /state\.until = Math\.max\(state\.until, localUntil\)/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /set until\(value\) \{ desktopState\.chatgpt\.chatGPTRateLimitUntil = value \}/)
+  assert.match(await readDesktopCompositionSource(), /set until\(value\) \{ desktopState\.chatgpt\.chatGPTRateLimitUntil = value \}/)
   assert.match(apply, /recordRateLimit\(source, classification\.kind, Math\.round\(configuredCooldownMs \/ 1000\)\)/)
   // The durable pause the backend persisted still wins over the local mirror.
   assert.match(apply, /persistedUntil/)

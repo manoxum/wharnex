@@ -2,13 +2,17 @@ import { readActivityRecoverySource } from '../supervision/activity-recovery-sou
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
+import { readComposedDesktopContext } from '../entry/graph/composed.mjs'
 const [viewEntry, viewSupervisor, viewWorker] = await Promise.all(['entry', 'supervisor', 'worker'].map((name) => readFile(new URL(`../../chatgpt/session/views/${name}.mjs`, import.meta.url), 'utf8')))
 
 test('agent Chromium workers start after the first local shell paint', async () => {
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const runtime = await readFile(new URL('../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /primeChatGPTWorkerPool, CHAT_AGENT_STARTUP_DELAY_MS/)
+  const composed = await readComposedDesktopContext()
+  assert.equal(composed.primeChatGPTWorkerPool, 'function')
+  assert.equal(composed.CHAT_AGENT_STARTUP_DELAY_MS, 'number')
   assert.match(context, /prime: primeChatGPTWorkerPool/)
   assert.match(context, /startupDelayMs: CHAT_AGENT_STARTUP_DELAY_MS/)
   assert.match(runtime, /scheduleWorkerStart\(async \(\) => \{[\s\S]*await worker\.prime\(workerHost\)[\s\S]*workerScheduler\.start\(\)[\s\S]*\}, worker\.startupDelayMs\)/)

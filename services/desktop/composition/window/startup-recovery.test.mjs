@@ -2,6 +2,8 @@ import { readDesktopIPCSource } from '../ipc/source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
+import { readComposedDesktopContext } from '../entry/graph/composed.mjs'
 test('workspace toolbar owns the themed title bar and window controls', async () => {
   const create = await readFile(new URL('../../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')
   assert.match(create, /frame: false/)
@@ -11,7 +13,7 @@ test('workspace toolbar owns the themed title bar and window controls', async ()
 
 test('desktop tray resolves the installed Wharnex raster icon before SVG fallback', async () => {
   const source = await readFile(new URL('../../identity/runtime.mjs', import.meta.url), 'utf8')
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const png = source.indexOf("'256x256'")
   const svg = source.indexOf("'scalable'")
   const fallback = source.indexOf('nativeImage.createFromDataURL')
@@ -20,7 +22,7 @@ test('desktop tray resolves the installed Wharnex raster icon before SVG fallbac
   assert.match(source, /nativeImage\.createFromPath\(candidate\)/)
   assert.match(source, /if \(!image\.isEmpty\(\)\) \{ DESKTOP_ICON = image; break \}/)
   assert.ok(png !== -1 && svg > png && fallback > svg)
-  assert.match(main, /initializeDesktopIdentity\(\{ app, nativeImage/)
+  assert.match(main, /provide\(ctx, ctx\.initializeDesktopIdentity\(\{\s*app: ctx\.app, nativeImage: ctx\.nativeImage/)
 })
 
 test('Linux Desktop uses software compositing to avoid GPU renderer traps', async () => {
@@ -33,7 +35,7 @@ test('local frontend navigation uses a per-runtime cache token', async () => {
   const source = await readDesktopIPCSource()
   const windowRuntime = await readFile(new URL('./creation-runtime.mjs', import.meta.url), 'utf8')
   assert.match(identity, /const FRONTEND_RUNTIME_TOKEN = randomUUID\(\)/)
-  assert.match(source, /FRONTEND_RUNTIME_TOKEN/)
+  assert.equal((await readComposedDesktopContext()).FRONTEND_RUNTIME_TOKEN, 'string')
   assert.match(windowRuntime, /createDesktopWindowCreator\(\{[\s\S]*FRONTEND_URL: d\.FRONTEND_URL,[\s\S]*FRONTEND_RUNTIME_TOKEN: d\.FRONTEND_RUNTIME_TOKEN,[\s\S]*FRONTEND_ORIGIN: d\.FRONTEND_ORIGIN/)
   const create = await readFile(new URL('../../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')
   assert.match(create, /target\.searchParams\.set\('wharnessRuntime', FRONTEND_RUNTIME_TOKEN\)/)
@@ -116,7 +118,7 @@ test('a parked chat surface is never shown while it carries layout-only bounds',
   assert.doesNotMatch(park, /x: -\d+/)
 
   const surfaceWiring = await readFile(new URL('../../agent/supervision/surface/wiring/desktop.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopSupervisorSurfaces\(supervisorSurfaceDependencies\)/)
+  assert.match(source, /compose\(ctx, 'supervisor-surfaces', ctx\.createDesktopSupervisorSurfaces, \{/)
   assert.match(surfaceWiring, /createSupervisorSurfaceVisibility\(\{[\s\S]*chatgptViews: d\.chatgptViews/)
   const predicateStart = surface.indexOf('function chatGPTSurfaceShouldBeVisible(')
   const predicate = surface.slice(predicateStart, surface.indexOf('\n  function activateChatGPTView(', predicateStart))
@@ -154,7 +156,7 @@ test('a parked chat surface is never shown while it carries layout-only bounds',
   const boundsStart = viewState.indexOf('function setChatGPTBounds(')
   const boundsEnd = viewState.indexOf('\n  function currentChatGPTState(', boundsStart)
   const workflow = await readFile(new URL('../session/workflow/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopChatWorkflowRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'chat-workflow', createDesktopChatWorkflowRuntime, \{/)
   assert.match(workflow, /createDesktopChatViewHealthRuntime\(\{/)
   assert.match(runtime, /createChatGPTViewState\(\{/)
   assert.match(viewState.slice(boundsStart, boundsEnd), /entry\.parkedLayout = false/)

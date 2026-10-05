@@ -78,10 +78,11 @@ Concretely:
   touching. The legacy file shrinks over many such changes, never through one
   big rewrite forced into an unrelated task.
 
-This is how `services/frontend/src/styles/legacy/styles.css` (10119 lines),
-`services/desktop/main.mjs` (8196 lines) and
+This is how `services/frontend/src/styles/legacy/styles.css` (10119 lines) and
 `services/frontend/src/styles/theme/theme.css` (1791 lines) are expected to
-shrink over time. The two stylesheets were relocated out of the root of
+shrink over time; `services/desktop/main.mjs` (once 8196 lines) completed that
+path and is now a composition root of a few lines (see
+`SoT/PROJECT_STRUCTURE.md`, Recursive domain composition). The two stylesheets were relocated out of the root of
 `src/` by the wholesale move recorded in `SoT/FRONTEND_STYLING.md` §1; that
 changed where they live, not the fact that they shrink only through
 extract-on-touch. None of them is being rewritten as part of `adr/ADR-0066`; each next

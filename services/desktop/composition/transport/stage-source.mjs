@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { compositionSection } from '../entry/source.mjs'
 
 const promptSections = [
   ['preparation/prepare.mjs', 'async function preparePromptForChatGPT('],
@@ -33,8 +34,7 @@ export async function expandDesktopChatGPTTransportStageSource(main) {
   const preparation = await readFile(new URL('./preparation/runtime.mjs', import.meta.url), 'utf8')
   const pacing = await readFile(new URL('./pacing/runtime.mjs', import.meta.url), 'utf8')
   const dispatch = await readFile(new URL('../../chatgpt/transport/requests/wiring/desktop.mjs', import.meta.url), 'utf8')
-  const start = main.indexOf('const chatGPTTransportStageDependencies = {')
-  const end = main.indexOf('\nconst {\n  durableWorkspaceChatID, persistWorkspaceChatRemote,', start)
+  const { start, end } = compositionSection(main, 'chatgpt-transport')
   const order = ['createChatGPTConversationSettlement(', 'createDesktopRequestPreparation(',
     'createDesktopChatGPTAccount(', 'createOwnedChatGPTConversationReload(',
     'createChatGPTComposerTarget(', 'createDesktopChatGPTPacing(', 'createDesktopPromptDispatch(']
@@ -42,7 +42,7 @@ export async function expandDesktopChatGPTTransportStageSource(main) {
   const positions = order.map((name) => stageBody.indexOf(name))
   if (start < 0 || end <= start || positions.some((at) => at < 0)
       || positions.some((at, i) => i > 0 && at <= positions[i - 1])
-      || !main.includes('createDesktopChatGPTTransportStage(chatGPTTransportStageDependencies)')
+      || !main.includes("compose(ctx, 'chatgpt-transport', createDesktopChatGPTTransportStage, {")
       || !facade.includes("from './runtime.mjs'")
       || !preparation.includes('createChatInputPreparation({')
       || !preparation.includes('createChatGPTRendererStability({')

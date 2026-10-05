@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { TRACE_HEADER, currentTrace, installBackendTraceHeader, traceForTask, traceId, withTrace } from './operational-trace.mjs'
+import { readDesktopCompositionSource } from '../composition/entry/source.mjs'
+import { readComposedDesktopContext } from '../composition/entry/graph/composed.mjs'
 
 test('trace ids are sanitized, bounded and never empty', () => {
   assert.equal(traceId('task', 'cat_1', 2), 'task:cat_1:2')
@@ -40,7 +42,7 @@ test('only calls to the local backend carry the trace header', async () => {
 })
 
 test('main traces every scheduler attempt and every transport preparation', async () => {
-  const source = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopCompositionSource()
   const context = await readFile(new URL('../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const runtime = await readFile(new URL('../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
   const wiring = await readFile(new URL('../composition/startup/runtime.mjs', import.meta.url), 'utf8')
@@ -68,8 +70,10 @@ test('main traces every scheduler attempt and every transport preparation', asyn
   const worker = await readFile(new URL('../agent/scheduling/startup/worker.mjs', import.meta.url), 'utf8')
   assert.match(worker, /execute: \(task, context\) => withTrace\(traceForTask\(task\), \(\) => chatAgentWorkerActivity\.run\([^\n]*executeChatAgentTask\(task, context\)\)\)/)
   assert.match(transport, /return await withTrace\(traceId\('prepare', requestId \|\| key, Date\.now\(\)\.toString\(36\)\), operation\)/)
-  assert.match(source, /withTrace,\s*traceId,/)
+  const composed = await readComposedDesktopContext()
+  assert.equal(composed.withTrace, 'function')
+  assert.equal(composed.traceId, 'function')
   const identity = await readFile(new URL('../identity/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(source, /initializeDesktopIdentity\(\{ app, nativeImage/)
+  assert.match(source, /provide\(ctx, ctx\.initializeDesktopIdentity\(\{\s*app: ctx\.app, nativeImage: ctx\.nativeImage/)
   assert.match(identity, /installConsoleCapture\(consoleTarget, operationalLog, \{ trace: currentTrace \}\)\n  installBackendTraceHeader\(globalTarget, BACKEND_URL\)/)
 })

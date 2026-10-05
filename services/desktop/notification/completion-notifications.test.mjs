@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { readDesktopCompositionSource } from '../composition/entry/source.mjs'
 
-const main = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
+const main = await readDesktopCompositionSource()
 const windowIPCComposition = await readFile(new URL('../composition/ipc/window.mjs', import.meta.url), 'utf8')
 const trayComposition = await readFile(new URL('../composition/window/tray-lifecycle.mjs', import.meta.url), 'utf8')
 const windowRuntime = await readFile(new URL('../composition/window/runtime.mjs', import.meta.url), 'utf8')
@@ -14,11 +15,11 @@ const preload = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8
 const tray = await readFile(new URL('../tray/desktop-tray-control.mjs', import.meta.url), 'utf8')
 
 test('completion notifications are deduplicated and exposed through the tray controller', () => {
-  assert.match(main, /createDesktopWindowAssembly\(\{/)
+  assert.match(main, /compose\(ctx, 'window-assembly', createDesktopWindowAssembly, \{/)
   assert.match(windowAssembly, /createDesktopWindowRuntime\(\{/)
   assert.match(windowRuntime, /createDesktopTrayComposition\(\{/)
   assert.match(trayComposition, /createDesktopTrayControl\(\{/)
-  assert.match(main, /createDesktopEntrypointRuntime\(\{/)
+  assert.match(main, /compose\(ctx, 'entrypoint', \(deps\) => \(\{ desktopEntrypoint: createDesktopEntrypointRuntime\(deps\) \}\)/)
   assert.match(entry, /createDesktopIPCRegistrar\(\{ \.\.\.deps, \.\.\.browser, \.\.\.monitor, \.\.\.window \}\)/)
   assert.match(ipcRuntime, /registerDesktopIPC\(\{/)
   assert.match(windowIPCComposition, /registerDesktopShellIPC\(\{/)

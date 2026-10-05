@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../../composition/entry/source.mjs'
 
 test('renderer window controls are closed preload IPC operations', async () => {
   const [source, preload] = await Promise.all([
-    readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readDesktopCompositionSource(),
     readFile(new URL('../../preload.cjs', import.meta.url), 'utf8'),
   ])
   const windowIPC = await readFile(new URL('./ipc.mjs', import.meta.url), 'utf8')
@@ -13,7 +14,7 @@ test('renderer window controls are closed preload IPC operations', async () => {
   assert.match(windowIPC, /ipcMain\.handle\('wharness:windows:minimize'/)
   assert.match(windowIPC, /ipcMain\.handle\('wharness:windows:toggle-maximize'/)
   assert.match(windowIPC, /ipcMain\.handle\('wharness:windows:close'/)
-  assert.match(source, /createDesktopEntrypointRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'entrypoint', \(deps\) => \(\{ desktopEntrypoint: createDesktopEntrypointRuntime\(deps\) \}\)/)
   assert.match(await readFile(new URL('../../composition/entry/runtime.mjs', import.meta.url), 'utf8'), /createDesktopIPCRegistrar\(\{ \.\.\.deps, \.\.\.browser, \.\.\.monitor, \.\.\.window \}\)/)
   assert.match(windowIPCComposition, /registerDesktopShellIPC\(\{/)
   assert.match(shellIPC, /ipcMain\.handle\('wharness:windows:activate-self-evolution'/)
@@ -74,12 +75,12 @@ test('project home IPC can pick logos, move closed projects to trash and open a 
 
 test('closing or switching the active project hides Supervisor and interactive Worker surfaces in Desktop before renderer teardown', async () => {
   const [source, windowRuntime, windowIPC, ownership] = await Promise.all([
-    readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readDesktopCompositionSource(),
     readFile(new URL('../../composition/window/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('./ipc.mjs', import.meta.url), 'utf8'),
     readFile(new URL('./ownership.mjs', import.meta.url), 'utf8'),
   ])
-  assert.match(source, /hideAgentInteractionsForWindow: \(\.\.\.args\) => hideChatAgentInteractionsForWindow\(\.\.\.args\)/)
+  assert.match(source, /hideAgentInteractionsForWindow: deferred\.hideChatAgentInteractionsForWindow/)
   assert.match(windowRuntime, /createProjectWindowOwnership\(\{[\s\S]*hideAgentInteractions: d\.hideAgentInteractionsForWindow/)
   const suspendStart = ownership.indexOf('function suspendNativeSurfacesForWindow(windowState)')
   const suspendEnd = ownership.indexOf('\n  function acquireProjectForWindow', suspendStart)
@@ -100,11 +101,11 @@ test('closing or switching the active project hides Supervisor and interactive W
 
 test('detached workbench surfaces stay transient and keep project ownership with the parent window', async () => {
   const [source, windowIPC] = await Promise.all([
-    readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readDesktopCompositionSource(),
     readFile(new URL('./ipc.mjs', import.meta.url), 'utf8'),
   ])
   const createWindowSource = await readFile(new URL('../lifecycle/create/window.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopEntrypointRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'entrypoint', \(deps\) => \(\{ desktopEntrypoint: createDesktopEntrypointRuntime\(deps\) \}\)/)
   assert.match(await readFile(new URL('../../composition/window/creation-runtime.mjs', import.meta.url), 'utf8'), /const createWindow = createDesktopWindowCreator\(\{/)
   assert.match(createWindowSource, /transientSurface: Boolean\(surface\)/)
   assert.match(createWindowSource, /if \(surface\?\.projectPath\) \{[\s\S]*state\.projects\.add\(surface\.projectPath\)/)

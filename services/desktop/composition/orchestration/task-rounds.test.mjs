@@ -2,6 +2,7 @@ import { readPromptTransportSource } from '../transport/prompt-source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 test('an Orchestrator execution Worker stays pinned to its task and others stay off that lane', async () => {
   const source = await readPromptTransportSource()
@@ -26,14 +27,14 @@ test('auto scale never drains below a Worker pinned to an Orchestrator task', as
 
 test('translation, planning and release notes run on their own ephemeral Workers', async () => {
   const source = await readPromptTransportSource()
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const ephemeralSource = await readFile(new URL('../../agent/automation/artifact-workers/ephemeral-runtime.mjs', import.meta.url), 'utf8')
   const ephemeralConfig = await readFile(new URL('../../agent/automation/artifact-workers/ephemeral-config.mjs', import.meta.url), 'utf8')
   const workerRuntime = await readFile(new URL('../workers/runtime/runtime.mjs', import.meta.url), 'utf8')
   assert.match(source, /EPHEMERAL_WORKER_TASK_TYPES/)
   assert.match(ephemeralConfig, /const EPHEMERAL_WORKER_TASK_TYPES = new Set\(\['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES', 'UI_TEST_DISCOVER', 'UI_TEST_RUN'\]\)/)
-  assert.match(main, /createAgentWorkerRuntime\(\{/)
+  assert.match(main, /compose\(ctx, 'agent-workers', createAgentWorkerRuntime, \{/)
   assert.match(workerRuntime, /createEphemeralWorkerRuntime\(\{/)
   const ephemeral = ephemeralSource.slice(ephemeralSource.indexOf('async function executeEphemeralWorkerTask('))
   // A WAITING observation keeps the view on its conversation; anything else retires it.

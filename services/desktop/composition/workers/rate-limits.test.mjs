@@ -2,6 +2,7 @@ import { readTaskExecutionSource } from './task-execution-source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 test('submission pacing widens after rate-limit pressure and decays back on its own', async () => {
   const source = await readTaskExecutionSource()
@@ -64,7 +65,7 @@ test('a Desktop restart during a suspension adopts the durable deadline instead 
   assert.match(refresh, /observedAt >= state\.rateLimitAppliedAt/)
   const apply = source.slice(source.indexOf('function applyChatGPTRateLimit('), source.indexOf('\nfunction noteChatGPTRateLimitGate('))
   assert.match(apply, /state\.appliedAt = now/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /set appliedAt\(value\) \{ desktopState\.chatgpt\.chatGPTRateLimitAppliedAt = value \}/)
+  assert.match(await readDesktopCompositionSource(), /set appliedAt\(value\) \{ desktopState\.chatgpt\.chatGPTRateLimitAppliedAt = value \}/)
 })
 
 test('a slot rebound before execution never charges the task attempt budget', async () => {

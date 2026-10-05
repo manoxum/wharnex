@@ -53,7 +53,7 @@ export async function readHealthSource() {
   const downloadStart = downloadRuntime.indexOf('  const {\n    publishPlanDownload,')
   const downloadEnd = downloadRuntime.lastIndexOf('\n  return {')
   const downloadCompositionStart = main.indexOf('const {\n  publishPlanDownload, publishPlanDownloadError,')
-  const downloadCompositionEnd = main.indexOf('\nconst {\n  publishAuthComplete,', downloadCompositionStart)
+  const downloadCompositionEnd = main.indexOf("compose(ctx, 'auth-views'", downloadCompositionStart)
   if (Math.min(downloadStart, downloadEnd, downloadCompositionStart, downloadCompositionEnd) < 0
       || !main.includes('createDesktopDownloadRuntime({')
       || !downloadFacade.includes("from './runtime.mjs'")) {

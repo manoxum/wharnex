@@ -2,6 +2,7 @@ import { readPromptTransportSource } from './prompt-source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 test('prepare-prompt uses the background composer targeting helper', async () => {
   const source = await readPromptTransportSource()
@@ -64,9 +65,9 @@ test('observing a submit does not erase the retryable prompt, only a real termin
 
   const inbox = await readFile(new URL('../session/pending-bundle-inbox.mjs', import.meta.url), 'utf8')
   const transportRuntime = await readFile(new URL('../session/transport-runtime.mjs', import.meta.url), 'utf8')
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const workflow = await readFile(new URL('../session/workflow/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /createDesktopChatWorkflowRuntime\(\{/)
+  assert.match(main, /compose\(ctx, 'chat-workflow', createDesktopChatWorkflowRuntime, \{/)
   assert.match(workflow, /createDesktopChatTransportRuntime\(\{/)
   assert.match(transportRuntime, /cancelRequest: cancelChatGPTRequestState/)
   assert.match(inbox, /await cancelRequest\(key, id\)/)
@@ -133,10 +134,10 @@ test('Desktop sends one logical request and uses configured multipart transport 
 })
 
 test('automatic ChatGPT transport accepts auto-approve projects', async () => {
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const guard = await readFile(new URL('./preparation/runtime.mjs', import.meta.url), 'utf8')
   const stage = await readFile(new URL('./stage/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /createDesktopChatGPTTransportStage\(chatGPTTransportStageDependencies\)/)
+  assert.match(main, /compose\(ctx, 'chatgpt-transport', createDesktopChatGPTTransportStage, \{/)
   assert.match(stage, /createDesktopRequestPreparation\(\{/)
   assert.match(guard, /\['auto', 'auto_approve'\]\.includes\(sessionState\?\.automation_mode\)/)
 })
@@ -145,9 +146,9 @@ test('automatic and confirmed submissions wait for a stable loaded definitive Ch
   const source = await readPromptTransportSource()
   const conversationURLs = await readFile(new URL('../../chatgpt/session/conversation-url.mjs', import.meta.url), 'utf8')
   const waiter = await readFile(new URL('../../chatgpt/session/ownership/conversation-settlement.mjs', import.meta.url), 'utf8')
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const stage = await readFile(new URL('./stage/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /createDesktopChatGPTTransportStage\(/)
+  assert.match(main, /compose\(ctx, 'chatgpt-transport', createDesktopChatGPTTransportStage, \{/)
   assert.match(stage, /createChatGPTConversationSettlement\(d\)/)
   assert.match(waiter, /!wc\.isLoading\(\) && Date\.now\(\) - stableSince >= 600/)
   assert.match(waiter, /waitForConcreteChatGPTConversation\(wc, 30_000\)/)

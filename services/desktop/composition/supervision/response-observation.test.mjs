@@ -2,6 +2,7 @@ import { readActivityRecoverySource } from './activity-recovery-source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 test('bundle supervision cannot reload or probe a ChatGPT surface during transport preparation', async () => {
   const source = await readActivityRecoverySource()
@@ -104,9 +105,10 @@ test('automatic bundle recovery is one wake-up and validation quiesces queued or
 
   const quiesce = await readFile(new URL('../../chatgpt/transport/downloads/expectation/validated.mjs', import.meta.url), 'utf8')
   assert.match(source, /createValidatedBundleState\(\{/)
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const transportComposition = await readFile(new URL('../session/transport-runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /scheduler: \(\) => desktopState\.agent\.chatAgentScheduler/)
+  assert.match(main, /scheduler: ctx\.getScheduler/)
+  assert.match(main, /getScheduler: \(\) => desktopState\.agent\.chatAgentScheduler/)
   assert.match(transportComposition, /scheduler: d\.scheduler/)
   assert.match(quiesce, /abortChatGPTTransportPreparations/)
   assert.match(quiesce, /activeScheduler\.cancelLineage/)

@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { readPromptTransportSource } from './prompt-source.mjs'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 test('transient protocol ZIPs are deleted promptly and included in storage cleanup', async () => {
   const source = await readPromptTransportSource()
@@ -24,11 +25,11 @@ test('transient protocol ZIPs are deleted promptly and included in storage clean
   assert.match(browserSession.slice(clearStart, clearEnd), /TEMP_DATA_NAMES/)
   assert.match(browserSession, /'wharness-chat-protocol'/)
 
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const runtime = await readFile(new URL('../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
   const startupWiring = await readFile(new URL('../startup/runtime.mjs', import.meta.url), 'utf8')
   const entry = await readFile(new URL('../entry/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /app\.whenReady\(\)\.then\(\(\) => desktopEntrypoint\.start\(\)\)/)
+  assert.match(main, /app\.whenReady\(\)\.then\(\(\) => desktop\.desktopEntrypoint\.start\(\)\)/)
   assert.match(entry, /startDesktopRuntime\(startup\.startupContext\(\)\)/)
   assert.match(startupWiring, /return createDesktopStartupContext\(\{/)
   assert.match(runtime, /rm\(path\.join\(app\.getPath\('temp'\), 'wharness-chat-protocol'\), \{ recursive: true, force: true \}\)/)
@@ -36,14 +37,14 @@ test('transient protocol ZIPs are deleted promptly and included in storage clean
 })
 
 test('an expired ChatGPT artifact is re-requested instead of clicked forever', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopCompositionSource()
   const viewHealth = await readFile(new URL('../session/view-health-runtime.mjs', import.meta.url), 'utf8')
   const health = await readFile(new URL('../../chatgpt/session/health/http-status.mjs', import.meta.url), 'utf8')
   // Measured live: 134 clicks against two dead file cards in one lease. The
   // card stays rendered after ChatGPT collects the artifact behind it, so the
   // 404 on its own download endpoint is the only evidence the file is gone.
   const workflow = await readFile(new URL('../session/workflow/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopChatWorkflowRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'chat-workflow', createDesktopChatWorkflowRuntime, \{/)
   assert.match(workflow, /createDesktopChatViewHealthRuntime\(\{/)
   assert.match(viewHealth, /createChatGPTHTTPHealth\(\{/)
   const detector = health.slice(health.indexOf('function chatGPTInterpreterDownloadConversation('), health.indexOf('\n  function noteChatGPTExpiredArtifact('))
@@ -57,7 +58,7 @@ test('an expired ChatGPT artifact is re-requested instead of clicked forever', a
   assert.match(worker, /chatGPTArtifactExpiredSince\(chatAgentConversationID\(flow\.conversationUrl\), flow\.lastRequestedAt\)/)
   // Bounded, and it must not restart the planning work it already did.
   const orchestration = await readFile(new URL('../orchestration/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createOrchestrationRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'orchestration', createOrchestrationRuntime\)/)
   assert.match(orchestration, /maxBundleContinuations: MAX_BUNDLE_CONTINUATIONS/)
   assert.match(worker, /rerequests >= maxBundleContinuations/)
   // Once the artifacts are collected the conversation can never deliver again,
@@ -78,13 +79,13 @@ test('an expired ChatGPT artifact is re-requested instead of clicked forever', a
 // The only surface that keeps ordinary download behaviour is the human
 // browsing window, which shares this partition.
 test('an unrecognized download on the ChatGPT automation partition fails closed', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopCompositionSource()
   const runtime = await readFile(new URL('../downloads/runtime.mjs', import.meta.url), 'utf8')
   const legacy = await readFile(new URL('../../chatgpt/downloads/legacy-plan.mjs', import.meta.url), 'utf8')
   const router = await readFile(new URL('../../chatgpt/downloads/registration/router.mjs', import.meta.url), 'utf8')
   const browsing = await readFile(new URL('../../chatgpt/downloads/registration/source.mjs', import.meta.url), 'utf8')
   const workflow = await readFile(new URL('../session/workflow/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopChatWorkflowRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'chat-workflow', createDesktopChatWorkflowRuntime, \{/)
   assert.match(workflow, /createDesktopDownloadRuntime\(\{/)
   assert.match(runtime, /createChatGPTDownloadRouter\(\{/)
   const start = router.indexOf("chatSession.on('will-download'")

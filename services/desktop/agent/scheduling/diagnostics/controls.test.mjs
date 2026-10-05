@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createChatAgentRuntimeControls } from './controls.mjs'
+import { readDesktopCompositionSource } from '../../../composition/entry/source.mjs'
 
 test('runtime state returns synchronously while broadcasts coalesce to the latest value', async () => {
   let version = 0
@@ -42,14 +43,14 @@ test('Worker pause and resume persist policy changes and wake the scheduler', ()
 })
 
 test('runtime controls initialize before early Desktop consumers capture them', async () => {
-  const main = await readFile(new URL('../../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const windowRuntime = await readFile(new URL('../../../composition/window/runtime.mjs', import.meta.url), 'utf8')
   const windowAssembly = await readFile(new URL('../../../composition/window/assembly/runtime.mjs', import.meta.url), 'utf8')
   const initialized = main.indexOf('createChatAgentRuntimeControls({')
   assert.ok(initialized > 0)
-  assert.ok(initialized < main.indexOf('createDesktopWindowAssembly({'))
+  assert.ok(initialized < main.indexOf("compose(ctx, 'window-assembly'"))
   assert.match(windowAssembly, /createDesktopWindowRuntime\(\{/)
   assert.match(windowRuntime, /resumeWorkers: d\.resumeChatAgentWorkers/)
-  assert.ok(initialized < main.indexOf('refreshChatAgentRuntimeState, publishChatAgentRuntimeState,'))
-  assert.match(main, /persistChatAgentPolicies: \(\.\.\.args\) => persistChatAgentPolicies\(\.\.\.args\)/)
+  assert.ok(initialized < main.indexOf("compose(ctx, 'agent-task-queue'"))
+  assert.match(main, /persistChatAgentPolicies: deferred\.persistChatAgentPolicies/)
 })

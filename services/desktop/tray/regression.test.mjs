@@ -22,7 +22,7 @@ const autoScale = await readFile(new URL('../agent/scheduling/capacity/auto-scal
 const runtimeControls = await readFile(new URL('../agent/scheduling/diagnostics/controls.mjs', import.meta.url), 'utf8')
 
 test('desktop tray owns background lifecycle, project controls and recoverable shutdown', async () => {
-  assert.match(main, /createDesktopWindowAssembly\(\{/)
+  assert.match(main, /compose\(ctx, 'window-assembly', createDesktopWindowAssembly, \{/)
   assert.match(windowAssembly, /createDesktopWindowRuntime\(\{/)
   assert.match(windowRuntime, /createDesktopTrayComposition\(\{/)
   assert.match(trayComposition, /createDesktopTrayControl\(\{/)

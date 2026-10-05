@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createDesktopWindowLayout } from './layout.mjs'
+import { readDesktopCompositionSource } from '../../composition/entry/source.mjs'
 
 const display = { workArea: { x: 0, y: 0, width: 1920, height: 1080 } }
 
@@ -43,7 +44,7 @@ test('window layout keeps old sizes and avoids reopening a window off screen', a
 
 test('window creation still uses the layout module and persists live movement', async () => {
   const [main, runtime, assembly, creation, entry, layout, create] = await Promise.all([
-    readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readDesktopCompositionSource(),
     readFile(new URL('../../composition/window/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../composition/window/assembly/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../composition/window/creation-runtime.mjs', import.meta.url), 'utf8'),
@@ -52,11 +53,11 @@ test('window creation still uses the layout module and persists live movement', 
     readFile(new URL('../lifecycle/create/window.mjs', import.meta.url), 'utf8'),
   ])
 
-  assert.match(main, /createDesktopWindowAssembly\(\{/)
+  assert.match(main, /compose\(ctx, 'window-assembly', createDesktopWindowAssembly, \{/)
   assert.match(assembly, /createDesktopWindowRuntime\(\{/)
   assert.match(runtime, /const persistWindowLayout = desktopWindowLayout\.persist/)
   assert.match(runtime, /const loadWindowPlacement = desktopWindowLayout\.loadWindowPlacement/)
-  assert.match(main, /createDesktopEntrypointRuntime\(\{/)
+  assert.match(main, /compose\(ctx, 'entrypoint', \(deps\) => \(\{ desktopEntrypoint: createDesktopEntrypointRuntime\(deps\) \}\)/)
   assert.match(entry, /createDesktopWindowCreationRuntime\(\{ \.\.\.deps, \.\.\.monitor,/)
   assert.match(entry, /suspendNativeSurfacesForWindow: \(state\) => \{ if \(state\.id === 'browser-monitor'\) monitor\.releaseBrowserMonitor\(state\)/)
   assert.match(creation, /const createWindow = createDesktopWindowCreator\(\{[\s\S]*loadWindowPlacement[\s\S]*scheduleWindowLayoutPersistence/)

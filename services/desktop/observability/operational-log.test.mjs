@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { createOperationalLogShipper, installConsoleCapture, parseConsoleLine } from './operational-log.mjs'
+import { readDesktopCompositionSource } from '../composition/entry/source.mjs'
 
 const at = new Date('2026-09-25T17:00:14.000Z')
 
@@ -63,10 +64,10 @@ test('the shipper batches, keeps records while the backend is down and bounds it
 
 test('main installs the capture before anything else can log', async () => {
   const source = await readFile(new URL('../identity/runtime.mjs', import.meta.url), 'utf8')
-  const main = await readFile(new URL('../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const backend = source.indexOf('const BACKEND_URL =')
   const install = source.indexOf('installConsoleCapture(consoleTarget, operationalLog, { trace: currentTrace })')
   assert.ok(backend > 0 && install > backend, 'capture must be installed right after the backend URL is known')
   assert.match(source, /createOperationalLogShipper\(\{ endpoint: new URL\('\/api\/operational-log', BACKEND_URL\)\.href \}\)/)
-  assert.match(main, /initializeDesktopIdentity\(\{ app, nativeImage/)
+  assert.match(main, /provide\(ctx, ctx\.initializeDesktopIdentity\(\{\s*app: ctx\.app, nativeImage: ctx\.nativeImage/)
 })

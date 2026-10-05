@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createDesktopMessageRouting } from './message-routing.mjs'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 test('routes only trusted window and owned ChatGPT entry messages', () => {
   const messages = []
@@ -30,11 +31,11 @@ test('routes only trusted window and owned ChatGPT entry messages', () => {
 })
 
 test('runtime controls defer message routing until after the routing factory initializes', async () => {
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const ownership = await readFile(new URL('../session/ownership/runtime.mjs', import.meta.url), 'utf8')
   const controls = main.indexOf('createChatAgentRuntimeControls({')
-  const routing = main.indexOf('createDesktopOwnershipRuntime({')
+  const routing = main.indexOf("compose(ctx, 'ownership'")
   assert.ok(controls >= 0 && routing > controls)
   assert.match(ownership, /createDesktopMessageRouting\(\{/)
-  assert.match(main.slice(controls, routing), /sendToWindowState: \(\.\.\.args\) => sendToWindowState\(\.\.\.args\)/)
+  assert.match(main.slice(controls, routing), /sendToWindowState: deferred\.sendToWindowState/)
 })

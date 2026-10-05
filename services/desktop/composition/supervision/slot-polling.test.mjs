@@ -2,6 +2,7 @@ import { readActivityRecoverySource } from './activity-recovery-source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 
 test('switching chats reuses a released Supervisor slot and preserves visible intent when recycling', async () => {
@@ -11,7 +12,7 @@ test('switching chats reuses a released Supervisor slot and preserves visible in
   const ensure = source.slice(ensureStart, ensureEnd)
 
   assert.match(ensure, /chatgptViews\.size >= getDesiredChatAgentSupervisorSlots\(\)/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /getDesiredChatAgentSupervisorSlots: \(\) => desktopState\.agent\.desiredChatAgentSupervisorSlots/)
+  assert.match(await readDesktopCompositionSource(), /getDesiredChatAgentSupervisorSlots: \(\) => desktopState\.agent\.desiredChatAgentSupervisorSlots/)
   assert.match(ensure, /const reusable = reusableSupervisor\(key, resolved\)/)
   // Eligibility is the whole binding hold, not just an open transport: a chat
   // awaiting its response bundle must not lose its renderer to a chat switch.
@@ -111,7 +112,7 @@ test('activity polling is single-flight and reads visible reasoning only for an 
   assert.match(body, /if \(readPollingChatGPTVisibleActivity\(\)\) return/)
   assert.match(body, /setPollingChatGPTVisibleActivity\(true\)/)
   assert.match(body, /finally \{\s*setPollingChatGPTVisibleActivity\(false\)\s*}/)
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   assert.match(main, /readPollingChatGPTVisibleActivity: \(\) => desktopState\.chatgpt\.pollingChatGPTVisibleActivity/)
   assert.match(main, /setPollingChatGPTVisibleActivity: \(value\) => \{ desktopState\.chatgpt\.pollingChatGPTVisibleActivity = value \}/)
 
@@ -142,8 +143,8 @@ test('every ChatGPT recovery/bundle/human-escalation choke point durably records
   assert.match(source, /createChatGPTHumanAttention\(\{/)
   assert.match(attention.slice(humanActionStart, humanActionEnd), /recordChatGPTTaskEvent\(expected, 'chatgpt\.human_action_required'/)
 
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
-  assert.match(main, /recordChatGPTTaskEvent: \(\.\.\.args\) => recordChatGPTTaskEvent\(\.\.\.args\)/)
+  const main = await readDesktopCompositionSource()
+  assert.match(main, /late\(ctx,[^)]*'recordChatGPTTaskEvent'\)/)
   assert.match(downloadRuntime, /recordTaskEvent: d\.recordChatGPTTaskEvent/)
   assert.match(bundle, /recordTaskEvent\(live, 'chatgpt\.bundle_validated'/)
   assert.match(bundle, /recordTaskEvent\(live, 'chatgpt\.bundle_rejected'/)
