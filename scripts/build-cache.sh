@@ -99,17 +99,20 @@ webapp_fingerprint() {
   } | hash_stream
 }
 
+# Desktop inputs are recursive: main.mjs is only the composition root, and
+# every domain it loads lives in a subdirectory. Extra find predicates (for
+# example -newer) are applied to the selected files.
+desktop_input_files() {
+  find . -path ./node_modules -prune -o -type f \
+    \( -name '*.mjs' -o -name '*.cjs' -o -name '*.js' -o -name '*.json' -o -name '.npmrc' \) "$@"
+}
+
 desktop_fingerprint() {
   service="$ROOT/services/desktop"
   {
     node --version
     npm --version
-    (
-      cd "$service"
-      find . -maxdepth 1 -type f \
-        \( -name '*.mjs' -o -name '*.cjs' -o -name 'package.json' -o -name 'package-lock.json' -o -name '.npmrc' \) \
-        -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum
-    )
+    (cd "$service" && desktop_input_files -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum)
   } | hash_stream
 }
 
@@ -178,10 +181,7 @@ has_newer_inputs() {
       return 1
       ;;
     desktop)
-      service="$ROOT/services/desktop"
-      find "$service" -maxdepth 1 -type f \
-        \( -name '*.mjs' -o -name '*.cjs' -o -name 'package.json' -o -name 'package-lock.json' -o -name '.npmrc' \) \
-        -newer "$baseline" -print -quit | grep -q .
+      (cd "$ROOT/services/desktop" && desktop_input_files -newer "$baseline" -print -quit) | grep -q .
       ;;
     *) return 0 ;;
   esac

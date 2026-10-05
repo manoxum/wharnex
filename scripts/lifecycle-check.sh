@@ -350,6 +350,35 @@ if ! grep -Fq 'build-previous-success' "$MAKEFILE"; then
   echo 'lifecycle regression: build adoption must preserve fail-closed active build stamp semantics' >&2
   exit 1
 fi
+# Desktop domains live in subdirectories of services/desktop; editing one must
+# invalidate the Desktop build, while dependency trees must not.
+cache_fixture=$(mktemp -d)
+desktop_fixture="$cache_fixture/services/desktop"
+mkdir -p "$desktop_fixture/agent/scheduling" "$desktop_fixture/node_modules/electron/dist"
+printf '{}\n' >"$desktop_fixture/package.json"
+printf 'export {}\n' >"$desktop_fixture/main.mjs"
+printf 'export const leaf = 1\n' >"$desktop_fixture/agent/scheduling/leaf.mjs"
+printf '{}\n' >"$desktop_fixture/node_modules/electron/package.json"
+printf 'electron' >"$desktop_fixture/node_modules/electron/path.txt"
+printf '#!/bin/sh\n' >"$desktop_fixture/node_modules/electron/dist/electron"
+chmod +x "$desktop_fixture/node_modules/electron/dist/electron"
+desktop_cache_build() {
+  WHARNESS_ROOT="$cache_fixture" WHARNESS_BUILD_CACHE_DIR="$cache_fixture/cache" \
+    WHARNESS_BUILD_BASELINE_STAMP="$cache_fixture/no-baseline" \
+    "$BUILD_CACHE" run desktop sh -c 'echo built >>"$1"' sh "$cache_fixture/builds.log" >/dev/null
+}
+desktop_cache_build
+desktop_cache_build
+printf 'export const leaf = 2\n' >"$desktop_fixture/agent/scheduling/leaf.mjs"
+desktop_cache_build
+printf '{"version":"2"}\n' >"$desktop_fixture/node_modules/electron/package.json"
+desktop_cache_build
+desktop_builds=$(wc -l <"$cache_fixture/builds.log" | tr -d ' ')
+rm -rf "$cache_fixture"
+if [ "$desktop_builds" != 2 ]; then
+  echo "lifecycle regression: Desktop build cache must track domain subdirectories and ignore node_modules (built $desktop_builds times, expected 2)" >&2
+  exit 1
+fi
 printf 'Lifecycle compiled-artifact cache checks passed.\n'
 
 if ! printf '%s\n' "$build_block" | grep -Fq 'up-link-host-install'; then
