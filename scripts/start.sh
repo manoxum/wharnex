@@ -11,6 +11,9 @@ BUILD_STAMP="$ROOT/.harness/build-success"
 SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
 # Optional per-checkout overrides (Electron profile dir, etc). Gitignored.
 [ -f "$ROOT/.harness/env" ] && . "$ROOT/.harness/env"
+# IDE terminals export Electron-as-Node mode; the splash and the Desktop must
+# never inherit it, exactly as in launcher.sh (AGENTS.md §9).
+unset ELECTRON_RUN_AS_NODE 2>/dev/null || true
 # A `make start` run directly from a terminal, outside the installed
 # launcher, previously left WHARNESS_DESKTOP_USER_DATA_DIR unset. Electron
 # then fell back to its own default profile directory instead of the

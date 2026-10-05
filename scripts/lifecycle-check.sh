@@ -321,6 +321,15 @@ if ! printf '%s\n' "$build_stage_unlocked_block" | grep -Fq '$(BUILD_JOBS)'; the
 fi
 printf 'Lifecycle fast rebuild checks passed.\n'
 
+# `make start` from an IDE terminal inherits ELECTRON_RUN_AS_NODE; the splash
+# it opens must not, or Electron runs launcher-splash.mjs as plain Node.
+unset_line=$(grep -n '^unset ELECTRON_RUN_AS_NODE' "$START" | head -1 | cut -d: -f1)
+splash_line=$(grep -n 'splash-lib.sh' "$START" | head -1 | cut -d: -f1)
+if [ -z "$unset_line" ] || [ -z "$splash_line" ] || [ "$unset_line" -gt "$splash_line" ]; then
+  echo 'lifecycle regression: start.sh must drop inherited Electron-as-Node mode before opening its splash' >&2
+  exit 1
+fi
+
 BUILD_CACHE="$ROOT/scripts/build-cache.sh"
 if [ ! -x "$BUILD_CACHE" ]; then
   echo 'lifecycle regression: compiled-artifact cache helper is missing' >&2
