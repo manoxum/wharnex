@@ -7,6 +7,7 @@
 import { execFileSync } from 'node:child_process'
 import { accessSync, constants, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { hostAccessPorts } from './up-whx-link-host-access.mjs'
 
 export const UP_LINK_DNS = '169.254.1.1'
 export const UP_LINK_UNSHARE = '/opt/wharness/libexec/wharnex-up-link-unshare'
@@ -26,7 +27,7 @@ const PREFLIGHT_ATTEMPTS = 2
 // status. Every value is positional, never interpolated into a script.
 export const UP_LINK_OUTER_SCRIPT = [
   'inner=$1; r=$2; u=$3; g=$4; p=$5; d=$6; h=$7; gw=$8; shift 8',
-  '"$h" --user --map-root-user --net --mount --propagation slave -- sh -c "$inner" up-whx-link-ns "$r" "$u" "$g" "$h" "$gw" "$@" &',
+  '"$h" --user --map-root-user --net --mount --propagation slave -- sh -c "$inner" up-whx-link-ns "$r" "$u" "$g" "$h" "$gw" "$p" "$@" &',
   'ns=$!; host=$(readlink /proc/self/ns/net); i=0',
   'while [ "$(readlink /proc/$ns/ns/net 2>/dev/null)" = "$host" ] && [ "$i" -lt 100 ]; do sleep 0.02; i=$((i+1)); done',
   'if [ "$(readlink /proc/$ns/ns/net 2>/dev/null)" = "$host" ]; then kill -KILL "$ns" 2>/dev/null; exit 96; fi',
@@ -48,13 +49,15 @@ export const UP_LINK_OUTER_SCRIPT = [
 // inside the namespace with an explicit onlink route to the same gateway the
 // host was using, until pasta's own route appears or the repair succeeds.
 export const UP_LINK_ENTER_SCRIPT = [
-  'r=$1; u=$2; g=$3; h=$4; gw=$5; shift 5; i=0',
+  'r=$1; u=$2; g=$3; h=$4; gw=$5; p=$6; shift 6; i=0',
   'while [ -z "$(ip route show default 2>/dev/null)" ] && [ "$i" -lt 100 ]; do',
   '  if [ -n "$gw" ]; then iface=$(ip -4 -o addr show scope global | awk \'{print $2; exit}\'); [ -n "$iface" ] && ip route add default via "$gw" dev "$iface" onlink 2>/dev/null; fi',
   '  sleep 0.05; i=$((i+1))',
   'done',
   '[ -n "$(ip route show default 2>/dev/null)" ] || exit 95',
   'i=0; while [ -n "$(ip -6 addr show tentative 2>/dev/null)" ] && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i+1)); done',
+  // Loopback aliases (127.0.0.165) reach the forwarded ports via 127.0.0.1 (ADR-0089).
+  'if [ -n "$p" ] && command -v nft >/dev/null 2>&1; then nft add table ip wharnex_up_link && nft add chain ip wharnex_up_link loopback "{ type nat hook output priority -100 ; }" && nft add rule ip wharnex_up_link loopback ip daddr 127.0.0.0/8 ip daddr != 127.0.0.1 tcp dport "{ $p }" dnat to 127.0.0.1 || echo "up-whx-link: loopback alias forwarding unavailable" >&2; fi',
   'mount --bind "$r" "$(readlink -f /etc/resolv.conf)" || exit 97',
   'exec "$h" --user --map-user="$u" --map-group="$g" -- "$@"',
 ].join('\n')
@@ -156,8 +159,8 @@ export function prepareUpLink(env, { runtimeDir, platform = process.platform, pr
   const unshareCommand = upLinkUnshare(env, unsharePath)
   if (!executable(unshareCommand, env)) missing.push(unshareCommand)
   if (missing.length) fail(`missing ${missing.join(', ')}`)
-  const ports = upLinkPorts(env)
-  if (!ports.length) fail('no loopback endpoint to forward')
+  const gatewayPorts = upLinkPorts(env); if (!gatewayPorts.length) fail('no loopback endpoint to forward')
+  const ports = [...new Set([...gatewayPorts, ...hostAccessPorts(env)])].sort((a, b) => a - b)
   mkdirSync(runtimeDir, { recursive: true })
   const resolvPath = path.join(runtimeDir, 'up-whx-link.resolv.conf')
   writeFileSync(resolvPath, `nameserver ${UP_LINK_DNS}\noptions edns0 trust-ad\n`, { mode: 0o644 })

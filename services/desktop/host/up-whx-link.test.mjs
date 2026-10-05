@@ -41,8 +41,8 @@ test('the launch chain keeps the dedicated helper and gateway positional across 
   assert.deepEqual(launch.args, ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, '/run/r.conf', '1000', '1000', '5173,6969', UP_LINK_DNS, UP_LINK_UNSHARE, '192.168.1.1', '/opt/electron', '.', '--ozone-platform=x11'])
   for (const script of [UP_LINK_OUTER_SCRIPT, UP_LINK_ENTER_SCRIPT]) assert.doesNotMatch(script, /\/opt\/electron|6969|1000|169\.254|192\.168\.1\.1/)
   assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" --user --map-root-user/)
-  assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" "\$gw" "\$@"/)
-  assert.match(UP_LINK_ENTER_SCRIPT, /r=\$1; u=\$2; g=\$3; h=\$4; gw=\$5; shift 5/)
+  assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" "\$gw" "\$p" "\$@"/)
+  assert.match(UP_LINK_ENTER_SCRIPT, /r=\$1; u=\$2; g=\$3; h=\$4; gw=\$5; p=\$6; shift 6/)
   assert.match(UP_LINK_ENTER_SCRIPT, /"\$h" --user --map-user="\$u"/)
 })
 
@@ -88,6 +88,17 @@ test('an active up-link switches the sandbox to user namespaces and writes its r
   assert.match(readFileSync(plan.resolvPath, 'utf8'), new RegExp(`nameserver ${UP_LINK_DNS.replaceAll('.', '\\.')}`))
   writeUpLinkState(dir, plan)
   assert.equal(JSON.parse(readFileSync(path.join(dir, 'up-whx-link.state'), 'utf8')).active, true)
+})
+
+test('opted-in host ports are forwarded and loopback aliases reach them', () => {
+  const env = withTools(gatewayEnv({ WHARNEX_UP_LINK_HOST_PORTS: '443,80' }))
+  const plan = prepareUpLink(env, { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => {}, uid: 1000, gid: 1000 })
+  assert.deepEqual(plan.ports, [80, 443, 6969])
+  // The forwarded set reaches the namespace root, which redirects other
+  // loopback aliases to 127.0.0.1 on exactly those ports before Electron runs.
+  assert.match(UP_LINK_OUTER_SCRIPT, /up-whx-link-ns "\$r" "\$u" "\$g" "\$h" "\$gw" "\$p" "\$@"/)
+  const dnat = UP_LINK_ENTER_SCRIPT.indexOf('ip daddr 127.0.0.0/8 ip daddr != 127.0.0.1 tcp dport "{ $p }" dnat to 127.0.0.1')
+  assert.ok(dnat > -1 && dnat < UP_LINK_ENTER_SCRIPT.indexOf('exec "$h"'))
 })
 
 test('an unavailable namespace never falls back to the host network', () => {

@@ -14,6 +14,8 @@ SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
 # IDE terminals export Electron-as-Node mode; the splash and the Desktop must
 # never inherit it, exactly as in launcher.sh (AGENTS.md §9).
 unset ELECTRON_RUN_AS_NODE 2>/dev/null || true
+# Host ports UI Lab may reach from inside the up-whx-link (adr/ADR-0089).
+if [ -n "${WHARNEX_UP_LINK_HOST_PORTS:-}" ]; then export WHARNEX_UP_LINK_HOST_PORTS; fi
 # A `make start` run directly from a terminal, outside the installed
 # launcher, previously left WHARNESS_DESKTOP_USER_DATA_DIR unset. Electron
 # then fell back to its own default profile directory instead of the
