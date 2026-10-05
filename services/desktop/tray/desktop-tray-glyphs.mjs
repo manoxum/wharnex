@@ -59,9 +59,16 @@ export function createTrayGlyphs(nativeImage, { size = DEFAULT_SIZE, scaleFactor
     const key = `${name}:${color}`
     const cached = cache.get(key)
     if (cached) return cached
-    const image = typeof nativeImage.createFromBuffer === 'function'
-      ? nativeImage.createFromBuffer(glyphPNG(name, color, size * scaleFactor), { width: size, height: size, scaleFactor })
-      : nativeImage.createFromDataURL(`data:image/png;base64,${glyphPNG(name, color, size).toString('base64')}`)
+    let image
+    if (typeof nativeImage.createFromBuffer === 'function') {
+      image = nativeImage.createFromBuffer(glyphPNG(name, color, size * scaleFactor), { width: size, height: size, scaleFactor })
+      // Electron's Linux DBus menu exporter requests a 1x representation.
+      // A NativeImage containing only the 2x bitmap is serialized as an empty
+      // icon-data value, so GNOME/AppIndicators cannot render the tray menu.
+      image.addRepresentation({ buffer: glyphPNG(name, color, size), width: size, height: size, scaleFactor: 1 })
+    } else {
+      image = nativeImage.createFromDataURL(`data:image/png;base64,${glyphPNG(name, color, size).toString('base64')}`)
+    }
     cache.set(key, image)
     return image
   }
