@@ -98,6 +98,33 @@ read anyway. This is a continuation of the existing `AGENTS.md` §4 principle
 authorization for unrelated drive-by rewrites in the same change — an
 unrelated cleanup is its own change.
 
+### Mandatory post-change refactoring pass
+
+Every implementation, bug fix or evolution — whether written by a human, a
+coding agent or the Wharnex planner — ends with a refactoring pass before it is
+complete. Making the behavior work is the first half of the change, not the
+whole of it. The pass covers the code *related* to the change: the files it
+edited, the modules it calls into or that call into it for the touched
+behavior, and the tests that verify it. In that scope the pass MUST:
+
+- bring every touched file to the §1 cap, extracting by concern under the owning
+  domain (§2) rather than by line count;
+- remove dead code, obsolete compatibility paths and stale test scaffolding
+  the change made unreachable or that it can prove unused;
+- collapse duplication the change introduced or exposed, preferring an existing
+  domain contract over a new helper;
+- keep names, comments and structure such that the next maintainer (human or
+  model) can understand the concern by reading the fewest files — this is the
+  token-economy goal of the cap, not an aesthetic preference;
+- rerun the gates the change already required after the refactor, since a
+  refactor that is not verified is a new unverified change.
+
+The pass is bounded by relation, not by ambition: it does not authorize
+rewriting unrelated concerns, and behavior MUST NOT change in it. When the
+related code is too large to bring to standard within the change, the pass
+extracts the touched concern (§2) and records the remainder as named follow-up
+debt in the change description instead of silently leaving it.
+
 ## 4. Rename-on-touch from Wharness to Wharnex
 
 Wharnex is the canonical product nomenclature. New project-owned work MUST use
