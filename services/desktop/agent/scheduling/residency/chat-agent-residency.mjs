@@ -1,10 +1,9 @@
-export const DEFAULT_CHAT_AGENT_RESIDENCY_MS = 60_000
-export const MIN_CHAT_AGENT_RESIDENCY_MS = 30_000
-export const MAX_CHAT_AGENT_RESIDENCY_MS = 120_000
-export const CHAT_AGENT_NAVIGATION_GAP_MS = 30_000
-export const CHAT_AGENT_AWAIT_PROBE_MS = 30_000
+import { residencyClaimOptions } from './claim-options.mjs'
+import { residencySnapshot } from './snapshot.mjs'
 
-// How long a slot may keep a resident lane that is producing no work before the
+// The default dwell a slot keeps a freshly bound conversation (30s..120s).
+const DEFAULT_RESIDENCY_MS = 60_000
+// How long (5s..120s) a slot may keep a resident lane that is producing no work before the
 // lane is released and the slot rejoins the free pool.
 //
 // Residency is an affinity cache, not ownership. Without an expiry it became
@@ -14,50 +13,32 @@ export const CHAT_AGENT_AWAIT_PROBE_MS = 30_000
 // rest of the process, including long after that chat was resolved. Only the
 // head of the rotation could escape, and only while no slot was free, so the
 // pool degraded to a single effective worker while other lanes held due work.
-export const DEFAULT_CHAT_AGENT_IDLE_RELEASE_MS = 20_000
-export const MIN_CHAT_AGENT_IDLE_RELEASE_MS = 5_000
-export const MAX_CHAT_AGENT_IDLE_RELEASE_MS = 120_000
+const DEFAULT_IDLE_RELEASE_MS = 20_000
 
-// An Orchestrator task's chat is the task itself (adr/ADR-0081). Every round
-// of it shares the task's lane, whatever conversation it names, so the Worker
-// pinned to the task serves all of them. The backend claim uses the same rule.
-export function orchestratorTaskChat(task = {}) {
-  return String(task.chat_id || task.chatId || '').trim().startsWith('otk_')
-}
-
-export function chatAgentLane(task = {}) {
-  if (orchestratorTaskChat(task)) return `h:${String(task.chat_id || task.chatId).trim()}`
-  const conversation = String(task.conversation_id || task.conversationId || '').trim()
-  if (conversation) return `c:${conversation}`
-  const chat = String(task.chat_id || task.chatId || '').trim()
-  return chat ? `h:${chat}` : ''
-}
-
-export function chatAgentConversationFromLane(lane = '') {
-  const value = String(lane || '')
-  return value.startsWith('c:') ? value.slice(2) : ''
-}
-
-function normalizeResidence(value) {
+function clampDuration(value, fallback, min, max) {
   const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return DEFAULT_CHAT_AGENT_RESIDENCY_MS
-  return Math.max(MIN_CHAT_AGENT_RESIDENCY_MS, Math.min(MAX_CHAT_AGENT_RESIDENCY_MS, Math.floor(numeric)))
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.max(min, Math.min(max, Math.floor(numeric)))
 }
 
-function normalizeIdleRelease(value) {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return DEFAULT_CHAT_AGENT_IDLE_RELEASE_MS
-  return Math.max(MIN_CHAT_AGENT_IDLE_RELEASE_MS, Math.min(MAX_CHAT_AGENT_IDLE_RELEASE_MS, Math.floor(numeric)))
+function clearResidence(state) {
+  state.residentLane = ''
+  state.pendingLane = ''
+  state.residentSince = 0
+  state.minResidentUntil = 0
+  state.idleSince = 0
 }
 
+// Residency is an affinity cache over Worker slots: which conversation each
+// slot holds, how long it must dwell, and whose turn it is to cross lanes.
 export class ChatAgentResidency {
   constructor({
-    minResidenceMs = DEFAULT_CHAT_AGENT_RESIDENCY_MS,
-    idleReleaseMs = DEFAULT_CHAT_AGENT_IDLE_RELEASE_MS,
+    minResidenceMs = DEFAULT_RESIDENCY_MS,
+    idleReleaseMs = DEFAULT_IDLE_RELEASE_MS,
     now = () => Date.now(),
   } = {}) {
-    this.minResidenceMs = normalizeResidence(minResidenceMs)
-    this.idleReleaseMs = normalizeIdleRelease(idleReleaseMs)
+    this.minResidenceMs = clampDuration(minResidenceMs, DEFAULT_RESIDENCY_MS, 30_000, 120_000)
+    this.idleReleaseMs = clampDuration(idleReleaseMs, DEFAULT_IDLE_RELEASE_MS, 5_000, 120_000)
     this.now = now
     this.slots = new Map()
     this.rotation = []
@@ -104,39 +85,11 @@ export class ChatAgentResidency {
     const state = this.register(slotId)
     state.blocked = Boolean(blocked) || state.nonPreemptive > 0 || state.navigationInProgress
     if (state.blocked) return { skip: true }
-    // Only a peer that can actually serve its lane may reserve it. Excluding a
-    // blocked peer's lane unconditionally made that peer a lane monopolist: an
-    // interacting, navigating or loading slot kept every other slot out of a
-    // conversation it could not work itself, so a due AWAIT_RESPONSE on that
-    // conversation was claimable by nobody at all. The backend still owns
-    // conflict safety through the per-conversation write lock and the lease, so
-    // handing the lane to a free slot cannot overlap real work.
-    const excludedLanes = [...this.slots.values()]
-      .filter((candidate) => candidate.slotId !== state.slotId && candidate.residentLane && !candidate.blocked)
-      .map((candidate) => candidate.residentLane)
-    if (!state.residentLane) {
-      return { preferred_lane: '', excluded_lanes: excludedLanes, fallback_mode: 'unresident_only' }
-    }
-    // A resident AWAIT_RESPONSE is a live supervision, not an ordinary cache
-    // hit. Never rotate that slot to an unresident lane merely because its
-    // current probe is sleeping behind not_before. With N+1 generating chats
-    // and N Workers, allowing the rotation head to cross lanes turns every
-    // observation wave into cache thrash: each slot navigates away from one
-    // live conversation to pick up the lane the previous slot just abandoned.
-    // The excess supervision can safely wait until one of the resident turns
-    // completes; navigating every live renderer is both more expensive and can
-    // interrupt the very response AWAIT_RESPONSE exists to protect.
-    if (pinResident) {
-      return { preferred_lane: state.residentLane, excluded_lanes: excludedLanes, fallback_mode: 'resident_only' }
-    }
-    const anotherFree = [...this.slots.values()].some((candidate) => candidate.slotId !== state.slotId && !candidate.residentLane)
-    const dwellComplete = this.now() >= state.minResidentUntil
-    const rotationHead = this.rotation[0] === state.slotId
-    return {
-      preferred_lane: state.residentLane,
-      excluded_lanes: excludedLanes,
-      fallback_mode: !anotherFree && dwellComplete && rotationHead ? 'any' : 'resident_only',
-    }
+    return residencyClaimOptions(state, [...this.slots.values()], {
+      rotationHead: this.rotation[0] === state.slotId,
+      dwellComplete: this.now() >= state.minResidentUntil,
+      pinResident,
+    })
   }
 
   beginAssignment(slotId, lane) {
@@ -203,11 +156,7 @@ export class ChatAgentResidency {
     if (!state.residentLane || state.nonPreemptive > 0 || state.navigationInProgress) return false
     if (!state.idleSince) state.idleSince = at
     if (at < state.minResidentUntil || at - state.idleSince < this.idleReleaseMs) return false
-    state.residentLane = ''
-    state.pendingLane = ''
-    state.residentSince = 0
-    state.minResidentUntil = 0
-    state.idleSince = 0
+    clearResidence(state)
     return true
   }
 
@@ -223,11 +172,7 @@ export class ChatAgentResidency {
     if (!state.residentLane || state.nonPreemptive > 0 || state.navigationInProgress) return false
     if (expected && state.residentLane !== expected) return false
     state.assignmentEpoch += 1
-    state.residentLane = ''
-    state.pendingLane = ''
-    state.residentSince = 0
-    state.minResidentUntil = 0
-    state.idleSince = 0
+    clearResidence(state)
     return true
   }
 
@@ -248,17 +193,7 @@ export class ChatAgentResidency {
 
   snapshot(slotId) {
     const state = this.register(slotId)
-    return {
-      slot_id: state.slotId,
-      resident_lane: state.residentLane,
-      resident_since: state.residentSince ? new Date(state.residentSince).toISOString() : '',
-      min_resident_until: state.minResidentUntil ? new Date(state.minResidentUntil).toISOString() : '',
-      assignment_epoch: state.assignmentEpoch,
-      rotation_position: Math.max(0, this.rotation.indexOf(state.slotId)),
-      navigation_in_progress: state.navigationInProgress,
-      non_preemptive: state.nonPreemptive > 0,
-      blocked: state.blocked === true,
-      idle_since: state.idleSince ? new Date(state.idleSince).toISOString() : '',
-    }
+    return residencySnapshot(state, Math.max(0, this.rotation.indexOf(state.slotId)))
   }
+
 }
