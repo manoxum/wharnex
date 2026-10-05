@@ -1,7 +1,7 @@
 export { readStoredAttachment, removeStoredChatAttachments, storedAttachmentPath } from './chat-attachment-store.mjs'
 export { buildBundleName, parseBundleName, safeChatId } from './bundlename.mjs'
 export { uploadChatArtifact } from './artifact-upload.mjs'
-export { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './chat-input-archive.mjs'
+export { chatInputArchiveFilename, chatInputPartManifest, localChatInputBootstrap, writeChatInputTransportArchives } from './archive/index.mjs'
 export {
   MAX_CONTEXT_BYTES, MAX_PLAN_BYTES, MAX_EXECUTION_BUNDLE_BYTES,
   MAX_MARKDOWN_TRANSLATION_BYTES, MAX_MARKDOWN_TRANSLATION_RESULT_BYTES,

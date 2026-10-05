@@ -128,7 +128,7 @@ test('Desktop sends one logical request and uses configured multipart transport 
   const end = source.indexOf('\nasync function attachContextToChatGPT', start)
   const prepare = source.slice(start, end)
   assert.match(prepare, /materializeChatInput\([^\n]+directPrompt/)
-  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, \[\], input\.requestMetadata, input\.multipart\)/)
+  assert.match(prepare, /localChatInputBootstrap\(requestId, input\.archiveName, expectedFilename, input\.requestMetadata, input\.multipart\)/)
   assert.match(prepare, /for \(let index = 0; index < input\.uploadPaths\.length; index \+= 1\) await pasteChatGPTFile/)
   assert.match(prepare, /attachmentCount: input\.uploadPaths\.length/)
 })

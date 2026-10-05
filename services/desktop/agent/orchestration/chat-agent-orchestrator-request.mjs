@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { buildBundleName } from '../../transport/bundlename.mjs'
 import { safeEntryName, writeChatInputZip } from '../../transport/chat-input-zip-writer.mjs'
-import { orchestratorContextEntries } from '../../transport/chat-input-archive.mjs'
+import { contextArchiveEntries } from '../../transport/archive/index.mjs'
 
 const REQUEST_ID = /^orp_[0-9]{8}T[0-9]{6}_[0-9a-f]{16}$/
 const MAX_REQUEST_BYTES = 256 * 1024 * 1024
@@ -42,7 +42,7 @@ export async function writeOrchestratorRequestBundle(targetPath, input) {
     files.push({ path: 'context/project.zip', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length })
   }
   if (input.context?.mode === 'partial') {
-    const selected = orchestratorContextEntries(input.context)
+    const selected = contextArchiveEntries(input.context)
     for (const entry of selected) {
       total += entry.bytes.length
       entries.push(entry)

@@ -88,7 +88,7 @@ export function createPromptPreparation(context) {
     const input = await withRequestPreparationDeadline(signal, (bounded) => materializeChatInput(key, request?.sessionId, requestId, request?.attachments || [], request?.artifacts || [], directPrompt, includeContext, request?.projectFiles || [], requestMetadata, bounded, bundleChatId))
     throwIfChatGPTTransportAborted(signal)
     timer.phase('archive', `bytes=${input.bytes} parts=${input.uploadPaths.length}`)
-    const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, [], input.requestMetadata, input.multipart)
+    const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, input.requestMetadata, input.multipart)
     if (manualTransport) {
       preparedChatGPTDrafts.delete(key)
       await manualChatGPTTransport.prepare(key, {

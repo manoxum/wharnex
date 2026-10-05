@@ -106,7 +106,7 @@ export function createPersistedPromptRetry(context) {
     const target = await targetChatGPTComposer(key, targetURL, false, entryOverride)
     target.reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
     target.entry.reasoningEffort = target.reasoningEffort
-    const bootstrap = localChatInputBootstrap(requestId, canonicalName, expectedFilename, [], undefined, multipart)
+    const bootstrap = localChatInputBootstrap(requestId, canonicalName, expectedFilename, undefined, multipart)
     const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-durable-retry', chatGPTFillComposerScript(bootstrap))
     if (!filled) throw new Error('ChatGPT composer DOM could not be populated with the persisted request')
     for (let index = 0; index < files.length; index += 1) await pasteChatGPTFile(target.entry, files[index].path, index + 1, files.length)
