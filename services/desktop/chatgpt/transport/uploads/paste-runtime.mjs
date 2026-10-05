@@ -4,8 +4,21 @@ export function createChatGPTFileUpload({
   ChatGPTRateLimitDeferral, chatAgentWorkerActivity,
   waitForChatGPTSurfaceReady, chatGPTComposerReadyScript,
   chatGPTUploadThumbnailScript, path, chatGPTUploads,
-  selectChatGPTUploadFile,
+  selectChatGPTUploadFile, chatGPTHumanActionScript, setChatGPTHumanAction, chatGPTHumanActionMessage,
 }) {
+  // A sign-in, verification or access gate is not a transient DOM miss: every
+  // retry would select the file on a page that cannot accept it. Classify it
+  // before selection, publish human attention once and stop retrying.
+  async function assertNoHumanGate(wc, key) {
+    if (!chatGPTHumanActionScript) return
+    const health = await wc.executeJavaScript(chatGPTHumanActionScript(), true).catch(() => null)
+    if (health?.required !== true) return
+    const kind = String(health.kind || 'verification')
+    setChatGPTHumanAction?.(key, kind, '', 'upload')
+    const message = chatGPTHumanActionMessage?.(kind) || `ChatGPT requires human action before uploading (${kind})`
+    throw Object.assign(new Error(message), { humanAction: kind, retryUpload: false })
+  }
+
   async function pasteChatGPTFile(entry, filePath, index, count, { translation = false, pacedWorker = false } = {}) {
     const key = chatGPTKeyForEntry(entry)
     const { wc } = requireOwnedChatGPTEntry(key, entry)
@@ -26,8 +39,9 @@ export function createChatGPTFileUpload({
         }
         chatAgentWorkerActivity.set('uploading')
         await waitForChatGPTSurfaceReady(key, entry)
+        await assertNoHumanGate(wc, key)
         const ready = await wc.executeJavaScript(chatGPTComposerReadyScript(), true)
-        if (!ready) throw new Error('ChatGPT composer DOM was not found before upload')
+        if (!ready) throw new Error(`ChatGPT composer DOM was not found before upload (${await surfaceShape(wc)})`)
         uploadBaseline = await wc.executeJavaScript(chatGPTUploadThumbnailScript(path.basename(filePath)), true)
       },
       beginUpload: () => chatGPTUploads.expect(wc.id, {
@@ -52,4 +66,21 @@ export function createChatGPTFileUpload({
   }
 
   return { pasteChatGPTFile }
+}
+
+// Structural shape of a page whose composer is missing, for diagnosis only:
+// the route kind and the presence of known controls, never page text.
+const SURFACE_SHAPE_SCRIPT = `(() => ({
+  route: /^\\/c\\//.test(location.pathname) ? 'conversation' : (location.pathname === '/' ? 'home' : 'other'),
+  signIn: Boolean(document.querySelector('[data-testid="login-button"],[data-testid="signup-button"]')),
+  errorBanner: Boolean(document.querySelector('[data-testid*="error" i],[role="alert"]')),
+  dialog: Boolean(document.querySelector('[role="dialog"]')),
+  loading: document.readyState,
+}))()`
+
+async function surfaceShape(wc) {
+  try {
+    const shape = await wc.executeJavaScript(SURFACE_SHAPE_SCRIPT, true)
+    return `route=${shape?.route} signIn=${shape?.signIn} error=${shape?.errorBanner} dialog=${shape?.dialog} state=${shape?.loading}`
+  } catch { return 'shape unavailable' }
 }

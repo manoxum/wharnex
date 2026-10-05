@@ -60,6 +60,9 @@ export function createDesktopChatGPTPacing(d) {
     chatGPTUploadThumbnailScript: d.chatGPTUploadThumbnailScript,
     path: d.path, chatGPTUploads: d.chatGPTUploads,
     selectChatGPTUploadFile: d.selectChatGPTUploadFile,
+    chatGPTHumanActionScript: d.chatGPTHumanActionScript,
+    setChatGPTHumanAction: d.setChatGPTHumanAction,
+    chatGPTHumanActionMessage: d.chatGPTHumanActionMessage,
   })
   return { ...readHealth, noteOrchestrationTaskPin, ...resume, ...pacing, ...upload }
 }

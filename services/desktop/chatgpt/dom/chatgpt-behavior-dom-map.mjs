@@ -1,6 +1,6 @@
 // Live-maintained ChatGPT DOM map. This is separate from behavior validation
 // so a provider rollout touches one small, reviewable module.
-export const CHATGPT_DOM_BEHAVIOR_REVISION = '2026-09-25.1'
+export const CHATGPT_DOM_BEHAVIOR_REVISION = '2026-10-05.1'
 
 export const CHATGPT_REQUIRED_SELECTORS = Object.freeze({
   composer: ['#prompt-textarea', 'div[contenteditable="true"][role="textbox"]', 'textarea[name="prompt-textarea"]'],

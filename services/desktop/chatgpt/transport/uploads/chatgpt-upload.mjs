@@ -1,8 +1,9 @@
 import path from 'node:path'
+import { composerLookupSource } from '../../dom/chatgpt-composer-lookup.mjs'
 export { ChatGPTUploadCoordinator, chatGPTUploadThumbnailScript } from './chatgpt-upload-observation.mjs'
 
 const composerUploadInputExpression = `(() => {
-  const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"][data-testid*="composer"], div[contenteditable="true"][role="textbox"], textarea[placeholder]');
+  ${composerLookupSource()}
   const root = composer?.closest('[data-composer-surface]') || composer?.closest('form');
   if (!root) return null;
   const selectors = [

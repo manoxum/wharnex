@@ -129,6 +129,16 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
   imagem e ficheiro geral sem `accept`. O upload de ZIP deve preferir o ID ou
   `data-testid` explícito e, na ausência deles, o input geral sem `accept`
   dentro do composer. Nunca selecione o primeiro input `multiple`.
+- Regressão de manutenção de **2026-10-05** (`revision=2026-10-05.1`): a
+  seleção de ficheiro e a observação do upload usam a mesma procura de
+  composer utilizável que o preenchimento/submissão. Uma superfície SPA
+  dormente pode conservar outro `#prompt-textarea`: `querySelector` global
+  selecionava o input dessa superfície e observava os seus marcadores, mesmo
+  com o composer ativo pronto. A regressão
+  `chatgpt/transport/uploads/upload-active-composer.test.mjs` verifica o input
+  ativo e a confirmação do anexo, reproduzindo antes da correção o timeout
+  `ChatGPT did not start the file upload before timeout`. Esta reprodução
+  local não substitui a confirmação do reenvio ao vivo após rollout.
 - Cada Supervisor possui a sua própria fila de transporte. Um upload em
   `supervisor-1` só adia chats que realmente precisariam dessa instância; não
   bloqueia um chat residente ou disponível em `supervisor-2`.
@@ -233,6 +243,15 @@ compositor → upload → submit → `PATCH …/workspace-chats/<chat>/remote` �
   normais: a `dedupe_key` `prepare:<request_id>` converge para uma tarefa.
 
 ## 5B. Estados presos depois de Apply ou build no host
+
+Um primeiro upload que falhou antes de enviar pode deixar o ZIP de entrada
+persistido e nenhum `chatgpt_url`. Após reiniciar, “Retomar pedido” encaminha
+esse caso para entrega do arquivo completo, mediante ação humana. Antes de
+abrir o composer, o Desktop verifica sessão/pedido pendente, ausência de
+vinculação ou candidatos de recuperação e ausência de tasks de escrita ou
+observação desse pedido. Evidência ambígua bloqueia o reenvio. O envio aceite
+deve criar a vinculação concreta e a task `AWAIT_RESPONSE`; só o teste local
+não comprova esses dois passos no chat ao vivo (ADR-0091).
 
 Sintoma: a candidata continua `verified`, o chat não avança, não mostra falha e
 não oferece ação. Verifique pela ordem:
