@@ -1,4 +1,5 @@
 import type { EffortLevel, ReasoningEffort } from './runtime/operation'
+import type { ArtifactRecord } from './artifacts/catalog'
 
 export const ORCHESTRATOR_TASK_STATUSES = ['PENDING', 'WAITING', 'READY', 'DOING', 'REVIEW', 'FAILED', 'COMPLETE', 'ARCHIVED'] as const
 export const ORCHESTRATOR_TERMINAL_STATUSES = ['COMPLETE', 'ARCHIVED'] as const
@@ -60,3 +61,4 @@ export type OrchestratorProposalTask = {
 export type OrchestratorProposal = { protocol: 'harness.orchestrator-plan/v1'; title: string; objective: string; assumptions: string[]; tasks: OrchestratorProposalTask[] }
 export type OrchestratorProposalResult = { request_id: string; plan?: OrchestratorPlan; tasks?: OrchestratorTask[]; manual_prompt?: string; worker_task_id?: string; delivery_status?: string }
 export type OrchestratorRunResult = { task: OrchestratorTask; run: OrchestratorTaskRun; manual_prompt?: string }
+export type OrchestratorTaskDetailFiles = { files: Array<{ session_id: string; artifact: ArtifactRecord }> }

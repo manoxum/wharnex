@@ -52,7 +52,7 @@ export function chatgptConversationURL(value: string) {
     const host = url.hostname.toLowerCase()
     const trusted = url.protocol === 'https:' && (host === 'chatgpt.com' || host.endsWith('.chatgpt.com'))
     if (!trusted) return ''
-    const match = /^\/c\/([^/]+)(?:\/.*)?$/.exec(url.pathname)
+    const match = /^\/(?:g\/g-p-[A-Za-z0-9-]{1,256}\/)?c\/([^/]+)(?:\/.*)?$/.exec(url.pathname)
     const id = match?.[1] || ''
     // Creation URLs (`WEB:…`, `local-chatgpt:…`) are provisional; only the
     // durable id charset can become a binding.

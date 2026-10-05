@@ -1,5 +1,5 @@
 type DesktopAgentRuntimeTask = {
-  task_id: string; type: string; chat_id: string; project_id: string; request_id: string; root_request_id: string; conversation_id: string; status: string
+  task_id: string; type: string; chat_id: string; session_id?: string; project_id: string; request_id: string; root_request_id: string; conversation_id: string; status: string
   attempt: number; max_attempts: number; assigned_worker: string; keep_flowing: boolean; lease_expires_at: string; not_before: string; last_error: string; created_at: string; updated_at: string
 }
 type DesktopAgentRuntimeBrowser = { available: boolean; web_contents_id: number; os_process_id?: number; url: string; title: string; loading: boolean }
@@ -71,6 +71,10 @@ interface WharnessDesktopBridge {
     presentInMonitor(agentId: string, bounds: DesktopBounds): Promise<{ ok: boolean; agentId: string; bounds: DesktopBounds }>
     resizeInMonitor(agentId: string, bounds: DesktopBounds): Promise<{ ok: boolean; agentId: string; bounds?: DesktopBounds }>
     releaseFromMonitor(agentId: string): Promise<{ ok: boolean; agentId: string; released: boolean }>
+    presentLinkInMonitor(url: string, bounds: DesktopBounds): Promise<{ ok: boolean; url: string; bounds: DesktopBounds }>
+    resizeLinkInMonitor(bounds: DesktopBounds): Promise<{ ok: boolean; bounds?: DesktopBounds }>
+    releaseLinkInMonitor(url?: string): Promise<{ ok: boolean; released: boolean }>
+    closeLinkInMonitor(url?: string): Promise<{ ok: boolean; closed: boolean }>
     onMonitorSelect(callback: (selection: { agentId: string }) => void): () => void
     // A surfaced Worker is shown in the project as a mirror of its real view.
     mirrorInput(agentId: string, input: DesktopMirrorInput): Promise<{ ok: boolean }>

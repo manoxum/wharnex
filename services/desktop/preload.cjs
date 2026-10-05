@@ -261,6 +261,10 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     presentInMonitor: (agentId, bounds) => invoke('wharness:agents:monitor-present', { agentId: String(agentId || ''), bounds }),
     resizeInMonitor: (agentId, bounds) => invoke('wharness:agents:monitor-bounds', { agentId: String(agentId || ''), bounds }),
     releaseFromMonitor: (agentId) => invoke('wharness:agents:monitor-release', { agentId: String(agentId || '') }),
+    presentLinkInMonitor: (url, bounds) => invoke('wharness:agents:monitor-link-present', { url: String(url || ''), bounds }),
+    resizeLinkInMonitor: (bounds) => invoke('wharness:agents:monitor-link-bounds', { bounds }),
+    releaseLinkInMonitor: (url) => invoke('wharness:agents:monitor-link-release', { url: String(url || '') }),
+    closeLinkInMonitor: (url) => invoke('wharness:agents:monitor-link-close', { url: String(url || '') }),
     mirrorInput: (agentId, input) => invoke('wharness:agents:mirror-input', { agentId: String(agentId || ''), input }),
     subscribeMirror: (agentId, onFrame) => subscribeMirror('wharness:agents:mirror-subscribe', { agentId: String(agentId || '') }, onFrame),
     onMonitorSelect: (callback) => {

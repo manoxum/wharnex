@@ -1,3 +1,5 @@
+import { createBrowserMonitorLink } from './browser-monitor-link.mjs'
+
 const MONITOR_WINDOW_ID = 'browser-monitor'
 
 // Presenting moves an agent view's container from the browser host into the
@@ -5,7 +7,8 @@ const MONITOR_WINDOW_ID = 'browser-monitor'
 // its renderer, chat, task and lease. Only one instance is presented.
 export function createBrowserMonitorPresentation({
   desktopWindows, chatgptViews, chatGPTWorkerEntries, normalizeBounds,
-  publishChatAgentRuntimeState,
+  publishChatAgentRuntimeState, WebContentsView, securePreferences,
+  CHATGPT_PARTITION, CHATGPT_USER_AGENT, browserHost,
 }) {
   function requireMonitor(windowState) {
     if (windowState?.id !== MONITOR_WINDOW_ID || windowState.window?.isDestroyed()) throw new Error('A apresentação de navegadores pertence apenas ao monitor')
@@ -27,7 +30,7 @@ export function createBrowserMonitorPresentation({
   // view; a Worker is presented at its own content size instead.
   const presentOptions = (entry) => ({ keepContentSize: entry.role === 'worker' })
 
-  function releaseBrowserMonitor(windowState, agentId = '') {
+  function releaseAgent(windowState, agentId = '') {
     requireMonitor(windowState)
     const entry = windowState.activeMonitorAgentEntry
     if (!entry || (agentId && entry.slotId !== agentId)) return { ok: true, agentId, released: false }
@@ -45,12 +48,23 @@ export function createBrowserMonitorPresentation({
     return bounds
   }
 
+  const link = createBrowserMonitorLink({ WebContentsView, securePreferences, CHATGPT_PARTITION,
+    CHATGPT_USER_AGENT, browserHost, releaseAgent, requireMonitor,
+    normalizeMonitorBounds: normalizedMonitorBounds })
+
+  function releaseBrowserMonitor(windowState, agentId = '') {
+    if (agentId) return releaseAgent(windowState, agentId)
+    link.closeBrowserLinkInMonitor(windowState)
+    return releaseAgent(windowState)
+  }
+
   function presentBrowserInMonitor(agentId, rawBounds, windowState) {
     requireMonitor(windowState)
     const entry = agentEntry(agentId)
     const bounds = normalizedMonitorBounds(rawBounds, windowState)
     if (windowState.activeMonitorAgentEntry === entry) return resizeBrowserInMonitor(entry.slotId, bounds, windowState)
-    releaseBrowserMonitor(windowState)
+    link.closeBrowserLinkInMonitor(windowState)
+    releaseAgent(windowState)
     entry.monitorWindowId = windowState.id
     entry.view.present(windowState.window, bounds, presentOptions(entry))
     windowState.activeMonitorAgentEntry = entry
@@ -68,5 +82,5 @@ export function createBrowserMonitorPresentation({
     return { ok: true, agentId, bounds }
   }
 
-  return { presentBrowserInMonitor, resizeBrowserInMonitor, releaseBrowserMonitor }
+  return { presentBrowserInMonitor, resizeBrowserInMonitor, releaseBrowserMonitor, ...link }
 }

@@ -88,6 +88,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/workspace-attention", a.workspaceAttention)
 	// Durable workspace chat index and transcripts (previously localStorage).
 	mux.HandleFunc("GET /api/workspace-chats", a.listWorkspaceChats)
+	a.registerBrowserMonitorRoutes(mux)
 	mux.HandleFunc("PUT /api/workspace-chats/{id}", a.saveWorkspaceChat)
 	mux.HandleFunc("PATCH /api/workspace-chats/{id}/remote", a.updateWorkspaceChatRemote)
 	mux.HandleFunc("GET /api/workspace-chats/{id}/binding-recovery", a.recoverWorkspaceChatBinding)

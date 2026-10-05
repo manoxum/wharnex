@@ -1,3 +1,6 @@
+import { chatgptConversationURL } from '../../../lib/desktop/bridge/desktop'
+import type { BrowserMonitorChat } from '../../../lib/transport/http/browser-monitor/catalog'
+
 export const phaseLabels: Record<DesktopAgentRuntimeActivityPhase, string> = {
   claimed: 'A iniciar tarefa', waiting_turn: 'Na fila de envio', navigating: 'A abrir conversa',
   preparing: 'A preparar pedido', uploading: 'A carregar ZIP', submitting: 'A submeter pedido',
@@ -55,4 +58,9 @@ export function labelPath(path: string) { return path.split('/').filter(Boolean)
 export function browserHasPage(agent: DesktopAgentRuntimeAgent) {
   const url = String(agent.browser.url || '').trim()
   return agent.browser.available && Boolean(url && url !== 'about:blank')
+}
+
+export function agentForChat(agents: DesktopAgentRuntimeAgent[], chat: BrowserMonitorChat) {
+  return agents.find((agent) => agent.browser.available && chatgptConversationURL(agent.browser.url || '') === chat.url
+    && (!agent.project_id || agent.project_id === chat.project_path))
 }

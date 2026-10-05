@@ -12,6 +12,7 @@ describe('desktop helpers', () => {
     expect(chatgptConversationURL('https://chatgpt.com/c/abc?x=1#frag')).toBe('https://chatgpt.com/c/abc')
     expect(chatgptConversationURL('https://chatgpt.com/c/abc/')).toBe('https://chatgpt.com/c/abc')
     expect(chatgptConversationURL('https://foo.chatgpt.com/c/abc/extra?x=1')).toBe('https://chatgpt.com/c/abc')
+    expect(chatgptConversationURL('https://chatgpt.com/g/g-p-team-project/c/abc?model=auto')).toBe('https://chatgpt.com/c/abc')
     expect(chatgptConversationURL('https://chatgpt.com/c/WEB:temporary-id')).toBe('')
     expect(chatgptConversationURL('https://chatgpt.com/c/WEB%3Atemporary-id')).toBe('')
     expect(chatgptConversationURL('https://chatgpt.com/c/local-chatgpt%3A73bacc39-76f9-4a34-8c0f-cf42f5d8a931')).toBe('')

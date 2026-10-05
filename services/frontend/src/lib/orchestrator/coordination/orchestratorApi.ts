@@ -4,6 +4,7 @@ import {
   type OrchestratorOverview,
   type OrchestratorTask,
   type OrchestratorTaskCounts,
+  type OrchestratorTaskDetailFiles,
   type OrchestratorTaskPage,
   type OrchestratorTaskPageQuery,
   type OrchestratorTaskStatus,
@@ -123,6 +124,7 @@ export function createOrchestratorApi(request: Requester) {
   return {
     orchestratorOverview: (id: string) => request<OrchestratorOverview>(`/api/sessions/${id}/orchestrator/overview`).then(normalizeOrchestratorOverview),
     orchestratorTasks: (id: string, query: OrchestratorTaskPageQuery = {}) => request<OrchestratorTaskPage>(`/api/sessions/${id}/orchestrator/tasks${taskPageSearch(query)}`).then(normalizeOrchestratorTaskPage),
+    orchestratorTaskDetailFiles: (id: string, taskId: string) => request<OrchestratorTaskDetailFiles>(`/api/sessions/${encodeURIComponent(id)}/orchestrator/tasks/${encodeURIComponent(taskId)}`),
     transitionOrchestratorTask: (id: string, taskId: string, status: OrchestratorTaskStatus) => request<OrchestratorTask>(`/api/sessions/${id}/orchestrator/tasks/${encodeURIComponent(taskId)}/transition`, { method: 'POST', body: JSON.stringify({ status }) }).then(normalizeOrchestratorTask),
   }
 }

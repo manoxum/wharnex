@@ -6,6 +6,7 @@ export function registerAgentSurfaceIPC({
   publishChatAgentRuntimeState, closeWorkerMonitor, showChatAgentInteraction,
   setChatAgentInteractionBounds, closeChatAgentInteraction,
   presentBrowserInMonitor, resizeBrowserInMonitor, releaseBrowserMonitor,
+  presentBrowserLinkInMonitor, resizeBrowserLinkInMonitor, releaseBrowserLinkInMonitor, closeBrowserLinkInMonitor,
 }) {
   ipcMain.handle('wharness:agents:snapshot', async (event, request) => {
     trustedSender(event)
@@ -40,6 +41,14 @@ export function registerAgentSurfaceIPC({
     resizeBrowserInMonitor(request?.agentId, request?.bounds, trustedSender(event)))
   ipcMain.handle('wharness:agents:monitor-release', (event, request) =>
     releaseBrowserMonitor(trustedSender(event), String(request?.agentId || '')))
+  ipcMain.handle('wharness:agents:monitor-link-present', (event, request) =>
+    presentBrowserLinkInMonitor(request?.url, request?.bounds, trustedSender(event)))
+  ipcMain.handle('wharness:agents:monitor-link-bounds', (event, request) =>
+    resizeBrowserLinkInMonitor(request?.bounds, trustedSender(event)))
+  ipcMain.handle('wharness:agents:monitor-link-release', (event, request) =>
+    releaseBrowserLinkInMonitor(trustedSender(event), String(request?.url || '')))
+  ipcMain.handle('wharness:agents:monitor-link-close', (event, request) =>
+    closeBrowserLinkInMonitor(trustedSender(event), String(request?.url || '')))
   // The user's own input on the mirror of a Worker this window surfaced.
   ipcMain.handle('wharness:agents:mirror-input', (event, request) => {
     const windowState = trustedSender(event)
