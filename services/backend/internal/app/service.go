@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"kernl.local/harness/backend/internal/app/normativecontext"
+	"kernl.local/harness/backend/internal/app/repairprompt"
 	"kernl.local/harness/backend/internal/app/translationflow"
 	"kernl.local/harness/backend/internal/app/verification"
 	"kernl.local/harness/backend/internal/app/workflowbudget"
@@ -2703,14 +2704,7 @@ func (s *Service) RequestFailureRepair(ctx context.Context, sessionID, guidance 
 }
 
 func appendOperatorRepairGuidance(prompt, guidance string) string {
-	if guidance == "" {
-		return prompt
-	}
-	addition := "OPTIONAL OPERATOR GUIDANCE:\n" + guidance
-	if strings.Contains(prompt, addition) {
-		return prompt
-	}
-	return strings.TrimSpace(prompt) + "\n\n" + addition
+	return repairprompt.AppendOperatorGuidance(prompt, guidance)
 }
 
 func (s *Service) prepareRepairRequest(ctx context.Context, sessionID string, result domain.ExecutionResult, cause error) (domain.Session, error) {
@@ -2882,94 +2876,33 @@ func (s *Service) prepareRepairRequestWithKind(ctx context.Context, sessionID st
 }
 
 func buildRepairMessage(item domain.Session, result domain.ExecutionResult, cause error, attempt, automationAttempt int, manual bool, guidance string) string {
-	requestHeading := "AUTOMATIC REPAIR REQUEST — " + effortAttemptLabel(item, automationAttempt) + " · effort " + string(normalizeEffortLevel(item.EffortLevel))
-	if manual {
-		requestHeading = fmt.Sprintf("MANUAL GPT REPAIR REQUEST — operator requested after %d autonomous attempt(s)", automaticAttemptsSpent(item))
+	input := repairprompt.Input{
+		Manual:               manual,
+		AttemptLabel:         effortAttemptLabel(item, automationAttempt),
+		Effort:               string(normalizeEffortLevel(item.EffortLevel)),
+		AttemptsSpent:        automaticAttemptsSpent(item),
+		Guidance:             guidance,
+		Cause:                cause.Error(),
+		PlanID:               result.PlanID,
+		ExecutionMode:        string(item.ExecutionMode),
+		HostDirect:           domain.ExecutionModeTargetsHost(item.ExecutionMode),
+		PendingHostChanges:   len(item.PendingHostChanges) > 0,
+		PendingChangesPrompt: pendingHostChangePrompt(item.PendingHostChanges),
+		CauseSummary:         executionFailureCauseSummary(result, cause),
 	}
-	operatorGuidance := ""
-	if clean := truncateRepairText(guidance, 4000); clean != "" {
-		operatorGuidance = "\n\nOPTIONAL OPERATOR GUIDANCE:\n" + clean
+	for _, command := range result.Commands {
+		input.Commands = append(input.Commands, repairprompt.Command{Argv: command.Argv, ExitCode: command.ExitCode, Success: command.Success, Diagnostic: commandResultDiagnostic(command)})
 	}
-	if strings.HasPrefix(cause.Error(), "policy denied plan:") {
-		if !manual {
-			requestHeading = "AUTOMATIC POLICY REPAIR REQUEST — " + effortAttemptLabel(item, automationAttempt) + " · effort " + string(normalizeEffortLevel(item.EffortLevel))
-		}
-		return fmt.Sprintf(`%s
-
-The previous execution bundle was rejected by the Wharnex Policy Engine BEFORE any operation was executed.
-Do not ask to relax, bypass, disable, or work around the Policy Engine. Produce a replacement plan for the SAME user intent using only operations and verification commands that are permitted by Wharnex policy.
-
-BLOCKED PLAN ID: %s
-POLICY REASONS:
-%s
-
-Use the current Wharnex project context as authoritative. Replace denied commands with safe project-local alternatives where possible. Return the corrected plan through the normal Wharnex file-first delivery contract.%s`, requestHeading, result.PlanID, truncateRepairText(strings.TrimPrefix(cause.Error(), "policy denied plan:"), 12000), operatorGuidance)
-	}
-	modeNote := "The failed Protected sandbox was discarded. Build the replacement patch against the original host project state represented by the Wharnex context."
-	if len(item.PendingHostChanges) > 0 {
-		modeNote = "Verified host-pending changes are retained. Build the correction incrementally against the candidate state produced by the pending patches listed below; Wharnex will replay and verify the complete chain in a fresh Protected sandbox before offering Apply again."
-	}
-	if domain.ExecutionModeTargetsHost(item.ExecutionMode) {
-		modeNote = "The failed host-direct execution may have partially changed the host. Wharnex refreshed the project context before creating this repair request; use that current context as authoritative."
-	}
-	failureText := truncateRepairText(cause.Error(), 12000)
-	if strings.Contains(cause.Error(), "self-evolution host build failed") {
-		failureText = truncateBuildFailureText(cause.Error(), 12000)
-	}
-	var diagnostics strings.Builder
-	for index, command := range result.Commands {
-		fmt.Fprintf(&diagnostics, "\n[%d] %s (exit %d, success=%t)\n%s\n", index+1, strings.Join(command.Argv, " "), command.ExitCode, command.Success, truncateRepairText(commandResultDiagnostic(command), 6000))
-	}
-	// A missing executable reads like an ordinary failure in raw output, and
-	// a planner handed only that output tends to re-read the source instead of
-	// swapping the tool. Name the real cause so the repair targets it.
 	if evidence, missing := detectMissingExecutable(result); missing {
-		modeNote += fmt.Sprintf("\n\nROOT CAUSE — MISSING EXECUTABLE: %q is NOT installed in the Protected runner image, so %q exited 127 before doing any work. This is not a source defect: do not modify project code to chase it. Replace that command with one built from the executables listed in the request's LOCAL EXECUTION ENVIRONMENT tools inventory, or drop the check.", evidence.executableName(), evidence.commandLine())
+		input.MissingExecutable = &repairprompt.MissingExecutable{Name: evidence.executableName(), CommandLine: evidence.commandLine()}
 	}
-	return fmt.Sprintf(`%s
-
-The previous execution plan failed and Wharnex captured the failure automatically.
-Do not repeat the failed plan unchanged or submit a semantically equivalent strategy. Produce a corrected replacement plan for the SAME user intent, and make the new approach directly eliminate the named failure cause. If the cause cannot be fixed inside the current project/policy/environment, stop with a terminal blocked result using retryable=false and name the operator action required instead of starting another loop.
-%s
-
-FAILED PLAN ID: %s
-EXECUTION MODE: %s
-FAILURE:
-%s
-
-ROOT-CAUSE SUMMARY:
-%s
-
-CAPTURED COMMAND / VERIFICATION DIAGNOSTICS:%s
-
-%s
-
-KNOWLEDGE PROMOTION:
-This repair response may be the last planner turn before verification and host Apply. If the failure exposed a reusable operational cause, fixture invariant, verification pattern, environment constraint, or repair strategy, update or consolidate the relevant knowledge/<id>.md record NOW in this response. Do not defer learning until after success because there is no post-Apply planner round. Prefer editing/merging an existing record on the same topic over creating a duplicate. Keep transient one-off details only in attempts/ledger.md.
-
-Use the existing project context and the failure evidence above to identify the actual regression or execution problem. Return the corrected plan through the normal Wharnex file-first delivery contract.%s`, requestHeading, modeNote, result.PlanID, item.ExecutionMode, failureText, truncateRepairText(executionFailureCauseSummary(result, cause), 4000), diagnostics.String(), pendingHostChangePrompt(item.PendingHostChanges), operatorGuidance)
+	return repairprompt.Build(input)
 }
 
-func truncateRepairText(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if len(value) <= limit {
-		return value
-	}
-	return value[:limit] + "\n...[truncated by Wharnex]"
-}
+func truncateRepairText(value string, limit int) string { return repairprompt.Truncate(value, limit) }
 
-// truncateBuildFailureText keeps the beginning and end of verbose host-build
-// output. The beginning identifies the phase that ran; the end contains the
-// exit diagnostic that decides whether a candidate needs source repair or a
-// local infrastructure action.
 func truncateBuildFailureText(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if len(value) <= limit {
-		return value
-	}
-	head := limit / 3
-	tail := limit - head
-	return value[:head] + "\n...[middle build output truncated by Wharnex; terminal output retained]...\n" + value[len(value)-tail:]
+	return repairprompt.TruncateBuildOutput(value, limit)
 }
 
 func patchPaths(patch string) []string {
