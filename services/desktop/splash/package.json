@@ -1,0 +1,6 @@
+{
+  "name": "wharnex-splash",
+  "private": true,
+  "type": "module",
+  "main": "launcher-splash.mjs"
+}

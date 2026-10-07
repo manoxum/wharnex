@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="pt" data-accent="{{.Theme.Accent}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<style>{{.CSS}}</style>
+</head>
+<body>
+<div class="progress" aria-hidden="true"><span></span></div>
+<header class="topbar">
+  <span class="topbar-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/></svg>Guia</span>
+  <strong class="topbar-title">{{.Title}}</strong>
+  <nav class="topbar-controls" aria-label="Navegação dos passos">
+    <button type="button" data-action="prev" aria-label="Passo anterior">&#8592;</button>
+    <span class="counter">1 / {{.StepCount}}</span>
+    <button type="button" data-action="next" aria-label="Passo seguinte">&#8594;</button>
+    <button type="button" data-action="theme" aria-label="Alternar tema claro/escuro"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg></button>
+  </nav>
+</header>
+
+<section class="cover cover-{{.Theme.Cover}}">
+  <div class="cover-art" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="cover-body">
+    <p class="eyebrow">{{if .Environment}}{{.Environment}} · {{end}}Guia do utilizador</p>
+    <h1>{{.Title}}</h1>
+    {{if .Subtitle}}<p class="lead">{{.Subtitle}}</p>{{end}}
+    <ul class="meta">
+      {{if .DurationMinutes}}<li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>{{.DurationMinutes}} min</li>{{end}}
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>{{.StepCount}} passos</li>
+      {{if .Profile}}<li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>{{.Profile}}</li>{{end}}
+      {{if .OutcomeLabel}}<li class="outcome outcome-{{.Outcome}}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg>{{.OutcomeLabel}}</li>{{end}}
+    </ul>
+  </div>
+</section>
+
+<div class="layout">
+  <aside class="toc" aria-label="Índice">
+    <p class="toc-title">Neste guia</p>
+    <ol>
+      {{range .Chapters}}<li><span class="toc-chapter">{{.Title}}</span>
+        <ol>{{range .Steps}}<li><a href="#{{.Anchor}}"><span>{{.Number}}</span>{{.Title}}</a></li>{{end}}</ol>
+      </li>{{end}}
+    </ol>
+  </aside>
+
+  <main>
+    <section class="intro reveal">
+      <article class="card card-purpose"><span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg></span><h2>Para que serve</h2><p>{{inline .Summary}}</p></article>
+      <article class="card card-audience"><span class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/></svg></span><h2>Quem pode usar</h2><p>{{inline .Audience}}</p></article>
+    </section>
+
+    <section class="card checklist reveal">
+      <h2>Antes de começar</h2>
+      {{if .BeforeYouStart}}<ul>{{range .BeforeYouStart}}<li>{{inline .}}</li>{{end}}</ul>{{else}}<p>Não há pré-requisitos: pode começar já.</p>{{end}}
+    </section>
+
+    {{range .Chapters}}
+    <section class="chapter" id="{{.Anchor}}">
+      <header class="chapter-head reveal"><span class="chapter-no">{{pad .Number}}</span><div><h2>{{.Title}}</h2>{{if .Intro}}<p>{{inline .Intro}}</p>{{end}}</div></header>
+      {{range .Steps}}
+      <article class="step step-{{.Layout}} side-{{.Side}} reveal" id="{{.Anchor}}" data-step>
+        <div class="step-text">
+          <span class="step-no">Passo {{.Number}}</span>
+          <h3>{{.Title}}</h3>
+          <ol class="instructions">{{range .Instructions}}<li>{{inline .}}</li>{{end}}</ol>
+          {{if .Callout}}<aside class="callout callout-{{.Callout.Kind}}"><b>{{.CalloutTitle}}</b><p>{{inline .Callout.Text}}</p></aside>{{end}}
+        </div>
+        {{if .Image}}
+        <figure class="shot{{if .Focused}} shot-focused{{end}}">
+          <div class="frame" style="{{.Frame}}">
+            <img src="{{.Src}}" alt="{{.Alt}}" style="{{.Img}}" loading="lazy">
+            {{range .Marks}}<span class="mark" style="{{.Box}}" data-n="{{.Number}}"><b>{{.Number}}</b></span>{{end}}
+            <button type="button" class="zoom" data-src="{{.Src}}" data-alt="{{.Alt}}" data-marks="{{.FullMarks}}" aria-label="Ver captura completa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></button>
+          </div>
+          <figcaption>
+            {{if .Caption}}<p>{{.Caption}}</p>{{end}}
+            {{if .Marks}}<ol class="legend">{{range .Marks}}<li data-n="{{.Number}}"><b>{{.Number}}</b><span>{{inline .Label}}</span></li>{{end}}</ol>{{end}}
+          </figcaption>
+        </figure>
+        {{end}}
+      </article>
+      {{end}}
+    </section>
+    {{end}}
+
+    <section class="card result reveal">
+      <span class="result-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></svg></span>
+      <div><h2>Resultado esperado</h2><p>{{inline .ExpectedResult}}</p></div>
+    </section>
+
+    {{if .Troubleshooting}}
+    <section class="trouble reveal">
+      <h2>Erros comuns e soluções</h2>
+      <div class="trouble-grid">{{range .Troubleshooting}}<article><h3>{{inline .Problem}}</h3><p>{{inline .Solution}}</p></article>{{end}}</div>
+    </section>
+    {{end}}
+
+    {{if .Related}}
+    <section class="related reveal"><h2>Funcionalidades relacionadas</h2><ul>{{range .Related}}<li>{{inline .}}</li>{{end}}</ul></section>
+    {{end}}
+
+    <footer class="foot">Gerado pelo Wharnex UI Lab a partir de uma execução real da aplicação.</footer>
+  </main>
+</div>
+
+<div class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Captura completa">
+  <button type="button" class="lightbox-close" data-action="close" aria-label="Fechar">&#10005;</button>
+  <div class="lightbox-stage"></div>
+</div>
+<script>{{.JS}}</script>
+</body>
+</html>

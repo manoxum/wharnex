@@ -98,7 +98,7 @@ export function createDesktopDownloadRuntime(d) {
     registerChatGPTTodoClassificationDownload, registerChatGPTUITestDiscoveryDownload,
     expectedChatGPTBundleForDownload: d.expectedChatGPTBundleForDownload,
     chatGPTKeyForWebContents: d.chatGPTKeyForWebContents,
-    canonicalWharnessBundleDownload: d.canonicalWharnessBundleDownload,
+    canonicalWharnexBundleDownload: d.canonicalWharnexBundleDownload,
     BundleOwnershipError: d.BundleOwnershipError, path: d.path,
     publishBundleDownloadError, handleBundleDownload, handleLegacyPlanDownload,
   })

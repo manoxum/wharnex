@@ -18,7 +18,7 @@ export function createDesktopChatWorkflowRuntime(deps) {
     MARKDOWN_TRANSLATION_TIMEOUT_MS, MAX_MARKDOWN_TRANSLATION_RESULT_BYTES, TODO_CLASSIFICATION_TIMEOUT_MS, MAX_TODO_CLASSIFICATION_BYTES, UI_TEST_DISCOVERY_TIMEOUT_MS, MAX_UI_TEST_DISCOVERY_BYTES, expectedChatGPTOrchestratorPlans, MAX_ORCHESTRATOR_PLAN_BYTES,
     ORCHESTRATOR_PLAN_TIMEOUT_MS, MAX_PLAN_BYTES, wharnessPlanRequestIdFromFilename, validateWharnessPlanFile, chatAgentConversationID, MAX_EXECUTION_BUNDLE_BYTES,
     chatAgentWorkerActivity, registerOrchestratorExecutionDownload, expectedChatGPTOrchestratorExecutions, registerReleaseNotesBundleDownload, expectedChatGPTReleaseNotes, chatGPTKeyForWebContents,
-    canonicalWharnessBundleDownload, BundleOwnershipError,
+    canonicalWharnexBundleDownload, BundleOwnershipError,
   } = deps
 
   const {
@@ -116,7 +116,7 @@ export function createDesktopChatWorkflowRuntime(deps) {
     registerOrchestratorExecutionDownload, expectedChatGPTOrchestratorExecutions,
     registerReleaseNotesBundleDownload, expectedChatGPTReleaseNotes,
     expectedChatGPTBundleForDownload, chatGPTKeyForWebContents,
-    canonicalWharnessBundleDownload, BundleOwnershipError,
+    canonicalWharnexBundleDownload, BundleOwnershipError,
     scheduler: deps.scheduler, tempPath: deps.tempPath,
     enqueueChatAgentTask: deps.enqueueChatAgentTask,
     canonicalChatGPTConversationURL: deps.canonicalChatGPTConversationURL,

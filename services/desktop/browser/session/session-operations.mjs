@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { notifyChatGPTAccountChanged } from '../../chatgpt/session/health/account-change.mjs'
 
 // Legacy names here identify existing on-disk archives and temporary paths.
 const TEMP_DATA_NAMES = ['wharness-bundles', 'wharness-plans', 'wharness-context', 'wharness-chat-inputs', 'wharness-chat-protocol']
@@ -40,6 +41,7 @@ export function createBrowserSessionOperations({
     const restored = await restore(validationRoot, raw)
     await rm(validationRoot, { recursive: true, force: true })
     await writeFile(pendingImportPath(), raw, { mode: 0o600 })
+    notifyChatGPTAccountChanged('session-imported')
     closeViews()
     closeInternalBrowsers()
     setTimeout(() => { app.relaunch(); app.exit(0) }, 500)
@@ -70,6 +72,7 @@ export function createBrowserSessionOperations({
     await chatSession.clearCache()
     await chatSession.flushStorageData()
     await rm(authProfilePath(), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    notifyChatGPTAccountChanged('session-cleared')
     if (ownedBrowserProfilePath) await rm(ownedBrowserProfilePath(), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     return { ok: true }
   }

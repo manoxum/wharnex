@@ -25,7 +25,7 @@ test('auto scale never drains below a Worker pinned to an Orchestrator task', as
   assert.match(floor.slice(0, 500), /chatAgentKeepFlowingActive\(worker\) \|\| \(entry && orchestrationTaskPins\.lane\(entry\.slotId\)\)/)
 })
 
-test('translation, planning and release notes run on their own ephemeral Workers', async () => {
+test('translation, planning and release notes run on their own ephemeral Workers; UI Lab does not', async () => {
   const source = await readPromptTransportSource()
   const main = await readDesktopCompositionSource()
   const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
@@ -33,7 +33,10 @@ test('translation, planning and release notes run on their own ephemeral Workers
   const ephemeralConfig = await readFile(new URL('../../agent/automation/artifact-workers/ephemeral-config.mjs', import.meta.url), 'utf8')
   const workerRuntime = await readFile(new URL('../workers/runtime/runtime.mjs', import.meta.url), 'utf8')
   assert.match(source, /EPHEMERAL_WORKER_TASK_TYPES/)
-  assert.match(ephemeralConfig, /const EPHEMERAL_WORKER_TASK_TYPES = new Set\(\['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES', 'UI_TEST_DISCOVER', 'UI_TEST_RUN'\]\)/)
+  assert.match(ephemeralConfig, /const EPHEMERAL_WORKER_TASK_TYPES = new Set\(\['TRANSLATE_MARKDOWN', 'ORCHESTRATOR_PLAN', 'RELEASE_NOTES'\]\)/)
+  // UI Lab exchanges run on the persistent Workers (ADR-0093).
+  assert.doesNotMatch(ephemeralConfig, /UI_TEST_/)
+  assert.doesNotMatch(ephemeralSource, /uiTestRunSlots/)
   assert.match(main, /compose\(ctx, 'agent-workers', createAgentWorkerRuntime, \{/)
   assert.match(workerRuntime, /createEphemeralWorkerRuntime\(\{/)
   const ephemeral = ephemeralSource.slice(ephemeralSource.indexOf('async function executeEphemeralWorkerTask('))

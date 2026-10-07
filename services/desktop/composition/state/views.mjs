@@ -62,6 +62,8 @@ export function createRateLimitView(desktopState) {
     get resumeProbeNotBefore() { return desktopState.chatgpt.chatGPTRateLimitResumeProbeNotBefore },
     set resumeProbeNotBefore(value) { desktopState.chatgpt.chatGPTRateLimitResumeProbeNotBefore = value },
     get policies() { return desktopState.agent.chatAgentPolicies },
+    get onAutomationHolds() { return desktopState.chatgpt.chatGPTAutomationHoldsListener },
+    set onAutomationHolds(value) { desktopState.chatgpt.chatGPTAutomationHoldsListener = value },
     get scheduler() { return desktopState.agent.chatAgentScheduler },
     get runtimeDiagnostics() { return desktopState.agent.chatAgentRuntimeDiagnostics },
   }

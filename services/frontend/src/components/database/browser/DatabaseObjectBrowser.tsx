@@ -1,3 +1,4 @@
+import { WorkbenchTabs } from '../../presentation/tabs'
 import { useMemo, useState } from 'react'
 import type { PostgresCatalog, PostgresTable } from '../../../types'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -57,9 +58,7 @@ export function DatabaseObjectBrowser({ catalog, metadata, ddl, busy, onDDL, onA
 
   return <div className="database-object-workspace">
     <div className="database-object-toolbar">
-      <div className="database-object-kind-tabs" role="tablist" aria-label="Tipos de objeto">
-        {(['table', 'view', 'function', 'trigger'] as const).map((item) => <button key={item} type="button" title={label(item)} className={kind === item ? 'active' : ''} onClick={() => resetKind(item)}><Icon name={kindIcons[item]} size={12}/><span className="semantic-tab-label">{label(item)}</span></button>)}
-      </div>
+      <WorkbenchTabs className="min-w-0 flex-1" label="Tipos de objeto" value={kind} onChange={resetKind} items={(['table', 'view', 'function', 'trigger'] as const).map((item) => ({ id: item, label: label(item), icon: kindIcons[item] }))}/>
       <button type="button" className="database-soft-button" onClick={createObject}><Icon name="plus" size={13}/> Novo</button>
     </div>
     <label className="database-object-search"><Icon name="search" size={13}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Filtrar ${label(kind).toLowerCase()}...`}/></label>

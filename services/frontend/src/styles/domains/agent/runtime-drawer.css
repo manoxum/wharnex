@@ -13,20 +13,6 @@
   .agent-runtime-summary span { padding:7px 9px; border-radius:9px; }
   .agent-runtime-summary b { font-size:calc(12px * var(--ui-font-scale)); }
   .agent-runtime-summary small { font-size:calc(8.1px * var(--ui-font-scale)); }
-  .agent-runtime-tabs {
-    min-height:38px;
-    display:grid;
-    padding:0 5px;
-    grid-template-columns:repeat(3,minmax(0,1fr));
-    gap:0;
-  }
-  .agent-runtime-tabs button {
-    min-height:37px;
-    padding:0 6px;
-    gap:5px;
-    font-size:calc(8.4px * var(--ui-font-scale));
-  }
-  .agent-runtime-tabs button small { min-width:15px; height:15px; padding:0 4px; }
   .agent-runtime-state-legend { padding:7px 10px; gap:6px 9px; }
   .agent-runtime-memory-summary {
     padding:8px 10px;
@@ -100,7 +86,6 @@
 }
 
 @container agent-runtime (max-width: 410px) {
-  .agent-runtime-tabs button { padding-inline:4px; gap:4px; }
   .agent-runtime-tab-panel.agents { display:block; overflow:auto; }
   .agent-runtime-tab-panel.agents .agent-runtime-body { height:auto; }
   .agent-runtime-body { grid-template-columns:1fr; align-content:start; }
@@ -115,29 +100,3 @@
   .agent-runtime-pause-controls input { width:min(96px,42%); }
   .agent-runtime-scale-card { grid-template-columns:minmax(0,1fr) auto; }
 }
-
-/* Preserve each view's useful layout while applying the shared tab grammar. */
-.git-tabs {
-  min-height: 42px;
-  padding: 0 6px;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  align-items: stretch;
-  gap: 1px;
-  overflow: visible;
-  border-bottom: 1px solid var(--theme-border);
-  background: var(--theme-surface);
-}
-.git-changes-tabs {
-  width: 100%;
-  max-width: none;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  overflow: visible;
-}
-.database-workspace-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.project-todo-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.project-source-tabs { margin-top: 28px; align-self: flex-start; }
-.composer-attachment-tabs { flex-wrap: nowrap; }
-.database-object-kind-tabs { overflow: hidden; }

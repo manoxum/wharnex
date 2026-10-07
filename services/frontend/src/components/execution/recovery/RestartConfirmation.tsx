@@ -1,3 +1,4 @@
+import { WorkbenchTabs } from '../../presentation/tabs'
 import { useEffect, useMemo, useState } from 'react'
 import type { ActivationImpact, ChatChangeSummary } from '../../../types'
 import { mergeRestartImpacts, type RestartReport } from '../../../lib/execution/recovery/restartConfirmation'
@@ -76,17 +77,10 @@ export function RestartConfirmation({ reports: suppliedReports, sessionId, chang
           </div>
           <span className="restart-confirmation-total"><b>{totals.files}</b> ficheiro(s)<i>+{totals.additions}</i><em>−{totals.deletions}</em></span>
         </header>
-        <nav className="restart-confirmation-report-tabs" aria-label="Relatórios acumulados">
-          {reports.map((report) => <button
-            type="button"
-            key={report.sessionId}
-            className={report.sessionId === selectedReport?.sessionId ? 'active' : ''}
-            onClick={() => setSelectedSessionId(report.sessionId)}
-          >
-            <span>{report.chatTitle}</span>
-            <small>{report.change?.files.length || 0} ficheiro(s) · {report.impacts.map((impact) => impactLabels[impact]).join(' + ') || 'sem serviço'}</small>
-          </button>)}
-        </nav>
+        <WorkbenchTabs label="Relatórios acumulados" value={selectedReport?.sessionId || ''} onChange={setSelectedSessionId} items={reports.map((report) => ({
+          id: report.sessionId, label: report.chatTitle, icon: 'file', badge: report.change?.files.length || 0,
+          title: `${report.chatTitle} · ${report.change?.files.length || 0} ficheiro(s) · ${report.impacts.map((impact) => impactLabels[impact]).join(' + ') || 'sem serviço'}`,
+        }))}/>
         {selectedReport && <GitDiffReview sessionId={selectedReport.sessionId} files={files} emptyText="Nenhum diff de ficheiro foi registado para esta conclusão."/>}
       </section>
 

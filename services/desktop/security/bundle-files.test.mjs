@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canonicalWharnessBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
+import { canonicalWharnexBundleDownload, validateWharnessBundleDownload, validateWharnessPlanFile, wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename } from './security.mjs'
 
 test('Wharnex plan filenames are strict and expose the request id', () => {
   assert.equal(wharnessPlanRequestIdFromFilename('wharness-plan-req_20260902T222529_d18d51d84abc677c.json'), 'req_20260902T222529_d18d51d84abc677c')
@@ -27,15 +27,15 @@ test('Wharnex execution bundle filenames are strict and ZIP bytes are checked', 
 
 test('generic ChatGPT ZIP names normalize only against the active expected request', () => {
   const requestId = 'req_20260903T112307_7f79e5fe040d3e2d'
-  assert.deepEqual(canonicalWharnessBundleDownload('Baixar o bundle Wharnex.zip', requestId, 'application/zip'), {
+  assert.deepEqual(canonicalWharnexBundleDownload('Baixar o bundle Wharnex.zip', requestId, 'application/zip'), {
     requestId,
     filename: `whx_bundle_res_chat_${requestId}.zip`,
     normalized: true,
     sourceFilename: 'Baixar o bundle Wharnex.zip',
   })
-  assert.equal(canonicalWharnessBundleDownload('notes.pdf', requestId, 'application/pdf'), undefined)
-  assert.throws(() => canonicalWharnessBundleDownload('whx_bundle_res_chat_req_20260903T112307_a1a1a1a1a1a1a1a1.zip', requestId, 'application/zip'), /pedido ativo/)
-  assert.throws(() => canonicalWharnessBundleDownload('wharness-bundle-wrong.zip', requestId, 'application/zip'), /não pode ser normalizado/)
+  assert.equal(canonicalWharnexBundleDownload('notes.pdf', requestId, 'application/pdf'), undefined)
+  assert.throws(() => canonicalWharnexBundleDownload('whx_bundle_res_chat_req_20260903T112307_a1a1a1a1a1a1a1a1.zip', requestId, 'application/zip'), /pedido ativo/)
+  assert.throws(() => canonicalWharnexBundleDownload('wharness-bundle-wrong.zip', requestId, 'application/zip'), /não pode ser normalizado/)
 })
 
 test('Chromium duplicate suffix normalizes only when the embedded bundle request is active', () => {
@@ -44,7 +44,7 @@ test('Chromium duplicate suffix normalizes only when the embedded bundle request
     `whx_bundle_res_chat_${requestId}(1).zip`,
     `whx_bundle_res_chat_${requestId} (2).zip`,
   ]) {
-    assert.deepEqual(canonicalWharnessBundleDownload(sourceFilename, requestId, 'application/zip'), {
+    assert.deepEqual(canonicalWharnexBundleDownload(sourceFilename, requestId, 'application/zip'), {
       requestId,
       filename: `whx_bundle_res_chat_${requestId}.zip`,
       normalized: true,
@@ -52,7 +52,7 @@ test('Chromium duplicate suffix normalizes only when the embedded bundle request
     })
   }
   assert.throws(
-    () => canonicalWharnessBundleDownload('whx_bundle_res_chat_req_20260905T225921_b2b2b2b2b2b2b2b2(1).zip', requestId, 'application/zip'),
+    () => canonicalWharnexBundleDownload('whx_bundle_res_chat_req_20260905T225921_b2b2b2b2b2b2b2b2(1).zip', requestId, 'application/zip'),
     /pedido ativo/,
   )
 })
@@ -65,13 +65,13 @@ test('a strict canonical bundle name accepts a legacy cache key containing under
   const cacheKey = `${chatId}_cf_conflict_20260907T150015_22475c9e3adb3473`
   const sanitized = `${chatId}-cf-conflict-20260907T150015-22475c9e3adb3473`
   const filename = `whx_bundle_res_${sanitized}_${requestId}.zip`
-  assert.deepEqual(canonicalWharnessBundleDownload(filename, requestId, 'application/zip', cacheKey), {
+  assert.deepEqual(canonicalWharnexBundleDownload(filename, requestId, 'application/zip', cacheKey), {
     requestId,
     filename,
     normalized: false,
   })
   assert.throws(
-    () => canonicalWharnessBundleDownload(filename, requestId, 'application/zip', `${cacheKey}-different`),
+    () => canonicalWharnexBundleDownload(filename, requestId, 'application/zip', `${cacheKey}-different`),
     /chat ativo/,
   )
 })
@@ -80,19 +80,19 @@ test('the backend-provided canonical filename is authoritative for generic and s
   const rootRequest = 'req_20260907T150015_22475c9e3adb3473'
   const requestId = 'req_20260907T151122_32475c9e3adb3474'
   const expected = `whx_bundle_res_chat-owner_${rootRequest}_${requestId}.zip`
-  assert.deepEqual(canonicalWharnessBundleDownload('download.zip', requestId, 'application/zip', 'local_cache_key', expected), {
+  assert.deepEqual(canonicalWharnexBundleDownload('download.zip', requestId, 'application/zip', 'local_cache_key', expected), {
     requestId,
     filename: expected,
     normalized: true,
     sourceFilename: 'download.zip',
   })
-  assert.deepEqual(canonicalWharnessBundleDownload(expected, requestId, 'application/zip', 'local_cache_key', expected), {
+  assert.deepEqual(canonicalWharnexBundleDownload(expected, requestId, 'application/zip', 'local_cache_key', expected), {
     requestId,
     filename: expected,
     normalized: false,
   })
   assert.throws(
-    () => canonicalWharnessBundleDownload(`whx_bundle_res_other_${rootRequest}_${requestId}.zip`, requestId, 'application/zip', 'local_cache_key', expected),
+    () => canonicalWharnexBundleDownload(`whx_bundle_res_other_${rootRequest}_${requestId}.zip`, requestId, 'application/zip', 'local_cache_key', expected),
     /pedido ativo pertence|protocolo exige/,
   )
 })

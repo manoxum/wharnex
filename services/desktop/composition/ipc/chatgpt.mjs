@@ -23,7 +23,7 @@ export function registerChatGPTDomainIPC(common, context) {
     submitChatGPTContinuation, ChatGPTRateLimitDeferral, escalateChatGPTContinuationFailure, createChatGPTRecoveryState,
     clearChatGPTHumanAction, recordChatGPTContinuationSent, canonicalBundleFilename, dialog,
     app, path, readFile, MAX_EXECUTION_BUNDLE_BYTES,
-    canonicalWharnessBundleDownload, validateWharnessBundleDownload, pendingChatGPTBundlePayloads, acknowledgeChatGPTBundle,
+    canonicalWharnexBundleDownload, validateWharnessBundleDownload, pendingChatGPTBundlePayloads, acknowledgeChatGPTBundle,
     pendingChatGPTBundleDeliveries, withChatGPTSupervisorTransport, submitPromptToChatGPT, queuePreparedPromptForWorker,
     preparePromptForChatGPT, retryPreparedChatGPTPrompt, attachContextToChatGPT, attachPromptToChatGPT,
     submitPreparedChatGPTDraft, queueChatGPTComment, cancelChatGPTRequestState, CHATGPT_URL,
@@ -93,7 +93,7 @@ export function registerChatGPTDomainIPC(common, context) {
   registerChatGPTBundleIPC({
     ipcMain, trustedSender, sanitizeChatCacheKey,
     canonicalBundleFilename, dialog, app, path, readFile,
-    MAX_EXECUTION_BUNDLE_BYTES, canonicalWharnessBundleDownload,
+    MAX_EXECUTION_BUNDLE_BYTES, canonicalWharnexBundleDownload,
     validateWharnessBundleDownload, pendingChatGPTBundlePayloads,
     acknowledgeChatGPTBundle, pendingChatGPTBundleDeliveries,
   })

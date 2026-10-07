@@ -3371,30 +3371,12 @@ func (s *Service) applyToHostLocked(ctx context.Context, sessionID string) (doma
 		// Self-evolution skips this and goes straight to BuildHost below,
 		// which is a strictly broader check over the same merged result —
 		// running both would just double the wait for no extra safety.
-		for _, run := range dedupedIntegrationVerifications(pending) {
-			index, command := run.index, run.command
-			s.bus.Publish(sessionID, "integration.verification_started", map[string]any{"plan_id": pending[index].Plan.PlanID, "argv": command.Argv, "target": "host"})
-			result, runErr := s.runCommandWithRunner(ctx, sessionID, s.hostRunner, workspace, command, "host")
-			if runErr != nil || !result.Success {
-				diagnostic := commandResultDiagnostic(result)
-				// A gate this environment cannot run at all returns no verdict
-				// about the merge. It already passed in the Protected runner
-				// against this same candidate, so reverting over it would
-				// discard a verified payload for an infrastructure fault.
-				if gate, unsupported := classifyUnsupportedHostGate(command, result); runErr == nil && unsupported {
-					unsupportedHostGates = append(unsupportedHostGates, gate)
-					s.bus.Publish(sessionID, "integration.verification_unsupported", gate.event(pending[index].Plan.PlanID))
-					continue
-				}
-				if runErr == nil {
-					runErr = fmt.Errorf("post-merge verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), result.ExitCode, diagnostic)
-				}
-				runErr = wrapHostDependencyState(runErr, diagnostic)
-				return item, failApply(plannerRepairableApplyFailure(runErr))
-			}
-			hostCommands = append(hostCommands, result)
-			s.bus.Publish(sessionID, "integration.verification_completed", map[string]any{"plan_id": pending[index].Plan.PlanID, "exit_code": result.ExitCode, "target": "host"})
+		verified, unsupported, verifyErr := s.verifyMergedHost(ctx, sessionID, workspace, pending)
+		if verifyErr != nil {
+			return item, failApply(verifyErr)
 		}
+		hostCommands = append(hostCommands, verified...)
+		unsupportedHostGates = append(unsupportedHostGates, unsupported...)
 	}
 	if selfEvolution {
 		_ = s.selfEvolution.RecordStatus(transaction, sessionID, latestPlanID, "building", "verified patch applied; building real Wharnex host runtime")

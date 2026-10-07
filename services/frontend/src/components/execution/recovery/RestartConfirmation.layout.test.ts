@@ -22,7 +22,7 @@ describe('restart confirmation layout CSS', () => {
     expect(dialog).toContain('height: min(820px, calc(100dvh - 56px))')
     expect(changes).toContain('grid-template-rows: auto minmax(0, 1fr)')
     expect(reportCss).toContain('grid-template-rows: auto auto minmax(0, 1fr)')
-    expect(reportCss).toContain('.restart-confirmation-report-tabs')
+    expect(readFileSync(resolve(process.cwd(), 'src/components/execution/recovery/RestartConfirmation.tsx'), 'utf8')).toContain('<WorkbenchTabs label="Relatórios acumulados"')
     expect(changes).toContain('min-height: 0')
     expect(changes).toContain('height: auto')
     expect(actions).toContain('grid-column: auto')

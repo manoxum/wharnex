@@ -8,10 +8,10 @@
 .git-worktree-file-copy { min-width: 0; display: grid; gap: 2px; }
 .git-worktree-file-copy strong { overflow: hidden; color: var(--theme-text); font: 600 calc(7.9px * var(--ui-font-scale))/1.35 var(--mono-font-family, monospace); text-overflow: ellipsis; white-space: nowrap; }
 .git-worktree-file-copy small { color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); }
-.git-worktree-commit { display: flex; align-items: flex-end; gap: 8px; }
-.git-worktree-commit > label { min-width: 0; flex: 1 1 220px; display: grid; gap: 4px; color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); font-weight: 650; }
-.git-worktree-commit input { width: 100%; min-width: 0; height: 30px; padding: 0 9px; border: 1px solid var(--theme-border); border-radius: 7px; background: var(--theme-bg); color: var(--theme-text); font-size: calc(8px * var(--ui-font-scale)); }
-.git-worktree-commit input:focus { outline: 1px solid color-mix(in srgb, var(--theme-accent) 60%, transparent); border-color: var(--theme-accent); }
+
+
+
+
 .git-unpushed-summary { padding: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: var(--theme-surface); }
 .git-unpushed-summary > div { min-width: 0; display: grid; gap: 2px; }
 .git-unpushed-summary span, .git-unpushed-summary small { color: var(--theme-text-muted); font-size: calc(7.2px * var(--ui-font-scale)); }
@@ -32,8 +32,8 @@
 .git-commit-detail-meta strong { color: var(--theme-text-soft); font-size: inherit; }
 .git-commit-detail-meta code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 720px) {
-  .git-worktree-commit { align-items: stretch; flex-direction: column; }
-  .git-worktree-commit .git-action { align-self: flex-start; }
+
+
   .git-unpushed-summary, .git-unpushed-actions { align-items: stretch; flex-direction: column; }
   .git-unpushed-summary .git-action, .git-unpushed-actions .git-action { align-self: flex-start; }
   .git-commit-detail-meta { grid-template-columns: 1fr; }
@@ -73,11 +73,6 @@
 .project-todo-heading .panel-kicker { grid-column:1 / -1; }
 .project-todo-heading strong { font-size:13px; letter-spacing:.01em; }
 .project-todo-heading small { color:var(--theme-text-muted); font-size:9.5px; font-weight:520; }
-.project-todo-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; padding:8px 10px; border-bottom:1px solid var(--theme-border); background:color-mix(in srgb, var(--theme-surface) 76%, transparent); }
-.project-todo-tabs button { min-width:0; height:34px; padding:0 9px; display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid transparent; border-radius:9px; background:transparent; color:var(--theme-text-muted); font:inherit; font-size:11px; font-weight:620; cursor:pointer; transition:background .16s ease,border-color .16s ease,color .16s ease; }
-.project-todo-tabs button:hover { background:var(--theme-hover); color:var(--theme-text-soft); }
-.project-todo-tabs button[aria-pressed="true"] { border-color:color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border)); background:var(--theme-accent-soft); color:var(--theme-text); box-shadow:0 1px 4px color-mix(in srgb, var(--theme-shadow) 55%, transparent); }
-.project-todo-tabs b { min-width:20px; height:20px; padding:0 6px; display:grid; place-items:center; border-radius:999px; background:color-mix(in srgb, var(--theme-text) 9%, transparent); color:inherit; font-size:9px; font-variant-numeric:tabular-nums; }
 .project-todo-list { min-height:0; overflow:auto; padding:12px 10px 86px; display:grid; align-content:start; gap:10px; scrollbar-gutter:stable; }
 .project-todo-panel.composer-open .project-todo-list { padding-bottom:14px; }
 .project-todo-card { display:grid; gap:10px; padding:12px; border:1px solid var(--theme-border); border-radius:13px; background:var(--theme-elevated); box-shadow:0 3px 14px color-mix(in srgb, var(--theme-shadow) 36%, transparent); transition:border-color .16s ease,transform .16s ease,box-shadow .16s ease; }

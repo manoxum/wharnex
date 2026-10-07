@@ -55,9 +55,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .workspace-main-row > .agent-activity-bar button,
-  .editor-tab:not([data-dragging='true']),
   .terminal-workspace:not(.terminal-workspace-hidden),
-  .terminal-tab-action,
   .terminal-add-tab,
   .chat-panel .composer,
   .agent-runtime-list > button {

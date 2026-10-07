@@ -19,8 +19,9 @@ const (
 type pendingExchange struct {
 	Manifest exchange.Manifest    `json:"manifest"`
 	Rules    exchange.ActionRules `json:"rules"`
-	// Screenshots names the captures a guide request carried; its answer must
-	// caption each of them.
+	// Guide binds a guide answer to the captures and elements it was sent.
+	Guide *exchange.GuideBinding `json:"guide,omitempty"`
+	// Screenshots is the binding of a v1 guide request issued before Guide existed.
 	Screenshots []string  `json:"screenshots,omitempty"`
 	IssuedAt    time.Time `json:"issued_at"`
 }
@@ -43,12 +44,12 @@ func pendingKey(taskID, kind string, sequence int) string {
 	return taskID + "_" + kind + "_" + strconv.Itoa(sequence)
 }
 
-func (p *pendingExchanges) put(manifest exchange.Manifest, rules exchange.ActionRules, screenshots ...string) {
+func (p *pendingExchanges) put(manifest exchange.Manifest, rules exchange.ActionRules, guide *exchange.GuideBinding) {
 	kind := "guide"
 	if manifest.Task == exchange.StepTask {
 		kind = "step"
 	}
-	item := pendingExchange{Manifest: manifest, Rules: rules, Screenshots: screenshots, IssuedAt: time.Now()}
+	item := pendingExchange{Manifest: manifest, Rules: rules, Guide: guide, IssuedAt: time.Now()}
 	key := pendingKey(manifest.TaskID, kind, manifest.Sequence)
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -76,6 +77,15 @@ func (p *pendingExchanges) take(key string) (pendingExchange, bool) {
 		_ = os.Remove(path)
 	}
 	return item, ok
+}
+
+// guideBinding is what a guide answer is validated against, including for a
+// v1 request persisted before the binding carried frames.
+func (item pendingExchange) guideBinding() exchange.GuideBinding {
+	if item.Guide != nil {
+		return *item.Guide
+	}
+	return exchange.GuideBinding{Screenshots: item.Screenshots}
 }
 
 func (p *pendingExchanges) prune(now time.Time) {

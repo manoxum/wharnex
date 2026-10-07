@@ -78,10 +78,6 @@
 .file-library-heading-actions button { width:30px; height:30px; display:grid; place-items:center; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--theme-text-muted); cursor:pointer; }
 .file-library-heading-actions button:hover { border-color:var(--theme-border); background:var(--theme-hover); color:var(--theme-text); }
 .file-library-panel { min-height:0; display:flex; flex-direction:column; }
-.file-library-tabs { min-height:38px; padding:5px 9px 0; display:flex; gap:5px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-surface); }
-.file-library-tabs button { min-height:32px; padding:0 10px; display:inline-flex; align-items:center; gap:6px; border:1px solid transparent; border-bottom:0; border-radius:8px 8px 0 0; background:transparent; color:var(--theme-text-muted); font-size:calc(8.8px * var(--ui-font-scale)); font-weight:650; cursor:pointer; }
-.file-library-tabs button:hover { color:var(--theme-text); background:var(--theme-hover); }
-.file-library-tabs button.active { border-color:var(--theme-border); background:var(--theme-bg); color:var(--theme-text); box-shadow:inset 0 2px color-mix(in srgb,var(--theme-accent) 72%,transparent); }
 .file-library-storage { padding:8px 10px; display:grid; gap:7px; border-bottom:1px solid var(--theme-border-soft); background:color-mix(in srgb,var(--theme-elevated) 72%,var(--theme-bg)); }
 .file-library-storage > div:first-child { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
 .file-library-storage > div:first-child span { color:var(--theme-text-muted); font-size:calc(8px * var(--ui-font-scale)); text-transform:uppercase; letter-spacing:.05em; }

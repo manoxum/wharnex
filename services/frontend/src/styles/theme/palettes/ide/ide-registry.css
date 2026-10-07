@@ -84,18 +84,15 @@
 :root[data-ui-theme]:not([data-ui-theme='original']) .multi-project-bar,
 :root[data-ui-theme]:not([data-ui-theme='original']) .agent-activity-bar,
 :root[data-ui-theme]:not([data-ui-theme='original']) .agent-drawer,
-:root[data-ui-theme]:not([data-ui-theme='original']) .terminal-tabbar,
 :root[data-ui-theme]:not([data-ui-theme='original']) .workbench-status-bar,
 :root[data-ui-theme]:not([data-ui-theme='original']) .file-explorer,
 :root[data-ui-theme]:not([data-ui-theme='original']) .editor-contextbar {
   border-color:var(--theme-border); background:var(--theme-surface); color:var(--theme-text-soft);
 }
 :root[data-ui-theme]:not([data-ui-theme='original']) .agent-drawer-heading,
-:root[data-ui-theme]:not([data-ui-theme='original']) .editor-tabs,
-:root[data-ui-theme]:not([data-ui-theme='original']) .terminal-tabs { border-color:var(--theme-border); background:var(--theme-muted); }
+:root[data-ui-theme]:not([data-ui-theme='original']) .editor-tabs{ border-color:var(--theme-border); background:var(--theme-muted); }
 :root[data-ui-theme]:not([data-ui-theme='original']) .agent-tree-row:hover,
-:root[data-ui-theme]:not([data-ui-theme='original']) .workspace-side-rail button:hover,
-:root[data-ui-theme]:not([data-ui-theme='original']) .editor-tab:hover { background:var(--theme-hover); color:var(--theme-text); }
+:root[data-ui-theme]:not([data-ui-theme='original']) .workspace-side-rail button:hover{ background:var(--theme-hover); color:var(--theme-text); }
 :root[data-ui-theme]:not([data-ui-theme='original']) .agent-tree-row.selected-node,
 :root[data-ui-theme]:not([data-ui-theme='original']) .workspace-side-rail button.active { background:var(--theme-accent-soft); color:var(--theme-text); }
 

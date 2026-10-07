@@ -10,9 +10,6 @@
 .file-library-heading-actions { gap: 2px !important; }
 .file-library-heading-actions button { width: var(--toolbar-hit); height: var(--toolbar-hit); border-radius: var(--radius-control); }
 .file-library-heading-actions button > svg { width: var(--icon-sm); height: var(--icon-sm); }
-.file-library-tabs { min-height: 36px; padding: 0 7px; gap: 1px; }
-.file-library-tabs button { min-height: 35px; padding-inline: 9px; font-size: var(--ui-text-size); }
-.file-library-tabs button > svg { width: var(--icon-xs); height: var(--icon-xs); }
 .file-library-panel .artifact-explorer-toolbar { padding: 6px 8px; gap: 6px; background: var(--theme-surface); }
 .file-library-panel .panel-search-field,
 .file-library-panel .artifact-explorer-toolbar > select { height: var(--toolbar-height); border-radius: var(--radius-control); background: var(--theme-bg); }
@@ -36,9 +33,6 @@
 .database-studio-identity > div > span { font-size: var(--ui-meta-size); font-weight: 500; letter-spacing: .02em; text-transform: none; }
 .database-health { min-height: 24px; padding-inline: 7px; border-radius: var(--radius-control); font-size: var(--ui-meta-size); font-weight: 600; }
 .database-health.ready i { box-shadow: none; }
-.database-workspace-tabs { min-height: 36px; padding: 0 6px; gap: 1px; }
-.database-workspace-tabs button { min-height: 35px; padding-inline: 8px; border-radius: 0; font-size: var(--ui-text-size); font-weight: 600; }
-.database-workspace-tabs button > svg { width: var(--icon-xs); height: var(--icon-xs); }
 .database-status { min-height: 32px; padding: 4px 7px 4px 10px; background: var(--theme-surface); font-size: var(--ui-meta-size); }
 .database-status > button { width: var(--toolbar-hit); height: var(--toolbar-hit); border-radius: var(--radius-control); }
 .database-status > button > svg { width: var(--icon-xs); height: var(--icon-xs); }
@@ -46,7 +40,6 @@
 /* Status bar remains 24px but the content is no longer microscopically small. */
 .workbench-status-bar { height: 24px; flex-basis: 24px; gap: 10px; font: 600 var(--ui-meta-size)/1 var(--ui-font-family); }
 .workbench-status-bar svg { width: 13px; height: 13px; stroke-width: 1.8; }
-.workbench-bundle-meter-label svg { width: 13px; height: 13px; }
 
 /* Core workbench scrollbars stay quiet until interaction. */
 .workspace-root *::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -73,21 +66,6 @@
 .project-git-branch-option-meta b {
   border: 0;
   border-radius: 0;
-}
-
-/* Terminal canvas continuity + full-height Agent chat resource tabs. */
-.agent-chat-switcher .chat-tabs {
-  height: 100%;
-  align-self: stretch;
-  border-bottom: 0;
-}
-.agent-chat-switcher .chat-tab-group {
-  height: 100%;
-  min-height: 100%;
-}
-.agent-chat-switcher .chat-tab,
-.agent-chat-switcher .chat-tab-remove {
-  height: 100%;
 }
 
 

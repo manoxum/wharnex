@@ -160,3 +160,17 @@ test('a failed file selection cancels its observation before another retry start
   assert.equal(coordinator.pendingByWebContents.size, 0)
   assert.equal(coordinator.pendingByRequest.size, 0)
 })
+
+test('the account upload limit stops the local retries at the second upload that never started', async () => {
+  const { createChatGPTUploadLimitGate, ChatGPTUploadLimitDeferral } = await import('../../session/health/upload-limit.mjs')
+  const gate = createChatGPTUploadLimitGate({ log: () => {} })
+  let selections = 0
+  await assert.rejects(pasteWithUploadRetry({
+    beginUpload: () => Promise.reject(new Error('ChatGPT did not start the file upload before timeout')),
+    paste: async () => { selections += 1 },
+    wait: async () => {},
+    classifyFailure: async (error) => (/did not start/.test(error.message) ? gate.noteNotStarted(7) : null),
+  }), (error) => error instanceof ChatGPTUploadLimitDeferral && error.freeDeferral === true)
+  assert.equal(selections, 2)
+  assert.equal(gate.admit(9).allowed, false)
+})

@@ -1,3 +1,4 @@
+import { AgentRuntimeTabs } from './AgentRuntimeTabs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../../../lib/desktop/bridge/desktop'
 import { api } from '../../../lib/transport/http/api'
@@ -333,11 +334,7 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime ChatGPT</span><strong>Agentes</strong></div><div className="agent-runtime-heading-actions"><button type="button" className="agent-drawer-icon" onClick={() => void refresh()} aria-label="Atualizar agentes"><Icon name="refresh" size={13}/></button><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar agentes"><Icon name="close" size={13}/></button></div></header>
     {!runtime ? <ContentSkeleton label="A carregar instâncias do runtime" rows={6}/> : <>
       <div className="agent-runtime-summary"><span><b>{runtime.agents.length}</b><small>instâncias</small></span><span><b>{running}</b><small>ocupadas</small></span><span><b>{elsewhere}</b><small>noutro projeto</small></span><span><b>{runtime.desired_workers}</b><small>{runtime.policies?.auto_scaled_workers ? `${runtime.configured_workers} base · +${runtime.policies.auto_scaled_workers} auto` : 'workers'}</small></span></div>
-      <div className="agent-runtime-tabs" role="tablist" aria-label="Áreas do painel de agentes">
-        <button type="button" role="tab" aria-selected={activeTab === 'agents'} className={activeTab === 'agents' ? 'active' : ''} onClick={() => selectRuntimeTab('agents')}><Icon name="agent" size={14}/><span className="semantic-tab-label">Agentes</span><small>{runtime.agents.length}</small></button>
-        <button type="button" role="tab" aria-selected={activeTab === 'runtime'} className={activeTab === 'runtime' ? 'active' : ''} onClick={() => selectRuntimeTab('runtime')}><Icon name="monitor" size={14}/><span className="semantic-tab-label">Runtime</span><small>{runtime.scheduler?.running ? 'online' : 'atenção'}</small></button>
-        <button type="button" role="tab" aria-selected={activeTab === 'policies'} className={activeTab === 'policies' ? 'active' : ''} onClick={() => selectRuntimeTab('policies')}><Icon name="settings" size={14}/><span className="semantic-tab-label">Políticas</span><small>{runtime.policies.auto_scale ? 'auto' : 'manual'}</small></button>
-      </div>
+      <AgentRuntimeTabs value={activeTab} onChange={selectRuntimeTab} agents={runtime.agents.length} running={Boolean(runtime.scheduler?.running)} autoScale={runtime.policies.auto_scale}/>
       {/* The pool is shared deliberately; only the claim is scoped. Saying so
           here is what stops a busy pool from reading as a broken one. */}
       {activeTab === 'runtime' && <div className="agent-runtime-tab-panel runtime" role="tabpanel">

@@ -10,7 +10,7 @@ trace="$temporary/trace"
 
 mkdir -p "$fixture/scripts" "$fixture/services/desktop/splash" "$fixture/.harness/run" "$fake_bin"
 cp "$ROOT/scripts/launcher.sh" "$ROOT/scripts/source-fingerprint.sh" "$ROOT/scripts/splash-lib.sh" "$fixture/scripts/"
-cp "$ROOT/services/desktop/splash/launcher-splash.mjs" "$fixture/services/desktop/splash/launcher-splash.mjs"
+cp -R "$ROOT/services/desktop/splash/." "$fixture/services/desktop/splash/"
 chmod 0755 "$fixture/scripts/launcher.sh" "$fixture/scripts/source-fingerprint.sh"
 printf 'fixture source\n' >"$fixture/Makefile"
 
@@ -19,7 +19,13 @@ cat >"$fake_bin/electron" <<'EOF'
 [ -z "${ELECTRON_RUN_AS_NODE:-}" ] || { printf 'splash-node-mode\n' >>"$WHARNESS_LAUNCHER_TRACE"; exit 9; }
 printf 'splash-open\n' >>"$WHARNESS_LAUNCHER_TRACE"
 printf 'ready\n' >"$WHARNESS_SPLASH_READY_FILE"
-while [ -f "$WHARNESS_SPLASH_STATUS_FILE" ]; do sleep 0.01; done
+while [ -f "$WHARNESS_SPLASH_STATUS_FILE" ]; do
+  if [ -f "$WHARNESS_SPLASH_STATUS_FILE.failed" ]; then
+    rm -f "$WHARNESS_SPLASH_STATUS_FILE" "$WHARNESS_SPLASH_STATUS_FILE.failed" "$WHARNEX_SPLASH_OUTPUT_FILE"
+    break
+  fi
+  sleep 0.01
+ done
 EOF
 cat >"$fake_bin/make" <<'EOF'
 #!/usr/bin/env sh

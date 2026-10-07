@@ -50,6 +50,14 @@ export async function settleTaskResult(api, task, owner, result, { running }) {
 // Records the durable outcome of a task whose execution threw, and returns the
 // status the worker loop reports for it.
 export async function settleTaskError(api, task, owner, error) {
+  // A typed deferral raised before anything reached ChatGPT (the account
+  // upload limit) is a free observation: the task waits out the window
+  // without spending its attempt budget, whichever pool ran it.
+  if (error?.freeDeferral === true) {
+    const result = { status: 'waiting', delayMs: Number(error.delayMs) || 60_000, observation: true, error: String(error.message || '') }
+    await api.transition(task.task_id, ...waitingTransition(task, owner, result)).catch(() => undefined)
+    return result
+  }
   const disposition = chatAgentErrorDisposition(error)
   if (disposition.action === 'attention') {
     await api.transition(task.task_id, 'attention', { owner, error: disposition.error }).catch(() => undefined)

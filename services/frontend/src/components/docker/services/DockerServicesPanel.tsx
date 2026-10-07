@@ -1,3 +1,4 @@
+import { DockerDetailTabs } from './DockerDetailTabs'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { DockerComposeProject, DockerComposeService, DockerContainer, DockerContainerAction, DockerImage, DockerNetwork, DockerOverview, DockerResourceKind, DockerVolume, Session, TerminalRunInput } from '../../../types'
 import { api } from '../../../lib/transport/http/api'
@@ -341,10 +342,7 @@ function DockerContainerDetail({ container, running, detailTab, logs, logsLoadin
       <button type="button" disabled={logsLoading} onClick={() => void onLoadLogs(container)}><Icon name="list" size={12}/> Logs</button>
     </div>
     {container.protected ? <div className="docker-protected-note"><Icon name="shield" size={12}/><span>Este é o backend que serve o Wharnex. Start/Stop/Restart e Compose Down ficam bloqueados para não cortar a própria operação em curso.</span></div> : null}
-    <nav className="docker-detail-tabs" role="tablist" aria-label="Detalhes do container">
-      <button type="button" role="tab" aria-selected={detailTab === 'overview'} onClick={() => onSelectTab('overview')}>Overview</button>
-      <button type="button" role="tab" aria-selected={detailTab === 'logs'} onClick={() => void onLoadLogs(container)}>Logs</button>
-    </nav>
+    <DockerDetailTabs value={detailTab} onChange={(tab) => { if (tab === 'logs') void onLoadLogs(container); else onSelectTab(tab) }}/>
     {detailTab === 'overview' ? <div className="docker-container-overview">
       <DockerFact label="Condição" value={dockerConditionLabel(condition)}/>
       <DockerFact label="Estado Docker" value={container.status || container.state}/>

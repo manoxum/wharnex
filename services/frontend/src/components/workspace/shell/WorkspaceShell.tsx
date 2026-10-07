@@ -1,3 +1,4 @@
+import { ProjectTabs } from '../projects'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { api } from '../../../lib/transport/http/api'
@@ -416,18 +417,11 @@ export function ShellChrome({ projects, recent = [], activeProject, composerTypi
   return <header className="multi-project-bar" data-window-titlebar="true">
     <DesktopCloseDialogHost terminals={terminalProcesses || []} />
     <div className="multi-project-brand"><SignalCore size="compact" /></div>
-    <nav className="project-quick-switch" aria-label="Projetos vinculados">
-      {orderedProjects.map((projectPath) => {
-        const active = projectPath === activeProject
-        const composerTyping = active && composerTypingProject === projectPath
-        return <div key={projectPath} style={projectAccentStyle(projectPath)} className={`project-tab-shell${active ? ' active' : ''}`}>
-          <button ref={active ? activeProjectButtonRef : undefined} style={projectAccentStyle(projectPath)} className={`project-tab-main${active ? ' active' : ''}${composerTyping ? ' composer-typing-attention' : ''}`} onClick={(event) => { if (active) void toggleProjectWindowMenu(event.currentTarget); else { announceHeaderPopover('workspace-action'); onActivate(projectPath) } }} title={active ? `${projectPath} · clique para ver projetos abertos` : projectPath} aria-expanded={active ? projectWindowOpen : undefined}>
-            <span className="project-color-mark"><Icon name="workspace" size={13}/></span><span>{projectName(projectPath)}</span>{active && <Icon name="chevron" size={11}/>}
-          </button>
-          <button type="button" className="project-tab-unbind" disabled={busy} onClick={() => { setProjectWindowOpen(false); onUnbind(projectPath) }} aria-label={`Desvincular ${projectName(projectPath)} desta janela`} title={`Desvincular ${projectName(projectPath)} desta janela`}><Icon name="close" size={11}/></button>
-        </div>
-      })}
-    </nav>
+    <ProjectTabs projects={orderedProjects} activeProject={activeProject} composerTypingProject={composerTypingProject} busy={busy}
+      projectWindowOpen={projectWindowOpen} activeButtonRef={activeProjectButtonRef} accentStyle={projectAccentStyle} projectName={projectName}
+      onActiveMenu={(button) => void toggleProjectWindowMenu(button)} onActivate={(path) => { announceHeaderPopover('workspace-action'); onActivate(path) }}
+      onUnbind={(path) => { setProjectWindowOpen(false); onUnbind(path) }}/>
+
     {activeProject && <ProjectGitBadge sessionID={activeSessionID} busy={busy} onSync={onGitSync} />}
     {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} aria-label="Editor" title="Editor" onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={14}/></button><button className={mode === 'agent' ? 'active' : ''} aria-label="Agent" title="Agent" onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={14}/></button><button className={mode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" title="Orchestrator" onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={14}/></button></div>}
     {projects.length > 1 && <span className="multi-project-context" title="O Agent recebe contexto separado de todos os projetos vinculados; execução e Apply continuam isolados por projeto."><Icon name="bridge" size={12}/>{projects.length} projetos no contexto</span>}

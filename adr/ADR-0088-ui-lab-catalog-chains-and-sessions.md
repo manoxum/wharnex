@@ -106,3 +106,30 @@ the unit-level design did not:
   the task's reason.
 - **Manual.** Guides share fixed sections and are read as one manual per
   environment.
+
+The guide exchange became a structured document rendered by the engine, with
+measured markers, focused crops, HTML/PDF/Markdown views and a coverage review
+of the test plan: see `adr/ADR-0094`.
+
+## Amendment: truthful activity and temporary-hold recovery (2026-10-06)
+
+Queuing a run records `queued`, rather than marking the catalog `running`.
+The UI document overlays the durable task state on retained unfinished runs:
+`PENDING` and `LEASED` are queued; `WAITING` and future `not_before` are waiting;
+`RUNNING` is active only while an owner has an unexpired lease. Terminal or
+missing tasks close unfinished runs with the existing failure reason. An older
+completion cannot replace the catalog outcome of a newer run. Legacy catalog
+entries labelled running without a retained run return to ready, without
+inventing an execution result. This is a compatible correction: status fields
+remain strings, task identity and execution protocols are unchanged.
+
+A temporary operator database trigger, `wharnex_temp_hold_ui_tests`, installed
+before ADR-0093 forced every pending/waiting UI task's `not_before` to 2100.
+Releasing the new task hold could not undo that trigger. The bounded one-time
+recovery in `scripts/ui-testing/recover-legacy-suspension.sql` removes only that
+named trigger after checking its definition, then releases only marked legacy
+suspensions and pending UI tasks with the matching sentinel date. It preserves
+attempts, task identity, payloads and outcomes. Ordinary cooldowns and terminal
+work are untouched; the durable task holds continue to govern eligibility.
+The script's PostgreSQL fixture includes the actual trigger behavior and proves
+that the recovery does not release unrelated work. Apply it in a transaction.

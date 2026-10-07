@@ -80,6 +80,17 @@ export type BundleQuota = {
   warning: boolean
   window_start: string
   window_end: string
+  by_task_type?: BundleTaskUsage[]
+  source?: 'transport' | 'artifacts'
+  estimated_received?: number
+}
+
+export type BundleTaskUsage = {
+  type: string
+  sent: number
+  received: number
+  total: number
+  estimated_received: number
 }
 
 export type HarnessEvent = {

@@ -42,6 +42,11 @@ export function createChatAgentQueueAPI({ baseURL, fetchImpl }) {
     // selected by the operator and applied durably by the backend.
     recordRateLimit: (source, kind = 'transport', cooldownSeconds = 450) =>
       post('/api/chat-agent/provider/rate-limit', { source, kind, cooldown_seconds: cooldownSeconds }),
+    // Durable automation holds: the UI test suspension and the account
+    // file-upload limit this Desktop detected.
+    automationHolds: () => request('/api/automation-holds'),
+    setAutomationHold: (name, hold) =>
+      request(`/api/automation-holds/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(hold) }),
     recordValidBundle: ({ requestId, conversationId = '', durationMs = 0 }) =>
       post('/api/chat-agent/provider/valid-bundle', { request_id: requestId, conversation_id: conversationId, duration_ms: durationMs }),
   }

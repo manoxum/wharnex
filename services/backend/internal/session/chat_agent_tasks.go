@@ -286,8 +286,10 @@ func chatAgentTaskForSupervisorSQL(alias string) string {
 // chatAgentEphemeralTypes are served by the ephemeral utility pool (role
 // "translator"): each claim gets its own browser that lives until the task
 // settles. They never wait behind, or take a slot of, the persistent Workers,
-// whose configured count and auto scale serve Orchestrator execution.
-var chatAgentEphemeralTypes = []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES", "UI_TEST_DISCOVER", "UI_TEST_RUN"}
+// whose configured count and auto scale serve Orchestrator execution. UI Lab
+// exchanges are deliberately absent: they run on the persistent Workers, where
+// pacing, suspension and upload spend stay under operator control (ADR-0093).
+var chatAgentEphemeralTypes = []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES"}
 
 func chatAgentTaskEphemeral(taskType string) bool {
 	return chatAgentTaskTypeIn(taskType, chatAgentEphemeralTypes)

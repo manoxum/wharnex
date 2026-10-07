@@ -1,3 +1,4 @@
+import { ProjectTodoTabs } from './ProjectTodoTabs'
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import type { ProjectTodo, Session } from '../../../types'
 import { api } from '../../../lib/transport/http/api'
@@ -169,13 +170,7 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
       <div><span className="panel-kicker">Inbox do projeto</span><strong>TODO</strong><small>{counts.open} abertos · {counts.pending} em execução · {counts.executed} feitos</small></div>
       <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar TODO"><Icon name="close" size={13}/></button>
     </header>
-    <nav className="project-todo-tabs" aria-label="Estado dos TODOs">
-      <button type="button" title="Abertos" aria-pressed={filter === 'open'} onClick={() => setFilter('open')}><Icon name="list" size={13}/><span className="semantic-tab-label">Abertos</span><b>{counts.open}</b></button>
-      <button type="button" title="Fazendo" aria-pressed={filter === 'pending'} onClick={() => setFilter('pending')}><Icon name="play" size={13}/><span className="semantic-tab-label">Fazendo</span><b>{counts.pending}</b></button>
-      <button type="button" title="Feito" aria-pressed={filter === 'executed'} onClick={() => setFilter('executed')}><Icon name="check" size={13}/><span className="semantic-tab-label">Feito</span><b>{counts.executed}</b></button>
-      <button type="button" title="Falha" aria-pressed={filter === 'failed'} onClick={() => setFilter('failed')}><Icon name="alert" size={13}/><span className="semantic-tab-label">Falha</span><b>{counts.failed}</b></button>
-      <button type="button" title="Concluídos" aria-pressed={filter === 'completed'} onClick={() => setFilter('completed')}><Icon name="archive" size={13}/><span className="semantic-tab-label">Concluídos</span><b>{counts.completed}</b></button>
-    </nav>
+    <ProjectTodoTabs value={filter} onChange={setFilter} counts={counts}/>
     <div className="project-todo-list">
       {visible.length ? visible.map((todo) => <TodoCard key={todo.id} todo={todo} busy={busy} onStatus={() => void updateStatus(todo)} onRetry={() => void retryClassification(todo)} onChat={() => void onPromoteToChat?.(todo)} onCurrentChat={() => void onPromoteToCurrentChat?.(todo)} onLocate={() => todo.execution_chat_id && onLocateChat?.(todo.execution_chat_id)} onOrchestrator={() => void promoteToOrchestrator(todo)} onDelete={() => void deleteTodo(todo)}/>) : <div className="agent-drawer-empty project-todo-empty"><Icon name="check" size={18}/><strong>{emptyCopy[filter].title}</strong><span>{emptyCopy[filter].detail}</span></div>}
     </div>

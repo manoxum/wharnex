@@ -298,7 +298,7 @@ The same snapshot MUST be used by direct Desktop ZIPs, one-shot remote ZIPs, liv
 
 ## Patch representation
 
-Source mutation uses unified diff text in `apply_patch` operations. Paths must be relative to the project root. Patches are valid only for `change` turns. A delivered `patches/*.patch` file is raw UTF-8 diff bytes, not Markdown: every `diff --git` header has exactly `diff --git a/relative/path b/relative/path`, with exactly two unquoted paths and no trailing backslash or extra text. Markdown fences and proprietary patch dialects are invalid.
+Source mutation uses unified diff text in `apply_patch` operations. Paths must be relative to the project root. Patches are valid only for `change` turns. A delivered `patches/*.patch` file is raw UTF-8 diff bytes, not Markdown: every `diff --git` header has exactly `diff --git a/relative/path b/relative/path`, with exactly two unquoted paths and no trailing backslash or extra text. Markdown wrappers around a diff and proprietary patch dialects are invalid. Fence markers, quotes, backslashes and diff examples inside structurally counted hunk body lines are ordinary project content and MUST remain permitted unchanged. Envelope checks MUST distinguish those body lines from patch headers and framing; neither the validator nor provider instructions may ban such bytes globally.
 
 Change plans MAY declare `read_files` and `barrier_files`. They are bounded relative paths and scheduling/verification evidence only; Wharness derives the authoritative write set from the validated patch result. A conflict-resolution request contains one `harness.conflict/v1` capsule with bounded BASE/CURRENT/RESULT data and hashes. Conflict detection pauses before any model dispatch and requires an explicit operator choice: resolve locally in the three-way workbench or delegate to GPT. A pure GPT resolution MUST cover every conflicting path and MUST NOT modify any path outside the capsule. In hybrid resolution, paths the operator marks resolved are locked: Wharness stores a backend-generated patch authored against CURRENT, removes those paths from the delegated capsule, rejects any GPT patch that touches them, and injects the operator patch into the accepted plan. A fully manual resolution follows the same Protected verification/integration path as an ordinary candidate; for a Git-origin conflict it concludes the exact merge the operator started. A conflict turn never broadens or repeats the original task.
 
@@ -558,8 +558,11 @@ first test after a restore; the worker then invalidates that session and replays
 ### UI test run exchanges (step and guide)
 
 A spent file-upload allowance (uploads that never start) is a provider
-limit, not a test outcome: discovery and runs return to the queue as a free
-`waiting` observation for 20 minutes instead of failing.
+limit, not a test outcome. The Desktop's account-wide upload gate
+(`adr/ADR-0093`) raises a typed deferral; discovery and runs return to the
+queue as a free `waiting` observation until the gate's window ends instead of
+failing. Both task types run on the persistent Worker pool, at most one run at
+a time, and their durable task holds (`task:UI_TEST_DISCOVER`, `task:UI_TEST_RUN`) suspend them.
 
 Every GPT exchange of a `UI_TEST_RUN` is a bundle built and validated by the
 backend (`internal/uitesting/exchange`); the Desktop only transports it and
@@ -591,15 +594,38 @@ the same page state with `previous_answer_error`; `fill_credential` is refused
 when the test has no configured credentials. A failed browser action (selector
 not found, failed assertion) is recorded in the history as feedback for the
 next iteration rather than failing the test; leaving the environment origin
-remains fatal. The user guide of the selected test is
-`whx_ui_test_guide_req_<task_id>.zip` (`wharnex.ui-test-guide-input/v1`, with
-`state/steps.json` and at most 30 `screenshots/step-NN.png`), answered by
-`whx_ui_test_guide_res_<task_id>.zip` holding exactly `manifest.json`
-(`wharnex.ui-test-guide/v1`, echoing identity and `input_sha256`, plus `title`)
-and `guide.md`. The manifest also carries `captions` — a legend of at most
-400 characters for every capture the request sent, none missing and none
-extra — and `verdict` `{status: passed|failed, reason}`, GPT's visual review
-of the run from the captures: a run whose actions succeeded but whose review
-fails is recorded as failed with that reason. Each answer is validated against the request the backend
+remains fatal. Each capture also carries the elements measured on the page
+when it was taken (interactive elements first, then landmarks such as
+headings, alerts and dialogs, each with its box in viewport fractions), and
+each recorded step names the `selector` it targeted. The user guide of the
+selected test is `whx_ui_test_guide_req_<task_id>.zip`
+(`wharnex.ui-test-guide-input/v2`, `adr/ADR-0094`) with `state/steps.json`
+(test, run steps and `captures`: each capture's pixel size and at most 60
+in-view elements with ids `e1…`, `acted_on` and `box`),
+`catalog/planned-tests.json` (the environment's current test plan) and at most
+30 `screenshots/step-NN.png`. It is answered by
+`whx_ui_test_guide_res_<task_id>.zip` holding exactly `guide.json`
+(`wharnex.ui-test-guide/v2`, echoing identity and `input_sha256`): title,
+subtitle, summary, audience, duration, `theme` (`accent` and `cover` from
+closed sets), `before_you_start`, `sections` of steps (short imperative
+`instructions` with interface labels in `**…**`, `layout` from `split`,
+`hero`, `focus` or `compact`, optional `capture`, `view` `focus|full`, optional
+crop `region`, 1..6 `annotations` on a measured element id or an explicit
+region, `caption`, optional typed `callout`), `expected_result`,
+`troubleshooting`, `related`, `captions`, `proposed_tests` and `verdict`. A
+capture is used at most once and in the order taken, so redundant captures
+are omitted. `captions` still gives a legend of at most 400 characters to
+every capture sent, none missing and none extra. The backend resolves every
+marker to its measured box and every focused view to a bounded crop that keeps
+the markers inside; the resolved document is rendered by the engine alone into
+Markdown, the HTML page and the PDF, and GPT text is always escaped.
+`proposed_tests` (at most 12) are tests for interface elements the plan does
+not exercise. They follow the discovery field rules, MUST name the run's own
+web environment, and are merged as new `discovered` tests only, never
+revising or retiring one. `verdict` `{status: passed|failed, reason}` is GPT's
+visual review of the run from the captures: a run whose actions succeeded but
+whose review fails is recorded as failed with that reason. An answer to a v1
+guide request already in flight (`manifest.json` plus free `guide.md`) is
+still accepted. Each answer is validated against the request the backend
 issued and consumed once; a request the backend did not issue, or an answer
 replayed, is refused. Credentials never enter any of these archives.

@@ -5,7 +5,6 @@
   border-radius: 0;
   background: transparent;
 }
-.git-tabs { padding-inline: 10px; background: var(--theme-surface); }
 .git-tab-content { padding: 0 14px 16px; gap: 0; }
 .git-section,
 .git-worktree-card,

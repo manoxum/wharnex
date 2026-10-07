@@ -139,6 +139,10 @@ func (h *Routes) asset(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, err)
 		return
 	}
+	if r.PathValue("name") == guidePageAsset {
+		h.guidePage(w, item.ProjectPath, r.PathValue("run"))
+		return
+	}
 	path, err := h.store.AssetPath(item.ProjectPath, r.PathValue("run"), r.PathValue("name"))
 	if err != nil {
 		writeErr(w, 404, err)
@@ -146,6 +150,8 @@ func (h *Routes) asset(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasSuffix(path, ".pdf") {
 		w.Header().Set("Content-Type", "application/pdf")
+	} else if strings.HasSuffix(path, ".json") {
+		w.Header().Set("Content-Type", "application/json")
 	} else if strings.HasSuffix(path, ".md") {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	} else {

@@ -1,3 +1,4 @@
+import { tabButtonSource, projectChromeSource } from '../../cascade/tabStyles'
 import { describe, expect, it } from 'vitest'
 import { readStyleSource } from '../../cascade/readStyleSource'
 
@@ -71,11 +72,13 @@ describe('complete colour themes', () => {
   })
 
   it('keeps active chat and editor tabs visibly selected in both palettes', () => {
-    expect(theme).toContain("[data-theme='dark'] .chat-tab-group.active")
-    expect(theme).toContain('background: color-mix(in srgb, var(--theme-accent-soft) 62%, var(--theme-elevated))')
-    expect(theme).toContain("[data-theme='dark'] .editor-tab.active")
-    expect(theme).toContain("[data-theme='light'] .editor-tab.active")
-    expect(theme).toContain('box-shadow: inset 0 -2px var(--theme-accent)')
+    expect(theme).toContain('--theme-tab-active: #3574f0')
+    expect(theme).toContain('--theme-tab-active: #5e9cff')
+    expect(tabButtonSource).toContain('[[data-theme=dark]_&]:aria-selected:shadow-[0_1px_3px_rgba(0,0,0,.24)]')
+    expect(tabButtonSource).toContain('aria-selected:text-whx-text')
+    expect(tabButtonSource).toContain('bg-whx-muted')
+    expect(tabButtonSource).toContain('var(--theme-tab-active)_15%')
+
   })
 
   it('keeps every dark settings control and active state monochrome', () => {
@@ -87,8 +90,10 @@ describe('complete colour themes', () => {
     expect(theme).toContain('background: #303030;\n  color: #cecece !important;')
   })
   it('keeps the active linked-project accent restrained in dark mode', () => {
-    expect(theme).toContain('box-shadow: 0 1px 3px rgba(0,0,0,.24);')
-    expect(theme).toContain(":root[data-theme='dark'] .project-quick-switch button.active .project-color-mark { box-shadow: none; }")
+    expect(tabButtonSource).toContain('shadow-none')
+    expect(projectChromeSource).toContain('hsl(var(--project-hue)_68%_72%)')
+    expect(tabButtonSource).toContain('[[data-theme=dark]_&]:aria-selected:shadow-[0_1px_3px_rgba(0,0,0,.24)]')
+
   })
 
   it('gives the integrated chat header and every bundle stage a distinct dark treatment', () => {

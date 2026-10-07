@@ -1,0 +1,39 @@
+/* PDF: the same page printed on A4, always light, with a full-bleed cover. */
+@page { size: A4; margin: 16mm 14mm 18mm; }
+@page :first { margin: 0; }
+
+@media print {
+  :root, :root[data-theme="dark"] {
+    --bg: #ffffff; --surface: #ffffff; --surface-2: #f3f5fa; --text: #0f172a; --muted: #4b5568; --line: #e1e6ef;
+    --shadow: none; --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent); color-scheme: light;
+  }
+  html { scroll-behavior: auto; }
+  body { font-size: 11pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .progress, .topbar, .toc, .zoom, .lightbox { display: none !important; }
+  .js .reveal { opacity: 1 !important; transform: none !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+
+  .cover { height: 297mm; display: flex; align-items: flex-end; padding: 0 20mm 34mm; break-after: page; }
+  .cover-art i { filter: blur(40px); }
+  .cover h1 { font-size: 34pt; }
+  .lead { font-size: 14pt; }
+
+  .layout { display: block; max-width: none; padding: 0; }
+  main { gap: 9mm; }
+  .card { padding: 6mm 7mm; box-shadow: none; break-inside: avoid; }
+  .intro { grid-template-columns: 1.4fr 1fr; }
+  .chapter { gap: 8mm; break-before: page; }
+  .chapter-head { margin-top: 0; break-after: avoid; }
+  .chapter-no { font-size: 38pt; }
+  .step { gap: 6mm; break-inside: avoid; }
+  .step-split { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+  .step-split.side-start { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+  .step-focus { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); box-shadow: none; }
+  .step-compact { grid-template-columns: minmax(0, 1fr) 55mm; }
+  .step h3 { font-size: 15pt; }
+  .frame { box-shadow: none; cursor: default; }
+  .mark::after { display: none; }
+  .trouble, .related, .result { break-inside: avoid; }
+  .foot { break-before: avoid; }
+  a { color: inherit; text-decoration: none; }
+}

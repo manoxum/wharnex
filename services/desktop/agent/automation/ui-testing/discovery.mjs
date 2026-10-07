@@ -102,8 +102,8 @@ export function createUITestingDiscoveryWorker(context) {
       // A sign-in, verification or access gate needs a person; retrying the
       // task would only reload the same gate and spend its attempts.
       if (error?.humanAction) return { status:'attention', providerWide:true, error:error.message }
-      // ChatGPT's per-account file-upload allowance is spent: wait for it.
-      if (/did not start the file upload/.test(String(error?.message || ''))) return { status:'waiting', delayMs:20 * 60 * 1000, observation:true, error:`ChatGPT file-upload allowance exhausted: ${error.message}` }
+      // The account upload limit: wait out the gate's window for free.
+      if (error?.uploadLimit) return { status:'waiting', delayMs:error.delayMs, observation:true, error:error.message }
       throw error
     } finally {
       if (expectedChatGPTUITestDiscoveries.get(filename) === expected) {

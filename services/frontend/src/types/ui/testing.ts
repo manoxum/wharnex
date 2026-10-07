@@ -23,9 +23,9 @@ export type UITestCase = {
   status: string
   last_run_id?: string
 }
-export type UITestStep = { index: number; action: string; caption?: string; screen_caption?: string; outcome?: string; screenshot?: string }
+export type UITestStep = { index: number; action: string; caption?: string; screen_caption?: string; outcome?: string; screenshot?: string; selector?: string }
 export type UITestRun = { id: string; task_id?: string; test_id: string; status: string; error?: string; role?: 'target' | 'dependency'; parent_run_id?: string; restored_from?: string; steps?: UITestStep[]; started_at: string; completed_at?: string }
-export type UIGuide = { id: string; test_id: string; run_id: string; title: string; markdown: string; pdf_ready: boolean; screenshots?: UITestStep[]; updated_at: string }
+export type UIGuide = { id: string; test_id: string; run_id: string; title: string; markdown: string; pdf_ready: boolean; html_ready?: boolean; screenshots?: UITestStep[]; updated_at: string }
 export type UITestDesignRequest = { task_id: string; brief: string; environment_id?: string; status: 'designing' | 'done' | 'failed'; error?: string; test_ids?: string[]; created_at: string; updated_at: string }
 export type UITestSession = { id: string; environment_id: string; test_id: string; profile_id?: string; covers: string[]; valid: boolean; captured_at: string; expires_at: string }
 export type UITestingDocument = {

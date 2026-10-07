@@ -193,3 +193,31 @@ test('an observation on the final attempt is not treated as exhaustion', async (
 // projects are open in which windows, so the claim has to carry that scope —
 // and carry the flag separately, because "no project is open" and "this caller
 // cannot scope" are opposite instructions one empty list cannot express.
+
+test('an upload-limit deferral on the final attempt waits as a free observation instead of failing', async () => {
+  const transitions = []
+  let claimed = false
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080', workerCount: 1, idleMs: 1, taskCooldownMs: 0,
+    fetchImpl: async (url, init = {}) => {
+      if (url.endsWith('/api/chat-agent/tasks/claim')) {
+        if (!claimed) {
+          claimed = true
+          return { ok: true, json: async () => ({ task: { task_id: 'cat-upload', type: 'BOT_WRITE', attempt: 6, max_attempts: 6 } }) }
+        }
+        return { ok: true, json: async () => ({}) }
+      }
+      transitions.push({ action: url.split('/').pop(), body: JSON.parse(String(init.body || '{}')) })
+      return { ok: true, json: async () => ({}) }
+    },
+    execute: async () => { throw Object.assign(new Error('ChatGPT account file-upload limit is active'), { freeDeferral: true, delayMs: 600_000 }) },
+  })
+  scheduler.start()
+  for (let attempt = 0; attempt < 100 && !transitions.some((item) => item.action === 'wait'); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 2))
+  await scheduler.stop()
+  const wait = transitions.find((item) => item.action === 'wait')
+  assert.ok(wait, 'the task must wait, not fail')
+  assert.equal(wait.body.observation, true)
+  assert.ok(Date.parse(wait.body.not_before) - Date.now() > 590_000)
+  assert.ok(!transitions.some((item) => item.action === 'fail'))
+})

@@ -51,6 +51,12 @@ func parseDiscoveryResultV2(raw []byte, request DiscoveryTransportManifest) (Dis
 	}, nil
 }
 
+// ValidateProposedTests applies the discovery field rules to tests a guide
+// review proposes for uncovered interface elements.
+func ValidateProposedTests(tests []TestCase) error {
+	return validateResultShape(DiscoveryResultV2{Tests: tests})
+}
+
 // validateResultShape checks what the answer alone can prove. References to
 // environments, profiles and dependencies are resolved against the merged
 // catalog by the store, because the answer may build on stored tests.

@@ -1,6 +1,4 @@
 /* Chat management and task queues: compact rows with one semantic edge. */
-.agent-chat-management-tabs,
-.chat-agent-task-tabs { background: var(--theme-surface); }
 .agent-archive-list,
 .chat-agent-task-list { gap: 0; padding-inline: 12px; }
 .agent-archive-item,

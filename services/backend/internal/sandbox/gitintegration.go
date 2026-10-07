@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"kernl.local/harness/backend/internal/gitops"
 	"kernl.local/harness/backend/internal/hostrepo"
 )
 
@@ -38,13 +39,7 @@ func (e *MergeConflictError) Error() string {
 }
 
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
-	if _, err := exec.LookPath("git"); err != nil {
-		return "", errors.New("git executable not found")
-	}
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	output, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(output)), err
+	return gitops.Combined(ctx, dir, args...)
 }
 
 // CurrentHeadSHA returns the commit SHA a repository's HEAD currently

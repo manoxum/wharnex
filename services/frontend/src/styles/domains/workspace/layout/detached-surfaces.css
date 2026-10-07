@@ -105,44 +105,4 @@
   gap: 0;
   padding-left: 6px;
 }
-.workspace-surface-tabs {
-  -webkit-app-region: drag;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  align-items: end;
-  gap: 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-.workspace-surface-tabs::-webkit-scrollbar { display: none; }
-.workspace-surface-tab {
-  -webkit-app-region: no-drag;
-  min-width: 92px;
-  max-width: 240px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: 7px 7px 0 0;
-  background: transparent;
-  color: var(--text-muted, #94a3b8);
-  cursor: grab;
-}
-.workspace-surface-tab > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workspace-surface-tab:hover { background: var(--theme-hover); color: var(--theme-text); }
-.workspace-surface-tab.active {
-  background: var(--surface-1, #111827);
-  color: var(--theme-text);
-  box-shadow: inset 0 -2px var(--theme-accent);
-}
-.workspace-surface-tab:active { cursor: grabbing; }
 .workspace-surface-tab-menu { -webkit-app-region: no-drag; }

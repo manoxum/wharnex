@@ -1,3 +1,5 @@
+import { gitTabLabel } from './gitTabModel'
+import { GitTabs, type GitTab, type GitChangesTab } from './GitTabs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { GitAuthorSettings, GitBranch, GitCommitMode, GitConflictStrategy, GitFileDiff, GitOperationPreview, GitOverview, GitPendingCommit, Session } from '../../../types'
@@ -8,24 +10,21 @@ import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
 import { Icon } from '../../presentation/chrome/Icon'
 import { InternalWindow } from '../../workspace/window/InternalWindow'
 import { ContentSkeleton } from '../../presentation/chrome/Skeleton'
-import { GitUnpushedSection } from '../history/GitUnpushedSection'
 import { GitDiffReview } from './GitDiffReview'
 import { ChangeDiffEditor } from '../../editor/canvas/ChangeDiffEditor'
 import { GitOperationModal, type GitOperationTarget } from './GitOperationModal'
 import { GitContributorsSection } from '../history/GitContributorsSection'
 import { GitRepositorySummary } from '../history/GitRepositorySummary'
 import { HistorySection } from '../history'
-import { GitProjectWorktree } from './GitProjectWorktree'
+import { GitChangesPanel, visibleChangesRepositories, gitPushMessage } from './changes'
 import { GitReleasePanel, type GitReleasePublishResult } from '../release/GitReleasePanel'
 import { releaseTagName } from '../release/GitReleaseTag'
 import { ConflictResolverModal } from '../../editor/inspector/ConflictResolverModal'
 import { currentBranch, loadGitProjectOverviews, repositoryLabel, repositoryRemote, type GitRepositoryOverviewEntry } from '../../../lib/git/workflow/gitProjectOverview'
-import { splitWorktreeKey, worktreeKey } from '../../../lib/git/workflow/gitWorktreeKey'
+import { worktreeKey } from '../../../lib/git/workflow/gitWorktreeKey'
 import { useGitOperationFlow } from '../../../lib/git/workflow/useGitOperationFlow'
 import { useGitConflictReview } from '../../../lib/git/workflow/useGitConflictReview'
 
-type GitTab = 'changes' | 'history' | 'contributors' | 'branches' | 'settings'
-type GitChangesTab = 'working' | 'pending'
 type WorktreeDiffTarget = { repository: string; repositoryLabel: string; file: GitOverview['working']['files'][number] }
 type WorktreeDiffState = { initialFile: GitFileDiff; initialTarget: WorktreeDiffTarget; targets: WorktreeDiffTarget[] }
 
@@ -181,31 +180,6 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     )
   }
 
-  async function commitWorktree() {
-    const grouped = new Map<string, string[]>()
-    for (const key of selectedWorktree) {
-      const item = splitWorktreeKey(key)
-      grouped.set(item.repository, [...(grouped.get(item.repository) || []), item.path])
-    }
-    const targets = repositoryTargets.filter((target) => grouped.has(target.path))
-    selectRepositories(
-      'A criar commit manual',
-      'Escolha em quais repositórios os ficheiros selecionados serão commitados.',
-      async (paths) => {
-        const message = await runForRepositories(paths, async (entry) => {
-          const files = grouped.get(entry.repository.path) || []
-          const result = await api.commitGitWorktree(session.id, worktreeCommitMessage, files, entry.repository.path)
-          return `Commit ${result.commit_sha.slice(0, 8)} criado com ${result.paths.length} ficheiro(s).`
-        })
-        setSelectedWorktree(new Set())
-        setWorktreeCommitMessage('')
-        return message
-      },
-      false,
-      targets,
-      (paths) => previewsForRepositories(paths, async (entry) => api.gitPreview(session.id, { operation: 'commit', repository: entry.repository.path, paths: grouped.get(entry.repository.path) || [] })),
-    )
-  }
 
   return <section className="git-drawer" aria-label="Git do projeto">
     <header className="agent-drawer-heading git-drawer-heading">
@@ -227,7 +201,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     {!loading && overview && !overview.available && <p className="git-empty warning-card">Não foi possível inspecionar o repositório: {overview.unavailable}</p>}
 
     {overview?.available && <>
-      <GitRepositorySummary entries={repositoryEntries}/>
+      <GitRepositorySummary entries={activeTab === 'changes' ? visibleChangesRepositories(repositoryEntries) : repositoryEntries}/>
       <GitTabs active={activeTab} onChange={setActiveTab} overview={overview}/>
       {notice && <p className={`git-notice ${noticeError ? 'error-card' : ''}`} role={noticeError ? 'alert' : 'status'}>{notice}</p>}
       {overview.conflict && <div className="git-conflict-card warning-card">
@@ -237,86 +211,32 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
       {overview.in_progress && <p className="git-notice warning-card">Há um <strong>{overview.in_progress}</strong> em curso no host. Termine-o ou aborte-o antes de aplicar ou fazer merge.</p>}
 
       <div className="git-tab-content" role="tabpanel" aria-label={gitTabLabel(activeTab)}>
-        {activeTab === 'changes' && <>
-          <ChangesTabs
-            active={activeChangesTab}
-            workingCount={repositoryEntries.reduce((sum, entry) => sum + (entry.overview?.working.files.length || 0), 0)}
-            pendingCount={repositoryEntries.reduce((sum, entry) => sum + (entry.overview ? unpushedCount(entry.overview) : 0), 0)}
-            onChange={setActiveChangesTab}
-          />
-          {activeChangesTab === 'working' && <GitProjectWorktree
-            entries={repositoryEntries} disabled={disabled}
-            selected={selectedWorktree} message={worktreeCommitMessage}
-            onMessageChange={setWorktreeCommitMessage}
-            onToggle={(key) => setSelectedWorktree((currentSelection) => {
-              const next = new Set(currentSelection)
-              if (next.has(key)) next.delete(key)
-              else next.add(key)
-              return next
-            })}
-            onCommit={() => void commitWorktree()}
-            onOpenDiff={(repositoryPath, path) => void (async () => {
-              try {
-                const targets = repositoryEntries.flatMap((entry) => (entry.overview?.working.files || []).map((file) => ({
-                  repository: entry.repository.path,
-                  repositoryLabel: repositoryLabel(entry),
-                  file,
-                })))
-                const initialTarget = targets.find((target) => target.repository === repositoryPath && target.file.path === path)
-                if (!initialTarget) throw new Error(`Não foi possível localizar ${path} no worktree atual.`)
-                const initialFile = await api.gitFileDiff(session.id, path, repositoryPath)
-                setWorktreeDiff({ initialFile, initialTarget, targets })
-              } catch (error) { report(error) }
-            })()}
-          />}
-          {activeChangesTab === 'pending' && availableEntries.map((entry) => {
-            const entryOverview = entry.overview!
-            const entryBranch = currentBranch(entryOverview)
-            return <GitUnpushedSection key={entry.repository.path || '__root__'}
-              sessionId={session.id} repository={entry.repository.path} repositoryLabel={repositoryEntries.length > 1 ? repositoryLabel(entry) : undefined}
-              activeBranch={entryBranch} remotes={entryOverview.remotes} disabled={disabled}
-              onFullPush={async (remote, branch, setUpstream) => {
-                const target = repositoryTargets.filter((item) => item.path === entry.repository.path)
-                selectRepositories(
-                  'A publicar alterações',
-                  `A enviar ${branch} para ${remote}${setUpstream ? ' e a configurar o upstream' : ''}.`,
-                  async (paths) => runForRepositories(paths, async (selectedEntry) => {
-                    const selectedOverview = selectedEntry.overview!
-                    const selectedBranch = currentBranch(selectedOverview)
-                    const selectedRemote = repositoryRemote(selectedEntry, remote)
-                    if (!selectedRemote || !selectedBranch) throw new Error('Este repositório não tem branch/remoto disponível para push.')
-                    const result = await api.gitPush(session.id, selectedRemote, selectedBranch.name, !selectedBranch.has_upstream, selectedEntry.repository.path)
-                    if (result.conflict_id) return conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id))
-                    return result.detail || pushMessage(result.outcome, result.integrated, result.conflict_id)
-                  }),
-                  true,
-                  target,
-                  (paths) => previewsForRepositories(paths, async (selectedEntry) => {
-                    const selectedBranch = currentBranch(selectedEntry.overview)
-                    const selectedRemote = repositoryRemote(selectedEntry, remote)
-                    if (!selectedRemote || !selectedBranch) throw new Error('Este repositório não tem branch/remoto disponível para push.')
-                    return api.gitPreview(session.id, { operation: 'push', repository: selectedEntry.repository.path, remote: selectedRemote, branch: selectedBranch.name })
-                  }),
-                )
-              }}
-              onSelectedPush={async (commitSHAs) => {
-                const branch = currentBranch(entry.overview)
-                if (!branch?.upstream) throw new Error('Este repositório não tem upstream disponível para push seletivo.')
-                const [remote, ...branchParts] = branch.upstream.split('/')
-                const remoteBranch = branchParts.join('/')
-                await reviewGitOperation(
-                  'A publicar commits selecionados',
-                  `A enviar ${commitSHAs.length} commit(s) para o upstream de ${repositoryLabel(entry)}.`,
-                  async () => [await api.gitPreview(session.id, { operation: 'push', repository: entry.repository.path, remote, branch: remoteBranch, commit_shas: commitSHAs })],
-                  async () => {
-                    const result = await api.gitPushSelected(session.id, commitSHAs, entry.repository.path)
-                    return result.conflict_id ? conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id)) : pushMessage(result.outcome, result.integrated, result.conflict_id)
-                  },
-                )
-              }}
-            />
+        {activeTab === 'changes' && <GitChangesPanel
+          sessionId={session.id} entries={repositoryEntries} disabled={disabled}
+          active={activeChangesTab} onChange={setActiveChangesTab}
+          selected={selectedWorktree} message={worktreeCommitMessage} onMessageChange={setWorktreeCommitMessage}
+          onToggle={(key) => setSelectedWorktree((currentSelection) => {
+            const next = new Set(currentSelection)
+            if (next.has(key)) next.delete(key)
+            else next.add(key)
+            return next
           })}
-        </>}
+          resetCommit={() => { setSelectedWorktree(new Set()); setWorktreeCommitMessage('') }}
+          flow={{ reviewGitOperation, selectRepositories, previewsForRepositories }}
+          loadOverview={loadOverview} runForRepositories={runForRepositories}
+          repositoryTargets={repositoryTargets} conflictMessage={conflictMessage}
+          onOpenDiff={(repositoryPath, path) => void (async () => {
+            try {
+              const targets = repositoryEntries.flatMap((entry) => (entry.overview?.working.files || []).map((file) => ({
+                repository: entry.repository.path, repositoryLabel: repositoryLabel(entry), file,
+              })))
+              const initialTarget = targets.find((target) => target.repository === repositoryPath && target.file.path === path)
+              if (!initialTarget) throw new Error(`Não foi possível localizar ${path} no worktree atual.`)
+              const initialFile = await api.gitFileDiff(session.id, path, repositoryPath)
+              setWorktreeDiff({ initialFile, initialTarget, targets })
+            } catch (error) { report(error) }
+          })()}
+        />}
         {activeTab === 'history' && availableEntries.map((entry) => <HistorySection key={entry.repository.path || '__root__'} sessionId={session.id} repository={entry.repository.path} repositoryLabel={repositoryEntries.length > 1 ? repositoryLabel(entry) : undefined} branches={entry.overview!.branches}/>)}
         {activeTab === 'contributors' && availableEntries.map((entry) => <GitContributorsSection key={entry.repository.path || '__root__'} sessionId={session.id} repository={entry.repository.path} repositoryLabel={repositoryEntries.length > 1 ? repositoryLabel(entry) : undefined}/>)}
         {activeTab === 'branches' && <BranchSection
@@ -432,8 +352,8 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
               const selectedRemote = repositoryRemote(entry, remote)
               if (!selectedBranch || !selectedRemote) throw new Error('Este repositório não tem branch/remoto disponível para push.')
               const result = await api.gitPush(session.id, selectedRemote, selectedBranch.name, !selectedBranch.has_upstream, entry.repository.path)
-              if (result.conflict_id) return conflictMessage(result.conflict_id, pushMessage(result.outcome, result.integrated, result.conflict_id))
-              return result.detail || pushMessage(result.outcome, result.integrated, result.conflict_id)
+              if (result.conflict_id) return conflictMessage(result.conflict_id, gitPushMessage(result.outcome, result.integrated, result.conflict_id))
+              return result.detail || gitPushMessage(result.outcome, result.integrated, result.conflict_id)
             }),
             true,
             repositoryTargets,
@@ -472,60 +392,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
   </section>
 }
 
-function gitTabLabel(tab: GitTab) {
-  return ({ changes: 'Alterações', history: 'Histórico', contributors: 'Contribuidores', branches: 'Branches', settings: 'Definições' } as const)[tab]
-}
 
-function GitTabs({ active, onChange, overview }: { active: GitTab; onChange: (tab: GitTab) => void; overview: GitOverview }) {
-  const localChanges = overview.working.files?.length || overview.working.stageable_count
-  const current = overview.branches.find((branch) => !branch.remote && branch.current)
-  const unpublished = current?.has_upstream && !current.gone
-    ? current.ahead
-    : overview.commits.filter((commit) => !commit.pushed).length
-  const changes = localChanges + unpublished
-  const tabs: Array<{ id: GitTab; icon: 'edit' | 'git' | 'agent' | 'bridge' | 'settings'; count?: number }> = [
-    { id: 'changes', icon: 'edit', count: changes },
-    { id: 'history', icon: 'git', count: overview.commits.length },
-    { id: 'contributors', icon: 'agent' },
-    { id: 'branches', icon: 'bridge', count: overview.branches.length },
-    { id: 'settings', icon: 'settings' },
-  ]
-  return <nav className="git-tabs" role="tablist" aria-label="Secções do Git">
-    {tabs.map((tab) => <button key={tab.id} type="button" role="tab" title={gitTabLabel(tab.id)} aria-selected={active === tab.id} className={active === tab.id ? 'active' : ''} onClick={() => onChange(tab.id)}>
-      <Icon name={tab.icon} size={13}/><span className="semantic-tab-label">{gitTabLabel(tab.id)}</span>{typeof tab.count === 'number' && <span className="git-tab-count">{tab.count}</span>}
-    </button>)}
-  </nav>
-}
-
-function ChangesTabs({ active, workingCount, pendingCount, onChange }: {
-  active: GitChangesTab; workingCount: number; pendingCount: number; onChange: (tab: GitChangesTab) => void
-}) {
-  return <nav className="git-changes-tabs" role="tablist" aria-label="Tipos de alterações locais">
-    <button type="button" role="tab" aria-selected={active === 'working'} className={active === 'working' ? 'active' : ''} onClick={() => onChange('working')}>
-      <Icon name="edit" size={12}/><span className="semantic-tab-label">Alterações pendentes</span><span className="git-tab-count">{workingCount}</span>
-    </button>
-    <button type="button" role="tab" aria-selected={active === 'pending'} className={active === 'pending' ? 'active' : ''} onClick={() => onChange('pending')}>
-      <Icon name="clipboard" size={12}/><span className="semantic-tab-label">Commits pendentes</span><span className="git-tab-count">{pendingCount}</span>
-    </button>
-  </nav>
-}
-
-function unpushedCount(overview: GitOverview) {
-  const current = overview.branches.find((branch) => !branch.remote && branch.current)
-  if (current?.has_upstream && !current.gone) return current.ahead
-  return overview.commits.filter((commit) => !commit.pushed).length
-}
-
-function pushMessage(outcome: string, integrated?: boolean, conflictID?: string) {
-  if (conflictID) return 'O remoto tinha trabalho que entrou em conflito; escolha resolução manual ou GPT no chat. Nada foi publicado.'
-  switch (outcome) {
-    case 'pushed': return integrated ? 'Trabalho do remoto integrado e push concluído.' : 'Push concluído.'
-    case 'up_to_date': return 'O remoto já estava atualizado.'
-    case 'auth_required': return 'O Git no host não conseguiu autenticar no remoto. Confirme as credenciais ou o credential helper da sessão do host e repita.'
-    case 'rejected': return 'O remoto rejeitou o push e a integração automática não foi possível.'
-    default: return `Push: ${outcome}.`
-  }
-}
 
 function RepositorySettings({ overview, disabled, onChange, onConflictStrategy, onAuthorSettings, onCopyRemote }: {
   overview: GitOverview; disabled: boolean; onChange: (mode: GitCommitMode) => void

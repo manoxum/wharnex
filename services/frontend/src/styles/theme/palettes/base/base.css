@@ -32,6 +32,7 @@
   --theme-text-muted: #687166;
   --theme-border: #c9d0c4;
   --theme-border-soft: #dce2d8;
+  --theme-tab-active: #3574f0;
   --theme-accent: #557d24;
   --theme-accent-soft: #e3efd7;
   --theme-shadow: rgba(23, 29, 19, .12);
@@ -69,6 +70,7 @@
   --theme-text-muted: #99a395;
   --theme-border: #3b3b3b;
   --theme-border-soft: #2f2f2f;
+  --theme-tab-active: #5e9cff;
   --theme-accent: #a8d66d;
   --theme-accent-soft: #293820;
   --theme-shadow: rgba(0, 0, 0, .38);

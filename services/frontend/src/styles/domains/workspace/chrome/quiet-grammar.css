@@ -35,17 +35,6 @@
   top: 8px;
   bottom: 8px;
 }
-.editor-tabs-scroll { gap: 0; }
-.editor-tab:not([data-dragging='true']) {
-  border-right-color: transparent;
-  background: transparent;
-  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
-}
-.editor-tab.active:not([data-dragging='true']) {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: inset 0 -2px var(--theme-accent);
-}
 .editor-autosave-status.saved { opacity: .46; }
 .editor-tabbar .editor-save {
   width: var(--control-sm);
@@ -75,15 +64,6 @@
 .terminal-workspace:focus-within {
   border-top-color: color-mix(in srgb, var(--theme-accent) 45%, var(--theme-border));
 }
-.terminal-tab-shell:not([data-renaming='true']) {
-  border-radius: 0;
-}
-.terminal-tab-shell.active:not([data-renaming='true']) {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: inset 0 -2px var(--theme-accent);
-}
-.terminal-tab-action,
 .terminal-add-tab {
   transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, opacity var(--motion-fast) ease;
 }
@@ -178,6 +158,5 @@
   border-bottom: 1px solid var(--theme-border-soft);
 }
 .agent-runtime-detail dl > div:last-child { border-bottom: 0; }
-
 
 .settings-premium-grid { gap: 0; }

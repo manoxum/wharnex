@@ -15,12 +15,12 @@ package hostrepo
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"kernl.local/harness/backend/internal/gitops"
 )
 
 // InProgressOperation names a Git operation the operator has started and not
@@ -104,33 +104,20 @@ func (t Topology) SubmodulePaths() []string {
 }
 
 // ErrGitUnavailable reports a host with no usable git executable.
-var ErrGitUnavailable = errors.New("git executable not found")
+var ErrGitUnavailable = gitops.ErrUnavailable
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
-	if _, err := exec.LookPath("git"); err != nil {
-		return "", ErrGitUnavailable
-	}
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	output, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(output)), err
+	return gitops.Combined(ctx, dir, args...)
 }
 
 // runRaw returns stdout byte-for-byte, with stderr kept separate.
-//
-// It exists because run() trims whitespace and folds stderr into the result,
-// which is right for status output a caller parses or reports, and destructive
-// for content: a file read back through run() loses its trailing newline and
-// any leading blank line, so writing it back would silently rewrite the file.
-// Anything reproducing file or diff content must use this.
-func runRaw(ctx context.Context, dir string, args ...string) (stdout string, err error) {
-	if _, lookErr := exec.LookPath("git"); lookErr != nil {
-		return "", ErrGitUnavailable
-	}
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	output, err := cmd.Output()
-	return string(output), err
+func runRaw(ctx context.Context, dir string, args ...string) (string, error) {
+	return gitops.Output(ctx, dir, args...)
+}
+
+// WithGitCorrelation binds engine Git maintenance to the owning request.
+func WithGitCorrelation(ctx context.Context, sessionID, requestID, chatID string) context.Context {
+	return gitops.WithCorrelation(ctx, gitops.Correlation{SessionID: sessionID, RequestID: requestID, ChatID: chatID})
 }
 
 // Inspect measures a repository's topology. It performs no mutation of any

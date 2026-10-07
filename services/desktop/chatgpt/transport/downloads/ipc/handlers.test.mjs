@@ -15,7 +15,7 @@ function registered(options = {}) {
     path: { basename: (value) => value.split('/').at(-1) },
     readFile: async () => Buffer.from('bundle'),
     MAX_EXECUTION_BUNDLE_BYTES: 1024,
-    canonicalWharnessBundleDownload: (filename) => ({ filename, normalized: true }),
+    canonicalWharnexBundleDownload: (filename) => ({ filename, normalized: true }),
     validateWharnessBundleDownload: () => ({ requestId: 'req-1' }),
     pendingChatGPTBundlePayloads: () => [{ filename: 'pending.zip' }],
     acknowledgeChatGPTBundle: (...args) => args,

@@ -1,3 +1,4 @@
+import { WorkbenchTabs } from '../../presentation/tabs'
 import { activityLabel, activeTask, operationalState, stateDot } from './browserMonitorModel'
 import { BrowserMonitorPanelToggle } from './BrowserMonitorPanelToggle'
 import { BrowserMonitorLinks } from './BrowserMonitorLinks'
@@ -30,16 +31,10 @@ export function BrowserMonitorList({ agents, selectedId, onSelect, selectedLinkK
   return <aside className={`min-h-0 overflow-y-auto border-r border-white/[.07] bg-[#0e1723] ${expanded ? 'px-4 py-6' : 'px-1.5 py-4'}`} aria-label="Instâncias">
     {expanded ? <>
     <div className="mb-4 px-2"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">Navegadores</p><BrowserMonitorPanelToggle panel="lista de instâncias" expanded onToggle={onToggle} /></div><p className="mt-1 text-[13px] text-slate-300">Selecione uma instância para acompanhar.</p></div>
-    <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl border border-white/[.08] bg-black/20 p-1" role="tablist" aria-label="Visões dos navegadores" onKeyDown={(event) => {
-      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-      event.preventDefault()
-      const next = event.key === 'Home' ? 'instances' : event.key === 'End' ? 'links' : view === 'instances' ? 'links' : 'instances'
-      changeView(next)
-      event.currentTarget.querySelector<HTMLButtonElement>(`#browser-monitor-tab-${next}`)?.focus()
-    }}>
-      <button type="button" role="tab" id="browser-monitor-tab-instances" tabIndex={view === 'instances' ? 0 : -1} aria-selected={view === 'instances'} aria-controls="browser-monitor-view" onClick={() => changeView('instances')} className={`rounded-lg px-2 py-2 text-[11px] font-semibold transition ${view === 'instances' ? 'bg-cyan-300/[.13]! text-cyan-200' : 'bg-transparent! text-slate-400 hover:text-slate-200'}`}>Instâncias</button>
-      <button type="button" role="tab" id="browser-monitor-tab-links" tabIndex={view === 'links' ? 0 : -1} aria-selected={view === 'links'} aria-controls="browser-monitor-view" onClick={() => changeView('links')} className={`rounded-lg px-2 py-2 text-[11px] font-semibold transition ${view === 'links' ? 'bg-cyan-300/[.13]! text-cyan-200' : 'bg-transparent! text-slate-400 hover:text-slate-200'}`}>Links GPT</button>
-    </div>
+    <WorkbenchTabs className="mb-6" label="Visões dos navegadores" value={view} onChange={changeView} items={[
+      { id: 'instances', label: 'Instâncias', icon: 'monitor', badge: agents.length, domId: 'browser-monitor-tab-instances', controls: 'browser-monitor-view' },
+      { id: 'links', label: 'Links GPT', icon: 'link', domId: 'browser-monitor-tab-links', controls: 'browser-monitor-view' },
+    ]}/>
     <div id="browser-monitor-view" role="tabpanel" aria-labelledby={view === 'instances' ? 'browser-monitor-tab-instances' : 'browser-monitor-tab-links'}>
       {view === 'instances' ? <><AgentGroup title="Supervisors" agents={agents.filter((agent) => agent.role === 'supervisor')} selectedId={selectedId} onSelect={onSelect} />
         <AgentGroup title="Workers" agents={agents.filter((agent) => agent.role === 'worker')} selectedId={selectedId} onSelect={onSelect} />

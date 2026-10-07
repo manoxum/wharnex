@@ -19,6 +19,9 @@ No credentials, generated context bundles, or temporary workspaces committed.
 
 - `go test ./...`
 - frontend tests
+- Tab changes MUST pass the shared-implementation coverage and behavior tests in
+  `components/presentation/tabs`, the icon-only Agent surface selection tests, and
+  `e2e/tabs/workbench.spec.ts` as specified by `SoT/TABS.md`.
 - PostgreSQL Session Store migration and CRUD integration tests when the
   Docker-managed test database is available.
 

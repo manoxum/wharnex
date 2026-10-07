@@ -147,6 +147,21 @@ Each commit is marked as Wharnex-originated
 themselves is still recognised) and as pushed or still local. A repository that
 cannot be inspected states why rather than rendering an empty panel.
 
+In **Alterações**, retain the superproject and show only submodules with local
+changes or outgoing commits, including commits on a branch without an upstream.
+History and Branches retain the complete repository inventory. **Alterações
+pendentes** exposes **Commitar tudo** and **Commit e push** beside the shared
+commit message; **Enviar commits** publishes existing outgoing commits from
+either changes subtab. Collective commits run from nested submodules toward the
+superproject and record the resulting gitlink updates with the same message.
+Show all affected repositories during review, including parents whose gitlinks
+will change after their children commit. Commit and push first reviews the
+commits, then recalculates and confirms the outgoing diffs before publishing.
+Collective pushes run children first and stop on a failure or conflict, reporting
+completed work and refreshing the panel; they never claim atomic rollback.
+Missing identities, unresolved conflicts, detached HEADs and missing remotes
+expose actionable reasons before the affected collective action can run.
+
 Every action here is an explicit human action and is never reachable from a
 model plan. Pending records may be committed in full or selectively; a
 selection that would fold an earlier unselected record into a later one is
@@ -254,7 +269,7 @@ Execution actions belong to the unified Agent tab bar. The available Execute act
 ## Chat artifact downloads and bundle explorer (v1.3)
 
 - Every Harness chat with persisted input/output ZIPs MUST show a compact bundle-exchange strip. The strip and its modal list MUST fail closed to real Wharness transport bundles: the artifact is an inspectable ZIP persisted with semantic `kind: bundle`, its filename parses as the canonical `whx_bundle_req|res_<chat>_<request>[_<subrequest>].zip` shape, the parsed request matches the artifact request id, and `req`/`res` agrees with input/output direction. Auxiliary or legacy-mislabeled `context`, `attachment`, `system-artifact`, `context-req_*`, `wharness-context-*` or other ZIP artifacts stay out of this gallery because their payloads are already carried by the transport bundle. The chat header strip MUST stay focused on recent bundle cards and MUST NOT repeat total, sent/received or rolling-quota counters. Each visible bundle exposes direction, canonical filename, byte size and entry count and opens the full modal list, which retains all transport bundles for that session; aggregate counts remain available in the Files surface instead of consuming chat-header space.
-- The global rolling three-hour ChatGPT bundle quota is a workspace/Agent concern rather than chat-header content. The default sent-bundle limit is 80 and is configurable in global local-data settings; the single full quota surface lives in `WorkbenchStatusBar` at the workspace footer and shows sent/limit, received, percent remaining and a compact consumption bar, with quota pressure based on sent request bundles. `WorkspaceTopbar` and the embedded Agent command bar MUST NOT poll or duplicate the counters. The status-bar snapshot refreshes immediately when the active session gains transport-bundle artifact metadata and retains a low-frequency refresh fallback. The bundle-exchange strip MUST NOT poll or render the quota independently. The full quota surface MUST describe its values as a local Wharnex estimate rather than the provider account's authoritative quota. Reaching the configured limit produces a visible non-blocking warning on the footer surface: Wharnex MUST continue allowing new requests and bundle exchanges.
+- The global rolling three-hour ChatGPT bundle quota is a workspace/Agent concern rather than chat-header content. The default sent-bundle limit is 80 and is configurable in global local-data settings; the single full quota surface lives in `WorkbenchStatusBar` at the lower-right workspace footer and shows sent/limit, received, percent remaining and a compact consumption bar, with quota pressure based on confirmed uploads. Clicking that counter MUST open an accessible popup listing sent, received and total bundles per task type for the same window; its totals MUST reconcile with the footer. All pools and bundle families, including UI discovery, controller steps, guides, translations, release notes and orchestration, contribute. Prepared artifacts without upload confirmation do not consume this counter; real repeated uploads and multipart parts do. Unknown task types remain visible. Historic received-bundle counts inferred from local delivery calls MUST be marked as estimates. `WorkspaceTopbar` and the embedded Agent command bar MUST NOT poll or duplicate the counters. The status-bar snapshot refreshes immediately when the active session gains transport-bundle artifact metadata and retains a low-frequency refresh fallback; opening the popup refreshes that same snapshot. The bundle-exchange strip MUST NOT poll or render the quota independently. The full quota surface MUST describe its values as a local Wharnex estimate rather than the provider account's authoritative quota. Reaching the configured limit produces a visible non-blocking warning on the footer surface: Wharnex MUST continue allowing new requests and bundle exchanges.
 - Opening a bundle uses a Wharness-owned modal file explorer. It MUST support virtual folder navigation and breadcrumbs even when the ZIP omits explicit directory entries, opening bounded text files for preview, downloading an individual entry, and downloading the original bundle unchanged.
 - A planner request created because deterministic restoration of a reverted change failed uses lineage kind `revert_restore`. Its input bundle MUST be visually distinguishable from ordinary repair requests in the exchange strip/explorer and labelled **Pedido · repor reversão**; colour is supplementary to that explicit label.
 - Bundle inspection is read-only and MUST NOT extract files into the project workspace. Unsupported/binary files remain downloadable even when no inline preview is offered.
@@ -321,7 +336,7 @@ Every session-owned viewer that renders a Markdown file/document MUST use the sh
 
 ## Canonical tabs and dismissible header overlays
 
-Semantic tabs MUST follow one workbench-wide visual grammar: a flat neutral strip, muted inactive labels, no pill/card fill for selection, and a thin accent underline on the active tab. This applies to Inspector sections, Git sections and change scopes, runtime-agent sections, conflict files, attachment paths, database views/object kinds, file-library levels, onboarding project-source tabs, project TODO state tabs, Agent header area tabs, chat resources, editor documents and terminal instances. Resource tabs keep their functional affordances such as close, drag/reorder, rename and horizontal overflow, but their active state still follows the same underline grammar. Activity rails remain tool launchers rather than semantic tabs and keep their own treatment. Counts inside tabs use compact neutral badges and may inherit the accent-soft surface only for the active tab. New semantic tab sets MUST reuse this grammar rather than introducing a new pill, card or bordered-segment variant.
+Semantic tabs MUST follow one workbench-wide visual grammar: a flat neutral strip, muted inactive labels, no pill/card fill for selection, and a thin accent underline on the active tab. This applies to Inspector sections, Git sections and change scopes, runtime-agent sections, conflict files, attachment paths, database views/object kinds, file-library levels, onboarding project-source tabs, project TODO state tabs, Agent header area tabs, chat resources, editor documents and terminal instances. The terminal, conversation, linked-project and editor-document resource exceptions are defined in `TABS.md`. All four resource strips restore main-branch natural widths and bounds; linked projects show complete names. Resource tabs keep their functional affordances such as close, drag/reorder, rename and horizontal overflow, with the original theme-accent active treatment retained for all four resource strips. Activity rails remain tool launchers rather than semantic tabs and keep their own treatment. Counts inside tabs use compact neutral badges and may inherit the accent-soft surface only for the active tab. New semantic tab sets MUST reuse this grammar rather than introducing a new pill, card or bordered-segment variant.
 
 Header popovers and menus opened by a trigger MUST dismiss when the user clicks/pointer-presses outside the trigger+popover region and on Escape, while clicks inside remain interactive. Existing shell project menus, appearance switcher, alert center and the Git branch/actions popover follow the same dismissal rule; a user MUST NOT need to click the original trigger a second time merely to close a transient header overlay. Header transients are mutually exclusive: opening or activating another top-bar control closes the previous transient first, including the alert preview rendered inside the active embedded project frame.
 
@@ -353,9 +368,17 @@ The Orchestrator may follow several distinct Worker instances at the same time. 
 
 ## UI Lab catalog, design and sessions (see `adr/ADR-0088`)
 
-The UI Lab panel ("Debug, testes e user guide") lists tests and user guides
+The UI Lab panel ("Teste de UI") lists tests and user guides
 grouped by environment, in catalog order, each group naming its environment and
-URL state. A test card states its access — **Público**, or the profile it uses,
+URL state. The operator-requested UI Lab refresh of 2026-10-06 uses restrained,
+theme-aware surfaces, readable scaled typography and compact controls. A summary
+shows passed, failed/blocked, truly running and queued/waiting counts; search and
+status filtering retain explicit selections. Status labels are Portuguese:
+**Por executar**, **Na fila**, **Em espera**, **Em execução**, **Aprovado**,
+**Falhou**, **Bloqueado**. Running requires a live durable Worker lease, rather
+than merely having queued a run; terminal tasks and missing retained runs must
+not leave a stale running indicator. Failed runs expose their actionable reason.
+A test card states its access — **Público**, or the profile it uses,
 marked *herdado* when inherited from its prerequisites — its category and
 priority, the prerequisite chain (`depende de: A → B`), whether a valid session
 is stored, and whether configuration is pending; its execution strategy
@@ -372,14 +395,108 @@ never contain passwords or tokens. It also
 lists the environment's stored sessions (valid or out of date) with **Limpar
 sessões**; session contents are never shown.
 
+Below the header, UI Lab shows the durable automation holds (see
+`adr/ADR-0093`): a status row with **Suspender testes UI** / **Retomar testes
+UI** (the `UI_TEST_*` task holds: all projects, the queue is kept and no
+attempt is charged). A partial hold MUST name whether discovery or execution
+is suspended and offer **Retomar testes UI** to release both task types; it MUST
+NOT say active while either is held. Provider cooldowns remain separate from
+manual suspension. The panel also shows, while the
+Desktop has detected the account file-upload limit, an alert naming when the
+single probe upload will run, with **Libertar limite** for use after switching
+the ChatGPT account. Both are themed application controls, never native
+dialogs.
+
 The **Documentação** tab opens on **Manual por ambiente**: one user manual per
 environment with an index and every guide of that environment, grouped by
 category in reading order (first-use flows first; within a group a prerequisite
 before what depends on it), captures rendered inline from that run's assets,
-and a marker on guides whose last run did not pass. **Guias individuais** keeps
-the per-guide Live/MD/PDF views. Every guide follows the same sections — Para
-que serve, Quem pode usar, Antes de começar, Passo a passo (with the capture of
-each step), Resultado esperado, Erros comuns e soluções, Funcionalidades
-relacionadas — so guides read as one manual.
+with a bounded reading width and a theme-aware index. Environment selection
+uses the shared workbench tabs; individual guides have searchable navigation
+beside the reader when the container has room, and above it in narrow drawers.
+Polling an unchanged guide MUST preserve the chosen format. Configuration
+separates URL, non-secret notes, credential profiles and saved sessions, with
+field labels and readable controls; a successful credential save clears the
+local secret draft and a rejected save retains it. The manual retains
+a marker on guides whose last run did not pass. **Guias individuais** shows
+each guide as **HTML interativo** (the engine-rendered page in a frame
+sandboxed to `allow-scripts`), **PDF** and **Markdown**, opening on the richest
+format the guide has; formats a guide lacks are disabled. Every format offers
+**Expandir** (an application dialog, closed by Escape, never a native window)
+and **Abrir no navegador** (the Wharnex-owned browser). Every guide follows the
+same sections — Para que serve, Quem pode usar, Antes de começar, Passo a passo
+(with the capture of each step), Resultado esperado, Erros comuns e soluções,
+Funcionalidades relacionadas — so guides read as one manual. A structured guide
+(`adr/ADR-0094`) shows each step's capture cropped to the part that matters,
+with numbered markers on the real controls and their legend, in varied step
+compositions under the guide's chosen accent and cover.
 
 The standalone **Instâncias dos navegadores** monitor has tabs **Instâncias** and **Links GPT**. The latter lists durable created chats by their recorded titles, including Supervisor and Worker conversations. Selecting a row follows its resident browser if present; otherwise it opens a temporary human-only viewer for that exact chat. Both paths show instance-style details and a list of exchanged request/response bundles as the final section. The bundle explorer takes foreground priority: the native browser view is released before the explorer opens, and the explorer follows the selected interface theme.
+
+## Canonical tabs
+
+All tab surfaces MUST follow [the Tabs SoT](TABS.md), with the Version Control
+workbench as the visual reference. This applies to panel, nested, resource and
+detached-window tabs; it is not limited to the Git panel. Terminal instances, open
+chat conversations and linked projects retain their original resource appearance
+as explicitly defined exceptions in `TABS.md`.
+
+## Per-type task policies (see `adr/ADR-0093`)
+
+The Policies tab of the Agents drawer and of the browser monitor opens with
+**Políticas por tipo de tarefa**. Every browser task type the backend
+catalog reports is listed under its category: Conversa, Orquestração, Testes
+UI, Utilitários, Manutenção de chats and Títulos. A type that no category
+names appears under **Outros**, so nothing is hidden.
+
+Each category is a collapsible card. Its header shows the category name (the
+description is its tooltip), colored state dots with counts, and icon-only
+actions to suspend or resume the whole category. Each row shows:
+
+- a colored state dot: **Ativo** green, **Suspenso** amber, **Cooldown** sky
+  and pulsing, with the state as the dot's accessible name;
+- the type's label; its code appears on hover;
+- its pool, and a file icon when it sends files;
+- when not active, one short line saying why and until when, for example
+  "Manual · retoma às 14:30", "Por omissão · até retomar" or "Rate limit ·
+  até 10:05".
+
+Actions are icon-only (pause/play), each with a tooltip and an accessible
+name.
+
+Suspending opens an inline chooser for how the suspension ends:
+
+- **Manual**: until it is resumed;
+- **Automática**: after 15 min, 1 h, 4 h, 24 h or a custom number of
+  minutes, up to 7 days.
+
+An invalid duration cannot be confirmed. Resuming a cooldown is confirmed:
+with a themed dialog in the drawer, and inline in the monitor, where a modal
+would open underneath the native browser view. Compact controls MUST NOT
+inherit the legacy global button sizing.
+
+The state shown is the backend's, never inferred by the surface. The
+whole-pool **Suspender Workers** control remains below as a separate,
+explicitly labelled switch.
+
+## Launcher splash output
+
+The native "A montar o teu espaço" splash MUST show live startup output from
+both stdout and stderr in readable monospace text. It starts collapsed, showing
+only the most recent captured line, updated live. Expanding reveals the complete
+history of the current startup, including its first lines. Older lines MUST NOT
+be dropped by row-count or file-size snapshots. The private redacted startup
+journal is append-only, read incrementally and removed with the splash. Per-line
+redaction/bounds and bounded read/render batches remain mandatory. Both actions MUST resize the native window
+to its content and
+retain its dragged position. The header/title remain native drag regions while
+the output controls remain interactive. Stream names MUST NOT appear as row/header
+labels; stderr rows are distinguished by a red background.
+
+The panel follows new output unless the user scrolls back and never interprets
+output as markup. An icon-only copy action immediately before the expand/collapse
+icon copies all currently captured, redacted output through the main process, also while collapsed. The renderer sends
+only a copy intent and cannot supply arbitrary clipboard text. Failed startup
+keeps the diagnostic splash available until the user closes it. Logging/display
+faults MUST NOT change command exit codes or prevent startup. Credentials are
+redacted before display; historical launcher logs are not replayed.

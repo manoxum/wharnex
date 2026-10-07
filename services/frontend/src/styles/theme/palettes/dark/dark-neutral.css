@@ -3,7 +3,6 @@
 :root[data-theme='dark'] textarea { background: #171717; }
 :root[data-theme='dark'] .primary-button { border: 1px solid #565656; background: #f2f2f2; color: #171717; }
 :root[data-theme='dark'] .primary-button:hover { background: #d9d9d9; }
-:root[data-theme='dark'] .project-source-tabs,
 :root[data-theme='dark'] .shell-mode-switch,
 :root[data-theme='dark'] .composer-mode-group,
 :root[data-theme='dark'] .terminal-target-switch { background: #171717; }
@@ -13,8 +12,7 @@
 :root[data-theme='dark'] .multi-project-bar,
 :root[data-theme='dark'] .workspace-topbar,
 :root[data-theme='dark'] .agent-commandbar { background: #171717; }
-:root[data-theme='dark'] .project-actions-popover,
-:root[data-theme='dark'] .project-quick-switch button.active { background: #2f2f2f; }
+:root[data-theme='dark'] .project-actions-popover{ background: #2f2f2f; }
 :root[data-theme='dark'] .topbar-indicator { border-color: #424242; background: #292929; color: #a1a1a1; }
 :root[data-theme='dark'] .topbar-indicator.actionable:hover:not(:disabled) { background: #333; color: #f2f2f2; }
 :root[data-theme='dark'] .topbar-indicator .indicator-dot { box-shadow: 0 0 0 2px #292929; }
@@ -106,10 +104,6 @@
 :root[data-theme='dark'] .explorer-context-menu button { color: #c7c7c7; }
 :root[data-theme='dark'] .explorer-context-menu button:hover { background: #3a3a3a; color: #f2f2f2; }
 :root[data-theme='dark'] .menu-separator { background: #424242; }
-:root[data-theme='dark'] .editor-tabbar { border-color: #383838; background: #171717; }
-:root[data-theme='dark'] .editor-tab { border-color: #383838; background: #292929; color: #aaa; }
-:root[data-theme='dark'] .editor-tab.active { border-top-color: transparent; background: color-mix(in srgb, var(--theme-accent-soft) 62%, #212121); color: #f2f2f2; box-shadow: inset 0 -2px var(--theme-accent), inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 30%, #383838); }
-:root[data-theme='dark'] .editor-tab:hover { background: #303030; color: #dedede; }
 :root[data-theme='dark'] .editor-contextbar,
 :root[data-theme='dark'] .editor-statusbar { border-color: #333; background: #171717; color: #999; }
 :root[data-theme='dark'] .editor-shortcuts button { border-color: #424242; background: #292929; color: #aaa; }
@@ -158,11 +152,9 @@
 :root[data-theme='dark'] .context-section-intro { background: #212121; }
 :root[data-theme='dark'] .context-explorer-section,
 :root[data-theme='dark'] .context-search,
-:root[data-theme='dark'] .context-view-switch,
 :root[data-theme='dark'] .context-filter-switch,
 :root[data-theme='dark'] .project-storage-list,
 :root[data-theme='dark'] .context-patterns code { background: #171717; }
-:root[data-theme='dark'] .context-view-switch button.active,
 :root[data-theme='dark'] .context-filter-switch button.active { background: #383838; color: #ececec; }
 :root[data-theme='dark'] .context-inventory-row:hover,
 :root[data-theme='dark'] .context-root-row:hover,

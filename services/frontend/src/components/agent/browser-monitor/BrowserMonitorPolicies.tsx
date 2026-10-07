@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { short, timeLabel, useAgentRuntimePolicyActions, workerTaskTypeGroups } from '../runtime/agentRuntimePolicyActions'
+import { short, timeLabel, useAgentRuntimePolicyActions } from '../runtime/agentRuntimePolicyActions'
+import { AgentTaskPolicies } from '../runtime/task-policies/AgentTaskPolicies'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return <section className="border-b border-white/[.07] px-5 py-4" aria-label={title}>
@@ -66,12 +67,10 @@ export function BrowserMonitorPolicies({ runtime, onRuntime, onError, onClose }:
   const [confirmingRelease, setConfirmingRelease] = useState(false)
   const {
     busy, workerPauseMode, setWorkerPauseMode, workerPauseMinutes, setWorkerPauseMinutes,
-    workerPauseScope, setWorkerPauseScope, workerPauseTaskTypes, setWorkerPauseTaskTypes,
     scaleSupervisors, scaleWorkers, updatePolicies, scaleAutoScaleCeiling, scaleAutoScaleSupervisorCeiling,
-    suspendWorkers, releaseRateLimit, resumeWorkers,
+    suspendWorkers, releaseRateLimit, releaseRateLimitConfirmed, resumeWorkers,
   } = useAgentRuntimePolicyActions({ runtime, onRuntime, onError, confirmRelease: () => true })
   const { policies, limits, provider, worker_pause: workerPause } = runtime
-  const toggleType = (type: string, checked: boolean) => setWorkerPauseTaskTypes((current) => checked ? [...new Set([...current, type])] : current.filter((item) => item !== type))
 
   return <aside className="flex min-h-0 flex-col border-l border-white/[.07] bg-[#0e1723]" aria-label="Políticas das instâncias">
     <header className="flex items-center justify-between gap-3 border-b border-white/[.07] px-5 py-4">
@@ -91,12 +90,14 @@ export function BrowserMonitorPolicies({ runtime, onRuntime, onError, onClose }:
             </Status>
             : <Status tone="ok" title="Provider sem limitação" detail="Nenhum cooldown de rate limit ativo." />}
           {workerPause?.paused
-            ? <Status tone="warn" title="Workers suspensos" detail={`${workerPause.task_types?.length ? `${workerPause.task_types.length} tipos de tarefa` : 'Todos os tipos'} · ${workerPause.paused_until ? `retoma às ${timeLabel(workerPause.paused_until)}` : 'retoma manual'}`}>
+            ? <Status tone="warn" title="Pool de Workers suspenso" detail={workerPause.paused_until ? `Retoma às ${timeLabel(workerPause.paused_until)}` : 'Aguarda retoma manual'}>
               <button type="button" className={tone.ok} disabled={busy} onClick={() => void resumeWorkers()}>Retomar</button>
             </Status>
             : <Status tone="ok" title="Workers ativos" detail="Novas tarefas são reclamadas normalmente." />}
         </div>
       </Section>
+
+      <div className="border-b border-white/[.07] px-5 py-4"><AgentTaskPolicies releaseRateLimit={releaseRateLimitConfirmed} onError={onError}/></div>
 
       <Section title="Capacidade">
         <Row label="Supervisores" hint="Um por chat em curso."><Stepper label="supervisores" value={runtime.configured_supervisors} min={limits.min_supervisors} max={limits.max_supervisors} disabled={busy} onChange={(delta) => void scaleSupervisors(delta)} /></Row>
@@ -115,16 +116,11 @@ export function BrowserMonitorPolicies({ runtime, onRuntime, onError, onClose }:
           <label className="flex items-center gap-1.5 text-[11px] text-slate-500"><input key={policies.rate_limit_cooldown_minutes} className={numberInput} aria-label="Minutos de suspensão automática por rate limit" type="number" min="1" max="60" step="0.5" defaultValue={policies.rate_limit_cooldown_minutes} disabled={busy} onBlur={(event) => { const minutes = Number(event.currentTarget.value); if (!Number.isFinite(minutes) || minutes < 1 || minutes > 60) { event.currentTarget.value = String(policies.rate_limit_cooldown_minutes); onError?.('Defina a suspensão automática entre 1 e 60 minutos.'); return } if (minutes !== policies.rate_limit_cooldown_minutes) void updatePolicies({ rate_limit_cooldown_minutes: minutes }) }} />min</label>
         </Row>
         {!workerPause?.paused ? <div className="mt-1 rounded-lg border border-white/[.07] bg-white/[.02] p-3">
-          <div className="text-[13px] font-medium text-slate-100">Suspender Workers</div>
-          <div className="mb-3 text-[11px] leading-4 text-slate-500">O trabalho em curso termina; só novos claims param.</div>
+          <div className="text-[13px] font-medium text-slate-100">Suspender o pool de Workers inteiro</div>
+          <div className="mb-3 text-[11px] leading-4 text-slate-500">O trabalho em curso termina; só novos claims param. Para um tipo de tarefa, use as políticas por tipo.</div>
           <div className="flex flex-wrap items-center gap-2">
-            <Segmented label="Âmbito da suspensão" value={workerPauseScope} disabled={busy} onChange={setWorkerPauseScope} options={[['all', 'Todos'], ['types', 'Por tipo']] as const} />
             <Segmented label="Retoma" value={workerPauseMode} disabled={busy} onChange={setWorkerPauseMode} options={[['timed', 'Automática'], ['manual', 'Manual']] as const} />
           </div>
-          {workerPauseScope === 'types' ? <div className="mt-3 space-y-3">{workerTaskTypeGroups.map((group) => <fieldset key={group.id} className="border-0 p-0">
-            <legend className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{group.label}</legend>
-            {group.tasks.map(([type, label]) => <label key={type} className="flex cursor-pointer items-center gap-2 py-0.5 text-[12px] text-slate-300 hover:text-slate-100"><input type="checkbox" className="m-0 h-3.5! w-3.5! p-0! accent-cyan-400" checked={workerPauseTaskTypes.includes(type)} disabled={busy} onChange={(event) => toggleType(type, event.currentTarget.checked)} />{label}</label>)}
-          </fieldset>)}</div> : null}
           <div className="mt-3 flex items-center justify-between gap-2">
             {workerPauseMode === 'timed' ? <label className="flex items-center gap-1.5 text-[11px] text-slate-500"><input className={numberInput} aria-label="Minutos até retoma dos Workers" type="number" min="1" max="10080" step="1" value={workerPauseMinutes} disabled={busy} onChange={(event) => setWorkerPauseMinutes(event.target.value)} />min</label> : <span className="text-[11px] text-slate-500">Até retomar manualmente</span>}
             <button type="button" className={tone.warn} disabled={busy} onClick={() => void suspendWorkers()}>Suspender</button>

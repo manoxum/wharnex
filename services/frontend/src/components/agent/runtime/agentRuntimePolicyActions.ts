@@ -1,41 +1,6 @@
 import { useState } from 'react'
 import { desktopBridge } from '../../../lib/desktop/bridge/desktop'
 
-export type WorkerTaskTypeOption = readonly [type: string, label: string]
-export type WorkerTaskTypeGroup = {
-  id: string
-  label: string
-  description: string
-  tasks: readonly WorkerTaskTypeOption[]
-}
-
-export const workerTaskTypeGroups: readonly WorkerTaskTypeGroup[] = [
-  {
-    id: 'auxiliary',
-    label: 'Auxiliar',
-    description: 'Manutenção de chats, bundles e títulos.',
-    tasks: [
-      ['ORGANIZE_CHAT', 'Organizar chat'],
-      ['RENAME_CHAT', 'Renomear chat'],
-      ['ARCHIVE_CHAT', 'Arquivar chat'],
-      ['DELETE_CHAT', 'Eliminar chat'],
-      ['DELETE_TEMP_CHAT', 'Eliminar chat temporário'],
-      ['DELETE_BUNDLE', 'Eliminar bundle'],
-      ['TITLE_DISCOVER', 'Descobrir título'],
-      ['TITLE_GENERATE_TEMP', 'Gerar título temporário'],
-      ['TITLE_AWAIT', 'Aguardar título'],
-    ],
-  },
-  {
-    id: 'functional',
-    label: 'Funcional',
-    description: 'Trabalho funcional delegado ao pool de Workers.',
-    tasks: [
-      ['TODO_CLASSIFY', 'Classificar TODO'],
-    ],
-  },
-]
-
 export function short(value?: string, fallback = '—') {
   const text = String(value || '').trim()
   return text || fallback
@@ -64,8 +29,6 @@ export function useAgentRuntimePolicyActions({ runtime, onRuntime, onError, conf
   const [busy, setBusy] = useState(false)
   const [workerPauseMode, setWorkerPauseMode] = useState<'timed' | 'manual'>('timed')
   const [workerPauseMinutes, setWorkerPauseMinutes] = useState('60')
-  const [workerPauseScope, setWorkerPauseScope] = useState<'all' | 'types'>('all')
-  const [workerPauseTaskTypes, setWorkerPauseTaskTypes] = useState<string[]>([])
 
   const scaleSupervisors = async (delta: number) => {
     if (!bridge || !runtime) return
@@ -110,10 +73,6 @@ export function useAgentRuntimePolicyActions({ runtime, onRuntime, onError, conf
 
   const suspendWorkers = async () => {
     if (!bridge) return
-    if (workerPauseScope === 'types' && workerPauseTaskTypes.length === 0) {
-      onError?.('Selecione pelo menos um tipo de tarefa para suspender.')
-      return
-    }
     let pausedUntil: string | undefined
     if (workerPauseMode === 'timed') {
       const minutes = Number(workerPauseMinutes)
@@ -124,7 +83,7 @@ export function useAgentRuntimePolicyActions({ runtime, onRuntime, onError, conf
       pausedUntil = new Date(Date.now() + Math.floor(minutes) * 60_000).toISOString()
     }
     setBusy(true)
-    try { setRuntime(await bridge.pauseWorkers(pausedUntil, workerPauseScope === 'types' ? workerPauseTaskTypes : [])) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível suspender os Workers') } finally { setBusy(false) }
+    try { setRuntime(await bridge.pauseWorkers(pausedUntil, [])) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível suspender os Workers') } finally { setBusy(false) }
   }
 
   // Releasing early skips the cooldown that protects the account, so it is an
@@ -136,6 +95,12 @@ export function useAgentRuntimePolicyActions({ runtime, onRuntime, onError, conf
     try { setRuntime(await bridge.resumeProvider()) } catch (error) { onError?.(error instanceof Error ? error.message : 'Não foi possível libertar a suspensão por rate limit') } finally { setBusy(false) }
   }
 
+  // The per-type policy panel confirms in its own words before calling this.
+  const releaseRateLimitConfirmed = async () => {
+    if (!bridge) throw new Error('A libertação do rate limit só está disponível na Desktop.')
+    setRuntime(await bridge.resumeProvider())
+  }
+
   const resumeWorkers = async () => {
     if (!bridge) return
     setBusy(true)
@@ -144,8 +109,7 @@ export function useAgentRuntimePolicyActions({ runtime, onRuntime, onError, conf
 
   return {
     busy, workerPauseMode, setWorkerPauseMode, workerPauseMinutes, setWorkerPauseMinutes,
-    workerPauseScope, setWorkerPauseScope, workerPauseTaskTypes, setWorkerPauseTaskTypes,
     scaleSupervisors, scaleWorkers, updatePolicies, scaleAutoScaleCeiling, scaleAutoScaleSupervisorCeiling,
-    suspendWorkers, releaseRateLimit, resumeWorkers,
+    suspendWorkers, releaseRateLimit, releaseRateLimitConfirmed, resumeWorkers,
   }
 }

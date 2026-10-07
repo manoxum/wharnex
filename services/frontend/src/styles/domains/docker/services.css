@@ -50,10 +50,6 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .docker-container-actions button:disabled { opacity:.42; cursor:default; }
 .docker-protected-note { margin:8px 10px 0; padding:7px 8px; display:flex; align-items:flex-start; gap:6px; border-left:2px solid var(--theme-warning); background:var(--theme-surface); color:var(--theme-text-muted); font-size:calc(6.4px * var(--ui-font-scale)); line-height:1.45; }
 .docker-protected-note svg { flex:0 0 auto; color:var(--theme-warning); margin-top:1px; }
-.docker-detail-tabs { height:32px; padding:0 10px; display:flex; align-items:flex-end; gap:14px; border-bottom:1px solid var(--theme-border); background:var(--theme-surface); }
-.docker-detail-tabs button { position:relative; height:31px; padding:0 1px; border:0; background:transparent; color:var(--theme-text-muted); font-size:calc(6.8px * var(--ui-font-scale)); cursor:pointer; }
-.docker-detail-tabs button[aria-selected='true'] { color:var(--theme-text); }
-.docker-detail-tabs button[aria-selected='true']::after { content:''; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--theme-accent); }
 .docker-container-overview { padding:10px; display:grid; gap:1px; }
 .docker-fact { min-height:38px; padding:6px 8px; display:grid; grid-template-columns:minmax(74px,27%) minmax(0,1fr); align-items:start; gap:9px; border-bottom:1px solid var(--theme-border-soft); }
 .docker-fact span { color:var(--theme-text-muted); font-size:calc(6.3px * var(--ui-font-scale)); }
@@ -112,7 +108,7 @@ button.docker-resource-row:hover { background:var(--theme-hover); color:var(--th
 .docker-container-identity small { font:calc(8.5px * var(--docker-font-scale))/1.4 ui-monospace,'SFMono-Regular',Consolas,monospace; }
 .docker-state-pill { font:600 calc(8.5px * var(--docker-font-scale))/1.4 ui-monospace,'SFMono-Regular',Consolas,monospace; }
 .docker-state-pill.state-error { border-color:color-mix(in srgb,var(--theme-danger,#d66b62) 35%,var(--theme-border)); color:var(--theme-danger,#d66b62); }
-.docker-container-actions button, .docker-detail-tabs button { font-size:calc(8.5px * var(--docker-font-scale)); }
+.docker-container-actions button{ font-size:calc(8.5px * var(--docker-font-scale)); }
 .docker-protected-note { font-size:calc(8px * var(--docker-font-scale)); }
 .docker-fact span { font-size:calc(8px * var(--docker-font-scale)); }
 .docker-fact strong { font:500 calc(8.5px * var(--docker-font-scale))/1.5 ui-monospace,'SFMono-Regular',Consolas,monospace; }

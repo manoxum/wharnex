@@ -7,9 +7,7 @@
   border-radius: 999px;
   background: var(--theme-muted);
 }
-.git-tabs { padding-inline: 10px; background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg)); }
 .git-tab-content { padding: 14px; gap: 12px; background: transparent; }
-.git-changes-tabs { background: transparent; }
 .git-section,
 .git-worktree-card,
 .git-branch-hero {

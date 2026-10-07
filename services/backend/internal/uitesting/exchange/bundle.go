@@ -22,8 +22,8 @@ import (
 const (
 	StepRequestProtocol  = "wharnex.ui-test-step-input/v1"
 	StepResultProtocol   = "wharnex.ui-test-step/v1"
-	GuideRequestProtocol = "wharnex.ui-test-guide-input/v1"
-	GuideResultProtocol  = "wharnex.ui-test-guide/v1"
+	GuideRequestProtocol = "wharnex.ui-test-guide-input/v2"
+	GuideResultProtocol  = "wharnex.ui-test-guide/v2"
 	StepTask             = "control_ui_test_step"
 	GuideTask            = "write_ui_test_guide"
 
@@ -53,8 +53,8 @@ type Request struct {
 	Manifest  Manifest `json:"request"`
 	Bootstrap string   `json:"bootstrap"`
 	Archive   []byte   `json:"-"`
-	// Screenshots names the captures a guide request carries.
-	Screenshots []string `json:"-"`
+	// Guide is what a guide answer is validated and resolved against.
+	Guide *GuideBinding `json:"-"`
 }
 
 func filenames(kind, taskID string, sequence int) (string, string, error) {

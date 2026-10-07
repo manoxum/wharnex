@@ -1,3 +1,5 @@
+import { bundleUploadMetadata } from '../usage/index.mjs'
+
 export function createChatGPTFileUpload({
   chatGPTKeyForEntry, requireOwnedChatGPTEntry, pasteWithUploadRetry,
   paceChatGPTWorkerSubmission, chatAgentRateLimitDelayMs,
@@ -5,6 +7,7 @@ export function createChatGPTFileUpload({
   waitForChatGPTSurfaceReady, chatGPTComposerReadyScript,
   chatGPTUploadThumbnailScript, path, chatGPTUploads,
   selectChatGPTUploadFile, chatGPTHumanActionScript, setChatGPTHumanAction, chatGPTHumanActionMessage,
+  uploadLimitGate, ChatGPTUploadLimitDeferral, chatGPTUploadAffordanceScript, uploadAffordanceDisabled,
 }) {
   // A sign-in, verification or access gate is not a transient DOM miss: every
   // retry would select the file on a page that cannot accept it. Classify it
@@ -37,6 +40,10 @@ export function createChatGPTFileUpload({
           const suspension = chatAgentRateLimitDelayMs()
           if (suspension > 0) throw new ChatGPTRateLimitDeferral(suspension)
         }
+        // The account upload limit is not per surface: once it is known,
+        // every pool defers here, before any file reaches the composer.
+        const admission = uploadLimitGate?.admit(wc.id)
+        if (admission && !admission.allowed) throw new ChatGPTUploadLimitDeferral(admission.delayMs)
         chatAgentWorkerActivity.set('uploading')
         await waitForChatGPTSurfaceReady(key, entry)
         await assertNoHumanGate(wc, key)
@@ -58,11 +65,24 @@ export function createChatGPTFileUpload({
       paste: async () => {
         await selectChatGPTUploadFile(wc, filePath)
       },
+      classifyFailure: (error) => classifyUploadFailure(wc, error),
       onRetry: ({ attempt, error }) => {
         console.warn(`[chatgpt-upload] retry wc=${wc.id} file=${index}/${count} failedAttempt=${attempt} error=${error.message}`)
       },
     })
-    console.log(`[chatgpt-upload] confirmed wc=${wc.id} file=${index}/${count} observed=${result.observed}`)
+    uploadLimitGate?.noteConfirmed()
+    console.log(`[chatgpt-upload] confirmed wc=${wc.id} file=${index}/${count} observed=${result.observed}${bundleUploadMetadata(filePath)}`)
+  }
+
+  // An upload that never started on a ready composer is the account limit's
+  // only reliable signature: ChatGPT accepts the selection and sends nothing.
+  // The composer's structural state is logged so the map can be refined.
+  async function classifyUploadFailure(wc, error) {
+    if (!uploadLimitGate || !/did not start the file upload/.test(String(error?.message || ''))) return null
+    const shape = await wc.executeJavaScript(chatGPTUploadAffordanceScript(), true).catch(() => null)
+    const structural = uploadAffordanceDisabled(shape)
+    console.warn(`[chatgpt-upload-limit] not-started wc=${wc.id} structural=${structural} inputs=${shape?.inputs ?? '?'}/${shape?.inputsDisabled ?? '?'} triggers=${shape?.triggers ?? '?'}/${shape?.triggersDisabled ?? '?'}`)
+    return uploadLimitGate.noteNotStarted(wc.id, { structural })
   }
 
   return { pasteChatGPTFile }

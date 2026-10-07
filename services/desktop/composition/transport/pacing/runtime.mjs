@@ -2,6 +2,10 @@ import { createChatGPTConversationReadHealth } from '../../../chatgpt/session/he
 import { createChatGPTRateLimitResume } from '../../../chatgpt/session/health/rate-limit-resume.mjs'
 import { createWorkerPacing } from '../../../agent/scheduling/residency/worker-pacing.mjs'
 import { createChatGPTFileUpload } from '../../../chatgpt/transport/uploads/paste-runtime.mjs'
+import {
+  createChatGPTUploadLimitGate, ChatGPTUploadLimitDeferral, chatGPTUploadAffordanceScript, uploadAffordanceDisabled,
+} from '../../../chatgpt/session/health/upload-limit.mjs'
+import { onChatGPTAccountChanged } from '../../../chatgpt/session/health/account-change.mjs'
 
 export function createDesktopChatGPTPacing(d) {
   const readHealth = createChatGPTConversationReadHealth({
@@ -47,6 +51,18 @@ export function createDesktopChatGPTPacing(d) {
     waitForChatGPTSurfaceReady: d.waitForChatGPTSurfaceReady,
     chatAgentResidency: d.chatAgentResidency,
   })
+  // One gate per Desktop process, like the account it protects. It persists
+  // to the backend hold so a restart keeps the window and the operator can
+  // release it, and the runtime refresh feeds the durable hold back in.
+  const uploadLimitGate = createChatGPTUploadLimitGate({
+    persist: (hold) => {
+      const scheduler = d.rateLimitState.scheduler
+      void scheduler?.setAutomationHold('chatgpt_upload', { ...hold, source: 'desktop' })
+        .catch((error) => console.warn(`[chatgpt-upload-limit] persist failed: ${error instanceof Error ? error.message : String(error)}`))
+    },
+  })
+  d.rateLimitState.onAutomationHolds = (holds) => uploadLimitGate.adopt(holds?.chatgpt_upload)
+  onChatGPTAccountChanged((reason) => uploadLimitGate.release(reason))
   const upload = createChatGPTFileUpload({
     chatGPTKeyForEntry: d.chatGPTKeyForEntry,
     requireOwnedChatGPTEntry: d.requireOwnedChatGPTEntry,
@@ -63,6 +79,7 @@ export function createDesktopChatGPTPacing(d) {
     chatGPTHumanActionScript: d.chatGPTHumanActionScript,
     setChatGPTHumanAction: d.setChatGPTHumanAction,
     chatGPTHumanActionMessage: d.chatGPTHumanActionMessage,
+    uploadLimitGate, ChatGPTUploadLimitDeferral, chatGPTUploadAffordanceScript, uploadAffordanceDisabled,
   })
-  return { ...readHealth, noteOrchestrationTaskPin, ...resume, ...pacing, ...upload }
+  return { ...readHealth, noteOrchestrationTaskPin, ...resume, ...pacing, ...upload, uploadLimitGate }
 }

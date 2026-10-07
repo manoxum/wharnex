@@ -15,6 +15,7 @@ import (
 	"kernl.local/harness/backend/internal/bundlename"
 	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/planner/delivery"
 )
 
 const (
@@ -351,7 +352,7 @@ func buildRemoteChannelResources(ctx context.Context, dir string, item domain.Se
 		if err := write("manifest.json", "application/json", manifestRaw); err != nil {
 			return nil, 0, 0, err
 		}
-		contract := map[string]any{"protocol": "wharness.execution-bundle/v1", "filename": expectedFilename, "required_context_field": "base_context_sha256", "outcome_status_values": []string{"completed", "failed", "partial"}, "outcome_rule": "Use completed only when the request was actually completed; otherwise use failed or partial and explain the truthful result.", "events_optional": true, "final_diff_check": resourceURL("diff-check.json"), "patch_delivery": "patch_file", "patch_file_rule": "Raw UTF-8 unified diff only; never Markdown or fenced text. Each diff --git header is exactly: diff --git a/relative/path b/relative/path — exactly two unquoted paths, no backslash or extra text.", "patch_self_check": []string{"every patch_file resolves under patches/*.patch", "no patch file contains ```", "every diff --git header has exactly two paths", "fetch diff-check.json immediately before delivery", "git apply --check accepts every patch against the current context"}}
+		contract := delivery.BundleContract(expectedFilename, resourceURL("diff-check.json"))
 		contractRaw, err := marshalRemoteChannelJSON(contract)
 		if err != nil {
 			return nil, 0, 0, err

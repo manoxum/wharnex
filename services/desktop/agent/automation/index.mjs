@@ -7,3 +7,4 @@ export { markdownTranslationFilename, todoClassificationFilename, uiTestingDisco
 export { EPHEMERAL_WORKER_TASK_TYPES, EPHEMERAL_AGENT_ID, EPHEMERAL_WORKER_LABELS, EPHEMERAL_WORKER_IDLE_RETIRE_MS, EPHEMERAL_WORKER_PACE_PRIORITY } from './artifact-workers/index.mjs'
 export { pollWorkerExpectedDownload } from './chat-agent-download-poll.mjs'
 export { createTranslatorTaskRuntime } from './translation/index.mjs'
+export { registerUITestingGuideIPC } from './ui-testing/index.mjs'

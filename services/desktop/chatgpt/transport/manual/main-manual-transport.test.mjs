@@ -26,7 +26,7 @@ test('manual mode stops automatic response DOM polling but still captures canoni
   const downloads = downloadRouter
   assert.match(source, /createChatGPTDownloadRouter\(\{/)
   assert.doesNotMatch(downloads, /chatgptTransportModes\.get\(sourceCacheKey\) === 'manual'/)
-  assert.match(downloads, /canonicalWharnessBundleDownload\(/)
+  assert.match(downloads, /canonicalWharnexBundleDownload\(/)
 })
 
 test('manual prompt preparation materializes bundles before any composer DOM operation', () => {

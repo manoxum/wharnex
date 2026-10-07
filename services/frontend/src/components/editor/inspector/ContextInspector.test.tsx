@@ -21,10 +21,10 @@ describe('ContextInspector', () => {
   it('explores exact final files, folder aggregates and applied rules', () => {
     render(<ContextInspector inspection={inspection} refreshing={false} onRefresh={() => undefined} />)
     expect(screen.getByText('src/main.ts')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /Por pasta/i }))
+    fireEvent.click(screen.getByRole('tab', { name: /Por pasta/i }))
     fireEvent.click(screen.getByRole('button', { name: /Excluídos/i }))
     expect(screen.getByText('node_modules')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /^Regras$/i }))
+    fireEvent.click(screen.getByRole('tab', { name: /^Regras$/i }))
     expect(screen.getByText('Pastas protegidas')).toBeTruthy()
     expect(screen.getByText('node_modules/')).toBeTruthy()
   })
@@ -35,7 +35,7 @@ describe('ContextInspector', () => {
     fireEvent.change(screen.getByRole('combobox', { name: /Ordenar contexto/i }), { target: { value: 'name' } })
     fireEvent.click(screen.getByTitle('Excluir src/main.ts'))
     expect(onSelection).toHaveBeenCalledWith({ path: 'src/main.ts', kind: 'file', action: 'exclude' })
-    fireEvent.click(screen.getByRole('button', { name: /Por pasta/i }))
+    fireEvent.click(screen.getByRole('tab', { name: /Por pasta/i }))
     fireEvent.click(screen.getByRole('button', { name: /Excluídos/i }))
     fireEvent.click(screen.getByTitle('Incluir .android-sdk'))
     expect(onSelection).toHaveBeenCalledWith({ path: '.android-sdk', kind: 'directory', action: 'include' })
@@ -46,7 +46,7 @@ describe('ContextInspector', () => {
     const legacy = { ...inspection, roots: null, entries: null, rules: [{ ...inspection.rules[0], patterns: null }] } as unknown as Parameters<typeof ContextInspector>[0]['inspection']
     render(<ContextInspector inspection={legacy} refreshing={false} onRefresh={() => undefined} />)
     expect(screen.getByText('No contexto')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /^Regras$/i }))
+    fireEvent.click(screen.getByRole('tab', { name: /^Regras$/i }))
     expect(screen.getByText('sem padrões configurados')).toBeTruthy()
   })
 

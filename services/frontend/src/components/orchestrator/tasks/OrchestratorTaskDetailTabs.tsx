@@ -1,3 +1,4 @@
+import { WorkbenchTabs } from '../../presentation/tabs'
 import { useEffect, useState } from 'react'
 import { desktopBridge } from '../../../lib/desktop/bridge/desktop'
 import type { HarnessEvent, OrchestratorTask, OrchestratorTaskRun, Session } from '../../../types'
@@ -12,11 +13,7 @@ import { TASK_DETAIL_TABS, type TaskDetailTab } from './taskDetailTabs'
 export type { TaskDetailTab } from './taskDetailTabs'
 
 export function TaskDetailTabBar({ tab, onTab }: { tab: TaskDetailTab; onTab: (tab: TaskDetailTab) => void }) {
-  return <nav className="orchestrator-task-tabs" role="tablist" aria-label="Detalhe da task">
-    {TASK_DETAIL_TABS.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={`text-sm ${tab === item.id ? 'active' : ''}`} onClick={() => onTab(item.id)}>
-      <Icon name={item.icon} size={14}/><span>{item.label}</span>
-    </button>)}
-  </nav>
+  return <WorkbenchTabs label="Detalhe da task" value={tab} onChange={onTab} items={TASK_DETAIL_TABS}/>
 }
 
 // Each run of a task is one agentic Main Request with its own Agent Session.

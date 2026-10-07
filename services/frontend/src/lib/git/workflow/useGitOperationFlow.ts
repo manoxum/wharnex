@@ -62,6 +62,7 @@ export function useGitOperationFlow(params: Params) {
     action: () => Promise<string>,
     syncSession = false,
     quickCommit?: GitQuickCommitAction,
+    afterSuccess?: () => Promise<void>,
   ) {
     const showReview = (previews: GitOperationPreview[], reviewMessage = '', commitAction: GitQuickCommitAction | null | undefined = quickCommit) => {
       setWorking(false)
@@ -77,7 +78,10 @@ export function useGitOperationFlow(params: Params) {
           unavailableReason: commitAction.unavailableReason,
           onCommit: (message) => { void commitAndRefreshReview(message, commitAction) },
         } : undefined,
-        onConfirmReview: () => { void runGitOperation(title, detail, action, syncSession) },
+        onConfirmReview: () => { void (async () => {
+          const result = await runGitOperation(title, detail, action, syncSession)
+          if (result.ok) await afterSuccess?.()
+        })() },
       })
     }
 

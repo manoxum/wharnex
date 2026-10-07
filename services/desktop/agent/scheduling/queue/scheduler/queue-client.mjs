@@ -58,4 +58,6 @@ export class ChatAgentQueueClient {
   setProviderPause(paused, options) { return this.api.setProviderPause(paused, options) }
   recordRateLimit(source, kind, cooldownSeconds) { return this.api.recordRateLimit(source, kind, cooldownSeconds) }
   recordValidBundle(sample) { return this.api.recordValidBundle(sample) }
+  automationHolds() { return this.api.automationHolds() }
+  setAutomationHold(name, hold) { return this.api.setAutomationHold(name, hold) }
 }

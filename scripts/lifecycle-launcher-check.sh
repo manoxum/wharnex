@@ -30,11 +30,11 @@ WHARNESS_ROOT="$ROOT" "$SOURCE_FINGERPRINT_CHECK"
 WHARNESS_ROOT="$ROOT" "$LAUNCHER_CHECK"
 WHARNESS_ROOT="$ROOT" "$INSTALL_DEV_CHECK"
 
-if ! grep -Fq 'launcher-splash.mjs' "$SPLASH_LIB" || ! grep -Fq 'WHARNESS_SPLASH_READY_FILE' "$SPLASH_LIB" || ! grep -Fq 'wharness_splash_open' "$LAUNCHER"; then
+if ! grep -Fq 'launcher-splash.mjs' "$SPLASH_LIB" || ! grep -Fq 'WHARNESS_SPLASH_READY_FILE' "$SPLASH_LIB" || ! grep -Fq 'wharnex_splash_open' "$LAUNCHER"; then
   echo 'lifecycle regression: launcher must open its splash before update work' >&2
   exit 1
 fi
-if ! grep -Fq 'WHARNEX_BOOT_PREVIOUS=1' "$LAUNCHER" || ! grep -Fq 'make stop && make start' "$LAUNCHER"; then
+if ! grep -Fq 'WHARNEX_BOOT_PREVIOUS=1' "$LAUNCHER" || ! grep -Fq 'wharnex_splash_run make stop && wharnex_splash_run make start' "$LAUNCHER"; then
   echo 'lifecycle regression: failed updates must keep the last built Desktop available' >&2
   exit 1
 fi
@@ -51,15 +51,15 @@ if grep -Eq 'database\.sh.*stop|stack\.sh.*(stop|down)' "$STOP" || awk '/^stop:/
   echo 'lifecycle regression: make stop must preserve the persistent Compose stack' >&2
   exit 1
 fi
-if ! grep -Fq 'Wharnex build is required' "$START" || ! grep -Fq '(cd "$ROOT" && make build)' "$START" || ! grep -Fq 'source fingerprint changed' "$START"; then
+if ! grep -Fq 'Wharnex build is required' "$START" || ! grep -Fq '(cd "$ROOT" && wharnex_splash_run make build)' "$START" || ! grep -Fq 'source fingerprint changed' "$START"; then
   echo 'lifecycle regression: ordinary make start must rebuild a stale application' >&2
   exit 1
 fi
-if [ ! -f "$SPLASH_LIB" ] || ! grep -Fq 'wharness_splash_open' "$SPLASH_LIB" || ! grep -Fq 'wharness_splash_close' "$SPLASH_LIB"; then
+if [ ! -f "$SPLASH_LIB" ] || ! grep -Fq 'wharnex_splash_open' "$SPLASH_LIB" || ! grep -Fq 'wharnex_splash_close' "$SPLASH_LIB"; then
   echo 'lifecycle regression: launcher and direct start need shared splash helpers' >&2
   exit 1
 fi
-if ! grep -Fq 'splash-lib.sh' "$START" || ! grep -Fq 'wharness_splash_open' "$START" || ! grep -Fq 'WHARNESS_LAUNCHER_SPLASH_ACTIVE' "$START"; then
+if ! grep -Fq 'splash-lib.sh' "$START" || ! grep -Fq 'wharnex_splash_open' "$START" || ! grep -Fq 'WHARNESS_LAUNCHER_SPLASH_ACTIVE' "$START"; then
   echo 'lifecycle regression: direct start needs one splash and launcher handoff' >&2
   exit 1
 fi

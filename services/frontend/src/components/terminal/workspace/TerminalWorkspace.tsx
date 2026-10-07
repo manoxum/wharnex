@@ -1,6 +1,6 @@
+import { TerminalTabBar } from './TerminalTabBar'
 import { useEffect, useRef, useState } from 'react'
 import type { Session, TerminalRunRequest } from '../../../types'
-import { workspaceDragEndedOutside } from '../../../lib/workspace/layout/workspaceSurface'
 import { InteractiveTerminal, type ConnectionStatus } from './InteractiveTerminal'
 import { api } from '../../../lib/transport/http/api'
 import { freshTerminalTab, loadTerminalWorkspace, saveTerminalWorkspace, terminalTabsFromMemory, TERMINALS_EXPIRED_EVENT, type PersistedTerminalTab } from './terminalWorkspaceState'
@@ -127,37 +127,9 @@ export function TerminalWorkspace({ session, height, visible, runRequest, onHeig
 
   const activeTab = tabs.find((item) => item.id === activeID)
 
-  return <section className={`terminal-workspace ${fill ? 'terminal-workspace-fill' : ''} ${visible ? '' : 'terminal-workspace-hidden'}`} style={{ height: fill ? '100%' : height }} aria-hidden={!visible}>
-    <div className="terminal-tabbar">
-      <div className="terminal-tabs" role="tablist" aria-label="Instâncias do terminal">
-        {tabs.map((tab) => <div className={`terminal-tab-shell ${tab.id === activeID ? 'active' : ''}`} data-renaming={editingID === tab.id ? 'true' : undefined} key={tab.id} draggable={Boolean(onDetachTerminal)} onDragEnd={(event) => { if (onDetachTerminal && workspaceDragEndedOutside(event)) onDetachTerminal() }}>
-          {editingID === tab.id ? <div className="terminal-tab-edit">
-            <input
-              autoFocus
-              aria-label={`Renomear ${tab.label}`}
-              value={editingLabel}
-              onChange={(event) => setEditingLabel(event.target.value)}
-              onBlur={() => finishRename(tab.id)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') { event.preventDefault(); finishRename(tab.id) }
-                if (event.key === 'Escape') { event.preventDefault(); setEditingID(undefined); setEditingLabel('') }
-              }}
-            />
-          </div> : <button
-            type="button"
-            role="tab"
-            aria-selected={tab.id === activeID}
-            className="terminal-tab-select"
-            onClick={() => setActiveID(tab.id)}
-            onDoubleClick={() => beginRename(tab)}
-            title={`${tab.label} · duplo clique para renomear`}
-          >
-            <span className={`terminal-tab-status terminal-status-${tab.status}`} aria-hidden="true"/>
-            <span className="terminal-tab-title">{tab.label}</span>
-          </button>}
-          <button type="button" className="terminal-tab-action terminal-tab-close" title={`Fechar ${tab.label}`} aria-label={`Fechar ${tab.label}`} onClick={() => closeTerminal(tab.id)}><Icon name="close" size={14}/></button>
-        </div>)}
-      </div>
+  return <section className={`terminal-workspace grid-rows-[34px_minmax(0,1fr)] [:root[data-density=compact]_&]:grid-rows-[26px_minmax(0,1fr)] ${fill ? 'terminal-workspace-fill' : ''} ${visible ? '' : 'terminal-workspace-hidden'}`} style={{ height: fill ? '100%' : height }} aria-hidden={!visible}>
+    <div className="terminal-tabbar flex min-h-[34px] min-w-0 items-stretch justify-between border-b border-solid border-[var(--theme-border-soft)] bg-[color-mix(in_srgb,var(--theme-bg)_82%,var(--theme-surface))]">
+      <TerminalTabBar tabs={tabs} activeID={activeID} editingID={editingID} editingLabel={editingLabel} onSelect={setActiveID} onBeginRename={beginRename} onEditingLabel={setEditingLabel} onFinishRename={finishRename} onCancelRename={() => { setEditingID(undefined); setEditingLabel('') }} onClose={closeTerminal} onDetach={onDetachTerminal}/>
       <div className="terminal-surface-actions">
         {activeTab && <span className={`terminal-active-status terminal-status-${activeTab.status}`} title={`Estado: ${statusLabel(activeTab.status)}`}><i/>{statusLabel(activeTab.status)}</span>}
         {onSplitTerminal && <div className="surface-layout-actions" role="group" aria-label="Dividir terminal"><button type="button" onClick={() => onSplitTerminal('vertical')} title="Dividir terminal verticalmente" aria-label="Dividir terminal verticalmente"><Icon name="arrow-right" size={16}/></button><button type="button" onClick={() => onSplitTerminal('horizontal')} title="Dividir terminal horizontalmente" aria-label="Dividir terminal horizontalmente"><Icon name="arrow-down" size={16}/></button></div>}

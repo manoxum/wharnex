@@ -1,9 +1,11 @@
+import { GitFileState } from './EditorGitState'
+import { EditorTabs } from './EditorTabs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, APIError } from '../../../lib/transport/http/api'
 import { editorDisplayLanguage } from '../../../lib/editor/runtime/editorLanguage'
 import { disposeEditorModel } from '../../../lib/editor/runtime/monaco'
 import { editorExecutableOptions, loadEditorRunHistory, parentDirectory, recentEditorRunOptions, rememberEditorRun, selectionCommand } from '../../../lib/editor/runtime/editorExecution'
-import { workspaceDragEndedOutside, type WorkspaceSurfaceTransferPoint } from '../../../lib/workspace/layout/workspaceSurface'
+import { type WorkspaceSurfaceTransferPoint } from '../../../lib/workspace/layout/workspaceSurface'
 import { parseEditorGitChanges, type EditorGitChange } from '../../../lib/editor/runtime/editorGitChanges'
 import { useGitLiveRefresh } from '../../../lib/git/workflow/useGitLiveRefresh'
 import { dockerComposeRuntimeMarkers } from '../../../lib/editor/runtime/editorRuntimeMarkers'
@@ -11,7 +13,6 @@ import type { DockerOverview, FileEntry, GitFileDiff, GitWorkingFile, Session, T
 import { CodeEditor } from './CodeEditor'
 import { Icon } from '../../presentation/chrome/Icon'
 import { InternalWindow } from '../../workspace/window/InternalWindow'
-import { FileGlyph } from './FileGlyph'
 import { ArtifactPreview } from '../../artifacts/explorer/ArtifactPreview'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
 import { EditorSearchPalette, type EditorSearchMode } from './EditorSearchPalette'
@@ -492,37 +493,6 @@ function normalizeEditorPath(value: string) {
   return normalized.length > 1 ? normalized.replace(/\/$/, '') : normalized
 }
 
-
-function EditorTabs({ documents, activePath, savingPaths, gitByPath, surfaceMode = false, onSelect, onClose, onSave, onDetach, onSplit }: {
-  documents: EditorDocument[]; activePath?: string; savingPaths: Set<string>; gitByPath: Map<string, GitWorkingFile>; surfaceMode?: boolean
-  onSelect: (path: string) => void; onClose: (path: string) => void; onSave: (path: string) => Promise<boolean>
-  onDetach?: (path: string, point?: WorkspaceSurfaceTransferPoint) => void; onSplit?: (path: string, direction: 'vertical' | 'horizontal') => void
-}) {
-  return <div className="editor-tabbar">
-    <div className="editor-tabs-scroll">{documents.map((document) => {
-      const dirty = document.draft !== document.content
-      const name = document.path.split('/').pop() || document.path
-      const gitFile = gitByPath.get(document.path)
-      return <button className={`editor-tab ${activePath === document.path ? 'active' : ''}`} key={document.path} draggable={Boolean(onDetach)} onDragEnd={(event) => { if (onDetach && workspaceDragEndedOutside(event)) onDetach(document.path, { screenX: event.screenX, screenY: event.screenY }) }} onClick={() => onSelect(document.path)} title={document.path}>
-        <FileGlyph path={document.path} size={13}/><span>{name}</span>{gitFile && <GitFileState file={gitFile} compact/>}{dirty && <i className="dirty-dot"/>}
-        {!surfaceMode && <span className="editor-tab-close" aria-hidden="true" onClick={(event) => { event.stopPropagation(); onClose(document.path) }}>×</span>}
-      </button>
-    })}</div>
-    <div className="editor-surface-actions">
-      {onSplit && activePath && <div className="surface-layout-actions" role="group" aria-label="Dividir editor"><button type="button" onClick={() => onSplit(activePath, 'vertical')} title="Dividir editor verticalmente" aria-label="Dividir editor verticalmente"><Icon name="arrow-right" size={13}/></button><button type="button" onClick={() => onSplit(activePath, 'horizontal')} title="Dividir editor horizontalmente" aria-label="Dividir editor horizontalmente"><Icon name="arrow-down" size={13}/></button></div>}
-      {onDetach && activePath && <button type="button" className="surface-detach-action" onClick={() => onDetach(activePath)} title="Abrir ficheiro numa janela independente" aria-label="Abrir ficheiro numa janela independente"><Icon name="external" size={13}/></button>}
-    {activePath && <span className={`editor-autosave-status ${savingPaths.has(activePath) ? 'saving' : documents.some((item) => item.path === activePath && item.draft !== item.content) ? 'pending' : 'saved'}`}><i/>{savingPaths.has(activePath) ? 'A guardar…' : documents.some((item) => item.path === activePath && item.draft !== item.content) ? 'Auto-save pendente' : 'Guardado'}</span>}
-    <button className="editor-save" disabled={!activePath || !documents.some((item) => item.path === activePath && item.draft !== item.content) || Boolean(activePath && savingPaths.has(activePath))} onClick={() => activePath && void onSave(activePath)} aria-label="Guardar agora" title="Guardar agora (Ctrl+S)"><Icon name="save" size={14}/></button>
-    </div>
-  </div>
-}
-
-
-function GitFileState({ file, compact = false, className = '' }: { file: GitWorkingFile; compact?: boolean; className?: string }) {
-  const code = file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : file.status === 'unmerged' ? '!' : 'M'
-  const label = file.status === 'added' ? 'Adicionado' : file.status === 'deleted' ? 'Removido' : file.status === 'unmerged' ? 'Conflito' : 'Modificado'
-  return <span className={`editor-git-file-state ${file.status} ${compact ? 'compact' : ''} ${className}`.trim()} title={`${label} no Git · +${file.additions || 0} −${file.deletions || 0}`}><b>{code}</b>{!compact && file.additions ? <i className="git-lines-added">+{file.additions}</i> : null}{!compact && file.deletions ? <i className="git-lines-deleted">−{file.deletions}</i> : null}</span>
-}
 
 function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }
 function isRichPreview(path: string) { return /\.(md|mdx|markdown|html?|pdf|png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|ogg|m4a|aac|flac|mp4|webm|ogv|mov|m4v|docx?|xlsx?|pptx?|odt|ods|odp)$/i.test(path) }

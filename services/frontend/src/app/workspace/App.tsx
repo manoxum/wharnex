@@ -1,3 +1,4 @@
+import { WorkspaceSurfaceTabs } from '../../components/workspace/surfaces'
 import { createChatSessionActions } from '../settings'
 import { createRestartActions, useEventStreamConnection, canRetryDependencyNetwork, canRepairFailureWithGPT, recoveryHumanAction } from '../execution'
 import { useWorkspaceAttention } from '../attention'
@@ -22,7 +23,7 @@ import { clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWork
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation, confirmDialog, subscribeHeaderPopover, buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from '../../lib/desktop'
 import { conflictAutoDispatchable, gitConflictChatTitle } from '../../lib/git'
 import { embeddedProjectInitiallyActive, embeddedProjectPath, persistOperationalEvidence, storedAttachmentFile, withProjectTodoPrePlan, reconcileTunnelConfig } from '../../lib/project'
-import { errorMessage as messageOf, loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool, loadWorkbenchState, saveWorkbenchState, workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget } from '../../lib/workspace'
+import { errorMessage as messageOf, loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool, loadWorkbenchState, saveWorkbenchState, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget } from '../../lib/workspace'
 import { effortAttemptLimit } from '../agent'
 import { useEmbeddedProjectBridge } from './useEmbeddedProjectBridge'
 import { createSurfaceTransferActions } from './surfaces'
@@ -3028,23 +3029,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const focusedChatProps = activeSurface.kind === 'chat' ? { ...sharedChatProps, chats: chats.filter((chat) => chat.id === activeChatId) } : sharedChatProps
     return <main className={`workspace-root workspace-surface-root workspace-surface-${activeSurface.kind}`}>
       {surfaceRequest.host === 'window' && isDesktop() && <header className="workspace-surface-windowbar" data-window-titlebar="true">
-        <div className="workspace-surface-tabs" role="tablist" aria-label="Tabs da janela destacada">
-          {surfaceTabs.map((target) => {
-            const key = workspaceSurfaceKey(target)
-            return <button
-              type="button"
-              role="tab"
-              aria-selected={key === activeSurfaceKey}
-              className={`workspace-surface-tab ${key === activeSurfaceKey ? 'active' : ''}`}
-              key={key}
-              draggable
-              onClick={() => { setActiveSurfaceKey(key); activateWorkspaceSurface(target) }}
-              onContextMenu={(event) => { if (target.kind !== 'chat') return; event.preventDefault(); setSurfaceTabMenu({ target, x: event.clientX, y: event.clientY }) }}
-              onDragEnd={(event) => { if (workspaceDragEndedOutside(event)) moveSurfaceByDrag(target, { screenX: event.screenX, screenY: event.screenY }) }}
-              title={target.kind === 'editor' ? target.path : surfaceLabel(target)}
-            ><Icon name={target.kind === 'chat' ? 'send' : target.kind === 'editor' ? 'code' : 'terminal'} size={12}/><span>{surfaceLabel(target)}</span></button>
-          })}
-        </div>
+        <WorkspaceSurfaceTabs targets={surfaceTabs} activeKey={activeSurfaceKey} label={surfaceLabel}
+          onSelect={(target) => { setActiveSurfaceKey(workspaceSurfaceKey(target)); activateWorkspaceSurface(target) }}
+          onContextMenu={(event, target) => { if (target.kind !== 'chat') return; event.preventDefault(); setSurfaceTabMenu({ target, x: event.clientX, y: event.clientY }) }}
+          onMove={moveSurfaceByDrag}/>
+
         <div className="workspace-surface-window-controls"><button type="button" onClick={() => void desktopBridge()?.windows.minimize()} aria-label="Minimizar">—</button><button type="button" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label="Maximizar ou restaurar">□</button><button type="button" onClick={() => void desktopBridge()?.windows.close()} aria-label="Fechar">×</button></div>
       </header>}
       {surfaceTabMenu && <div className="chat-tab-context-menu workspace-surface-tab-menu" role="menu" aria-label="Ações da tab de chat" style={{ left: surfaceTabMenu.x, top: surfaceTabMenu.y }} onPointerDown={(event) => event.stopPropagation()}>

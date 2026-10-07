@@ -20,7 +20,6 @@
 }
 .agent-runtime-summary b { font-size: calc(14px * var(--ui-font-scale)); }
 .agent-runtime-summary small { line-height: 1.25; }
-.agent-runtime-tabs { padding-inline: 12px; background: color-mix(in srgb, var(--theme-surface) 90%, var(--theme-bg)); }
 .agent-runtime-tab-panel { background: transparent; }
 .agent-runtime-state-legend,
 .agent-runtime-pause,

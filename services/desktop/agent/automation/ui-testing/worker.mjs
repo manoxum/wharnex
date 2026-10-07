@@ -1,6 +1,7 @@
 import { createUITestingChat } from './chatgpt.mjs'
 import { createUITestingDiscoveryWorker } from './discovery.mjs'
 import { createUITestRunner } from './run.mjs'
+import { uiTestRunSlots } from './capacity.mjs'
 
 export function createUITestingWorker(context) {
   const { BACKEND_URL, fetch } = context
@@ -19,7 +20,10 @@ export function createUITestingWorker(context) {
 
   async function executeUITestingTask(task, entry, key, payload) {
     if (task.type === 'UI_TEST_DISCOVER') return discover(task, entry, key, payload)
-    if (task.type === 'UI_TEST_RUN') return run(task, entry, key, payload)
+    if (task.type === 'UI_TEST_RUN') {
+      if (!uiTestRunSlots.tryEnter()) return { status:'waiting', delayMs:20_000, observation:true, error:'UI test run capacity is full' }
+      try { return await run(task, entry, key, payload) } finally { uiTestRunSlots.leave() }
+    }
     return { status:'failed', error:'unsupported UI testing task' }
   }
 

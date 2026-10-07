@@ -74,7 +74,7 @@ func TestGuideExchangeIsReservedToTheSelectedTest(t *testing.T) {
 func TestIssuedExchangesSurviveABackendRestart(t *testing.T) {
 	dir := t.TempDir()
 	before := newPendingExchanges(dir)
-	before.put(exchange.Manifest{Task: exchange.StepTask, TaskID: "cat_x", Sequence: 4}, exchange.ActionRules{Origin: "https://app.test"})
+	before.put(exchange.Manifest{Task: exchange.StepTask, TaskID: "cat_x", Sequence: 4}, exchange.ActionRules{Origin: "https://app.test"}, nil)
 	after := newPendingExchanges(dir)
 	item, ok := after.take(pendingKey("cat_x", "step", 4))
 	if !ok || item.Rules.Origin != "https://app.test" {

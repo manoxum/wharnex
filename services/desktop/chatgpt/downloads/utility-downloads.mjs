@@ -11,7 +11,7 @@ export function createChatGPTUtilityDownloads({
   // Chromium appends its own browser-side duplicate-name suffix ("(2)") when a
   // name it already has a download for is offered again - exactly what happens
   // when a worker clicks the same result card more than once. The Supervisor's
-  // canonicalWharnessBundleDownload already tolerates this (bundlename.mjs's
+  // canonicalWharnexBundleDownload already tolerates this (bundlename.mjs's
   // parseBundleNameWithDuplicateSuffix); these background-worker downloads used
   // a strict exact-match instead, so a suffixed repeat fell through every
   // recognizer here and reached the OS as an ordinary, undismissable download

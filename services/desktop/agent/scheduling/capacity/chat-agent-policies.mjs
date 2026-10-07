@@ -38,6 +38,7 @@ export const DEFAULT_CHAT_AGENT_POLICIES = Object.freeze({
   workers_suspended_until: '',
   workers_suspended_types: DEFAULT_SUSPENDED_WORKER_TASK_TYPES,
   rate_limit_cooldown_minutes: 7.5,
+  task_holds_migrated: false,
 })
 
 export const MIN_RATE_LIMIT_COOLDOWN_MINUTES = 1
@@ -88,6 +89,7 @@ export function normalizeChatAgentPolicies(value = DEFAULT_CHAT_AGENT_POLICIES, 
     workers_suspended_until: workersSuspendedUntil,
     workers_suspended_types: workersSuspendedTypes,
     rate_limit_cooldown_minutes: rateLimitCooldownMinutes,
+    task_holds_migrated: value?.task_holds_migrated === true,
   }
 }
 

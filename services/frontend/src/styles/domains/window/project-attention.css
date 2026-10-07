@@ -1,0 +1,12 @@
+/* Custom project-hue interpolation cannot be expressed by stock animation utilities. */
+@keyframes wharnex-project-composer-pulse {
+  0%, 100% {
+    border-color: color-mix(in srgb, hsl(var(--project-hue) 78% 52%) 30%, var(--theme-border));
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent), 0 0 0 0 hsl(var(--project-hue) 78% 52% / .1);
+  }
+  50% {
+    border-color: hsl(var(--project-hue) 78% 52% / .72);
+    background: color-mix(in srgb, hsl(var(--project-hue) 82% 54%) 13%, var(--theme-surface));
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--theme-shadow) 38%, transparent), 0 0 0 4px hsl(var(--project-hue) 78% 52% / .15), 0 0 18px hsl(var(--project-hue) 78% 52% / .16);
+  }
+}

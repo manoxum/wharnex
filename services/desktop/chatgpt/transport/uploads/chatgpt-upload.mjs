@@ -145,6 +145,9 @@ export async function pasteWithUploadRetry({
   attempts = 5,
   wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   onRetry = () => {},
+  // May turn a failure into a typed error that ends the retries at once
+  // (the account upload limit): repeating the selection cannot succeed.
+  classifyFailure = async () => null,
 }) {
   let lastError
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -176,6 +179,8 @@ export async function pasteWithUploadRetry({
       // cooldown. Preserve the typed error so the scheduler/supervisor can
       // defer the whole operation without escalating it as a transport fault.
       if (lastError.retryUpload === false) throw lastError
+      const classified = await classifyFailure(lastError)
+      if (classified) throw classified
       if (lastError.retryFileSelection === false) {
         throw new Error(`ChatGPT upload state is uncertain after the provider upload started; refusing to select the same file again: ${lastError.message}`)
       }

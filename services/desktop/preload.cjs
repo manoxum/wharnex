@@ -294,6 +294,11 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     open: (request) => invoke('wharness:attachments:open', request),
     removeChat: (request) => invoke('wharness:attachments:remove-chat', request),
   }),
+  uiTesting: Object.freeze({
+    openGuide: (request) => invoke('wharnex:ui-testing:open-guide', {
+      sessionId: String(request?.sessionId || ''), runId: String(request?.runId || ''), format: String(request?.format || ''),
+    }),
+  }),
   clipboard: Object.freeze({
     copyContextZip: (request) => invoke('wharness:clipboard:copy-context-zip', request),
     readText: () => invoke('wharness:clipboard:read-text'),

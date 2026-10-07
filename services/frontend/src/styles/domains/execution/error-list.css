@@ -37,7 +37,6 @@
 .evidence-event-copy i { border-radius: 3px; background: transparent; color: var(--theme-text-muted); font-size: calc(8px * var(--ui-font-scale)); }
 .evidence-event-copy code { font-size: calc(10px * var(--ui-font-scale)); }
 
-
 /* v1.2.53 — premium optical refinement: one icon scale, quieter chrome and
    compact desktop hit areas across Terminal, Explorer and technical tools. */
 :root {
@@ -96,16 +95,6 @@
 .agent-tree-git-count,
 .agent-tree-git-status { font-size: var(--ui-meta-size); }
 
-/* Terminal keeps frequent actions visible and moves recovery/window actions to
-   a compact overflow. No extra banner or secondary toolbar is introduced. */
-.terminal-tab-select { font: 600 calc(10.2px * var(--ui-font-scale))/1 var(--ui-font-family); }
-.terminal-tab-action {
-  width: var(--toolbar-hit);
-  height: var(--toolbar-hit);
-  margin-right: 1px;
-  border-radius: 4px;
-}
-.terminal-tab-action > svg { width: var(--icon-xs); height: var(--icon-xs); }
 .terminal-surface-actions button,
 .terminal-add-tab {
   width: var(--toolbar-hit);

@@ -18,7 +18,7 @@ function harness({ restore, actions, restoreFails = false, clickFails = false, v
         getURL: () => self.url,
         loadURL: async (url) => { self.url = String(url) },
         capturePage: async () => ({ resize: () => ({ toPNG: () => Buffer.from('png') }) }),
-        printToPDF: async () => Buffer.from('pdf'),
+        printToPDF: async () => { log.printed = (log.printed || 0) + 1; return Buffer.from('pdf') },
         executeJavaScript: async (script) => script.includes('local_storage: dump')
           ? { url:self.url, local_storage:{ token:'t' }, session_storage:{} }
           : script.includes('localStorage.setItem') ? true
@@ -31,13 +31,15 @@ function harness({ restore, actions, restoreFails = false, clickFails = false, v
       }
     }
     loadURL(url) { return this.webContents.loadURL(url) }
+    loadFile(file) { log.printedFile = file; return Promise.resolve() }
     isDestroyed() { return false }
     destroy() {}
   }
   const queue = [...actions]
   const issued = (kind, sequence) => ({ request:{ request_filename:`whx_ui_test_${kind}_req_${taskID}${sequence ? `_${sequence}` : ''}.zip`, result_filename:`whx_ui_test_${kind}_res_${taskID}${sequence ? `_${sequence}` : ''}.zip` }, bootstrap:'b', archive_base64:'eA==' })
   const runner = createUITestRunner({
-    BrowserWindow:FakeWindow, path, app:{ getPath: () => '/tmp' }, rm:async () => {}, mkdir:async () => {}, writeFile:async () => {}, wait:async () => {},
+    BrowserWindow:FakeWindow, path, app:{ getPath: () => '/tmp' }, rm:async () => {}, mkdir:async () => {}, wait:async () => {},
+    writeFile:async (file, data) => { log.files = { ...(log.files || {}), [path.basename(String(file))]:data } },
     chat: {
       start: async () => ({ conversationUrl:'https://chatgpt.com/c/run' }),
       exchange: async (_state, _key, task, request) => {
@@ -54,13 +56,14 @@ function harness({ restore, actions, restoreFails = false, clickFails = false, v
       if (route === '/step/result') {
         const next = queue.shift()
         if (next === 'invalid') throw new Error('UI testing backend 400: {"error":"decode UI test answer"}')
-        if (next === 'upload-limit') throw new Error('ChatGPT upload failed after 5 attempts: ChatGPT did not start the file upload before timeout')
+        if (next === 'upload-limit') throw Object.assign(new Error('ChatGPT account file-upload limit is active'), { uploadLimit:true, freeDeferral:true, retryUpload:false, delayMs:600_000 })
         const actions = Array.isArray(next) ? next : [next]
         return { actions, screen_caption:`Ecrã antes de ${actions[0].action}` }
       }
       if (route === '/guide') { guideShots.push(body.screenshots); return issued('guide', 0) }
       if (route === '/guide/result' && log.guideRefusedOnce && !log.guideRefused) { log.guideRefused = true; throw new Error('UI testing backend 400: {"error":"the guide must show every capture"}') }
-      if (route === '/guide/result') return { title:'Criar um item', markdown:'# Criar', captions:Object.fromEntries((guideShots.at(-1) || []).map((shot) => [shot.name, `Legenda de ${shot.name}`])), verdict }
+      if (route === '/guide/result') return { title:'Criar um item', markdown:'# Criar', captions:Object.fromEntries((guideShots.at(-1) || []).map((shot) => [shot.name, `Legenda de ${shot.name}`])), verdict,
+        document:{ version:2, title:'Criar um item' }, print_html:'<!doctype html><img src="step-01.png">', coverage:{ added:['abrir-detalhe'] } }
       if (route === '/session/restore') {
         if (restoreFails) throw new Error('UI testing backend 409')
         return { state:{ url:'https://app.test/dashboard', cookies:[{ name:'sid', value:'v', domain:'app.test' }], local_storage:{ token:'t' }, session_storage:{} } }
@@ -93,6 +96,14 @@ test('a restored session runs only the selected test, through bundle exchanges o
   assert.equal(log.closed, 1)
   assert.equal(report.steps[0].screen_caption, 'Legenda de step-01.png', 'the review captions every capture')
   assert.equal(report.screenshots[0].caption, 'Legenda de step-01.png')
+  assert.equal(report.guide_document.version, 2, 'the structured guide is stored with the run')
+  assert.equal(report.pdf_base64, Buffer.from('pdf').toString('base64'))
+  assert.match(log.printedFile, /guide-print\/index\.html$/, 'the PDF is printed from the engine page beside its captures')
+  assert.equal(String(log.files['index.html']), '<!doctype html><img src="step-01.png">')
+  assert.ok(log.files['step-01.png'])
+  assert.equal(report.screenshots[0].elements, undefined, 'measured elements are not stored with the run')
+  const guideRequest = log.posts.find(([route]) => route === '/guide')[1]
+  assert.ok(Array.isArray(guideRequest.screenshots[0].elements), 'the guide request carries the elements measured with each capture')
 })
 
 test('a signed-out restored session is invalidated and the whole chain replays', async () => {
@@ -160,12 +171,12 @@ test('the visual review can overrule a run that only looked successful', async (
   assert.match(report.error, /Revisão visual: O painel não mostra/)
 })
 
-test('an exhausted upload allowance defers the run instead of failing it', async () => {
+test('the account upload limit defers the run for the gate window instead of failing it', async () => {
   const { log, execute } = harness({ restore:restorePoint, actions:['upload-limit'] })
   log.exchangeFails = true
   const result = await execute()
   assert.equal(result.status, 'waiting')
-  assert.ok(result.delayMs >= 60_000)
+  assert.equal(result.delayMs, 600_000)
   assert.equal(log.posts.some(([route]) => route === '/result'), false)
 })
 

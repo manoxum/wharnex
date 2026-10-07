@@ -3,9 +3,11 @@ package httpapi
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/uitesting"
+	"kernl.local/harness/backend/internal/uitesting/httpapi/runlifecycle"
 )
 
 func (h *Routes) reconcileSyncTask(project string, doc uitesting.Document) (uitesting.Document, error) {
@@ -63,36 +65,7 @@ func (h *Routes) terminalTaskDetail(taskID, failed, doneWithout string) (string,
 	return "", false, nil
 }
 
-// reconcileRunTasks closes runs whose task ended without reporting them — a
-// Desktop restart that exhausted the task's attempts, a cancellation — so no
-// run stays queued or running forever.
+// reconcileRunTasks delegates the run concern to the task-backed projection.
 func (h *Routes) reconcileRunTasks(project string, doc uitesting.Document) (uitesting.Document, error) {
-	details := map[string]string{}
-	for _, run := range doc.Runs {
-		if run.Status != "queued" && run.Status != "running" {
-			continue
-		}
-		detail, known := details[run.TaskID]
-		if !known {
-			var terminal bool
-			var err error
-			detail, terminal, err = h.terminalTaskDetail(run.TaskID, "A execução terminou sem concluir este teste.", "A execução terminou sem registar o resultado deste teste.")
-			if err != nil {
-				return doc, err
-			}
-			if !terminal {
-				detail = ""
-			}
-			details[run.TaskID] = detail
-		}
-		if detail == "" {
-			continue
-		}
-		next, err := h.store.CompleteRun(project, uitesting.Run{ID: run.ID}, uitesting.RunResult{Status: "failed", Error: detail})
-		if err != nil {
-			return doc, err
-		}
-		doc = next
-	}
-	return doc, nil
+	return runlifecycle.Reconcile(project, doc, h.sessions, h.store, time.Now().UTC())
 }

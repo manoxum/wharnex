@@ -1,0 +1,1 @@
+export { WorkspaceSurfaceTabs } from './WorkspaceSurfaceTabs'

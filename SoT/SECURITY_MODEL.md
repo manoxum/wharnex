@@ -1,5 +1,24 @@
 # Security Model SoT
 
+## Abandoned Git index locks
+
+An authorized engine Git mutation may recover only its repository's abandoned
+`index.lock` under `adr/ADR-0092`: a host-side process proof, fifteen-minute
+minimum age, empty regular file, same OS owner, single link, symlink-free path,
+stable identity and atomic quarantine. Fresh, live, nonempty, replaced or
+unobservable locks remain blocked. Container-local process visibility is never
+sufficient. The restricted host bridge derives the path; no planner operation
+or arbitrary file deletion is added. Cleanup changes no index, worktree or
+history and permits only a bounded retry of the original authorized command.
+
+On Linux the complete proof combines observable host process names/states
+(no live Git; zombies are exited) with an exclusive kernel file lease proving
+no other process holds the exact lock inode open. The lease MUST survive until
+quarantine/removal; a pending break, unavailable lease or incomplete process
+metadata refuses cleanup. Private `/proc/<pid>/fd` access is not required.
+No privilege escalation, process arguments, environments or file contents are
+used. This is a host bridge operation, never a container-local inference.
+
 The model is untrusted. The repository is untrusted. The user request may be unsafe. Local policy and sandbox controls are authoritative.
 
 The security boundary is enforced by:
@@ -217,5 +236,22 @@ applications never share the default Electron session. A restore is re-validated
 at use time (expiry, origin, profile, coverage and unchanged test definitions);
 changing an environment URL or a profile's credentials deletes the sessions
 captured under the old value.
+
+A UI Lab user guide (`adr/ADR-0094`) is GPT content and stays data. GPT
+chooses layouts, themes and callouts only from closed sets, and its text is
+always escaped by the engine's HTML renderer; GPT never supplies markup,
+styles, scripts or URLs. The guide page is served with
+`Content-Security-Policy: default-src 'none'; img-src data:; style-src
+'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action
+'none'`, so its only script is the engine's own and it loads nothing but its
+inlined captures. The app frames it with `sandbox="allow-scripts"` and no
+same-origin access. **Abrir no navegador** goes through the narrow
+`wharnex:ui-testing:open-guide` IPC. The renderer names only a validated
+session id, a run id and a format from `html|pdf|md`; the main process derives
+the asset URL from the allowlisted local backend and opens it in the
+Wharnex-owned browser. A renderer-supplied URL is never accepted. Element
+boxes measured for markers are bounded page data, and like the controller's
+element list they never reach a selector the executor runs without
+validation.
 
 The browser monitor may create one user-clicked, ephemeral viewer for a durable ChatGPT conversation not resident in an Agent slot. It is human-only: it has the hardened ChatGPT partition/preferences, no privileged preload, no automation or output inspection, no scheduler claim, and no account-management authority. Its IPC is monitor-window-only, validates an exact canonical `https://chatgpt.com/c/<conversation-id>` URL and bounded coordinates, and denies cross-origin navigation and new windows. Switching or closing the monitor destroys it. Bundle metadata comes only from owner-scoped local artifacts, never remote page content.

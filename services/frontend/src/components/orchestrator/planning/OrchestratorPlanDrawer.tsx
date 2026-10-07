@@ -1,3 +1,4 @@
+import { OrchestratorPlanTabs, type DetailTab } from './OrchestratorPlanTabs'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { taskBrowserAgentId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../../lib/chat/transport/chatAgentTaskNav'
 import { type ChatAgentTask, type OrchestratorPlanningDetail, type OrchestratorPlanningRequest, type OrchestratorTask } from '../../../types'
@@ -5,17 +6,6 @@ import { Icon } from '../../presentation/chrome/Icon'
 import { WorkerFollowViewer } from '../../agent/runtime/WorkerFollowViewer'
 import { OrchestratorPlanFilesTab, OrchestratorPlanTab } from './OrchestratorPlanDetailTabs'
 import { OrchestratorPhaseBadge, OrchestratorPlanExecutionsTab, OrchestratorPlanProgressSummary } from './OrchestratorPlanRunSummary'
-
-type DetailTab = 'summary' | 'files' | 'plan' | 'tasks' | 'executions' | 'engine'
-
-const tabs: Array<{ id: DetailTab; label: string; icon: 'info' | 'folder' | 'plan' | 'list' | 'activity' | 'monitor' }> = [
-  { id: 'summary', label: 'Resumo', icon: 'info' },
-  { id: 'files', label: 'Ficheiros', icon: 'folder' },
-  { id: 'plan', label: 'Plano', icon: 'plan' },
-  { id: 'tasks', label: 'Tasks', icon: 'list' },
-  { id: 'executions', label: 'Execuções', icon: 'activity' },
-  { id: 'engine', label: 'Engine', icon: 'monitor' },
-]
 
 // One look for every action of the drawer; colour carries meaning only
 // together with the label (SoT/UI_UX.md).
@@ -103,16 +93,7 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
           </div> : null}
         </section>
 
-        <div className="sticky -top-3 z-[2] -mx-3 mt-1 flex gap-1 overflow-x-auto border-b border-[var(--theme-border-soft)] bg-[var(--theme-surface)] px-3 sm:-top-4 sm:-mx-4 sm:px-4" role="tablist" aria-label="Detalhe do planeamento">
-          {tabs.map((item) => <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === item.id}
-            className={`-mb-px inline-flex min-h-10 shrink-0 items-center gap-1.5 border-x-0 border-t-0 border-b-2 bg-transparent px-2.5 text-sm font-semibold transition-colors ${tab === item.id ? 'border-[var(--theme-accent)] text-[var(--theme-text)]' : 'border-transparent text-[var(--theme-text-muted)] hover:text-[var(--theme-text)]'}`}
-            onClick={() => setTab(item.id)}
-          ><Icon name={item.icon} size={13}/>{item.label}</button>)}
-        </div>
+        <OrchestratorPlanTabs value={tab} onChange={setTab}/>
 
         {loading && !detail ? <StateMessage kind="loading" message="A carregar detalhe do pedido…"/> : null}
         {loading && detail ? <p className="mt-3 text-sm text-[var(--theme-text-muted)]" role="status">A atualizar detalhe…</p> : null}

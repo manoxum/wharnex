@@ -23,6 +23,7 @@
 
 :root,
 :root[data-theme='light'] {
+  --theme-tab-active: #3574f0;
   --ui-font-family: Inter, Manrope, 'Segoe UI Variable', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
   --ui-scale: 1;
   --theme-bg: #f1f3ed; --theme-surface: #f8faf5; --theme-elevated: #fdfefb; --theme-muted: #ebefe7; --theme-subtle: #e2e7de; --theme-hover: #e5eadf;
@@ -31,6 +32,7 @@
   --theme-shadow: rgba(23,29,19,.12); --theme-overlay: rgba(18,22,16,.46);
 }
 :root[data-theme='dark'] {
+  --theme-tab-active: #5e9cff;
   --theme-bg: #111311; --theme-surface: #151715; --theme-elevated: #181a18; --theme-muted: #1c1f1c; --theme-subtle: #202320; --theme-hover: #252825;
   --theme-text: rgba(255,255,255,.9); --theme-text-soft: rgba(255,255,255,.64); --theme-text-muted: rgba(255,255,255,.42); --theme-border: rgba(255,255,255,.08); --theme-border-soft: rgba(255,255,255,.045);
   --theme-accent: #9acd54; --theme-accent-soft: rgba(154,205,84,.09); --theme-accent-ink: #11150d; --theme-danger: #e27676; --theme-warning: #d8bb70; --theme-success: #9fcb73;

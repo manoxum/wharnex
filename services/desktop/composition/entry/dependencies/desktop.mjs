@@ -18,7 +18,7 @@ export function createDesktopDependencies() {
     normalizeBounds: source15.normalizeBounds, requireLocalHTTPURL: source15.requireLocalHTTPURL, requireTrustedChatGPTURL: source15.requireTrustedChatGPTURL,
     sanitizeChatCacheKey: source15.sanitizeChatCacheKey, sanitizeOptionalChatCacheKey: source15.sanitizeOptionalChatCacheKey, sanitizeChatGPTAuthMode: source15.sanitizeChatGPTAuthMode,
     sanitizeDiagnosticURL: source15.sanitizeDiagnosticURL, sanitizeSessionId: source15.sanitizeSessionId, BundleOwnershipError: source15.BundleOwnershipError,
-    canonicalWharnessBundleDownload: source15.canonicalWharnessBundleDownload, validateWharnessBundleDownload: source15.validateWharnessBundleDownload, validateWharnessPlanFile: source15.validateWharnessPlanFile,
+    canonicalWharnexBundleDownload: source15.canonicalWharnexBundleDownload, validateWharnessBundleDownload: source15.validateWharnessBundleDownload, validateWharnessPlanFile: source15.validateWharnessPlanFile,
     wharnessBundleRequestIdFromFilename: source15.wharnessBundleRequestIdFromFilename, wharnessPlanRequestIdFromFilename: source15.wharnessPlanRequestIdFromFilename,
     desktopInstanceName: source17.desktopInstanceName, desktopWindowTitle: source17.desktopWindowTitle, initializeDesktopIdentity: source17.initializeDesktopIdentity,
     configureDesktopProcess: source18.configureDesktopProcess,

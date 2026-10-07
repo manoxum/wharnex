@@ -29,7 +29,6 @@
 :root[data-theme='dark'] .execution-log-heading .panel-kicker { color: #adadad; }
 :root[data-theme='dark'] .message-tools button,
 :root[data-theme='dark'] .icon-button.light,
-:root[data-theme='dark'] .editor-tab,
 :root[data-theme='dark'] .tree-row,
 :root[data-theme='dark'] .agent-tree-row,
 :root[data-theme='dark'] .terminal-controls,
@@ -143,8 +142,7 @@
 :root[data-theme='dark'] .execution-event-group,
 :root[data-theme='dark'] .operation { border-color: #424242; }
 :root[data-theme='dark'] .execution-event-actions > code,
-:root[data-theme='dark'] .execution-event > code,
-:root[data-theme='dark'] .tab-count { background: #303030; color: #c2c2c2; }
+:root[data-theme='dark'] .execution-event > code{ background: #303030; color: #c2c2c2; }
 :root[data-theme='dark'] .execution-expand { color: #b8b8b8; }
 :root[data-theme='dark'] .execution-expand:hover { background: #383838; color: #f2f2f2; }
 

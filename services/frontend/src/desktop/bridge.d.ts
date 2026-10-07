@@ -155,6 +155,10 @@ interface WharnessDesktopBridge {
     readText(): Promise<string>
     writeText(text: string): Promise<{ ok: boolean }>
   }
+  /** Opens a UI Lab guide in the Wharnex-owned browser; the URL is derived in the main process. */
+  uiTesting?: {
+    openGuide(request: { sessionId: string; runId: string; format: 'html' | 'pdf' | 'md' }): Promise<{ ok: boolean }>
+  }
 }
 
 interface Window { wharnessDesktop?: WharnessDesktopBridge }

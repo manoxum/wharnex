@@ -37,6 +37,7 @@ func (s *Service) commitWorkingFiles(ctx context.Context, sessionID, message str
 	if err != nil {
 		return GitWorktreeCommitResult{}, err
 	}
+	ctx = hostrepo.WithGitCorrelation(ctx, item.ID, "", item.ChatID)
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return GitWorktreeCommitResult{}, fmt.Errorf("a commit message is required")

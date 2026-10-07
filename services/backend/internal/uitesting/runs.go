@@ -1,6 +1,7 @@
 package uitesting
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,13 +9,15 @@ import (
 )
 
 const (
-	RunRoleTarget     = "target"
-	RunRoleDependency = "dependency"
-	maxRunHistory     = 100
+	// GuideDocumentAsset is the structured guide stored beside a run's captures.
+	GuideDocumentAsset = "guide.json"
+	RunRoleTarget      = "target"
+	RunRoleDependency  = "dependency"
+	maxRunHistory      = 100
 )
 
 // BeginRun records queued runs — the selected test and every prerequisite its
-// chain will execute — and marks those tests running.
+// chain will execute — without claiming they have started.
 func (s *Store) BeginRun(project string, runs ...Run) (Document, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -24,7 +27,7 @@ func (s *Store) BeginRun(project string, runs ...Run) (Document, error) {
 	}
 	for _, run := range runs {
 		state.Document.Runs = append([]Run{run}, state.Document.Runs...)
-		markTest(&state.Document, run.TestID, "running", run.ID)
+		markTest(&state.Document, run.TestID, run.Status, run.ID)
 	}
 	if len(state.Document.Runs) > maxRunHistory {
 		state.Document.Runs = state.Document.Runs[:maxRunHistory]
@@ -63,44 +66,58 @@ func (s *Store) CompleteRun(project string, run Run, result RunResult) (Document
 	stored := &state.Document.Runs[position]
 	stored.Status, stored.Error, stored.Steps, stored.CompletedAt = result.Status, result.Error, result.Steps, time.Now().UTC()
 	testID := stored.TestID
-	pdfReady, err := s.writeRunAssets(project, run.ID, result)
+	ready, err := s.writeRunAssets(project, run.ID, result)
 	if err != nil {
 		return Document{}, err
 	}
 	if result.GuideMD != "" {
-		upsertGuide(&state.Document, Guide{ID: "guide:" + testID, TestID: testID, RunID: run.ID, Title: result.GuideTitle, Markdown: result.GuideMD, PDFReady: pdfReady, Screenshots: result.Steps, UpdatedAt: time.Now().UTC()})
+		upsertGuide(&state.Document, Guide{ID: "guide:" + testID, TestID: testID, RunID: run.ID, Title: result.GuideTitle, Markdown: result.GuideMD,
+			PDFReady: ready.pdf, HTMLReady: ready.html, Screenshots: result.Steps, UpdatedAt: time.Now().UTC()})
 	}
 	markTest(&state.Document, testID, testStatus(result.Status), run.ID)
 	state.Document.UpdatedAt = time.Now().UTC()
 	return state.Document, s.save(project, state)
 }
 
-func (s *Store) writeRunAssets(project, runID string, result RunResult) (bool, error) {
+// guideFormats records which guide formats a run stored.
+type guideFormats struct{ pdf, html bool }
+
+func (s *Store) writeRunAssets(project, runID string, result RunResult) (guideFormats, error) {
+	ready := guideFormats{}
 	if len(result.Screenshots) == 0 && result.PDFBase64 == "" && result.GuideMD == "" {
-		return false, nil
+		return ready, nil
 	}
 	assetDir := filepath.Join(s.dir, "assets", projectKey(project), runID)
 	if err := os.MkdirAll(assetDir, 0o700); err != nil {
-		return false, err
+		return ready, err
 	}
 	for _, shot := range result.Screenshots {
 		if err := writeAsset(assetDir, shot.Name, shot.ContentBase64); err != nil {
-			return false, err
+			return ready, err
 		}
 	}
-	pdfReady := false
 	if result.PDFBase64 != "" {
 		if err := writeAsset(assetDir, "guide.pdf", result.PDFBase64); err != nil {
-			return false, err
+			return ready, err
 		}
-		pdfReady = true
+		ready.pdf = true
 	}
 	if result.GuideMD != "" {
 		if err := os.WriteFile(filepath.Join(assetDir, "guide.md"), []byte(result.GuideMD), 0o600); err != nil {
-			return false, err
+			return ready, err
 		}
 	}
-	return pdfReady, nil
+	if result.GuideDocument != nil {
+		raw, err := json.Marshal(result.GuideDocument)
+		if err == nil {
+			err = os.WriteFile(filepath.Join(assetDir, GuideDocumentAsset), raw, 0o600)
+		}
+		if err != nil {
+			return ready, err
+		}
+		ready.html = true
+	}
+	return ready, nil
 }
 
 // testStatus maps a run outcome to the catalog status. A test skipped because
@@ -119,6 +136,21 @@ func testStatus(runStatus string) string {
 func markTest(doc *Document, testID, status, runID string) {
 	for i := range doc.Tests {
 		if doc.Tests[i].ID == testID {
+			var incoming, current time.Time
+			incomingIndex, currentIndex := len(doc.Runs), len(doc.Runs)
+			for index, run := range doc.Runs {
+				if run.ID == runID {
+					incoming, incomingIndex = run.StartedAt, index
+				}
+				if run.ID == doc.Tests[i].LastRunID {
+					current, currentIndex = run.StartedAt, index
+				}
+			}
+			// An older task can settle after a new run has already completed.
+			// Keep its history, but never replace the newer catalog outcome.
+			if current.After(incoming) || (current.Equal(incoming) && currentIndex < incomingIndex) {
+				return
+			}
 			doc.Tests[i].Status, doc.Tests[i].LastRunID = status, runID
 		}
 	}

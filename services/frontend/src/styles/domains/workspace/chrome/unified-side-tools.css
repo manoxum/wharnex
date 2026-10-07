@@ -130,24 +130,6 @@
   white-space: nowrap;
 }
 .git-heading-actions { gap: 1px; }
-.git-tabs {
-  min-height: 38px;
-  padding: 0 4px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0;
-  overflow: hidden;
-  background: var(--theme-surface);
-}
-.git-tabs button {
-  min-width: 0;
-  padding: 0 6px;
-  gap: 5px;
-  font-size: calc(8px * var(--ui-font-scale));
-}
-.git-tabs button.active::after {
-  right: 6px;
-  left: 6px;
-}
 .git-tab-content {
   padding: 0;
   gap: 0;
@@ -155,28 +137,4 @@
   overflow-y: auto;
   background: var(--theme-bg);
   scrollbar-gutter: auto;
-}
-.git-tab-content > .git-changes-tabs {
-  margin: 8px 10px 6px;
-}
-.git-changes-tabs {
-  width: auto;
-  max-width: calc(100% - 20px);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding: 2px;
-  overflow: hidden;
-  border-color: var(--theme-border-soft);
-  border-radius: var(--radius-control);
-  background: var(--theme-surface);
-}
-.git-changes-tabs button {
-  min-width: 0;
-  height: 28px;
-  padding: 0 7px;
-  border-radius: 3px;
-  box-shadow: none;
-}
-.git-changes-tabs button.active {
-  background: var(--theme-hover);
-  box-shadow: inset 0 -2px var(--theme-accent);
 }

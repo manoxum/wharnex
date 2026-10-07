@@ -14,27 +14,14 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"kernl.local/harness/backend/internal/gitops"
+	"kernl.local/harness/backend/internal/gitops/hostbridge"
 )
 
-const maxHostGitOutputBytes = 1024 * 1024
-
-type HostGitRequest struct {
-	Operation   string `json:"operation"`
-	Root        string `json:"root"`
-	Remote      string `json:"remote"`
-	Branch      string `json:"branch,omitempty"`
-	CommitSHA   string `json:"commit_sha,omitempty"`
-	Tag         string `json:"tag,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Body        string `json:"body,omitempty"`
-	SetUpstream bool   `json:"set_upstream,omitempty"`
-}
-
-type HostGitResult struct {
-	Output   string `json:"output,omitempty"`
-	ExitCode int    `json:"exit_code"`
-	Error    string `json:"error,omitempty"`
-}
+// Compatibility aliases preserve the shipped host bridge request contract.
+type HostGitRequest = gitops.HostRequest
+type HostGitResult = gitops.HostResult
 
 func RunHostGit(ctx context.Context, socketPath string, request HostGitRequest) (HostGitResult, error) {
 	socketPath = strings.TrimSpace(socketPath)
@@ -117,46 +104,7 @@ func removeStaleUnixSocket(socketPath string) error {
 }
 
 func handleHostGitConnection(parent context.Context, conn net.Conn) {
-	defer conn.Close()
-	var request HostGitRequest
-	encoder := json.NewEncoder(conn)
-	if err := json.NewDecoder(conn).Decode(&request); err != nil {
-		_ = encoder.Encode(HostGitResult{ExitCode: -1, Error: "invalid host Git request"})
-		return
-	}
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
-	defer cancel()
-	if request.Operation == "github_release" {
-		releaseURL, err := CreateGitHubRelease(ctx, request)
-		if err != nil {
-			_ = encoder.Encode(HostGitResult{ExitCode: -1, Error: err.Error()})
-			return
-		}
-		_ = encoder.Encode(HostGitResult{ExitCode: 0, Output: releaseURL})
-		return
-	}
-	args, err := hostGitArgs(request)
-	if err != nil {
-		_ = encoder.Encode(HostGitResult{ExitCode: -1, Error: err.Error()})
-		return
-	}
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", request.Root}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	output, runErr := cmd.CombinedOutput()
-	if len(output) > maxHostGitOutputBytes {
-		output = output[:maxHostGitOutputBytes]
-	}
-	result := HostGitResult{Output: strings.TrimSpace(string(output)), ExitCode: 0}
-	if runErr != nil {
-		result.ExitCode = -1
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			result.ExitCode = exitErr.ExitCode()
-		} else {
-			result.Error = runErr.Error()
-		}
-	}
-	_ = encoder.Encode(result)
+	hostbridge.ServeConnection(parent, conn, CreateGitHubRelease, hostGitArgs)
 }
 
 func hostGitArgs(request HostGitRequest) ([]string, error) {

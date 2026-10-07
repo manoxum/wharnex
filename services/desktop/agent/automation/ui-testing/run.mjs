@@ -1,5 +1,5 @@
 import { captureBrowserState, resetBrowserState, restoreBrowserState } from './browser-session.mjs'
-import { renderGuidePDF } from './guide.mjs'
+import { printGuidePDF } from './guide.mjs'
 import { runSingleTest } from './run-test.mjs'
 
 const RUN_V1 = 'harness.ui-test-run/v1'
@@ -69,7 +69,7 @@ export function createUITestRunner(context) {
       const item = chain[i]
       const result = await runSingleTest({ ...shared, chat, path, writeFile, wait, item, restoredFrom:i === 0 ? restoredFrom : '' })
       if (result.status === 'session_invalid') return { sessionInvalid:true }
-      const report = { status:result.status, error:result.error, screenshots:result.screenshots, steps:result.steps }
+      const report = { status:result.status, error:result.error, screenshots:storedShots(result.screenshots), steps:result.steps }
       if (item.role === 'target') Object.assign(report, await guideFor(shared, item, result))
       result.status = report.status
       await post(`${shared.base}/result`, { run_id:item.run_id, result:report })
@@ -101,8 +101,9 @@ export function createUITestRunner(context) {
       const captions = guide.captions || {}
       for (const shot of result.screenshots) shot.caption = captions[shot.name] || shot.caption
       for (const step of result.steps) step.screen_caption = captions[step.screenshot] || step.screen_caption
-      const pdf = await renderGuidePDF(BrowserWindow, guide.title, guide.markdown, result.screenshots)
-      const review = { guide_title:guide.title, guide_markdown:guide.markdown, pdf_base64:pdf.toString('base64'), steps:result.steps, screenshots:result.screenshots }
+      const review = { guide_title:guide.title, guide_markdown:guide.markdown, guide_document:guide.document, steps:result.steps, screenshots:storedShots(result.screenshots) }
+      if (guide.print_html) review.pdf_base64 = (await printGuidePDF({ BrowserWindow, path, mkdir, writeFile, wait }, shared.dir, guide.print_html, result.screenshots)).toString('base64')
+      if (guide.coverage?.added?.length || guide.coverage?.error) console.info(`[ui-testing] coverage task=${shared.taskId} added=${guide.coverage.added?.length || 0}${guide.coverage.error ? ' error' : ''}`)
       if (result.status === 'passed' && guide.verdict?.status === 'failed') Object.assign(review, { status:'failed', error:`Revisão visual: ${guide.verdict.reason}` })
       return review
     } catch (reason) {
@@ -128,6 +129,9 @@ export function createUITestRunner(context) {
       }
     }
   }
+
+  // Measured elements serve only the guide request; the run keeps the captures.
+  function storedShots(screenshots) { return screenshots.map(({ elements: _elements, ...shot }) => shot) }
 
   async function taskDir(id) { const dir = path.join(app.getPath('temp'), 'wharnex-ui-testing', id); await rm(dir, { recursive:true, force:true }).catch(() => undefined); await mkdir(dir, { recursive:true, mode:0o700 }); return dir }
   return { run }

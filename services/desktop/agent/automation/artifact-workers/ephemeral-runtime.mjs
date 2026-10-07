@@ -1,5 +1,3 @@
-import { uiTestRunSlots } from './ui-test-capacity.mjs'
-
 export function createEphemeralWorkerRuntime({
   EPHEMERAL_WORKER_TASK_TYPES, EPHEMERAL_WORKER_IDLE_RETIRE_MS,
   EPHEMERAL_WORKER_PACE_PRIORITY, ephemeralWorkerViews, chatGPTWorkerEntries,
@@ -35,9 +33,7 @@ export function createEphemeralWorkerRuntime({
     }
     const host = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
     if (!host) return { status: 'failed', error: 'Ephemeral Worker has no host window' }
-    const uiTestRun = task.type === 'UI_TEST_RUN'
-    if (uiTestRun && !uiTestRunSlots.tryEnter()) return { status: 'waiting', delayMs: 20_000, observation: true, error: 'UI test run capacity is full' }
-    try { return await runEphemeral(task, context, host) } finally { if (uiTestRun) uiTestRunSlots.leave() }
+    return runEphemeral(task, context, host)
   }
 
   async function runEphemeral(task, context, host) {

@@ -181,8 +181,6 @@
 .execution-errors-summary b { font-size: calc(14px * var(--ui-font-scale)); }
 .execution-errors-summary small { font-size: calc(9px * var(--ui-font-scale)); }
 .execution-errors-toolbar { min-height: 44px; padding: 6px 10px; }
-.execution-errors-filters button { min-height: 30px; border-radius: 3px; font-size: calc(10px * var(--ui-font-scale)); }
-.execution-errors-filters button.active { border-color: transparent; border-bottom-color: var(--theme-accent); background: transparent; color: var(--theme-text); }
 .execution-errors-toolbar label { min-height: 32px; border-radius: 4px; background: var(--theme-bg); }
 .execution-errors-toolbar input { font-size: calc(11px * var(--ui-font-scale)); }
 .execution-errors-distribution > div { font-size: calc(9.5px * var(--ui-font-scale)); }

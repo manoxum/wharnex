@@ -3,6 +3,7 @@ package uitesting
 import (
 	"time"
 
+	"kernl.local/harness/backend/internal/uitesting/guidedoc"
 	"kernl.local/harness/backend/internal/uitesting/textlist"
 )
 
@@ -88,6 +89,8 @@ type Step struct {
 	ScreenCaption string `json:"screen_caption,omitempty"`
 	Outcome       string `json:"outcome,omitempty"`
 	Screenshot    string `json:"screenshot,omitempty"`
+	// Selector is the element the action targeted, so the guide can mark it.
+	Selector string `json:"selector,omitempty"`
 }
 
 type Run struct {
@@ -105,12 +108,15 @@ type Run struct {
 }
 
 type Guide struct {
-	ID          string    `json:"id"`
-	TestID      string    `json:"test_id"`
-	RunID       string    `json:"run_id"`
-	Title       string    `json:"title"`
-	Markdown    string    `json:"markdown"`
-	PDFReady    bool      `json:"pdf_ready"`
+	ID       string `json:"id"`
+	TestID   string `json:"test_id"`
+	RunID    string `json:"run_id"`
+	Title    string `json:"title"`
+	Markdown string `json:"markdown"`
+	PDFReady bool   `json:"pdf_ready"`
+	// HTMLReady marks a structured (v2) guide: its HTML page is rendered from
+	// the stored guide.json whenever it is served.
+	HTMLReady   bool      `json:"html_ready"`
 	Screenshots []Step    `json:"screenshots,omitempty"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -137,6 +143,9 @@ type Document struct {
 const (
 	DiscoveryOriginSync   = "sync"
 	DiscoveryOriginDesign = "design"
+	// DiscoveryOriginCoverage adds tests a guide review proposed for interface
+	// elements no planned test exercised; it never revises or retires a test.
+	DiscoveryOriginCoverage = "coverage"
 )
 
 type Discovery struct {
@@ -158,13 +167,15 @@ type Credentials struct {
 }
 
 type RunResult struct {
-	Status      string       `json:"status"`
-	Error       string       `json:"error,omitempty"`
-	GuideTitle  string       `json:"guide_title,omitempty"`
-	GuideMD     string       `json:"guide_markdown,omitempty"`
-	PDFBase64   string       `json:"pdf_base64,omitempty"`
-	Screenshots []Screenshot `json:"screenshots,omitempty"`
-	Steps       []Step       `json:"steps,omitempty"`
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
+	GuideTitle string `json:"guide_title,omitempty"`
+	GuideMD    string `json:"guide_markdown,omitempty"`
+	PDFBase64  string `json:"pdf_base64,omitempty"`
+	// GuideDocument is the structured guide the HTML page is rendered from.
+	GuideDocument *guidedoc.Document `json:"guide_document,omitempty"`
+	Screenshots   []Screenshot       `json:"screenshots,omitempty"`
+	Steps         []Step             `json:"steps,omitempty"`
 }
 
 type Screenshot struct {

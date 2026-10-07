@@ -41,6 +41,39 @@ func (s *Store) SaveDiscovery(project string, discovery Discovery, taskID ...str
 	return doc, s.save(project, state)
 }
 
+// SaveCoverage adds the proposed tests whose ids are new to the catalog and
+// returns those ids; a proposal reusing an existing id is ignored, so coverage
+// can never overwrite a planned test.
+func (s *Store) SaveCoverage(project string, proposed []TestCase) ([]string, Document, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.load(project)
+	if err != nil {
+		return nil, Document{}, err
+	}
+	known := map[string]bool{}
+	for _, test := range state.Document.Tests {
+		known[test.ID] = true
+	}
+	fresh := []TestCase{}
+	for _, test := range proposed {
+		if !known[test.ID] {
+			fresh = append(fresh, test)
+		}
+	}
+	if len(fresh) == 0 {
+		return nil, state.Document, nil
+	}
+	doc := state.Document
+	added, err := mergeDiscovery(&doc, Discovery{Origin: DiscoveryOriginCoverage, Tests: fresh}, "")
+	if err != nil {
+		return nil, Document{}, err
+	}
+	doc.UpdatedAt = time.Now().UTC()
+	state.Document = doc
+	return added, doc, s.save(project, state)
+}
+
 // mergeDiscovery applies one answer to doc and returns the ids it wrote. The
 // merged catalog is validated as a whole before anything is kept.
 func mergeDiscovery(doc *Document, discovery Discovery, brief string) ([]string, error) {

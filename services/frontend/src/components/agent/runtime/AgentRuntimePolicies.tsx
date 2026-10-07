@@ -1,6 +1,15 @@
 import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
 import { Icon } from '../../presentation/chrome/Icon'
-import { short, timeLabel, useAgentRuntimePolicyActions, workerTaskTypeGroups } from './agentRuntimePolicyActions'
+import { short, timeLabel, useAgentRuntimePolicyActions } from './agentRuntimePolicyActions'
+import { AgentTaskPolicies } from './task-policies/AgentTaskPolicies'
+
+const confirmCooldownRelease = (kind: 'rate_limit' | 'upload_limit') => kind === 'upload_limit'
+  ? confirmDialog({
+    title: 'Libertar limite de upload?',
+    message: 'Todos os tipos que enviam ficheiros voltam a tentar upload já. Use depois de trocar de conta ChatGPT; se a conta ainda estiver limitada, o limite volta a ser detetado após dois uploads sem arranque.',
+    tone: 'warning', confirmLabel: 'Libertar agora', cancelLabel: 'Manter cooldown',
+  })
+  : confirmRelease()
 
 const confirmRelease = () => confirmDialog({
   title: 'Libertar suspensão por rate limit?',
@@ -16,12 +25,13 @@ export function AgentRuntimePolicies({ runtime, onRuntime, onError }: {
 }) {
   const {
     busy, workerPauseMode, setWorkerPauseMode, workerPauseMinutes, setWorkerPauseMinutes,
-    workerPauseScope, setWorkerPauseScope, workerPauseTaskTypes, setWorkerPauseTaskTypes,
     scaleSupervisors, scaleWorkers, updatePolicies, scaleAutoScaleCeiling, scaleAutoScaleSupervisorCeiling,
-    suspendWorkers, releaseRateLimit, resumeWorkers,
+    suspendWorkers, releaseRateLimit, releaseRateLimitConfirmed, resumeWorkers,
   } = useAgentRuntimePolicyActions({ runtime, onRuntime, onError, confirmRelease })
 
   return <>
+    <AgentTaskPolicies confirm={confirmCooldownRelease} releaseRateLimit={releaseRateLimitConfirmed} onError={onError}/>
+
     <section className="agent-runtime-policy-section" aria-label="Proteção do provedor">
       <header className="agent-runtime-policy-heading">
         <div><span>Proteção do provedor</span><h3>Retoma e rate limit</h3></div>
@@ -30,12 +40,11 @@ export function AgentRuntimePolicies({ runtime, onRuntime, onError }: {
       <div className="agent-runtime-policy-grid">
         <div className={`agent-runtime-worker-policy agent-runtime-policy-wide${runtime.worker_pause?.paused ? ' is-paused' : ''}`}>
           <div className="agent-runtime-worker-policy-heading">
-            <div className="agent-runtime-pause-copy"><span className="agent-runtime-policy-chip">Workers</span><strong>Cooldown durável dos Workers</strong><small>{runtime.worker_pause?.paused ? `${runtime.worker_pause.task_types?.length ? `${runtime.worker_pause.task_types.length} tipos suspensos` : 'Todos os tipos suspensos'} · ${runtime.worker_pause.paused_until ? `retoma automática em ${timeLabel(runtime.worker_pause.paused_until)}` : 'aguardam liberação manual'}` : 'Suspenda todos os novos claims ou apenas famílias de tarefas; o trabalho em curso termina normalmente.'}</small></div>
+            <div className="agent-runtime-pause-copy"><span className="agent-runtime-policy-chip">Workers</span><strong>Pool de Workers inteiro</strong><small>{runtime.worker_pause?.paused ? `Pool de Workers suspenso · ${runtime.worker_pause.paused_until ? `retoma automática às ${timeLabel(runtime.worker_pause.paused_until)}` : 'aguarda retoma manual'}` : 'Pára todos os novos claims dos Workers persistentes; para um tipo de tarefa, use as políticas por tipo acima.'}</small></div>
             {runtime.worker_pause?.paused && <button type="button" className="agent-runtime-icon-button tone-success" disabled={busy} onClick={() => void resumeWorkers()} aria-label="Retomar Workers" title="Retomar Workers"><Icon name="play" size={14}/></button>}
           </div>
           {!runtime.worker_pause?.paused && <>
-            <div className="agent-runtime-pause-controls agent-runtime-worker-policy-controls"><select aria-label="Âmbito da suspensão dos Workers" value={workerPauseScope} disabled={busy} onChange={(event) => setWorkerPauseScope(event.target.value === 'types' ? 'types' : 'all')}><option value="all">Todos os tipos</option><option value="types">Tipos selecionados</option></select><select aria-label="Modo de retoma dos Workers" value={workerPauseMode} disabled={busy} onChange={(event) => setWorkerPauseMode(event.target.value === 'manual' ? 'manual' : 'timed')}><option value="timed">Retoma automática</option><option value="manual">Liberação manual</option></select>{workerPauseMode === 'timed' && <label><input aria-label="Minutos até retoma dos Workers" type="number" min="1" max="10080" step="1" value={workerPauseMinutes} disabled={busy} onChange={(event) => setWorkerPauseMinutes(event.target.value)}/><span>min</span></label>}<button type="button" className="agent-runtime-icon-button tone-warning" disabled={busy} onClick={() => void suspendWorkers()} aria-label="Suspender Workers" title="Suspender Workers"><Icon name="pause" size={14}/></button></div>
-            {workerPauseScope === 'types' && <fieldset className="agent-runtime-task-suspension"><legend>Tipos de tarefa a suspender</legend><div className="agent-runtime-task-tree"><div className="agent-runtime-task-tree-root"><span className="agent-runtime-task-tree-node-mark" aria-hidden="true"><Icon name="list" size={13}/></span><span><strong>Task</strong><small>Organize a suspensão por finalidade, sem perder o controlo por tipo.</small></span><em>{workerPauseTaskTypes.length} selecionados</em></div><div className="agent-runtime-task-tree-branches">{workerTaskTypeGroups.map((group) => { const selectedCount = group.tasks.filter(([type]) => workerPauseTaskTypes.includes(type)).length; const allSelected = selectedCount === group.tasks.length; return <section key={group.id} className="agent-runtime-task-tree-group" aria-label={group.label}><header><label><input type="checkbox" aria-label={`Suspender grupo ${group.label}`} checked={allSelected} disabled={busy} onChange={(event) => { const checked = event.currentTarget.checked; const types = group.tasks.map(([type]) => type); setWorkerPauseTaskTypes((current) => { const next = new Set(current); for (const type of types) { if (checked) next.add(type); else next.delete(type) } return [...next] }) }}/><span><strong>{group.label}</strong><small>{group.description}</small></span></label><em>{selectedCount}/{group.tasks.length}</em></header><div>{group.tasks.map(([type, label]) => <label key={type} className="agent-runtime-task-tree-leaf"><input type="checkbox" checked={workerPauseTaskTypes.includes(type)} disabled={busy} onChange={(event) => setWorkerPauseTaskTypes((current) => event.target.checked ? [...current, type] : current.filter((item) => item !== type))}/><span>{label}</span><code>{type}</code></label>)}</div></section> })}</div></div></fieldset>}
+            <div className="agent-runtime-pause-controls agent-runtime-worker-policy-controls"><select aria-label="Modo de retoma dos Workers" value={workerPauseMode} disabled={busy} onChange={(event) => setWorkerPauseMode(event.target.value === 'manual' ? 'manual' : 'timed')}><option value="timed">Retoma automática</option><option value="manual">Liberação manual</option></select>{workerPauseMode === 'timed' && <label><input aria-label="Minutos até retoma dos Workers" type="number" min="1" max="10080" step="1" value={workerPauseMinutes} disabled={busy} onChange={(event) => setWorkerPauseMinutes(event.target.value)}/><span>min</span></label>}<button type="button" className="agent-runtime-icon-button tone-warning" disabled={busy} onClick={() => void suspendWorkers()} aria-label="Suspender Workers" title="Suspender Workers"><Icon name="pause" size={14}/></button></div>
           </>}
         </div>
         <div className={`agent-runtime-scale-card agent-runtime-rate-limit-policy agent-runtime-policy-wide${runtime.provider?.paused ? ' is-paused' : ''}`}>

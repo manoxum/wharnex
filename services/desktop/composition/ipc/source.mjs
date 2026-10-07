@@ -8,6 +8,7 @@ const registrations = [
   ['browser', 'registerBrowserDataIPC', 'registerBrowserDomainIPC'],
   ['attachments', 'registerChatAttachmentIPC', 'registerAttachmentsDomainIPC'],
   ['clipboard', 'registerClipboardIPC', 'registerClipboardDomainIPC'],
+  ['uitesting', 'registerUITestingGuideIPC', 'registerUITestingDomainIPC'],
 ]
 
 // Source-level regression tests can inspect the real domain registrars in the

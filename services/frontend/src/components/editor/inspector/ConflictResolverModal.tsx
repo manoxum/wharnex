@@ -1,3 +1,4 @@
+import { WorkbenchTabs } from '../../presentation/tabs'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { ConflictManualResolution, ConflictWorkbench, GitConflictStrategy, Session } from '../../../types'
 import { api } from '../../../lib/transport/http/api'
@@ -74,7 +75,9 @@ export function ConflictResolverModal({ session, busy, strategy = 'user_decide',
       <header className="flex items-center justify-between gap-3 border-b border-whx-border px-4 py-3"><div className="min-w-0"><span className="panel-kicker">Merge de três vias</span><strong className="block">Resolver conflito</strong><span className="text-xs text-whx-faint">Atual · Resultado · Recebido</span></div><div className="flex items-center gap-2"><StatusPill tone={allResolved ? 'success' : 'warning'}>{readOnly ? 'GPT Only · informativo' : `${resolvedCount}/${workbench?.files.length || 0} resolvido(s)`}</StatusPill><button className="icon-button light" disabled={busy || submitting} onClick={onClose} aria-label="Fechar resolução"><Icon name="close" size={14}/></button></div></header>
       {error && <div className="m-3 rounded-lg border border-whx-danger/40 bg-whx-danger/10 px-3 py-2 text-xs text-whx-danger">{error}</div>}
       {!workbench ? <div className="flex flex-1 items-center justify-center text-sm text-whx-muted">A carregar versões do conflito…</div> : <>
-        <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-whx-border px-3 py-2" role="tablist" aria-label="Ficheiros em conflito">{workbench.files.map((candidate) => <button key={candidate.path} role="tab" aria-selected={candidate.path === activePath} className={`max-w-[320px] truncate rounded-md px-3 py-1.5 text-xs ${candidate.path === activePath ? 'bg-whx-elevated text-whx-text' : 'text-whx-muted hover:bg-whx-hover'}`} onClick={() => setActivePath(candidate.path)}><span className="mr-1.5">{drafts[candidate.path]?.resolved ? '✓' : '•'}</span>{candidate.path}</button>)}</nav>
+        <WorkbenchTabs label="Ficheiros em conflito" value={activePath || ''} onChange={setActivePath} items={workbench.files.map((candidate) => ({
+          id: candidate.path, label: candidate.path, icon: 'file', badge: drafts[candidate.path]?.resolved ? '✓' : '•',
+        }))}/>
         {file && draft && <div className="grid min-h-0 flex-1 grid-cols-1 gap-px overflow-auto bg-whx-border lg:grid-cols-3">
           <ConflictPane title="Atual" subtitle={file.current_exists ? 'Versão na branch atual' : 'Ficheiro ausente'} actionLabel={readOnly ? undefined : 'Aceitar atual'} onAccept={() => accept(file.current, file.current_exists)}><CodeEditor path={`.wharnex-conflict/current/${file.path}`} value={file.current} onChange={() => undefined} onSave={() => undefined} onCursorChange={() => undefined} readOnly/></ConflictPane>
           <ConflictPane title="Resultado" subtitle={readOnly ? 'Pré-visualização informativa; o GPT resolverá o conflito' : draft.exists ? (draft.resolved ? 'Marcado como resolvido' : 'Edite a consolidação') : 'Ficheiro será removido'} center>

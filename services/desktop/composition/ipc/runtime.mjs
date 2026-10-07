@@ -46,7 +46,7 @@ export function createDesktopIPCRegistrar(d) {
     escalateChatGPTContinuationFailure, createChatGPTRecoveryState,
     clearChatGPTHumanAction, recordChatGPTContinuationSent,
     canonicalBundleFilename, dialog, path, readFile,
-    MAX_EXECUTION_BUNDLE_BYTES, canonicalWharnessBundleDownload,
+    MAX_EXECUTION_BUNDLE_BYTES, canonicalWharnexBundleDownload,
     validateWharnessBundleDownload, pendingChatGPTBundlePayloads,
     acknowledgeChatGPTBundle, pendingChatGPTBundleDeliveries,
     withChatGPTSupervisorTransport, submitPromptToChatGPT,
@@ -73,6 +73,7 @@ export function createDesktopIPCRegistrar(d) {
     decodeChatAttachmentSet, chatAttachmentRoot,
     createPersistentAttachmentPreview, registerClipboardIPC,
     clipboard, ClipboardItem, fetchContextZip,
+    registerUITestingGuideIPC, BACKEND_URL,
   } = d
 
   function registerIPC() {
@@ -110,7 +111,7 @@ export function createDesktopIPCRegistrar(d) {
         escalateChatGPTContinuationFailure, createChatGPTRecoveryState, clearChatGPTHumanAction,
         recordChatGPTContinuationSent, canonicalBundleFilename, dialog,
         app, path, readFile, MAX_EXECUTION_BUNDLE_BYTES,
-        canonicalWharnessBundleDownload, validateWharnessBundleDownload, pendingChatGPTBundlePayloads, acknowledgeChatGPTBundle,
+        canonicalWharnexBundleDownload, validateWharnessBundleDownload, pendingChatGPTBundlePayloads, acknowledgeChatGPTBundle,
         pendingChatGPTBundleDeliveries, withChatGPTSupervisorTransport, submitPromptToChatGPT, queuePreparedPromptForWorker,
         preparePromptForChatGPT, retryPreparedChatGPTPrompt, attachContextToChatGPT, attachPromptToChatGPT,
         submitPreparedChatGPTDraft, queueChatGPTComment, cancelChatGPTRequestState, CHATGPT_URL,
@@ -138,6 +139,9 @@ export function createDesktopIPCRegistrar(d) {
       },
       clipboard: {
         registerClipboardIPC, clipboard, ClipboardItem, app, fetchContextZip,
+      },
+      uitesting: {
+        registerUITestingGuideIPC, shell, backendURL: BACKEND_URL,
       },
     })
   }

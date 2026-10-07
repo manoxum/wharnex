@@ -21,7 +21,6 @@
 .agent-surface-tabs button.has-attention { color: #e7bd6d; background: color-mix(in srgb, currentColor 8%, transparent); }
 .agent-surface-tabs button.attention-danger { color: #ef8e83; }
 .agent-surface-tabs button.attention-success { color: #a8d87c; }
-.surface-attention-count { min-width: 14px; height: 14px; position: absolute; right: 5px; top: 5px; padding: 0 3px; display: grid; place-items: center; border: 1px solid #181b17; border-radius: 999px; background: currentColor; color: #181b17; font: 800 7px/1 var(--mono-font-family); }
 .agent-attention-cluster { position: relative; display: flex; align-items: center; }
 .agent-attention-summary { min-width: max-content; min-height: 34px; padding: 4px 8px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #745b32; border-radius: 8px; background: #302719; color: #e2ba73; cursor: pointer; }
 .agent-attention-summary.urgent { border-color: #8c5249; background: #412722; color: #f2a49a; box-shadow: 0 0 0 2px color-mix(in srgb, #d66d60 17%, transparent); }
@@ -61,7 +60,6 @@
 .agent-command-icon b { min-width: 13px; height: 13px; position: absolute; right: -5px; top: -5px; padding: 0 3px; display: grid; place-items: center; border-radius: 999px; background: var(--acid); color: #17200f; font: 700 7px/1 var(--mono-font-family); }
 
 .agent-chat-switcher { grid-column: 1 / -1; grid-row: 2; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid #cfd4ca; background: #f5f6f1; }
-.agent-chat-switcher .chat-tabs { min-width: 0; flex: 1; }
 .agent-chat-switcher .chat-new-button { flex: 0 0 auto; }
 .agent-activity-bar { grid-column: 1; grid-row: 3; position: relative; z-index: 12; width: 42px; min-height: 0; padding: 7px 5px; display: flex; flex-direction: column; align-items: center; gap: 5px; border-right: 1px solid #30342d; background: #20231f; }
 .agent-activity-bar button { width: 32px; height: 36px; position: relative; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #737b70; cursor: pointer; }

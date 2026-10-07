@@ -87,6 +87,7 @@ export function createDesktopAgentScheduling(d) {
       get desiredWorkerSlots() { return state.desiredChatAgentWorkerSlots },
       get diagnostics() { return state.chatAgentRuntimeDiagnostics },
       set diagnostics(value) { state.chatAgentRuntimeDiagnostics = value },
+      get onAutomationHolds() { return state.chatGPTAutomationHoldsListener },
       get rateLimitUntil() { return state.chatGPTRateLimitUntil },
       set rateLimitUntil(value) { state.chatGPTRateLimitUntil = value },
       get resumeProbeRequired() { return state.chatGPTRateLimitResumeProbeRequired },

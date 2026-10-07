@@ -4,6 +4,20 @@ import { AgentRuntimeDrawer } from './AgentRuntimeDrawer'
 
 const dialog = vi.hoisted(() => ({ confirm: vi.fn(async () => true) }))
 vi.mock('../../../lib/desktop/bridge/appDialog', () => ({ confirmDialog: dialog.confirm }))
+// The per-type policies come from the backend; this fake is the durable hold
+// store the Policies tab reads and writes.
+const holds = vi.hoisted(() => {
+  const state = { suspended: new Set<string>(['RENAME_CHAT']) }
+  const policy = (type: string, pool: string) => ({ type, pool, uploads: false, state: state.suspended.has(type) ? 'suspended' : 'active', hold: { name: `task:${type}`, active: state.suspended.has(type), level: 0, reason: '', source: '', updated_at: '' }, cooldowns: [] })
+  return {
+    state,
+    api: {
+      list: vi.fn(async () => ({ holds: {}, task_policies: [policy('BOT_WRITE', 'supervisor'), policy('RENAME_CHAT', 'worker'), policy('UI_TEST_RUN', 'worker')] })),
+      set: vi.fn(async (name: string, update: { active: boolean }) => { const type = name.replace('task:', ''); if (update.active) state.suspended.add(type); else state.suspended.delete(type); return { name, ...update } }),
+    },
+  }
+})
+vi.mock('../../../lib/agent/automationHolds', async (original) => ({ ...(await original<object>()), automationHoldsApi: holds.api }))
 
 class TestResizeObserver {
   observe() {}
@@ -397,7 +411,7 @@ describe('AgentRuntimeDrawer', () => {
     expect(screen.queryByLabelText('Âmbito da suspensão dos Workers')).toBeNull()
 
     fireEvent.click(screen.getByRole('tab', { name: /Políticas/ }))
-    expect(await screen.findByText('Cooldown durável dos Workers')).toBeTruthy()
+    expect(await screen.findByText('Pool de Workers inteiro')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Minutos até retoma dos Workers'), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
 
@@ -430,7 +444,7 @@ describe('AgentRuntimeDrawer', () => {
     expect(await screen.findByText('Worker · Suspenso')).toBeTruthy()
     expect(screen.getByText('Supervisor · Chat sem jobs')).toBeTruthy()
     fireEvent.click(screen.getByRole('tab', { name: /Políticas/ }))
-    expect(await screen.findByText('Todos os tipos suspensos · aguardam liberação manual')).toBeTruthy()
+    expect(await screen.findByText('Pool de Workers suspenso · aguarda retoma manual')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Retomar Workers' }))
     await waitFor(() => expect(pausedAgents.resumeWorkers).toHaveBeenCalledTimes(1))
     expect(pausedAgents.resumeProvider).not.toHaveBeenCalled()
@@ -453,39 +467,21 @@ describe('AgentRuntimeDrawer', () => {
     await waitFor(() => expect(agents.resumeProvider).toHaveBeenCalledTimes(1))
   })
 
-  it('suspends only the selected Worker task types', async () => {
+  it('lists every browser task type with its state and suspends or resumes one durably', async () => {
     const agents = agentsBridge()
     window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
-
     render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
     fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
-    fireEvent.change(screen.getByLabelText('Âmbito da suspensão dos Workers'), { target: { value: 'types' } })
-    expect(screen.getByText('Task')).toBeTruthy()
-    expect(screen.getByRole('region', { name: 'Auxiliar' })).toBeTruthy()
-    expect(screen.getByRole('region', { name: 'Funcional' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('checkbox', { name: /Renomear chat/ }))
-    fireEvent.click(screen.getByRole('checkbox', { name: /Classificar TODO/ }))
-    fireEvent.change(screen.getByLabelText('Modo de retoma dos Workers'), { target: { value: 'manual' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
-
-    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined, ['RENAME_CHAT', 'TODO_CLASSIFY']))
-  })
-
-  it('selects an entire auxiliary branch from the Worker task tree', async () => {
-    const agents = agentsBridge()
-    window.wharnessDesktop = { agents } as unknown as WharnessDesktopBridge
-
-    render(<AgentRuntimeDrawer projectPath="/home/op/alpha" onClose={() => undefined} />)
-    fireEvent.click(await screen.findByRole('tab', { name: /Políticas/ }))
-    fireEvent.change(screen.getByLabelText('Âmbito da suspensão dos Workers'), { target: { value: 'types' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Suspender grupo Auxiliar' }))
-    fireEvent.change(screen.getByLabelText('Modo de retoma dos Workers'), { target: { value: 'manual' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Suspender Workers' }))
-
-    await waitFor(() => expect(agents.pauseWorkers).toHaveBeenCalledWith(undefined, [
-      'ORGANIZE_CHAT', 'RENAME_CHAT', 'ARCHIVE_CHAT', 'DELETE_CHAT', 'DELETE_TEMP_CHAT',
-      'DELETE_BUNDLE', 'TITLE_DISCOVER', 'TITLE_GENERATE_TEMP', 'TITLE_AWAIT',
-    ]))
+    expect(await screen.findByRole('region', { name: 'Políticas por tipo de tarefa' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Conversa' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Testes UI' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Suspender BOT_WRITE' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar suspensão' }))
+    await waitFor(() => expect(holds.api.set).toHaveBeenCalledWith('task:BOT_WRITE', expect.objectContaining({ active: true })))
+    fireEvent.click(await screen.findByRole('button', { name: 'Retomar RENAME_CHAT' }))
+    await waitFor(() => expect(holds.api.set).toHaveBeenCalledWith('task:RENAME_CHAT', { active: false }))
+    expect(screen.queryByLabelText('Âmbito da suspensão dos Workers')).toBeNull()
+    expect(agents.pauseWorkers).not.toHaveBeenCalled()
   })
 
   it('keeps automatic provider rate-limit state separate from manual Worker cooldown', async () => {

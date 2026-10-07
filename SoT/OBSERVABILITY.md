@@ -1,5 +1,29 @@
 # Observability SoT
 
+## Bundle transport statistics
+
+The workspace three-hour bundle counter projects persisted operational evidence,
+across every pool and task type. `chatgpt-upload confirmed` records one observed
+successful file upload; preparation, retries without confirmation and downloads
+never consume the upload limit. Its bounded metadata includes the owned filename
+and task when known. `chatgpt-bundle-received` records completed, bounded bundle
+downloads before semantic validation, including responses subsequently rejected.
+Only metadata is recorded, never bundle bytes, screenshots or remote prose.
+Historical chat acknowledgements and utility bundle-delivery HTTP calls may fill
+older receive counts, with inferred deliveries explicitly labelled as estimates.
+One download and its later delivery/acknowledgement must never be counted twice.
+The projection uses the complete filtered window, not a paginated log sample,
+and survives runtime restart within the operational log retention period. Query
+failure is reported as unavailable instead of a successful zero-consumption
+snapshot. Existing artifact counts remain a development-store fallback only.
+
+Git index-lock maintenance emits `git.index_lock_recovery_completed` or
+`git.index_lock_recovery_blocked` operational records with repository, bounded
+lock path, age and a categorical reason (`adr/ADR-0092`). The calling context's
+session/request/chat/task identities are retained when available. Recording
+uses the asynchronous redacted operational writer and cannot fail the Git work.
+Process arguments, environments, descriptors and file contents are never logged.
+
 Every session emits ordered events with timestamp, type, session ID, and concise data. Events include context, planning, policy, execution, command, patch, verification, apply, and failure transitions.
 
 Request and execution lifecycle events carry request lineage whenever applicable: `request_id`, `root_request_id`, optional `parent_request_id`, and `iteration_kind`. This correlation is durable and must not be inferred from localized error prose.

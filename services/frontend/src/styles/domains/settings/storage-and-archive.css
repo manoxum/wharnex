@@ -63,7 +63,6 @@
 .chat-archive-toggle { height: 29px; flex: 0 0 auto; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #cbd0c5; border-radius: 7px; background: #f8f8f4; color: #646a60; font-size: calc(9px * var(--ui-font-scale)); font-weight: 650; cursor: pointer; }
 .chat-archive-toggle:hover:not(:disabled), .chat-archive-toggle.active { background: #e5eadf; border-color: #b8c2ae; color: #394532; }
 .chat-archive-toggle b { min-width: 16px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; border-radius: 8px; background: #d5dccd; color: #4e5d45; font: 700 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
-.chat-tab-remove:hover { background: #e8ece4; color: #52654a; }
 .chat-archive-panel { flex: 0 0 auto; border-bottom: 1px solid #d6dbd0; background: #f4f5f0; box-shadow: inset 0 -1px 0 rgba(255,255,255,.65); }
 .chat-archive-heading { min-height: 47px; padding: 8px 10px 7px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid #dde0d8; }
 .chat-archive-heading > div:first-child { min-width: 0; display: grid; gap: 2px; }

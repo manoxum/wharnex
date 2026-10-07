@@ -14,7 +14,7 @@ describe('WorkspaceRightRail', () => {
 
     view.rerender(<WorkspaceRightRail drawer="database" onDrawer={onDrawer} onError={onError}/>)
     expect(screen.getByText(/passwords nunca são persistidas/i)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'SQL' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'SQL' }))
     expect(screen.getByText('SQL console')).toBeTruthy()
   })
 })

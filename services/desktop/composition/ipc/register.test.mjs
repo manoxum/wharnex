@@ -14,6 +14,7 @@ test('desktop IPC domains register in the original order with live state callbac
     browser: ['registerBrowserDataIPC'],
     attachments: ['registerChatAttachmentIPC'],
     clipboard: ['registerClipboardIPC'],
+    uitesting: ['registerUITestingGuideIPC'],
   }
   const context = {
     common: { ipcMain: { id: 'ipc' }, trustedSender: () => undefined },
@@ -29,6 +30,7 @@ test('desktop IPC domains register in the original order with live state callbac
   context.chatgpt.shell = { openExternal: async () => {} }
   context.chatgpt.BEHAVIOR_PROBE_CONTROLS = ['closed-control']
   context.chatgpt.getChatAgentScheduler = getScheduler
+  context.uitesting.shell = context.chatgpt.shell
 
   registerDesktopIPC(context)
 
@@ -43,6 +45,7 @@ test('desktop IPC domains register in the original order with live state callbac
   assert.equal(options.get('registerChatGPTSessionControlIPC').openOwnedChatGPTBrowser, context.chatgpt.shell.openExternal)
   assert.equal(options.get('registerExpectedBundleRecoveryIPC').getChatAgentScheduler, getScheduler)
   assert.equal(options.get('registerAgentIPC').state, state)
+  assert.equal(options.get('registerUITestingGuideIPC').shell, context.uitesting.shell)
 })
 
 test('entrypoint registrar delays IPC setup and passes live agent state', () => {
@@ -53,7 +56,7 @@ test('entrypoint registrar delays IPC setup and passes live agent state', () => 
     'registerChatGPTSessionControlIPC', 'registerExpectedBundleRecoveryIPC',
     'registerChatGPTBundleIPC', 'registerChatGPTPromptIPC',
     'registerAgentIPC', 'registerBrowserDataIPC',
-    'registerChatAttachmentIPC', 'registerClipboardIPC',
+    'registerChatAttachmentIPC', 'registerClipboardIPC', 'registerUITestingGuideIPC',
   ]
   const state = { get scheduler() { return 'live' } }
   const d = Object.fromEntries(names.map((name) => [name, (options) => order.push([name, options])]))

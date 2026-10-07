@@ -165,3 +165,25 @@ func TestSyncRetiresAnOutOfScopeEnvironmentWithItsTests(t *testing.T) {
 		t.Fatalf("in-scope tests changed: %v", ids(doc.Tests))
 	}
 }
+
+func TestCoverageOnlyAddsNewTestsAndKeepsSyncState(t *testing.T) {
+	store, project := seededStore(t)
+	added, doc, err := store.SaveCoverage(project, []TestCase{
+		{ID: "login", Title: "Outro login", Goal: "x", EnvironmentID: "web", Access: AccessPublic},
+		{ID: "abrir-detalhe", Title: "Abrir detalhe", Goal: "Ver o detalhe", EnvironmentID: "web", Access: AccessAuthenticated, DependsOn: []string{"login"}},
+	})
+	if err != nil || !reflect.DeepEqual(added, []string{"abrir-detalhe"}) {
+		t.Fatalf("added=%v err=%v", added, err)
+	}
+	for _, test := range doc.Tests {
+		if test.ID == "login" && test.Title != "Login" {
+			t.Fatal("coverage overwrote a planned test")
+		}
+	}
+	if doc.ContextSHA256 != "ctx-1" || len(doc.Tests) != 4 {
+		t.Fatalf("coverage changed sync state or lost tests: %#v", doc)
+	}
+	if _, _, err := store.SaveCoverage(project, []TestCase{{ID: "orfao", Title: "Órfão", Goal: "x", EnvironmentID: "web", Access: AccessPublic, DependsOn: []string{"nao-existe"}}}); err == nil {
+		t.Fatal("a proposal that breaks the catalog was accepted")
+	}
+}

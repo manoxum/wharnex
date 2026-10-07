@@ -29,12 +29,12 @@ export class BundleOwnershipError extends Error {
   }
 }
 
-// canonicalWharnessBundleDownload accepts either the exact canonical name, or
+// canonicalWharnexBundleDownload accepts either the exact canonical name, or
 // a browser-mangled duplicate-suffix variant "<canonical name minus .zip> (2).zip",
 // and normalizes the latter back to canonical form. expectedChatId/expectedRequestId
 // pin what this specific pending request is allowed to resolve to; a name
 // naming a different chat or request is a hard error, never silently accepted.
-export function canonicalWharnessBundleDownload(value, expectedRequestId = '', mimeType = '', expectedChatId = '', expectedFilename = '') {
+export function canonicalWharnexBundleDownload(value, expectedRequestId = '', mimeType = '', expectedChatId = '', expectedFilename = '') {
   const filename = String(value || '').trim()
   const parsed = parseBundleName(filename)
   if (parsed) {

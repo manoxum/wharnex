@@ -1,3 +1,4 @@
+import { tabBarSource, tabButtonSource, terminalTabsSource } from '../../../cascade/tabStyles'
 import { describe, expect, it } from 'vitest'
 import { css, lastRule } from '../../../cascade/styleRules'
 
@@ -17,11 +18,11 @@ describe('premium optical refinement', () => {
   })
 
   it('keeps Terminal frequent actions visible while rare actions use one compact overflow', () => {
-    expect(lastRule('.terminal-tab-action')).toContain('width: var(--toolbar-hit)')
+    expect(terminalTabsSource).toContain('size-[var(--toolbar-hit)]')
     expect(lastRule('.terminal-overflow-menu')).toContain('min-width: 176px')
     expect(lastRule('.terminal-overflow-menu button')).toContain('height: 30px')
-    expect(lastRule('.terminal-tabs')).toContain('overflow-x: auto')
-    expect(lastRule('.terminal-tabs')).toContain('scrollbar-width: none')
+    expect(tabBarSource).toContain('overflow-x-auto')
+    expect(tabBarSource).toContain('[scrollbar-width:none]')
   })
 
   it('uses the same optical hierarchy for Docker, Library and Database Studio', () => {
@@ -29,6 +30,6 @@ describe('premium optical refinement', () => {
     expect(lastRule('.artifact-explorer-heading')).toContain('min-height: 46px')
     expect(lastRule('.artifact-explorer-heading strong')).toContain('font-size: var(--module-title-size)')
     expect(lastRule('.database-studio-header')).toContain('background: var(--theme-surface)')
-    expect(lastRule('.database-workspace-tabs button')).toContain('font-size: var(--ui-text-size)')
+    expect(tabButtonSource).toContain('text-sm!')
   })
 })

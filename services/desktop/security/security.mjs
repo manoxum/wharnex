@@ -10,6 +10,6 @@ export {
 } from './origins.mjs'
 export { resolveLinuxOzonePlatform, chromeCompatibleUserAgent } from './platform.mjs'
 export {
-  wharnessBundleRequestIdFromFilename, BundleOwnershipError, canonicalWharnessBundleDownload,
+  wharnessBundleRequestIdFromFilename, BundleOwnershipError, canonicalWharnexBundleDownload,
   validateWharnessBundleDownload, wharnessPlanRequestIdFromFilename, validateWharnessPlanFile,
 } from './bundle-files.mjs'

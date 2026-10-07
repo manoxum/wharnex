@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"kernl.local/harness/backend/internal/bundleusage"
 	"kernl.local/harness/backend/internal/oplog"
 )
 
@@ -109,6 +110,15 @@ func (s *Store) QueryOperationalLog(ctx context.Context, filter oplog.Filter) ([
 		records = append(records, r)
 	}
 	return records, rows.Err()
+}
+
+// BundleTransportUsage projects persisted transport evidence without log-page limits.
+func (s *Store) BundleTransportUsage(ctx context.Context, start, end time.Time) ([]bundleusage.Counts, bool, error) {
+	if s.db == nil {
+		return nil, false, nil
+	}
+	counts, err := bundleusage.Query(ctx, s.db, start, end)
+	return counts, true, err
 }
 
 // PruneOperationalLog applies the retention policy and removes the swept

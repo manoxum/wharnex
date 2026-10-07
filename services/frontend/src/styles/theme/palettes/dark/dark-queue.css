@@ -16,10 +16,7 @@
 :root[data-theme='dark'] .change-summary-icon { background: #383838; color: #cecece; }
 :root[data-theme='dark'] .change-file-diff:hover { background: var(--theme-hover); }
 
-/* Dark inspector, provider chrome and execution observability. */
-:root[data-theme='dark'] .tabs button { color: var(--theme-text-muted); }
-:root[data-theme='dark'] .tabs button.active { border-color: var(--theme-text); color: var(--theme-text); }
-:root[data-theme='dark'] .tab-count,
+/* Dark inspector{ color: var(--theme-text-muted); }
 :root[data-theme='dark'] .execution-event-actions > code,
 :root[data-theme='dark'] .execution-event > code { background: #303030; color: #c2c2c2; }
 :root[data-theme='dark'] .muted,
@@ -147,7 +144,6 @@
 :root[data-theme='dark'] .context-summary,
 :root[data-theme='dark'] .project-storage-list,
 :root[data-theme='dark'] .context-search,
-:root[data-theme='dark'] .context-view-switch,
 :root[data-theme='dark'] .context-filter-switch,
 :root[data-theme='dark'] .context-patterns code { border-color: var(--theme-border); background: #171717; }
 :root[data-theme='dark'] .context-inventory-row,

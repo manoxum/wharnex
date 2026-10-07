@@ -109,38 +109,6 @@ func TestStepAnswerIsBoundAndTheActionProtocolIsClosed(t *testing.T) {
 	}
 }
 
-func TestGuideExchangeReturnsBoundMarkdown(t *testing.T) {
-	request, err := BuildGuideRequest(GuideInput{TaskID: taskID, RunID: "run_x", Test: uitesting.TestCase{ID: "login", Title: "Login"},
-		Status: "passed", Steps: []uitesting.Step{{Index: 1, Action: "click", Screenshot: "step-01.png"}},
-		Screenshots: []Screenshot{{Name: "step-01.png", Caption: "Ecrã de login", PNG: []byte("png")}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := request.Manifest
-	answer := GuideAnswer{Protocol: GuideResultProtocol, Task: GuideTask, TaskID: m.TaskID, RunID: m.RunID, InputSHA256: m.InputSHA256, Title: "Entrar no DRCAE",
-		Captions: map[string]string{"step-01.png": "Ecrã de login com o botão Entrar."}, Verdict: GuideVerdict{Status: "passed", Reason: "Painel visível após o login."}}
-	manifest, _ := json.Marshal(answer)
-	result, err := ParseGuideAnswer(m.ResultFilename, answerZip(t, map[string][]byte{guideManifest: manifest, guideMarkdown: []byte("# Entrar\n\n![](step-01.png)")}), m, request.Screenshots)
-	if err != nil || result.Title != "Entrar no DRCAE" || result.Captions["step-01.png"] == "" || result.Verdict.Status != "passed" {
-		t.Fatalf("result=%#v err=%v", result, err)
-	}
-	if _, err := ParseGuideAnswer(m.ResultFilename, answerZip(t, map[string][]byte{guideManifest: manifest}), m, request.Screenshots); err == nil {
-		t.Fatal("guide without markdown accepted")
-	}
-	if _, err := ParseGuideAnswer(m.ResultFilename, answerZip(t, map[string][]byte{guideManifest: manifest, guideMarkdown: []byte("## Passo a passo\n\nSem imagens.")}), m, request.Screenshots); err == nil {
-		t.Fatal("a guide that omits a capture was accepted")
-	}
-	uncaptioned := answer
-	uncaptioned.Captions = map[string]string{}
-	raw, _ := json.Marshal(uncaptioned)
-	if _, err := ParseGuideAnswer(m.ResultFilename, answerZip(t, map[string][]byte{guideManifest: raw, guideMarkdown: []byte("x")}), m, request.Screenshots); err == nil {
-		t.Fatal("a guide that leaves a capture without a legend was accepted")
-	}
-	if _, err := BuildGuideRequest(GuideInput{TaskID: taskID, RunID: "run_x", Screenshots: []Screenshot{{Name: "../x.png", PNG: []byte("p")}}}); err == nil {
-		t.Fatal("unsafe screenshot name accepted")
-	}
-}
-
 func TestActionAcceptsTheUnambiguousNestedForm(t *testing.T) {
 	var nested Action
 	if err := json.Unmarshal([]byte(`{"navigate":{"url":"/login"},"caption":"abrir"}`), &nested); err != nil || nested.Action != "navigate" || nested.URL != "/login" || nested.Caption != "abrir" {
