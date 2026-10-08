@@ -395,6 +395,19 @@ never contain passwords or tokens. It also
 lists the environment's stored sessions (valid or out of date) with **Limpar
 sessões**; session contents are never shown.
 
+Synchronization activity MUST come from its exact durable `UI_TEST_DISCOVER`
+task, rather than interpreting `sync_status=syncing` as active GPT analysis.
+`GET /api/sessions/{id}/ui-testing` adds a response-only `sync_activity` with
+`state=queued|waiting|running`, the canonical Worker number when running,
+and a retry deadline/reason when waiting. Running requires a live lease;
+pending, leased and expired-owner tasks remain queued. This projection is not
+persisted or included in GPT context and never exposes the task payload.
+The catalog and empty state name the queue, wait or active Worker; existing
+automation-hold controls explain discovery suspension separately. While the
+activity is unavailable, the UI reports that it is checking synchronization
+instead of claiming that GPT is analyzing the project. Terminal errors retain
+the existing retry action. Existing `sync_status` values remain compatible.
+
 Below the header, UI Lab shows the durable automation holds (see
 `adr/ADR-0093`): a status row with **Suspender testes UI** / **Retomar testes
 UI** (the `UI_TEST_*` task holds: all projects, the queue is kept and no

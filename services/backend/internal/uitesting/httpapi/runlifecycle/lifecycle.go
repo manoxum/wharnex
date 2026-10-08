@@ -8,6 +8,7 @@ import (
 
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/uitesting"
+	"kernl.local/harness/backend/internal/uitesting/httpapi/taskactivity"
 )
 
 type Tasks interface {
@@ -64,7 +65,7 @@ func Reconcile(project string, doc uitesting.Document, tasks Tasks, runs Runs, n
 			}
 			continue
 		}
-		states[run.ID] = activity(task, now)
+		states[run.ID] = taskactivity.State(task, now)
 	}
 	for i := range doc.Runs {
 		if state, ok := states[doc.Runs[i].ID]; ok {
@@ -99,16 +100,6 @@ func projectCatalog(doc uitesting.Document) uitesting.Document {
 		}
 	}
 	return doc
-}
-
-func activity(task session.ChatAgentTask, now time.Time) string {
-	if task.Status == session.ChatAgentTaskRunning && task.LeaseOwner != "" && task.LeaseExpiresAt != nil && task.LeaseExpiresAt.After(now) {
-		return "running"
-	}
-	if task.Status == session.ChatAgentTaskWaiting || task.NotBefore.After(now) {
-		return "waiting"
-	}
-	return "queued"
 }
 
 func terminalDetail(task session.ChatAgentTask) string {

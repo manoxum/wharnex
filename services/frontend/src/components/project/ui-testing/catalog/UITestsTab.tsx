@@ -7,6 +7,7 @@ import { UITestOverview } from './UITestOverview'
 import { uiInputClass } from '../uiTestingStyles'
 import { UITestCard } from './UITestCard'
 import { uiPrimaryButtonClass, uiSecondaryButtonClass } from '../uiTestingStyles'
+import { syncPresentation } from '../synchronization'
 
 type UITestsTabProps = {
   doc: UITestingDocument
@@ -33,17 +34,19 @@ export function UITestsTab({ doc, busy, onSync, onRun, onConfigure, onNew, onDis
   const groups = groupByEnvironment(doc, visibleTests, (test) => test.environment_id)
   const selectedIds = selected.filter((id) => doc.tests.some((test) => test.id === id))
   const selectedBlocked = selectedIds.some((id) => configurationIssues.has(id))
+  const sync = syncPresentation(doc)
   const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   return <div className="@container flex min-h-0 flex-1 flex-col gap-3 p-4 text-whx-text">
     <UITestOverview tests={doc.tests}/>
     <div className="flex flex-wrap items-center gap-2">
-      <div className="min-w-0 flex-1 basis-full @min-[620px]:basis-auto"><strong className="block text-lg text-whx-text">Catálogo de testes</strong><span className="text-sm text-whx-faint">{doc.tests.length} cenários · {doc.environments.length} ambiente{doc.environments.length === 1 ? '' : 's'} · {syncLabel(doc.sync_status)}</span></div>
+      <div className="min-w-0 flex-1 basis-full @min-[620px]:basis-auto"><strong className="block text-lg text-whx-text">Catálogo de testes</strong><span className="text-sm text-whx-faint">{doc.tests.length} cenários · {doc.environments.length} ambiente{doc.environments.length === 1 ? '' : 's'} · {sync.label}</span></div>
       {onNew && <button className={uiSecondaryButtonClass} disabled={busy} onClick={onNew}><Icon name="plus" size={13}/> Novo</button>}
       <button className={uiSecondaryButtonClass} disabled={busy || doc.sync_status === 'syncing'} onClick={onSync}><Icon name="refresh" size={13}/> Sincronizar</button>
       <button className={uiPrimaryButtonClass} disabled={busy || !selectedIds.length || selectedBlocked} onClick={() => onRun(selectedIds)}><Icon name="play" size={13}/> Executar selecionados{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}</button>
       <button className={uiSecondaryButtonClass} disabled={busy || !doc.tests.length || configurationIssues.size > 0} onClick={() => onRun([])}>Executar todos</button>
     </div>
     {doc.sync_status === 'failed' && <div role="alert" className="rounded-lg border border-whx-danger/30 bg-whx-danger/10 px-3 py-2 text-base leading-5 text-whx-danger">{doc.sync_error || 'A sincronização falhou. Tente sincronizar novamente.'}</div>}
+    {doc.sync_status === 'syncing' && doc.tests.length > 0 && <div role="status" className="rounded-lg border border-whx-border bg-whx-surface px-3 py-2 text-base leading-5 text-whx-faint">{sync.detail}</div>}
     {configurationIssues.size > 0 && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-whx-warning/30 bg-whx-warning/10 px-3 py-2 text-base leading-5 text-whx-warning">
       <span className="min-w-0 flex-1">{configurationIssues.values().next().value} {configurationIssues.size > 1 ? `Há ${configurationIssues.size} testes por configurar.` : ''}</span>
       <button className={uiSecondaryButtonClass} onClick={onConfigure}>Configurar ambiente</button>
@@ -59,7 +62,7 @@ export function UITestsTab({ doc, busy, onSync, onRun, onConfigure, onNew, onDis
       </label>
     </div>
     <div className="min-h-0 flex-1 space-y-4 overflow-auto pr-1">
-      {!doc.tests.length && <Empty text={emptyLabel(doc)}/>}
+      {!doc.tests.length && <Empty text={sync.detail} syncing={doc.sync_status === 'syncing'}/>}
       {doc.tests.length > 0 && !visibleTests.length && <Empty text="Nenhum teste corresponde à pesquisa e ao estado selecionado."/>}
       {groups.map(({ environment, items }) => <section key={environment.id} aria-label={`Ambiente ${environment.name}`} className="space-y-2">
         <header className="sticky top-0 z-[1] flex items-center gap-2 bg-whx-bg py-2">
@@ -72,9 +75,7 @@ export function UITestsTab({ doc, busy, onSync, onRun, onConfigure, onNew, onDis
     </div>
   </div>
 }
-function syncLabel(status: string) { return status === 'syncing' ? 'GPT a sincronizar contexto…' : status === 'failed' ? 'última sincronização falhou' : status === 'ready' ? 'sincronizado com o projeto' : 'ainda não sincronizado' }
-function emptyLabel(doc: UITestingDocument) { return doc.sync_status === 'syncing' ? 'A analisar o contexto completo do projeto…' : doc.sync_status === 'failed' ? 'A descoberta falhou. Use Sincronizar para tentar novamente.' : 'Sincronize para o GPT descobrir os testes de UI, ou use Novo para descrever um teste.' }
-function Empty({ text }: { text: string }) { return <div className="grid min-h-52 place-items-center rounded-lg border border-dashed border-whx-border p-8 text-center text-sm text-whx-faint">{text}</div> }
+function Empty({ text, syncing }: { text: string; syncing?: boolean }) { return <div role={syncing ? 'status' : undefined} className="grid min-h-52 place-items-center rounded-lg border border-dashed border-whx-border p-8 text-center text-sm text-whx-faint">{text}</div> }
 
 function matchesStatus(status: string, filter: string) {
   if (filter === 'all') return true

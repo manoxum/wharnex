@@ -11,6 +11,7 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/uitesting"
+	"kernl.local/harness/backend/internal/uitesting/httpapi/synclifecycle"
 	"kernl.local/harness/backend/internal/uitesting/sessionvault"
 )
 
@@ -109,7 +110,12 @@ func (h *Routes) get(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err)
 		return
 	}
-	writeJSON(w, 200, h.withSessions(r.Context(), doc))
+	view, err := synclifecycle.Project(h.withSessions(r.Context(), doc), h.sessions, time.Now().UTC())
+	if err != nil {
+		writeErr(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, view)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

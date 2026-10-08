@@ -33,6 +33,7 @@ export type UITestingDocument = {
   context_sha256?: string
   sync_status: string
   sync_task_id?: string
+  sync_activity?: { state: 'queued' | 'waiting' | 'running'; worker?: number; reason?: string; not_before?: string }
   sync_error?: string
   sync_summary?: string
   auto_run_changes: boolean
