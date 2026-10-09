@@ -1,3 +1,4 @@
+import { projectExecutionEvidence, appendOutput, setFallbackOutput, segmentsText, statusEventOutput, projectInteractiveEntry } from '../evidence'
 import { statusMeta } from './executionStatus'
 import type { HarnessEvent } from '../../../types'
 
@@ -20,6 +21,7 @@ export type ExecutionTimelineEntry = {
   outputSegments: ExecutionOutputSegment[]
   lifecycleState?: 'active' | 'waiting' | 'success' | 'failure'
   rationale: string
+  argv?: string[]
 	requestId: string
 	rootRequestId: string
 	iterationKind: 'standard' | 'repair' | 'revert_restore' | 'improvement' | 'evidence' | 'conflict'
@@ -86,13 +88,13 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
   const entries: ExecutionTimelineEntry[] = []
   const grouped = new Map<string, ExecutionTimelineEntry>()
 	let active = { requestId: '', rootRequestId: '', iterationKind: 'standard' as ExecutionTimelineEntry['iterationKind'] }
-  for (const event of events) {
+  for (const event of projectExecutionEvidence(events)) {
 		active = eventLineage(event, active)
     if (event.type === 'command.started' || event.type === 'command.output' || event.type === 'command.completed') {
       const runID = String(event.data.run_id || event.id)
       let entry = grouped.get(runID)
       if (!entry) {
-        entry = { id: runID, kind: 'command', title: commandTitle(event), detail: commandDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], rationale: commandRationale(event), ...active }
+        entry = { id: runID, kind: 'command', title: commandTitle(event), detail: commandDetail(event), badge: 'RUN', tone: 'warning', timestamp: event.timestamp, running: true, output: '', outputSegments: [], rationale: commandRationale(event), argv: commandArgv(event), ...active }
         grouped.set(runID, entry); entries.push(entry)
       }
       if (event.type === 'command.started') {
@@ -101,6 +103,7 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
         const text = String(event.data.text || '')
         if (text) appendOutput(entry, event.data.stream === 'stderr' ? 'stderr' : 'stdout', text)
       } else {
+        entry.argv = commandArgv(event) || entry.argv
         entry.title = commandTitle(event) || entry.title
         entry.detail = commandDetail(event) || entry.detail
         entry.rationale = commandRationale(event) || entry.rationale
@@ -108,10 +111,11 @@ export function buildExecutionTimeline(events: HarnessEvent[]): ExecutionTimelin
         entry.tone = event.data.success === false ? 'fail' : 'ok'
         entry.running = false
         entry.durationMs = finiteNumber(event.data.duration_ms)
-        if (!entry.output) setFallbackOutput(entry, event)
+        if (!entry.output || event.data.recorded_result) setFallbackOutput(entry, event)
       }
       continue
     }
+    if (projectInteractiveEntry(event, active, entries, grouped)) continue
     if (event.type === 'self_evolution.host_build_started' || event.type === 'self_evolution.host_build_output' || event.type === 'self_evolution.host_build_completed' || event.type === 'self_evolution.host_build_failed') {
       // A self-evolution host build can run for minutes (dependency
       // hydration, npm ci, vite/tsc, go build) with nothing surfaced until
@@ -164,6 +168,7 @@ function eventLineage(event: HarnessEvent, fallback: Pick<ExecutionTimelineEntry
 	return { requestId, rootRequestId, iterationKind }
 }
 
+function commandArgv(event: HarnessEvent) { return Array.isArray(event.data.argv) ? event.data.argv.map(String) : undefined }
 function commandTitle(event: HarnessEvent) {
   return Array.isArray(event.data.argv) ? (event.data.argv as unknown[]).map(String).join(' ') : 'Comando'
 }
@@ -175,43 +180,3 @@ function patchDetail(event: HarnessEvent) {
   return [String(event.data.target || ''), files.join(', ')].filter(Boolean).join(' · ')
 }
 function finiteNumber(value: unknown) { const number = Number(value); return Number.isFinite(number) && number >= 0 ? number : undefined }
-
-function appendOutput(entry: ExecutionTimelineEntry, stream: 'stdout' | 'stderr', text: string) {
-  entry.output += text
-  const previous = entry.outputSegments.at(-1)
-  if (previous?.stream === stream) previous.text += text
-  else entry.outputSegments.push({ stream, text })
-}
-
-function fallbackOutput(event: HarnessEvent): ExecutionOutputSegment[] {
-  const segments: ExecutionOutputSegment[] = []
-  for (const [key, label] of [['stdout', 'stdout'], ['stderr', 'stderr'], ['output', 'output'], ['diagnostic', 'diagnóstico'], ['baseline_diagnostic', 'baseline'], ['post_diagnostic', 'pós-verificação'], ['error', 'erro']] as const) {
-    const text = typeof event.data[key] === 'string' ? String(event.data[key]).trim() : ''
-    if (!text) continue
-    if (key === 'stdout' || key === 'stderr') segments.push({ stream: key, text })
-    else if (key === 'output') segments.push({ stream: 'meta', text })
-    else segments.push({ stream: 'meta', text: `[${label}] ${text}` })
-  }
-  const reasons = Array.isArray(event.data.reasons) ? (event.data.reasons as unknown[]).map(String).filter(Boolean) : []
-  segments.push(...reasons.map((value) => ({ stream: 'meta' as const, text: `[policy] ${value}` })))
-  return segments
-}
-
-function setFallbackOutput(entry: ExecutionTimelineEntry, event: HarnessEvent) {
-  entry.outputSegments = fallbackOutput(event)
-  entry.output = segmentsText(entry.outputSegments)
-}
-
-function segmentsText(segments: ExecutionOutputSegment[]) { return segments.map((segment) => segment.text).join('\n') }
-
-function structuredEventData(event: HarnessEvent) {
-  if (!event.data || !Object.keys(event.data).length) return ''
-  try { return JSON.stringify(event.data, null, 2) || '' } catch { return String(event.data) }
-}
-
-function statusEventOutput(event: HarnessEvent): ExecutionOutputSegment[] {
-  const segments = fallbackOutput(event)
-  const structured = structuredEventData(event)
-  if (structured) segments.push({ stream: 'meta', text: `[dados]\n${structured}` })
-  return segments
-}

@@ -1,23 +1,7 @@
 import { CHATGPT_REASONING_EFFORTS } from './chatgpt-effort.mjs'
 import { reasoningEffortAdjustScript, reasoningEffortStateScript } from '../../agent/automation/chat-agent-scripts.mjs'
 
-// The hidden Worker has a real layout viewport but Chromium does not always
-// treat it as the active page. This scoped CDP setting affects only page input
-// routing; it never focuses WebContents or moves the operating-system pointer.
-async function withWorkerPageInput(entry, wc, action) {
-  if (entry?.view?.getVisible?.() !== false) return action()
-  const attachedHere = !wc.debugger.isAttached()
-  if (attachedHere) wc.debugger.attach('1.3')
-  let emulated = false
-  try {
-    await wc.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true })
-    emulated = true
-    return await action()
-  } finally {
-    if (emulated) await wc.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false }).catch(() => undefined)
-    if (attachedHere) try { wc.debugger.detach() } catch { /* already detached */ }
-  }
-}
+import { withOwnedChatGPTPageInput as withWorkerPageInput } from '../account/control/index.mjs'
 
 export async function stepChatGPTEffort({ key, entry, wanted, behavior, executeDOM, requireOwned, press, pressKey, wait, settleMs, reopenAttempts, log = console.log }) {
   const wantedIndex = CHATGPT_REASONING_EFFORTS.indexOf(wanted)

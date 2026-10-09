@@ -128,3 +128,16 @@ an expired archived chat is never touched.
 - Chat naming no longer consumes a separate ChatGPT conversation. The planner
   response carries the semantic title, while the durable lifecycle queue remains
   responsible only for applying that accepted title/project organization remotely.
+
+### Composer model controls (2026-10-09)
+
+The model chooser follows the same locate/native-commit discipline. A main-process operation opens only the uniquely identified owned model trigger, reads its linked menu, resolves one exact offered choice to a fresh bounded row index and commits its geometry. The renderer supplies a choice identity, never a selector, script or coordinates. Selection is confirmed by rereading the menu selected state; ambiguous or unavailable options are rejected. Inventory/selection cannot interrupt an active request.
+
+
+### Expected response artifact controls — 2026-10-09
+
+Measured10:34:32 exact role-link synthetic clicks produced no download event. Extend locate-then-trusted-input to this named artifact control, preserving scoped hidden-page focus emulation and ownership validation. The role-link locator returns only a bounded point/viewport after exact-attribute verification and hit testing; it may scroll only that selected exact control. Main rechecks request/slot/transport ownership around async preparation and before dispatch. No generic IPC, script, selector or arbitrary coordinate from the renderer is accepted. Existing artifact controls that work via their shipped path are unaffected.
+
+### Diagnóstico de rejeição nativa — 2026-10-09
+
+O resultado booleano da operação permanece compatível. A expectativa main-owned guarda uma razão/etapa fechadas e geometria limitada para distinguir guardas de ownership, localizar alvo, viewport/hit e aceitação de input, sem conteúdo ou URLs. Uma falha tem cooldown próprio; não significa que houve clique nem renova progresso/TTL.

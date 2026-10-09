@@ -16,6 +16,7 @@ type DesktopBundleDownloadError = { cacheKey?: string; filename?: string; reques
 type DesktopChatGPTActivity = { cacheKey?: string; requestId?: string; state: 'idle' | 'thinking'; text: string; capturedAt: string }
 type DesktopChatGPTHumanAction = { cacheKey: string; requestId?: string; active: boolean; kind: 'verification' | 'authentication' | 'access' | 'surface' | 'transport' | string; source?: string; message: string; detectedAt: string; open?: boolean }
 type DesktopChatGPTCommentStatus = { cacheKey?: string; requestId: string }
+type DesktopChatGPTModels = { ok: boolean; current: string; options: Array<{ id: string; label: string; disabled: boolean }>; detail?: string }
 type DesktopCompletionNotification = { id: string; projectPath: string; chatId: string; kind: 'task-completed' | 'restart-pending'; title: string; body: string; occurredAt: string; read?: boolean }
 type DesktopTrayAction = 'open-notifications' | 'open-plan' | 'open-execution' | 'approve-execution' | 'pause-execution' | 'resume-execution' | 'suspend-execution' | 'continue-request' | 'open-workers' | 'open-tunnels'
 type DesktopTrayProjectState = {
@@ -74,6 +75,8 @@ interface WharnessDesktopBridge {
     showSuggestions(point: { x: number; y: number }): Promise<{ ok: boolean }>
   }
   chatgpt: {
+    getChatGPTModels(request: { workspaceChatId: string; url?: string }): Promise<DesktopChatGPTModels>
+    setChatGPTModel(request: { workspaceChatId: string; model: string; url?: string }): Promise<DesktopChatGPTModels>
     show(bounds: DesktopBounds, cacheKey: string, url?: string): Promise<{ ok: boolean }>
     hide(cacheKey: string): Promise<{ ok: boolean }>
     setBounds(bounds: DesktopBounds, cacheKey: string): Promise<{ ok: boolean }>

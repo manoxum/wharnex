@@ -52,6 +52,7 @@ export class ChatAgentQueueClient {
   }
 
   list(query) { return this.api.list(query) }
+  requestEvents(requestID) { return this.api.requestEvents(requestID) }
   queueSummary() { return this.api.queueSummary() }
   cancelLineage(rootRequestID) { return this.api.cancelLineage(rootRequestID) }
   providerState() { return this.api.providerState() }

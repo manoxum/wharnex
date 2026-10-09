@@ -13,6 +13,7 @@ import (
 
 	"kernl.local/harness/backend/internal/app/normativecontext"
 	"kernl.local/harness/backend/internal/app/repairprompt"
+	"kernl.local/harness/backend/internal/app/requeststrategy"
 	"kernl.local/harness/backend/internal/app/translationflow"
 	"kernl.local/harness/backend/internal/app/verification"
 	"kernl.local/harness/backend/internal/app/workflowbudget"
@@ -781,9 +782,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		if parentRequestID == "" && requestKind == requestKindStandard {
 			recordRequestSupportArtifact(current, requestID, mainRequestArtifactPath, []byte(operatorMessage))
 		}
-		if requestKind == requestKindPlanAdjustment {
-			recordRequestSupportArtifact(current, requestID, adjustmentRequestArtifactPath, []byte(operatorMessage))
-		}
+		recordExecutionPlanAdjustment(current, requestID, operatorMessage, requestKind)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
 		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
 		releasedBases = recordRequestBaseCommit(current, requestID, baseCommit)
@@ -1245,18 +1244,8 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			}
 		}
 	}
-	if current.LastRequestMode == "plan_first" && parsed.Turn.RequestID == current.LastRequestID {
-		if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
-			return BundleSubmission{}, errors.New("plan-first request must return kind=plan without plan.json; implementation requires explicit user approval")
-		}
-	}
-	if current.LastRequestMode == "correct_plan" && parsed.Turn.RequestID == current.LastRequestID {
-		if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
-			return BundleSubmission{}, errors.New("correct_plan request must return kind=plan without plan.json; implementation requires explicit user approval")
-		}
-	}
-	if current.LastRequestMode == "adjust_plan" && parsed.Turn.RequestID == current.LastRequestID && parsed.Turn.Kind == domain.TurnKindPlan {
-		return BundleSubmission{}, errors.New("adjust_plan request must return a revised executable result, not a planning-only proposal")
+	if err := requeststrategy.ValidateResult(current, parsed.Turn, parsed.Plan); err != nil {
+		return BundleSubmission{}, err
 	}
 	if parsed.Turn.Kind == domain.TurnKindContextRequest {
 		return s.acceptContextRequest(ctx, sessionID, current, parsed.Turn, parsed.Info)

@@ -86,6 +86,14 @@ rollout remains behind the engine's informed-command approval boundary. The
 terminal summary MUST name checks that actually ran and checks still pending.
 These reporting requirements add no command authority or wire fields.
 
+Diagnostic workflows MUST preserve bounded stage identifiers, native error
+codes (including SQLSTATE where available), and successful partial evidence.
+Client wrapper codes alone MUST NOT replace the underlying failure. They MUST
+NOT emit credentials, connection strings, raw business records or unbounded
+error messages. A process exit zero or `workflow.completed` does not establish
+that every diagnostic stage passed: the planner MUST inspect stage failure
+flags and missing prerequisites before claiming diagnostic or runtime success.
+
 ## Iterative workflow turn
 
 A `workflow` turn exists so one user request can span multiple ChatGPT ⇄ Wharness reasoning rounds without scraping model prose.
@@ -183,17 +191,21 @@ other prompt. Submitting that draft creates a fresh derived request classified
 plan request as parent and the same Main Request root. Its input bundle type is
 `adjustment`, never `correction`/`plan_correction`.
 
+An explicit operator adjustment MAY also replace a failed Protected execution of the latest plan, but only when its matching execution result is unsuccessful, no execution is in flight, and no host candidate is pending. It MUST NOT adjust successful, integrated or host-direct executed work. This is operator-authored review guidance, never an automatic source repair for infrastructure failure; the failure evidence remains in the durable history and the replacement stays in the original Main Request lineage.
+
+An operator MAY request `post_integration_evidence` after the latest Protected change is actually integrated and its matching verification succeeded. This is a derived request in the same Main Request, carrying the integration receipt and operator's runtime-check guidance; it does not execute or integrate the source again. The initial response MUST be a bounded workflow, clarification or blocked result, never another patch or an unsupported claim of runtime success. Ordinary workflow/evidence continuations then carry actual execution results back to the planner. Host rollout and runtime access retain their normal exact-plan approval boundaries. `applied` remains source integration evidence until those runtime checks have been observed.
+
 An execution-plan adjustment MUST be self-contained: it carries the original
 Main Request text in `requests/main.md`, the current adjustment prompt in
 `requests/adjustment.md`, and the cumulative prior response history already
 required for derived requests. The planner uses those inputs to supersede the
-unexecuted plan with a fresh executable result. `adjust_plan` MUST NOT return a
+unintegrated plan with a fresh executable result. `adjust_plan` MUST NOT return a
 planning-only `kind=plan`; it returns a normal executable `change` when the
 adjustment is implementable, or a terminal clarification/blocked result when it
 is not. The prior plan remains historical evidence and MUST NOT be executed once
 the adjustment continuation is created. A Protected adjusted execution plan
 returns to the informed execution-consent gate; creating the adjustment never
-inherits approval from the unexecuted plan it replaced.
+inherits approval from the plan it replaced.
 
 While a plan proposal is waiting for the user, the session is in `awaiting_plan_approval`; the linked transport channel stays associated with the same Main Request. Rejecting the proposal terminates that approval path without mutation and releases the transport channel. Historical plan-first responses created before this protocol addition remain readable, but new `plan_first` responses MUST use `kind=plan`.
 

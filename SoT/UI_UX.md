@@ -14,6 +14,8 @@ Wharness is an engineering workspace, not a chatbot skin.
 
 The Agent composer exposes provider reasoning depth as **Inteligência**, with `Instantâneo`, `Médio` and `Elevado`. This control is per chat and is distinct from **Esforço**, which remains the autonomous attempt budget. Changing Inteligência persists the session choice and affects the next and subsequent provider submissions; document translation remains fixed to Instantâneo.
 
+**Contexto** and **Inteligência** use compact icon-and-value choices with accessible names and tooltips, avoiding duplicated visible labels. The Agent composer also exposes **Modelo do ChatGPT** for its owned chat. Its options MUST come from a fresh structural inspection of that chat's actual model control, initiated by the user's gesture; mounting the composer MUST NOT open a remote menu. Missing or ambiguous controls expose attention without fallback model names or stale selectable options. A selection becomes current only after the remote control confirms it. The model choice is unavailable during an active request, a prepared upload or manual transport, and changing chats discards pending UI results from the previous chat. The Desktop retains the confirmed per-chat preference and validates it before transport, independently of the required reasoning-effort validation.
+
 ## Appearance themes
 
 - Wharness supports complete Light and Dark themes across bootstrap, workspace chrome, Agent, Editor, Monaco, terminal, settings, dialogs and observability surfaces. Theme selection is a local interface preference and MUST NOT alter project data.

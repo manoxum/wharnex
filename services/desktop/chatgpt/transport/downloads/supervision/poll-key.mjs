@@ -1,3 +1,4 @@
+import { createDownloadDiagnosticRecorder } from './diagnostic.mjs'
 import { observeGuardedResponseProgress } from './guarded-progress.mjs'
 export function createExpectedBundlePoll(context) {
   const {
@@ -6,19 +7,24 @@ export function createExpectedBundlePoll(context) {
     classifyChatGPTConversationTransport, CONVERSATION_TRANSPORT_STALE_MS, reconcileChatGPTConversationTransport, setChatGPTHumanAction, PROCESSING_STALE_ATTENTION_MS, BUNDLE_COMPLETION_GRACE_MS, isChatGPTAffinityAwaitingSettlement, CHATGPT_AFFINITY_RECOVERY_GRACE_MS, MAX_AUTOMATIC_BUNDLE_CONTINUATIONS, CHATGPT_DOM_PROBE_FAILURE_LIMIT, noteChatGPTRendererFault,
   } = context
 
+  const recordDiagnostic = createDownloadDiagnosticRecorder(context.logDownloadDiagnostic)
+  const activateNative = context.activateExpectedDownloadNative
+
   async function pollExpectedChatGPTDownloadKey(key) {
     if (pollingExpectedChatGPTBundles.has(key)) return
     pollingExpectedChatGPTBundles.add(key)
     const now = Date.now()
     try {
       const expected = expectedChatGPTBundles.get(key)
-      if (!expected || hasPendingChatGPTComments(key)) return
+      if (!expected) return
+      if (hasPendingChatGPTComments(key)) return recordDiagnostic(key, expected, undefined, 'queued-comment', now)
       // Once validated bytes are durable, the backend handoff/ACK is the only
       // remaining operation. Do not inspect the remote page or submit another
       // continuation while that local transaction is still settling.
-      if (pendingChatGPTBundleDeliveries.has(expected.requestId)) return
-      if (chatgptTransportModes.get(key) === 'manual') { expectedChatGPTBundles.delete(key); return }
+      if (pendingChatGPTBundleDeliveries.has(expected.requestId)) return recordDiagnostic(key, expected, undefined, 'pending-delivery', now)
+      if (chatgptTransportModes.get(key) === 'manual') { recordDiagnostic(key, expected, undefined, 'manual', now); expectedChatGPTBundles.delete(key); return }
       if (now - expected.armedAt > EXPECTED_BUNDLE_TTL_MS) {
+        recordDiagnostic(key, expected, undefined, 'expired', now)
         expectedChatGPTBundles.delete(key)
         sendToChatGPTKey(key, 'wharness:chatgpt:bundle-download-error', { cacheKey: key, requestId: expected.requestId, error: 'Tempo limite excedido enquanto o Wharnex aguardava o bundle canónico.' })
         return
@@ -28,7 +34,7 @@ export function createExpectedBundlePoll(context) {
       // or not. It is already on the conversation, so reading it here costs no
       // provider request at all — which is the whole point of binding a Supervisor
       // to a chat for the life of its request.
-      if (!entry || !chatGPTSupervisorOwnsExpectedResponse(key, expected.requestId)) return
+      if (!entry || !chatGPTSupervisorOwnsExpectedResponse(key, expected.requestId)) return recordDiagnostic(key, expected, undefined, 'ownership', now)
       // Suspension freezes provider-facing supervision too. In particular, do
       // not turn an already-armed continuation into reload/upload/download
       // traffic while the queue itself is stopped. The one resume probe owns the
@@ -36,19 +42,21 @@ export function createExpectedBundlePoll(context) {
       // Recovery reloads and DOM probes must not race the serialized upload or
       // prompt preparation currently owning this surface. The next main-process
       // sweep will resume supervision after the transport boundary is released.
-      if (Number(entry?.transportPreparationCount || 0) > 0) return
+      if (Number(entry?.transportPreparationCount || 0) > 0) { recordDiagnostic(key, expected, undefined, 'preparing', now); return }
       const wc = entry?.view.webContents
-      if (!entry || wc?.isDestroyed() || !isTrustedChatGPTOrigin(wc.getURL())) return
+      if (!entry || wc?.isDestroyed() || !isTrustedChatGPTOrigin(wc.getURL())) { recordDiagnostic(key, expected, undefined, 'surface', now); return }
       const transportAttention = entry.humanAction?.active && ['transport', 'stalled'].includes(entry.humanAction.kind)
-      if (entry.humanAction?.active && !transportAttention) return
-      if (Number(expected.backoffUntil || 0) > now) return
+      if (entry.humanAction?.active && !transportAttention) { recordDiagnostic(key, expected, undefined, 'human-gate', now); return }
+      if (Number(expected.backoffUntil || 0) > now) { recordDiagnostic(key, expected, undefined, 'backoff', now); return }
       try {
         const faultAction = !transportAttention && chooseChatGPTRecoveryAction(expected.recovery, {}, now, { faultOnly: true })
         if (faultAction) {
+          recordDiagnostic(key, expected, undefined, 'recovery', now)
           await performChatGPTRecoveryAction(key, expected, entry, faultAction)
           return
         }
         if (entry.loading) {
+          recordDiagnostic(key, expected, undefined, 'loading', now)
           if (!entry.loadingFaultNoted && entry.loadingSince && now - entry.loadingSince >= 30_000) {
             entry.loadingFaultNoted = true
             noteChatGPTRecoveryFault(expected.recovery, 'ChatGPT page load remained pending for more than 30 seconds', now)
@@ -56,51 +64,36 @@ export function createExpectedBundlePoll(context) {
           return
         }
 
-        // This request's bundle already arrived. Without this check the poller
-        // kept clicking the same download affordance forever: each click really
-        // downloaded the file again, the will-download handler recognised it as a
-        // duplicate and dropped it, `downloadInFlight` cleared on `done`, and the
-        // next sweep clicked again — a hot loop that re-downloaded the same ZIP
-        // indefinitely while never making progress. Supervision for this request
-        // is finished, so release it rather than merely skipping the click.
+        // Validated delivery ends this expectation before any remote activation.
         if (recentlyDeliveredChatGPTBundleRequestId(expected.requestId)) {
+          recordDiagnostic(key, expected, undefined, 'delivered', now)
           console.log(`[chatgpt-bundle-dom] already-delivered key=${key} request=${expected.requestId}; releasing expectation`)
           disarmExpectedChatGPTBundle(key, expected.requestId)
           return
         }
 
-        // downloadInFlight guards against re-clicking while a prior click's
-        // download hasn't reached will-download yet: if ChatGPT takes longer
-        // than DOM_DOWNLOAD_RETRY_MS to actually start serving the file, the
-        // time-only cooldown below would otherwise fire a second concurrent
-        // download of the identical file, which Chromium disambiguates on
-        // disk with a "(1)"/"(2)" suffix and which the download handler would
-        // then publish as two separate bundle-downloaded deliveries for the
-        // same request. Cleared by the will-download handler once this
-        // download resolves (success or failure), not by a timer, so it never
-        // gets stuck open longer than the actual download takes.
+        // Only one activation may be in flight; cooldown bounds a failed target.
         const keepFlowing = chatAgentKeepFlowingRequestActive(expected.requestId)
         if (!expected.downloadInFlight && (!keepFlowing || Number(expected.invalidBundleCount || 0) === 0) && (!expected.lastDOMClick || now - expected.lastDOMClick >= DOM_DOWNLOAD_RETRY_MS)) {
           await captureChatGPTProcessingDuration(entry, expected)
-          const clickMode = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline, false, Boolean(transportAttention || expected.rehydrating)), true)
+          const result = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline, false, Boolean(transportAttention || expected.rehydrating), { diagnostics: true }), true)
+          const clickMode = typeof result === 'string' ? result : String(result?.mode || '')
+          if (result?.nativeTarget) {
+            if (!await activateNative?.(key, entry, expected, result)) { recordDiagnostic(key, expected, result.diagnostic, 'native-input-rejected', now); return }
+            if (expectedChatGPTBundles.get(key) !== expected || chatgptViews.get(key) !== entry || pendingChatGPTBundleDeliveries.has(expected.requestId)) return
+          }
+          recordDiagnostic(key, expected, result?.diagnostic, 'observed', now)
           if (clickMode) {
             expected.lastDOMClick = now
             expected.downloadInFlight = true
             expected.progressAt = now
             setRecentExpectedDownload({ key, requestId: expected.requestId, at: now })
-            console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename} mode=${clickMode}`)
+            console.log(`[chatgpt-bundle-dom] download-triggered key=${key} file=${expected.filename} mode=${clickMode} input=${result?.nativeTarget ? 'native' : 'legacy'}`)
             return
           }
-        }
+        } else recordDiagnostic(key, expected, undefined, expected.downloadInFlight ? 'download-in-flight' : keepFlowing && Number(expected.invalidBundleCount || 0) > 0 ? 'invalid-bundle-held' : 'download-retry-delay', now)
 
-        // A click was already fired for this exact bundle and Chromium has not
-        // yet reported will-download/done for it. The response is not "complete
-        // without a bundle" merely because that async download hasn't resolved
-        // by this tick: falling through to completion/recovery below raced the
-        // in-flight click and fired an automatic "keep continue" for a request
-        // that had already produced a bundle, moments before it was downloaded.
-        // Wait for the download to resolve, bounded in case the click missed a
-        // real download affordance and will-download never fires at all.
+        // Await will-download/done before considering missing-bundle recovery.
         if (expected.downloadInFlight) {
           const pendingMs = now - Number(expected.lastDOMClick || now)
           if (pendingMs < DOWNLOAD_INFLIGHT_TIMEOUT_MS) return

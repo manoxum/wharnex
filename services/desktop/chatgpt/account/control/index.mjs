@@ -12,3 +12,5 @@ export function createAccountControls(context) {
   Object.assign(context, createAccountSidebar(context))
   return context
 }
+
+export { withOwnedChatGPTPageInput } from './page-input.mjs'

@@ -1,4 +1,5 @@
 export { chatAgentQueueDiagnostics } from './chat-agent-queue-diagnostics.mjs'
+export { restoredContinuationCount } from './history/continuation-budget.mjs'
 export { ChatAgentSchedulerClient, chatAgentBackoff } from './scheduler/index.mjs'
 export { createChatAgentTaskQueue } from './task-operations.mjs'
 export { chatAgentTaskPayload, createChatAgentConversationURL } from './task-identity.mjs'
