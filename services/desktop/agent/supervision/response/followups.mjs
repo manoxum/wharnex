@@ -14,6 +14,7 @@ export function createChatAgentFollowups({
       workspace_chat_id: String(values.workspaceChatId || ''),
       request_metadata: values.requestMetadata && typeof values.requestMetadata === 'object' ? { ...values.requestMetadata } : {},
       request_eligible_at: String(values.requestEligibleAt || ''),
+      observation_only: values.observationOnly === true,
     }
   }
 

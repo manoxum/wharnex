@@ -86,6 +86,14 @@ rollout remains behind the engine's informed-command approval boundary. The
 terminal summary MUST name checks that actually ran and checks still pending.
 These reporting requirements add no command authority or wire fields.
 
+Diagnostic workflows MUST preserve bounded stage identifiers, native error
+codes (including SQLSTATE where available), and successful partial evidence.
+Client wrapper codes alone MUST NOT replace the underlying failure. They MUST
+NOT emit credentials, connection strings, raw business records or unbounded
+error messages. A process exit zero or `workflow.completed` does not establish
+that every diagnostic stage passed: the planner MUST inspect stage failure
+flags and missing prerequisites before claiming diagnostic or runtime success.
+
 ## Iterative workflow turn
 
 A `workflow` turn exists so one user request can span multiple ChatGPT ⇄ Wharness reasoning rounds without scraping model prose.

@@ -128,3 +128,7 @@ an expired archived chat is never touched.
 - Chat naming no longer consumes a separate ChatGPT conversation. The planner
   response carries the semantic title, while the durable lifecycle queue remains
   responsible only for applying that accepted title/project organization remotely.
+
+### Composer model controls (2026-10-09)
+
+The model chooser follows the same locate/native-commit discipline. A main-process operation opens only the uniquely identified owned model trigger, reads its linked menu, resolves one exact offered choice to a fresh bounded row index and commits its geometry. The renderer supplies a choice identity, never a selector, script or coordinates. Selection is confirmed by rereading the menu selected state; ambiguous or unavailable options are rejected. Inventory/selection cannot interrupt an active request.

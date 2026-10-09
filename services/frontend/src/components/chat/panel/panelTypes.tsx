@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, ExecutionPlan, QueuedChatRequest, Session } from '../../../types'
 import type { ContextMode, ReasoningEffort } from '../../../types'
 import { type WorkspaceChat } from '../../../lib/chat/history/workspaceMemory'
@@ -27,6 +28,7 @@ export type ChatPanelProps = {
   compactComposer?: boolean
   composerPlaceholder?: string
   composerSendLabel?: string
+  executionApproval?: ReactNode
   composerHint?: string
   historyViewportStore?: ChatViewportStore
   executionMode?: ExecutionMode

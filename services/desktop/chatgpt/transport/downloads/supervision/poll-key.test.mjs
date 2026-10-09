@@ -113,3 +113,17 @@ test('a static historical completion cannot renew an adopted request lease', asy
   await poll('owned')
   assert.equal(expected.progressAt, 1)
 })
+
+test('a structured no-selection diagnostic cannot be mistaken for a successful download click', async () => {
+  const lines = []
+  const f = pollHarness({ logDownloadDiagnostic: (line) => lines.push(line), chatGPTResponseCompletionScript: () => 'completion' })
+  f.expected.rehydrating = true
+  f.context.chatgptViews.get('owned').view.webContents.executeJavaScript = async (script) => script === 'completion'
+    ? { thinking: false, complete: false }
+    : { mode: '', diagnostic: { state: 'exact-only-blocked', exactOnly: true, scanned: 9, exact: 0, latest: 1 } }
+  await f.poll('owned')
+  assert.notEqual(f.expected.downloadInFlight, true)
+  assert.equal(f.expected.lastDOMClick, undefined)
+  assert.match(lines.join('\n'), /exact-only-blocked/)
+  assert.equal(f.calls.includes('recovery'), false)
+})

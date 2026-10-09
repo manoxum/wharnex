@@ -15,12 +15,23 @@ The exchanges include planner, orchestrator, translation, classification, releas
 
 Transport retries MUST first check the owned conversation for exact user-turn
 evidence of every input part. Proven submission adopts durable response
-supervision without uploading or submitting again. A structural composer or
+supervision without uploading or submitting again. Adopted observation MUST
+persist `observation_only=true` in its durable task: restoring it after a
+Desktop restart MUST retain exact-file capture without reload, continuation
+or another prompt. Static historical completion cannot renew its progress;
+normal stall and task-age bounds still apply. Older payloads without the flag
+retain their existing supervision behavior. A structural composer or
 reasoning-control failure, or ambiguous file selection, MUST pause the write
 for attention rather than restart its upload. Transport/stall attention MAY
 continue capturing only the exact expected response filename; it MUST NOT
 trigger recovery, reload, continuation or another prompt. Authentication,
 verification, access and Manual gates remain closed.
+
+An explicitly dispatched output correction MAY resume stale transport/stall
+attention for that same owned request after submission. It MUST reset only
+response progress/processing samples, preserve request age and spent automatic
+continuations, and never clear authentication/access/verification gates. Its
+successor supervision MUST retain request metadata and the new durable task id.
 
 An automatic transport MUST hold a stable 1280 × 900 composer viewport while
 preparing/uploading/submitting. Project mirror resizes record their display
@@ -271,9 +282,20 @@ The bundle schema admits typed `shell`, `sql`, `logs`, `filesystem`, `process`, 
 ## Durable response delivery acknowledgement
 
 A Desktop response download remains in the durable pending inbox until the
-owning backend session accepts it. A workspace routing miss, request mismatch
+owning backend session accepts the delivery or durably records its terminal
+protocol rejection. A workspace routing miss, request mismatch
 or not-pending response is non-terminal for other requests, but MUST NOT be
 converted into successful delivery or acknowledge/delete its bytes. The client
 MUST retain/NACK that delivery so its actual owner can import it after project
 restoration. Duplicate observation must preserve this same rule: local browser
 completion or a renderer return value is not proof of backend acceptance.
+
+### Consumer model selection (2026-10-09)
+
+The composer MAY expose a model choice obtained only from the owned ChatGPT model control and its structurally linked menu. There is no hard-coded model catalog. Inventory is a deliberate human UI action, never a health probe; it and selection refuse Manual mode, authentication, active response expectations, queued drafts/comments and active writes. Scripts return bounded exact model-control labels, disabled/selected metadata and internal geometry only; trusted native input commits a unique offered choice. Missing or ambiguous controls fail closed. Desktop stores only the confirmed preference under the local chat identity. Before upload it revalidates that preference against the current menu and may apply it; immediately before submission it verifies the same choice without changing the model. Mandatory reasoning-effort validation remains independent, so an incompatible model cannot silently submit at an unknown effort. Already submitted adoption remains passive and never changes the model.
+
+### Exact-download observation diagnostics (2026-10-09)
+
+The existing named expected-bundle download operation MAY report bounded structural diagnostics from the same candidate scan it uses to select a control. Its expected filename MUST come from the main-process armed expectation, never from a renderer diagnostic parameter. The diagnostic returns only counts, categorical selection/skip reasons, exact-match booleans and at most 16 control identities (tag/role/testid, disabled/nested/file/download flags); it MUST NOT return control text, URLs, arbitrary attributes or assistant prose. A passive diagnostic variant MUST never click or change liveness. Resident polling MAY record a changed diagnostic or an unchanged diagnostic once per 30 seconds, correlated by chat/request and redacted through the existing operational logger. Diagnostics never grant download trust, extra recovery, navigation or resubmission. The string-returning download-script contract remains compatible for existing callers.
+
+Expected-download diagnosis may additionally count Wharnex response filename labels inside owned conversation resource/file/attachment controls. Main provides the armed canonical name; output contains only booleans for expected name, current chat and current request, never observed filenames or prose. Only download/aria-label/title control metadata and short leaf filename labels under structural resource cards are inspected; user/composer/sidebar/code/markdown/screen-reader regions are excluded. Inspect at most64cards,8labels/card,256controls and6marker ancestors; return at most16resource/control shapes per collection. This passive diagnostic cannot widen activation, infer completion or bypass exact download validation.

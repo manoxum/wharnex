@@ -6,6 +6,7 @@ export function createChatGPTDraftSubmission({
   stepChatGPTReasoningEffortToward, markChatGPTAffinitySubmitted,
   submitWithoutReplay, chatAgentRateLimitDelayMs, ChatGPTRateLimitDeferral,
   chatGPTSubmissions, chatGPTSubmitScript,
+  ensureSelectedChatGPTModel,
 }) {
   async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true, rateLimitExempt = true, beforeDispatch = undefined, verifyOnly = false } = {}) {
     if (!verifyOnly) chatAgentWorkerActivity.set('submitting')
@@ -19,6 +20,10 @@ export function createChatGPTDraftSubmission({
         throw new Error('A conversa ChatGPT mudou durante a preparação; o pedido não foi enviado para evitar escrever noutra conversa.')
       }
     }
+    assertExpectedConversation()
+    // A confirmed local choice is applied only before upload. After attachment
+    // this operation verifies it, refusing a provider-side change before send.
+    await ensureSelectedChatGPTModel?.(key, target.entry, { allowChange: verifyOnly })
     assertExpectedConversation()
     let effort
     try {

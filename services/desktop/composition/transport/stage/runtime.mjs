@@ -5,6 +5,7 @@ import { createOwnedChatGPTConversationReload } from '../../../chatgpt/session/v
 import { createChatGPTComposerTarget } from '../../../chatgpt/transport/requests/composer/target.mjs'
 import { createDesktopChatGPTPacing } from '../pacing/runtime.mjs'
 import { createDesktopPromptDispatch } from '../../../chatgpt/transport/requests/wiring/desktop.mjs'
+import { createDesktopChatGPTModels } from '../../../chatgpt/models/index.mjs'
 
 export function createDesktopChatGPTTransportStage(d) {
   const settlement = createChatGPTConversationSettlement(d)
@@ -23,8 +24,9 @@ export function createDesktopChatGPTTransportStage(d) {
   })
   const target = createChatGPTComposerTarget({ ...d, ...request, ...account })
   pacing = createDesktopChatGPTPacing({ ...d, ...request })
+  const models = createDesktopChatGPTModels({ ...d, ...request, ...account })
   const dispatch = createDesktopPromptDispatch({
-    ...d, ...settlement, ...request, ...account, ...target, ...pacing,
+    ...d, ...settlement, ...request, ...account, ...target, ...pacing, ...models,
   })
-  return { ...settlement, ...request, ...account, ...reload, ...target, ...pacing, ...dispatch }
+  return { ...settlement, ...request, ...account, ...reload, ...target, ...pacing, ...models, ...dispatch }
 }

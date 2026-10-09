@@ -42,3 +42,17 @@ The backend alone may access the host Docker socket so it can create Protected r
 - Tunnel binary dependencies leave the host and are versioned in the tunnel image.
 - Projects opened by the containerized backend must be reachable through the configured host-path mounts; the canonical local stack mounts the operator home at the same absolute path.
 - Explicit full stack stop/down may invalidate ephemeral public URLs and is therefore an operator action rather than part of self-evolution.
+
+## Backend process reaping — 2026-10-09
+
+Live diagnosis found more than 6,500 zombie descendants adopted by the backend
+as container PID 1, predominantly Git children orphaned when their parent exited.
+The backend service now requires Compose `init: true`; Docker’s init owns PID 1,
+reaps adopted descendants and forwards signals to the existing backend. Direct
+command waits remain executor-owned. Do not add an in-process catch-all reaper.
+
+Existing containers need recreation to acquire init; restarting the same container
+does not change its creation configuration. Activate the backend only after
+host execution/Apply and build activity have settled. Keep the database, tunnel,
+artifact store, Desktop browser surfaces and durable human terminal service
+running. No protocol, volume, credential, table or persisted identity changes.

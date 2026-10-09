@@ -84,6 +84,10 @@ The session snapshot holds one current plan and one last execution, and several 
 
 Every plan the AI authors and every execution result MUST additionally be appended to the persisted event history as `plan.recorded` and `execution.recorded`, carrying the complete plan and execution bodies rather than the metadata the surrounding lifecycle events already carry. Failed and policy-blocked runs are recorded on the same terms: a failed verification is the evidence that explains why the next round exists, and it is the first thing the snapshot discards. Workflow observation rounds are executions for this purpose.
 
+An execution record's `request_id` MUST identify the request that authored the
+executed plan, independently of `plan_id` and any later continuation request.
+Workflow observation writers MUST retain that identity when the snapshot advances.
+
 Those records are the durable ledger. The project Plans and Executions views MUST be built from it, with the live session snapshot layered on top so an entry that is still current keeps its richer lifecycle label. Because the ledger lives in the persisted event history, it survives restart and is included in a chat archive package without a second store.
 
 Ledger bodies are published through the ordinary audit path precisely so redaction and the bounded-string rule apply to them; they are not exempt from "Secret values must be redacted before event publication". Sanitization MUST traverse nested arrays, because a decoded plan's operations and an execution's per-command output arrive inside them and would otherwise bypass both redaction and the length bound.
@@ -155,3 +159,30 @@ The Desktop Git surface MUST NOT poll `/git/head`. Its live session stream carri
 A browser-agent task transition (`start`, `heartbeat`, `wait`, `checkpoint`, `complete`, `fail`, `attention`, `assign`) requested with `Prefer: return=minimal` (RFC 7240) MUST be answered with the lease-state acknowledgement only — id, status, attempts, `not_before`, lease expiry, update time — and `Preference-Applied`; callers that omit the preference keep receiving the whole task. The Desktop scheduler never reads a transitioned task back and MUST ask for the minimal form. Scheduler loops whose claims find nothing MUST back off exponentially from their idle cadence to a ceiling of a few seconds, resetting on a claimed task or an explicit wake; lane residency and pin release are measured in elapsed time, so the ceiling delays them by at most one step.
 
 The backend applies its own Go soft memory limit from `WHARNEX_BACKEND_MEMORY_LIMIT_MB` through the runtime API, never through `GOMEMLIMIT`, because the toolchains it spawns would inherit a limit sized for the engine. `WHARNEX_RUNTIME_STATS_INTERVAL` logs heap, released memory, goroutine and GC counts on a fixed cadence so growth can be followed live. `WHARNEX_PPROF_ADDR` serves `net/http/pprof` on its own listener and MUST be refused unless it binds a loopback address; in the stack it is therefore reachable only through `docker exec`, never through the gateway or a tunnel.
+
+## Extraction execution visibility (2026-10-09)
+
+The Execução surface MUST project workflow/debug extraction rounds from
+`command.started/output/completed`, `interactive.operation_started/completed`
+and the durable `execution.recorded` bodies. Every recorded command retains
+exact argv/cwd, exit/success, duration and both bounded/redacted output streams;
+typed non-command operations retain capability, target, result/error and
+truncation/redaction markers. Expired live output events and a cleared session
+snapshot MUST NOT erase these ledger results. The UI reconciles streamed runs
+with their recorded result by execution/plan, time interval and ordered argv/cwd
+occurrence, preserving repeated identical commands as distinct runs and avoiding
+a duplicate card for the same run. Newly arriving output opens automatically;
+explicit operator collapse remains respected. The interactive human PTY remains
+outside this Agent execution projection and its output stays ephemeral.
+
+Git topology inspection MUST stream NUL-delimited index records and retain only
+gitlinks; ordinary tracked files MUST NOT be materialized or split in memory to
+discover submodules. The index remains authoritative on each inspection, including
+unregistered gitlinks and conflicted stages; no stale topology cache is allowed.
+
+The frontend durable-history refresh key MUST include request/continuation ids,
+not only their root Main Request ids. Each completed workflow round may leave
+the bounded live event window after the snapshot advances; a same-root
+continuation therefore refreshes the persisted ledger just like a new Main
+Request. A chat switch MUST hide outgoing history until the new session's
+history is available.

@@ -2,7 +2,7 @@
 
 Este documento descreve o contrato atualmente implementado para a automação do ChatGPT no Desktop, como investigar mudanças estruturais da página e como validar uma correção. Use-o quando uma atualização do ChatGPT quebrar uma operação, quando houver HTTP 429/“too many requests” ou antes de aceitar uma alteração no engine.
 
-Última revisão estrutural e operacional: **2026-10-06** (limite de upload da conta, testes UI nos Workers e estatísticas de transporte, `adr/ADR-0093` e `adr/ADR-0095`).
+Última revisão operacional: **2026-10-09** (retoma passiva durável e ACK após ingestão). Mapa estrutural de transporte: **2026-10-08.1**. Mantém limite de upload, testes UI nos Workers e estatísticas de transporte de 2026-10-06 (`adr/ADR-0093` e `adr/ADR-0095`).
 
 ## 1. Limites de segurança
 
@@ -254,6 +254,21 @@ Quando o mapa mudar, incremente `CHATGPT_BEHAVIOR.revision`, acrescente a regres
   texto direto de wrappers visíveis no único controle do compositor, com limites
   de 64 nós/120 caracteres. `5.6` e «Esforço de raciocínio» não provam um nível;
   valores desconhecidos ou múltiplos continuam a impedir o envio.
+
+### Retoma passiva e ACK — 2026-10-09
+
+- `observeSubmittedOnly=true` exige prova do ZIP exato no turno do utilizador
+  e adota a captura sem upload/submit. O `AWAIT_RESPONSE` adotado persiste
+  `observation_only=true`; a restauração mantém esse limite mesmo após reinício.
+  Completion histórica não renova progresso nem autoriza continuação. A ausência
+  do flag nos payloads antigos preserva o comportamento de supervisão existente.
+- Não copie um `AWAIT_RESPONSE` antigo com `recovery_count=0` para representar
+  observação passiva: isso pode voltar a autorizar um keep continue já gasto.
+- O ACK só pode apagar o inbox depois de ingestão comprovada no destinatário.
+  Uma janela que ignora um bundle por não possuir o pedido não o confirmou.
+  Compare artefacto/plano/evento durável no backend antes de concluir entrega.
+- O ZIP `req_20261008T165529_67647b0aab3c3fdb` foi recapturado às 08:37:55,
+  16.876 bytes, e importado após a correção frontend; não houve novo envio.
 
 ## 5A. Observação ao vivo: reconstruir a linha do tempo de um request
 
@@ -739,3 +754,33 @@ Recuperação de compatibilidade: `scripts/ui-testing/recover-legacy-suspension.
 `bash scripts/ui-testing/recover-legacy-suspension.test.sh | psql -X -v ON_ERROR_STOP=1`.
 Não usar uma atualização genérica de `not_before`: esperas normais, tarefas
 terminais e suspensões de outros tipos devem permanecer intactas.
+
+## Escolha de modelo no composer (2026-10-09)
+
+O choose de modelo consulta o menu de modelos do chat Engine apenas ao abrir o controlo. As opções são etiquetas do próprio ChatGPT, com estado selecionado/desativado; não existe catálogo estático. Operações `getChatGPTModels` e `setChatGPTModel` são nomeadas e limitadas ao Supervisor pertencente ao chat/janela. O script localiza; o processo principal envia input nativo e confirma a seleção. Durante pedido ativo, autenticação ou transporte Manual o controlo falha fechado. A preferência confirmada é guardada localmente por chat e reaplicada/validada antes do upload; depois do upload só é verificada. Modelos que não suportam o esforço solicitado deixam o pedido em atenção, sem reenvio ou redução silenciosa de esforço. Nada desta operação lê respostas, cookies ou storage remoto.
+
+## Distinguir clique humano de captura automática (2026-10-09)
+
+Um ZIP válido em `bundle-download started` prova a receção, mas só a linha
+`chatgpt-bundle-dom download-triggered` prova que o poller ativou o controlo.
+No fixture7caa5da3, a entrega create09:22 foi clique humano, sem esta linha,
+por isso não é aceitação automática. O delete092629 também foi reportado
+concluído pelo humano enquanto Wharnex continuava a aguardar.
+
+O poll normal agora emite `chatgpt-bundle-probe` com estado categórico,
+contagens e até16 identidades estruturais de controlos. O nome esperado vem
+só da expectativa armada no main. Nunca retorna texto da resposta, títulos
+de ficheiros alheios ou URLs. `exact-only-blocked` distingue um único controlo
+genérico que seria fallback durante envio ativo mas não pode ser assumido
+durante atenção/retoma passiva; `ownership`, `human-gate`, `preparing`,
+`pending-delivery`, `loading` e `invalid-bundle-held` explicam gates anteriores
+ao scan. O registo é por mudança ou30s, sem pedido ao provedor extra.
+
+A seleção e o `.click()` existentes ficaram intactos nesta instrumentação.
+Use a forma medida na página atual antes de modificar seletores ou input;
+a hipótese de click sintético falhar ainda não foi comprovada no fixture.
+O helper interno `chatGPTExpectedDownloadDiagnosticScript` é passivo e usa
+o mesmo scan/decisão; nenhum parâmetro diagnóstico do renderer fornece
+filename, selector ou script.
+
+Resource-shape diagnosis supplements the same named expected-download operation. `resources` counts owned structural file/resource cards and contract matches (`expected`, `sameChat`, `sameRequest`, `otherResponse`) without logging observed filenames or labels. Filename leaf labels are considered only inside structural file/resource cards, excluding code/markdown/screen-reader regions; ordinary answer text is not inspected. Bounded marker ancestor shapes show whether the latest marker parent contains the resource or only a small control. `unavailable=true` cannot suppress a selected download. None of these metadata observations authorizes a broader download fallback.

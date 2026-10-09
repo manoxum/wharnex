@@ -33,6 +33,7 @@ test('response expectation rehydrates from durable task payload once', () => {
   const payload = { recovery_count: 0 }
   const expected = lineage.hydrateExpectedChatAgentBundle('chat-1', task, payload)
   assert.equal(expected.requestId, 'req-1')
+  assert.equal(expected.rehydrating, false)
   assert.equal(lineage.hydrateExpectedChatAgentBundle('chat-1', task, payload), expected)
   assert.deepEqual(events, ['arm'])
 })

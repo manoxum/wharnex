@@ -3,7 +3,7 @@ export function createResponseLineage({
   MAX_AUTOMATIC_BUNDLE_CONTINUATIONS, chatGPTProcessingDurationScript,
   CHATGPT_BEHAVIOR, chatGPTBundleAlreadyValidated,
   disarmExpectedChatGPTBundle, BUNDLE_CONTINUATION_BASE_MS,
-  enqueueChatAgentTask,
+  enqueueChatAgentTask, CHAT_AGENT_AWAIT_PROBE_MS = 30_000,
 }) {
   function recordChatGPTTaskEvent(expected, type, data = {}) {
     const taskId = String(expected?.mainRequestTaskId || '')
@@ -18,6 +18,7 @@ export function createResponseLineage({
     if (expected?.requestId === requestId) return expected
     armExpectedChatGPTBundle(key, requestId, payload.assistant_baseline, payload.recovery_bootstrap, payload.live_tunnels || [], payload.original_prompt || '', payload.session_id || task?.session_id || '', payload.expected_filename || '', payload.request_metadata || {})
     expected = expectedChatGPTBundles.get(key)
+    expected.rehydrating = payload.observation_only === true
     expected.continuationCount = Math.max(0, Number(payload.recovery_count || 0))
     expected.automaticContinuationSent = expected.automaticContinuationSent === true || expected.continuationCount >= MAX_AUTOMATIC_BUNDLE_CONTINUATIONS
     return expected
@@ -45,6 +46,7 @@ export function createResponseLineage({
       disarmExpectedChatGPTBundle(key, expected.requestId)
       return { status: 'done' }
     }
+    if (expected.rehydrating === true) return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true }
     const recoveryCount = Math.max(0, Number(payload.recovery_count || 0))
     if (expected.automaticContinuationSent === true || recoveryCount >= MAX_AUTOMATIC_BUNDLE_CONTINUATIONS) {
       return { status: 'attention', error: `ChatGPT interrompeu a resposta sem disponibilizar ${expected.filename} depois do wake-up automático único.` }

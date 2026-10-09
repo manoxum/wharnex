@@ -111,6 +111,14 @@ Self-evolution host build and activation are distinct phases. The build stage MU
 
 The managed-context SHA-256 is provenance and cache identity, not a global project lock. Every planner request retains a bounded immutable context archive keyed by `request_id`. A request remains valid while other chats, humans, or external coding agents edit the host; baseline notices are informational and MUST NOT supersede an in-flight request.
 
+A patch-free scoped diagnostic workflow with no project impact MAY advance its
+context baseline without another model turn when retained request/current file
+snapshots prove every declared read/barrier file exists and has the same hash.
+It MUST declare at least one concrete read dependency; missing snapshots,
+changed/missing dependencies or project mutations refuse this shortcut. This
+adaptation grants no execution authority and retains the exact Policy/approval
+boundary, including a new digest-bound approval for host-modifying workflows.
+
 Protected execution reconstructs a stale request from its exact immutable base, applies and verifies the protocol-v1 patch there, then materializes a canonical ChangeSet containing Wharness-derived mutations and base/result blob hashes. Every actual patch, declared read, and barrier path MUST exist in the retained archive before that archive is authoritative. Because the model context may intentionally omit safe source files after conservative content filtering, Wharness completes only missing, non-authoritative verification dependencies from the current safe project copy; it never overwrites archived historical files. `impact_files` is only a scheduling forecast. `read_files` records semantic dependencies and `barrier_files` records inputs whose movement requires broader verification.
 
 All Agent plan execution, whether started manually or by either automatic mode, MUST pass through one FIFO execution queue keyed by canonical project root. Protected execution admits up to five plans for one project by default, bounded by the configured project capacity; isolated sandbox copies and guarded host integration protect concurrent work. Host-direct modes retain their explicit approval and safety boundaries. Different projects may execute concurrently. A queued session MUST be re-read after admission before policy, duplicate-plan, baseline, sandbox, or host-direct work proceeds. Queue admission and release MUST be cancellation-safe and observable through `execution.queued` and `execution.dequeued` events. This execution queue does not serialize ChatGPT planning or transport.
@@ -379,3 +387,15 @@ Task detail is projected as five task-scoped data surfaces matching the agentic 
 The executor emits one structured result per operation with capability, target, timestamps, status, bounded output, redaction/truncation flags, byte count and row count where applicable. Context cancellation and per-operation timeouts propagate through the runner/database/network call. SQL uses registered handles and defaults to read-only transactions; shell scripts are executed from exact temporary files; log adapters cover Wharnex audit/backend evidence, scoped files/Desktop logs, journald/service units and container logs; filesystem/process/network/container/service adapters each re-check their runtime scope before action.
 
 Every interactive v2 planner request MUST publish the decodable `debug.scope` field names (`paths`, `connections`, `log_sources`, `processes`, `services`, `containers`, `network_destinations`) and the SQL operation's `connection_id` contract. The request MUST list engine-registered SQL handles without credentials and distinguish the Wharnex runtime handle from a project database. A project path or compose file does not create a registered SQL handle. When none targets the requested database, the planner MUST NOT invent one; it may propose another known, scoped capability for informed approval or ask for an actual connection. `cwd` and executable arguments belong to operations, never to `debug.scope`.
+
+## Execution consent in Chat (2026-10-09)
+
+The Chat surface MUST offer the same informed execution/debug approval action
+as the Plan surface for the active chat's current validated pending plan. Before
+its human gesture it displays the exact argv/typed operations, target, network
+request, rationale and Policy approval effects/host impact. Both surfaces call
+one consent-action contract and the existing backend execution/debug handlers;
+Chat does not create a new grant, waive a Policy gate, repeat a completed plan,
+or introduce a second Protected host integration approval. A stale chat/session
+binding, denied Policy, completed plan or running interrupted execution MUST
+not expose this action. Sudo input stays ephemeral and clears after the attempt.
