@@ -1251,7 +1251,7 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			}
 		}
 	}
-	if err := requeststrategy.ValidateResult(current, parsed.Turn, parsed.Plan); err != nil {
+	if err := requeststrategy.ValidateResult(current, &parsed.Turn, parsed.Plan); err != nil {
 		return BundleSubmission{}, err
 	}
 	if parsed.Turn.Kind == domain.TurnKindContextRequest {
