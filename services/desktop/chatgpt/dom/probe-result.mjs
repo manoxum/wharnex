@@ -30,7 +30,7 @@ function entry(value) {
   for (const key of ['matches', 'total', 'visible', 'usable']) {
     if (Number.isFinite(value[key])) out[key] = value[key]
   }
-  for (const key of ['submenu', 'visible', 'expanded', 'disabled']) {
+  for (const key of ['submenu', 'visible', 'expanded', 'disabled', 'selected']) {
     if (typeof value[key] === 'boolean') out[key] = value[key]
   }
   return out

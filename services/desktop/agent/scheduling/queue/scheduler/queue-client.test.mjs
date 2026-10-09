@@ -125,3 +125,17 @@ test('recordTaskEvent never throws into the caller, matching the best-effort obs
   const result = await scheduler.recordTaskEvent('cat_1', 'chatgpt.recovery_reload', {})
   assert.equal(result, undefined)
 })
+
+test('requestEvents reads a bounded ledger scoped to the exact escaped request identity', async () => {
+  let requested
+  const scheduler = new ChatAgentSchedulerClient({
+    baseURL: 'http://127.0.0.1:8080', execute: async () => ({ status: 'done' }),
+    fetchImpl: async (url) => {
+      requested = url
+      return { ok: true, json: async () => ({ events: [{ request_id: 'req/&x' }] }) }
+    },
+  })
+  const result = await scheduler.requestEvents('req/&x')
+  assert.equal(requested, 'http://127.0.0.1:8080/api/chat-agent/tasks/events?request_id=req%2F%26x&limit=1000')
+  assert.equal(result.events[0].request_id, 'req/&x')
+})

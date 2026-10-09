@@ -42,7 +42,7 @@ It is not a JavaScript evaluation capability. Four properties define it:
 
 1. **Closed vocabulary.** The caller names a control from a fixed enum
    (`sidebar-toggle`, `conversation-menu`, `menu-items`, `project-anchors`,
-   `project-dialog`, `delete-dialog`, `reasoning-effort`, `composer-transport`). An unrecognized name is rejected before
+   `project-dialog`, `delete-dialog`, `reasoning-effort`, `composer-transport`, `model-picker`). An unrecognized name is rejected before
    anything is built. Adding a control is a reviewed change, exactly like
    admitting a planner reason code.
 
@@ -89,3 +89,18 @@ during prompt preparation, and cannot fail or change liveness classification.
   content.
 - Because it is disabled by default, an ordinary operator session is unchanged
   and carries no additional surface.
+
+The 2026-10-09 `model-picker` probe is passive: it reports only the uniquely identified model trigger, its explicitly linked menu and bounded model-control labels/selected/disabled flags. A collapsed menu stays collapsed and yields no catalog. The production composer inventory and selection operations are separate human actions; the probe never activates them.
+
+The request-bound `expected-download` observation is a production transport diagnostic, separate from this dev-only control catalog. It reuses the allowlisted download selection scan with the canonical filename from the main-process armed expectation and can return a passive, bounded structural result. The trusted renderer never supplies that filename or a script/selector. Normal polling records at most one changed result or one unchanged result per 30 seconds; assistant text, filenames other than the armed expectation and URLs never enter its diagnostic output. This adds no generic evaluation capability and does not change the dev-only probe contract above.
+
+
+### Expected response artifact controls — 2026-10-09
+
+The production expected-download diagnostic also reports bounded owned resource/control naming-contract matches and marker ancestor shapes. It does not add an arbitrary behavior-probe control or renderer-owned filename. Generated prose, hrefs and actual observed labels remain absent from diagnostic output; resource filename classification is passive and cannot authorize a download.
+
+The final complementary production resource diagnostic is closed to role-link, download, file-name attributes and resource-test-id controls. Its output contains bounded shapes, counts, visibility/capture-membership/naming booleans and numeric viewport/scroll dimensions. No textContent, href, input, scrolling, navigation or activation is performed. This addresses controls outside the shipped capture scan without changing that scan or its download decision.
+
+### Popup de modelos em dois níveis — 2026-10-09
+
+A operação nomeada de inventário pode devolver diagnóstico passivo do seu popup owned quando este ainda não expõe opções reconhecidas. A evidência visual do utilizador mostra painel de esforço seguido de submenu de modelos; a instrumentação distingue contagens/roles/ligações ARIA e geometria, sem texto, cliques adicionais nem catálogo fixo. O script continua constante e a normalização main-process limita 64 controlos inspecionados e 16 formas devolvidas.

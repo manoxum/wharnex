@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/sandbox/nodecontext"
 )
 
 var ErrOfflineDependenciesUnavailable = errors.New("offline sandbox dependencies unavailable")
-var ErrNodeDependenciesUnavailable = errors.New("sandbox node dependencies unavailable")
-var ErrNodeDependencyAcquisition = errors.New("sandbox node dependency acquisition failed")
+var ErrNodeDependenciesUnavailable = nodecontext.ErrUnavailable
+var ErrNodeDependencyAcquisition = nodecontext.ErrAcquisition
 var ErrSandboxToolUnavailable = errors.New("sandbox tool unavailable")
 var ErrCommandPreparationTimeout = errors.New("sandbox command preparation timed out")
 

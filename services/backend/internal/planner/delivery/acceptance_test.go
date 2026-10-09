@@ -23,6 +23,11 @@ func TestCorrectiveRequestRequiresSeparateRuntimeAcceptanceEvidence(t *testing.T
 				"mocked query tests alone do not prove the live symptom is resolved",
 				"reported entry points and an unaffected valid case",
 				"checks actually run and checks still pending",
+				"bounded stage identifiers, native error codes (including SQLSTATE",
+				"successful partial evidence",
+				"Client wrapper codes alone must not replace the underlying failure",
+				"credentials, connection strings, raw business records or unbounded error messages",
+				"inspect stage failure flags and missing prerequisites",
 			} {
 				if !strings.Contains(instructions, contract) {
 					t.Fatalf("missing acceptance boundary %q", contract)

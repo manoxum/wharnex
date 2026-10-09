@@ -28,3 +28,7 @@ export function sessionNeedsExecutionConsent(session: Session) {
   const lineage = session.request_lineages?.[session.plan.request_id]
   return session.execution_mode === 'protected' && (!lineage || lineage.kind === 'standard')
 }
+
+export function sessionCanApproveDebug(session: Session) {
+  return Boolean(session.state === 'debug_approval_required' && session.plan?.debug && session.plan.status === 'ready' && session.policy?.allowed && session.interrupted_execution?.plan_id !== session.plan.plan_id)
+}

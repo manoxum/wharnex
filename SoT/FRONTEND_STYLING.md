@@ -216,3 +216,14 @@ element defaults for buttons, inputs and headings still serve untouched UI;
 removing them would widen this task, so the UI Lab control contracts explicitly
 use important utility precedence. This is the shared-cascade exception in §3,
 not permission to add CSS overrides or change global element defaults.
+
+## Chat execution consent and evidence (2026-10-09)
+
+The new in-chat informed-consent surface, shared execution consent action and
+exact-argv presentation use Tailwind theme tokens. ExecutionApprovalPanel's
+maintained styling is migrated to Tailwind and its dedicated legacy selectors
+are removed; shared interrupted-recovery credential rules remain for their
+untouched consumer. Existing Execução timeline/card/output layout rules remain
+unchanged: this change adds evidence projection, automatic expansion and a
+Tailwind exact-argv child without changing that legacy visual surface. Plan's
+unrelated controls and documents retain their existing styling.

@@ -2,6 +2,8 @@
 
 ## Informed consent and diagnostic execution (v1.3.11 — see `adr/ADR-0057`)
 
+An explicit post-integration observation may continue the latest successfully integrated Protected change in its original Main Request. It requires the matching successful execution and applied-candidate receipt, with no execution/planner/import or integration pending. Its initial result gathers scoped runtime evidence; it grants no rollout, command, patch or host authority. Real runtime operations still traverse the ordinary workflow Policy and informed approval gates. A source build/`applied` result alone is not runtime acceptance.
+
 The first enriched change plan of a Protected Main Request pauses before execution and exposes its complete contract: Markdown plan, dependency inventory, sandbox/host system-tool inventory, exact patches/commands, verification and Policy decision. Accepting it authorizes sandbox execution, post-verification host integration, and compatible correction waves in that request lineage; any later network/package/Git or host-tool impact is a new Policy approval boundary. When a later boundary requires another decision, that decision likewise covers both the resulting Protected execution and its host integration. Rejecting it records the decision and performs no command. High-impact executable families are no longer forced into a GPT repair round merely because of their executable name: when Policy publishes them as approval-required, the UI shows the exact argv, planner rationale, effect and host impact before the user decides. Unprotected remains a host-direct mode with confirmation for each execution; Full is a separate host-direct opt-in described below.
 
 A `harness.interactive/v1` workflow is never an Apply candidate or patch carrier. It may gather evidence in the copied sandbox or through the closed read-only host diagnostic allowlist with `network=false`; Interativo enabled is a standing observe grant, while Interativo disabled requires one grant per Main Request root. Legacy `harness.debug/v1 access=observe` remains readable. `access=modify` is retired and rejected. Shells, inline programs, privilege escalation, Docker/host-service control, external access, package/tool installation, destructive operations and Apply remain outside Agent interactive authority.
@@ -110,6 +112,14 @@ Self-evolution host build and activation are distinct phases. The build stage MU
 ## Parallel ChangeSet integration (v1.3)
 
 The managed-context SHA-256 is provenance and cache identity, not a global project lock. Every planner request retains a bounded immutable context archive keyed by `request_id`. A request remains valid while other chats, humans, or external coding agents edit the host; baseline notices are informational and MUST NOT supersede an in-flight request.
+
+A patch-free scoped diagnostic workflow with no project impact MAY advance its
+context baseline without another model turn when retained request/current file
+snapshots prove every declared read/barrier file exists and has the same hash.
+It MUST declare at least one concrete read dependency; missing snapshots,
+changed/missing dependencies or project mutations refuse this shortcut. This
+adaptation grants no execution authority and retains the exact Policy/approval
+boundary, including a new digest-bound approval for host-modifying workflows.
 
 Protected execution reconstructs a stale request from its exact immutable base, applies and verifies the protocol-v1 patch there, then materializes a canonical ChangeSet containing Wharness-derived mutations and base/result blob hashes. Every actual patch, declared read, and barrier path MUST exist in the retained archive before that archive is authoritative. Because the model context may intentionally omit safe source files after conservative content filtering, Wharness completes only missing, non-authoritative verification dependencies from the current safe project copy; it never overwrites archived historical files. `impact_files` is only a scheduling forecast. `read_files` records semantic dependencies and `barrier_files` records inputs whose movement requires broader verification.
 
@@ -379,3 +389,15 @@ Task detail is projected as five task-scoped data surfaces matching the agentic 
 The executor emits one structured result per operation with capability, target, timestamps, status, bounded output, redaction/truncation flags, byte count and row count where applicable. Context cancellation and per-operation timeouts propagate through the runner/database/network call. SQL uses registered handles and defaults to read-only transactions; shell scripts are executed from exact temporary files; log adapters cover Wharnex audit/backend evidence, scoped files/Desktop logs, journald/service units and container logs; filesystem/process/network/container/service adapters each re-check their runtime scope before action.
 
 Every interactive v2 planner request MUST publish the decodable `debug.scope` field names (`paths`, `connections`, `log_sources`, `processes`, `services`, `containers`, `network_destinations`) and the SQL operation's `connection_id` contract. The request MUST list engine-registered SQL handles without credentials and distinguish the Wharnex runtime handle from a project database. A project path or compose file does not create a registered SQL handle. When none targets the requested database, the planner MUST NOT invent one; it may propose another known, scoped capability for informed approval or ask for an actual connection. `cwd` and executable arguments belong to operations, never to `debug.scope`.
+
+## Execution consent in Chat (2026-10-09)
+
+The Chat surface MUST offer the same informed execution/debug approval action
+as the Plan surface for the active chat's current validated pending plan. Before
+its human gesture it displays the exact argv/typed operations, target, network
+request, rationale and Policy approval effects/host impact. Both surfaces call
+one consent-action contract and the existing backend execution/debug handlers;
+Chat does not create a new grant, waive a Policy gate, repeat a completed plan,
+or introduce a second Protected host integration approval. A stale chat/session
+binding, denied Policy, completed plan or running interrupted execution MUST
+not expose this action. Sudo input stays ephemeral and clears after the attempt.

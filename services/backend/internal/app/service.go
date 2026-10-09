@@ -13,6 +13,7 @@ import (
 
 	"kernl.local/harness/backend/internal/app/normativecontext"
 	"kernl.local/harness/backend/internal/app/repairprompt"
+	"kernl.local/harness/backend/internal/app/requeststrategy"
 	"kernl.local/harness/backend/internal/app/translationflow"
 	"kernl.local/harness/backend/internal/app/verification"
 	"kernl.local/harness/backend/internal/app/workflowbudget"
@@ -766,6 +767,9 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		normativeSeed = normativeContextSeed(item.ContextMode, item.Context.ZipPath)
 	}
 	trackedItem, err := s.store.Update(sessionID, func(current *domain.Session) error {
+		if err := requeststrategy.PrepareSubmission(current, requestKind, parentRequestID); err != nil {
+			return err
+		}
 		current.LastRequestID = requestID
 		current.LastRequestMode = planningMode
 		current.PlannerInFlight = true
@@ -781,9 +785,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		if parentRequestID == "" && requestKind == requestKindStandard {
 			recordRequestSupportArtifact(current, requestID, mainRequestArtifactPath, []byte(operatorMessage))
 		}
-		if requestKind == requestKindPlanAdjustment {
-			recordRequestSupportArtifact(current, requestID, adjustmentRequestArtifactPath, []byte(operatorMessage))
-		}
+		recordExecutionPlanAdjustment(current, requestID, operatorMessage, requestKind)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
 		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
 		releasedBases = recordRequestBaseCommit(current, requestID, baseCommit)
@@ -795,7 +797,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		return planner.Result{}, item, err
 	}
 	item = trackedItem
-	if mainRequest && requestKind == requestKindStandard {
+	if requeststrategy.HasOperatorPrompt(mainRequest, requestKind) {
 		entry, transcriptErr := workspacetranscript.RecordRequest(s.store, item, operatorMessage)
 		if transcriptErr != nil {
 			s.bus.Publish(sessionID, "workspace_chat.transcript_failed", map[string]any{"chat_id": item.ChatID, "request_id": requestID, "error": transcriptErr.Error()})
@@ -836,7 +838,11 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		}
 	}
 	enrichPlanConcurrency(result.Plan, requestBaselineSHA)
-	if err := normalizePlannerResult(requestID, &result); err != nil {
+	err = normalizePlannerResult(requestID, &result)
+	if err == nil {
+		err = requeststrategy.ValidateProviderResult(item, result.Turn, result.Plan)
+	}
+	if err != nil {
 		s.setProjectTodosByRequestLineage(item, requestID, domain.ProjectTodoExecutionFailed, err.Error())
 		_, _ = s.store.Update(sessionID, func(current *domain.Session) error {
 			if current.LastRequestID == requestID {
@@ -1245,18 +1251,8 @@ func (s *Service) SubmitExecutionBundle(ctx context.Context, sessionID, filename
 			}
 		}
 	}
-	if current.LastRequestMode == "plan_first" && parsed.Turn.RequestID == current.LastRequestID {
-		if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
-			return BundleSubmission{}, errors.New("plan-first request must return kind=plan without plan.json; implementation requires explicit user approval")
-		}
-	}
-	if current.LastRequestMode == "correct_plan" && parsed.Turn.RequestID == current.LastRequestID {
-		if parsed.Plan != nil || parsed.Turn.Kind != domain.TurnKindPlan {
-			return BundleSubmission{}, errors.New("correct_plan request must return kind=plan without plan.json; implementation requires explicit user approval")
-		}
-	}
-	if current.LastRequestMode == "adjust_plan" && parsed.Turn.RequestID == current.LastRequestID && parsed.Turn.Kind == domain.TurnKindPlan {
-		return BundleSubmission{}, errors.New("adjust_plan request must return a revised executable result, not a planning-only proposal")
+	if err := requeststrategy.ValidateResult(current, parsed.Turn, parsed.Plan); err != nil {
+		return BundleSubmission{}, err
 	}
 	if parsed.Turn.Kind == domain.TurnKindContextRequest {
 		return s.acceptContextRequest(ctx, sessionID, current, parsed.Turn, parsed.Info)

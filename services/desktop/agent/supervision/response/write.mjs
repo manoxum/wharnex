@@ -64,10 +64,11 @@ export function createAgentWrite({
     const nextPayload = expectedChatAgentPayload(key, task.request_id, result.conversationUrl, {
       expectedFilename: result.expectedFilename, assistantBaseline: result.assistantBaseline, recoveryBootstrap: result.recoveryBootstrap,
       originalPrompt: result.originalPrompt || payload.original_prompt || prompt, sessionId: payload.session_id || task.session_id || '', liveTunnels: result.liveTunnels || payload.live_tunnels || [],
+      requestMetadata: result.requestMetadata || payload.request_metadata || {},
       projectName: payload.project_name || '', projectPath: payload.project_path || '', fallbackTitle: payload.fallback_title || '', recoveryCount: payload.recovery_count || 0, requestEligibleAt: payload.request_eligible_at || '', workspaceChatId,
     })
     try {
-      await enqueueChatAgentTask('AWAIT_RESPONSE', {
+      const successor = await enqueueChatAgentTask('AWAIT_RESPONSE', {
         key, requestId: task.request_id, rootRequestId: task.root_request_id || task.request_id, conversationURL: result.conversationUrl,
         parentTaskID: task.task_id, dedupeKey: `await:${task.request_id}`, payload: nextPayload, maxAttempts: 30, sessionID: nextPayload.session_id,
         // A submission that was just accepted has not started rendering yet, so a
@@ -77,6 +78,8 @@ export function createAgentWrite({
         // write at 12:42:56 reached ATTENTION at 12:43:17, 21 seconds later.
         notBefore: new Date(Date.now() + chatAgentInitialRequestWaitMs()).toISOString(),
       })
+      const expected = expectedChatGPTBundles.get(key)
+      if (expected?.requestId === String(task.request_id) && successor?.task_id) expected.mainRequestTaskId = String(successor.task_id)
     } catch (error) {
       return { status: 'attention', error: `ChatGPT accepted request ${task.request_id}, but response supervision could not be scheduled: ${error instanceof Error ? error.message : String(error)}` }
     }

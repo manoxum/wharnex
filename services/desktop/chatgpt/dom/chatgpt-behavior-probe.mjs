@@ -21,6 +21,7 @@
 //
 // It is off unless explicitly enabled, so it is not a permanent surface.
 
+import { MODEL_PICKER_PROBE } from '../models/index.mjs'
 import { normalizeProbeResult } from './probe-result.mjs'
 import { COMPOSER_TRANSPORT_PROBE, REASONING_EFFORT_PROBE } from './transport-shape-probe.mjs'
 
@@ -37,6 +38,7 @@ export const BEHAVIOR_PROBE_CONTROLS = Object.freeze([
   'delete-dialog',
   'reasoning-effort',
   'composer-transport',
+  'model-picker',
 ])
 
 const MAX_LABELS = 16
@@ -163,6 +165,7 @@ const PROBES = Object.freeze({
   // validate the selector/locale mapping; it never traverses a chat turn.
   'reasoning-effort': REASONING_EFFORT_PROBE,
   'composer-transport': COMPOSER_TRANSPORT_PROBE,
+  'model-picker': MODEL_PICKER_PROBE,
 })
 
 export function behaviorProbeScript(control) {

@@ -1,3 +1,4 @@
+import { projectExecutionEvidence } from '../../../lib/execution/evidence'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HarnessEvent, Session } from '../../../types'
 import { buildExecutionTimeline, groupExecutionSubtasks, type ExecutionSubtaskGroup, type ExecutionTimelineEntry, type ExecutionTimelineOverview } from '../../../lib/execution/history/executionTimeline'
@@ -16,7 +17,7 @@ import { useHistoryTail } from '../../chat/panel/useHistoryTail'
 
 export function ExecutionHistorySurface({ session, events, loading, error }: { session: Session; events: HarnessEvent[]; loading: boolean; error: string }) {
   // Chronological like the transcript: oldest Main Request first, newest at the bottom.
-  const groups = useMemo(() => groupMainRequestActivity(session, events).map((group) => ({ ...group, events: filterExecutionAuditEvents(group.events) })).filter((group) => group.events.length).sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)), [events, session])
+  const groups = useMemo(() => groupMainRequestActivity(session, projectExecutionEvidence(events, session)).map((group) => ({ ...group, events: filterExecutionAuditEvents(group.events) })).filter((group) => group.events.length).sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)), [events, session])
   const activeRequestId = String(session.last_request_id || '').trim()
   const activeRootRequestId = currentMainRequestRoot(session)
   const tailRef = useHistoryTail(groups.length)
@@ -58,11 +59,14 @@ export function TerminalView({ session, events, compact = false, allowActive = t
   const subtasks = useMemo(() => groupExecutionSubtasks(entries), [entries])
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const endRef = useRef<HTMLDivElement>(null)
+  const openedEntries = useRef(new Set<string>())
   useEffect(() => {
-    const expandable = entries.filter((entry) => (entry.kind === 'command' || entry.kind === 'patch') && (entry.output || entry.rationale)).slice(-5)
-    setExpanded(new Set(expandable.map((entry) => entry.id)))
+    const expandable = entries.filter((entry) => (entry.kind === 'command' || entry.kind === 'patch') && (entry.output || entry.rationale))
+    const added = expandable.filter((entry) => !openedEntries.current.has(entry.id))
+    added.forEach((entry) => openedEntries.current.add(entry.id))
+    if (added.length) setExpanded((current) => new Set([...current, ...added.map((entry) => entry.id)]))
     if (!compact) endRef.current?.scrollIntoView?.({ block: 'end' })
-  }, [])
+  }, [entries, compact])
   useEffect(() => { if (!compact) endRef.current?.scrollIntoView?.({ block: 'end' }) }, [compact, events.length])
   if (!events.length) return <ExecutionEmpty/>
   const overview = executionActivityOverview(entries, allowActive, activeRequestId)
@@ -98,7 +102,7 @@ function ExecutionSubtaskBlock({ group, session, sequence, defaultOpen, expanded
 
 function ExecutionEntryCard({ entry, expanded, onToggle }: { entry: ExecutionTimelineEntry; expanded: boolean; onToggle: () => void }) {
   const canExpand = Boolean(entry.output || entry.rationale)
-  return <div className={`execution-command-card ${entry.running ? 'running' : ''}`}><div className="execution-event"><span className={`lamp ${entry.tone === 'fail' ? 'fail' : entry.tone === 'warning' ? 'warning' : ''} ${entry.running ? 'blinking' : ''}`} /><div className="execution-event-copy"><strong>{entry.title}</strong><span>{formatActivityDate(entry.timestamp)}{entry.detail ? ` · ${entry.detail}` : ''}{entry.durationMs !== undefined ? ` · ${formatActivityDuration(entry.durationMs)}` : ''}</span></div><div className="execution-event-actions"><code>{entry.badge}</code>{canExpand && <button type="button" className={expanded ? 'execution-expand open' : 'execution-expand'} onClick={onToggle} title={expanded ? 'Ocultar detalhes' : 'Mostrar detalhes'} aria-label={expanded ? 'Ocultar detalhes' : 'Mostrar detalhes'}><Icon name="chevron-right" size={12}/></button>}</div></div>{canExpand && expanded && <div className="execution-command-output" role="log" aria-label="Detalhes da execução">{entry.rationale && <div className="execution-rationale"><strong>Porquê / propósito</strong><span>{entry.rationale}</span></div>}{entry.outputSegments.length ? entry.outputSegments.map((segment, index) => <pre key={`${entry.id}-output-${index}`} className={`execution-output-segment ${segment.stream}`} data-stream={segment.stream} aria-label={segment.stream === 'stderr' ? 'stderr' : undefined}>{segment.text}</pre>) : entry.output ? <pre className="execution-output-segment meta">{entry.output}</pre> : null}</div>}</div>
+  return <div className={`execution-command-card ${entry.running ? 'running' : ''}`}><div className="execution-event"><span className={`lamp ${entry.tone === 'fail' ? 'fail' : entry.tone === 'warning' ? 'warning' : ''} ${entry.running ? 'blinking' : ''}`} /><div className="execution-event-copy"><strong>{entry.title}</strong><span>{formatActivityDate(entry.timestamp)}{entry.detail ? ` · ${entry.detail}` : ''}{entry.durationMs !== undefined ? ` · ${formatActivityDuration(entry.durationMs)}` : ''}</span></div><div className="execution-event-actions"><code>{entry.badge}</code>{canExpand && <button type="button" className={expanded ? 'execution-expand open' : 'execution-expand'} onClick={onToggle} title={expanded ? 'Ocultar detalhes' : 'Mostrar detalhes'} aria-label={expanded ? 'Ocultar detalhes' : 'Mostrar detalhes'}><Icon name="chevron-right" size={12}/></button>}</div></div>{canExpand && expanded && <div className="execution-command-output" role="log" aria-label="Detalhes da execução">{entry.argv && <pre aria-label="argv exato" className="!whitespace-pre-wrap !break-all !rounded !border !border-[var(--theme-border)] !p-2 !text-xs">{JSON.stringify(entry.argv)}</pre>}{entry.rationale && <div className="execution-rationale"><strong>Porquê / propósito</strong><span>{entry.rationale}</span></div>}{entry.outputSegments.length ? entry.outputSegments.map((segment, index) => <pre key={`${entry.id}-output-${index}`} className={`execution-output-segment ${segment.stream}`} data-stream={segment.stream} aria-label={segment.stream === 'stderr' ? 'stderr' : undefined}>{segment.text}</pre>) : entry.output ? <pre className="execution-output-segment meta">{entry.output}</pre> : null}</div>}</div>
 }
 
 function executionStatus(overview: ExecutionTimelineOverview) { return overview === 'active' ? 'Em curso' : overview === 'waiting' ? 'A aguardar' : overview === 'failed' ? 'Falhou' : overview === 'recovered' ? 'Recuperada' : overview === 'success' ? 'Concluída' : 'Registada' }
