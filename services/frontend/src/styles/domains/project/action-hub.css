@@ -6,8 +6,11 @@
 .project-actions-hub-heading small { color:var(--theme-text-muted); font-size:calc(6.7px * var(--ui-font-scale)); }
 .project-actions-hub-heading > b { min-width:24px; height:22px; padding:0 6px; display:grid; place-items:center; border-radius:999px; background:var(--theme-muted); color:var(--theme-text-muted); font:700 calc(6.5px * var(--ui-font-scale))/1 var(--mono-font-family); }
 .project-actions-recent-list { max-height:292px; overflow:auto; padding:6px; display:grid; gap:3px; }
-.project-actions-recent-row { min-width:0; min-height:47px; padding:6px; display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:8px; border-radius:9px; }
+.project-actions-recent-row { min-width:0; min-height:47px; padding:6px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; border-radius:9px; }
 .project-actions-recent-row:hover { background:var(--theme-muted); }
+.multi-project-actions .project-actions-popover .project-actions-recent-open { min-width:0; width:100%; min-height:30px; padding:0; display:grid; grid-template-columns:30px minmax(0,1fr); align-items:center; gap:8px; background:transparent; text-align:left; }
+.multi-project-actions .project-actions-popover .project-actions-recent-open:hover:not(:disabled) { background:transparent; }
+.project-actions-recent-open:focus-visible { outline:2px solid var(--theme-accent); outline-offset:2px; }
 .project-actions-recent-mark { width:30px; height:30px; display:grid; place-items:center; border-radius:8px; background:color-mix(in srgb,hsl(var(--project-hue) 52% 48%) 12%,var(--theme-bg)); color:hsl(var(--project-hue) 50% 44%); }
 .project-actions-recent-copy { min-width:0; display:grid !important; gap:2px !important; }
 .project-actions-recent-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--theme-text); font-size:calc(7.7px * var(--ui-font-scale)); }
