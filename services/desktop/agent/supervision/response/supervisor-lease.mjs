@@ -8,7 +8,7 @@ export function createSupervisorResponseLease({
   // The resident main-process poll owns the page read and bundle capture.
   // Its durable lease only decides whether structural progress remains live.
   async function superviseChatAgentResponse(task, entry, key, payload) {
-    const expected = hydrateExpectedChatAgentBundle(key, task, payload)
+    const expected = await hydrateExpectedChatAgentBundle(key, task, payload)
     if (recentlyDeliveredChatGPTBundleRequestId(expected.requestId)) {
       disarmExpectedChatGPTBundle(key, expected.requestId)
       return { status: 'done' }

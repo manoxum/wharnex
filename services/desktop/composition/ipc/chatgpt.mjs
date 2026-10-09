@@ -28,6 +28,7 @@ export function registerChatGPTDomainIPC(common, context) {
     preparePromptForChatGPT, retryPreparedChatGPTPrompt, attachContextToChatGPT, attachPromptToChatGPT,
     submitPreparedChatGPTDraft, queueChatGPTComment, cancelChatGPTRequestState, CHATGPT_URL,
     CHATGPT_LOGIN_URL, BEHAVIOR_PROBE_CONTROLS, getDeferredSupervisorNavigation, getChatAgentScheduler,
+    getChatGPTModels, setChatGPTModel,
   } = context
   registerChatGPTSurfaceIPC({
     ipcMain, trustedSender, deferSupervisorNavigationIfBusy,
@@ -53,6 +54,7 @@ export function registerChatGPTDomainIPC(common, context) {
     isTrustedChatGPTOrigin, ensureChatGPTLayoutViewport,
     executeChatGPTDOMScript, behaviorProbeScript,
     normalizeBehaviorProbeResult, behaviorProbeControls: BEHAVIOR_PROBE_CONTROLS,
+    getChatGPTModels, setChatGPTModel,
   })
   registerChatGPTSessionControlIPC({
     ipcMain, trustedSender, sanitizeChatGPTAuthMode,

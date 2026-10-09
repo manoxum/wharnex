@@ -33,7 +33,7 @@ export function createResponseRuntime(deps) {
     MAX_AUTOMATIC_BUNDLE_CONTINUATIONS, chatGPTProcessingDurationScript,
     CHATGPT_BEHAVIOR, chatGPTBundleAlreadyValidated,
     disarmExpectedChatGPTBundle, BUNDLE_CONTINUATION_BASE_MS,
-    enqueueChatAgentTask,
+    enqueueChatAgentTask, CHAT_AGENT_AWAIT_PROBE_MS,
   })
 
   const { probeChatAgentResponse } = createResponseProbe({

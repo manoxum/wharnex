@@ -14,6 +14,7 @@ import (
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/ids"
+	"kernl.local/harness/backend/internal/sandbox/nodecontext"
 )
 
 type DockerRunner struct {
@@ -179,106 +180,15 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 }
 
 func (r *DockerRunner) acquireNodeDependencies(ctx context.Context, workspace Workspace, command domain.CommandSpec) error {
-	argv, relCwd, err := nodeDependencyInstallCommand(workspace.Path, command.Cwd)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrNodeDependencyAcquisition, err)
-	}
-	if err := os.MkdirAll(filepath.Join(workspace.Path, ".kernl", "corepack"), 0o700); err != nil {
-		return fmt.Errorf("%w: prepare Corepack cache: %v", ErrNodeDependencyAcquisition, err)
-	}
-	if err := os.MkdirAll(filepath.Join(workspace.Path, ".kernl", "npm-cache"), 0o700); err != nil {
-		return fmt.Errorf("%w: prepare npm cache: %v", ErrNodeDependencyAcquisition, err)
-	}
-	uid, gid := os.Getuid(), os.Getgid()
 	limits := CurrentRunnerLimits()
-	containerCwd := "/workspace"
-	if relCwd != "." {
-		containerCwd += "/" + filepath.ToSlash(relCwd)
-	}
-	base := []string{
-		"run", "--rm", "--read-only", "--network", "bridge",
-		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-		"--pids-limit", strconv.Itoa(limits.Pids), "--memory", limits.Memory, "--cpus", limits.CPUs,
-		"--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=" + limits.TmpfsSize,
-		"--env", "HOME=/tmp/kernl-home", "--env", "XDG_CACHE_HOME=/tmp/cache",
-		"--env", "COREPACK_HOME=/workspace/.kernl/corepack", "--env", "npm_config_cache=/workspace/.kernl/npm-cache",
-		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
-		"--volume", workspace.Path + ":/workspace:rw",
-		"--workdir", containerCwd, r.image,
-	}
-	const attempts = 3
-	var last string
-	for attempt := 1; attempt <= attempts; attempt++ {
-		args := append(append([]string(nil), base...), argv...)
-		output, runErr := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
-		last = strings.TrimSpace(string(output))
-		if runErr == nil {
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !transientNodeDependencyFetch(last) || attempt == attempts {
-			return fmt.Errorf("%w after %d attempt(s) running %s: %s", ErrNodeDependencyAcquisition, attempt, strings.Join(argv, " "), last)
-		}
-		time.Sleep(time.Duration(attempt) * 250 * time.Millisecond)
-	}
-	return fmt.Errorf("%w: %s", ErrNodeDependencyAcquisition, last)
+	return nodecontext.Acquire(ctx, workspace.Path, r.image, command, nodecontext.Limits{Pids: limits.Pids, Memory: limits.Memory, CPUs: limits.CPUs, TmpfsSize: limits.TmpfsSize}, safeWorkspaceCwd)
 }
 
 func nodeDependencyInstallCommand(workspacePath, commandCwd string) ([]string, string, error) {
-	root := filepath.Clean(workspacePath)
-	rel := strings.TrimSpace(commandCwd)
-	if rel == "" {
-		rel = "."
-	}
-	start, err := safeWorkspaceCwd(root, rel)
-	if err != nil {
-		return nil, "", err
-	}
-	current := start
-	for {
-		if _, err := os.Stat(filepath.Join(current, "pnpm-lock.yaml")); err == nil {
-			return []string{"pnpm", "install", "--frozen-lockfile"}, relativeWorkspaceDir(root, current), nil
-		}
-		if _, err := os.Stat(filepath.Join(current, "yarn.lock")); err == nil {
-			return []string{"yarn", "install", "--frozen-lockfile"}, relativeWorkspaceDir(root, current), nil
-		}
-		if _, err := os.Stat(filepath.Join(current, "package-lock.json")); err == nil {
-			return []string{"npm", "ci"}, relativeWorkspaceDir(root, current), nil
-		}
-		if _, err := os.Stat(filepath.Join(current, "npm-shrinkwrap.json")); err == nil {
-			return []string{"npm", "ci"}, relativeWorkspaceDir(root, current), nil
-		}
-		if current == root {
-			break
-		}
-		parent := filepath.Dir(current)
-		if parent == current || !strings.HasPrefix(parent+string(filepath.Separator), root+string(filepath.Separator)) && parent != root {
-			break
-		}
-		current = parent
-	}
-	return nil, "", errors.New("no supported lockfile found; automatic sandbox acquisition requires pnpm-lock.yaml, yarn.lock, package-lock.json or npm-shrinkwrap.json")
+	return nodecontext.InstallCommand(workspacePath, domain.CommandSpec{Cwd: commandCwd}, safeWorkspaceCwd)
 }
 
-func relativeWorkspaceDir(root, path string) string {
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == "" {
-		return "."
-	}
-	return filepath.Clean(rel)
-}
-
-func transientNodeDependencyFetch(output string) bool {
-	lower := strings.ToLower(output)
-	for _, marker := range []string{"eai_again", "enotfound", "econnreset", "etimedout", "temporary failure in name resolution", "connection reset by peer", "network is unreachable", "registry.npmjs.org"} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
-}
+func transientNodeDependencyFetch(output string) bool { return nodecontext.TransientFetch(output) }
 
 func exitCode(err error) int {
 	if err == nil {

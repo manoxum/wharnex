@@ -1,15 +1,15 @@
 import type { ContextMode } from '../../../types'
+import { Icon } from '../../presentation/chrome/Icon'
+import { ComposerSelectChoice } from './choices'
+
+const options = [{ value: 'partial', label: 'Parcial' }, { value: 'full', label: 'Full' }] as const
 
 export function ComposerContextModeControl({ mode, disabled, onChange }: {
   mode: ContextMode
   disabled: boolean
   onChange?: (mode: ContextMode) => void
 }) {
-  return <label className="inline-flex h-[29px] items-center gap-1.5 rounded-full border border-[#d7ddd2] bg-[#f7f9f4] px-2 text-[#4f594b] focus-within:border-[#8fa878]" title="Parcial envia mapas primeiro e acrescenta ficheiros pedidos pelo GPT; Full envia todo o contexto elegível">
-    <span className="font-mono text-[8px] font-bold uppercase tracking-wide text-[#7e8879]">Contexto</span>
-    <select className="h-[23px] cursor-pointer rounded-full border-0 bg-[#e9eee5] px-2 text-[9px] font-bold text-[#414b3d] disabled:cursor-default disabled:opacity-50" aria-label="Modalidade de contexto" value={mode} disabled={disabled || !onChange} onChange={(event) => onChange?.(event.target.value as ContextMode)}>
-      <option value="partial">Parcial</option>
-      <option value="full">Full</option>
-    </select>
-  </label>
+  return <ComposerSelectChoice label="Modalidade de contexto"
+    title="Contexto · Parcial envia mapas e acrescenta ficheiros pedidos pelo GPT; Full envia todo o contexto elegível"
+    icon={<Icon name="package" size={12} />} value={mode} options={options} disabled={disabled} onChange={onChange} />
 }

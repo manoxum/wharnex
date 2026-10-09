@@ -1,9 +1,10 @@
+export { registerAgentMirrorStreamIPC } from './ipc.mjs'
+
 const IDLE_FRAME_MS = 125
 const INTERACTIVE_FRAME_MS = 66
 const INTERACTIVE_WINDOW_MS = 2_000
 const RECONCILE_MS = 500
 const JPEG_QUALITY = 78
-const MONITOR_WINDOW_ID = 'browser-monitor'
 const SEED_EVENTS = ['did-navigate', 'did-navigate-in-page', 'did-finish-load']
 
 // One live stream per agent view, shared by every pane that subscribes to it.
@@ -31,30 +32,34 @@ export function createAgentMirrorStreams({
     return Boolean(win && !win.isDestroyed() && win.isVisible() && !win.isMinimized())
   }
 
+  const canReceive = (subscriber) => subscriber.ready && subscriber.stillAuthorized() && windowShowing(desktopWindows.get(subscriber.windowId))
+
   function deliver(stream, subscriber) {
     const frame = stream.encoded
-    if (!frame || !subscriber.ready || subscriber.sentSeq >= frame.seq || !windowShowing(desktopWindows.get(subscriber.windowId))) return
+    if (!frame || !canReceive(subscriber) || subscriber.sentSeq >= frame.seq) return
     subscriber.ready = false
     subscriber.sentSeq = frame.seq
     subscriber.port.postMessage({ width: frame.width, height: frame.height, data: frame.data })
   }
 
   function encode(stream) {
+    if (!stream.capturing || ![...stream.subscribers].some(canReceive)) return
     const image = stream.latest
     stream.latest = undefined
     if (!image || image.isEmpty()) return
     const { width, height } = image.getSize()
-    stream.encoded = { seq: (stream.encoded?.seq || 0) + 1, width, height, data: image.toJPEG(JPEG_QUALITY) }
+    stream.encoded = { seq: ++stream.sequence, width, height, data: image.toJPEG(JPEG_QUALITY) }
     stream.lastEncodedAt = now()
     stream.needsSeed = false
     for (const subscriber of stream.subscribers) deliver(stream, subscriber)
   }
 
-  function queue(stream) {
-    if (stream.timer) return
+  function queue(stream, flush = false) {
+    if (stream.timer || !stream.latest || !stream.capturing || ![...stream.subscribers].some(canReceive)) return
     const lastInput = Number(stream.entry.mirrorInputAt)
     const interactive = Number.isFinite(lastInput) && now() - lastInput < INTERACTIVE_WINDOW_MS
     const wait = Math.max(0, stream.lastEncodedAt + (interactive ? INTERACTIVE_FRAME_MS : IDLE_FRAME_MS) - now())
+    if (flush && wait === 0) { encode(stream); return }
     stream.timer = later(() => { stream.timer = undefined; encode(stream) }, wait)
   }
 
@@ -64,14 +69,16 @@ export function createAgentMirrorStreams({
   async function seed(stream) {
     if (stream.seeding) return
     stream.seeding = true
+    const revision = stream.revision
     try {
       const image = await stream.wc.capturePage(undefined, { stayHidden: true, stayAwake: true })
       if (image.isEmpty()) throw new Error('empty frame')
-      if (streams.get(stream.entry) !== stream) return
+      if (streams.get(stream.entry) !== stream || !stream.capturing || revision !== stream.revision) return
+      stream.needsSeed = false
       if (!stream.latest) stream.latest = image
       queue(stream)
     } catch {
-      if (!stream.wc.isDestroyed()) stream.entry.view.paint?.()
+      if (streams.get(stream.entry) === stream && stream.capturing && !stream.wc.isDestroyed()) stream.entry.view.paint?.()
     } finally {
       stream.seeding = false
     }
@@ -87,6 +94,9 @@ export function createAgentMirrorStreams({
   function stopCapture(stream) {
     if (!stream.capturing) return
     stream.capturing = false
+    stream.revision++
+    stream.latest = undefined
+    stream.encoded = undefined
     cancel(stream.timer)
     stream.timer = undefined
     if (!stream.wc.isDestroyed()) try { stream.wc.endFrameSubscription() } catch { /* renderer is closing */ }
@@ -96,9 +106,9 @@ export function createAgentMirrorStreams({
     const existing = streams.get(entry)
     if (existing) return existing
     const wc = entry.view.webContents
-    const stream = { entry, wc, subscribers: new Set(), latest: undefined, encoded: undefined, lastEncodedAt: -Infinity, timer: undefined, needsSeed: true, seeding: false, capturing: false }
+    const stream = { entry, wc, subscribers: new Set(), latest: undefined, encoded: undefined, lastEncodedAt: -Infinity, revision: 0, sequence: 0, timer: undefined, needsSeed: true, seeding: false, capturing: false }
     stream.onFrame = (image) => { stream.latest = image; queue(stream) }
-    stream.onNavigate = () => { stream.needsSeed = true }
+    stream.onNavigate = () => { stream.revision++; stream.needsSeed = true; stream.latest = undefined; stream.encoded = undefined }
     stream.onDestroyed = () => { for (const subscriber of [...stream.subscribers]) unsubscribe(stream, subscriber) }
     for (const event of SEED_EVENTS) wc.on(event, stream.onNavigate)
     wc.once('destroyed', stream.onDestroyed)
@@ -127,6 +137,7 @@ export function createAgentMirrorStreams({
     const showing = [...stream.subscribers].some((subscriber) => windowShowing(desktopWindows.get(subscriber.windowId)))
     if (!showing) { stopCapture(stream); return }
     startCapture(stream)
+    if (stream.latest) queue(stream)
     if (stream.needsSeed) void seed(stream)
     for (const subscriber of stream.subscribers) deliver(stream, subscriber)
   }
@@ -141,12 +152,12 @@ export function createAgentMirrorStreams({
     port1.on('message', (event) => {
       if (event?.data !== 'ready') return
       subscriber.ready = true
-      deliver(stream, subscriber)
+      if (stream.latest) queue(stream, true)
+      else deliver(stream, subscriber)
     })
     port1.on('close', () => unsubscribe(stream, subscriber))
     port1.start()
     stream.subscribers.add(subscriber)
-    stream.needsSeed = true
     reconcileStream(stream)
     return port2
   }
@@ -166,35 +177,4 @@ export function createAgentMirrorStreams({
   }
 
   return { start, stop, reconcile, subscribe, streams }
-}
-
-function answer(event, request, port) {
-  const reply = { requestId: String(request?.requestId || '').slice(0, 80), ok: Boolean(port) }
-  event.sender.postMessage('wharness:mirror:port', reply, port ? [port] : [])
-}
-
-// The two subscription endpoints: a window's own Engine/ChatGPT Supervisor
-// surface, and a Worker that window surfaced. Each answer carries a port.
-export function registerAgentMirrorStreamIPC({
-  ipcMain, trustedSender, sanitizeChatCacheKey, chatgptViews, chatGPTWorkerEntries, mirrorStreams,
-}) {
-  ipcMain.on('wharness:chatgpt:mirror-subscribe', (event, request) => {
-    const windowState = trustedSender(event)
-    const key = sanitizeChatCacheKey(request?.cacheKey)
-    const owned = () => {
-      const entry = chatgptViews.get(key)
-      return Boolean(entry && entry.ownerWindowId === windowState.id && windowState.activeChatGPTKey === key)
-    }
-    answer(event, request, windowState.id !== MONITOR_WINDOW_ID && owned() ? mirrorStreams.subscribe(chatgptViews.get(key), windowState, owned) : undefined)
-  })
-  ipcMain.on('wharness:agents:mirror-subscribe', (event, request) => {
-    const windowState = trustedSender(event)
-    const agentId = String(request?.agentId || '')
-    const worker = () => chatGPTWorkerEntries.find((candidate) => candidate.slotId === agentId)
-    const surfaced = () => {
-      const entry = worker()
-      return Boolean(entry && entry.interactionWindowId === windowState.id && windowState.activeAgentInteractionId === agentId)
-    }
-    answer(event, request, surfaced() ? mirrorStreams.subscribe(worker(), windowState, surfaced) : undefined)
-  })
 }

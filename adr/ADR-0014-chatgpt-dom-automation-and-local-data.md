@@ -96,6 +96,24 @@ the in-memory expectation. Submitted-only maintenance fails closed if its
 concrete conversation or input evidence is missing. Transport/stall attention
 keeps exact-file capture active, while authentication/access/manual gates still
 block it. No completion is inferred from generated answer or reasoning text.
+The adopted task persists `observation_only=true`; hydrating it restores the
+exact-only gate across Desktop restarts, including when another pool observes
+the task. Legacy ordinary supervision remains ordinary only in its existing
+live expectation. Cold task hydration awaits durable recovery history and
+restores passive supervision, including for missing/false legacy flags.
+Passive payloads reinforce an existing expectation without resetting its age,
+progress or spent budget. Historical idle
+completion does not extend this passive lease or authorize a recovery write.
+The submitted-request resume operation also creates observation-only
+supervision for historical ordinary tasks. It preserves live/task continuation
+counts and a spent continuation recorded by request-scoped recovery events;
+ledger failure cannot grant write authority. Progress uses the durable
+successor task id rather than the retired task or an empty lineage.
+An explicitly submitted output correction starts a fresh response observation
+window and retires only transport/stall attention for its same owned request.
+The request TTL and spent automatic continuation budget remain intact;
+authentication/access/verification are not cleared. Its next durable
+supervision retains metadata and records progress against the successor task.
 
 Live observation also confirmed agent turns marked with
 `data-chatgpt-agent-turn-start` while author-role wrappers are absent. The
@@ -149,3 +167,16 @@ its own instance until the operation settles.
 ### v1.2.42.3 liveness qualification
 
 Recovery fault probing and liveness classification are separate concerns. A probe that has no current structural snapshot may act only on an already-recorded transport/renderer fault; missing fields are never negative evidence that ChatGPT stopped. Desktop also tracks the lifecycle of allowlisted ChatGPT conversation requests. While one of those requests is in flight, heuristic silent/surface recovery is suppressed even if a transient DOM probe does not see the processing control. Automatic expected-bundle supervision is armed before submission so immediate request failures are correlated to the correct Harness request. Generic Chromium `ERR_FAILED` is considered recoverable only on that allowlisted conversation transport, not on arbitrary ChatGPT resources.
+
+### Model choice boundary (2026-10-09)
+
+The human composer model chooser reads only the owned model-switcher menu through named inventory/selection operations. Exact offered labels and selected/disabled flags are bounded to 32 models of 120 characters; no assistant text is read and no model names are baked into the product. A confirmed selection is local per-chat configuration, revalidated before archive upload and verified again before submit. Selection does not waive reasoning-effort validation. This adds no planner IPC or arbitrary selector/script capability.
+
+### Expected download selection observability (2026-10-09)
+
+A manual click followed by a valid response ZIP proves download ingestion, not automatic affordance selection. The named exact-download operation now exposes categorical structural diagnostics from its existing selection scan, with an engine-owned expected filename. Counts and bounded control shapes are logged without answer text or URLs. Skip reasons explain ownership, attention, preparation and in-flight gates. Selection remains unchanged until a real measured shape justifies a correction; diagnostics cannot trigger a continuation or relax strict validation.
+
+
+### Expected response artifact controls — 2026-10-09
+
+The 2026-10-09 passive control diagnostic proved the exact expected response ZIP existed on visible SPAN role=link controls, while the capture selector covered role-button but omitted role-link. Extend capture narrowly to exact filename tokens in bounded role-link attributes within the owned conversation main. Wrong names and generic links cannot enter fallback, and this path reads neither answer prose nor href. The operation still activates only the expected artifact and validates downloaded bytes through the existing strict protocol.

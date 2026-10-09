@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"kernl.local/harness/backend/internal/app/workflowbaseline"
 	"kernl.local/harness/backend/internal/domain"
 )
 
@@ -219,7 +220,8 @@ func canFastForwardPlanBaseline(item domain.Session, plan *domain.ExecutionPlan,
 		return true
 	}
 	if !patchOnly {
-		return false
+		_, complete := requestSnapshotDelta(item, plan.RequestID, fromSHA, toSHA)
+		return complete && workflowbaseline.Compatible(plan, item.BaselineFileSnapshots[fromSHA], contextFileHashes(item.Context.Manifest.Files))
 	}
 	changed, complete := requestSnapshotDelta(item, plan.RequestID, fromSHA, toSHA)
 	return complete && len(overlapPaths(changed, patchFiles)) == 0

@@ -25,6 +25,7 @@ export function createChatAgentQueueAPI({ baseURL, fetchImpl }) {
     // lease-state acknowledgement instead of the whole task and its payload.
     transition: (taskID, action, body) => post(taskPath(taskID, action), body, { Prefer: 'return=minimal' }),
     recordTaskEvent: (taskID, body) => post(taskPath(taskID, 'events'), body),
+    requestEvents: (requestID) => request(`/api/chat-agent/tasks/events?request_id=${encodeURIComponent(requestID)}&limit=1000`),
     list(query = {}) {
       const target = new URL('/api/chat-agent/tasks', baseURL)
       for (const [key, value] of Object.entries(query)) if (value !== '' && value != null) target.searchParams.set(key, String(value))

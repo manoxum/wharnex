@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     showSuggestions: (point = {}) => invoke('wharness:spellcheck:show-suggestions', { x: Number(point?.x), y: Number(point?.y) }),
   }),
   chatgpt: Object.freeze({
+    getChatGPTModels: (request) => invoke('wharnex:chatgpt:get-models', { workspaceChatId: String(request?.workspaceChatId || ''), url: String(request?.url || '') }),
+    setChatGPTModel: (request) => invoke('wharnex:chatgpt:set-model', { workspaceChatId: String(request?.workspaceChatId || ''), model: String(request?.model || ''), url: String(request?.url || '') }),
     show: (bounds, cacheKey, url) => invoke('wharness:chatgpt:show', { bounds, cacheKey, url: String(url || '') }),
     hide: (cacheKey) => invoke('wharness:chatgpt:hide', { cacheKey }),
     setBounds: (bounds, cacheKey) => invoke('wharness:chatgpt:set-bounds', { bounds, cacheKey }),
