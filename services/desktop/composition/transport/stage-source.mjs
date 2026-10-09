@@ -63,8 +63,8 @@ export async function expandDesktopChatGPTTransportStageSource(main) {
     await body('../../chatgpt/transport/requests/composer/target.mjs', '  async function targetChatGPTComposer(', '\n  return { targetChatGPTComposer }'),
   ]
   for (const section of pacingSections) parts.push(await body(...section))
-  parts.push(await body('../../chatgpt/transport/requests/wiring/desktop.mjs', '  async function stepChatGPTReasoningEffortToward(', '\n  const { submitChatGPTDraft }'))
-  parts.push(await body('../../chatgpt/transport/requests/submission/draft.mjs', '  async function submitChatGPTDraft(', '\n  return { submitChatGPTDraft }'))
+  parts.push(await body('../../chatgpt/transport/requests/wiring/desktop.mjs', '  async function stepChatGPTReasoningEffortToward(', '\n  const { submitChatGPTDraft,'))
+  parts.push(await body('../../chatgpt/transport/requests/submission/draft.mjs', '  async function submitChatGPTDraft(', '\n  return { submitChatGPTDraft,'))
   for (const [file, signature] of promptSections) {
     parts.push(await body(`../../chatgpt/transport/requests/${file}`, `  ${signature}`))
   }

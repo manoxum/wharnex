@@ -41,8 +41,19 @@ export function useEventStreamConnection({ sourceRef, coalescerRef, sessionCache
       onPersist: (eventWindow) => saveExecutionHistory(projectPath, chatId, eventWindow),
       onFlush: (batch, eventWindow) => {
         // One workspace-chat read for the whole batch, not two per frame.
-        const needsOwner = batch.some((parsed) => parsed.type === 'execution.started' || (parsed.data.plan_id && EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)))
+        const needsOwner = batch.some((parsed) => parsed.type === 'workspace_chat.item_upserted' || parsed.type === 'execution.started' || (parsed.data.plan_id && EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)))
         const owner = needsOwner ? loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId) : undefined
+        const transcriptUpdates = new Set(batch.filter((parsed) => parsed.type === 'workspace_chat.item_upserted' && parsed.data.chat_id === chatId).map((parsed) => String((parsed.data.item as ChatItem | undefined)?.id || '')))
+        if (owner && transcriptUpdates.size) {
+          // Audit frames are bounded/redacted notifications. Read the durable
+          // payload before projecting it, so a long prompt is not truncated.
+          void api.workspaceChatItems(chatId).then(({ items }) => {
+            if (sourceRef.current !== source) return
+            for (const entry of items) {
+              if (entry.chat_id === chatId && transcriptUpdates.has(entry.id)) appendChatItem(owner, projectPath, entry.payload)
+            }
+          }).catch(() => undefined)
+        }
         const sessionMutationEvents = new Set(['plan.received', 'plan.control_changed', 'plan.reversal_requested', 'repair.prompt_ready', 'baseline.continuation_ready', 'conflict.prompt_ready', 'git.conflict_obsolete', 'conflict.bundle_obsolete', 'host.applied', 'host.apply_settled', 'host.apply_paused', 'automation.paused', 'host.reverted', 'host.restored'])
         if (batch.some((parsed) => (parsed.type === 'artifact.persisted' && parsed.data.kind === 'bundle') || sessionMutationEvents.has(parsed.type))) {
           void api.getSession(id).then((updated) => {

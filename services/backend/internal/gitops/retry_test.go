@@ -20,7 +20,7 @@ func repo(t *testing.T) string {
 }
 
 func TestIndexLockRetryIsBoundedAndDoesNotMaskOtherFailures(t *testing.T) {
-	for _, kind := range []string{"recovered", "replay-fails", "blocked", "transient", "other-error", "foreign-index", "private-index", "cancelled"} {
+	for _, kind := range []string{"recovered", "error-prefix", "replay-fails", "blocked", "transient", "other-error", "foreign-index", "private-index", "cancelled"} {
 		t.Run(kind, func(t *testing.T) {
 			root := repo(t)
 			lock := filepath.Join(root, ".git", "index.lock")
@@ -31,6 +31,9 @@ func TestIndexLockRetryIsBoundedAndDoesNotMaskOtherFailures(t *testing.T) {
 				t.Setenv("GIT_INDEX_FILE", filepath.Join(root, "private"))
 			}
 			diagnostic := "fatal: Unable to create '" + lock + "': File exists."
+			if kind == "error-prefix" {
+				diagnostic = "error: Unable to create '" + lock + "': File exists."
+			}
 			if kind == "other-error" {
 				diagnostic = "hook failed"
 			}
@@ -39,7 +42,7 @@ func TestIndexLockRetryIsBoundedAndDoesNotMaskOtherFailures(t *testing.T) {
 			defer cancel()
 			_, err := retry(ctx, root, func() (string, string, error) {
 				calls++
-				if calls > 1 && (kind == "recovered" || kind == "transient") {
+				if calls > 1 && (kind == "recovered" || kind == "transient" || kind == "error-prefix") {
 					return "ok", "", nil
 				}
 				return "original diagnostic", diagnostic, errors.New("git failure")
@@ -48,11 +51,11 @@ func TestIndexLockRetryIsBoundedAndDoesNotMaskOtherFailures(t *testing.T) {
 				if kind == "cancelled" {
 					cancel()
 				}
-				return kind == "recovered" || kind == "replay-fails" || kind == "cancelled"
+				return kind == "recovered" || kind == "error-prefix" || kind == "replay-fails" || kind == "cancelled"
 			})
 			expectedCalls, expectedRecoveries := 4, 1
 			switch kind {
-			case "recovered", "replay-fails", "transient":
+			case "recovered", "error-prefix", "replay-fails", "transient":
 				expectedCalls = 2
 			case "other-error":
 				expectedCalls, expectedRecoveries = 1, 0
@@ -64,7 +67,7 @@ func TestIndexLockRetryIsBoundedAndDoesNotMaskOtherFailures(t *testing.T) {
 			if calls != expectedCalls || recoveries != expectedRecoveries {
 				t.Fatalf("calls=%d recoveries=%d", calls, recoveries)
 			}
-			if (err == nil) != (kind == "recovered" || kind == "transient") {
+			if (err == nil) != (kind == "recovered" || kind == "error-prefix" || kind == "transient") {
 				t.Fatalf("unexpected result: %v", err)
 			}
 		})

@@ -28,6 +28,7 @@ function fixture({ bound = false, candidates = [], tasks = [], pending = true, o
     chatInputPartManifest: () => undefined,
     targetChatGPTComposer: async (_key, url) => { events.push(['target', url]); return { entry, wc, conversationUrl: url.includes('/c/') ? url : '' } },
     normalizeChatGPTReasoningEffort: () => 'high', localChatInputBootstrap: () => 'bounded bootstrap',
+    verifyChatGPTDraft: async () => {},
     executeChatGPTDOMScript: async () => true, chatGPTFillComposerScript: () => 'fill',
     pasteChatGPTFile: async () => events.push(['upload']), wait: async () => {}, chatInputSettleDelay: () => 0,
     chatGPTAssistantTurnCount: async () => 0, armExpectedChatGPTBundle: () => {},
@@ -37,7 +38,7 @@ function fixture({ bound = false, candidates = [], tasks = [], pending = true, o
     persistWorkspaceChatRemoteBestEffort: async (_key, url) => events.push(['bind', url]),
     enqueueChatAgentFollowups: async () => events.push(['supervise']),
   }
-  return { ...createPersistedPromptRetry(context), events, request: { cacheKey: key, expectedRequestId: requestId, sessionId } }
+  return { ...createPersistedPromptRetry(context), context, events, request: { cacheKey: key, expectedRequestId: requestId, sessionId } }
 }
 
 test('explicit retry submits the persisted first request after restart even before a conversation exists', async () => {
@@ -70,6 +71,19 @@ test('an arbitrary unbound URL is rejected before touching ChatGPT', async () =>
   const f = fixture()
   await assert.rejects(f.retryPersistedChatGPTPrompt({ ...f.request, url: 'https://chatgpt.com/g/unrelated' }))
   assert.deepEqual(f.events, [])
+})
+
+test('a bound persisted retry adopts exact submitted input without file selection or submit', async () => {
+  const f = fixture()
+  f.context.chatGPTSubmittedRequestEvidenceScript = (name) => name
+  f.context.executeChatGPTDOMScript = async (_key, _entry, stage) => {
+    assert.equal(stage, 'submitted-input-evidence'); return { submitted: true }
+  }
+  f.context.expectedChatGPTBundles = new Map()
+  const url = 'https://chatgpt.com/c/existing'
+  const result = await f.retryPersistedChatGPTPrompt({ ...f.request, url })
+  assert.equal(result.adopted, true)
+  assert.deepEqual(f.events, [['target', url], ['supervise'], ['bind', url]])
 })
 
 test('submission without concrete affinity cannot acquire durable supervision', async () => {

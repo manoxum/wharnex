@@ -182,7 +182,7 @@ export async function pasteWithUploadRetry({
       const classified = await classifyFailure(lastError)
       if (classified) throw classified
       if (lastError.retryFileSelection === false) {
-        throw new Error(`ChatGPT upload state is uncertain after the provider upload started; refusing to select the same file again: ${lastError.message}`)
+        throw Object.assign(new Error(`ChatGPT upload state is uncertain after the provider upload started; refusing to select the same file again: ${lastError.message}`), { retryFileSelection: false, retryTransport: false })
       }
       if (attempt === attempts) break
       onRetry({ attempt, nextAttempt: attempt + 1, error: lastError })

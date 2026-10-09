@@ -23,6 +23,7 @@ export function createHostedChatGPTSurface(native, { View, host }) {
   let presentedIn
   let keepsContentSize = false
   let sized = { width: 0, height: 0 }
+  let automationHolds = 0
 
   // Electron delivers a resize to the renderer only while the view is visible;
   // the synchronous show/resize/hide produces no compositor frame on screen,
@@ -37,7 +38,7 @@ export function createHostedChatGPTSurface(native, { View, host }) {
     sized = { width, height }
   }
 
-  const requestedSize = () => ({
+  const requestedSize = () => automationHolds > 0 ? PARKED_SIZE : ({
     width: Math.max(1, Math.floor(Number(bounds?.width) || PARKED_SIZE.width)),
     height: Math.max(1, Math.floor(Number(bounds?.height) || PARKED_SIZE.height)),
   })
@@ -60,6 +61,13 @@ export function createHostedChatGPTSurface(native, { View, host }) {
     try { if (window && !window.isDestroyed()) window.contentView.removeChildView(box) } catch { /* window is closing */ }
   }
 
+  function sizePresented(width, height) {
+    presentedIn.contentView.removeChildView(box)
+    native.setBounds({ x: 0, y: 0, width, height })
+    presentedIn.contentView.addChildView(box)
+    sized = { width, height }
+  }
+
   host.attach(box)
   native.webContents.once('destroyed', () => { detachFrom(presentedIn); host.detach(box) })
   // Earlier builds compensated a presented Worker with zoom, which Chromium
@@ -71,6 +79,22 @@ export function createHostedChatGPTSurface(native, { View, host }) {
   return {
     native,
     webContents: native.webContents,
+    holdAutomationViewport() {
+      automationHolds += 1
+      if (presentedIn) sizePresented(PARKED_SIZE.width, PARKED_SIZE.height)
+      else sizeNative(PARKED_SIZE.width, PARKED_SIZE.height)
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        automationHolds -= 1
+        const size = requestedSize()
+        if (!automationHolds && presentedIn && !keepsContentSize) {
+          const target = box.getBounds()
+          sizePresented(target.width, target.height)
+        } else sizeNative(size.width, size.height)
+      }
+    },
     setBounds(next) {
       bounds = { x: Number(next?.x) || 0, y: Number(next?.y) || 0, width: Number(next?.width) || 0, height: Number(next?.height) || 0 }
       const size = requestedSize()
@@ -91,7 +115,7 @@ export function createHostedChatGPTSurface(native, { View, host }) {
       if (presentedIn) this.release()
       host.detach(box)
       keepsContentSize = keepContentSize
-      if (!keepsContentSize) native.setBounds({ x: 0, y: 0, width: target.width, height: target.height })
+      if (!keepsContentSize && !automationHolds) native.setBounds({ x: 0, y: 0, width: target.width, height: target.height })
       native.setVisible(true)
       window.contentView.addChildView(box)
       box.setBounds(target)
@@ -101,11 +125,7 @@ export function createHostedChatGPTSurface(native, { View, host }) {
     resizePresented(target) {
       if (!presentedIn) return
       const current = box.getBounds()
-      if (!keepsContentSize && (current.width !== target.width || current.height !== target.height)) {
-        presentedIn.contentView.removeChildView(box)
-        native.setBounds({ x: 0, y: 0, width: target.width, height: target.height })
-        presentedIn.contentView.addChildView(box)
-      }
+      if (!keepsContentSize && !automationHolds && (current.width !== target.width || current.height !== target.height)) sizePresented(target.width, target.height)
       box.setBounds(target)
       refreshFrame()
     },

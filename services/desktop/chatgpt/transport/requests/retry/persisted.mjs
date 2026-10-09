@@ -1,4 +1,5 @@
 import { resolvePersistedRetryTarget } from './unbound-target.mjs'
+import { adoptSubmittedPrompt } from '../preparation/adopt.mjs'
 
 export function createPersistedPromptRetry(context) {
   const {
@@ -28,6 +29,7 @@ export function createPersistedPromptRetry(context) {
     chatGPTAssistantTurnCount,
     armExpectedChatGPTBundle,
     submitChatGPTDraft,
+    verifyChatGPTDraft,
     disarmExpectedChatGPTBundle,
     clearChatGPTHumanAction,
     waitForSubmittedChatGPTConversation,
@@ -112,6 +114,13 @@ export function createPersistedPromptRetry(context) {
     target.reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
     target.entry.reasoningEffort = target.reasoningEffort
     const bootstrap = localChatInputBootstrap(requestId, canonicalName, expectedFilename, undefined, multipart)
+    if (canonicalChatGPTConversationURL(targetURL)) {
+      const adopted = await adoptSubmittedPrompt(context, { key, target, requestId, sessionId, workspaceChatId: key,
+        input: { parts: files, uploadPaths: files.map((file) => file.path) }, bootstrap, expectedFilename,
+        originalPrompt: String(request?.recoveryPrompt || ''), request })
+      if (adopted) return { ...adopted, requestId, durable: true }
+    }
+    await verifyChatGPTDraft(key, target)
     const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-durable-retry', chatGPTFillComposerScript(bootstrap))
     if (!filled) throw new Error('ChatGPT composer DOM could not be populated with the persisted request')
     for (let index = 0; index < files.length; index += 1) await pasteChatGPTFile(target.entry, files[index].path, index + 1, files.length)

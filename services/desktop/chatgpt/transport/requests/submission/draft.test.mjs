@@ -9,7 +9,7 @@ function fixture({ currentURL = 'https://chatgpt.com/c/owned', effortFails = fal
     executeJavaScript: async () => { events.push('click'); return true },
   }
   const entry = { reasoningEffort: 'high', affinity: {} }
-  const { submitChatGPTDraft } = createChatGPTDraftSubmission({
+  const { submitChatGPTDraft, verifyChatGPTDraft } = createChatGPTDraftSubmission({
     chatAgentWorkerActivity: { set: (phase) => events.push(phase) },
     targetChatGPTComposer: async () => ({ entry, wc }),
     normalizeChatGPTReasoningEffort: (value) => value,
@@ -35,7 +35,7 @@ function fixture({ currentURL = 'https://chatgpt.com/c/owned', effortFails = fal
     chatGPTSubmissions: { expect: () => events.push('observe') },
     chatGPTSubmitScript: () => 'submit-script',
   })
-  return { submitChatGPTDraft, events }
+  return { submitChatGPTDraft, verifyChatGPTDraft, events }
 }
 
 test('draft submission verifies conversation before observation and sends once', async () => {
@@ -46,6 +46,13 @@ test('draft submission verifies conversation before observation and sends once',
   const moved = fixture({ currentURL: 'https://chatgpt.com/c/other' })
   await assert.rejects(moved.submitChatGPTDraft('chat', undefined, 'https://chatgpt.com/c/owned'), /conversa ChatGPT mudou/)
   assert.deepEqual(moved.events, ['submitting'])
+})
+
+test('effort preflight verifies the owned draft without dispatch, affinity mutation or network observation', async () => {
+  const { verifyChatGPTDraft, events } = fixture()
+  const target = { entry: { reasoningEffort: 'high' }, wc: { getURL: () => 'https://chatgpt.com/c/owned' }, conversationUrl: 'https://chatgpt.com/c/owned' }
+  assert.equal((await verifyChatGPTDraft('chat', target)).effort, 'high')
+  assert.deepEqual(events, [])
 })
 
 test('requested effort and provider cooldown fail before a network observation', async () => {

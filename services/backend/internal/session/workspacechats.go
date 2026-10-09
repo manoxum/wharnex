@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/session/transcript"
 )
 
 // Durable storage for the workspace chat index and transcripts.
@@ -22,7 +23,7 @@ import (
 // keeps tests and non-Postgres development working without pretending to be
 // durable.
 
-const maxChatItemsPerChat = 2000
+const maxChatItemsPerChat = transcript.MaxItems
 
 // chatFallback/chatItemFallback return the in-memory fallback maps every
 // Store constructor initializes eagerly (see store.go). They used to
@@ -314,84 +315,31 @@ func (s *Store) ListWorkspaceChatItems(chatID string) ([]domain.WorkspaceChatIte
 		defer s.mu.RUnlock()
 		return append([]domain.WorkspaceChatItem(nil), s.chatItemFallback()[id]...), nil
 	}
-
-	rows, err := s.db.Query(`SELECT item_id, chat_id, created_at, payload FROM harness_chat_items
-		WHERE chat_id=$1 ORDER BY created_at, item_id`, id)
-	if err != nil {
-		return nil, fmt.Errorf("list workspace chat items: %w", err)
-	}
-	defer rows.Close()
-
-	items := make([]domain.WorkspaceChatItem, 0, 64)
-	for rows.Next() {
-		var item domain.WorkspaceChatItem
-		var payload []byte
-		if err := rows.Scan(&item.ID, &item.ChatID, &item.CreatedAt, &payload); err != nil {
-			return nil, fmt.Errorf("scan workspace chat item: %w", err)
-		}
-		if len(payload) > 0 {
-			_ = json.Unmarshal(payload, &item.Payload)
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
+	return transcript.List(s.db, id)
 }
 
-// ReplaceWorkspaceChatItems writes a chat's whole transcript.
-//
-// Replace rather than append because the renderer owns the transcript as one
-// bounded list it rewrites (it trims old entries itself), so a partial append
-// protocol would leave the two representations able to disagree.
+// ReplaceWorkspaceChatItems replaces renderer-owned entries while retaining
+// backend-authored requests omitted by a stale renderer snapshot.
 func (s *Store) ReplaceWorkspaceChatItems(chatID string, items []domain.WorkspaceChatItem) error {
+	return s.writeWorkspaceChatItems(chatID, items, false)
+}
+
+// AppendWorkspaceChatItems upserts a bounded set without erasing the transcript.
+func (s *Store) AppendWorkspaceChatItems(chatID string, items []domain.WorkspaceChatItem) error {
+	return s.writeWorkspaceChatItems(chatID, items, true)
+}
+
+func (s *Store) writeWorkspaceChatItems(chatID string, items []domain.WorkspaceChatItem, appendOnly bool) error {
 	id := strings.TrimSpace(chatID)
 	if id == "" {
 		return fmt.Errorf("workspace chat id is required")
 	}
-	if len(items) > maxChatItemsPerChat {
-		items = items[len(items)-maxChatItemsPerChat:]
+	items = transcript.Normalize(id, items)
+	if s.db != nil {
+		return transcript.Write(s.db, id, items, appendOnly)
 	}
-
-	if s.db == nil {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.chatItemFallback()[id] = append([]domain.WorkspaceChatItem(nil), items...)
-		return nil
-	}
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin transcript write: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if _, err := tx.Exec(`DELETE FROM harness_chat_items WHERE chat_id=$1`, id); err != nil {
-		return fmt.Errorf("clear transcript: %w", err)
-	}
-	statement, err := tx.Prepare(`INSERT INTO harness_chat_items (chat_id, item_id, created_at, payload) VALUES ($1,$2,$3,$4)
-		ON CONFLICT (chat_id, item_id) DO UPDATE SET created_at=EXCLUDED.created_at, payload=EXCLUDED.payload`)
-	if err != nil {
-		return fmt.Errorf("prepare transcript write: %w", err)
-	}
-	defer statement.Close()
-
-	for _, item := range items {
-		if strings.TrimSpace(item.ID) == "" {
-			continue
-		}
-		payload, err := json.Marshal(item.Payload)
-		if err != nil {
-			return fmt.Errorf("encode chat item: %w", err)
-		}
-		createdAt := item.CreatedAt
-		if createdAt.IsZero() {
-			createdAt = time.Now().UTC()
-		}
-		if _, err := statement.Exec(id, item.ID, createdAt, payload); err != nil {
-			return fmt.Errorf("persist chat item: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit transcript write: %w", err)
-	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.chatItemFallback()[id] = transcript.Merge(s.chatItemFallback()[id], items, appendOnly)
 	return nil
 }

@@ -16,6 +16,7 @@ import (
 	"kernl.local/harness/backend/internal/app/translationflow"
 	"kernl.local/harness/backend/internal/app/verification"
 	"kernl.local/harness/backend/internal/app/workflowbudget"
+	"kernl.local/harness/backend/internal/app/workspacetranscript"
 	"kernl.local/harness/backend/internal/audit"
 	"kernl.local/harness/backend/internal/bundlename"
 	"kernl.local/harness/backend/internal/changeset"
@@ -794,6 +795,14 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		return planner.Result{}, item, err
 	}
 	item = trackedItem
+	if mainRequest && requestKind == requestKindStandard {
+		entry, transcriptErr := workspacetranscript.RecordRequest(s.store, item, operatorMessage)
+		if transcriptErr != nil {
+			s.bus.Publish(sessionID, "workspace_chat.transcript_failed", map[string]any{"chat_id": item.ChatID, "request_id": requestID, "error": transcriptErr.Error()})
+		} else if entry != nil {
+			s.bus.Publish(sessionID, "workspace_chat.item_upserted", map[string]any{"chat_id": item.ChatID, "request_id": requestID, "item": entry.Payload})
+		}
+	}
 	if len(normativeSeed.Paths) > 0 || len(normativeSeed.Omitted) > 0 {
 		s.bus.Publish(sessionID, "context.normative_seeded", normativeSeedEvent(requestID, normativeSeed))
 	}

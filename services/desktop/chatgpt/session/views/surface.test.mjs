@@ -90,3 +90,32 @@ test('a Worker can be presented without changing its content size', () => {
   surface.resizePresented({ x: 300, y: 120, width: 700, height: 500 })
   assert.deepEqual(events, ['box:bounds:300,120,700x500', 'capture:1x1'])
 })
+
+test('an automatic transport keeps a full composer viewport while its project mirror resizes', () => {
+  const { surface, events } = fixture()
+  surface.setBounds({ x: 0, y: 0, width: 504, height: 528 })
+  const release = surface.holdAutomationViewport()
+  events.length = 0
+  surface.setBounds({ x: 0, y: 0, width: 504, height: 605 })
+  assert.equal(events.some((event) => event.includes('504x605')), false)
+  const nestedRelease = surface.holdAutomationViewport()
+  release()
+  assert.equal(events.some((event) => event.includes('504x605')), false)
+  nestedRelease()
+  assert.equal(events.includes('native:bounds:0,0,504x605'), true)
+  events.length = 0
+  nestedRelease()
+  assert.deepEqual(events, [])
+})
+
+test('the monitor preserves the automatic viewport and restores its dimensions after transport', () => {
+  const { surface, monitor, events } = fixture()
+  surface.present(monitor, { x: 300, y: 120, width: 504, height: 528 })
+  const release = surface.holdAutomationViewport()
+  assert.equal(events.includes('native:bounds:0,0,1280x900'), true)
+  events.length = 0
+  surface.resizePresented({ x: 300, y: 120, width: 504, height: 605 })
+  assert.equal(events.some((event) => event.startsWith('native:bounds')), false)
+  release()
+  assert.equal(events.includes('native:bounds:0,0,504x605'), true)
+})

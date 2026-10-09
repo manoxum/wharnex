@@ -226,6 +226,35 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
 
 Quando o mapa mudar, incremente `CHATGPT_BEHAVIOR.revision`, acrescente a regressão correspondente e registre a data da nova confirmação.
 
+### Confirmação de transporte em 2026-10-08 (`revision=2026-10-08.1`)
+
+- A conversa carregada pode não ter `data-message-author-role`, `data-turn-id`
+  nem `#prompt-textarea`. Foram observados `data-chatgpt-agent-turn-start`,
+  `group/user-message`, o compositor `role=textbox` e cartões `group/resource-card`.
+  Conte o marcador do turno e compare a ordem com o último turno do utilizador;
+  ausência dos marcadores antigos não significa ausência de resposta.
+- O seletor acessível «Selecionar modelo do ChatGPT» não prova, sozinho, o nível
+  de raciocínio. O transporte mantém 1280 × 900 durante a preparação e verifica
+  as folhas do controle e o slider antes de selecionar o ZIP. O teste ao vivo
+  confirmou `high`, um upload e um submit às 15:59 UTC.
+- Um `BOT_WRITE` que falha depois do upload não pode voltar a selecionar o ZIP
+  por rotina. Falhas estruturais ou seleção ambígua entram em `ATTENTION`;
+  reenvios verificam primeiro o nome exato do ZIP no turno do utilizador e
+  adotam a observação, inclusive na recuperação da entrada persistida.
+- `ATTENTION` de transporte/paragem mantém a captura do ZIP exato sem reload
+  nem continuação. Autenticação, acesso, verificação e Manual continuam a bloquear.
+- Exclua o turno do utilizador e o compositor na busca de downloads: o bootstrap
+  contém o nome esperado da resposta, mas não é o ficheiro de resposta.
+- O ZIP do chat `5cf6288b-b066-4344-939e-891f8e15015f` foi recuperado sem
+  reenvio às 15:40:58 UTC. O `host.applied` das 15:46:40 revelou-se falso sucesso:
+  a integração deixou o submódulo backend antigo após `index.lock`. A conclusão
+  exige comprovar os HEADs integrados e validar o comportamento real, conforme
+  ADR-0096 e `.harness/logs/coordination-soft-delete.md`.
+- Um nível selecionado com ícone não é uma folha DOM. Além das folhas, leia apenas
+  texto direto de wrappers visíveis no único controle do compositor, com limites
+  de 64 nós/120 caracteres. `5.6` e «Esforço de raciocínio» não provam um nível;
+  valores desconhecidos ou múltiplos continuam a impedir o envio.
+
 ## 5A. Observação ao vivo: reconstruir a linha do tempo de um request
 
 Um request lento ou parado só se diagnostica com tempos absolutos. Nenhuma

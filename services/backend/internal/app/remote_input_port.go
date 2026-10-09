@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
-	"kernl.local/harness/backend/internal/domain"
 	"time"
+
+	"kernl.local/harness/backend/internal/app/remotemap"
+	"kernl.local/harness/backend/internal/domain"
 )
 
 const RemoteInputRetention = 7 * 24 * time.Hour
@@ -132,15 +134,7 @@ type RemoteInputChannel struct {
 	MaxFileSize int64
 }
 
-type RemoteInputChannelResource struct {
-	Path         string
-	FilePath     string
-	ContentType  string
-	Bytes        int64
-	ArchivePath  string
-	ArchiveEntry string
-	ArchiveID    string
-}
+type RemoteInputChannelResource = remotemap.Resource
 
 type RemoteInputChannelUpdate struct {
 	ChannelID string

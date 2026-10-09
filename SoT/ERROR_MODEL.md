@@ -129,6 +129,13 @@ Staging the merged candidate is an explicit exception, and MUST be marked as a c
 
 An automatic escalation MUST NOT require human confirmation while the session's effort budget still has attempts. Wharnex dispatches the correction request itself and stops for a human only when that budget is spent, or when the collision is `structural` — binary content or a file mode disagreement, where no patch can express the answer and a round would be spent proving it. Every escalation decision, in both directions, MUST publish `integration.escalation_decided` with `automatic`, `complexity` and the reason.
 
+An owned submodule checkout that cannot finish integration is
+`host_working_state_blocked`, using the measured Git cause where available or
+the local reason `submodule_sync_incomplete` (ADR-0096). This is not a successful
+Apply with skipped files. Host verification does not start; the verified
+candidate remains recoverable and no source-repair round is charged. A failed
+transaction rollback is included in the same actionable diagnostic.
+
 ## Auxiliary-payload failures MUST NOT invalidate an executable payload
 
 A response bundle carries a verified executable result plus auxiliary material: the archived copy of the bundle itself and the project-knowledge candidate with its cumulative summary. A defect in the auxiliary material MUST NOT reject the bundle.

@@ -278,6 +278,18 @@ HEAD and restores every affected submodule branch to its recorded base commit,
 so Apply stays atomic from the operator's point of view. Temporary nested
 integration branches are removed after success.
 
+An affected submodule that could not advance is an incomplete integration,
+never a successful Apply with a warning. Before host verification or
+`host.applied`, the Engine MUST prove every owned repository reached its
+verified commit (or a proven descendant) on its recorded branch. A skipped
+owned checkout MUST return a typed local host block, retain the verified
+candidate, and roll back this transaction's superproject and already advanced
+submodules. Failed rollback MUST remain visible with its original cause; it
+MUST NOT be reported as success. No planner repair round is spent on this
+condition. Index-lock retry recognizes Git's exact `error:` and `fatal:`
+creation diagnostics under the existing host proof boundary (ADR-0092).
+Unowned submodule reconciliation remains best-effort. See ADR-0096.
+
 The advisory superproject preflight excludes the gitlinks of the nested
 repositories the same candidate owns. The superproject branch records each
 submodule at the commit verification produced, so a dry-run merge of the

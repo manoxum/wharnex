@@ -63,10 +63,10 @@ func (s *Service) mergeIntegrationBranches(ctx context.Context, sessionID, proje
 		if len(integrated) == 0 && merge.PreMergeSHA != "" {
 			preMergeSHA = merge.PreMergeSHA
 		}
+		s.publishSubmoduleSync(sessionID, planID, "merge", merge.SubmoduleSync)
 		if mergeErr != nil {
 			return integrated, preMergeSHA, planID, mergeErr
 		}
-		s.publishSubmoduleSync(sessionID, planID, "merge", merge.SubmoduleSync)
 		afterSHA, headErr := sandbox.CurrentHeadSHA(ctx, projectPath)
 		if headErr != nil {
 			return integrated, preMergeSHA, planID, fmt.Errorf("resolve host HEAD after merge: %w", headErr)

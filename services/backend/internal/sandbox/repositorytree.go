@@ -2,141 +2,91 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/hostrepo"
+	"kernl.local/harness/backend/internal/sandbox/repositorytree"
 )
-
-type repositoryNode struct {
-	path         string
-	parent       string
-	targetBranch string
-	baseCommit   string
-}
 
 // CommitVerifiedRepositoryTree commits a verified patch in every repository
 // that owns one of paths. Nested repositories are committed first, so their
 // parent commits record the resulting gitlink. Every branch is pushed only to
 // the matching local host repository.
 func CommitVerifiedRepositoryTree(ctx context.Context, workspaceRoot, hostRoot, branch, message string, paths []string, rootBaseRooted bool) (string, []domain.RepositoryIntegration, error) {
-	repositories, err := discoverRepositoryTree(ctx, hostRoot)
+	repositories, err := repositorytree.Discover(ctx, hostRoot)
 	if err != nil {
 		return "", nil, err
 	}
 	groups := map[string][]string{}
 	for _, path := range paths {
-		owner := repositoryForPath(repositories, path)
-		rel := strings.TrimPrefix(path, owner.path+"/")
-		groups[owner.path] = append(groups[owner.path], rel)
+		owner := repositorytree.ForPath(repositories, path)
+		rel := strings.TrimPrefix(path, owner.Path+"/")
+		groups[owner.Path] = append(groups[owner.Path], rel)
 	}
 	sort.Slice(repositories, func(i, j int) bool {
-		return pathDepth(repositories[i].path) > pathDepth(repositories[j].path)
+		return repositorytree.Depth(repositories[i].Path) > repositorytree.Depth(repositories[j].Path)
 	})
 	integrations := make([]domain.RepositoryIntegration, 0)
-	published := make([]repositoryNode, 0)
+	published := make([]repositorytree.Node, 0)
 	cleanupPublished := func() {
 		for index := len(published) - 1; index >= 0; index-- {
-			hostPath := filepath.Join(hostRoot, filepath.FromSlash(published[index].path))
+			hostPath := filepath.Join(hostRoot, filepath.FromSlash(published[index].Path))
 			_ = DeleteHostBranch(ctx, hostPath, branch)
 		}
 	}
 	rootCommit := ""
 	for _, repository := range repositories {
-		owned := normalizedRepositoryPaths(groups[repository.path])
+		owned := repositorytree.NormalizePaths(groups[repository.Path])
 		if len(owned) == 0 {
 			continue
 		}
-		workspacePath := filepath.Join(workspaceRoot, filepath.FromSlash(repository.path))
-		hostPath := filepath.Join(hostRoot, filepath.FromSlash(repository.path))
+		workspacePath := filepath.Join(workspaceRoot, filepath.FromSlash(repository.Path))
+		hostPath := filepath.Join(hostRoot, filepath.FromSlash(repository.Path))
 		var commit string
-		if repository.path == "." && rootBaseRooted {
+		if repository.Path == "." && rootBaseRooted {
 			commit, err = CommitBaseRootedPatch(ctx, workspacePath, message, owned)
 		} else {
 			commit, err = CommitVerifiedPatch(ctx, workspacePath, branch, message, owned)
 		}
 		if err != nil {
 			cleanupPublished()
-			return "", integrations, fmt.Errorf("commit repository %s: %w", repository.path, err)
+			return "", integrations, fmt.Errorf("commit repository %s: %w", repository.Path, err)
 		}
 		if err := PushBranchToHost(ctx, workspacePath, hostPath, branch); err != nil {
 			cleanupPublished()
-			return "", integrations, fmt.Errorf("publish repository %s: %w", repository.path, err)
+			return "", integrations, fmt.Errorf("publish repository %s: %w", repository.Path, err)
 		}
 		published = append(published, repository)
-		if repository.path == "." {
+		if repository.Path == "." {
 			rootCommit = commit
 			continue
 		}
 		integrations = append(integrations, domain.RepositoryIntegration{
-			Path: repository.path, Branch: branch, Commit: commit, TargetBranch: repository.targetBranch, BaseCommit: repository.baseCommit,
+			Path: repository.Path, Branch: branch, Commit: commit, TargetBranch: repository.TargetBranch, BaseCommit: repository.BaseCommit,
 		})
-		parentRelative := strings.TrimPrefix(repository.path, repository.parent+"/")
-		groups[repository.parent] = append(groups[repository.parent], parentRelative)
+		parentRelative := strings.TrimPrefix(repository.Path, repository.Parent+"/")
+		groups[repository.Parent] = append(groups[repository.Parent], parentRelative)
 	}
 	if rootCommit == "" {
 		cleanupPublished()
 		return "", integrations, fmt.Errorf("repository tree: root gitlink commit was not created")
 	}
-	sort.Slice(integrations, func(i, j int) bool { return pathDepth(integrations[i].Path) < pathDepth(integrations[j].Path) })
+	sort.Slice(integrations, func(i, j int) bool {
+		return repositorytree.Depth(integrations[i].Path) < repositorytree.Depth(integrations[j].Path)
+	})
 	return rootCommit, integrations, nil
 }
 
 // ValidateRepositoryIntegrations proves every gitlink target is already in the
 // matching local submodule object store before the superproject can move.
 func ValidateRepositoryIntegrations(ctx context.Context, hostRoot string, integrations []domain.RepositoryIntegration) error {
-	root, err := filepath.Abs(hostRoot)
-	if err != nil {
-		return err
-	}
-	repositories, err := discoverRepositoryTree(ctx, root)
-	if err != nil {
-		return err
-	}
-	registered := make(map[string]bool, len(repositories))
-	for _, repository := range repositories {
-		registered[repository.path] = true
-	}
-	for _, integration := range integrations {
-		rel := filepath.Clean(filepath.FromSlash(integration.Path))
-		if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("invalid nested repository path %q", integration.Path)
-		}
-		path := filepath.ToSlash(rel)
-		if !registered[path] {
-			return fmt.Errorf("nested repository %s is not an initialized registered submodule", integration.Path)
-		}
-		repository := filepath.Join(root, rel)
-		topology, err := hostrepo.Inspect(ctx, repository)
-		if err != nil {
-			return fmt.Errorf("inspect nested repository %s: %w", integration.Path, err)
-		}
-		if !HasCommit(ctx, repository, integration.Commit) {
-			return fmt.Errorf("verified commit %s is missing from nested repository %s", integration.Commit, integration.Path)
-		}
-		if integration.BaseCommit == "" {
-			return fmt.Errorf("nested repository %s candidate has no recorded base commit", integration.Path)
-		}
-		if topology.Branch != integration.TargetBranch {
-			return fmt.Errorf("nested repository %s checkout moved from branch %q to %q", integration.Path, integration.TargetBranch, topology.Branch)
-		}
-		head, headErr := CurrentHeadSHA(ctx, repository)
-		if headErr != nil {
-			return fmt.Errorf("resolve nested repository %s HEAD: %w", integration.Path, headErr)
-		}
-		if head != integration.BaseCommit {
-			return fmt.Errorf("nested repository %s checkout moved from %s to %s", integration.Path, integration.BaseCommit, head)
-		}
-		if _, forwardErr := runGit(ctx, repository, "merge-base", "--is-ancestor", integration.BaseCommit, integration.Commit); forwardErr != nil {
-			if _, integratedErr := runGit(ctx, repository, "merge-base", "--is-ancestor", integration.Commit, integration.BaseCommit); integratedErr != nil {
-				return fmt.Errorf("verified commit %s is unrelated to nested repository %s base %s", integration.Commit, integration.Path, integration.BaseCommit)
-			}
-		}
-	}
-	return nil
+	return repositorytree.Validate(ctx, hostRoot, integrations)
 }
 
 // MergeRepositoryTreeOnHost merges the superproject candidate and then moves
@@ -148,9 +98,28 @@ func MergeRepositoryTreeOnHost(ctx context.Context, hostRoot, branch, requestBas
 	if err != nil {
 		return HostMerge{}, err
 	}
-	return mergeBranchOnHost(ctx, hostRoot, branch, requestBaseRef, gitlinks, func(before []hostrepo.Submodule) hostrepo.SyncResult {
-		return syncRepositoryIntegrations(ctx, hostRoot, before, integrations, false)
+	merged, err := mergeBranchOnHost(ctx, hostRoot, branch, requestBaseRef, gitlinks, func(before []hostrepo.Submodule) hostrepo.SyncResult {
+		return repositorytree.Sync(ctx, hostRoot, before, integrations, false)
 	}, identityOrDefault(identities))
+	if err != nil {
+		return merged, err
+	}
+	if blocked := repositorytree.CompletionError(ctx, hostRoot, integrations, merged.SubmoduleSync, false); blocked != nil {
+		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		_, rollbackErr := RevertRepositoryTreeMerge(rollbackCtx, hostRoot, merged.PreMergeSHA, integrations)
+		if rollbackErr != nil {
+			var refusal *hostrepo.BlockedError
+			if errors.As(blocked, &refusal) {
+				diagnostic := *refusal
+				diagnostic.Detail += "; owned repository integration rollback failed: " + rollbackErr.Error()
+				blocked = &diagnostic
+			}
+			return merged, errors.Join(blocked, rollbackErr)
+		}
+		return merged, blocked
+	}
+	return merged, nil
 }
 
 // repositoryGitlinkResolutions selects the descendant side of every validated
@@ -179,170 +148,15 @@ func repositoryGitlinkResolutions(ctx context.Context, hostRoot string, integrat
 // being rolled back, and refuses to move a branch whose HEAD changed meanwhile.
 func RevertRepositoryTreeMerge(ctx context.Context, hostRoot, preMergeSHA string, integrations []domain.RepositoryIntegration) (hostrepo.SyncResult, error) {
 	before, inspectErr := hostrepo.Inspect(ctx, hostRoot)
-	if output, err := runGit(ctx, hostRoot, "reset", "--hard", preMergeSHA); err != nil {
+	if output, err := runGitWaitingForIndexLock(ctx, hostRoot, "reset", "--hard", preMergeSHA); err != nil {
 		return hostrepo.SyncResult{}, fmt.Errorf("revert host merge to %s: %s", preMergeSHA, output)
 	}
 	if inspectErr != nil {
-		return hostrepo.SyncResult{}, nil
+		return hostrepo.SyncResult{}, fmt.Errorf("inspect repository tree before rollback: %w", inspectErr)
 	}
-	return syncRepositoryIntegrations(ctx, hostRoot, before.Submodules, integrations, true), nil
+	if head, err := CurrentHeadSHA(ctx, hostRoot); err != nil || head != preMergeSHA {
+		return hostrepo.SyncResult{}, fmt.Errorf("repository rollback HEAD is %s, expected %s: %v", head, preMergeSHA, err)
+	}
+	synced := repositorytree.Sync(ctx, hostRoot, before.Submodules, integrations, true)
+	return synced, repositorytree.CompletionError(ctx, hostRoot, integrations, synced, true)
 }
-
-func syncRepositoryIntegrations(ctx context.Context, hostRoot string, before []hostrepo.Submodule, integrations []domain.RepositoryIntegration, rollback bool) hostrepo.SyncResult {
-	result := hostrepo.SyncResult{}
-	for _, integration := range integrations {
-		repository := filepath.Join(hostRoot, filepath.FromSlash(integration.Path))
-		destination := integration.Commit
-		expected := integration.BaseCommit
-		if rollback {
-			destination, expected = integration.BaseCommit, integration.Commit
-		}
-		if destination == "" {
-			continue
-		}
-		topology, err := hostrepo.Inspect(ctx, repository)
-		if err != nil {
-			result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: err.Error()})
-			continue
-		}
-		head, err := CurrentHeadSHA(ctx, repository)
-		if err != nil {
-			result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: err.Error()})
-			continue
-		}
-		if !rollback && head != destination {
-			if _, integratedErr := runGit(ctx, repository, "merge-base", "--is-ancestor", destination, head); integratedErr == nil {
-				result.Updated = append(result.Updated, integration.Path)
-				continue
-			}
-		}
-		if integration.TargetBranch == "" {
-			if output, checkoutErr := runGit(ctx, repository, "checkout", "--detach", destination); checkoutErr != nil {
-				result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: strings.TrimSpace(output)})
-				continue
-			}
-			result.Updated = append(result.Updated, integration.Path)
-			continue
-		}
-		if topology.Branch != integration.TargetBranch {
-			result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: fmt.Sprintf("branch changed from %s to %s", integration.TargetBranch, topology.Branch)})
-			continue
-		}
-		if head != destination {
-			if expected != "" && head != expected {
-				result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: fmt.Sprintf("branch %s moved to %s", integration.TargetBranch, head)})
-				continue
-			}
-			args := []string{"merge", "--ff-only", destination}
-			if rollback {
-				args = []string{"reset", "--hard", destination}
-			}
-			if output, moveErr := runGit(ctx, repository, args...); moveErr != nil {
-				result.Skipped = append(result.Skipped, hostrepo.SyncSkip{Path: integration.Path, Reason: strings.TrimSpace(output)})
-				continue
-			}
-		}
-		result.Updated = append(result.Updated, integration.Path)
-	}
-
-	// Tell generic reconciliation that repositories handled above are already
-	// at the desired gitlink. Omitting them would make the generic pass treat
-	// them as newly discovered and detach them with `submodule update`.
-	filtered := append([]hostrepo.Submodule(nil), before...)
-	recordedAfter := map[string]string{}
-	if after, err := hostrepo.Inspect(ctx, hostRoot); err == nil {
-		for _, submodule := range after.Submodules {
-			recordedAfter[submodule.Path] = submodule.CommitSHA
-		}
-	}
-	for _, submodule := range before {
-		for index := range integrations {
-			if integrations[index].Path == submodule.Path {
-				destination := integrations[index].Commit
-				if rollback {
-					destination = integrations[index].BaseCommit
-				}
-				if recorded := recordedAfter[submodule.Path]; recorded != "" {
-					destination = recorded
-				}
-				for filteredIndex := range filtered {
-					if filtered[filteredIndex].Path == submodule.Path {
-						filtered[filteredIndex].CommitSHA = destination
-					}
-				}
-			}
-		}
-	}
-	generic, _ := hostrepo.SyncSubmodules(ctx, hostRoot, filtered)
-	result.Updated = append(result.Updated, generic.Updated...)
-	result.Skipped = append(result.Skipped, generic.Skipped...)
-	return result
-}
-
-func discoverRepositoryTree(ctx context.Context, root string) ([]repositoryNode, error) {
-	rootTopology, err := hostrepo.Inspect(ctx, root)
-	if err != nil {
-		return nil, fmt.Errorf("inspect repository .: %w", err)
-	}
-	rootHead, _ := CurrentHeadSHA(ctx, root)
-	repositories := []repositoryNode{{path: ".", parent: "", targetBranch: rootTopology.Branch, baseCommit: rootHead}}
-	for index := 0; index < len(repositories); index++ {
-		parent := repositories[index]
-		path := filepath.Join(root, filepath.FromSlash(parent.path))
-		topology, err := hostrepo.Inspect(ctx, path)
-		if err != nil {
-			return nil, fmt.Errorf("inspect repository %s: %w", parent.path, err)
-		}
-		for _, submodule := range topology.Submodules {
-			if !submodule.Initialized {
-				continue
-			}
-			child := submodule.Path
-			if parent.path != "." {
-				child = parent.path + "/" + child
-			}
-			childPath := filepath.Join(root, filepath.FromSlash(child))
-			childTopology, childErr := hostrepo.Inspect(ctx, childPath)
-			if childErr != nil {
-				return nil, fmt.Errorf("inspect repository %s: %w", child, childErr)
-			}
-			childHead, headErr := CurrentHeadSHA(ctx, childPath)
-			if headErr != nil {
-				return nil, fmt.Errorf("resolve repository %s HEAD: %w", child, headErr)
-			}
-			repositories = append(repositories, repositoryNode{
-				path: child, parent: parent.path, targetBranch: childTopology.Branch, baseCommit: childHead,
-			})
-		}
-	}
-	return repositories, nil
-}
-
-func repositoryForPath(repositories []repositoryNode, path string) repositoryNode {
-	owner := repositories[0]
-	for _, candidate := range repositories[1:] {
-		if path == candidate.path || strings.HasPrefix(path, candidate.path+"/") {
-			if len(candidate.path) > len(owner.path) {
-				owner = candidate
-			}
-		}
-	}
-	return owner
-}
-
-func normalizedRepositoryPaths(paths []string) []string {
-	seen := map[string]bool{}
-	result := make([]string, 0, len(paths))
-	for _, path := range paths {
-		path = filepath.ToSlash(filepath.Clean(path))
-		if path == "." || seen[path] {
-			continue
-		}
-		seen[path] = true
-		result = append(result, path)
-	}
-	sort.Strings(result)
-	return result
-}
-
-func pathDepth(path string) int { return strings.Count(path, "/") + 1 }

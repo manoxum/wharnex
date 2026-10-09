@@ -52,6 +52,7 @@ export function createChatGPTTransportPreparation({
     const prior = tails.get(transportKey) || Promise.resolve()
     let release
     let preparing = false
+    let releaseViewport
     const tail = new Promise((resolve) => { release = resolve })
     const controller = new AbortController()
     const abortKey = registerAbort(key, requestId, controller)
@@ -64,10 +65,12 @@ export function createChatGPTTransportPreparation({
       entry.transportRequestId = String(requestId || '')
       preparing = true
       entry.transportAbortSignal = controller.signal
+      releaseViewport = entry.view?.holdAutomationViewport?.()
       reconcileThrottle(key, entry)
       return await withTrace(traceId('prepare', requestId || key, Date.now().toString(36)), operation)
     } finally {
       if (preparing) {
+        releaseViewport?.()
         entry.transportPreparationCount = Math.max(0, Number(entry.transportPreparationCount || 0) - 1)
         if (!entry.transportPreparationCount) entry.transportRequestId = ''
         if (entry.transportAbortSignal === controller.signal) delete entry.transportAbortSignal

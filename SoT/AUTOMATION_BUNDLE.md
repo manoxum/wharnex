@@ -13,6 +13,34 @@ Every exchange Wharnex has with the model provider is a bundle in both direction
 
 The exchanges include planner, orchestrator, translation, classification, release notes and `UI_TEST_DISCOVER`; this list is not exhaustive. New or maintained provider-processing paths MUST prove request attachment, exact response correlation and fail-closed validation with automated tests. See `adr/ADR-0087-gpt-bundle-contract.md`.
 
+Transport retries MUST first check the owned conversation for exact user-turn
+evidence of every input part. Proven submission adopts durable response
+supervision without uploading or submitting again. A structural composer or
+reasoning-control failure, or ambiguous file selection, MUST pause the write
+for attention rather than restart its upload. Transport/stall attention MAY
+continue capturing only the exact expected response filename; it MUST NOT
+trigger recovery, reload, continuation or another prompt. Authentication,
+verification, access and Manual gates remain closed.
+
+An automatic transport MUST hold a stable 1280 × 900 composer viewport while
+preparing/uploading/submitting. Project mirror resizes record their display
+geometry but MUST NOT switch the provider into its compact composer during
+that operation. Nested holds release only after the last owner finishes, and
+the last release restores the latest human pane geometry.
+
+Completion observation MUST support both author-role wrappers and the current
+provider's `data-chatgpt-agent-turn-start` marker, using structural turn order
+to exclude an unanswered latest user turn. A stop/streaming control prevents
+completion. Exact response-file capture MUST exclude user-turn and composer
+controls: naming an expected ZIP in the submitted bootstrap is not a download
+affordance. Fresh-response fallback remains scoped to the current agent turn.
+
+Reasoning effort MUST be proved by one mapped level in the unique owned composer
+control. Observation MAY read bounded direct text nodes of visible inline
+wrappers as well as leaf control labels, because a selected level may contain
+an icon. Model versions, generic titles and concatenated wrapper text MUST NOT
+stand in for a verified level; missing or ambiguous evidence prevents submission.
+
 ## Automation mode
 
 Wharness has a per-project automation mode independent from the Agent UI mode:
@@ -239,3 +267,13 @@ instructions.
 A planner response may carry a `workflow` plan using `harness.interactive/v2`. The bundle remains subject to the same exact filename, manifest, schema and request-lineage checks as every other provider response. Typed interactive operations are executable evidence steps, never patch carriers and never Apply candidates. Their authorization comes from the validated `debug` capability/scope declaration plus Policy and the persisted Interactive grant; prose in `turn.message`, the plan document or command output grants no authority.
 
 The bundle schema admits typed `shell`, `sql`, `logs`, `filesystem`, `process`, `network`, `container` and `service` operation payloads in addition to `command`. V1 inputs remain valid and continue to require their historical read-only constraints.
+
+## Durable response delivery acknowledgement
+
+A Desktop response download remains in the durable pending inbox until the
+owning backend session accepts it. A workspace routing miss, request mismatch
+or not-pending response is non-terminal for other requests, but MUST NOT be
+converted into successful delivery or acknowledge/delete its bytes. The client
+MUST retain/NACK that delivery so its actual owner can import it after project
+restoration. Duplicate observation must preserve this same rule: local browser
+completion or a renderer return value is not proof of backend acceptance.

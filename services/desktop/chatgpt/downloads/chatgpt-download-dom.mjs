@@ -46,7 +46,9 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0, f
     const requireFreshAssistant = ${requireFreshAssistant};
     const choose = ${choose};
     const assistantTurns = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
-    const latestAssistant = assistantTurns.length > baseline ? assistantTurns[assistantTurns.length - 1] : null;
+    const agentMarkers = [...document.querySelectorAll('[data-chatgpt-agent-turn-start]')];
+    const latestAgentTurn = agentMarkers.length > baseline ? agentMarkers[agentMarkers.length - 1]?.parentElement : null;
+    const latestAssistant = assistantTurns.length > baseline ? assistantTurns[assistantTurns.length - 1] : latestAgentTurn;
     const turns = [...document.querySelectorAll('[data-turn-id]')];
     const latestTurn = latestAssistant?.closest?.('[data-turn-id]') || (assistantTurns.length > baseline ? turns[turns.length - 1] : null);
     const nodes = [...document.querySelectorAll('a[download], a[href], button, [role="button"], [data-testid*="download"], [data-testid*="file"], [data-testid*="attachment"], [class~="group/resource-card"]')];
@@ -55,10 +57,12 @@ export function chatGPTExpectedDownloadScript(filename, assistantBaseline = 0, f
       return Boolean(node.offsetWidth || node.offsetHeight || rects?.length);
     };
     const candidates = nodes.map((node, index) => {
+      const inputSelector = '[data-message-author-role="user"], [class~="group/user-message"], form[data-chatgpt-composer], [data-composer-surface]';
+      if (node.closest?.(inputSelector)?.matches?.(inputSelector)) return { index, visible: false };
       const href = String(node.getAttribute?.('href') || '');
       const ownText = String(node.textContent || '').trim();
       const card = node.closest?.('[data-testid*="file"], [data-testid*="attachment"], [class*="file"], [class*="attachment"], [class~="group/resource-card"]');
-      const nearbyText = card && assistantTurns.some((turn) => turn.contains(card)) ? String(card.textContent || '').trim().slice(0, 1200) : '';
+      const nearbyText = card && (assistantTurns.some((turn) => turn.contains(card)) || latestAgentTurn?.contains(card)) ? String(card.textContent || '').trim().slice(0, 1200) : '';
       const metadata = [node.getAttribute?.('download'), node.getAttribute?.('aria-label'), node.getAttribute?.('title'), node.getAttribute?.('data-testid'), href, ownText, nearbyText].filter(Boolean).join(' ');
       const normalized = metadata.toLowerCase();
       return {

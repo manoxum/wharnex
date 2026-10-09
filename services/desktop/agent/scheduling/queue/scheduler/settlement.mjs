@@ -6,7 +6,7 @@ export function chatAgentBackoff(attempt, { baseMs = 2_000, maxMs = 60_000, jitt
 
 export function chatAgentErrorDisposition(error) {
   const detail = error instanceof Error ? error.message : String(error || '')
-  if (/artifact_storage_full|xminiostoragefull|minimum free drive threshold|no space left|armazenamento.+(?:sem espaço|cheio)/i.test(detail)) {
+  if (error?.retryTransport === false || error?.retryFileSelection === false || /artifact_storage_full|xminiostoragefull|minimum free drive threshold|no space left|armazenamento.+(?:sem espaço|cheio)/i.test(detail)) {
     return { action: 'attention', error: detail }
   }
   return { action: 'retry', error: detail }

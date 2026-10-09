@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/workspacetranscript"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/session/transcript"
 )
 
 // Workspace chat index and transcripts.
@@ -272,21 +274,25 @@ func (s *Service) ListWorkspaceChatItems(chatID string) ([]domain.WorkspaceChatI
 	return s.store.ListWorkspaceChatItems(chatID)
 }
 
-// ReplaceWorkspaceChatItems writes a chat's whole transcript, because the
-// renderer owns it as one bounded list that it trims itself.
+// ReplaceWorkspaceChatItems keeps backend-authored history omitted by a stale
+// renderer while retaining the renderer's whole-list replacement contract.
 func (s *Service) ReplaceWorkspaceChatItems(chatID string, items []domain.WorkspaceChatItem) error {
 	if strings.TrimSpace(chatID) == "" {
 		return ErrInvalidWorkspaceChat
 	}
-	normalized := make([]domain.WorkspaceChatItem, 0, len(items))
-	for _, item := range items {
-		if strings.TrimSpace(item.ID) == "" {
-			continue
-		}
-		item.ChatID = chatID
-		normalized = append(normalized, item)
+	return s.store.ReplaceWorkspaceChatItems(chatID, transcript.Normalize(chatID, items))
+}
+
+// AppendWorkspaceChatItems is an explicit bounded, idempotent transcript append.
+func (s *Service) AppendWorkspaceChatItems(chatID string, items []domain.WorkspaceChatItem) error {
+	entries, item, err := workspacetranscript.Append(s.store, chatID, items)
+	if err != nil {
+		return err
 	}
-	return s.store.ReplaceWorkspaceChatItems(chatID, normalized)
+	for _, entry := range entries {
+		s.bus.Publish(item.ID, "workspace_chat.item_upserted", map[string]any{"chat_id": item.ChatID, "request_id": transcript.RequestID(entry), "item": entry.Payload})
+	}
+	return nil
 }
 
 func boundedText(value string, limit int) string {

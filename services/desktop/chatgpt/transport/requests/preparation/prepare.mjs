@@ -1,3 +1,5 @@
+import { adoptSubmittedPrompt } from './adopt.mjs'
+
 export function createPromptPreparation(context) {
   const {
     throwIfChatGPTTransportAborted,
@@ -31,6 +33,7 @@ export function createPromptPreparation(context) {
     chatGPTAssistantTurnCount,
     armExpectedChatGPTBundle,
     submitChatGPTDraft,
+    verifyChatGPTDraft,
     disarmExpectedChatGPTBundle,
     waitForSubmittedChatGPTConversation,
     persistWorkspaceChatRemoteBestEffort,
@@ -64,6 +67,7 @@ export function createPromptPreparation(context) {
     // never schedules an automatic transport retry.
     if (!manualTransport) retryableChatGPTPrompts.set(key, { request, preparedAt: Date.now() })
     const linkedConversation = canonicalChatGPTConversationURL(request?.url || '')
+    if (request?.observeSubmittedOnly === true && (!autoSubmit || !linkedConversation)) throw Object.assign(new Error('Submitted-only observation requires an automatic owned conversation'), { retryTransport: false })
     const entry = entryOverride || chatgptViews.get(key)
     const currentConversationURL = linkedConversation || canonicalChatGPTConversationURL(entry?.view.webContents.getURL() || '')
     const currentSha = String(request?.contextSha256 || '').trim()
@@ -108,6 +112,13 @@ export function createPromptPreparation(context) {
     if (typeof request?.onTargetConversation === 'function') await request.onTargetConversation(target.conversationUrl)
     target.reasoningEffort = reasoningEffort
     target.entry.reasoningEffort = reasoningEffort
+    if (autoSubmit && linkedConversation) {
+      const adopted = await adoptSubmittedPrompt(context, { key, target, requestId, sessionId: request?.sessionId,
+        workspaceChatId, input, bootstrap, expectedFilename, originalPrompt: directPrompt, request })
+      if (adopted) return adopted
+      if (request?.observeSubmittedOnly === true) throw Object.assign(new Error('The exact request ZIP was not found in an owned user turn; observation was not armed'), { retryTransport: false })
+    }
+    if (autoSubmit) await verifyChatGPTDraft(key, target, !orchestratorTask)
     if (!linkedConversation) syncChatGPTAffinityURL(key, target.entry)
     const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-composer', chatGPTFillComposerScript(bootstrap))
     throwIfChatGPTTransportAborted(signal)

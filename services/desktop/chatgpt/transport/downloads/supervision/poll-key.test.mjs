@@ -74,3 +74,42 @@ test('an exact bundle click is idempotent while its download is in flight', asyn
     key: 'owned', requestId: 'req-1', at: expected.lastDOMClick,
   })
 })
+
+test('transport attention still collects the exact completed response without recovery or prompt replay', async () => {
+  const { poll, context, expected, calls } = pollHarness()
+  context.chatgptViews.get('owned').humanAction = { active: true, kind: 'transport' }
+  await poll('owned')
+  assert.equal(expected.downloadInFlight, true)
+  assert.equal(calls.filter((call) => call === 'download-click').length, 1)
+  assert.equal(calls.includes('recovery'), false)
+})
+
+test('authentication attention never inspects a remote response', async () => {
+  const { poll, context, calls } = pollHarness()
+  context.chatgptViews.get('owned').humanAction = { active: true, kind: 'authentication' }
+  await poll('owned')
+  assert.deepEqual(calls, [])
+})
+
+test('an adopted request keeps its passive lease alive on a generating signal without recovery', async () => {
+  const { poll, context, expected, calls } = pollHarness({ chatGPTResponseCompletionScript: () => 'completion' })
+  expected.rehydrating = true
+  expected.progressAt = 1
+  context.chatgptViews.get('owned').view.webContents.executeJavaScript = async (script) => {
+    calls.push(script); return script === 'completion' ? { thinking: true } : ''
+  }
+  await poll('owned')
+  assert.ok(expected.progressAt > 1)
+  assert.equal(calls.includes('recovery'), false)
+  assert.equal(calls.filter((call) => call === 'completion').length, 1)
+})
+
+test('a static historical completion cannot renew an adopted request lease', async () => {
+  const { poll, context, expected } = pollHarness({ chatGPTResponseCompletionScript: () => 'completion' })
+  expected.rehydrating = true
+  expected.progressAt = 1
+  context.chatgptViews.get('owned').view.webContents.executeJavaScript = async (script) => script === 'completion'
+    ? { thinking: false, complete: true } : ''
+  await poll('owned')
+  assert.equal(expected.progressAt, 1)
+})

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/remotemap"
 	"kernl.local/harness/backend/internal/bundlename"
 	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/domain"
@@ -287,7 +288,7 @@ func buildRemoteChannelResources(ctx context.Context, dir string, item domain.Se
 		return strings.TrimSuffix(state.baseURL, "/") + "/" + path
 	}
 	gitContext := requestGitContextForItem(ctx, item)
-	resources, entries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, knowledge, gitContext, continuationArtifacts(item, request.RequestID), requestContextMapState{SelectedPaths: request.ContextPaths, RoundsUsed: request.ContextRound, Query: request.Prompt}, attachments, artifacts, state.fileMapEntries, resourceURL)
+	resources, entries, err := buildRemoteFileMapResources(dir, item.Context.ZipPath, item.Context.Manifest, knowledge, gitContext, continuationArtifacts(item, request.RequestID), requestContextMapState{SelectedPaths: remotemap.Select(request.ContextPaths, request.ProjectFiles), RoundsUsed: request.ContextRound, Query: request.Prompt}, attachments, artifacts, state.fileMapEntries, resourceURL)
 	if err != nil {
 		return nil, 0, 0, err
 	}

@@ -66,9 +66,7 @@ export function chatGPTSubmitScript() {
 }
 
 
-export function chatGPTAssistantTurnCountScript() {
-  return `(() => document.querySelectorAll('[data-message-author-role="assistant"]').length)()`
-}
+export { chatGPTAssistantTurnCountScript, chatGPTResponseCompletionScript } from './response/index.mjs'
 
 export function chatGPTSubmittedRequestEvidenceScript(filename) {
   const expected = encode(filename)
@@ -110,32 +108,6 @@ export function chatGPTComposerReadyScript() {
   return `(() => {
     ${composerLookupSource()}
     return Boolean(composer);
-  })()`
-}
-
-export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
-  const baseline = Math.max(0, Number(assistantBaseline) || 0)
-  return `(() => {
-    const baseline = ${baseline};
-    const assistantCount = document.querySelectorAll('[data-message-author-role="assistant"]').length;
-    // The stop-button testid is the primary "still generating/reasoning"
-    // signal, but a renamed/restructured control must never read as "idle" —
-    // that misreading is what makes the automatic recovery reload above
-    // interrupt a genuinely still-running response. ".result-streaming" is
-    // ChatGPT's own longstanding marker on the assistant message while its
-    // text/reasoning is still being produced, independent of the button's
-    // current testid/label.
-    const stop = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button:has(svg.icon-primary-action path[d^="M4.5 5.75"])')
-      || document.querySelector('.result-streaming, [class*="result-streaming" i]');
-    const failed = document.querySelector('[data-testid="conversation-turn-error"] button,button[data-testid="retry-button"],[data-testid="message-error"] button');
-    ${composerLookupSource()}
-    const composerReady = Boolean(composer);
-    // A reloaded long conversation renders only its latest turns, so the count
-    // can fall to or below the baseline taken at submit. The author of the last
-    // rendered turn still tells whether the answer to the latest user turn is there.
-    const turns = document.querySelectorAll('[data-message-author-role]');
-    const lastRole = turns.length ? String(turns[turns.length - 1].getAttribute('data-message-author-role') || '') : '';
-    return { assistantCount, lastRole, thinking: Boolean(stop), failed: Boolean(failed), composerReady, complete: Boolean(assistantCount > baseline && !stop && !failed && composerReady) };
   })()`
 }
 

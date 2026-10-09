@@ -30,6 +30,7 @@ import (
 	monitorhttp "kernl.local/harness/backend/internal/transport/httpapi/browsermonitor"
 	"kernl.local/harness/backend/internal/transport/httpapi/settings"
 	"kernl.local/harness/backend/internal/transport/httpapi/taskclaim"
+	"kernl.local/harness/backend/internal/transport/httpapi/workspacetranscript"
 	uitestinghttp "kernl.local/harness/backend/internal/uitesting/httpapi"
 	"kernl.local/harness/backend/internal/utility"
 	"kernl.local/harness/backend/internal/workspacefs"
@@ -107,6 +108,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("DELETE /api/workspace-chats/{id}", a.deleteWorkspaceChat)
 	mux.HandleFunc("GET /api/workspace-chats/{id}/items", a.listWorkspaceChatItems)
 	mux.HandleFunc("PUT /api/workspace-chats/{id}/items", a.replaceWorkspaceChatItems)
+	mux.HandleFunc("POST /api/workspace-chats/{id}/items", workspacetranscript.Append(a.service))
 	// Durable ChatGPT browser-agent scheduler. Electron is a lease-based
 	// executor; PostgreSQL remains authoritative across Desktop restarts.
 	mux.HandleFunc("GET /api/chat-agent/provider", a.chatAgentProviderState)

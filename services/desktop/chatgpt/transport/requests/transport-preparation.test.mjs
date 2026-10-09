@@ -92,3 +92,18 @@ test('active cancellation exposes AbortSignal to the operation and preserves cle
   assert.equal(harness.tails.size, 0)
   assert.equal(harness.abortChatGPTTransportPreparations('chat_1', 'one'), 0)
 })
+
+test('preparation holds the composer viewport until a failing operation settles', async () => {
+  const harness = preparationHarness()
+  const events = []
+  const entry = { ownerKey: 'chat_1', role: 'supervisor', view: {
+    holdAutomationViewport: () => { events.push('hold'); return () => events.push('release') },
+  } }
+  await assert.rejects(harness.withChatGPTTransportPreparation('chat_1', entry, 'one', () => {
+    assert.deepEqual(events, ['hold'])
+    throw new Error('preflight unavailable')
+  }), /preflight unavailable/)
+  assert.deepEqual(events, ['hold', 'release'])
+  assert.equal(entry.transportPreparationCount, 0)
+  assert.equal(harness.tails.size, 0)
+})

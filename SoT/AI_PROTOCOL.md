@@ -74,6 +74,18 @@ Wharness is a project copilot, not a coding-only agent. Every provider result MU
 
 Questions and advice requests SHOULD terminate as `answer` when the attached context is sufficient. Diagnostic/audit requests SHOULD terminate as `investigation` when evidence is sufficient. An explicit request to devise, elaborate, propose, draft, present, or structure an implementation plan MUST terminate as `plan` even when the composer is in Direct mode. The UI toggle is a convenience hint, not the only way to select planning-only behavior. Project context, Agent mode, or an automatic execution mode MUST NOT by themselves upgrade ASK/INVESTIGATE intent into CHANGE. Ambiguous mutation intent defaults to non-mutation or clarification.
 
+## Acceptance evidence for corrective changes
+
+For a reported runtime defect, the planner MUST distinguish a prepared change,
+Protected test evidence, host integration evidence, and observed runtime
+acceptance. An `applied` session, a successful build, or a mocked query test
+alone MUST NOT be described as proof that the live symptom is resolved.
+Acceptance checks MUST cover the reported entry points and a valid unaffected
+case. Missing local evidence is requested through a bounded workflow; host
+rollout remains behind the engine's informed-command approval boundary. The
+terminal summary MUST name checks that actually ran and checks still pending.
+These reporting requirements add no command authority or wire fields.
+
 ## Iterative workflow turn
 
 A `workflow` turn exists so one user request can span multiple ChatGPT ⇄ Wharness reasoning rounds without scraping model prose.

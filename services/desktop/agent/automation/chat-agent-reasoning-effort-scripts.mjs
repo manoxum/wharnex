@@ -1,24 +1,6 @@
 import { script } from './chat-agent-script-builder.mjs'
 
-// Reads only the active composer's effort pill. Current definitive-chat forms
-// use data-chatgpt-composer and split the control title from the selected level
-// into separate leaf spans, so matching stays inside this one chrome control.
-export function reasoningEffortStateScript(behavior) {
-  return script(behavior, `
-    const composer = pick(S.composer);
-    const surface = composer?.closest?.('[data-composer-surface]') || composer?.closest?.('form[data-chatgpt-composer]');
-    if (!surface) return { ok: false, state: 'effort-composer-unavailable' };
-    const candidates = all(__whx.optionalSelectors.effortPicker)
-      .filter((node) => usable(node) && surface.contains(node));
-    if (candidates.length !== 1) return { ok: false, state: candidates.length ? 'effort-control-ambiguous' : 'effort-control-unavailable', count: candidates.length };
-    const labels = [candidates[0], ...candidates[0].querySelectorAll('*')]
-      .filter((node) => node === candidates[0] || node.children.length === 0)
-      .map((node) => fold(text(node))).filter(Boolean);
-    const matches = __whx.effortLevels.filter((level) => level.labels.some((value) => labels.includes(fold(value))));
-    if (matches.length !== 1) return { ok: false, state: 'effort-level-unknown' };
-    return { ok: true, state: 'effort-level-read', effort: matches[0].id };
-  `)
-}
+export { reasoningEffortStateScript } from './reasoning/index.mjs'
 
 // Stages the effort control. Activation remains a trusted native main-process
 // action; this expression only returns geometry or focuses the ARIA slider.

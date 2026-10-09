@@ -47,8 +47,20 @@ func retry(ctx context.Context, root string, run attempt, recover recoveryAttemp
 }
 
 func indexLockFailure(output string) bool {
-	return strings.Contains(output, "fatal: Unable to create '") &&
-		strings.Contains(output, "index.lock': File exists.")
+	return indexLockCreationFailure(output, "") && strings.Contains(output, "index.lock': File exists.")
+}
+
+func indexLockCreationFailure(output, path string) bool {
+	for _, severity := range []string{"fatal", "error"} {
+		marker := severity + ": Unable to create '" + path
+		if path != "" {
+			marker += "': File exists."
+		}
+		if strings.Contains(output, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultIndexFailure(ctx context.Context, root, output string) bool {
@@ -64,5 +76,5 @@ func defaultIndexFailure(ctx context.Context, root, output string) bool {
 		return false
 	}
 	path := filepath.Join(strings.TrimSpace(string(gitDir)), "index.lock")
-	return strings.Contains(output, "fatal: Unable to create '"+path+"': File exists.")
+	return indexLockCreationFailure(output, path)
 }
