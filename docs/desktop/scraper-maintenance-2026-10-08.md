@@ -112,6 +112,63 @@ com o probe desligado e sem ativar/reiniciar serviços Compose.
 A interrupção deixou Desktop e stack indisponíveis. O último bundle do turno
 `req_20261008T165529_67647b0aab3c3fdb` foi capturado às 17:00:31 UTC
 (16.876 bytes), mas o ACK/backend falhou antes de o Desktop terminar.
-A entrega ainda precisa de reconciliação durável; não reenviar o pedido.
+O frontend antigo confirmou ACK sem importação quando uma janela não possuía o
+pedido, eliminando o inbox. A sessão frontend reproduziu e corrigiu essa
+fronteira com regressão async, ativou a imagem `c438c7` e reiniciou somente o
+Desktop às 08:37 UTC. A observação retomou o mesmo pedido: ZIP exato capturado
+às **08:37:55.654**, com os mesmos 16.876 bytes, sem upload ou submit.
+O backend confirmou importação às 08:37:56 e passou para
+`debug_approval_required`; a reconciliação de transporte está concluída.
+Execução do novo diagnóstico e aceitação runtime permanecem com a sessão
+backend. Não reenviar o pedido.
 O fixture criar/eliminar continua sem prova de criação e com atenção; o turno
 eliminar ainda não foi enviado. Build local repetido: 1.053/1.053 testes passaram.
+
+A retoma passiva agora persiste `observation_only=true` no `AWAIT_RESPONSE`
+adotado. A regressão percorre adoção, serialização da fila e um mapa novo que
+representa o Desktop reiniciado; falhou antes da correção. O Worker também
+respeita captura exata, sem recovery, e distingue completion histórica de
+progresso de download. Regressões incluem expiração passiva, captura positiva
+e compatibilidade com tarefas antigas sem flag. Build final: **1.055/1.055**.
+Módulos tocados continuam abaixo de 200 linhas e o gate de domínio passou.
+Esta evolução aguarda ativação coordenada após os pedidos atuais assentarem.
+
+O turno seguinte do chat original, preparado pela sessão backend,
+`req_20261009T083938_dc922438db26c173`, foi enviado uma vez às 08:40:14.
+O ZIP exato foi capturado às 08:46:08, com 19.562 bytes, e importado no backend
+(`debug_approval_required`). O erro de rede do streaming ao terminar não
+impediu a captura. O fixture de 8Out foi cancelado/arquivado após falha;
+o [novo teste de 9Out](new-chat-file-test-2026-10-09.md) continua sem ZIP e sem
+prova de criação. Não foi enviado pedido de eliminação nem feita escrita manual.
+
+### Seguimento de 9Out, 09:26 UTC
+
+As continuações do chat original entregaram ZIPs canónicos às 09:03:24
+(22.621 bytes) e 09:13:28 (25.682 bytes), ambos importados. O turno
+`req_20261009T091713_38a6f4aceeb10275` foi enviado uma vez às 09:18:29 e
+continua sob observação. A validação real de DRCAE permanece com a sessão
+backend; a captura não constitui prova de correção de RLS.
+
+O novo fixture recebeu um ZIP válido de 15.016 bytes às 09:22:20, depois
+da correção intencional da saída no mesmo pedido. O backend aceitou
+`plan_20261009T084320_smoke_fixture_create` e iniciou execução Protected.
+Ainda falta comprovar a integração do ficheiro no host e só depois pedir
+a eliminação. Nenhum ficheiro de teste foi criado manualmente.
+
+A correção enviada revelou uma janela de progresso herdada da atenção
+anterior e metadata ausente no AWAIT sucessor. Regressões reproduziram ambas
+as falhas. Depois de um novo envio confirmado, a janela é renovada sem
+repor TTL, tentativas ou continuação automática; bloqueios de verificação
+não são removidos. O AWAIT preserva metadata e o seu ID é vinculado à
+expectativa. A preflight do repair confirma também modelo e esforço antes
+do upload. Build integrado final: **1.077/1.077 testes**, incluindo catálogo
+dinâmico de modelos. Fonte pronta, ainda sem ativação runtime.
+
+Relato humano posterior corrigiu a atribuição do fixture: o ZIP estava pronto
+antes da importação e só começou a descarregar quando o utilizador clicou
+nele. As provas de importação e execução são válidas; **o download automático
+do fixture não passou**. O instante exato de disponibilidade remota é
+desconhecido. Investigação separada segue os controlos estruturais permitidos,
+sem reenviar o pedido original. A criação no host foi confirmada às 09:26:02
+(66 bytes exatos); a fase de eliminação foi enviada uma vez às 09:27:00 no
+mesmo chat, `req_20261009T092629_a19fba3bbfc8484b`.

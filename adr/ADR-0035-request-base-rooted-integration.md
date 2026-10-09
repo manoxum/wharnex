@@ -69,7 +69,7 @@ path to planner resolution.
 
 ### 1. Request base
 
-At request creation, alongside the context snapshot, Wharness records the host's
+At request creation, alongside the context snapshot, Wharnex records the host's
 current tree as a real commit parented on HEAD, anchored under
 `refs/wharnex/base/<request_id>`.
 
@@ -168,7 +168,7 @@ this codebase already classifies as unrepairable by any source patch.
   are already derivable exactly and for free from the diff itself, so asking the
   planner to restate them adds an untrusted field that can drift from the patch
   it describes — and `impact_files` is already documented as a forecast whose
-  authoritative counterpart Wharness derives from the validated patch. Columns
+  authoritative counterpart Wharnex derives from the validated patch. Columns
   are meaningless: Git merges by line.
 - **Line-range intersection as the collision predicate.** Wrong in both
   directions. Identical or adjacent edits to the same range merge cleanly;
@@ -187,6 +187,18 @@ this codebase already classifies as unrepairable by any source patch.
   explicitly bounded (workflow rounds, repair attempts, conflict attempts).
   Conflict resolution keeps its own bounded budget, now with the attempt history
   attached so the bound informs rather than merely truncates.
+
+## Scoped diagnostic compatibility (2026-10-09)
+
+The DRCAE RLS diagnostic was unnecessarily rejected after a parallel smoke
+fixture changed only its own file, `VERSION` and export provenance. Its declared
+read dependencies were unchanged. Patch-free scoped diagnostics with no project
+impact may now advance their baseline when retained/current snapshots prove
+every concrete read/barrier file exists with an identical hash. Missing or
+changed evidence, patches and typed filesystem writes refuse this shortcut.
+The public ingestion regression retains the informed approval state and proves
+no command runs during adaptation. Change-plan integration still uses its exact
+request base and ordinary verification/merge path; no wire migration is needed.
 
 ## Consequences
 

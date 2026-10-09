@@ -27,13 +27,14 @@ function fixture({ validated = false, childExists = false } = {}) {
   return { lineage, events, expectedChatGPTBundles }
 }
 
-test('response expectation rehydrates from durable task payload once', () => {
+test('cold response expectation rehydrates passively from durable task payload once', async () => {
   const { lineage, events } = fixture()
   const task = { request_id: 'req-1' }
   const payload = { recovery_count: 0 }
-  const expected = lineage.hydrateExpectedChatAgentBundle('chat-1', task, payload)
+  const expected = await lineage.hydrateExpectedChatAgentBundle('chat-1', task, payload)
   assert.equal(expected.requestId, 'req-1')
-  assert.equal(lineage.hydrateExpectedChatAgentBundle('chat-1', task, payload), expected)
+  assert.equal(expected.rehydrating, true)
+  assert.equal(await lineage.hydrateExpectedChatAgentBundle('chat-1', task, payload), expected)
   assert.deepEqual(events, ['arm'])
 })
 

@@ -67,6 +67,8 @@ export function createRecoveryRuntime(deps) {
   })
 
   const { pollExpectedChatGPTDownloadKey, pollExpectedChatGPTDownloads } = createExpectedBundleSupervision({
+    requireOwnedChatGPTEntry,
+    pressChatGPTControl: deps.pressChatGPTControl,
     pollingExpectedChatGPTBundles,
     expectedChatGPTBundles,
     hasPendingChatGPTComments,

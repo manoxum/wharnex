@@ -19,7 +19,7 @@ export async function adoptSubmittedPrompt(context, { key, target, requestId, se
   try { task = await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
     expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap, originalPrompt,
     sessionId, liveTunnels: [], requestMetadata: input.requestMetadata,
-    projectName: request?.projectName || '', projectPath: request?.projectPath || '', workspaceChatId,
+    projectName: request?.projectName || '', projectPath: request?.projectPath || '', workspaceChatId, observationOnly: true,
   }) } catch (error) { disarmExpectedChatGPTBundle(key, requestId); throw error }
   const expected = expectedChatGPTBundles.get(key)
   if (expected?.requestId === requestId) { expected.mainRequestTaskId = String(task?.task_id || ''); expected.rehydrating = true }

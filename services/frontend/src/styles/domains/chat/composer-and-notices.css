@@ -42,7 +42,6 @@
 .composer-effort-picker:hover select { background: #e2e9dc; color: #313a2e; }
 .composer-effort-picker:focus-within { border-color: #8fa878; box-shadow: 0 0 0 2px rgba(111,165,29,.11); }
 .composer-effort-picker select:disabled { cursor: default; opacity: .5; }
-.composer-reasoning-picker select { min-width: 86px; }
 .composer-round-action.mode-protected.selected { border-color: #7f9fbd; background: #e2edf7; color: #285676; box-shadow: inset 0 0 0 1px rgba(40,86,118,.08); }
 .composer-round-action.mode-unprotected.selected { border-color: #c98a80; background: #f6e2de; color: #803d34; box-shadow: inset 0 0 0 1px rgba(128,61,52,.07); }
 .composer-round-action.mode-manual.selected { border-color: #c3a36b; background: #f4ead7; color: #6b5126; box-shadow: inset 0 0 0 1px rgba(107,81,38,.07); }

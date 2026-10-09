@@ -4,6 +4,7 @@ import { createAgentWrite } from './write.mjs'
 
 function fixture({ cooldown = 0, validated = false, enqueueError = false } = {}) {
   const events = []
+  const expected = { requestId: 'req-1', mainRequestTaskId: 'old-await' }
   let scheduled
   const { executeChatAgentWrite } = createAgentWrite({
     paceChatGPTWorkerSubmission: async () => events.push('pace'),
@@ -22,7 +23,7 @@ function fixture({ cooldown = 0, validated = false, enqueueError = false } = {})
       events.push('submit')
       return { conversationUrl: 'https://chatgpt.com/c/1', expectedFilename: 'reply.zip', originalPrompt: 'hello' }
     },
-    expectedChatGPTBundles: new Map(),
+    expectedChatGPTBundles: new Map([['chat-1', expected]]),
     recordChatGPTContinuationSent: () => events.push('record'),
     persistWorkspaceChatRemoteBestEffort: async () => events.push('persist'),
     expectedChatAgentPayload: (_key, _id, _url, values) => values,
@@ -30,13 +31,14 @@ function fixture({ cooldown = 0, validated = false, enqueueError = false } = {})
       events.push('enqueue')
       scheduled = request
       if (enqueueError) throw new Error('queue offline')
+      return { task_id: 'new-await' }
     },
     chatAgentInitialRequestWaitMs: () => 60_000,
   })
   const task = { type: 'BOT_WRITE', task_id: 'task-1', request_id: 'req-1' }
   const entry = { view: { webContents: { getURL: () => 'https://chatgpt.com/c/1' } } }
   const run = (payload, options) => executeChatAgentWrite(task, entry, 'chat-1', payload, 'https://chatgpt.com/c/1', options)
-  return { run, events, scheduled: () => scheduled }
+  return { run, events, scheduled: () => scheduled, expected }
 }
 
 test('provider cooldown returns a free observation before any submission', async () => {
@@ -71,4 +73,12 @@ test('queue failure after an accepted write reports attention without replay', a
   assert.equal(result.status, 'attention')
   assert.match(result.error, /req-1.*queue offline/)
   assert.deepEqual(events, ['submit', 'enqueue'])
+})
+
+test('a correction keeps request identity in its durable response supervision', async () => {
+  const { run, scheduled, expected } = fixture()
+  const metadata = { chat_id: 'chat-1', chat_hash: 'hash', requested_at: '2026-10-09T09:00:00Z' }
+  await run({ prompt: 'output correction', request_metadata: metadata }, { pacedWorker: false })
+  assert.deepEqual(scheduled().payload.requestMetadata, metadata)
+  assert.equal(expected.mainRequestTaskId, 'new-await')
 })

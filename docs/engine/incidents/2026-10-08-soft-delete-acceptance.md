@@ -91,3 +91,159 @@ bounded path lengths, and a temp directory below this repository inherits its
 Git ancestry. Use a short, host-shared temporary directory outside the checkout
 and isolated bridge settings for the test process. Do not weaken assertions to
 hide these environmental failures.
+
+## Recovery after interrupted delivery (2026-10-09)
+
+The continuation ZIP completed download at 17:00:31 on October 8, then the
+machine interrupted backend delivery. On restart an unrelated project window
+converted a non-terminal routing error to a fulfilled promise and the inbox
+ACK deleted the unimported ZIP. The backend still reported `workflow_pending`
+and had no corresponding output artifact or recorded plan.
+
+The delivery regression reproduced that false ACK. The extracted inbox boundary
+now retains/NACKs routing failures; only a successful owning backend import
+allows ACK. Nineteen focused tests and frontend typecheck/scoped lint/build
+passed. The three original API prompts were restored by idempotent append,
+proving one complete entry per request even after a repeated append.
+
+After frontend activation and a coordinated Desktop reload, an AWAIT-only retry
+recovered the same 16,876-byte ZIP at 08:37:55. The engine imported its Docker
+label-discovery workflow, awaiting consent; no operator prompt was repeated.
+The measured lesson was persisted as `2026-10-09-cross-project-bundle-ack`.
+Backend full vet, test and race gates passed on the resumed run. The frontend
+full suite reported 42 failed files / 63 failed tests. Comparison against fixed
+pre-change commit `6bbfd73a` reproduced 59 of those failures; all four differing
+assertions passed on a subsequent focused run. The variable knowledge-explorer
+assertion also failed identically in isolated current and pre-change runs.
+Existing suite debt was not relaxed or rewritten; the 19 focused tests for the
+changed delivery/transcript behavior remain green.
+
+## Current RLS decision boundary
+
+Docker label discovery ran successfully at 08:39:35 on October 9, after approval
+recorded in the Wharnex UI. The engine sent the results once in continuation
+`req_20261009T083938_dc922438db26c173`. Its returned plan
+`plan_20261009T083938_rls_backend_catalog_probe` is a typed, exact-container
+Prisma catalog/aggregate probe for `drcae-backend-1`, with no DDL/DML or rollout.
+The operator approved it in the UI at 08:56:35. It ran and failed with Prisma
+`P2010` before returning any catalog/identity evidence; its error wrapper emitted
+only that generic code, so the exact SQL cause is still unknown. The engine
+recorded the failed execution and prepared continuation
+`req_20261009T085637_6127f6b05cd46ade`. No RLS migration or database/report
+acceptance is proved. A subsequent diagnostic should preserve a bounded stage
+identifier and SQLSTATE rather than hide the cause behind a client wrapper code.
+
+## Measured database posture (2026-10-09 09:03 UTC)
+
+The operator approved the staged catalog probe in the Wharnex UI. The actual
+963-ms execution returned full JSON with 52 eligible integer-status tables,
+all with RLS disabled, and no policies. Prisma connected as `drcae`, a
+superuser with `BYPASSRLS`; the configured target role `drcae_app` did not exist.
+Aggregate reads exposed 14 deleted rows: three in `app_device` and eleven in
+`inspection`. These are measured prerequisites for the correction, not
+acceptance of it.
+
+The independent dependent-view stage failed with SQLSTATE `42P10`: the
+`SELECT DISTINCT` query ordered by expressions outside its select list. The
+other stages and all 52 aggregate counts survived. Process exit zero and
+`workflow.completed` describe diagnostic transport/execution; they do not
+mean every diagnostic stage passed or that RLS was corrected. The engine sent
+the complete result in continuation `req_20261009T090351_175c046e33fa46f4`
+at 09:04:20 without another Main Request. The staged-diagnostic lesson was
+persisted in the operational knowledge catalog (revision 10). Provisioning
+the application role, using it in the real connection, policies and real API
+acceptance remain pending.
+
+## Diagnostic protocol regression
+
+The shared planner delivery guidance now requires bounded stage/native-code
+evidence and checking partial failures before claiming success. Its consumer
+and provider contract regression failed before implementation and passed
+afterwards. Guidance moved into the delivery domain, retaining the existing
+planner composition entry point. Full backend vet, test and race gates passed
+(exit zero, 184 log lines); file limits and scoped whitespace checks passed.
+No wire fields or execution authority changed. The running backend has not
+yet been replaced to load this additional guidance; durable operational
+knowledge revision 10 is already available for subsequent request bundles.
+
+The next GPT plan tests RLS semantics, including soft-delete `RETURNING`, in
+a network-disabled disposable PostgreSQL 17 container, plus the corrected
+read-only view catalog query. It awaits its own exact informed approval and
+performs no DDL in the DRCAE database.
+
+## Disposable semantic test rejected the first RLS design
+
+The operator approved the next exact plan at 09:17:00. The corrected live
+view query returned zero dependent views. The isolated PostgreSQL 17 test
+passed application identity, deleted-row read filtering and NULL visibility,
+then failed `UPDATE status=-1 RETURNING` with a row-level-security error
+(exit 3). Later assertions did not run and must not be reported as passing.
+No DRCAE DDL or business-data write occurred. Wharnex recorded the failed
+execution and prepared continuation `req_20261009T091713_38a6f4aceeb10275`
+with revision-10 operational knowledge. The design must preserve the actual
+write/RETURNING contract before any live migration; no runtime acceptance
+is claimed from this failed disposable test.
+
+## Workflow request correlation and unrelated context changes
+
+A public `ApproveDebug` regression reproduced the workflow recorder assigning
+`plan_id` to `request_id` in both v1 and v2 paths. Callers now pass the executing
+plan's actual request ID to the extracted observation writer. Both public paths
+advance to a different continuation while retaining the original execution's
+request identity in the ledger; existing history remains immutable and is
+projected through plan identity by the frontend compatibility work.
+
+The RLS response at 09:27:36 was rejected after the parallel smoke fixture
+changed the same project. Input archive comparison showed only `EXPORTS.md`,
+`VERSION` and the fixture file changed; all nine declared read files were
+unchanged. A public request/context-refresh/bundle-ingestion regression
+reproduced the unnecessary stale-command rejection. The extracted workflow
+baseline guard now permits only patch-free scoped diagnostics without project
+impact, with complete retained/current snapshots and matching hashes for every
+concrete read/barrier dependency. Missing/changed inputs, patches and impact
+refuse this shortcut. The regression preserves `debug_approval_required` and
+proves no execution authority is granted by baseline adaptation.
+
+Focused race tests passed for both domains. The intermediate full race run
+encountered the existing `TestReArchivingDisposesNothing` temporary Git cleanup
+race, independently reproduced in the pre-change baseline log; no assertion was
+relaxed. Final full gates and image activation remain tracked separately.
+
+The automatic refreshed request `req_20261009T092752_14ee6f33821fa80d` was approved
+in the UI and tested the next disposable design. It also failed with a new-row
+RLS policy violation (exit 3), preserving the real database. Wharnex prepared
+continuation `req_20261009T093459_2d0b35171ce86857`; source correction and real
+application-role/API acceptance are still pending.
+
+## Restricted bridge proved in isolation
+
+The next exact disposable plan was approved in the UI and completed at
+09:46:22 (6,762 ms, exit zero, PostgreSQL 17.11). Its table-specific restricted
+SECURITY DEFINER bridge passed soft delete and idempotence while base-table
+reads still excluded deleted rows. Ordinary writes/RETURNING, joins, aggregate
+filtering, tenant-policy composition, minimal tombstone shape, maintenance
+visibility, explicit privileges and fixed search_path assertions passed.
+The test used synthetic roles/data and SET ROLE; actual application login and
+real service/API behavior are still separate acceptance requirements.
+Wharnex prepared continuation `req_20261009T094623_e547ff7aad1a15fb` to author
+the source correction. No real migration or rollout has occurred.
+
+## Final engine gates and activation
+
+The final backend source passed full vet, test and race gates (190 log lines,
+exit zero), focused public regressions/race, size/domain checks and scoped diff
+checks. Image `fb897597c6633a29a94da3060c3e3faf406a0adb91c44cbd753c999a1088e962`
+was built successfully. Another environment action activated that exact image
+at 09:56:02; this supervisor detected it rather than restarting it again.
+At 09:57:36 Docker reported healthy, the API returned 200 and the existing
+DRCAE request/session resumed `workflow_pending` without a repeated prompt.
+The previous image remains retained for rollback. These facts prove Wharnex
+engine activation; they do not prove any DRCAE migration or live acceptance.
+
+### Production RLS review and nested Node hydration (2026-10-09)
+
+The original Supervisor captured response094623 at 10:08; the source plan was approved in the UI at 10:15:46. Protected patch and ShellCheck passed, but backend verification stopped before build: `pnpm --dir services/drcae-backend run be:build` selected a nested package while dependency acquisition incorrectly installed at `/workspace`, which has no package manifest. Execution failed as `sandbox_dependency_acquisition`; no host integration or database rollout was established. An attempted unexecuted-plan adjustment was correctly refused because the approved execution had started; it created no new request.
+
+The engine regression reproduced missing nested dependency copying, then passed after sharing the bounded directory resolution between copying and nearest-lockfile acquisition. A real pnpm script executed through LocalRunner's actual isolated dependency preparation; additional tests cover selector forms, cwd-relative resolution, script arguments, malformed/duplicate/traversing paths, and a symlink escape even when Plug'n'Play exists. This is engine infrastructure evidence, not DRCAE source or database acceptance. Full gates and activation remain pending until separately recorded.
+
+Source review is retained in the chat's operational knowledge revision14. Required follow-up includes fail-closed startup when DBAPP_USER_NAME is missing, preserving the rejected-device response status, automated tests of the delivered provisioning SQL and consumers, deletion timestamp/delta semantics, and indirect table-owner membership. The isolated SECURITY DEFINER prototype used different SQL and cannot replace these checks. The actual PostgreSQL app login and report/Realtime/deleted-detail/active/write/app-sync API acceptance remain pending.

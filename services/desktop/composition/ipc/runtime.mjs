@@ -56,6 +56,7 @@ export function createDesktopIPCRegistrar(d) {
     queueChatGPTComment, cancelChatGPTRequestState, CHATGPT_URL,
     CHATGPT_LOGIN_URL, BEHAVIOR_PROBE_CONTROLS,
     getDeferredSupervisorNavigation, getChatAgentScheduler,
+    getChatGPTModels, setChatGPTModel,
     registerAgentIPC, normalizeSupervisorSlotCount, normalizeWorkerSlotCount,
     setChatAgentSupervisorTarget, setChatAgentWorkerTarget,
     chatAgentKeepFlowingFloor, reconcileChatAgentAutoScale,
@@ -117,6 +118,7 @@ export function createDesktopIPCRegistrar(d) {
         submitPreparedChatGPTDraft, queueChatGPTComment, cancelChatGPTRequestState, CHATGPT_URL,
         CHATGPT_LOGIN_URL, BEHAVIOR_PROBE_CONTROLS,
         getDeferredSupervisorNavigation, getChatAgentScheduler,
+        getChatGPTModels, setChatGPTModel,
       },
       agent: {
         registerAgentIPC, normalizeSupervisorSlotCount, normalizeWorkerSlotCount, setChatAgentSupervisorTarget,

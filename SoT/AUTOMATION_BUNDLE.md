@@ -15,12 +15,39 @@ The exchanges include planner, orchestrator, translation, classification, releas
 
 Transport retries MUST first check the owned conversation for exact user-turn
 evidence of every input part. Proven submission adopts durable response
-supervision without uploading or submitting again. A structural composer or
+supervision without uploading or submitting again. Adopted observation MUST
+persist `observation_only=true` in its durable task: restoring it after a
+Desktop restart MUST retain exact-file capture without reload, continuation
+or another prompt. Static historical completion cannot renew its progress;
+normal stall and task-age bounds still apply. Older payloads retain ordinary
+behavior only while their same-request live expectation remains armed. Cold
+hydration after restart MUST await durable budget restoration and be passive,
+even for an older ordinary payload. A passive payload MUST reinforce an already
+armed expectation without resetting its age, progress or spent budget. A structural composer or
 reasoning-control failure, or ambiguous file selection, MUST pause the write
 for attention rather than restart its upload. Transport/stall attention MAY
 continue capturing only the exact expected response filename; it MUST NOT
 trigger recovery, reload, continuation or another prompt. Authentication,
 verification, access and Manual gates remain closed.
+
+Restoring submitted supervision through `resumeExpectedBundle` MUST always be
+observation-only, including when older ordinary tasks lacked that flag. It MUST
+preserve the greatest known continuation count from live state, matching tasks
+and request-scoped recovery events, and correlate subsequent events with its
+durable successor task. An unavailable event ledger MUST NOT enable writes;
+passive exact-file capture remains available under the existing guards.
+Historical recovery events with an empty chat identity MAY contribute only
+when their exact task id belongs to that same request and owned chat. An
+explicitly different chat or an uncorrelated task MUST NOT contribute.
+After asynchronous history reads, restoration MUST revalidate the expectation:
+a newly armed same-request live dispatch retains its guard and age, while a
+different replacement request MUST fail closed without being overwritten.
+
+An explicitly dispatched output correction MAY resume stale transport/stall
+attention for that same owned request after submission. It MUST reset only
+response progress/processing samples, preserve request age and spent automatic
+continuations, and never clear authentication/access/verification gates. Its
+successor supervision MUST retain request metadata and the new durable task id.
 
 An automatic transport MUST hold a stable 1280 × 900 composer viewport while
 preparing/uploading/submitting. Project mirror resizes record their display
@@ -271,9 +298,26 @@ The bundle schema admits typed `shell`, `sql`, `logs`, `filesystem`, `process`, 
 ## Durable response delivery acknowledgement
 
 A Desktop response download remains in the durable pending inbox until the
-owning backend session accepts it. A workspace routing miss, request mismatch
+owning backend session accepts the delivery or durably records its terminal
+protocol rejection. A workspace routing miss, request mismatch
 or not-pending response is non-terminal for other requests, but MUST NOT be
 converted into successful delivery or acknowledge/delete its bytes. The client
 MUST retain/NACK that delivery so its actual owner can import it after project
 restoration. Duplicate observation must preserve this same rule: local browser
 completion or a renderer return value is not proof of backend acceptance.
+
+### Consumer model selection (2026-10-09)
+
+The composer MAY expose a model choice obtained only from the owned ChatGPT model control and its structurally linked menu. There is no hard-coded model catalog. Inventory is a deliberate human UI action, never a health probe; it and selection refuse Manual mode, authentication, active response expectations, queued drafts/comments and active writes. Scripts return bounded exact model-control labels, disabled/selected metadata and internal geometry only; trusted native input commits a unique offered choice. Missing or ambiguous controls fail closed. Desktop stores only the confirmed preference under the local chat identity. Before upload it revalidates that preference against the current menu and may apply it; immediately before submission it verifies the same choice without changing the model. Mandatory reasoning-effort validation remains independent, so an incompatible model cannot silently submit at an unknown effort. Already submitted adoption remains passive and never changes the model.
+
+### Exact-download observation diagnostics (2026-10-09)
+
+The existing named expected-bundle download operation MAY report bounded structural diagnostics from the same candidate scan it uses to select a control. Its expected filename MUST come from the main-process armed expectation, never from a renderer diagnostic parameter. The diagnostic returns only counts, categorical selection/skip reasons, exact-match booleans and at most 16 control identities (tag/role/testid, disabled/nested/file/download flags); it MUST NOT return control text, URLs, arbitrary attributes or assistant prose. A passive diagnostic variant MUST never click or change liveness. Resident polling MAY record a changed diagnostic or an unchanged diagnostic once per 30 seconds, correlated by chat/request and redacted through the existing operational logger. Diagnostics never grant download trust, extra recovery, navigation or resubmission. The string-returning download-script contract remains compatible for existing callers.
+
+Expected-download diagnosis may additionally count Wharnex response filename labels inside owned conversation resource/file/attachment controls. Main provides the armed canonical name; output contains only booleans for expected name, current chat and current request, never observed filenames or prose. Only download/aria-label/title control metadata and short leaf filename labels under structural resource cards are inspected; user/composer/sidebar/code/markdown/screen-reader regions are excluded. Inspect at most64cards,8labels/card,256controls and6marker ancestors; return at most16resource/control shapes per collection. This passive diagnostic cannot widen activation, infer completion or bypass exact download validation.
+
+One complementary passive expected-download measurement may inspect owned `[role="link"]`, `[download]`, `[data-file-name]`, `[data-filename]` and resource-test-id controls via download/aria-label/title/file-name attributes only. It MUST NOT read textContent or href or activate controls. At most128controls are inspected and16shapes returned, with visibility, capture-scan membership and filename-contract/ZIP booleans. Viewport and root/main scroll measurements contain numbers only, do not move the viewport and do not prove response completion or virtualized content presence. Missing matches require filename/link evidence from the human rather than successive collector expansions.
+
+Measured 2026-10-09: the owned test conversation rendered its exact expected response ZIP in three visible SPAN role=link controls outside the shipped capture selector. Expected-download transport MAY include role-link controls only inside the bound conversation main, excluding user/composer/sidebar controls. For this new path, inspect only bounded download/aria-label/title/data-file-name attributes, at most128controls, never textContent, href or nearby prose. Admit only a complete filename token equal to the engine-owned expected name; missing/wrong/disabled/hidden controls fail closed. Role-link candidates MUST NOT participate in generic latest-turn/assistant fallback. Existing duplicate exact preference and downloaded-byte validation remain authoritative.
+
+Live2026-10-09 10:34:32 showed exact role-link selection but no will-download or bytes after synthetic click, followed by the20second download stall. Role-link download activation MUST therefore locate its exact control and return a bounded viewport point; it MUST NOT use HTMLElement.click. The Supervisor main process revalidates the armed expectation identity/request, slot/owned conversation, manual/login/preparation/delivery guards and a freshly located exact point, then uses the existing scoped trusted renderer input boundary. Only the chosen exact control may be scrolled into view for activation; passive diagnostics MUST NOT scroll. Native input must not focus WebContents or move the OS pointer. Mark download pending only after accepted native dispatch, never after merely locating a control. Legacy string Worker callers fail closed for role-link controls until they integrate a named native activation operation; working legacy artifact controls retain their interface/activation. Bytes still pass strict bundle validation.

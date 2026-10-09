@@ -42,7 +42,7 @@ It is not a JavaScript evaluation capability. Four properties define it:
 
 1. **Closed vocabulary.** The caller names a control from a fixed enum
    (`sidebar-toggle`, `conversation-menu`, `menu-items`, `project-anchors`,
-   `project-dialog`, `delete-dialog`, `reasoning-effort`, `composer-transport`). An unrecognized name is rejected before
+   `project-dialog`, `delete-dialog`, `reasoning-effort`, `composer-transport`, `model-picker`). An unrecognized name is rejected before
    anything is built. Adding a control is a reviewed change, exactly like
    admitting a planner reason code.
 
@@ -89,3 +89,7 @@ during prompt preparation, and cannot fail or change liveness classification.
   content.
 - Because it is disabled by default, an ordinary operator session is unchanged
   and carries no additional surface.
+
+The 2026-10-09 `model-picker` probe is passive: it reports only the uniquely identified model trigger, its explicitly linked menu and bounded model-control labels/selected/disabled flags. A collapsed menu stays collapsed and yields no catalog. The production composer inventory and selection operations are separate human actions; the probe never activates them.
+
+The request-bound `expected-download` observation is a production transport diagnostic, separate from this dev-only control catalog. It reuses the allowlisted download selection scan with the canonical filename from the main-process armed expectation and can return a passive, bounded structural result. The trusted renderer never supplies that filename or a script/selector. Normal polling records at most one changed result or one unchanged result per 30 seconds; assistant text, filenames other than the armed expectation and URLs never enter its diagnostic output. This adds no generic evaluation capability and does not change the dev-only probe contract above.

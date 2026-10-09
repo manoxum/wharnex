@@ -5,6 +5,7 @@ import { registerChatGPTLifecycleIPC } from './lifecycle.mjs'
 import { registerChatGPTProbeIPC } from './probes.mjs'
 import { registerChatGPTModeIPC } from './modes.mjs'
 import { registerChatGPTAuthenticationIPC } from './authentication.mjs'
+import { registerChatGPTModelIPC } from '../../models/index.mjs'
 
 export function registerChatGPTSurfaceIPC(options) {
   registerChatGPTVisibilityIPC(options)
@@ -15,6 +16,7 @@ export function registerChatGPTSurfaceIPC(options) {
 export function registerChatGPTAccountIPC(options) {
   registerChatGPTLifecycleIPC(options)
   registerChatGPTProbeIPC(options)
+  registerChatGPTModelIPC(options)
 }
 
 export function registerChatGPTSessionControlIPC(options) {

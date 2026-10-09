@@ -3,6 +3,7 @@ set -eu
 
 ROOT=${WHARNESS_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}
 . "$ROOT/scripts/terminal-service.sh"
+. "$ROOT/scripts/stack/readiness.sh"
 STATE_DIR="$ROOT/.harness/state"
 BRIDGE_DIR="$ROOT/.harness/bridge"
 STACK_ENV="$STATE_DIR/stack.env"
@@ -423,12 +424,9 @@ activate_application() {
   desired_frontend=$(docker image inspect -f '{{.Id}}' "$FRONTEND_IMAGE")
   desired_webapp=$(docker image inspect -f '{{.Id}}' "$WEBAPP_IMAGE")
 
-  # Starting the Desktop should be quick when the persistent application
-  # services are already healthy and run the requested images. `make build`
-  # still reaches this function after new images are produced, and image-ID
-  # mismatch below keeps its normal force-recreate rollout intact.
-  if [ "$old_backend" = "$desired_backend" ] && [ "$old_frontend" = "$desired_frontend" ] && [ "$old_webapp" = "$desired_webapp" ] \
-    && service_ready backend 1 && service_ready frontend 1 && service_ready webapp 1 && service_ready gateway 1; then
+  # Reuse healthy application images only with the required process lifecycle.
+  if application_runtime_ready "$backend_container" "$old_backend" "$desired_backend" \
+    "$old_frontend" "$desired_frontend" "$old_webapp" "$desired_webapp"; then
     return 0
   fi
 

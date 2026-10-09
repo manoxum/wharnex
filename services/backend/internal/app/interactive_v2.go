@@ -98,7 +98,7 @@ func (s *Service) executeInteractiveV2Plan(ctx context.Context, sessionID string
 			result.Success = false
 			result.Error = opErr.Error()
 			result.CompletedAt = time.Now().UTC()
-			s.storeWorkflowObservation(sessionID, result, decision)
+			s.storeWorkflowObservation(sessionID, plan.RequestID, result, decision)
 			return result, opErr
 		}
 	}
@@ -112,13 +112,13 @@ func (s *Service) executeInteractiveV2Plan(ctx context.Context, sessionID string
 			result.Success = false
 			result.Error = runErr.Error()
 			result.CompletedAt = time.Now().UTC()
-			s.storeWorkflowObservation(sessionID, result, decision)
+			s.storeWorkflowObservation(sessionID, plan.RequestID, result, decision)
 			return result, runErr
 		}
 	}
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
-	s.storeWorkflowObservation(sessionID, result, decision)
+	s.storeWorkflowObservation(sessionID, plan.RequestID, result, decision)
 	s.bus.Publish(sessionID, "workflow.completed", map[string]any{"plan_id": plan.PlanID, "commands": len(result.Commands), "interactive_operations": len(result.Interactive), "transport": transport, "target": target})
 	return result, nil
 }

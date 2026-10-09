@@ -4,6 +4,7 @@ export function statusMeta(event: HarnessEvent) {
   const target = String(event.data.target || '')
   const exit = event.data.exit_code !== undefined ? `exit ${String(event.data.exit_code)}` : ''
   switch (event.type) {
+    case 'execution.recorded': return { title: event.data.success === false ? 'Resultado de execução com falha' : 'Resultado de execução registado', detail: String((event.data.execution as { error?: string } | undefined)?.error || ''), badge: 'LEDGER', tone: event.data.success === false ? 'fail' as const : 'ok' as const, lifecycleState: event.data.success === false ? 'failure' as const : 'success' as const }
     case 'execution.queued': return { title: 'Execução em fila', detail: event.data.position ? `posição ${String(event.data.position)}` : '', badge: 'QUEUE', tone: 'warning' as const, lifecycleState: 'waiting' as const }
     case 'execution.dequeued': return { title: 'Execução pronta para iniciar', detail: target, badge: 'READY', tone: 'warning' as const, lifecycleState: 'waiting' as const }
     case 'execution.started': return { title: 'Execução iniciada', detail: target || String(event.data.execution_mode || ''), badge: 'RUN', tone: 'warning' as const, lifecycleState: 'active' as const }

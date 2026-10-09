@@ -5,7 +5,8 @@ import type { ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChang
 import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, clearComposerDraft, flushComposerDraftSave, loadComposerDraft, loadComposerFileDraft, loadComposerStoredFileDraft, saveComposerFileDraft, saveComposerStoredFileDraft, scheduleComposerDraftSave, type ComposerStoredAttachmentDraft } from '../../../lib/chat/history/workspaceMemory'
 import { Icon } from '../../presentation/chrome/Icon'
 import { ExecutionModeControls } from '../../execution/controls/ExecutionModeControls'
-import { ComposerPlanFirstControl, ComposerRequestControls } from '../composer/ComposerRequestControls'
+import { ComposerPlanFirstControl } from '../composer/ComposerRequestControls'
+import { ComposerSessionControls } from '../composer/ComposerSessionControls'
 import { ChatItemBoundary } from './ChatItemBoundary'
 import { addChatAttachments, encodeChatAttachments, pastedTextChatFile, uniquifyPastedChatFiles } from '../../../lib/chat/attachments/chatAttachments'
 import { ComposerAttachmentChip } from '../attachments/ChatAttachmentCard'
@@ -54,7 +55,7 @@ function contextIdentityHash(session: Session) {
   return session.context.workspace_sha256 || session.context.manifest.sha256
 }
 
-export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, compactComposer = false, composerPlaceholder, composerSendLabel, composerHint, historyViewportStore, executionMode, automationMode, effortLevel, reasoningEffort, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', taskInFlight = false, queuedRequests = [], transportProgress = '', transportRequestId = '', onExecutionMode, onAutomationMode, onDebugMode, onEffortLevel, onReasoningEffort, onContextMode, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onComposerTyping, onSend, onAdjustExecutionPlan, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onSaveChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
+export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function ChatPanel({ session, items, chats, archivedChats, activeChatId, busy, embedded = false, hideSwitcher = false, composerOnly = false, compactComposer = false, composerPlaceholder, composerSendLabel, composerHint, executionApproval, historyViewportStore, executionMode, automationMode, effortLevel, reasoningEffort, chatTransportMode, attachmentsEnabled, preparedAttachmentCount, failedPromptDelivery, artifactSelection, artifactRequired, artifactContent, requestMode = 'direct', taskInFlight = false, queuedRequests = [], transportProgress = '', transportRequestId = '', onExecutionMode, onAutomationMode, onDebugMode, onEffortLevel, onReasoningEffort, onContextMode, onChatTransportMode, onKnowledgeSharing, onToggleArtifact, onRequestMode, onComposerTyping, onSend, onAdjustExecutionPlan, onPreviewBundle, onComment, onQueueEdit, onQueueMove, onQueueRemove, onQueueMerge, onQueuePromote, onApprovePlan, onCorrectPlan, onRejectPlan, onConfirmPrepared, onDismissPrepared, onRetryPreparedDelivery, onOpenFile, onRevertChange, onReprocessPolicyBlock, canReprocessPolicyBlock = false, onRepairWithGPT, canRepairWithGPT = false, onRetryDependencyNetwork, canRetryDependencyNetwork = false, onRetryTransportFailure, onResendPendingRequest, onCancelPendingRequest, onExportChat, onNewChat, onSelectChat, onSaveChat, onArchiveChat, onRestoreChat, onDeleteArchivedChat }, forwardedRef: ForwardedRef<ChatPanelHandle>) {
   const [initialDraft] = useState(() => loadComposerDraft(session.project_path, activeChatId))
   const [initialFileDraft] = useState(() => loadComposerFileDraft(session.project_path, activeChatId))
   const [message, setMessage] = useState(initialDraft.message)
@@ -115,10 +116,6 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   }
   const selectedArtifacts: ChatArtifactSelection = artifactSelection || { context: false, prompt: true, result: false, error: false }
   const currentExecutionMode = executionMode || session.execution_mode || 'protected'
-  const currentAutomationMode = automationMode || session.automation_mode || 'manual'
-  const currentEffortLevel = effortLevel || session.effort_level || 'high'
-  const currentReasoningEffort = reasoningEffort || session.reasoning_effort || 'high'
-  const currentChatTransportMode = chatTransportMode || session.chat_transport_mode || 'scraper'
   const knowledgeSharingEnabled = session.knowledge_sharing_enabled !== false
   const composerProjectName = session.project_path.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) || session.project_path
   const composerRef = useRef<HTMLFormElement>(null)
@@ -858,6 +855,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     <ChatNavigation session={session} embedded={embedded} hideSwitcher={hideSwitcher} composerOnly={composerOnly} busy={busy} chats={chats} archivedChats={archivedChats} activeChatId={activeChatId} onExportChat={onExportChat} onNewChat={onNewChat} onRestoreChat={onRestoreChat} onSelectChat={onSelectChat} onSaveChat={onSaveChat} onArchiveChat={onArchiveChat} onDeleteArchivedChat={onDeleteArchivedChat} contextLabel={contextLabel} contextStateTone={contextStateTone} contextIdentityCopied={contextIdentityCopied} copyContextIdentity={copyContextIdentity} archiveOpen={archiveOpen} setArchiveOpen={setArchiveOpen} />
     <ChatTranscript composerOnly={composerOnly} busy={busy} taskInFlight={taskInFlight} whxNoticeRuns={whxNoticeRuns} expandedWhxNoticeRunId={expandedWhxNoticeRunId} setExpandedWhxNoticeRunId={setExpandedWhxNoticeRunId} renderChatEntry={renderChatEntry} afterHeight={afterHeight} beforeHeight={beforeHeight} endRef={endRef} hasOlder={hasOlder} hasNewer={hasNewer} hiddenItemCount={hiddenItemCount} hiddenNewerItemCount={hiddenNewerItemCount} loadOlder={loadOlder} loadNewer={loadNewer} onScroll={onHistoryScroll} streamRef={streamRef} visibleItems={visibleItems} />
 
+    {!composerOnly && executionApproval && <div className="!max-h-[45vh] !shrink-0 !overflow-auto">{executionApproval}</div>}
     {!composerOnly && <>
       {failedPromptDelivery ? <div className="prepared-draft" role="status"><div><strong>{failedPromptDelivery.kind === 'storage' ? 'Armazenamento local sem espaço' : failedPromptDelivery.kind === 'attention' ? 'Ação necessária no ChatGPT' : 'Entrega ao ChatGPT pendente'}</strong><span>{failedPromptDelivery.kind === 'storage' ? 'O bundle foi preservado, mas o backend não consegue guardá-lo. Liberte espaço no disco e tente a ingestão novamente.' : failedPromptDelivery.kind === 'attention' ? 'A página abriu, mas o campo de escrita ainda não está disponível. Verifique login, verificação anti-robô ou avisos na aba ChatGPT.' : 'O mesmo prompt, contexto e anexos continuam disponíveis para uma nova tentativa.'}</span></div><button type="button" className="apply-button" disabled={busy} onClick={() => void onRetryPreparedDelivery?.(failedPromptDelivery.requestId)}><Icon name="refresh" size={14}/> {failedPromptDelivery.kind === 'storage' ? 'Tentar após liberar espaço' : failedPromptDelivery.kind === 'attention' ? 'Tentar depois de resolver' : 'Tentar entregar novamente'}</button></div> : null}
       {preparedAttachmentCount ? <div className="prepared-draft" role="status"><div><strong>Preparação enviada ao ChatGPT</strong><span>{preparedAttachmentCount} item(ns) de entrada preparados. O contexto é incluído automaticamente apenas quando necessário.</span></div><div><button type="button" className="text-button" onClick={onDismissPrepared}>Já enviei</button><button type="button" className="apply-button" disabled={busy} onClick={() => void onConfirmPrepared?.()}><Icon name="send" size={14}/> Confirmar e enviar</button></div></div> : null}
@@ -956,12 +954,15 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           <button type="button" className={`composer-round-action ${knowledgeSharingEnabled ? 'selected' : ''}`} disabled={busy || !onKnowledgeSharing} aria-pressed={knowledgeSharingEnabled} aria-label="Conhecimento do projeto" title={knowledgeSharingEnabled ? 'Conhecimento ligado · enviar e atualizar conhecimento incremental nesta requisição' : 'Conhecimento desligado · não enviar catálogo existente; novas aprendizagens continuam a ser recolhidas'} onClick={() => onKnowledgeSharing?.(!knowledgeSharingEnabled)}><Icon name="knowledge" size={12}/>{knowledgeSharingEnabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <button type="button" className={`composer-round-action debug-mode ${session.debug_enabled ? 'selected' : ''}`} disabled={busy || !onDebugMode} aria-pressed={Boolean(session.debug_enabled)} aria-label="Modo interativo" title={session.debug_enabled ? 'Interativo ligado · observações seguras podem continuar automaticamente' : 'Interativo desligado · a primeira observação de cada pedido pedirá autorização'} onClick={() => onDebugMode?.(!session.debug_enabled)}><Icon name="code" size={12}/>{session.debug_enabled && <span className="artifact-dot" aria-hidden="true"/>}</button>
           <ExecutionModeControls mode={currentExecutionMode} busy={busy} selfEvolution={Boolean(session.self_evolution)} onChange={onExecutionMode} />
-          <ComposerRequestControls
-            automationMode={currentAutomationMode}
-            effortLevel={currentEffortLevel}
-            reasoningEffort={currentReasoningEffort}
-            contextMode={session.context_mode || 'full'}
-            chatTransportMode={currentChatTransportMode}
+          <ComposerSessionControls
+            session={session}
+            workspaceChatId={activeChatId || session.chat_id || ''}
+            conversationUrl={chats.find((chat) => chat.id === (activeChatId || session.chat_id))?.chatgptUrl}
+            requestActive={taskInFlight || Boolean(preparedAttachmentCount)}
+            automationMode={automationMode}
+            effortLevel={effortLevel}
+            reasoningEffort={reasoningEffort}
+            chatTransportMode={chatTransportMode}
             busy={busy}
             onAutomationMode={onAutomationMode}
             onEffortLevel={onEffortLevel}

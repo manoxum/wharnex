@@ -781,9 +781,7 @@ func (s *Service) submitPlannerRequest(ctx context.Context, sessionID, message, 
 		if parentRequestID == "" && requestKind == requestKindStandard {
 			recordRequestSupportArtifact(current, requestID, mainRequestArtifactPath, []byte(operatorMessage))
 		}
-		if requestKind == requestKindPlanAdjustment {
-			recordRequestSupportArtifact(current, requestID, adjustmentRequestArtifactPath, []byte(operatorMessage))
-		}
+		recordExecutionPlanAdjustment(current, requestID, operatorMessage, requestKind)
 		recordRequestBaseline(current, requestID, requestBaselineSHA)
 		prunedContexts = append(prunedContexts, recordRequestContext(current, requestID, item.Context)...)
 		releasedBases = recordRequestBaseCommit(current, requestID, baseCommit)

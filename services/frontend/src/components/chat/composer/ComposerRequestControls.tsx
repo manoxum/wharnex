@@ -1,6 +1,21 @@
 import type { AutomationMode, ChatRequestMode, ChatTransportMode, ContextMode, EffortLevel, ReasoningEffort } from '../../../types'
 import { Icon } from '../../presentation/chrome/Icon'
 import { ComposerContextModeControl } from './ComposerContextModeControl'
+import { ComposerReasoningControl } from './choices'
+
+export type ComposerRequestControlsProps = {
+  automationMode: AutomationMode
+  effortLevel: EffortLevel
+  reasoningEffort: ReasoningEffort
+  contextMode: ContextMode
+  chatTransportMode: ChatTransportMode
+  busy?: boolean
+  onAutomationMode?: (mode: AutomationMode) => void
+  onEffortLevel?: (level: EffortLevel) => void
+  onReasoningEffort?: (effort: ReasoningEffort) => void
+  onContextMode?: (mode: ContextMode) => void
+  onChatTransportMode?: (mode: ChatTransportMode) => void
+}
 
 export function ComposerRequestControls({
   automationMode,
@@ -14,19 +29,7 @@ export function ComposerRequestControls({
   onReasoningEffort,
   onContextMode,
   onChatTransportMode,
-}: {
-  automationMode: AutomationMode
-  effortLevel: EffortLevel
-  reasoningEffort: ReasoningEffort
-  contextMode: ContextMode
-  chatTransportMode: ChatTransportMode
-  busy?: boolean
-  onAutomationMode?: (mode: AutomationMode) => void
-  onEffortLevel?: (level: EffortLevel) => void
-  onReasoningEffort?: (effort: ReasoningEffort) => void
-  onContextMode?: (mode: ContextMode) => void
-  onChatTransportMode?: (mode: ChatTransportMode) => void
-}) {
+}: ComposerRequestControlsProps) {
   return <>
     <span className="composer-mode-group" role="group" aria-label="Automação de execução">
       <button type="button" className={`composer-round-action mode-manual ${automationMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={automationMode === 'manual'} aria-label="Manual" title="Manual · executar e aplicar mudanças apenas por ação explícita" onClick={() => onAutomationMode?.('manual')}><Icon name="plan" size={12}/></button>
@@ -46,14 +49,7 @@ export function ComposerRequestControls({
       </select>
     </label>
     <ComposerContextModeControl mode={contextMode} disabled={busy} onChange={onContextMode} />
-    <label className="composer-effort-picker composer-reasoning-picker" title="Inteligência · define o esforço de raciocínio aplicado pelo ChatGPT antes de enviar este chat">
-      <span>Inteligência</span>
-      <select aria-label="Esforço de raciocínio" value={reasoningEffort} disabled={busy || !onReasoningEffort} onChange={(event) => onReasoningEffort?.(event.target.value as ReasoningEffort)}>
-        <option value="instant">Instantâneo</option>
-        <option value="medium">Médio</option>
-        <option value="high">Elevado</option>
-      </select>
-    </label>
+    <ComposerReasoningControl value={reasoningEffort} disabled={busy} onChange={onReasoningEffort} />
     <span className="composer-mode-group" role="group" aria-label="Transporte com o ChatGPT">
       <button type="button" className={`composer-round-action mode-scraper ${chatTransportMode === 'scraper' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={chatTransportMode === 'scraper'} aria-label="Scraper" title="Scraper · o Wharnex interage diretamente com o ChatGPT" onClick={() => onChatTransportMode?.('scraper')}><Icon name="chatgpt" size={12}/></button>
       <button type="button" className={`composer-round-action mode-manual-transport ${chatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={chatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>

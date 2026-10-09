@@ -1,5 +1,5 @@
 import { InspectorTabs } from './InspectorTabs'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AppConfig, ChatChangeFile, ChatGPTActivity, HarnessEvent, Operation, Session } from '../../../types'
 import { Icon } from '../../presentation/chrome/Icon'
 import { InternalWindow } from '../../workspace/window/InternalWindow'
@@ -22,9 +22,11 @@ import { ChatArtifactLibrary } from '../../artifacts/explorer/BundleExplorer'
 import { ChangeDiffEditor } from '../canvas/ChangeDiffEditor'
 import { shortPlanId } from '../../../lib/workspace/exports/activityFormat'
 import { PlanHistorySurface } from '../../execution/history/PlanHistorySurface'
+import { useExecutionHistory } from '../../execution/history/useExecutionHistory'
 import { ExecutionHistorySurface } from '../../execution/history/ExecutionHistorySurface'
 import { filterExecutionAuditEvents } from '../../../lib/execution/history/executionAudit'
 import { mergeAuditEvents } from '../../../lib/project/context/projectActivity'
+import { ExecutionConsentAction } from '../../execution/consent'
 import { ExecutionApprovalPanel } from '../../execution/controls/ExecutionApprovalPanel'
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
@@ -69,33 +71,8 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
   const [manualJSON, setManualJSON] = useState('')
   const [conflictResolverOpen, setConflictResolverOpen] = useState(false)
   const [conflictGuidance, setConflictGuidance] = useState('')
-  const [durableHistory, setDurableHistory] = useState<HarnessEvent[]>([])
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyError, setHistoryError] = useState('')
-  const historySessionRef = useRef('')
-  const mainRequestHistoryKey = useMemo(() => {
-    const roots = new Set(Object.values(session.request_lineages || {}).map((lineage) => lineage.root_request_id).filter(Boolean))
-    return `${session.id}:${[...roots].sort().join('|')}`
-  }, [session.id, session.request_lineages])
+  const { events: durableHistory, loading: historyLoading, error: historyError } = useExecutionHistory(session, selectedTab)
   useEffect(() => { setManualJSON('') }, [chat?.id])
-  useEffect(() => {
-    if (selectedTab !== 'plan' && selectedTab !== 'terminal') return
-    if (historySessionRef.current === mainRequestHistoryKey) return
-    let cancelled = false
-    setHistoryLoading(true); setHistoryError('')
-    void api.eventHistory(session.id, true).then((result) => {
-      if (cancelled) return
-      setDurableHistory(result.events || [])
-      historySessionRef.current = mainRequestHistoryKey
-    }).catch((error) => {
-      if (!cancelled) setHistoryError(error instanceof Error ? error.message : 'Não foi possível carregar o histórico durável.')
-    }).finally(() => { if (!cancelled) setHistoryLoading(false) })
-    return () => { cancelled = true }
-  }, [mainRequestHistoryKey, selectedTab, session.id])
-  useEffect(() => {
-    if (historySessionRef.current.startsWith(`${session.id}:`)) return
-    setDurableHistory([]); setHistoryError('')
-  }, [session.id])
   const auditEvents = useMemo(() => mergeAuditEvents(durableHistory, events), [durableHistory, events])
   const terminalEvents = useMemo(() => filterExecutionAuditEvents(auditEvents), [auditEvents])
   const canExecute = sessionCanExecutePlan(session)
@@ -270,22 +247,12 @@ export function PlanView({ session, readOnly = false, busy = false, canExecute =
   const manualPatches = manualPatchEntries(plan.plan_id, patches)
   const hostTools = systemTools.filter((tool) => tool.target === 'host' && tool.action !== 'use')
   const approvalItems = session.policy?.approval_items || []
-  const requiresSudoPassword = approvalItems.some((item) => item.requires_sudo_password)
-  const sudoNeedsHostDirect = requiresSudoPassword && session.execution_mode === 'protected'
   const policyStatus = session.policy ? (session.policy.allowed ? (workflow ? 'Probe autorizada' : 'Policy OK') : 'Bloqueado') : 'Histórico'
   const pendingCount = session.pending_host_changes?.length || 0
   const planControl = session.plan_control?.plan_id === plan.plan_id ? session.plan_control.state : 'active'
   const hostApplied = Boolean(session.last_applied_changes?.some((change) => change.plan.plan_id === plan.plan_id))
   const canControlAutoApprovedPlan = !readOnly && session.automation_mode === 'auto_approve' && session.execution_mode === 'protected' && !workflow && plan.status === 'ready' && !hostApplied
   const canReverseAppliedPlan = !readOnly && session.execution_mode === 'protected' && hostApplied
-
-  async function executeApprovedPlan() {
-    try {
-      await onExecute?.(true, requiresSudoPassword ? sudoPassword : '')
-    } finally {
-      if (requiresSudoPassword) setSudoPassword('')
-    }
-  }
 
   async function savePatchesToProject() {
     if (!manualPatches.length) return
@@ -315,12 +282,13 @@ export function PlanView({ session, readOnly = false, busy = false, canExecute =
       <div className="plan-control-primary">
         <div className="plan-control-copy"><span className="plan-control-mark"><Icon name="plan" size={15}/></span><div><span className="panel-kicker">Contrato de execução</span><strong>{canExecute ? 'Aguardando a sua decisão' : pendingCount ? 'Integração pendente de recuperação' : 'Plano registado'}</strong><span>{session.execution_mode === 'full' ? 'Full executa diretamente no host e dispensa gates marcados como bypassáveis; sudo continua a exigir autorização explícita e senha efémera.' : session.execution_mode === 'unprotected' ? 'Unprotected executa diretamente no host após confirmação; não existe sandbox nem uma etapa posterior de Apply.' : needsApproval ? 'Uma aprovação cobre a execução Protected e a integração automática no host; correções só voltam a pedir decisão quando introduzem novo impacto.' : pendingCount ? 'A aplicação ao host já foi autorizada pelo plano. Não existe uma segunda aprovação de Apply; apenas a recuperação do bloqueio pendente.' : 'Depois de uma execução Protected autorizada e verificada, a integração no host acontece sem uma segunda aprovação.'}</span></div></div>
         <div className="plan-decision-actions">
-          {session.state === 'debug_approval_required' && session.plan.debug && <button type="button" className="apply-button" disabled={busy} onClick={() => void onApproveDebug?.()}><Icon name="terminal" size={14}/> {session.plan.debug.protocol === 'harness.interactive/v2' ? `Autorizar Interactive v2 · ${session.plan.debug.target} · ${session.plan.debug.access || 'observe'}` : session.plan.debug.target === 'host' && session.plan.debug.access === 'modify' ? 'Autorizar alteração de debug no host' : `Autorizar debug ${session.plan.debug.target}`}</button>}
+
           {busy && session.plan.debug?.protocol === 'harness.interactive/v2' && <button type="button" className="danger-button" onClick={() => void api.cancelInteractive(session.id).then(() => setManualNotice('Cancelamento da ronda Interactive v2 solicitado.')).catch((error) => setManualNotice(error instanceof Error ? error.message : String(error)))}><Icon name="close" size={13}/> Parar ronda</button>}
           {canControlAutoApprovedPlan && planControl === 'active' && <button type="button" className="secondary-button" onClick={() => void onControlExecutionPlan?.('pause')}><Icon name="pause" size={13}/> Pausar</button>}
           {canControlAutoApprovedPlan && planControl !== 'active' && <button type="button" className="apply-button" onClick={() => void onControlExecutionPlan?.('resume')}><Icon name="play" size={13}/> Retomar</button>}
           {canControlAutoApprovedPlan && planControl !== 'suspended' && <button type="button" className="secondary-button" onClick={() => void onControlExecutionPlan?.('suspend')}><Icon name="close" size={13}/> Suspender</button>}
-          {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><ExecutionPlanAdjustment session={session} busy={busy} onAdjust={onAdjustExecutionPlan} /><button type="button" className={session.execution_mode === 'protected' ? 'apply-button' : 'danger-button'} disabled={busy || sudoNeedsHostDirect || (requiresSudoPassword && !sudoPassword)} onClick={() => void executeApprovedPlan()}><Icon name="check" size={14}/> {sudoNeedsHostDirect ? 'sudo requer Full/Unprotected' : requiresSudoPassword ? 'Autorizar sudo e executar' : session.execution_mode === 'full' ? 'Executar no host · Full' : session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
+          {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><ExecutionPlanAdjustment session={session} busy={busy} onAdjust={onAdjustExecutionPlan} /></>}
+          <ExecutionConsentAction key={`${session.id}:${plan.plan_id}`} canExecute={canExecute} session={session} busy={busy} sudoPassword={sudoPassword} onClearPassword={() => setSudoPassword('')} onExecute={onExecute} onApproveDebug={onApproveDebug}/>
           {canRejectPending && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={13}/> Rejeitar</button>}
           {canReverseAppliedPlan && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onPrepareExecutionPlanReversal?.()}><Icon name="history" size={13}/> Reverter com GPT</button>}
         </div>
