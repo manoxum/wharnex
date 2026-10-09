@@ -7,7 +7,7 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 )
 
-func ValidateResult(item domain.Session, turn domain.AgentTurn, plan *domain.ExecutionPlan) error {
+func ValidateResult(item domain.Session, turn *domain.AgentTurn, plan *domain.ExecutionPlan) error {
 	if turn.RequestID == item.LastRequestID {
 		switch item.LastRequestMode {
 		case "plan_first":
@@ -52,7 +52,7 @@ func ValidateProviderResult(item domain.Session, turn *domain.AgentTurn, plan *d
 	if turn == nil || !postintegration.RequiresObservation(item, turn.RequestID) {
 		return nil
 	}
-	return ValidateResult(item, *turn, plan)
+	return ValidateResult(item, turn, plan)
 }
 
 // Explicit operator continuations are user-authored; automatic repairs remain engine events.
