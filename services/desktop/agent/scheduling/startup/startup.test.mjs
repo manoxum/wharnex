@@ -2,18 +2,19 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createWorkerScheduler, createTranslatorScheduler, createSupervisorScheduler } from './index.mjs'
+import { readDesktopCompositionSource } from '../../../composition/entry/source.mjs'
 
 class CapturedScheduler {
   constructor(options) { this.options = options }
 }
 
 test('Desktop creates each scheduler before starting it and defers the Worker pool until after local paint', async () => {
-  const main = await readFile(new URL('../../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const context = await readFile(new URL('../../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const wiring = await readFile(new URL('../../../composition/startup/runtime.mjs', import.meta.url), 'utf8')
   const startup = await readFile(new URL('../../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
   const entry = await readFile(new URL('../../../composition/entry/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /app\.whenReady\(\)\.then\(\(\) => desktopEntrypoint\.start\(\)\)/)
+  assert.match(main, /app\.whenReady\(\)\.then\(\(\) => desktop\.desktopEntrypoint\.start\(\)\)/)
   assert.match(entry, /startDesktopRuntime\(startup\.startupContext\(\)\)/)
   assert.match(wiring, /return createDesktopStartupContext\(\{/)
   assert.match(context, /create: createWorkerScheduler/)

@@ -16,8 +16,6 @@
 .project-task-search:focus-within { border-color:color-mix(in srgb,var(--theme-accent) 55%,var(--theme-border)); box-shadow:0 0 0 2px color-mix(in srgb,var(--theme-accent) 10%,transparent); }
 .project-task-search input { min-width:0; width:100%; border:0; outline:0; background:transparent; color:var(--theme-text); font-size:calc(8.5px * var(--ui-font-scale)); }
 .project-task-toolbar > select { min-width:0; height:31px; padding:0 26px 0 9px; border:1px solid var(--theme-border-soft); border-radius:8px; background:var(--theme-surface); color:var(--theme-text-soft); font-size:calc(8px * var(--ui-font-scale)); }
-.project-task-tabs { padding:7px 10px; border-bottom:1px solid var(--theme-border-soft); background:transparent; }
-.project-task-tabs button { min-height:29px; border-radius:8px; }
 .project-task-source { width:max-content; max-width:100%; padding:3px 6px; display:inline-flex; align-items:center; gap:4px; border:1px solid var(--theme-border-soft); border-radius:999px; color:var(--theme-text-muted); background:color-mix(in srgb,var(--theme-bg) 65%,transparent); font-size:calc(6.7px * var(--ui-font-scale)); font-weight:760; text-transform:uppercase; letter-spacing:.045em; }
 .project-task-source.source-chat { color:var(--theme-accent); border-color:color-mix(in srgb,var(--theme-accent) 22%,var(--theme-border-soft)); }
 .project-task-source.source-worker,.project-task-source.source-orchestrator { color:var(--info); border-color:color-mix(in srgb,var(--info) 22%,var(--theme-border-soft)); }

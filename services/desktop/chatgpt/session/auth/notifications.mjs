@@ -1,3 +1,5 @@
+import { notifyChatGPTAccountChanged } from '../health/account-change.mjs'
+
 export function createAuthNotifications({
   chatgptViews, chatGPTKeyForEntry, windowStateForEntry, sendToWindowState,
   publishChatGPTState, sanitizeDiagnosticURL, loginURL, homeURL,
@@ -20,6 +22,8 @@ export function createAuthNotifications({
   }
 
   function publishAuthComplete(cacheKey, mode, url) {
+    // A completed sign-in may be another account, whose own limits apply.
+    notifyChatGPTAccountChanged(`login-${mode}`)
     const state = windowStateForEntry(chatgptViews.get(cacheKey))
     if (state) {
       sendToWindowState(state, 'wharness:chatgpt:auth-complete', {

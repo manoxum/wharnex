@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { configureDesktopProcess } from './index.mjs'
 
 function fixture({ platform = 'linux', userData = '', lock = true } = {}) {
@@ -55,6 +58,25 @@ test('second instance restores a window while rejected locks quit', () => {
   configureDesktopProcess(denied.options)
   assert.deepEqual(denied.events.slice(-2), ['lock', 'quit'])
   assert.equal(denied.options.app.listenerCount('second-instance'), 0)
+})
+
+test('Linux foreground handoff signals only the owned Desktop main process', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'wharnex-focus-'))
+  const { options } = fixture()
+  options.environment.WHARNESS_RUNTIME_DIR = dir
+  options.processTarget.pid = 12345
+  const focused = []
+  options.getMainWindow = () => ({
+    isMinimized: () => false, show: () => focused.push('show'), focus: () => focused.push('focus'),
+  })
+  try {
+    configureDesktopProcess(options)
+    assert.equal(readFileSync(path.join(dir, 'electron-main.pid'), 'utf8'), '12345\n')
+    options.processTarget.emit('SIGUSR1')
+    assert.deepEqual(focused, ['show', 'focus'])
+    options.processTarget.emit('exit')
+    assert.throws(() => readFileSync(path.join(dir, 'electron-main.pid'), 'utf8'), { code: 'ENOENT' })
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 test('rejects a relative profile directory before requesting the lock', () => {

@@ -2,6 +2,7 @@ import { readActivityRecoverySource } from '../supervision/activity-recovery-sou
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 test('Auto scale reconciles against the persisted policy ceiling', async () => {
   const source = await readFile(new URL('../../agent/scheduling/capacity/auto-scale-runtime.mjs', import.meta.url), 'utf8')
@@ -91,7 +92,7 @@ test('the cross-chat navigation gate follows the provider instead of one fixed c
   assert.match(gap.slice(0, 900), /CHATGPT_WORKER_NAVIGATION_GAP_MS/)
   const settings = await readFile(new URL('../config/runtime.mjs', import.meta.url), 'utf8')
   assert.match(source, /CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS/)
-  assert.match(settings, /navigationGapHealthyMs: CHAT_AGENT_WORKER_ACTION_GAP_MS/)
+  assert.match(settings, /CHATGPT_WORKER_NAVIGATION_GAP_HEALTHY_MS: CHAT_AGENT_WORKER_ACTION_GAP_MS/)
 
   const pacer = source.slice(source.indexOf('async function paceChatGPTWorkerNavigation('))
   assert.match(pacer.slice(0, 600), /paceChatGPTWorkerRequest\(chatAgentNavigationGapMs\)/)
@@ -138,8 +139,8 @@ test('an account-wide rate-limit gate suspends Workers for the configured window
   const apply = source.slice(start, source.indexOf('\nfunction noteChatGPTRateLimitGate(', start))
   assert.match(apply, /classifyChatGPTRateLimit\(state\.hits, \{ now, domGate \}\)/)
   assert.match(apply, /state\.policies\.rate_limit_cooldown_minutes/)
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
-  assert.match(main, /get hits\(\) \{ return desktopState\.chatgpt\.chatGPTRateLimitHits \}, set hits\(value\) \{ desktopState\.chatgpt\.chatGPTRateLimitHits = value \}/)
+  const main = await readDesktopCompositionSource()
+  assert.match(main, /get hits\(\) \{ return desktopState\.chatgpt\.chatGPTRateLimitHits \},?\s*set hits\(value\) \{ desktopState\.chatgpt\.chatGPTRateLimitHits = value \}/)
   assert.match(main, /get policies\(\) \{ return desktopState\.agent\.chatAgentPolicies \}/)
   assert.match(apply, /Math\.min\(60 \* 60_000, Math\.max\(60_000, requestedCooldownMs\)\)/)
   // The kind has to reach the durable store, or the backend keeps applying the
@@ -162,9 +163,9 @@ test('automatic rate-limit resume reloads one Worker and confirms the structural
   const source = await readActivityRecoverySource()
   const resume = await readFile(new URL('../../chatgpt/session/health/rate-limit-resume.mjs', import.meta.url), 'utf8')
   const pacing = await readFile(new URL('../transport/pacing/runtime.mjs', import.meta.url), 'utf8')
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const stage = await readFile(new URL('../transport/stage/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /createDesktopChatGPTTransportStage\(chatGPTTransportStageDependencies\)/)
+  assert.match(main, /compose\(ctx, 'chatgpt-transport', createDesktopChatGPTTransportStage, \{/)
   assert.match(stage, /createDesktopChatGPTPacing\(\{/)
   assert.match(pacing, /createChatGPTRateLimitResume\(\{/)
   assert.match(resume, /state\.resumeProbeRequired/)

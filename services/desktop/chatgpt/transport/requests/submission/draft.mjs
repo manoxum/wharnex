@@ -7,8 +7,8 @@ export function createChatGPTDraftSubmission({
   submitWithoutReplay, chatAgentRateLimitDelayMs, ChatGPTRateLimitDeferral,
   chatGPTSubmissions, chatGPTSubmitScript,
 }) {
-  async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true, rateLimitExempt = true, beforeDispatch = undefined } = {}) {
-    chatAgentWorkerActivity.set('submitting')
+  async function submitChatGPTDraft(key, entryOverride = undefined, expectedURL = '', preparedTarget = undefined, { requireReasoningEffort = true, rateLimitExempt = true, beforeDispatch = undefined, verifyOnly = false } = {}) {
+    if (!verifyOnly) chatAgentWorkerActivity.set('submitting')
     const target = preparedTarget || await targetChatGPTComposer(key, '', false, entryOverride)
     const wc = target.wc
     const reasoningEffort = normalizeChatGPTReasoningEffort(target.reasoningEffort || target.entry.reasoningEffort || 'high')
@@ -38,6 +38,7 @@ export function createChatGPTDraftSubmission({
       effort = { effort: `unconfirmed(wanted ${reasoningEffort})`, changed: false, cycles: 0 }
     }
     console.log(`[chatgpt-effort] key=${key} target=${effort.effort} changed=${effort.changed} cycles=${effort.cycles}`)
+    if (verifyOnly) return effort
     markChatGPTAffinitySubmitted(target.entry.affinity)
     const method = 'dom-click'
     const result = await submitWithoutReplay({
@@ -66,5 +67,6 @@ export function createChatGPTDraftSubmission({
     return result
   }
 
-  return { submitChatGPTDraft }
+  const verifyChatGPTDraft = (key, target, requireReasoningEffort = true) => submitChatGPTDraft(key, target.entry, target.conversationUrl, target, { requireReasoningEffort, verifyOnly: true })
+  return { submitChatGPTDraft, verifyChatGPTDraft }
 }

@@ -1,5 +1,9 @@
+import { WorkbenchTabs } from '../../presentation/tabs'
 import { activityLabel, activeTask, operationalState, stateDot } from './browserMonitorModel'
 import { BrowserMonitorPanelToggle } from './BrowserMonitorPanelToggle'
+import { BrowserMonitorLinks } from './BrowserMonitorLinks'
+import { useState } from 'react'
+import type { BrowserMonitorChat } from '../../../lib/transport/http/browser-monitor/catalog'
 
 function AgentGroup({ title, agents, selectedId, onSelect }: {
   title: string; agents: DesktopAgentRuntimeAgent[]; selectedId: string; onSelect: (id: string) => void
@@ -21,13 +25,21 @@ function AgentGroup({ title, agents, selectedId, onSelect }: {
   </div>
 }
 
-export function BrowserMonitorList({ agents, selectedId, onSelect, expanded, onToggle }: { agents: DesktopAgentRuntimeAgent[]; selectedId: string; onSelect: (id: string) => void; expanded: boolean; onToggle: () => void }) {
+export function BrowserMonitorList({ agents, selectedId, onSelect, selectedLinkKey, onSelectLink, onInstancesView, expanded, onToggle }: { agents: DesktopAgentRuntimeAgent[]; selectedId: string; onSelect: (id: string) => void; selectedLinkKey: string; onSelectLink: (chat: BrowserMonitorChat) => void; onInstancesView: () => void; expanded: boolean; onToggle: () => void }) {
+  const [view, setView] = useState<'instances' | 'links'>('instances')
+  const changeView = (next: 'instances' | 'links') => { setView(next); if (next === 'instances') onInstancesView() }
   return <aside className={`min-h-0 overflow-y-auto border-r border-white/[.07] bg-[#0e1723] ${expanded ? 'px-4 py-6' : 'px-1.5 py-4'}`} aria-label="Instâncias">
     {expanded ? <>
-    <div className="mb-6 px-2"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">Navegadores</p><BrowserMonitorPanelToggle panel="lista de instâncias" expanded onToggle={onToggle} /></div><p className="mt-1 text-[13px] text-slate-300">Selecione uma instância para acompanhar.</p></div>
-    <AgentGroup title="Supervisors" agents={agents.filter((agent) => agent.role === 'supervisor')} selectedId={selectedId} onSelect={onSelect} />
-    <AgentGroup title="Workers" agents={agents.filter((agent) => agent.role === 'worker')} selectedId={selectedId} onSelect={onSelect} />
-    {!agents.length ? <p className="rounded-xl border border-dashed border-white/10 p-4 text-[13px] text-slate-400">A aguardar instâncias do Runtime ChatGPT.</p> : null}
+    <div className="mb-4 px-2"><div className="flex items-center justify-between gap-2"><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">Navegadores</p><BrowserMonitorPanelToggle panel="lista de instâncias" expanded onToggle={onToggle} /></div><p className="mt-1 text-[13px] text-slate-300">Selecione uma instância para acompanhar.</p></div>
+    <WorkbenchTabs className="mb-6" label="Visões dos navegadores" value={view} onChange={changeView} items={[
+      { id: 'instances', label: 'Instâncias', icon: 'monitor', badge: agents.length, domId: 'browser-monitor-tab-instances', controls: 'browser-monitor-view' },
+      { id: 'links', label: 'Links GPT', icon: 'link', domId: 'browser-monitor-tab-links', controls: 'browser-monitor-view' },
+    ]}/>
+    <div id="browser-monitor-view" role="tabpanel" aria-labelledby={view === 'instances' ? 'browser-monitor-tab-instances' : 'browser-monitor-tab-links'}>
+      {view === 'instances' ? <><AgentGroup title="Supervisors" agents={agents.filter((agent) => agent.role === 'supervisor')} selectedId={selectedId} onSelect={onSelect} />
+        <AgentGroup title="Workers" agents={agents.filter((agent) => agent.role === 'worker')} selectedId={selectedId} onSelect={onSelect} />
+        {!agents.length ? <p className="rounded-xl border border-dashed border-white/10 p-4 text-[13px] text-slate-400">A aguardar instâncias do Runtime ChatGPT.</p> : null}</> : <BrowserMonitorLinks agents={agents} selectedKey={selectedLinkKey} onSelect={onSelectLink} />}
+    </div>
     <p className="mt-8 border-t border-white/[.07] px-2 pt-4 text-[11px] leading-5 text-slate-500">{agents.filter((agent) => agent.occupied).length} em trabalho · {agents.length} no total</p>
     </> : <div className="flex flex-col items-center gap-5"><BrowserMonitorPanelToggle panel="lista de instâncias" expanded={false} onToggle={onToggle} /><span className="rotate-180 [writing-mode:vertical-rl] text-[10px] font-semibold uppercase tracking-[.16em] text-slate-500" aria-hidden="true">Instâncias</span></div>}
   </aside>

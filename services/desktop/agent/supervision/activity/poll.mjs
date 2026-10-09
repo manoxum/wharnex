@@ -1,4 +1,7 @@
+import { createTransportShapeProbe } from './transport-probe.mjs'
+
 export function createChatGPTActivityPoll(context) {
+  const observeTransportShape = createTransportShapeProbe()
   const {
     readPollingChatGPTVisibleActivity, setPollingChatGPTVisibleActivity, chatgptViews, reconcileChatGPTThrottle, isTrustedChatGPTOrigin,
     chatgptTransportModes, chatGPTHumanActionScript, noteChatGPTRateLimitGate, expectedChatGPTBundles, noteChatGPTRecoveryProgress,
@@ -33,6 +36,7 @@ export function createChatGPTActivityPoll(context) {
             if (expected?.recovery) noteChatGPTRecoveryProgress(expected.recovery, `surface:${surfaceFingerprint}`, Date.now())
           }
           const expectedActive = expectedChatGPTBundles.has(key)
+          if (health?.required !== true) await observeTransportShape(key, entry, expectedChatGPTBundles.get(key)?.requestId)
           const humanKind = String(health?.kind || 'verification')
           if (health?.required === true && (humanKind === 'verification' || humanKind === 'access' || expectedActive)) {
             setChatGPTHumanAction(key, humanKind, '', 'dom')

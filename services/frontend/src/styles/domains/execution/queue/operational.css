@@ -4,41 +4,6 @@
 .chat-agent-tasks-summary span { padding: 3px 0; }
 .chat-agent-tasks-summary b { font-size: calc(10px * var(--ui-font-scale)); }
 .chat-agent-tasks-scope { padding: 8px 14px; background: transparent; }
-.chat-agent-task-tabs {
-  min-width: 0;
-  min-height: 44px;
-  padding: 0 10px;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--theme-border);
-  background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg));
-  scrollbar-width: none;
-}
-.chat-agent-task-tabs::-webkit-scrollbar { display: none; }
-.chat-agent-task-tabs button {
-  min-width: max-content;
-  min-height: 43px;
-  position: relative;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 0;
-  background: transparent;
-  color: var(--theme-text-muted);
-  cursor: pointer;
-  font-size: calc(8.2px * var(--ui-font-scale));
-  font-weight: 640;
-}
-.chat-agent-task-tabs button:hover { background: color-mix(in srgb, var(--theme-hover) 64%, transparent); color: var(--theme-text-soft); }
-.chat-agent-task-tabs button[aria-selected='true'] { color: var(--theme-text); }
-.chat-agent-task-tabs button[aria-selected='true']::after { content: ''; position: absolute; right: 8px; bottom: -1px; left: 8px; height: 2px; border-radius: 2px 2px 0 0; background: var(--theme-accent); }
-.chat-agent-task-tabs button[aria-selected='true'] > svg { color: var(--theme-accent); }
-.chat-agent-task-tabs b { min-width: 18px; height: 18px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--theme-muted); color: var(--theme-text-muted); font: 700 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family); }
-.chat-agent-task-tabs button[aria-selected='true'] b { background: var(--theme-accent-soft); color: var(--theme-text); }
 .chat-agent-tasks-body { min-height: 0; flex: 1 1 auto; padding: 12px 14px 16px; gap: 9px; }
 .chat-agent-task-section { gap: 9px; }
 .chat-agent-task-section > header { min-height: 38px; padding: 0 2px; align-items: flex-start; }

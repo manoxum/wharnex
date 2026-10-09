@@ -1,11 +1,13 @@
+import { observeBundleDownload } from '../../transport/usage/index.mjs'
+
 export function createChatGPTDownloadRouter({
   chatGPTWorkerEntries, chatAgentWorkerActivity,
   registerOrchestratorExecutionDownload, expectedChatGPTOrchestratorExecutions,
   tempPath, registerChatGPTOrchestratorPlanDownload,
   registerChatGPTMarkdownTranslationDownload,
   registerReleaseNotesBundleDownload, expectedChatGPTReleaseNotes,
-  registerChatGPTTodoClassificationDownload, expectedChatGPTBundleForDownload,
-  chatGPTKeyForWebContents, canonicalWharnessBundleDownload,
+  registerChatGPTTodoClassificationDownload, registerChatGPTUITestDiscoveryDownload = () => false, expectedChatGPTBundleForDownload,
+  chatGPTKeyForWebContents, canonicalWharnexBundleDownload,
   BundleOwnershipError, path, publishBundleDownloadError,
   handleBundleDownload, handleLegacyPlanDownload,
 }) {
@@ -15,21 +17,26 @@ export function createChatGPTDownloadRouter({
       // filename and request ownership checks, rather than object identity,
       // decide whether an automated download is accepted.
       const sourceFilename = item.getFilename()
+      const accepted = (handled) => {
+        if (handled) observeBundleDownload(item, sourceFilename)
+        return handled
+      }
       const downloadingWorker = chatGPTWorkerEntries.find((candidate) => {
         const wc = candidate?.view?.webContents
         return wc && !wc.isDestroyed() && (sourceWebContents === wc || sourceWebContents?.hostWebContents === wc)
       })
       if (downloadingWorker) chatAgentWorkerActivity.setFor(downloadingWorker.slotId, 'downloading')
-      if (registerOrchestratorExecutionDownload(item, sourceFilename, expectedChatGPTOrchestratorExecutions, tempPath())) return
-      if (registerChatGPTOrchestratorPlanDownload(item, sourceFilename)) return
-      if (registerChatGPTMarkdownTranslationDownload(item, sourceFilename)) return
-      if (registerReleaseNotesBundleDownload(item, sourceFilename, expectedChatGPTReleaseNotes, tempPath())) return
-      if (registerChatGPTTodoClassificationDownload(item, sourceFilename)) return
+      if (accepted(registerOrchestratorExecutionDownload(item, sourceFilename, expectedChatGPTOrchestratorExecutions, tempPath()))) return
+      if (accepted(registerChatGPTOrchestratorPlanDownload(item, sourceFilename))) return
+      if (accepted(registerChatGPTMarkdownTranslationDownload(item, sourceFilename))) return
+      if (accepted(registerReleaseNotesBundleDownload(item, sourceFilename, expectedChatGPTReleaseNotes, tempPath()))) return
+      if (accepted(registerChatGPTTodoClassificationDownload(item, sourceFilename))) return
+      if (accepted(registerChatGPTUITestDiscoveryDownload(item, sourceFilename))) return
       const expectedBundle = expectedChatGPTBundleForDownload(sourceWebContents, sourceFilename)
       const sourceCacheKey = expectedBundle?.key || chatGPTKeyForWebContents(sourceWebContents)
       let bundleCandidate
       try {
-        bundleCandidate = canonicalWharnessBundleDownload(sourceFilename, expectedBundle?.requestId || '', item.getMimeType?.() || '', sourceCacheKey || '', expectedBundle?.filename || '')
+        bundleCandidate = canonicalWharnexBundleDownload(sourceFilename, expectedBundle?.requestId || '', item.getMimeType?.() || '', sourceCacheKey || '', expectedBundle?.filename || '')
       } catch (error) {
         if (error instanceof BundleOwnershipError && error.requestId && error.filename) {
           // Another chat's valid response is routed by request ID through the
@@ -43,6 +50,7 @@ export function createChatGPTDownloadRouter({
         }
       }
       if (bundleCandidate) {
+        observeBundleDownload(item, bundleCandidate.filename)
         handleBundleDownload(item, sourceFilename, sourceWebContents, expectedBundle, sourceCacheKey, bundleCandidate)
         return
       }

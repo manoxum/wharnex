@@ -12,11 +12,11 @@ export function createDesktopPromptDispatch(d) {
       reopenAttempts: d.CHATGPT_MENU_REOPEN_ATTEMPTS,
     })
   }
-  const { submitChatGPTDraft } = createChatGPTDraftSubmission({
+  const { submitChatGPTDraft, verifyChatGPTDraft } = createChatGPTDraftSubmission({
     ...d, stepChatGPTReasoningEffortToward,
   })
   const prompt = createChatGPTPromptTransport({
-    ...d, submitChatGPTDraft,
+    ...d, submitChatGPTDraft, verifyChatGPTDraft,
   })
   return { stepChatGPTReasoningEffortToward, submitChatGPTDraft, ...prompt }
 }

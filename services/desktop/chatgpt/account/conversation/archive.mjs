@@ -1,4 +1,4 @@
-import { chatGPTStopConversationScript, chatGPTShowSidebarScript } from '../chatgpt-account.mjs'
+import { chatGPTStopConversationScript, chatGPTShowSidebarScript } from '../scripts/index.mjs'
 
 export function createAccountArchive(context) {
   const {

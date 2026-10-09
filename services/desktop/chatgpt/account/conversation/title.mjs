@@ -1,4 +1,4 @@
-import { normalizeWHXTitle } from '../chatgpt-account.mjs'
+import { normalizeWHXTitle } from '../naming.mjs'
 
 export function createAccountTitle(context) {
   const {

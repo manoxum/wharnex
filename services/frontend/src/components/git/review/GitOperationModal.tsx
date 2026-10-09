@@ -82,23 +82,96 @@ export function GitOperationModal({ operation, sessionId = '', onClose }: { oper
     </InternalWindow>
   }
 
+  if (selecting) {
+    return <InternalWindow title={operation.title} layerClassName="git-operation-backdrop" onClose={onClose} maximizable>
+      <div className="git-operation-modal selecting" role="dialog" aria-modal="false" aria-label={operation.title}>
+        <div className="git-operation-targets">
+          <div className="git-operation-copy"><span className="panel-kicker">Operação Git</span><strong>{operation.title}</strong><p>{operation.detail}</p></div>
+          <div className="git-operation-target-toolbar"><span>{selected.size} de {availableTargets.length} selecionado(s)</span><div><button type="button" onClick={() => setSelected(new Set(availableTargets.map((target) => target.path)))} disabled={selected.size === availableTargets.length}>Todos</button><button type="button" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>Nenhum</button></div></div>
+          <ul className="git-operation-target-list" aria-label="Repositórios para a operação">{(operation.targets || []).map((target) => { const enabled = target.available !== false; const detail = target.detail ? `${target.branch} · ${target.detail}` : target.branch; return <li key={target.path || '__root__'}><label className={enabled ? '' : 'disabled'}><input type="checkbox" aria-label={`Executar em ${target.label}`} disabled={!enabled} checked={selected.has(target.path)} onChange={() => setSelected((current) => toggleTarget(current, target.path))}/><span className="git-operation-target-copy"><strong title={target.label}>{target.label}</strong><small title={detail}>{detail}</small></span><span className="git-operation-target-meta" aria-label={`${target.ahead || 0} para enviar e ${target.behind || 0} para receber`}><b title={`${target.ahead || 0} commit(s) para enviar`}>↑{target.ahead || 0}</b><b title={`${target.behind || 0} commit(s) para receber`}>↓{target.behind || 0}</b></span></label></li> })}</ul>
+          <div className="git-operation-target-actions"><button type="button" className="git-action" onClick={onClose}>Cancelar</button><button type="button" className="git-action primary" disabled={selected.size === 0} onClick={() => operation.onConfirmTargets?.(Array.from(selected))}>Continuar ({selected.size})</button></div>
+        </div>
+      </div>
+    </InternalWindow>
+  }
+
+  const statusSteps: Array<{ label: string; detail: string; state: GitOperationStepState }> = [
+    {
+      label: operation.phase === 'preparing' ? 'Analisar' : 'Processar',
+      detail: operation.phase === 'preparing' ? 'Calcular diferenças antes da ação' : 'Executar a ação Git pedida',
+      state: operation.phase === 'running' || operation.phase === 'preparing'
+        ? 'active'
+        : operation.phase === 'error' && (operation.failedPhase === 'running' || operation.failedPhase === 'preparing') ? 'error' : 'done',
+    },
+    {
+      label: 'Sincronizar',
+      detail: 'Atualizar o estado apresentado',
+      state: operation.phase === 'refreshing' ? 'active' : success ? 'done' : operation.phase === 'error' && operation.failedPhase === 'refreshing' ? 'error' : 'idle',
+    },
+    {
+      label: 'Resultado',
+      detail: phaseLabel,
+      state: success ? 'done-active' : operation.phase === 'error' ? 'error' : 'idle',
+    },
+  ]
+  const symbolClassName = success
+    ? 'grid h-12 w-12 place-items-center rounded-2xl border border-whx-border bg-whx-surface text-[color:var(--success)] shadow-sm max-[560px]:h-11 max-[560px]:w-11'
+    : operation.phase === 'error'
+      ? 'grid h-12 w-12 place-items-center rounded-2xl border border-whx-border bg-whx-surface text-whx-warning shadow-sm max-[560px]:h-11 max-[560px]:w-11'
+      : 'grid h-12 w-12 place-items-center rounded-2xl border border-whx-border bg-[var(--theme-accent-soft)] text-[color:var(--theme-accent)] shadow-sm max-[560px]:h-11 max-[560px]:w-11'
+  const progressClassName = operation.phase === 'error'
+    ? 'h-full rounded-full bg-[var(--theme-warning,var(--theme-accent))]'
+    : 'h-full rounded-full bg-[var(--theme-accent)]'
+  const progressWidthClassName = operation.phase === 'preparing' || operation.phase === 'running'
+    ? 'w-1/3 animate-pulse motion-reduce:animate-none'
+    : operation.phase === 'refreshing' ? 'w-2/3 animate-pulse motion-reduce:animate-none' : 'w-full'
+  const messageClassName = operation.phase === 'error'
+    ? 'col-span-full m-0 rounded-xl border border-whx-border bg-whx-surface px-3.5 py-3 text-[calc(7.8px_*_var(--ui-font-scale))] leading-[1.45] text-whx-warning'
+    : 'col-span-full m-0 rounded-xl border border-whx-border bg-whx-surface px-3.5 py-3 text-[calc(7.8px_*_var(--ui-font-scale))] leading-[1.45] text-whx-muted'
+
   return <InternalWindow title={operation.title} layerClassName="git-operation-backdrop" onClose={onClose} closeDisabled={running} maximizable>
-    <div className={`git-operation-modal ${operation.phase}`} role="dialog" aria-modal="false" aria-label={operation.title}>
-      {selecting ? <div className="git-operation-targets">
-        <div className="git-operation-copy"><span className="panel-kicker">Operação Git</span><strong>{operation.title}</strong><p>{operation.detail}</p></div>
-        <div className="git-operation-target-toolbar"><span>{selected.size} de {availableTargets.length} selecionado(s)</span><div><button type="button" onClick={() => setSelected(new Set(availableTargets.map((target) => target.path)))} disabled={selected.size === availableTargets.length}>Todos</button><button type="button" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>Nenhum</button></div></div>
-        <ul className="git-operation-target-list" aria-label="Repositórios para a operação">{(operation.targets || []).map((target) => { const enabled = target.available !== false; const detail = target.detail ? `${target.branch} · ${target.detail}` : target.branch; return <li key={target.path || '__root__'}><label className={enabled ? '' : 'disabled'}><input type="checkbox" aria-label={`Executar em ${target.label}`} disabled={!enabled} checked={selected.has(target.path)} onChange={() => setSelected((current) => toggleTarget(current, target.path))}/><span className="git-operation-target-copy"><strong title={target.label}>{target.label}</strong><small title={detail}>{detail}</small></span><span className="git-operation-target-meta" aria-label={`${target.ahead || 0} para enviar e ${target.behind || 0} para receber`}><b title={`${target.ahead || 0} commit(s) para enviar`}>↑{target.ahead || 0}</b><b title={`${target.behind || 0} commit(s) para receber`}>↓{target.behind || 0}</b></span></label></li> })}</ul>
-        <div className="git-operation-target-actions"><button type="button" className="git-action" onClick={onClose}>Cancelar</button><button type="button" className="git-action primary" disabled={selected.size === 0} onClick={() => operation.onConfirmTargets?.(Array.from(selected))}>Continuar ({selected.size})</button></div>
-      </div> : <>
-        <div className="git-operation-symbol" aria-hidden="true">{running ? <span className="git-operation-spinner"/> : <Icon name={success ? 'check' : 'alert'} size={19}/>}</div>
-        <div className="git-operation-copy"><span className="panel-kicker">Operação Git</span><strong>{operation.title}</strong><p>{operation.detail}</p></div>
-        <div className="git-operation-progress" aria-hidden="true"><i className={running ? 'active' : 'complete'}/></div>
-        <ol className="git-operation-steps" aria-label="Progresso da operação"><li className={operation.phase === 'running' || operation.phase === 'preparing' ? 'active' : operation.phase === 'error' && (operation.failedPhase === 'running' || operation.failedPhase === 'preparing') ? 'error active' : 'done'}><span>1</span><div><strong>{operation.phase === 'preparing' ? 'Analisar' : 'Processar'}</strong><small>{operation.phase === 'preparing' ? 'Calcular diferenças antes da ação' : 'Executar a ação Git pedida'}</small></div></li><li className={operation.phase === 'refreshing' ? 'active' : success ? 'done' : operation.phase === 'error' && operation.failedPhase === 'refreshing' ? 'error active' : ''}><span>2</span><div><strong>Sincronizar</strong><small>Atualizar o estado apresentado</small></div></li><li className={success ? 'done active' : operation.phase === 'error' ? 'error active' : ''}><span>3</span><div><strong>Resultado</strong><small>{phaseLabel}</small></div></li></ol>
-        {(operation.message || running) && <p className="git-operation-message" aria-live="polite">{operation.message || phaseLabel}</p>}
-        {!running && <button type="button" className="git-action primary git-operation-close" onClick={onClose}>Fechar</button>}
-      </>}
-    </div>
+    <section className="isolate grid w-[min(660px,calc(100vw-32px))] max-h-[calc(100vh-32px)] grid-cols-[48px_minmax(0,1fr)] gap-x-4 gap-y-4 overflow-hidden rounded-2xl border border-whx-border bg-whx-elevated p-5 text-whx-text shadow-[0_28px_80px_var(--theme-shadow)] max-[560px]:w-[calc(100vw-20px)] max-[560px]:grid-cols-[44px_minmax(0,1fr)] max-[560px]:gap-x-3 max-[560px]:gap-y-3 max-[560px]:p-4" role="dialog" aria-modal="false" aria-label={operation.title}>
+      <div className={symbolClassName} aria-hidden="true">{running
+        ? <span className="h-5 w-5 animate-spin rounded-full motion-reduce:animate-none border-2 border-whx-border [border-top-color:var(--theme-accent)]"/>
+        : <Icon name={success ? 'check' : 'alert'} size={20}/>}</div>
+      <div className="min-w-0 self-center pr-[104px] max-[720px]:pr-[78px] max-[560px]:pr-[72px]">
+        <span className="mb-1 block text-[calc(6.6px_*_var(--ui-font-scale))] font-bold uppercase tracking-[0.14em] text-whx-muted">Operação Git</span>
+        <strong className="block [overflow-wrap:anywhere] text-[calc(11.7px_*_var(--ui-font-scale))] font-semibold leading-[1.25] tracking-[-0.015em] text-whx-text">{operation.title}</strong>
+        <p className="mb-0 mt-1 [overflow-wrap:anywhere] text-[calc(7.8px_*_var(--ui-font-scale))] leading-[1.45] text-whx-muted">{operation.detail}</p>
+      </div>
+      <div className="col-span-full flex items-center gap-3" aria-hidden="true">
+        <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--theme-muted)]"><i className={`${progressClassName} ${progressWidthClassName} block`}/></div>
+        <span className="shrink-0 text-[calc(6.9px_*_var(--ui-font-scale))] font-semibold text-whx-muted">{success ? 'Concluído' : operation.phase === 'error' ? 'Interrompido' : 'Em curso'}</span>
+      </div>
+      <ol className="col-span-full m-0 grid list-none grid-cols-3 gap-2 p-0 max-[560px]:grid-cols-1" aria-label="Progresso da operação">
+        {statusSteps.map((step, index) => <li key={step.label} className={gitOperationStepClassName(step.state)}>
+          <span className={gitOperationStepMarkerClassName(step.state)}>{index + 1}</span>
+          <div className="min-w-0">
+            <strong className="block text-[calc(7.5px_*_var(--ui-font-scale))] font-semibold leading-[1.3] text-whx-text">{step.label}</strong>
+            <small className="mt-0.5 block [overflow-wrap:anywhere] text-[calc(6.5px_*_var(--ui-font-scale))] leading-[1.35] text-whx-muted">{step.detail}</small>
+          </div>
+        </li>)}
+      </ol>
+      {(operation.message || running) && <p className={messageClassName} aria-live="polite">{operation.message || phaseLabel}</p>}
+      {!running && <div className="col-span-full flex justify-end border-t border-whx-border pt-3"><button type="button" className="rounded-lg border border-whx-border bg-whx-surface px-4 py-2 text-[calc(7.7px_*_var(--ui-font-scale))] font-bold text-whx-text shadow-sm transition hover:bg-whx-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:[outline-color:var(--theme-accent)]" onClick={onClose}>Fechar</button></div>}
+    </section>
   </InternalWindow>
+}
+
+type GitOperationStepState = 'idle' | 'active' | 'done' | 'done-active' | 'error'
+
+function gitOperationStepClassName(state: GitOperationStepState) {
+  if (state === 'active' || state === 'done-active') return 'grid min-w-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 rounded-xl border border-whx-border bg-[var(--theme-accent-soft)] p-2.5 opacity-100'
+  if (state === 'error') return 'grid min-w-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 rounded-xl border border-whx-border bg-whx-surface p-2.5 opacity-100'
+  if (state === 'done') return 'grid min-w-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 rounded-xl border border-whx-border bg-whx-surface p-2.5 opacity-100'
+  return 'grid min-w-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 rounded-xl border border-whx-border bg-[var(--theme-bg)] p-2.5 opacity-55'
+}
+
+function gitOperationStepMarkerClassName(state: GitOperationStepState) {
+  if (state === 'active' || state === 'done-active') return 'grid h-6 w-6 place-items-center rounded-full bg-[var(--theme-accent)] font-mono text-[calc(6.8px_*_var(--ui-font-scale))] font-bold leading-none text-[color:var(--theme-bg)]'
+  if (state === 'error') return 'grid h-6 w-6 place-items-center rounded-full bg-[var(--theme-muted)] font-mono text-[calc(6.8px_*_var(--ui-font-scale))] font-bold leading-none text-whx-warning'
+  if (state === 'done') return 'grid h-6 w-6 place-items-center rounded-full bg-[var(--theme-muted)] font-mono text-[calc(6.8px_*_var(--ui-font-scale))] font-bold leading-none text-[color:var(--success)]'
+  return 'grid h-6 w-6 place-items-center rounded-full bg-[var(--theme-muted)] font-mono text-[calc(6.8px_*_var(--ui-font-scale))] font-bold leading-none text-whx-muted'
 }
 
 function initialSelection(operation: GitOperation) {

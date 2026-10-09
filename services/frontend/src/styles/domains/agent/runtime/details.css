@@ -26,7 +26,6 @@
   .agent-runtime-worker-policy-controls select { width: 100%; min-width: 0; }
   .agent-runtime-worker-policy-controls label { margin-left: 0; justify-content: flex-start; }
   .agent-runtime-worker-policy-controls .agent-runtime-icon-button { justify-self: end; }
-  .agent-runtime-task-tree-branches { grid-template-columns: 1fr; }
 }
 
 @container agent-runtime (max-width: 410px) {
@@ -43,10 +42,4 @@
   .agent-runtime-worker-policy-controls { grid-template-columns: 1fr; }
   .agent-runtime-worker-policy-controls label { justify-content: space-between; }
   .agent-runtime-worker-policy-controls .agent-runtime-icon-button { justify-self: start; }
-  .agent-runtime-task-tree { padding-left: 14px; }
-  .agent-runtime-task-tree-root { margin-left: -14px; grid-template-columns: auto minmax(0, 1fr); }
-  .agent-runtime-task-tree-root > em { grid-column: 2; }
-  .agent-runtime-task-tree::before { left: 5px; }
-  .agent-runtime-task-tree-leaf { grid-template-columns: auto minmax(0, 1fr); }
-  .agent-runtime-task-tree-leaf code { grid-column: 2; max-width: 100%; }
 }

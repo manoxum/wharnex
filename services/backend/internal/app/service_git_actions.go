@@ -44,6 +44,7 @@ func (s *Service) CommitPending(ctx context.Context, sessionID string, pendingID
 	if err != nil {
 		return GitCommitResult{}, err
 	}
+	ctx = hostrepo.WithGitCorrelation(ctx, item.ID, "", item.ChatID)
 	if s.pendingCommits == nil {
 		return GitCommitResult{}, errors.New("the pending-commit store is not configured")
 	}

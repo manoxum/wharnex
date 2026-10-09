@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { readDesktopCompositionSource } from '../../composition/entry/source.mjs'
+import { readComposedDesktopContext } from '../../composition/entry/graph/composed.mjs'
 
 test('desktop close confirmation is renderer-owned while actions stay main-process authoritative', async () => {
   const [main, windowRuntime, windowAssembly, closeFlow, windowIPC, preload, shell, host, coordinator] = await Promise.all([
-    readFile(new URL('../../main.mjs', import.meta.url), 'utf8'),
+    readDesktopCompositionSource(),
     readFile(new URL('../../composition/window/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../composition/window/assembly/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../composition/window/tray-lifecycle.mjs', import.meta.url), 'utf8'),
@@ -14,7 +16,8 @@ test('desktop close confirmation is renderer-owned while actions stay main-proce
     readFile(new URL('../../../frontend/src/components/workspace/window/DesktopCloseDialogHost.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./desktop-window-close.mjs', import.meta.url), 'utf8'),
   ])
-  assert.match(main, /desktopWindowClose,[\s\S]*= createDesktopWindowAssembly\(/)
+  assert.match(main, /compose\(ctx, 'window-assembly', createDesktopWindowAssembly, \{/)
+  assert.equal((await readComposedDesktopContext()).desktopWindowClose, 'object:Object')
   assert.match(windowAssembly, /desktopWindowClose,[\s\S]*= createDesktopWindowRuntime\(/)
   assert.match(windowRuntime, /desktopWindowClose,\s*\}\s*= createDesktopTrayComposition\(/)
   assert.match(closeFlow, /const desktopWindowClose = createDesktopWindowCloseCoordinator\(/)

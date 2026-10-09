@@ -4,7 +4,7 @@ export function registerChatGPTAuthenticationIPC({
   cancelExternalAuthentication, startExternalAuthentication,
   currentChatGPTState, loadOwnedChatGPTURL, loginURL,
   chatGPTSurfaceShouldBeVisible, publishChatGPTState,
-  requireTrustedChatGPTURL, homeURL, shell,
+  requireTrustedChatGPTURL, homeURL, openOwnedChatGPTBrowser,
   openInternalChatGPTBrowser, isTrustedChatGPTOrigin,
 }) {
   ipcMain.handle('wharness:chatgpt:start-auth', async (event, request) => {
@@ -31,7 +31,7 @@ export function registerChatGPTAuthenticationIPC({
   ipcMain.handle('wharness:chatgpt:open-external', async (event, request) => {
     trustedSender(event)
     const target = requireTrustedChatGPTURL(request?.url || homeURL)
-    await shell.openExternal(target)
+    await openOwnedChatGPTBrowser(target)
     return { ok: true }
   })
   ipcMain.handle('wharness:chatgpt:open-internal', (event, request) => {

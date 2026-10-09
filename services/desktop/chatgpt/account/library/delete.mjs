@@ -1,4 +1,4 @@
-import { chatGPTLibraryArtifactRectScript, chatGPTMenuItemRectScript, chatGPTConfirmDeleteScript, chatGPTLibraryArtifactStateScript } from '../chatgpt-account.mjs'
+import { chatGPTLibraryArtifactRectScript, chatGPTMenuItemRectScript, chatGPTConfirmDeleteScript, chatGPTLibraryArtifactStateScript } from '../scripts/index.mjs'
 
 export function createAccountLibraryDelete(context) {
   const {

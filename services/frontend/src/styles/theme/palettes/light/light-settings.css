@@ -44,11 +44,8 @@
 :root[data-theme='light'] .context-inspector-bar,
 :root[data-theme='light'] .context-final-toolbar { border-color: var(--theme-border); background: #f3f5f0; }
 :root[data-theme='light'] .context-table-head { border-color: var(--theme-border); background: #e9ede6; color: #6f796c; }
-:root[data-theme='light'] .context-view-switch,
 :root[data-theme='light'] .context-filter-switch { border-color: var(--theme-border); background: #e5e9e1; }
-:root[data-theme='light'] .context-view-switch button,
 :root[data-theme='light'] .context-filter-switch button { color: #667163; }
-:root[data-theme='light'] .context-view-switch button.active,
 :root[data-theme='light'] .context-filter-switch button.active { background: #fff; color: #283025; box-shadow: 0 1px 4px var(--theme-shadow); }
 :root[data-theme='light'] .context-filter-switch button.active.included { color: #4d7428; }
 :root[data-theme='light'] .context-filter-switch button.active.excluded { color: #9f4c42; }

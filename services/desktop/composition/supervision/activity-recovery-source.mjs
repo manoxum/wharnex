@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { readCommentQueueSource } from '../transport/comment-source.mjs'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 const sections = [
   ['../../agent/supervision/activity/poll.mjs', 'async function pollChatGPTVisibleActivity()'],
@@ -9,7 +10,7 @@ const sections = [
 
 export async function readActivityRecoverySource() {
   const main = await readCommentQueueSource()
-  const entry = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const entry = await readDesktopCompositionSource()
   const recoveryRuntime = await readFile(new URL('./recovery/runtime.mjs', import.meta.url), 'utf8')
   const bodies = await Promise.all(sections.map(async ([file, signature]) => {
     const module = await readFile(new URL(file, import.meta.url), 'utf8')
@@ -20,7 +21,7 @@ export async function readActivityRecoverySource() {
   }))
   const start = main.indexOf('const { pollChatGPTVisibleActivity } = createChatGPTActivityPoll({')
   const end = main.indexOf('\nasync function pollExpectedChatGPTDownloadKey(', start)
-  if (start < 0 || end <= start || !entry.includes('createRecoveryRuntime({')
+  if (start < 0 || end <= start || !entry.includes("compose(ctx, 'recovery', createRecoveryRuntime)")
       || !recoveryRuntime.includes('createChatGPTActivityPoll')
       || !recoveryRuntime.includes('createChatGPTRecoveryActions')) {
     throw new Error('Activity/recovery domain composition missing')

@@ -15,6 +15,7 @@ export function createChatGPTCollections() {
     expectedChatGPTTranslations: new Map(),
     expectedChatGPTReleaseNotes: new Map(),
     expectedChatGPTTodoClassifications: new Map(),
+    expectedChatGPTUITestDiscoveries: new Map(),
     expectedChatGPTOrchestratorPlans: new Map(),
     expectedChatGPTOrchestratorExecutions: new Map(),
     // ChatGPT delivers when it finishes, not when a Wharnex lease happens to

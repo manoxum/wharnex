@@ -1,3 +1,4 @@
+import { EvolutionEvidenceTabs } from './EvolutionEvidenceTabs'
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { api } from '../../../lib/transport/http/api'
 import type { EvolutionEvidence, EvolutionKnowledgeRef, Session } from '../../../types'
@@ -112,11 +113,7 @@ export function EvolutionEvidenceDrawer({ session, busy, onAnalyze, onClose }: P
     </header>
 
     <div className="border-b border-whx-border bg-whx-surface px-3 py-3">
-      <div className="grid grid-cols-3 gap-1.5" role="tablist" aria-label="Modalidade de auto-evolução">
-        <ModeTab source="events" active={source} icon="activity" label="Eventos" count={evidence?.events.length ?? 0} onSelect={switchSource}/>
-        <ModeTab source="knowledge" active={source} icon="knowledge" label="Conhecimento" count={evidence?.knowledge.length ?? 0} onSelect={switchSource}/>
-        <ModeTab source="external" active={source} icon="file" label="Logs externos" count={files.length} onSelect={switchSource}/>
-      </div>
+      <EvolutionEvidenceTabs value={source} onChange={switchSource} events={evidence?.events.length ?? 0} knowledge={evidence?.knowledge.length ?? 0} files={files.length}/>
       {source !== 'external' && <div className="mt-2 grid grid-cols-2 gap-2">
         <select aria-label="Filtrar projeto" className="min-w-0 rounded-lg border border-whx-border bg-whx-elevated px-2 py-2 text-base outline-none focus:border-whx-accent" value={project} onChange={(event) => setProject(event.target.value)}><option value="">Todos os projetos</option>{evidence?.projects.map((value) => <option key={value} value={value}>{value}</option>)}</select>
         <select aria-label="Filtrar categoria" className="min-w-0 rounded-lg border border-whx-border bg-whx-elevated px-2 py-2 text-base outline-none focus:border-whx-accent" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Todas as categorias</option>{categories.map((value) => <option key={value} value={value}>{source === 'knowledge' ? knowledgeCategoryLabel[value] || value : value}</option>)}</select>
@@ -155,11 +152,6 @@ export function EvolutionEvidenceDrawer({ session, busy, onAnalyze, onClose }: P
       </div>
     </footer>
   </section>
-}
-
-function ModeTab({ source, active, icon, label, count, onSelect }: { source: Source; active: Source; icon: Parameters<typeof Icon>[0]['name']; label: string; count: number; onSelect: (source: Source) => void }) {
-  const selected = source === active
-  return <button type="button" role="tab" aria-selected={selected} className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition ${selected ? 'border-whx-accent/60 bg-whx-accent-soft text-whx-text shadow-sm' : 'border-whx-border bg-whx-elevated text-whx-soft hover:border-whx-soft hover:text-whx-text'}`} onClick={() => onSelect(source)}><span className={`grid size-7 shrink-0 place-items-center rounded-md ${selected ? 'bg-whx-accent text-whx-bg' : 'bg-whx-muted text-whx-faint'}`}><Icon name={icon} size={13}/></span><span className="min-w-0 flex-1 truncate text-base font-semibold">{label}</span><span className="rounded-full bg-whx-muted px-1.5 py-0.5 text-xs text-whx-faint">{count}</span></button>
 }
 
 function ExternalEvidence({ files, busy, uploadRef, addFiles, removeFile }: { files: File[]; busy: boolean; uploadRef: RefObject<HTMLInputElement | null>; addFiles: (files: FileList | null) => void; removeFile: (file: File) => void }) {

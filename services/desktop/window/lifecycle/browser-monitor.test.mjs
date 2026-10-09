@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createBrowserMonitorOpener } from './browser-monitor.mjs'
 import { readFileSync } from 'node:fs'
+import { readDesktopCompositionSourceSync } from '../../composition/entry/source.mjs'
 
 test('browser monitor has one independent window and restores it from the tray', () => {
   const calls = []
@@ -20,8 +21,8 @@ test('browser monitor has one independent window and restores it from the tray',
 })
 
 test('tray launch reaches the composed Desktop window creator', () => {
-  const main = readFileSync(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = readDesktopCompositionSourceSync()
   const entry = readFileSync(new URL('../../composition/entry/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /createWindow: \(\.\.\.args\) => desktopEntrypoint\.createWindow\(\.\.\.args\)/)
+  assert.match(main, /return \(\.\.\.args\) => ctx\.desktopEntrypoint\.createWindow\(\.\.\.args\)[\s\S]*createWindow: createWindowLater\(ctx\)/)
   assert.match(entry, /createWindow: window\.createWindow/)
 })

@@ -1,5 +1,24 @@
 # Security Model SoT
 
+## Abandoned Git index locks
+
+An authorized engine Git mutation may recover only its repository's abandoned
+`index.lock` under `adr/ADR-0092`: a host-side process proof, fifteen-minute
+minimum age, empty regular file, same OS owner, single link, symlink-free path,
+stable identity and atomic quarantine. Fresh, live, nonempty, replaced or
+unobservable locks remain blocked. Container-local process visibility is never
+sufficient. The restricted host bridge derives the path; no planner operation
+or arbitrary file deletion is added. Cleanup changes no index, worktree or
+history and permits only a bounded retry of the original authorized command.
+
+On Linux the complete proof combines observable host process names/states
+(no live Git; zombies are exited) with an exclusive kernel file lease proving
+no other process holds the exact lock inode open. The lease MUST survive until
+quarantine/removal; a pending break, unavailable lease or incomplete process
+metadata refuses cleanup. Private `/proc/<pid>/fd` access is not required.
+No privilege escalation, process arguments, environments or file contents are
+used. This is a host bridge operation, never a container-local inference.
+
 The model is untrusted. The repository is untrusted. The user request may be unsafe. Local policy and sandbox controls are authoritative.
 
 The security boundary is enforced by:
@@ -33,7 +52,7 @@ Explicit Git-UI remote synchronization uses a distinct mode-0600 host Git socket
 
 The ChatGPT surface is untrusted remote web content. The Desktop process owns six Supervisor `WebContentsView` slots with exactly one visible at a time and a bounded pool of one to three worker views (three by default), hidden by default, for the authenticated profile; every slot uses Chromium sandboxing, context isolation, Node integration disabled and no preload. A Supervisor slot is bound to one Harness chat for the life of its request and cannot be horizontally scaled; it is the normal human chat surface and is never a target for small maintenance or utility work, which the durable claim partitions to the Worker pool (see `adr/ADR-0049`). Worker slots may be added at runtime or retired only between non-preemptive jobs after their current chat/conversation assignment is validated. The trusted local renderer receives only narrow runtime metadata and may request a screenshot or explicitly surface one known Worker inside bounded local UI coordinates through named IPC capabilities, including the main Engine area used by **Seguir (flow)**. The interaction capability reuses the existing isolated `WebContentsView`; it grants no arbitrary navigation, DOM, cookie, storage or credential IPC, does not alter scheduler ownership, and MUST hide the Worker on exit, renderer failure or window close. Durable chat identity is the backend-owned `chat_id -> conversation_id` binding, while the shared persistent ChatGPT partition carries authenticated browser-session state only. Sharing that partition or reusing a worker slot never authorizes cross-chat DOM data reuse, response-prose inspection, or privilege expansion.
 
-On Linux, the Electron/Chromium process MUST retain a usable layer-1 sandbox. The SUID path is valid only when the `chrome-sandbox` shipped beside the Electron executable is root-owned, root-grouped, and mode `4755`; a persistent root-owned copy may be kept only for recovery and MUST NOT be treated as proof that packaged Electron will execute it. When the packaged helper is not privileged, Wharness may disable only the SUID helper with `--disable-setuid-sandbox` after an actual unprivileged user-namespace probe succeeds; Chromium sandboxing itself remains enabled. `--no-sandbox` is forbidden. If neither the packaged SUID helper nor user namespaces are available, desktop startup MUST fail closed with actionable diagnostics. The Linux Desktop's embedded ChatGPT pool MUST also fail closed when its `up-whx-link` network namespace cannot be created; falling back to the host namespace is allowed only through an explicit compatibility override. On AppArmor-restricted hosts, installation MAY add a root-owned, byte-verified dedicated `unshare` copy and an exact-path `userns,` profile whose execute permission is limited to the installing uid; it MUST NOT disable the global AppArmor user-namespace restriction or profile the system `/usr/bin/unshare` broadly.
+On Linux, the Electron/Chromium process MUST retain a usable layer-1 sandbox. The SUID path is valid only when the `chrome-sandbox` shipped beside the Electron executable is root-owned, root-grouped, and mode `4755`; a persistent root-owned copy may be kept only for recovery and MUST NOT be treated as proof that packaged Electron will execute it. When the packaged helper is not privileged, Wharness may disable only the SUID helper with `--disable-setuid-sandbox` after an actual unprivileged user-namespace probe succeeds; Chromium sandboxing itself remains enabled. `--no-sandbox` is forbidden. If neither the packaged SUID helper nor user namespaces are available, desktop startup MUST fail closed with actionable diagnostics. The Linux Desktop and every browser process it starts MUST run inside `up-whx-link`; startup and external URL opening MUST fail closed if the network namespace is unavailable. Legacy `WHARNESS_UP_LINK=auto/off` values MUST NOT allow an unisolated Desktop. The namespace forwards only the gateway port plus the host ports the operator names in `WHARNEX_UP_LINK_HOST_PORTS` for applications under UI Lab test; inside the namespace, TCP to loopback aliases other than `127.0.0.1` is redirected to `127.0.0.1` on those forwarded ports only (nftables NAT in the namespace). Forwarding MUST stay an explicit operator list and MUST NOT become `pasta -T auto` (see `adr/ADR-0089`). External HTTP(S) links MUST use a Wharnex-owned browser process and dedicated profile, never the host default-browser dispatcher. On AppArmor-restricted hosts, installation MAY add a root-owned, byte-verified dedicated `unshare` copy and an exact-path `userns,` profile whose execute permission is limited to the installing uid; it MUST NOT disable the global AppArmor user-namespace restriction or profile the system `/usr/bin/unshare` broadly.
 
 A dev-only **behavior probe** (see `adr/ADR-0041`) MAY measure the account-automation controls on a trusted ChatGPT surface. It is not a JavaScript-evaluation capability: the caller names a control from a closed enum, every probe script is assembled in the main process from constants so no caller string reaches the page, and the result is re-bounded before it crosses IPC. A probe result carries counts, the renderer viewport, container `tag`/`role`/`data-testid`, and — for menu, dialog and composer reasoning-effort controls only — the bounded exact control labels the account automation is already permitted to read. Assistant prose, conversation content, project names, hrefs, cookies, storage and headers MUST NOT enter a probe result. The capability is inert unless Wharnex is started with `WHARNESS_BEHAVIOR_PROBE=1`, requires a trusted sender and an owned chat surface, never clicks, navigates or mutates the account, and MUST NOT be reachable from a model plan or from remote ChatGPT content.
 
@@ -196,3 +215,43 @@ closed rather than issuing bucket-level operations.
 `harness.interactive/v2` does not restore generic host debug authority. It replaces it with typed, separately validated capabilities and explicit target scope. Host/sensitive observation requires informed consent; host modification is `risk=high`, `requires_approval=true`, one-shot, and bound to the exact plan digest. Shell execution writes the exact approved script to a temporary file outside the project on host execution and invokes the declared shell by argv rather than `bash -c`. Filesystem access resolves symlinks before enforcing approved roots. SQL uses registered connection handles, read-only transactions by default, statement/lock timeouts and row limits. Log output and other interactive results are bounded, redacted before publication, and always treated as untrusted evidence.
 
 Network destinations, service names, container names, database handles, log sources, process identifiers and filesystem roots are all explicit scope dimensions. An operation that names something outside them fails closed. Writes, signals, restarts, container exec, SQL writes and filesystem mutation require modify access and a fresh high-risk approval boundary.
+
+## UI Lab credential and browser-session boundary (see `adr/ADR-0088`)
+
+UI Lab profile credentials and captured browser sessions are secrets. Both are
+sealed with the backend's local UI Lab key (AES-GCM, `credentials.key`, mode
+0600) before they are persisted; captured sessions live in PostgreSQL table
+`wharnex_ui_test_sessions` and expire after 12 hours. Neither may be logged,
+placed in a discovery or run prompt, or returned to the renderer: the UI
+receives only a non-secret session summary. The Desktop receives credentials
+and a restored session only from task-bound endpoints that verify the request
+against that task's own payload (run id, environment, profile, restore point),
+with `Cache-Control: no-store`.
+
+A captured session is accepted only when its page URL belongs to the configured
+environment origin and every cookie domain-matches that origin's host; foreign
+cookies are refused, not filtered on the server. Each run uses an isolated,
+in-memory browser partition that is cleared when the task ends, so tested
+applications never share the default Electron session. A restore is re-validated
+at use time (expiry, origin, profile, coverage and unchanged test definitions);
+changing an environment URL or a profile's credentials deletes the sessions
+captured under the old value.
+
+A UI Lab user guide (`adr/ADR-0094`) is GPT content and stays data. GPT
+chooses layouts, themes and callouts only from closed sets, and its text is
+always escaped by the engine's HTML renderer; GPT never supplies markup,
+styles, scripts or URLs. The guide page is served with
+`Content-Security-Policy: default-src 'none'; img-src data:; style-src
+'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action
+'none'`, so its only script is the engine's own and it loads nothing but its
+inlined captures. The app frames it with `sandbox="allow-scripts"` and no
+same-origin access. **Abrir no navegador** goes through the narrow
+`wharnex:ui-testing:open-guide` IPC. The renderer names only a validated
+session id, a run id and a format from `html|pdf|md`; the main process derives
+the asset URL from the allowlisted local backend and opens it in the
+Wharnex-owned browser. A renderer-supplied URL is never accepted. Element
+boxes measured for markers are bounded page data, and like the controller's
+element list they never reach a selector the executor runs without
+validation.
+
+The browser monitor may create one user-clicked, ephemeral viewer for a durable ChatGPT conversation not resident in an Agent slot. It is human-only: it has the hardened ChatGPT partition/preferences, no privileged preload, no automation or output inspection, no scheduler claim, and no account-management authority. Its IPC is monitor-window-only, validates an exact canonical `https://chatgpt.com/c/<conversation-id>` URL and bounded coordinates, and denies cross-origin navigation and new windows. Switching or closing the monitor destroys it. Bundle metadata comes only from owner-scoped local artifacts, never remote page content.

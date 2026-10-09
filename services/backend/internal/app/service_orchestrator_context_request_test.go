@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,6 +59,44 @@ func TestOrchestratorPlanningIncrementValidatesAndAccumulatesCapturedFiles(t *te
 	}
 	if current.OrchestratorContextRounds[planning.RequestID] != 2 {
 		t.Fatalf("round count = %d", current.OrchestratorContextRounds[planning.RequestID])
+	}
+}
+
+func TestOrchestratorPartialPlanningIsSeededWithNormativeDocuments(t *testing.T) {
+	root := t.TempDir()
+	for name, value := range map[string]string{"AGENTS.md": "# rules", "SECURITY.md": "# security", "first.txt": "first"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := NewService(session.NewStore(), audit.NewBus(), contextbundle.NewBuilder(1<<20, 1<<20), orchestratorManualTestPlanner{}, policy.NewEngine(), fakeRunner{})
+	service.SetArtifactStore(&memoryArtifactStore{objects: map[string][]byte{}}, 30)
+	owner, err := service.StartSessionWithModes(context.Background(), root, domain.ExecutionModeProtected, domain.AutomationModeAuto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planning, err := service.ProposeOrchestratorPlan(context.Background(), owner.ID, "Plan the work", OrchestratorComposerContext{IncludeContext: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := service.store.ListChatAgentTasks(session.ChatAgentTaskFilter{SessionID: owner.ID, Type: "ORCHESTRATOR_PLAN", Limit: 1})
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("planning worker not queued: %v %d", err, len(tasks))
+	}
+	var payload orchestratorPlanningWorkerPayload
+	if err := json.Unmarshal(tasks[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(payload.ContextPaths, ",") != "context/AGENTS.md,context/SECURITY.md" {
+		t.Fatalf("first planning archive must carry the normative documents: %#v", payload.ContextPaths)
+	}
+	increment := orchestratorBundle(t, map[string]string{"context-request.json": `{"protocol":"harness.orchestrator-context-request/v1","request_id":"` + planning.RequestID + `","context_paths":["context/first.txt"]}`})
+	result, err := service.ImportOrchestratorProposalBundle(context.Background(), owner.ID, planning.RequestID, increment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(result.ContextPaths, ","); got != "context/AGENTS.md,context/SECURITY.md,context/first.txt" {
+		t.Fatalf("increment must accumulate on top of the normative seed: %s", got)
 	}
 }
 

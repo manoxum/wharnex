@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { chooseChatGPTRecoveryAction, createChatGPTRecoveryState, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress } from './chatgpt-recovery.mjs'
+import { chooseChatGPTRecoveryAction, createChatGPTRecoveryState, noteChatGPTRecoveryFault, noteChatGPTRecoveryProgress } from './recovery-state.mjs'
 import { createNetworkReloadGate, isNetworkRecoveryFault, networkFaultStatus } from './chatgpt-transport-backoff.mjs'
 
 test('only net::ERR_* faults are network faults; renderer faults keep the immediate reload', () => {

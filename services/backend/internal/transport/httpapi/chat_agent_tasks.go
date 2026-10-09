@@ -83,26 +83,6 @@ func (a *API) chatAgentTaskSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, summary)
 }
 
-func (a *API) claimChatAgentTask(w http.ResponseWriter, r *http.Request) {
-	var body chatAgentLeaseRequest
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-	lease := time.Duration(body.LeaseSeconds) * time.Second
-	if lease == 0 {
-		lease = 45 * time.Second
-	}
-	task, err := a.store.ClaimChatAgentTaskWithOptions(body.Owner, lease, session.ChatAgentClaimOptions{
-		WorkerID: body.WorkerID, PreferredLane: body.PreferredLane, ExcludedLanes: body.ExcludedLanes, ExcludedTypes: body.ExcludedTypes, FallbackMode: body.FallbackMode,
-		Role: body.Role, ProjectScoped: body.ProjectScoped, OpenProjects: body.OpenProjects,
-	})
-	if err != nil {
-		writeChatAgentTaskError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"task": task})
-}
-
 func (a *API) assignChatAgentTask(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		WorkerID    string `json:"worker_id"`

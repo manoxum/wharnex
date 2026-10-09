@@ -109,6 +109,11 @@ func (a *Routes) UpdateUIPreferences(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, document)
 }
 
-func (a *Routes) BundleQuota(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.service.BundleQuota(time.Now().UTC()))
+func (a *Routes) BundleQuota(w http.ResponseWriter, r *http.Request) {
+	quota, err := a.service.BundleQuotaSnapshot(r.Context(), time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "bundle_quota_unavailable", "Não foi possível consultar as estatísticas de bundles.")
+		return
+	}
+	writeJSON(w, http.StatusOK, quota)
 }

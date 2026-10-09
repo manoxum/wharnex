@@ -1,14 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../../../../composition/entry/source.mjs'
 
 test('a visible ChatGPT page performs one bounded composer reload before requiring human attention', async () => {
   const [main, target] = await Promise.all([
-    readFile(new URL('../../../../main.mjs', import.meta.url), 'utf8'),
+    readDesktopCompositionSource(),
     readFile(new URL('./target.mjs', import.meta.url), 'utf8'),
   ])
   const stage = await readFile(new URL('../../../../composition/transport/stage/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /createDesktopChatGPTTransportStage\(chatGPTTransportStageDependencies\)/)
+  assert.match(main, /compose\(ctx, 'chatgpt-transport', createDesktopChatGPTTransportStage, \{/)
   assert.match(stage, /createChatGPTComposerTarget\(\{/)
   assert.match(target, /for \(let attempt = 0; attempt < 20; attempt \+= 1\)/)
   assert.match(target, /await wait\(250\)/)
@@ -24,7 +25,7 @@ test('a visible ChatGPT page performs one bounded composer reload before requiri
 
 test('DOM composer calls retry transient evaluation and retain the failing stage', async () => {
   const [main, target, renderer] = await Promise.all([
-    readFile(new URL('../../../../main.mjs', import.meta.url), 'utf8'),
+    readDesktopCompositionSource(),
     readFile(new URL('./target.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../../../chatgpt/session/views/renderer-stability.mjs', import.meta.url), 'utf8'),
   ])
@@ -34,7 +35,7 @@ test('DOM composer calls retry transient evaluation and retain the failing stage
   assert.notEqual(helperStart, -1)
   const preparation = await readFile(new URL('../../../../composition/transport/preparation/runtime.mjs', import.meta.url), 'utf8')
   const stage = await readFile(new URL('../../../../composition/transport/stage/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /createDesktopChatGPTTransportStage\(chatGPTTransportStageDependencies\)/)
+  assert.match(main, /compose\(ctx, 'chatgpt-transport', createDesktopChatGPTTransportStage, \{/)
   assert.match(stage, /createDesktopRequestPreparation\(\{/)
   assert.match(preparation, /createChatGPTRendererStability\(\{/)
   assert.match(helper, /attempt <= 3/)

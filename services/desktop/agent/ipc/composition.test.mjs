@@ -2,6 +2,7 @@ import { readDesktopIPCSource } from '../../composition/ipc/source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../../composition/entry/source.mjs'
 
 test('Worker live interaction uses bounded trusted IPC and fail-closed lifecycle cleanup', async () => {
   const source = await readDesktopIPCSource()
@@ -18,15 +19,15 @@ test('Worker live interaction uses bounded trusted IPC and fail-closed lifecycle
   const showStart = interaction.indexOf('function showChatAgentInteraction(agentID, rawBounds, windowState)')
   const showEnd = interaction.indexOf('\n  function setChatAgentInteractionBounds', showStart)
   const show = interaction.slice(showStart, showEnd)
-  assert.match(source, /createDesktopAgentScheduling\(\{/)
+  assert.match(source, /compose\(ctx, 'agent-scheduling', ctx\.createDesktopAgentScheduling, \{/)
   assert.match(schedulingWiring, /d\.createWorkerInteraction\(\{/)
   assert.match(show, /workerEntryForAgentID\(agentID\)/)
   assert.match(show, /normalizeBounds\(rawBounds, windowState\?\.window\?\.getContentBounds\?\.\(\)\)/)
   assert.match(show, /entry\.view\.setVisible\(true\)/)
   assert.match(createWindow, /hideChatAgentInteractionsForWindow\(state\)/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopEntrypointRuntime\(\{/)
+  assert.match(await readDesktopCompositionSource(), /compose\(ctx, 'entrypoint', \(deps\) => \(\{ desktopEntrypoint: createDesktopEntrypointRuntime\(deps\) \}\)/)
   assert.match(windowRuntime, /createDesktopWindowCreator\(\{[\s\S]*hideChatAgentInteractionsForWindow: d\.hideChatAgentInteractionsForWindow/)
-  assert.match(source, /createDesktopChatWorkflowRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'chat-workflow', createDesktopChatWorkflowRuntime, \{/)
   assert.match(workflowRuntime, /createDesktopChatViewHealthRuntime\(\{/)
   assert.match(viewHealthRuntime, /createChatGPTViewCleanup\(\{/)
   assert.match(cleanup, /state\.activeAgentInteractionId = ''/)

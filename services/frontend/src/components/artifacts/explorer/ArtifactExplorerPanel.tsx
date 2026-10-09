@@ -1,3 +1,4 @@
+import { ArtifactLibraryTabs } from './ArtifactLibraryTabs'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../../lib/transport/http/api'
 import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
@@ -149,10 +150,7 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
     <header className="right-tool-heading artifact-explorer-heading"><div><strong>Biblioteca de ficheiros</strong><span>Todos os artefactos guardados</span></div><div className="file-library-heading-actions">{mode === 'library' ? <button type="button" onClick={() => uploadRef.current?.click()} disabled={uploading} title="Carregar ficheiros"><Icon name="plus" size={16}/></button> : null}<button type="button" onClick={() => void refresh()} aria-label="Atualizar biblioteca" title="Atualizar"><Icon name="refresh" size={16}/></button>{onClose ? <button type="button" onClick={onClose} aria-label="Fechar biblioteca" title="Fechar biblioteca"><Icon name="close" size={16}/></button> : null}</div></header>
     <input ref={uploadRef} className="sr-only" type="file" multiple aria-label="Carregar ficheiros para a biblioteca" onChange={(event) => void upload(event.target.files)}/>
 
-    <nav className="file-library-tabs" role="tablist" aria-label="Níveis da biblioteca">
-      <button type="button" role="tab" aria-selected={mode === 'library'} className={mode === 'library' ? 'active' : ''} onClick={() => setMode('library')}><Icon name="file" size={13}/><span className="semantic-tab-label">Biblioteca</span></button>
-      <button type="button" role="tab" aria-selected={mode === 'bundles'} className={mode === 'bundles' ? 'active' : ''} onClick={() => setMode('bundles')}><Icon name="package" size={13}/><span className="semantic-tab-label">Bundles</span></button>
-    </nav>
+    <ArtifactLibraryTabs mode={mode} onChange={setMode}/>
 
     <StorageSummary storage={storage}/>
 

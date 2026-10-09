@@ -1,3 +1,4 @@
+@import './project-attention.css';
 @media (max-width: 620px) {
   .app-dialog-backdrop { padding: 12px; }
   .app-dialog-card { grid-template-columns: 1fr; gap: 12px; padding: 19px; border-radius: 18px; }
@@ -14,31 +15,9 @@
 .desktop-shell-root { position: relative; width: 100vw; height: 100vh; min-width: 0; min-height: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr); overflow: hidden; background: var(--app-bg, #eceee7); }
 .multi-project-bar { min-width: 0; height: 48px; padding: 0 0 0 8px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #cfd4ca; background: #f4f5ef; box-shadow: 0 1px 0 rgba(255,255,255,.7); z-index: 40; -webkit-app-region: drag; user-select: none; }
 .multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar .project-window-popover { -webkit-app-region: no-drag; }
-.multi-project-brand { min-width: 38px; height: 30px; padding: 0 9px 0 2px; display: flex; align-items: center; justify-content: center; border-right: 1px solid var(--theme-border-soft); color: var(--theme-text); }
-.project-quick-switch { min-width: 0; max-width: min(42vw, 560px); height: 100%; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
-.project-quick-switch:empty { flex: 0 0 0; }
-.project-quick-switch::-webkit-scrollbar { display: none; }
-.project-quick-switch button, .multi-project-actions button { height: 30px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #677061; cursor: pointer; font-size: calc(9px * var(--ui-font-scale)); font-weight: 650; }
-.project-quick-switch button { --project-hue: 92; position: relative; transition: border-color .16s ease, box-shadow .16s ease, background .16s ease, color .16s ease; }
-.project-tab-shell { --project-hue: 92; position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; }
-.project-quick-switch .project-tab-shell > .project-tab-main { --project-hue: inherit; padding-right: 30px; }
-.project-tab-unbind { width: 22px !important; height: 22px !important; padding: 0 !important; position: absolute !important; right: 4px; top: 50%; z-index: 2; justify-content: center !important; border: 0 !important; border-radius: 5px !important; background: transparent !important; color: var(--theme-text-muted) !important; opacity: 0; transform: translateY(-50%); transition: opacity .12s ease, background .12s ease, color .12s ease !important; }
-.project-tab-shell:hover .project-tab-unbind, .project-tab-shell.active .project-tab-unbind, .project-tab-unbind:focus-visible { opacity: 1; }
-.project-tab-unbind:hover:not(:disabled) { background: color-mix(in srgb, var(--danger, #a54038) 15%, transparent) !important; color: var(--danger, #a54038) !important; }
-.project-quick-switch button:hover, .multi-project-actions button:hover { background: #e9ece4; color: #31382d; }
-.project-quick-switch button.active { border-color: color-mix(in srgb, hsl(var(--project-hue) 70% 48%) 24%, var(--theme-border)); background: color-mix(in srgb, hsl(var(--project-hue) 74% 50%) 5%, var(--theme-surface)); color: var(--theme-text, #20251e); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent); }
-.project-quick-switch button.active::after { content: ''; width: 18px; height: 2px; position: absolute; left: 50%; bottom: -1px; border-radius: 999px; background: hsl(var(--project-hue) 78% 50%); transform: translateX(-50%); }
-.project-quick-switch button > span:not(.project-color-mark) { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multi-project-brand { min-width: 38px; height: 30px; padding: 0 9px 0 2px; display: flex; align-items: center; justify-content: center; border-right: 1px solid var(--theme-border-soft); color: var(--theme-text); } .multi-project-actions button { height: 30px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #677061; cursor: pointer; font-size: calc(9px * var(--ui-font-scale)); font-weight: 650; } .multi-project-actions button:hover { background: #e9ece4; color: #31382d; }
 .project-color-mark { width: 20px; height: 20px; display: inline-grid; place-items: center; flex: 0 0 20px; border: 1px solid color-mix(in srgb, hsl(var(--project-hue) 62% 48%) 16%, var(--theme-border)); border-radius: 5px; background: color-mix(in srgb, hsl(var(--project-hue) 70% 50%) 7%, var(--theme-muted)); color: hsl(var(--project-hue) 62% 42%); }
-.project-quick-switch button.active .project-color-mark { border-color: hsl(var(--project-hue) 72% 48% / .28); background: hsl(var(--project-hue) 82% 52% / .09); color: hsl(var(--project-hue) 72% 40%); box-shadow: none; }
-.project-quick-switch button.active.composer-typing-attention { animation: current-project-composer-pulse .9s ease-in-out infinite; }
-@keyframes current-project-composer-pulse {
-  0%, 100% { border-color: color-mix(in srgb, hsl(var(--project-hue) 78% 52%) 30%, var(--theme-border)); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent), 0 0 0 0 hsl(var(--project-hue) 78% 52% / .1); }
-  50% { border-color: hsl(var(--project-hue) 78% 52% / .72); background: color-mix(in srgb, hsl(var(--project-hue) 82% 54%) 13%, var(--theme-surface)); box-shadow: 0 2px 8px color-mix(in srgb, var(--theme-shadow) 38%, transparent), 0 0 0 4px hsl(var(--project-hue) 78% 52% / .15), 0 0 18px hsl(var(--project-hue) 78% 52% / .16); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .project-quick-switch button.active.composer-typing-attention { animation: none; border-color: hsl(var(--project-hue) 78% 52% / .72); box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent), 0 0 0 3px hsl(var(--project-hue) 78% 52% / .14); outline: 2px solid hsl(var(--project-hue) 78% 52% / .58); outline-offset: 2px; }
-}
+
 .multi-project-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .multi-project-actions button { border-color: #d6dbd0; background: #fafbf7; }
 .project-actions-menu { position: relative; flex: 0 0 auto; }

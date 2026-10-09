@@ -78,10 +78,11 @@ Concretely:
   touching. The legacy file shrinks over many such changes, never through one
   big rewrite forced into an unrelated task.
 
-This is how `services/frontend/src/styles/legacy/styles.css` (10119 lines),
-`services/desktop/main.mjs` (8196 lines) and
+This is how `services/frontend/src/styles/legacy/styles.css` (10119 lines) and
 `services/frontend/src/styles/theme/theme.css` (1791 lines) are expected to
-shrink over time. The two stylesheets were relocated out of the root of
+shrink over time; `services/desktop/main.mjs` (once 8196 lines) completed that
+path and is now a composition root of a few lines (see
+`SoT/PROJECT_STRUCTURE.md`, Recursive domain composition). The two stylesheets were relocated out of the root of
 `src/` by the wholesale move recorded in `SoT/FRONTEND_STYLING.md` §1; that
 changed where they live, not the fact that they shrink only through
 extract-on-touch. None of them is being rewritten as part of `adr/ADR-0066`; each next
@@ -97,6 +98,33 @@ read anyway. This is a continuation of the existing `AGENTS.md` §4 principle
 ("split responsibilities before files become difficult to review"), not
 authorization for unrelated drive-by rewrites in the same change — an
 unrelated cleanup is its own change.
+
+### Mandatory post-change refactoring pass
+
+Every implementation, bug fix or evolution — whether written by a human, a
+coding agent or the Wharnex planner — ends with a refactoring pass before it is
+complete. Making the behavior work is the first half of the change, not the
+whole of it. The pass covers the code *related* to the change: the files it
+edited, the modules it calls into or that call into it for the touched
+behavior, and the tests that verify it. In that scope the pass MUST:
+
+- bring every touched file to the §1 cap, extracting by concern under the owning
+  domain (§2) rather than by line count;
+- remove dead code, obsolete compatibility paths and stale test scaffolding
+  the change made unreachable or that it can prove unused;
+- collapse duplication the change introduced or exposed, preferring an existing
+  domain contract over a new helper;
+- keep names, comments and structure such that the next maintainer (human or
+  model) can understand the concern by reading the fewest files — this is the
+  token-economy goal of the cap, not an aesthetic preference;
+- rerun the gates the change already required after the refactor, since a
+  refactor that is not verified is a new unverified change.
+
+The pass is bounded by relation, not by ambition: it does not authorize
+rewriting unrelated concerns, and behavior MUST NOT change in it. When the
+related code is too large to bring to standard within the change, the pass
+extracts the touched concern (§2) and records the remainder as named follow-up
+debt in the change description instead of silently leaving it.
 
 ## 4. Rename-on-touch from Wharness to Wharnex
 

@@ -1,6 +1,5 @@
 @import '../../domains/settings/premium-navigation.css';
 @import '../../domains/settings/ide-palette.css';
-@import '../../domains/workspace/layout/semantic-tabs.css';
 @import '../../domains/workspace/layout/responsive-tabs.css';
 @import '../../domains/docker/services.css';
 @import '../../domains/agent/runtime-drawer.css';

@@ -1,3 +1,4 @@
+import { InspectorTabs } from './InspectorTabs'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppConfig, ChatChangeFile, ChatGPTActivity, HarnessEvent, Operation, Session } from '../../../types'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -11,6 +12,7 @@ import { DirectChatGPTPane } from '../../chatgpt/surface/DirectChatGPTPane'
 import { MarkdownContent } from '../../presentation/content/MarkdownContent'
 import { TranslatableMarkdown } from '../../presentation/content/TranslatableMarkdown'
 import { ConflictResolverModal } from './ConflictResolverModal'
+import { ExecutionPlanAdjustment } from './ExecutionPlanAdjustment'
 import type { WorkspaceChat } from '../../../lib/chat/history/workspaceMemory'
 import { sessionHostResolutionBlocked } from '../../../lib/attention/center/attentionCenter'
 import { activePendingRequestId } from '../../../lib/agent/runtime/pendingRequest'
@@ -27,8 +29,6 @@ import { ExecutionApprovalPanel } from '../../execution/controls/ExecutionApprov
 
 export type InspectorTab = 'files' | 'plan' | 'terminal' | 'chatgpt' | 'direct-chatgpt'
 export { TerminalView } from '../../execution/history/ExecutionHistorySurface'
-
-
 
 export function Inspector({ config, session, events, manualPrompt, busy, chat, chats, chatgptSuspended = false, activeTab, onTabChange, embedded = false, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onResendPendingRequest, onExecute, onApproveDebug, onAdjustExecutionPlan, onRejectExecutionPlan, onRejectPendingChanges, onControlExecutionPlan, onPrepareExecutionPlanReversal, onManualPlan, onPlanFile, onBundleFile, onSession, onResolveConflictWithGPT }: {
   config?: AppConfig
@@ -124,13 +124,7 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
         </div>
       </header>}
 
-      {!embedded && <nav className="tabs" aria-label="Inspector">
-        <button className={selectedTab === 'files' ? 'active' : ''} onClick={() => selectTab('files')}><Icon name="folder" size={16}/><span className="semantic-tab-label">Ficheiros</span></button>
-        <button className={selectedTab === 'plan' ? 'active' : ''} onClick={() => selectTab('plan')}><Icon name="plan" size={16}/><span className="semantic-tab-label">Plano</span></button>
-        <button className={selectedTab === 'terminal' ? 'active' : ''} onClick={() => selectTab('terminal')}><Icon name="terminal" size={16}/><span className="semantic-tab-label">Execução</span><span className="tab-count">{terminalEvents.length}</span></button>
-        <button className={selectedTab === 'chatgpt' ? 'active' : ''} onClick={() => selectTab('chatgpt')}><Icon name="agent" size={16}/><span className="semantic-tab-label">Engine</span>{desktop && <span className="desktop-dot" title="Wharnex Desktop"/>}</button>
-        <button className={selectedTab === 'direct-chatgpt' ? 'active' : ''} onClick={() => selectTab('direct-chatgpt')}><Icon name="chatgpt" size={16}/><span className="semantic-tab-label">ChatGPT</span></button>
-      </nav>}
+      {!embedded && <InspectorTabs value={selectedTab} onChange={selectTab} executions={terminalEvents.length}/>}
 
       <div className={`inspector-content ${(selectedTab === 'chatgpt' || selectedTab === 'direct-chatgpt') && desktop ? 'desktop-content' : ''} ${selectedTab === 'files' ? 'files-content' : ''}`}>
         {selectedTab === 'files' && <ChatArtifactLibrary sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages}/>}
@@ -326,7 +320,7 @@ export function PlanView({ session, readOnly = false, busy = false, canExecute =
           {canControlAutoApprovedPlan && planControl === 'active' && <button type="button" className="secondary-button" onClick={() => void onControlExecutionPlan?.('pause')}><Icon name="pause" size={13}/> Pausar</button>}
           {canControlAutoApprovedPlan && planControl !== 'active' && <button type="button" className="apply-button" onClick={() => void onControlExecutionPlan?.('resume')}><Icon name="play" size={13}/> Retomar</button>}
           {canControlAutoApprovedPlan && planControl !== 'suspended' && <button type="button" className="secondary-button" onClick={() => void onControlExecutionPlan?.('suspend')}><Icon name="close" size={13}/> Suspender</button>}
-          {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><button type="button" className="secondary-button" disabled={busy} onClick={() => onAdjustExecutionPlan?.()}><Icon name="edit" size={13}/> Ajustar</button><button type="button" className={session.execution_mode === 'protected' ? 'apply-button' : 'danger-button'} disabled={busy || sudoNeedsHostDirect || (requiresSudoPassword && !sudoPassword)} onClick={() => void executeApprovedPlan()}><Icon name="check" size={14}/> {sudoNeedsHostDirect ? 'sudo requer Full/Unprotected' : requiresSudoPassword ? 'Autorizar sudo e executar' : session.execution_mode === 'full' ? 'Executar no host · Full' : session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
+          {canExecute && <><button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectExecutionPlan?.()}><Icon name="trash" size={13}/> Rejeitar</button><ExecutionPlanAdjustment session={session} busy={busy} onAdjust={onAdjustExecutionPlan} /><button type="button" className={session.execution_mode === 'protected' ? 'apply-button' : 'danger-button'} disabled={busy || sudoNeedsHostDirect || (requiresSudoPassword && !sudoPassword)} onClick={() => void executeApprovedPlan()}><Icon name="check" size={14}/> {sudoNeedsHostDirect ? 'sudo requer Full/Unprotected' : requiresSudoPassword ? 'Autorizar sudo e executar' : session.execution_mode === 'full' ? 'Executar no host · Full' : session.execution_mode === 'unprotected' ? 'Confirmar execução no host' : 'Aceitar e executar'}</button></>}
           {canRejectPending && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRejectPendingChanges?.()}><Icon name="trash" size={13}/> Rejeitar</button>}
           {canReverseAppliedPlan && <button type="button" className="secondary-button" disabled={busy} onClick={() => void onPrepareExecutionPlanReversal?.()}><Icon name="history" size={13}/> Reverter com GPT</button>}
         </div>

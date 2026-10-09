@@ -45,6 +45,16 @@ func ensureRuntimeIgnored(ctx context.Context, root string) error {
 			return fmt.Errorf("close project .gitignore: %w", closeErr)
 		}
 	}
+	// Listing is read-only; only an actually tracked tree pays for `git rm`,
+	// which takes the index lock. Ensure runs on every project open, and an
+	// unconditional rm would fail it on any foreign lock even with nothing to do.
+	tracked, err := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z", "--", ".harness").Output()
+	if err != nil {
+		return fmt.Errorf("list tracked .harness in Git index: %w", err)
+	}
+	if len(tracked) == 0 {
+		return nil
+	}
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "rm", "-q", "-r", "--cached", "--ignore-unmatch", "--", ".harness")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("remove tracked .harness from Git index: %w: %s", err, strings.TrimSpace(string(output)))

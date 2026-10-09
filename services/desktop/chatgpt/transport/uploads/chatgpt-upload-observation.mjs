@@ -1,3 +1,5 @@
+import { composerLookupSource } from '../../dom/chatgpt-composer-lookup.mjs'
+
 function uploadRequestStage(details) {
   try {
     const url = new URL(String(details?.url || ''))
@@ -27,7 +29,7 @@ export function chatGPTUploadThumbnailScript(filename) {
     if (!expected) return { visible: false, progress: null, complete: false };
     const value = (node, name) => String(node?.getAttribute?.(name) || '');
     const metadata = (node) => ['data-file-name', 'data-name', 'aria-label', 'title', 'alt'].map((name) => value(node, name));
-    const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"][data-testid*="composer"], div[contenteditable="true"][role="textbox"], textarea[placeholder]');
+    ${composerLookupSource()}
     const surface = composer?.closest('[data-composer-surface]') || composer?.closest('form');
     if (!surface) return { visible: false, progress: null, active: false, complete: false };
     const cards = [...surface.querySelectorAll('[data-testid*="upload" i],[data-testid*="attachment" i],[data-testid*="file" i]')];

@@ -1,3 +1,6 @@
+import { resolvePersistedRetryTarget } from './unbound-target.mjs'
+import { adoptSubmittedPrompt } from '../preparation/adopt.mjs'
+
 export function createPersistedPromptRetry(context) {
   const {
     sanitizeChatCacheKey,
@@ -26,8 +29,13 @@ export function createPersistedPromptRetry(context) {
     chatGPTAssistantTurnCount,
     armExpectedChatGPTBundle,
     submitChatGPTDraft,
+    verifyChatGPTDraft,
     disarmExpectedChatGPTBundle,
     clearChatGPTHumanAction,
+    waitForSubmittedChatGPTConversation,
+    persistWorkspaceChatRemoteBestEffort,
+    enqueueChatAgentFollowups,
+    expectedChatGPTBundles,
   } = context
 
   async function retryPersistedChatGPTPrompt(request, entryOverride = undefined) {
@@ -59,8 +67,7 @@ export function createPersistedPromptRetry(context) {
     const artifacts = [...latestByName.values()].sort((a, b) => rank(String(a.name || '')) - rank(String(b.name || '')))
     if (!artifacts.length || artifacts[0]?.name !== canonicalName) throw new Error('A entrada completa deste pedido não está persistida; recrie o pedido para obter uma nova base segura.')
     const expectedFilename = authoritativeBundleFilename(request?.expectedFilename, requestId, key)
-    const targetURL = canonicalChatGPTConversationURL(request?.url || '')
-    if (!targetURL) throw new Error('O pedido pendente não possui uma conversa ChatGPT vinculada para reenvio seguro.')
+    const targetURL = await resolvePersistedRetryTarget(context, request, key, sessionId, requestId)
     const dir = path.join(app.getPath('temp'), 'wharness-chat-inputs', key, 'durable-retry')
     await rm(dir, { recursive: true, force: true })
     await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -106,17 +113,38 @@ export function createPersistedPromptRetry(context) {
     const target = await targetChatGPTComposer(key, targetURL, false, entryOverride)
     target.reasoningEffort = normalizeChatGPTReasoningEffort(request?.reasoningEffort)
     target.entry.reasoningEffort = target.reasoningEffort
-    const bootstrap = localChatInputBootstrap(requestId, canonicalName, expectedFilename, [], undefined, multipart)
+    const bootstrap = localChatInputBootstrap(requestId, canonicalName, expectedFilename, undefined, multipart)
+    if (canonicalChatGPTConversationURL(targetURL)) {
+      const adopted = await adoptSubmittedPrompt(context, { key, target, requestId, sessionId, workspaceChatId: key,
+        input: { parts: files, uploadPaths: files.map((file) => file.path) }, bootstrap, expectedFilename,
+        originalPrompt: String(request?.recoveryPrompt || ''), request })
+      if (adopted) return { ...adopted, requestId, durable: true }
+    }
+    await verifyChatGPTDraft(key, target)
     const filled = await executeChatGPTDOMScript(key, target.entry, 'fill-durable-retry', chatGPTFillComposerScript(bootstrap))
     if (!filled) throw new Error('ChatGPT composer DOM could not be populated with the persisted request')
     for (let index = 0; index < files.length; index += 1) await pasteChatGPTFile(target.entry, files[index].path, index + 1, files.length)
     await wait(chatInputSettleDelay(totalBytes, files.length))
     const assistantBaseline = await chatGPTAssistantTurnCount(target.wc)
     armExpectedChatGPTBundle(key, requestId, assistantBaseline, bootstrap, [], String(request?.recoveryPrompt || ''), sessionId, expectedFilename)
-    try { await submitChatGPTDraft(key, target.entry, target.conversationUrl, target) }
+    let conversationUrl = targetURL
+    try {
+      await submitChatGPTDraft(key, target.entry, target.conversationUrl, target)
+      if (!canonicalChatGPTConversationURL(targetURL)) {
+        conversationUrl = canonicalChatGPTConversationURL(await waitForSubmittedChatGPTConversation(key, target.entry, target.conversationUrl))
+        if (!conversationUrl) throw new Error('O envio não confirmou uma conversa ChatGPT vinculada.')
+        await persistWorkspaceChatRemoteBestEffort(key, conversationUrl, { remoteState: 'awaiting-response' })
+        const task = await enqueueChatAgentFollowups(key, requestId, conversationUrl, {
+          sessionId, expectedFilename, assistantBaseline, recoveryBootstrap: bootstrap,
+          originalPrompt: String(request?.recoveryPrompt || ''), liveTunnels: [], workspaceChatId: key,
+        })
+        const armed = expectedChatGPTBundles?.get(key)
+        if (armed?.requestId === requestId) armed.mainRequestTaskId = String(task?.task_id || '')
+      }
+    }
     catch (error) { disarmExpectedChatGPTBundle(key, requestId); throw error }
     clearChatGPTHumanAction(key, 'entrada persistida reenviada')
-    return { ok: true, cacheKey: key, requestId, attachmentCount: files.length, submitted: true, expectedFilename, includedContext: true, conversationUrl: targetURL, durable: true }
+    return { ok: true, cacheKey: key, requestId, attachmentCount: files.length, submitted: true, expectedFilename, includedContext: true, conversationUrl, durable: true }
   }
 
   return { retryPersistedChatGPTPrompt }

@@ -5,32 +5,30 @@ import { describe, expect, it } from 'vitest'
 const source = readFileSync(resolve(process.cwd(), 'src/app/workspace/App.tsx'), 'utf8')
 
 describe('App bundle routing', () => {
-  it('classifies a bundle with no pending workspace owner as a non-terminal routing duplicate', () => {
+  it('defers a bundle with no workspace owner without terminating another request', () => {
     const routingCheck = source.indexOf('if (!targetSession || !targetChat)')
     expect(routingCheck).toBeGreaterThan(-1)
     expect(source.slice(routingCheck, routingCheck + 360)).toContain('throw new BundleRoutingError')
 
     const catchBranch = source.indexOf('if (isNonTerminalBundleRoutingError(e))')
     expect(catchBranch).toBeGreaterThan(-1)
-    expect(source.slice(catchBranch, catchBranch + 260)).toContain('Bundle atrasado ou duplicado ignorado.')
+    expect(source.slice(catchBranch, catchBranch + 260)).toContain('return deferBundleRouting(e, () => setError(undefined))')
   })
 
-  it('retires a stale delivery banner only after the backend acknowledges its bundle', () => {
-    const listener = source.indexOf('const ingest = async (bundle: DesktopBundleDownload) =>')
+  it('wires bundle acknowledgement through the tested retained-delivery boundary', () => {
+    const listener = source.indexOf('const ingest = createBundleInboxDelivery({')
     expect(listener).toBeGreaterThan(-1)
     const body = source.slice(listener, listener + 2200)
-    const effect = source.slice(listener - 250, listener + 2400)
-    const submit = body.indexOf('await submitBundleFileRef.current')
-    const acknowledge = body.indexOf('await bridge.chatgpt.ackBundle')
-    const clear = body.indexOf('delete next[bundle.cacheKey!]')
-    expect(submit).toBeGreaterThan(-1)
-    expect(acknowledge).toBeGreaterThan(submit)
-    expect(clear).toBeGreaterThan(acknowledge)
-    expect(body).toContain('await bridge.chatgpt.nackBundle')
+    expect(body).toContain('submit: (bundle) => submitBundleFileRef.current')
+    expect(body).toContain('acknowledge: (bundle) => bridge.chatgpt.ackBundle')
+    expect(body).toContain('retain: (bundle) => bridge.chatgpt.nackBundle')
+    expect(body).toContain('accepted: (bundle) =>')
+    expect(body).toContain('delete next[bundle.cacheKey!]')
     expect(body).toContain('bridge.chatgpt.pendingBundles()')
     expect(source).toContain('sessionOwnsRequest(targetSession, requestId)')
     expect(source).toContain('sessionOwnsRequest(candidate, requestId)')
-    expect(effect).toContain("if (!isDesktop() || !bundleRoutingReadyKey) return")
+    const effect = source.slice(listener - 300, listener + 2400)
+    expect(effect).toContain('if (!isDesktop() || !bundleRoutingReadyKey) return')
     expect(effect).toContain('}, [bundleRoutingReadyKey])')
   })
 

@@ -5,3 +5,4 @@ export { iterationRef, turnMeta, welcomeItem, truncateRepairCause, chatGPTProjec
 export { createChatCatalogActions } from './catalogActions'
 export { createActiveChatLifecycleActions } from './activeChatLifecycleActions'
 export { createPlanProposalActions } from './plans'
+export { createTranscriptAppender, createTranscriptMutator } from './transcript'

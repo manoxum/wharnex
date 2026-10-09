@@ -7,7 +7,10 @@ function fixture() {
   let destroyed
   const native = {
     visible: true,
-    webContents: { isDestroyed: () => false, once: (_name, callback) => { destroyed = callback } },
+    webContents: {
+      isDestroyed: () => false, once: (_name, callback) => { destroyed = callback }, on: () => undefined,
+      capturePage: async (rect) => { events.push(`capture:${rect.width}x${rect.height}`); return {} },
+    },
     setVisible(value) { this.visible = value; events.push(`native:visible:${value}`) },
     getVisible() { return this.visible },
     setBounds: (bounds) => events.push(`native:bounds:${bounds.x},${bounds.y},${bounds.width}x${bounds.height}`),
@@ -48,14 +51,15 @@ test('presenting sizes the real view while its container is out of any window', 
   surface.setBounds({ x: 0, y: 0, width: 900, height: 700 })
   events.length = 0
   surface.present(monitor, { x: 300, y: 120, width: 600, height: 500 })
-  assert.deepEqual(events, ['host:detach', 'native:bounds:0,0,600x500', 'native:visible:true', 'monitor:add', 'box:bounds:300,120,600x500'])
+  // The one-pixel visible capture forces the first frame a static page would never paint.
+  assert.deepEqual(events, ['host:detach', 'native:bounds:0,0,600x500', 'native:visible:true', 'monitor:add', 'box:bounds:300,120,600x500', 'capture:1x1'])
   assert.equal(surface.getVisible(), true)
   events.length = 0
   surface.resizePresented({ x: 300, y: 120, width: 500, height: 500 })
-  assert.deepEqual(events, ['monitor:remove', 'native:bounds:0,0,500x500', 'monitor:add', 'box:bounds:300,120,500x500'])
+  assert.deepEqual(events, ['monitor:remove', 'native:bounds:0,0,500x500', 'monitor:add', 'box:bounds:300,120,500x500', 'capture:1x1'])
   events.length = 0
   surface.resizePresented({ x: 310, y: 130, width: 500, height: 500 })
-  assert.deepEqual(events, ['box:bounds:310,130,500x500'])
+  assert.deepEqual(events, ['box:bounds:310,130,500x500', 'capture:1x1'])
 })
 
 test('releasing parks the view back at the host origin at the project pane size', () => {
@@ -64,7 +68,7 @@ test('releasing parks the view back at the host origin at the project pane size'
   surface.present(monitor, { x: 300, y: 120, width: 600, height: 500 })
   events.length = 0
   surface.release()
-  assert.deepEqual(events, ['native:visible:false', 'monitor:remove', 'host:attach', 'native:visible:true', 'native:bounds:0,0,900x700', 'box:bounds:0,0,900x700', 'native:visible:false'])
+  assert.deepEqual(events, ['monitor:remove', 'native:visible:false', 'host:attach', 'native:visible:true', 'native:bounds:0,0,900x700', 'box:bounds:0,0,900x700', 'native:visible:false'])
   assert.equal(surface.getVisible(), false)
 })
 
@@ -74,4 +78,44 @@ test('a closed renderer leaves the host and the monitor', () => {
   events.length = 0
   destroy()
   assert.deepEqual(events, ['monitor:remove', 'host:detach'])
+})
+
+test('a Worker can be presented without changing its content size', () => {
+  const { surface, monitor, events } = fixture()
+  surface.setBounds({ x: 0, y: 0, width: 1280, height: 900 })
+  events.length = 0
+  surface.present(monitor, { x: 300, y: 120, width: 600, height: 500 }, { keepContentSize: true })
+  assert.equal(events.some((event) => event.startsWith('native:bounds')), false)
+  events.length = 0
+  surface.resizePresented({ x: 300, y: 120, width: 700, height: 500 })
+  assert.deepEqual(events, ['box:bounds:300,120,700x500', 'capture:1x1'])
+})
+
+test('an automatic transport keeps a full composer viewport while its project mirror resizes', () => {
+  const { surface, events } = fixture()
+  surface.setBounds({ x: 0, y: 0, width: 504, height: 528 })
+  const release = surface.holdAutomationViewport()
+  events.length = 0
+  surface.setBounds({ x: 0, y: 0, width: 504, height: 605 })
+  assert.equal(events.some((event) => event.includes('504x605')), false)
+  const nestedRelease = surface.holdAutomationViewport()
+  release()
+  assert.equal(events.some((event) => event.includes('504x605')), false)
+  nestedRelease()
+  assert.equal(events.includes('native:bounds:0,0,504x605'), true)
+  events.length = 0
+  nestedRelease()
+  assert.deepEqual(events, [])
+})
+
+test('the monitor preserves the automatic viewport and restores its dimensions after transport', () => {
+  const { surface, monitor, events } = fixture()
+  surface.present(monitor, { x: 300, y: 120, width: 504, height: 528 })
+  const release = surface.holdAutomationViewport()
+  assert.equal(events.includes('native:bounds:0,0,1280x900'), true)
+  events.length = 0
+  surface.resizePresented({ x: 300, y: 120, width: 504, height: 605 })
+  assert.equal(events.some((event) => event.startsWith('native:bounds')), false)
+  release()
+  assert.equal(events.includes('native:bounds:0,0,504x605'), true)
 })

@@ -13,3 +13,7 @@ export function markdownTranslationFilename(taskID) {
 export function todoClassificationFilename(taskID) {
   return `whx_todo_classification_res_${utilityTaskID(taskID, 'TODO classification')}.zip`
 }
+
+export function uiTestingDiscoveryFilename(taskID) {
+  return `whx_ui_test_discovery_res_${utilityTaskID(taskID, 'UI test discovery')}.zip`
+}

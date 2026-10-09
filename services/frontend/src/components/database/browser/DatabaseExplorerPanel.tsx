@@ -1,3 +1,4 @@
+import { WorkbenchTabs } from '../../presentation/tabs'
 import { useState } from 'react'
 import { api } from '../../../lib/transport/http/api'
 import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
@@ -97,12 +98,10 @@ export function DatabaseExplorerPanel({ onError }: { onError: (message: string) 
 
   return <section className="right-tool-panel database-explorer-panel">
     <header className="database-studio-header"><div className="database-studio-identity"><span className="database-studio-mark"><Icon name="database" size={18}/></span><div><strong>Database Studio</strong><span>PostgreSQL</span></div></div><span className={`database-health ${connected ? 'ready' : ''}`}><i/>{connected ? 'Ligado' : 'Desligado'}</span></header>
-    <nav className="database-workspace-tabs" aria-label="Database Studio">
-      <button type="button" title="Conexão" className={tab === 'connection' ? 'active' : ''} onClick={() => setTab('connection')}><Icon name="link" size={14}/><span className="semantic-tab-label">Conexão</span></button>
-      <button type="button" title="Objetos" className={tab === 'objects' ? 'active' : ''} onClick={() => setTab('objects')}><Icon name="database" size={14}/><span className="semantic-tab-label">Objetos</span></button>
-      <button type="button" title="Dados" className={tab === 'data' ? 'active' : ''} onClick={() => setTab('data')}><Icon name="list" size={14}/><span className="semantic-tab-label">Dados</span></button>
-      <button type="button" title="SQL" className={tab === 'sql' ? 'active' : ''} onClick={() => setTab('sql')}><Icon name="code" size={14}/><span className="semantic-tab-label">SQL</span></button>
-    </nav>
+    <WorkbenchTabs label="Database Studio" value={tab} onChange={setTab} items={[
+      { id: 'connection', label: 'Conexão', icon: 'link' }, { id: 'objects', label: 'Objetos', icon: 'database' },
+      { id: 'data', label: 'Dados', icon: 'list' }, { id: 'sql', label: 'SQL', icon: 'code' },
+    ]}/>
     {status && <div className="database-status"><span>{status}</span>{catalog && <button type="button" onClick={() => void inspect(false)} disabled={busy} aria-label="Atualizar catálogo"><Icon name="refresh" size={14}/></button>}</div>}
     {tab === 'connection' && <ConnectionPanel profiles={profiles} profileName={profileName} connection={connection} busy={busy} connected={connected} onProfileName={setProfileName} onUpdate={update} onSave={saveProfile} onLoad={loadProfile} onDelete={deleteProfile} onTest={() => void test()} onInspect={() => void inspect()}/>}
     {tab === 'objects' && (catalog ? <DatabaseObjectBrowser catalog={catalog} metadata={metadata} ddl={ddl} busy={busy} onDDL={setDDL} onApplyDDL={() => void applyDDL()}/> : <ConnectEmpty onInspect={() => void inspect()} busy={busy}/>)}

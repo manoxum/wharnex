@@ -7,14 +7,14 @@ function EmptyBrowser({ title, message }: { title: string; message: string }) {
 
 // The real browser instance is composited over this area; project windows
 // only show mirrors of it.
-export function BrowserViewport({ agent }: { agent: DesktopAgentRuntimeAgent }) {
+export function BrowserViewport({ agent, suspended = false }: { agent: DesktopAgentRuntimeAgent; suspended?: boolean }) {
   const bridge = desktopBridge()?.agents
   const host = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
     const element = host.current
-    if (!bridge || !element || !agent.browser.available) return
+    if (!bridge || !element || !agent.browser.available || suspended) return
     let alive = true
     let presented = false
     let pending = false
@@ -40,10 +40,10 @@ export function BrowserViewport({ agent }: { agent: DesktopAgentRuntimeAgent }) 
     observer.observe(element)
     void update()
     return () => { alive = false; observer.disconnect(); void bridge.releaseFromMonitor(agent.id).catch(() => undefined) }
-  }, [agent.id, agent.browser.available, bridge])
+  }, [agent.id, agent.browser.available, bridge, suspended])
 
   return <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
-    {agent.browser.available ? <div ref={host} className="h-full w-full" aria-label={`Navegador real de ${agent.label}`} /> : null}
+    {agent.browser.available && !suspended ? <div ref={host} className="h-full w-full" aria-label={`Navegador real de ${agent.label}`} /> : null}
     {!agent.browser.available || error ? <EmptyBrowser title={error ? 'Não foi possível apresentar' : 'Navegador ainda não criado'} message={error || 'A instância será criada quando receber um chat ou uma tarefa. Pode selecionar outro navegador na lista.'} /> : null}
   </div>
 }

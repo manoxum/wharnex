@@ -19,6 +19,9 @@ No credentials, generated context bundles, or temporary workspaces committed.
 
 - `go test ./...`
 - frontend tests
+- Tab changes MUST pass the shared-implementation coverage and behavior tests in
+  `components/presentation/tabs`, the icon-only Agent surface selection tests, and
+  `e2e/tabs/workbench.spec.ts` as specified by `SoT/TABS.md`.
 - PostgreSQL Session Store migration and CRUD integration tests when the
   Docker-managed test database is available.
 
@@ -83,7 +86,7 @@ Playwright session/bootstrap/manual-plan workflow plus Docker executor tests whe
 ## G8 Desktop shell
 
 - `node --check` for Electron main/preload/dev launcher.
-- `node --test services/desktop/security/security.test.mjs`.
+- `node --test services/desktop/security/*.test.mjs` (input, origin, platform and bundle-file boundaries).
 - Validate remote view sandbox/context-isolation/Node-integration invariants in review.
 - Validate clipboard session/URL/bounds guards.
 - Where Electron runtime is available, smoke: launch Desktop -> ChatGPT tab -> login/session persistence -> copy context ZIP -> paste attachment.

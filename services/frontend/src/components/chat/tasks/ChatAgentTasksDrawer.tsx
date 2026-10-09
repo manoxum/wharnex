@@ -1,3 +1,4 @@
+import { ChatAgentTaskTabs } from './ChatAgentTaskTabs'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChatAgentQueueSummary, ChatAgentTask } from '../../../types'
 import { api } from '../../../lib/transport/http/api'
@@ -149,9 +150,7 @@ export function ChatAgentTasksDrawer({ projectPath, onClose, onError, chats = []
     <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime ChatGPT</span><strong>Tarefas</strong></div><div className="agent-runtime-heading-actions"><button type="button" className="agent-drawer-icon" onClick={() => void refresh()} aria-label="Atualizar tarefas"><Icon name="refresh" size={13}/></button><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar tarefas"><Icon name="close" size={13}/></button></div></header>
     <div className="chat-agent-tasks-summary"><span><b>{runningCount}</b> em execução</span><span><b>{dueCount}</b> por executar</span><span><b>{scheduledCount}</b> {scheduledCount === 1 ? 'agendada' : 'agendadas'}</span>{guardedCount > 0 ? <span><b>{guardedCount}</b> {guardedCount === 1 ? 'aguarda liberação' : 'aguardam liberação'}</span> : null}{blockedCount > 0 ? <span><b>{blockedCount}</b> sem tentativas</span> : null}<small>Atualizado {relativeAge(refreshedAt)}</small></div>
     <p className="chat-agent-tasks-scope">Apenas as tarefas deste projeto.{otherProjectsCount > 0 ? ` Os agentes são partilhados e executam também ${otherProjectsCount} ${otherProjectsCount === 1 ? 'tarefa ativa de outro projeto' : 'tarefas ativas de outros projetos'}.` : ''}</p>
-    {!loading && tasks.length > 0 ? <nav className="chat-agent-task-tabs" role="tablist" aria-label="Estados das tarefas">
-      {taskTabs.map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls="chat-agent-task-panel" onClick={() => setActiveTab(tab.id)}><Icon name={tab.icon} size={13}/><span className="semantic-tab-label">{tab.label}</span><b>{tab.count}</b></button>)}
-    </nav> : null}
+    {!loading && tasks.length > 0 ? <ChatAgentTaskTabs value={activeTab} onChange={setActiveTab} tabs={taskTabs}/> : null}
     <div id="chat-agent-task-panel" className="chat-agent-tasks-body" role="tabpanel">
       {loading ? <div className="agent-drawer-empty">A carregar fila durável…</div> : !tasks.length ? <div className="agent-drawer-empty"><strong>Sem tarefas ativas neste projeto.</strong><span>{otherProjectsCount > 0 ? 'A fila deste projeto está vazia, mas os agentes partilhados estão ocupados com outros projetos.' : 'A fila e os Workers estão livres neste momento.'}</span></div> : activeTab === 'running' ?
         <TaskSection title="Em execução" description="Instâncias com trabalho ativo neste momento." tasks={groups.running} empty="Nenhum Worker está a executar uma tarefa." disposition="running" chats={chats} onGoToChat={onGoToChat} onGoToOrchestrator={onGoToOrchestrator} onFollowInstance={onFollowInstance} workers={workers} onAssignTask={assignTask}/> : activeTab === 'due' ?

@@ -1,6 +1,6 @@
-export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'external-agents' | 'tasks' | 'evolution' | 'database' | 'docker' | 'errors' | ''
+export type Drawer = 'attention' | 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'external-agents' | 'tasks' | 'evolution' | 'database' | 'docker' | 'ui-testing' | 'errors' | ''
 
-export const WORKSPACE_DRAWERS: Exclude<Drawer, ''>[] = ['attention', 'archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'external-agents', 'tasks', 'errors', 'evolution', 'database', 'docker']
+export const WORKSPACE_DRAWERS: Exclude<Drawer, ''>[] = ['attention', 'archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'external-agents', 'tasks', 'errors', 'evolution', 'database', 'docker', 'ui-testing']
 
 export function workspaceDrawerLabel(drawer: Exclude<Drawer, ''>) {
   if (drawer === 'attention') return 'Centro de Alertas'
@@ -16,5 +16,6 @@ export function workspaceDrawerLabel(drawer: Exclude<Drawer, ''>) {
   if (drawer === 'errors') return 'Erros de execução'
   if (drawer === 'evolution') return 'Logs de auto-evolução'
   if (drawer === 'database') return 'Database Studio'
+  if (drawer === 'ui-testing') return 'UI Lab'
   return 'Docker'
 }

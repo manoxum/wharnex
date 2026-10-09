@@ -80,6 +80,37 @@ The legacy Desktop manual fallback panel is removed. File-first request/bundle v
 
 ## Consequences
 
+### 2026-10-08 transport idempotency and responsive composer
+
+An automatic preparation holds the owned native composer at 1280 × 900 through
+preflight, upload and submit, including when presented in the browser monitor.
+Project mirror geometry is retained and restored when the last hold ends.
+Reasoning effort is verified before any composer mutation or file selection.
+An unavailable effort control or ambiguous file selection enters `ATTENTION`
+instead of replaying the complete request ZIP through the scheduler.
+
+A retry first checks exact input-file metadata in the owned user turn. When
+that proves an existing submission, it adopts durable exact-result supervision
+without another upload or submit; failure to persist that supervision disarms
+the in-memory expectation. Submitted-only maintenance fails closed if its
+concrete conversation or input evidence is missing. Transport/stall attention
+keeps exact-file capture active, while authentication/access/manual gates still
+block it. No completion is inferred from generated answer or reasoning text.
+
+Live observation also confirmed agent turns marked with
+`data-chatgpt-agent-turn-start` while author-role wrappers are absent. The
+response observer counts that marker and checks its order against the latest
+user-message wrapper. Download lookup accepts that turn boundary for fresh
+capture and excludes submitted user/composer controls before reading file
+metadata, so a requested filename in the bootstrap cannot trigger a download.
+
+The definitive conversation's selected effort may share an inline wrapper with
+an icon. The leaf-only observer missed `Elevada` while reporting only the model
+selector, reasoning title and `5.6`. Keep the leaf path and add bounded direct
+text nodes of visible wrappers inside that single composer control. Exact
+mapped-level matching remains mandatory; neither model version nor generic
+control labels authorize a submit.
+
 Background Auto transport becomes independent of Inspector visibility and can recover an expected bundle as soon as its download control appears. The trade-off is a small DOM selector compatibility surface that can change with ChatGPT UI revisions; selectors must therefore stay minimal, covered by regression tests, and fail closed.
 
 Browser-session backups may contain authenticated browser material even though Wharness never decodes it. Users must protect those files like credentials. Full reset is destructive to Wharness state and therefore requires the literal confirmation `APAGAR WHARNESS`.

@@ -17,7 +17,7 @@ export function createAgentWorkerRuntime(deps) {
     accountFailureDetail, enqueueChatAgentTask, chatAgentConversationID, archiveChatGPTConversation, deleteChatGPTConversation,
     parseBundleName, deleteChatGPTLibraryArtifact, workerEntryForIndex, chatAgentRateLimitDelayMs, chatGPTConversationReadGateMs,
     ChatGPTRateLimitDeferral, CHAT_AGENT_STALE_ASSIGNMENT_RETRY_MS, executeChatAgentOrchestratorPlan, executeOrchestratorExecution, orchestratorExecutionWorkerRuntime,
-    executeChatAgentTodoClassification, executeReleaseNotesBundleTask, releaseNotesWorkerRuntime, probeChatAgentResponse, executeChatAgentTitleDiscover,
+    executeChatAgentTodoClassification, executeReleaseNotesBundleTask, releaseNotesWorkerRuntime, executeUITestingTask, probeChatAgentResponse, executeChatAgentTitleDiscover,
     executeChatAgentTempTitle, executeChatAgentTitleAwait,
     chatAgentLifecycleBlocked, chatGPTSupervisorOwnsExpectedResponse,
   } = deps
@@ -127,6 +127,7 @@ export function createAgentWorkerRuntime(deps) {
     executeChatAgentTodoClassification,
     executeReleaseNotesBundleTask,
     releaseNotesWorkerRuntime,
+    executeUITestingTask,
     probeChatAgentResponse,
     executeChatAgentWrite,
     executeChatAgentTitleDiscover,

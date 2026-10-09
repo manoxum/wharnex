@@ -3,7 +3,8 @@ import type { ChatItem, HarnessEvent, Session } from '../../types'
 import type { WorkspaceChat } from '../../lib/chat/history/workspaceMemory'
 import { loadExecutionHistory, loadWorkspaceChats, saveExecutionHistory } from '../../lib/chat/history/workspaceMemory'
 import { api } from '../../lib/transport/http/api'
-import { openLiveEventStream, type LiveEventStream } from '../../lib/transport/http/liveEventStream'
+import type { LiveEventStream } from '../../lib/transport/http/liveEventStream'
+import { openSessionEvents } from '../../lib/transport/http/sessionEvents'
 import { createEventStreamCoalescer, type EventStreamCoalescer } from '../../lib/transport/http/eventStream'
 import { executionStartedNotice } from '../../lib/execution/history/executionNotice'
 import { finishExecutionQueueItem, upsertExecutionQueueItem, type ExecutionFIFOItem } from '../../lib/execution/history/executionQueueView'
@@ -30,7 +31,7 @@ export function useEventStreamConnection({ sourceRef, coalescerRef, sessionCache
     const restored = loadExecutionHistory(projectPath, chatId)
     setEvents(restored)
 
-    const source = openLiveEventStream(api.eventsURL(id))
+    const source = openSessionEvents(api.eventsURL(id))
     const coalescer = createEventStreamCoalescer({
       restored,
       // A timer that outlives its stream must not write another chat's window;
@@ -40,9 +41,20 @@ export function useEventStreamConnection({ sourceRef, coalescerRef, sessionCache
       onPersist: (eventWindow) => saveExecutionHistory(projectPath, chatId, eventWindow),
       onFlush: (batch, eventWindow) => {
         // One workspace-chat read for the whole batch, not two per frame.
-        const needsOwner = batch.some((parsed) => parsed.type === 'execution.started' || (parsed.data.plan_id && EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)))
+        const needsOwner = batch.some((parsed) => parsed.type === 'workspace_chat.item_upserted' || parsed.type === 'execution.started' || (parsed.data.plan_id && EXECUTION_ACTIVE_EVENT_TYPES.has(parsed.type)))
         const owner = needsOwner ? loadWorkspaceChats(projectPath).find((chat) => chat.id === chatId) : undefined
-        const sessionMutationEvents = new Set(['plan.received', 'plan.control_changed', 'plan.reversal_requested', 'repair.prompt_ready', 'baseline.continuation_ready', 'conflict.prompt_ready', 'git.conflict_obsolete', 'conflict.bundle_obsolete', 'host.applied', 'host.apply_paused', 'automation.paused', 'host.reverted', 'host.restored'])
+        const transcriptUpdates = new Set(batch.filter((parsed) => parsed.type === 'workspace_chat.item_upserted' && parsed.data.chat_id === chatId).map((parsed) => String((parsed.data.item as ChatItem | undefined)?.id || '')))
+        if (owner && transcriptUpdates.size) {
+          // Audit frames are bounded/redacted notifications. Read the durable
+          // payload before projecting it, so a long prompt is not truncated.
+          void api.workspaceChatItems(chatId).then(({ items }) => {
+            if (sourceRef.current !== source) return
+            for (const entry of items) {
+              if (entry.chat_id === chatId && transcriptUpdates.has(entry.id)) appendChatItem(owner, projectPath, entry.payload)
+            }
+          }).catch(() => undefined)
+        }
+        const sessionMutationEvents = new Set(['plan.received', 'plan.control_changed', 'plan.reversal_requested', 'repair.prompt_ready', 'baseline.continuation_ready', 'conflict.prompt_ready', 'git.conflict_obsolete', 'conflict.bundle_obsolete', 'host.applied', 'host.apply_settled', 'host.apply_paused', 'automation.paused', 'host.reverted', 'host.restored'])
         if (batch.some((parsed) => (parsed.type === 'artifact.persisted' && parsed.data.kind === 'bundle') || sessionMutationEvents.has(parsed.type))) {
           void api.getSession(id).then((updated) => {
             sessionCacheRef.current[chatId] = updated
@@ -50,7 +62,7 @@ export function useEventStreamConnection({ sourceRef, coalescerRef, sessionCache
           }).catch(() => undefined)
         }
         for (const parsed of batch) {
-          if (parsed.type === 'host.applied') setHostAppliedPresentation({ eventId: parsed.id, sessionId: id, projectPath, chatId })
+          if (parsed.type === 'host.applied' || parsed.type === 'host.apply_settled') setHostAppliedPresentation({ eventId: parsed.id, sessionId: id, projectPath, chatId })
           if (parsed.type === 'execution.started' && owner) appendChatItem(owner, projectPath, executionStartedNotice(parsed))
           const planId = String(parsed.data.plan_id || '')
           if (!planId) continue
@@ -71,7 +83,10 @@ export function useEventStreamConnection({ sourceRef, coalescerRef, sessionCache
       },
     })
     source.onmessage = (event) => {
-      try { coalescer.accept(JSON.parse(event.data) as HarnessEvent) }
+      try {
+        const parsed = JSON.parse(event.data) as HarnessEvent
+        if (parsed.type !== 'git.changed') coalescer.accept(parsed)
+      }
       catch { /* ignore malformed stream frame */ }
     }
     coalescerRef.current = coalescer

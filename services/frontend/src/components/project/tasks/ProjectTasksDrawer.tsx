@@ -1,3 +1,4 @@
+import { ProjectTaskTabs } from './ProjectTaskTabs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatAgentTask, HarnessEvent, OrchestratorTaskRun, Session } from '../../../types'
 import { api } from '../../../lib/transport/http/api'
@@ -195,11 +196,7 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
         <option value="chat">Chats</option><option value="worker">Workers</option><option value="orchestrator">Orquestração</option><option value="translation">Traduções</option><option value="release">Releases</option><option value="todo">TODO</option><option value="system">Sistema</option>
       </select>
     </div>
-    <nav className="project-task-tabs" role="tablist" aria-label="Estados das tarefas">
-      <TaskTab id="queue" label="Em curso" icon="list" count={counts.queue} active={tab === 'queue'} onClick={() => setTab('queue')}/>
-      <TaskTab id="completed" label="Concluídas" icon="check" count={counts.completed} active={tab === 'completed'} onClick={() => setTab('completed')}/>
-      <TaskTab id="archived" label="Arquivadas" icon="archive" count={counts.archived} active={tab === 'archived'} onClick={() => setTab('archived')}/>
-    </nav>
+    <ProjectTaskTabs value={tab} onChange={setTab} counts={counts}/>
     <ProjectTaskListPanel>
       {tab === 'queue' ? <IntegratedExecutionQueue items={executionFIFO} onError={onError}/> : null}
       {initialLoading ? <ContentSkeleton label={tab === 'queue' ? 'A carregar tarefas em curso' : `A carregar tarefas ${tab === 'completed' ? 'concluídas' : 'arquivadas'}`} rows={6}/> : visible.map((item) => <ProjectTaskCard key={item.key} item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents} onSessionLoaded={rememberSession} onGoToChat={onGoToChat}/>)}
@@ -213,10 +210,6 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
 
 function TaskMetric({ label, value, icon, danger = false }: { label: string; value: number; icon: 'list' | 'play' | 'alert' | 'check'; danger?: boolean }) {
   return <div className={`project-task-metric ${danger ? 'danger' : ''}`}><span><Icon name={icon} size={12}/>{label}</span><b>{value}</b></div>
-}
-
-function TaskTab({ id, label, icon, count, active, onClick }: { id: ProjectTaskTab; label: string; icon: 'list' | 'check' | 'archive'; count: number; active: boolean; onClick: () => void }) {
-  return <button type="button" role="tab" aria-selected={active} aria-controls="project-task-panel" onClick={onClick} data-task-tab={id}><Icon name={icon} size={13}/><span className="semantic-tab-label">{label}</span><b>{count}</b></button>
 }
 
 function IntegratedExecutionQueue({ items, onError }: { items: ExecutionFIFOItem[]; onError?: (message: string) => void }) {

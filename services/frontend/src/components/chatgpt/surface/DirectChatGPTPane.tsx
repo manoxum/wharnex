@@ -33,8 +33,8 @@ export function DirectChatGPTPane({ projectPath, suspended = false }: { projectP
   }, [acceptState, bridge, key])
 
   // The real view lives in the browser host; this pane mirrors it.
-  const mirrorFrames = useMemo(() => bridge?.chatgpt.onMirrorFrame
-    ? (callback: (frame: DesktopMirrorFrame) => void) => bridge.chatgpt.onMirrorFrame((frame) => { if (frame.cacheKey === key) callback(frame) })
+  const mirrorFrames = useMemo(() => bridge?.chatgpt.subscribeMirror
+    ? (onFrame: DesktopMirrorFrameHandler) => bridge.chatgpt.subscribeMirror(key, onFrame)
     : undefined, [bridge, key])
   const mirrorInput = useMemo(() => bridge?.chatgpt.mirrorInput
     ? (input: DesktopMirrorInput) => bridge.chatgpt.mirrorInput(key, input)

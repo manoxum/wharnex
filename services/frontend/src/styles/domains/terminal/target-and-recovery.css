@@ -16,9 +16,6 @@
 
 /* v1.2.17 project bootstrap + context settings */
 .bootstrap-card-wide { min-height: 690px; }
-.project-source-tabs { position: relative; z-index: 1; margin-top: 28px; display: inline-flex; align-self: flex-start; padding: 4px; gap: 3px; border: 1px solid #d4d7cd; border-radius: 10px; background: #eceee7; }
-.project-source-tabs button { height: 34px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: #666b61; display: inline-flex; align-items: center; gap: 7px; font-size: calc(10px * var(--ui-font-scale)); font-weight: 600; cursor: pointer; }
-.project-source-tabs button.active { background: #fff; color: #22251f; box-shadow: 0 1px 5px rgba(20,25,16,.09); }
 .project-form-browser { margin-top: 16px; max-width: 670px; }
 .project-picker-button { width: 100%; min-height: 66px; padding: 10px 13px; border: 1px solid #cfd2c7; border-radius: 11px; background: #fff; color: #33372f; display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 10px; text-align: left; cursor: pointer; }
 .project-picker-button:hover { border-color: #aab0a1; background: #fbfcf8; }
@@ -61,8 +58,6 @@
 .project-settings-dialog > footer { padding: 12px 22px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid #d8dbd2; background: #eff1eb; }
 
 @media (max-width: 760px) {
-  .project-source-tabs { width: 100%; display: grid; grid-template-columns: 1fr; }
-  .project-source-tabs button { justify-content: flex-start; }
   .path-picker-row, .settings-grid { grid-template-columns: 1fr; }
   .project-settings-backdrop { padding: 10px; }
 }

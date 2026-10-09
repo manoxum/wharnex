@@ -32,7 +32,7 @@ func claimTypes(t *testing.T, store *Store, role string, count int) []string {
 func TestChatAgentClaimPartitionsTypesBetweenPools(t *testing.T) {
 	store := NewStore()
 	supervisorTypes := []string{"AWAIT_RESPONSE", "BOT_WRITE", "RECOVERY_WRITE"}
-	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "ORCHESTRATOR_EXECUTE", "TITLE_DISCOVER"}
+	workerTypes := []string{"RENAME_CHAT", "DELETE_BUNDLE", "TODO_CLASSIFY", "ORCHESTRATOR_EXECUTE", "TITLE_DISCOVER", "UI_TEST_DISCOVER", "UI_TEST_RUN"}
 	translatorTypes := []string{"TRANSLATE_MARKDOWN", "ORCHESTRATOR_PLAN", "RELEASE_NOTES"}
 	allTypes := append(append(append([]string{}, supervisorTypes...), workerTypes...), translatorTypes...)
 	for index, taskType := range allTypes {
@@ -71,6 +71,27 @@ func TestIdleWorkerNeverClaimsEphemeralWork(t *testing.T) {
 	claimed, err := store.ClaimChatAgentTaskWithOptions("worker-1", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1"})
 	if err != nil || claimed != nil {
 		t.Fatalf("Worker claimed ephemeral work %#v err=%v", claimed, err)
+	}
+}
+
+// UI Lab exchanges run on the persistent Workers, never on a per-task
+// ephemeral browser, so the operator's Worker pacing, suspension and upload
+// accounting govern every request they send (ADR-0093).
+func TestUITestExchangesBelongToPersistentWorkers(t *testing.T) {
+	store := NewStore()
+	for _, taskType := range []string{"UI_TEST_DISCOVER", "UI_TEST_RUN"} {
+		if _, err := store.EnqueueChatAgentTask(testChatAgentTask(taskType, "chat-"+taskType, "", "ui:"+taskType)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if claimed, err := store.ClaimChatAgentTaskWithOptions("translator-1", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleTranslator}); err != nil || claimed != nil {
+		t.Fatalf("ephemeral pool claimed UI test work %#v err=%v", claimed, err)
+	}
+	for range 2 {
+		claimed, err := store.ClaimChatAgentTaskWithOptions("worker-1", time.Minute, ChatAgentClaimOptions{Role: ChatAgentRoleWorker, WorkerID: "worker-1"})
+		if err != nil || claimed == nil || claimed.Source != "ui-testing" {
+			t.Fatalf("Worker must claim UI test work, got %#v err=%v", claimed, err)
+		}
 	}
 }
 

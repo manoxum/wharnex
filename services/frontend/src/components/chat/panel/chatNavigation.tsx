@@ -1,3 +1,4 @@
+import { ChatTabs } from '../navigation'
 import type { Dispatch, SetStateAction, ComponentProps } from 'react'
 import type { ChatPanelProps } from './panelTypes'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -30,18 +31,11 @@ export function ChatNavigation({ session, embedded, hideSwitcher, composerOnly, 
       <BundleExchangeBar sessionId={session.id} artifacts={session.artifacts} requestLineages={session.request_lineages} />
     </header>}
 
-    {!composerOnly && !hideSwitcher && <div className="chat-switcher" aria-label="Conversas do Harness">
+    {!composerOnly && !hideSwitcher && <div className="chat-switcher" aria-label="Conversas do Wharnex">
       <button className="chat-new-button" disabled={busy} onClick={() => void onNewChat()} title="Novo chat" aria-label="Novo chat"><Icon name="plus" size={14}/></button>
       {archivedChats.length > 0 && <button className="chat-new-button chat-reopen-button" disabled={busy} onClick={() => void onRestoreChat(archivedChats[0].id)} title={`Reabrir último chat fechado: ${archivedChats[0].title}`} aria-label="Reabrir último chat fechado"><Icon name="refresh" size={13}/></button>}
-      <div className="chat-tabs">
-        {chats.map((chat) => <div key={chat.id} className={chat.id === activeChatId ? 'chat-tab-group active' : 'chat-tab-group'}>
-          <button className={chat.id === activeChatId ? 'chat-tab active' : 'chat-tab'} disabled={busy} onClick={() => void onSelectChat(chat.id)} title={chat.chatgptUrl ? `${chat.title}\nChatGPT: ${chat.chatgptUrl}` : `${chat.title}\nChatGPT ainda não vinculado`}>
-            <span>{chat.title}</span><i className={chat.chatgptUrl ? 'chat-link-dot linked' : 'chat-link-dot'} aria-hidden="true" />
-          </button>
-          {onSaveChat && <button className="chat-tab-remove chat-tab-save" disabled={busy} onClick={() => void onSaveChat(chat.id)} title={`Guardar ${chat.title} em standby`} aria-label={`Guardar chat ${chat.title}`}><Icon name="save" size={11}/></button>}
-          <button className="chat-tab-remove" disabled={busy} onClick={() => void onArchiveChat(chat.id)} title={`Fechar e arquivar ${chat.title}`} aria-label={`Fechar e arquivar chat ${chat.title}`}><Icon name="close" size={11}/></button>
-        </div>)}
-      </div>
+      <ChatTabs chats={chats} activeId={activeChatId} busy={busy} onSelect={(id) => void onSelectChat(id)} onArchive={(id) => void onArchiveChat(id)} onSave={onSaveChat ? (id) => void onSaveChat(id) : undefined}/>
+
       {!embedded && <button className={archiveOpen ? 'chat-archive-toggle active' : 'chat-archive-toggle'} disabled={busy && !archiveOpen} onClick={() => setArchiveOpen((current) => !current)} title="Chats fechados"><Icon name="folder" size={13}/><span>Arquivados</span>{archivedChats.length > 0 && <b>{archivedChats.length}</b>}</button>}
     </div>}
 

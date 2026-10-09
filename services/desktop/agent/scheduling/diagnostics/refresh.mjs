@@ -37,12 +37,16 @@ export function createChatAgentRuntimeRefresh({
       return runtimeState()
     }
     try {
-      const [summary, leased, running, provider] = await Promise.all([
+      const [summary, leased, running, provider, holds] = await Promise.all([
         scheduler.queueSummary(),
         scheduler.list({ status: 'LEASED', limit: 50 }),
         scheduler.list({ status: 'RUNNING', limit: 50 }),
         scheduler.providerState(),
+        // Holds are auxiliary: an older backend without them must not stop
+        // the runtime refresh.
+        scheduler.automationHolds?.().catch(() => null),
       ])
+      if (holds?.holds) state.onAutomationHolds?.(holds.holds)
       reconcileChatAgentWorkerTasks([...(leased?.tasks || []), ...(running?.tasks || [])])
       state.diagnostics = {
         scheduler: { running: Boolean(scheduler.running), backend_reachable: true, last_refresh_at: now, last_error: '' },
@@ -55,6 +59,7 @@ export function createChatAgentRuntimeRefresh({
           average_processing_ms: Math.max(0, Number(provider?.average_processing_ms || 0)), valid_sample_count: Math.max(0, Number(provider?.valid_sample_count || 0)),
           initial_wait_ms: Math.max(60_000, Number(provider?.initial_wait_ms || 60_000)), updated_at: String(provider?.updated_at || ''),
         },
+        holds: holds?.holds || {},
       }
       // Follow the durable provider deadline in both directions. A stale
       // refresh cannot clear a newer local gate still being persisted.

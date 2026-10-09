@@ -1,15 +1,13 @@
+import { continuePendingRequest as continueRequest } from './recovery/continueRequest'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { chatgptConversationURL, desktopBridge, elementBounds, formatBytes, sameChatGPTConversation } from '../../../lib/desktop/bridge/desktop'
 import { Icon } from '../../presentation/chrome/Icon'
 import { ChatBindingControl } from '../../chat/binding/ChatBindingControl'
-import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
-import { expectedResponseBundleName } from '../../../lib/artifacts/bundles/bundlename'
 import { errorMessage } from '../../../lib/workspace/dialogs/errorMessage'
 import { supervisorInstanceLabel } from '../../../lib/agent/runtime/engineInstanceLabel'
 import { EngineInstanceSelector } from '../../agent/runtime/EngineInstanceSelector'
 import { WorkerFollowViewer } from '../../agent/runtime/WorkerFollowViewer'
 import { ManualChatGPTToolbar } from './ManualChatGPTToolbar'
-import { chatgptWriteInProgressNotice } from '../../../lib/chat/transport/chatgptWriteProgress'
 import { useAgentFollowEvent } from './useAgentFollowEvent'
 import { MirrorSurface } from '../mirror/MirrorSurface'
 
@@ -165,8 +163,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   useAgentFollowEvent(bridge, setFollowedAgentId)
 
   // The real view lives in the browser monitor window; this pane mirrors it.
-  const mirrorFrames = useMemo(() => bridge?.chatgpt.onMirrorFrame
-    ? (callback: (frame: DesktopMirrorFrame) => void) => bridge.chatgpt.onMirrorFrame((frame) => { if (frame.cacheKey === chatId) callback(frame) })
+  const mirrorFrames = useMemo(() => bridge?.chatgpt.subscribeMirror
+    ? (onFrame: DesktopMirrorFrameHandler) => bridge.chatgpt.subscribeMirror(chatId, onFrame)
     : undefined, [bridge, chatId])
   const mirrorInput = useMemo(() => bridge?.chatgpt.mirrorInput
     ? (input: DesktopMirrorInput) => bridge.chatgpt.mirrorInput(chatId, input)
@@ -251,72 +249,8 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
     if (!bridge || !pendingRequestId || requestAction) return
     setRequestAction('resume')
     try {
-      let result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
-      if (!result.ok && result.reason === 'write_in_progress') {
-        setNotice(chatgptWriteInProgressNotice)
-        return
-      }
-      if (!result.ok && result.reason === 'not_supervised') {
-        const conversation = chatgptConversationURL(chatgptUrl || state.url)
-        if (!sessionId || !conversation) {
-          setNotice(manualContinuationFailure(result.reason))
-          return
-        }
-        const resumed = await bridge.chatgpt.resumeExpectedBundle({
-          cacheKey: chatId,
-          sessionId,
-          requestId: pendingRequestId,
-          url: conversation,
-          recoveryBootstrap: recoveryBootstrap || '',
-          expectedFilename: expectedResponseBundleName(recoveryBootstrap || '', pendingRequestId),
-          chatTitle,
-          chatHash,
-          requestedAt,
-        })
-        if (!resumed.ok && resumed.reason === 'write_in_progress') {
-          setNotice(chatgptWriteInProgressNotice)
-          return
-        }
-        if (!resumed.ok && (resumed.reason === 'write_not_submitted' || resumed.reason === 'resend_required')) {
-          if (onResendPendingRequest) {
-            await onResendPendingRequest(pendingRequestId)
-            setNotice('O DOM não confirmou o envio original. O prompt e o bundle completos foram encaminhados para reenvio.')
-          } else {
-            setNotice('O envio original não chegou ao ChatGPT. Use “Reenviar request” no pedido para enviar novamente o prompt e o bundle completos.')
-          }
-          return
-        }
-        result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId)
-      }
-      if (result.confirmationRequired) {
-        const staleTransport = result.reason === 'transport_stale'
-        const confirmed = await confirmDialog({
-          title: 'O estado de processamento é ambíguo',
-          message: staleTransport
-            ? 'O Wharnex detetou um transporte antigo sem atividade enquanto a conversa parece ociosa. Confirme apenas se verificou que a tarefa realmente parou.'
-            : 'O ChatGPT ainda mostra um controlo de processamento, mas esse sinal pode estar desatualizado. Confirme apenas se verificou que a tarefa realmente parou.',
-          tone: 'warning', confirmLabel: 'Continuar mesmo assim', cancelLabel: 'Aguardar',
-        })
-        if (!confirmed) return
-        result = await bridge.chatgpt.continueExpectedBundle(chatId, pendingRequestId, { force: true })
-      }
-      if (!result.ok) {
-        if (result.reason === 'resend_required' && onResendPendingRequest) {
-          await onResendPendingRequest(pendingRequestId)
-          setNotice('O DOM não confirmou o turno original com o bundle canónico. O pedido completo foi encaminhado para reenvio, sem enviar “keep continue”.')
-          return
-        }
-        setNotice(manualContinuationFailure(result.reason))
-        return
-      }
-      setNotice(result.reason === 'bundle_already_validated'
-        ? `O bundle de ${pendingRequestId} já tinha sido validado.`
-        : `Continuação manual enviada para ${pendingRequestId}.`)
-    } catch (error) {
-      setNotice(errorMessage(error, 'Não foi possível retomar o pedido.'))
-    } finally {
-      setRequestAction(null)
-    }
+      await continueRequest({ bridge, pendingRequestId, chatId, chatTitle, chatgptUrl, visibleURL: state.url, sessionId, recoveryBootstrap, chatHash, requestedAt, onResendPendingRequest, setNotice })
+    } finally { setRequestAction(null) }
   }
 
   async function stopPendingRequest() {
@@ -434,15 +368,6 @@ export function ChatGPTDesktopPane({ suspended = false, busy, chatId, chatTitle,
   </div>
 }
 
-function manualContinuationFailure(reason?: string) {
-  if (reason === 'transport_active') return 'O ChatGPT ainda tem transporte de conversa ativo; o pedido não foi interrompido.'
-  if (reason === 'surface_loading') return 'A conversa ChatGPT ainda está a carregar. Aguarde a estabilização antes de retomar.'
-  if (reason === 'continuation_in_flight') return 'Já existe uma continuação manual deste pedido em curso.'
-  if (reason === 'continuation_failed') return 'A continuação não pôde ser preparada. Consulte o alerta do ChatGPT e tente novamente depois de corrigir a causa indicada.'
-  if (reason === 'resend_required') return 'O DOM não confirmou o turno original com o bundle canónico. Use “Reenviar request” para enviar novamente o pedido completo.'
-  if (reason === 'not_supervised') return 'A supervisão local deste pedido ainda não foi restaurada nesta conversa.'
-  return 'O pedido não foi retomado porque o estado remoto ainda não permite uma continuação segura.'
-}
 
 function safeHost(value: string) { try { return new URL(value).host } catch { return 'chatgpt.com' } }
 function compactRequestId(value: string) { return value.length > 22 ? `${value.slice(0, 19)}…` : value }

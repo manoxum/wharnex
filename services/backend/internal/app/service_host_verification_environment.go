@@ -1,11 +1,49 @@
 package app
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"strings"
 
+	"kernl.local/harness/backend/internal/app/hostverification"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/sandbox"
 )
+
+func (s *Service) verifyMergedHost(ctx context.Context, sessionID string, workspace sandbox.Workspace, pending []domain.PendingHostChange) ([]domain.CommandResult, []unsupportedHostGate, error) {
+	var commands []domain.CommandResult
+	var unsupported []unsupportedHostGate
+	for _, run := range dedupedIntegrationVerifications(pending) {
+		planID, command := pending[run.index].Plan.PlanID, run.command
+		s.bus.Publish(sessionID, "integration.verification_started", map[string]any{"plan_id": planID, "argv": command.Argv, "target": "host"})
+		result, runErr := s.runCommandWithRunner(ctx, sessionID, s.hostRunner, workspace, command, "host")
+		if runErr == nil && result.Success {
+			commands = append(commands, result)
+			s.bus.Publish(sessionID, "integration.verification_completed", map[string]any{"plan_id": planID, "exit_code": result.ExitCode, "target": "host"})
+			continue
+		}
+		diagnostic := commandResultDiagnostic(result)
+		if gate, unavailable := classifyUnsupportedHostGate(command, result); runErr == nil && unavailable {
+			unsupported = append(unsupported, gate)
+			s.bus.Publish(sessionID, "integration.verification_unsupported", gate.event(planID))
+			continue
+		}
+		if runErr == nil {
+			runErr = fmt.Errorf("post-merge verification failed: %s (exit %d): %s", strings.Join(command.Argv, " "), result.ExitCode, diagnostic)
+		}
+		// Build drivers can put the real errno on stdout while stderr contains
+		// only "exit status 1". Both recorded streams are required evidence.
+		if blocked := hostverification.FilesystemBlock(result.Stdout + "\n" + result.Stderr); blocked != nil {
+			s.bus.Publish(sessionID, "integration.verification_blocked", map[string]any{
+				"plan_id": planID, "reason": blocked.Reason, "paths": blocked.Paths, "remedy": blocked.Remedy,
+			})
+			return commands, unsupported, errors.Join(ErrHostWorkingStateBlocked, blocked, runErr)
+		}
+		return commands, unsupported, plannerRepairableApplyFailure(wrapHostDependencyState(runErr, diagnostic))
+	}
+	return commands, unsupported, nil
+}
 
 // Post-merge verification re-runs the plan's own gates against the real merged
 // host tree. Those gates already passed in the Protected runner image, which

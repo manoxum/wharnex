@@ -176,11 +176,6 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .prepared-draft strong { font-size: calc(10px * var(--ui-font-scale)); }
 .prepared-draft span { color: #66715b; font-size: calc(9px * var(--ui-font-scale)); }
 .prepared-draft > div:last-child { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-
-.tabs { height: 46px; flex: 0 0 46px; display: flex; align-items: flex-end; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--line); }
-.tabs button { height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 11px; border: 0; background: transparent; color: #6a6e65; font-size: calc(11px * var(--ui-font-scale)); cursor: pointer; border-bottom: 2px solid transparent; }
-.tabs button.active { color: #20231e; border-bottom-color: #20231e; font-weight: 600; }
-.tab-count { min-width: 17px; height: 17px; display: grid; place-items: center; border-radius: 9px; background: #d9dcd2; font: 9px ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
 .inspector-content { flex: 1; min-height: 0; overflow: auto; padding: 24px; }
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 20px; }
 .section-heading h3 { max-width: 700px; margin: 5px 0 0; font-size: calc(19px * var(--ui-font-scale)); line-height: 1.25; letter-spacing: -.025em; }

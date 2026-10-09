@@ -1,3 +1,5 @@
+import { uiTestRunSlots } from '../../automation/ui-testing/capacity.mjs'
+
 export function createWorkerScheduler({
   ChatAgentSchedulerClient, BACKEND_URL, desiredChatAgentWorkerSlots,
   HARD_MAX_WORKER_SLOTS, withTrace, traceForTask, chatAgentWorkerActivity,
@@ -54,7 +56,11 @@ export function createWorkerScheduler({
       const scope = {
         project_scoped: true,
         open_projects: projectWindowRegistry.openProjects(),
-        excluded_types: manualSuspension.paused ? manualSuspension.task_types : [],
+        // A UI test run holds its Worker for minutes; past the cap the rest
+        // stay queued instead of taking every Worker (and upload) at once.
+        // Until its per-type selection has moved to the backend task holds,
+        // this Desktop still applies it itself.
+        excluded_types: [...new Set([...(manualSuspension.paused && !getChatAgentPolicies().task_holds_migrated ? manualSuspension.task_types : []), ...uiTestRunSlots.excludedTypes()])],
       }
       if (options.skip) return { ...options, ...scope }
       // A Worker pinned to an Orchestrator task claims only that task's lane,

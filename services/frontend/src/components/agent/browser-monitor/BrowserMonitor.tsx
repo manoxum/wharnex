@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { desktopBridge } from '../../../lib/desktop/bridge/desktop'
+import type { BrowserMonitorChat } from '../../../lib/transport/http/browser-monitor/catalog'
+import { applyUIPreferences, loadUIPreferences, subscribeUIPreferences } from '../../../lib/workspace/preferences/uiPreferences'
 import { BrowserMonitorDetails } from './BrowserMonitorDetails'
 import { BrowserMonitorLegend } from './BrowserMonitorLegend'
 import { BrowserMonitorList } from './BrowserMonitorList'
 import { BrowserViewport } from './BrowserViewport'
-import { browserHasPage } from './browserMonitorModel'
+import { BrowserLinkViewport } from './BrowserLinkViewport'
+import { agentForChat, browserHasPage } from './browserMonitorModel'
 import { BrowserMonitorPolicies } from './BrowserMonitorPolicies'
 
 const requestedAgent = () => { try { return new URLSearchParams(window.location.search).get('agent') || '' } catch { return '' } }
@@ -17,6 +20,13 @@ export function BrowserMonitor() {
   const [error, setError] = useState('')
   const [listOpen, setListOpen] = useState(true)
   const [detailsOpen, setDetailsOpen] = useState(true)
+  const [explorerOpen, setExplorerOpen] = useState(false)
+  const [selectedLink, setSelectedLink] = useState<BrowserMonitorChat>()
+
+  useLayoutEffect(() => {
+    applyUIPreferences(loadUIPreferences())
+    return subscribeUIPreferences(() => undefined)
+  }, [])
 
   useEffect(() => {
     if (!bridge) return
@@ -28,15 +38,21 @@ export function BrowserMonitor() {
     void refresh()
     const off = bridge.onState((state) => { if (alive) setRuntime(state) })
     // The tray or a project's "open window" action names the instance to show.
-    const offSelect = bridge.onMonitorSelect?.(({ agentId }) => { if (alive && agentId) setSelectedId(agentId) }) || (() => undefined)
+    const offSelect = bridge.onMonitorSelect?.(({ agentId }) => { if (alive && agentId) { setSelectedLink(undefined); setSelectedId(agentId) } }) || (() => undefined)
     const timer = window.setInterval(() => { void refresh() }, 5_000)
     return () => { alive = false; off(); offSelect(); window.clearInterval(timer) }
   }, [bridge])
 
-  const selected = useMemo(() => runtime?.agents.find((agent) => agent.id === selectedId)
+  const linkedAgent = selectedLink ? agentForChat(runtime?.agents || [], selectedLink) : undefined
+  const selected = selectedLink ? linkedAgent : runtime?.agents.find((agent) => agent.id === selectedId)
     || runtime?.agents.find((agent) => agent.occupied && browserHasPage(agent))
     || runtime?.agents.find(browserHasPage)
-    || runtime?.agents.find((agent) => agent.browser.available) || runtime?.agents[0], [runtime, selectedId])
+    || runtime?.agents.find((agent) => agent.browser.available) || runtime?.agents[0]
+  const detailsAgent: DesktopAgentRuntimeAgent | undefined = selectedLink && !linkedAgent ? {
+    id: `link:${selectedLink.key}`, label: selectedLink.title, role: 'worker', status: 'idle', draining: false,
+    chat_id: selectedLink.chat_id, project_id: selectedLink.project_path, error: '',
+    browser: { available: true, web_contents_id: 0, url: selectedLink.url, title: selectedLink.title, loading: false },
+  } : selected
   const total = runtime?.agents.length || 0
   const working = runtime?.agents.filter((agent) => agent.occupied).length || 0
   const attention = Boolean(runtime?.provider?.paused || runtime?.worker_pause?.paused)
@@ -61,10 +77,10 @@ export function BrowserMonitor() {
     <BrowserMonitorLegend />
     {error ? <p className="border-b border-rose-400/20 bg-rose-400/[.06] px-7 py-2 text-[12px] text-rose-200" role="alert">{error}</p> : null}
     <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: columns }}>
-      <BrowserMonitorList agents={runtime?.agents || []} selectedId={selected?.id || ''} onSelect={setSelectedId} expanded={listOpen} onToggle={() => setListOpen((open) => !open)} />
-      <BrowserMonitorDetails agent={selected} expanded={detailsOpen} onToggle={() => setDetailsOpen((open) => !open)} />
+      <BrowserMonitorList agents={runtime?.agents || []} selectedId={selected?.id || ''} onSelect={(id) => { setSelectedLink(undefined); setSelectedId(id) }} selectedLinkKey={selectedLink?.key || ''} onSelectLink={setSelectedLink} onInstancesView={() => setSelectedLink(undefined)} expanded={listOpen} onToggle={() => setListOpen((open) => !open)} />
+      <BrowserMonitorDetails agent={detailsAgent} link={selectedLink} expanded={detailsOpen} onToggle={() => setDetailsOpen((open) => !open)} onExplorerOpenChange={setExplorerOpen} />
       <section className="flex min-h-0 flex-col bg-[#0b1420]" aria-label="Navegador da instância">
-        {selected ? <BrowserViewport key={selected.id} agent={selected} /> : <div className="grid flex-1 place-items-center text-[13px] text-slate-400">Selecione uma instância para acompanhar.</div>}
+        {selectedLink && !linkedAgent ? <BrowserLinkViewport key={selectedLink.key} chat={selectedLink} suspended={explorerOpen} /> : selected ? <BrowserViewport key={selected.id} agent={selected} suspended={explorerOpen} /> : <div className="grid flex-1 place-items-center text-[13px] text-slate-400">Selecione uma instância para acompanhar.</div>}
       </section>
       {policiesOpen && runtime ? <div id="browser-monitor-policies" className="contents"><BrowserMonitorPolicies runtime={runtime} onRuntime={setRuntime} onError={setError} onClose={() => setPoliciesOpen(false)} /></div> : null}
     </div>

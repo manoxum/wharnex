@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import type { GitBranch, GitOverview, Session } from '../../../types'
 import { api } from '../../../lib/transport/http/api'
 import { announceHeaderPopover, subscribeOtherHeaderPopover } from '../../../lib/desktop/bridge/headerPopover'
-import { announceGitChanged, subscribeGitLiveSync } from '../../../lib/git/workflow/gitLiveSync'
+import { announceGitChanged } from '../../../lib/git/workflow/gitLiveSync'
+import { useGitLiveRefresh } from '../../../lib/git/workflow/useGitLiveRefresh'
 import { useGitOperationFlow, type GitQuickCommitAction } from '../../../lib/git/workflow/useGitOperationFlow'
 import { currentBranch, loadGitProjectOverviews, repositoryLabel, repositoryRemote, repositoryOutgoing, type GitRepositoryOverviewEntry } from '../../../lib/git/workflow/gitProjectOverview'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -41,13 +42,7 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
     return () => { alive = false }
   }, [id, session?.state, session?.last_host_applied_at])
 
-  const repositoryPathsKey = useMemo(() => entries.map((entry) => entry.repository.path).join('\u0000'), [entries])
-  useEffect(() => {
-    if (!id) return
-    const paths = entries.length ? entries.map((entry) => entry.repository.path) : ['']
-    const cleanups = paths.map((path) => subscribeGitLiveSync(id, path, () => { void refresh().catch(() => {}) }))
-    return () => cleanups.forEach((cleanup) => cleanup())
-  }, [id, entries, repositoryPathsKey, refresh])
+  useGitLiveRefresh(id, refresh)
 
   useEffect(() => subscribeOtherHeaderPopover('git', () => setOpen(false)), [])
   useEffect(() => {

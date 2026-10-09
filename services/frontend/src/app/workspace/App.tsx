@@ -1,7 +1,9 @@
+import { WorkspaceSurfaceTabs } from '../../components/workspace/surfaces'
 import { createChatSessionActions } from '../settings'
 import { createRestartActions, useEventStreamConnection, canRetryDependencyNetwork, canRepairFailureWithGPT, recoveryHumanAction } from '../execution'
 import { useWorkspaceAttention } from '../attention'
-import { createActiveChatLifecycleActions, createChatCatalogActions, createQueueActions, createPlanProposalActions, hydrateChatTranscript, hydrateWorkspaceMemory, selectedArtifactKinds, continuationArtifactSelection, contextArtifact, sessionContextSHA, pendingBundleRequestIDs, iterationRef, turnMeta, welcomeItem, truncateRepairCause, chatGPTProjectName } from '../chat'
+import { createBundleInboxDelivery, deferBundleRouting } from '../transport'
+import { createTranscriptMutator, createTranscriptAppender, createActiveChatLifecycleActions, createChatCatalogActions, createQueueActions, createPlanProposalActions, hydrateChatTranscript, hydrateWorkspaceMemory, selectedArtifactKinds, continuationArtifactSelection, contextArtifact, sessionContextSHA, pendingBundleRequestIDs, iterationRef, turnMeta, welcomeItem, truncateRepairCause, chatGPTProjectName } from '../chat'
 import { api, APIError, type LiveEventStream, type EventStreamCoalescer } from '../../lib/transport'
 import { exportTraceChatItem, resolveExportTraceMetadata, BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError, expectedResponseBundleName } from '../../lib/artifacts'
 import { isAutomaticAutomationMode, isAutoApproveAutomationMode, knowledgeConsolidationPending, requestChainActive, activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest, sessionOwnsRequest, hasRecordedRequest, pendingDeliveryResumeOutcome } from '../../lib/agent'
@@ -18,11 +20,11 @@ import { OrchestratorWorkspace } from '../../components/orchestrator'
 import { AttentionPopover, ErrorToast } from '../../components/attention'
 import { ProjectSettings } from '../../components/project'
 import { Icon } from '../../components/presentation'
-import { clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat, loadAutomationMode, loadEffortLevel, loadRecentWorkspaces, loadWorkspaceChats, loadPendingProjectLaunch, loadPendingProjectPrompt, newWorkspaceChat, rememberRecent, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveComposerDraft, saveComposerFileDraft, BOOTSTRAP_PROMPT_PREFIX, clearPendingProjectLaunch, clearPendingProjectPrompt, durableWorkspaceChat, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionMode, saveWorkspaceChats, type ChatNaming, type WorkspaceChat, attachmentPromptSuffix, encodeChatAttachments, canonicalizeDirectives, projectFileReferenceSuffix, requiresProjectContextTransport, promptDeliveryFailureKind, type PromptDeliveryFailureKind, mergeDurableChatItems, activeChatBusy } from '../../lib/chat'
+import { clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadChat, loadLegacyChat, loadAutomationMode, loadEffortLevel, loadRecentWorkspaces, loadWorkspaceChats, loadPendingProjectLaunch, loadPendingProjectPrompt, newWorkspaceChat, rememberRecent, reorderWorkspaceChats, restoreArchivedChat as restoreStoredChat, restoreSavedChat as restoreStoredSavedChat, saveActiveWorkspace, saveComposerDraft, saveComposerFileDraft, BOOTSTRAP_PROMPT_PREFIX, clearPendingProjectLaunch, clearPendingProjectPrompt, durableWorkspaceChat, saveAutomationMode, saveChat, saveEffortLevel, saveExecutionMode, saveWorkspaceChats, type ChatNaming, type WorkspaceChat, attachmentPromptSuffix, encodeChatAttachments, canonicalizeDirectives, projectFileReferenceSuffix, requiresProjectContextTransport, promptDeliveryFailureKind, type PromptDeliveryFailureKind, mergeDurableChatItems, activeChatBusy, contextIncrementMeta, contextIncrementNotice } from '../../lib/chat'
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation, confirmDialog, subscribeHeaderPopover, buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from '../../lib/desktop'
 import { conflictAutoDispatchable, gitConflictChatTitle } from '../../lib/git'
 import { embeddedProjectInitiallyActive, embeddedProjectPath, persistOperationalEvidence, storedAttachmentFile, withProjectTodoPrePlan, reconcileTunnelConfig } from '../../lib/project'
-import { errorMessage as messageOf, loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool, loadWorkbenchState, saveWorkbenchState, workspaceDragEndedOutside, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget } from '../../lib/workspace'
+import { errorMessage as messageOf, loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool, loadWorkbenchState, saveWorkbenchState, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget } from '../../lib/workspace'
 import { effortAttemptLimit } from '../agent'
 import { useEmbeddedProjectBridge } from './useEmbeddedProjectBridge'
 import { createSurfaceTransferActions } from './surfaces'
@@ -144,7 +146,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const failedPromptDeliveryKeysRef = useRef(new Set<string>())
   const cancelledPromptDeliveryIdsRef = useRef(new Set<string>())
   const submitBundleFileRef = useRef<(contentBase64: string, requestId: string, filename: string) => Promise<string>>(async () => '')
-  const ingestingBundleKeysRef = useRef(new Set<string>())
   const nativeCompletionBaselineRef = useRef(Date.now())
   const nativeNotificationIdsRef = useRef(new Set<string>())
   const bootstrapPromptInFlightRef = useRef(new Set<string>())
@@ -301,10 +302,10 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     })
   }
 
-  function mutateChatItems(targetChat: WorkspaceChat, projectPath: string, mutate: (current: ChatItem[]) => ChatItem[]) {
-    if (activeChatIdRef.current === targetChat.id) { setItems(mutate); return }
-    queueInactiveChatMutation(targetChat.id, projectPath, mutate)
-  }
+  const mutateChatItems = createTranscriptMutator({
+    activeChat: () => activeChatIdRef.current, setItems,
+    queueMutation: queueInactiveChatMutation,
+  })
 
   function queueInactiveChatMutation(chatId: string, projectPath: string, mutate: (current: ChatItem[]) => ChatItem[]) {
     const previous = transcriptMutationQueuesRef.current.get(chatId) || Promise.resolve()
@@ -341,6 +342,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // `render-process-gone reason=crashed exitCode=133` restart loop. Frames are
   // coalesced into one batch per flush, the state update is a plain value, and
   // persistence is debounced and happens outside React's update queue.
+  const appendChatItem = createTranscriptAppender({
+    activeChat: () => activeChatIdRef.current, setItems, setChats,
+    queueMutation: queueInactiveChatMutation,
+  })
+
   const connectEvents = useEventStreamConnection({ sourceRef, coalescerRef, sessionCacheRef, activeChatIdRef, setEvents, setSession, setHostAppliedPresentation, setExecutionFIFO, appendChatItem })
 
   const persistChats = useCallback((projectPath: string, next: WorkspaceChat[]) => {
@@ -953,22 +959,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     updateWorkspaceChat(active.id, session.project_path, { artifactSelection: { ...active.artifactSelection, [kind]: !current } })
   }
 
-  function appendChatItem(targetChat: WorkspaceChat, projectPath: string, item: ChatItem) {
-    if (targetChat.id === activeChatIdRef.current) {
-      setItems((current) => current.some((candidate) => candidate.id === item.id) ? current : [...current, item])
-      return
-    }
-    const prior = loadChat(projectPath, targetChat.id)
-    if (prior.some((candidate) => candidate.id === item.id)) return
-    queueInactiveChatMutation(targetChat.id, projectPath, (current) => current.some((candidate) => candidate.id === item.id) ? current : [...current, item])
-    setChats((current) => {
-      const next = current.map((chat) => chat.id === targetChat.id ? { ...chat, updatedAt: new Date().toISOString() } : chat)
-      saveWorkspaceChats(projectPath, next)
-      const updated = next.find((chat) => chat.id === targetChat.id)
-      if (updated) void api.saveWorkspaceChat(durableWorkspaceChat(projectPath, updated)).catch(() => undefined)
-      return next
-    })
-  }
 
   function presentAppliedSession(targetChat: WorkspaceChat, updated: Session) {
     const projected = appliedChangePresentationItems(updated)
@@ -1092,25 +1082,23 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (!isDesktop() || !bundleRoutingReadyKey) return
     const bridge = desktopBridge()
     if (!bridge) return
-    const ingest = async (bundle: DesktopBundleDownload) => {
-      const deliveryKey = `${bundle.requestId}:${bundle.filename}`
-      if (ingestingBundleKeysRef.current.has(deliveryKey)) return
-      ingestingBundleKeysRef.current.add(deliveryKey)
-      try {
-        await submitBundleFileRef.current(bundle.contentBase64, bundle.requestId, bundle.filename)
-        await bridge.chatgpt.ackBundle(bundle.cacheKey || '', bundle.requestId, bundle.filename)
+    const ingest = createBundleInboxDelivery({
+      submit: (bundle) => submitBundleFileRef.current(bundle.contentBase64, bundle.requestId, bundle.filename),
+      acknowledge: (bundle) => bridge.chatgpt.ackBundle(bundle.cacheKey || '', bundle.requestId, bundle.filename),
+      retain: (bundle) => bridge.chatgpt.nackBundle(bundle.cacheKey || '', bundle.requestId, bundle.filename),
+      accepted: (bundle) => {
         for (const key of [...resumedBundleKeysRef.current]) if (key.includes(`:${bundle.requestId}:`)) resumedBundleKeysRef.current.delete(key)
         for (const key of [...failedPromptDeliveryKeysRef.current]) if (key.includes(`:${bundle.requestId}:`)) failedPromptDeliveryKeysRef.current.delete(key)
         if (bundle.cacheKey) {
           setPreparedDrafts((current) => { const next = { ...current }; delete next[bundle.cacheKey!]; return next })
           setFailedPromptDeliveries((current) => { const next = { ...current }; delete next[bundle.cacheKey!]; return next })
         }
-      } catch (bundleError) {
-        await bridge.chatgpt.nackBundle(bundle.cacheKey || '', bundle.requestId, bundle.filename).catch(() => undefined)
+      },
+      failed: (bundle, bundleError) => {
         if (bundle.cacheKey) setFailedPromptDeliveries((current) => ({ ...current, [bundle.cacheKey!]: { kind: promptDeliveryFailureKind(messageOf(bundleError)), requestId: bundle.requestId } }))
-        setError(messageOf(bundleError))
-      } finally { ingestingBundleKeysRef.current.delete(deliveryKey) }
-    }
+        if (!isNonTerminalBundleRoutingError(bundleError)) setError(messageOf(bundleError))
+      },
+    })
     const unsubscribe = bridge.chatgpt.onBundleDownloaded((bundle) => { void ingest(bundle) })
     void bridge.chatgpt.pendingBundles().then((bundles) => { for (const bundle of bundles) void ingest(bundle) }).catch((bundleError) => console.warn('pending bundle recovery failed', messageOf(bundleError)))
     return unsubscribe
@@ -1711,7 +1699,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		: submission.conflict_prepared
 		  ? `O ChangeSet foi verificado, mas encontrou um conflito real. O Wharnex preparou uma janela ChatGPT dedicada para resolver apenas ${updated.integration_conflict?.paths.join(', ') || 'os caminhos conflitantes'}.`
         : contextIncrement
-          ? `Contexto incrementado (${workflowRound}/6). Os ficheiros pedidos pelo GPT seguem na continuação automática.`
+          ? contextIncrementNotice(workflowRound)
         : submission.workflow_prepared
           ? `Passo local ${workflowRound}/6 concluído na sandbox Protected. Os resultados foram incorporados numa continuação para o mesmo ChatGPT; o Wharnex vai submetê-la automaticamente.`
           : submission.workflow_executed
@@ -1745,7 +1733,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 		  : submission.conflict_prepared
 		  ? 'Conflito real · GPT dedicado'
           : contextIncrement
-            ? `Contexto Parcial ${workflowRound}/6 · ${updated.context_paths?.length || 0} ficheiros`
+            ? contextIncrementMeta(workflowRound, updated.context_paths?.length || 0)
           : submission.workflow_prepared || submission.workflow_executed
             ? `Workflow ${workflowRound}/6 · sandbox Protected`
             : pendingApproval
@@ -1831,8 +1819,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (e) {
 		const message = messageOf(e)
 		if (isNonTerminalBundleRoutingError(e)) {
-			setError(undefined)
-			return `Bundle atrasado ou duplicado ignorado. (${message})`
+			return deferBundleRouting(e, () => setError(undefined))
 		}
 		// A downloaded bundle can still be rejected by strict protocol
 		// validation. It is terminal for this request: do not leave the chat
@@ -3028,23 +3015,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const focusedChatProps = activeSurface.kind === 'chat' ? { ...sharedChatProps, chats: chats.filter((chat) => chat.id === activeChatId) } : sharedChatProps
     return <main className={`workspace-root workspace-surface-root workspace-surface-${activeSurface.kind}`}>
       {surfaceRequest.host === 'window' && isDesktop() && <header className="workspace-surface-windowbar" data-window-titlebar="true">
-        <div className="workspace-surface-tabs" role="tablist" aria-label="Tabs da janela destacada">
-          {surfaceTabs.map((target) => {
-            const key = workspaceSurfaceKey(target)
-            return <button
-              type="button"
-              role="tab"
-              aria-selected={key === activeSurfaceKey}
-              className={`workspace-surface-tab ${key === activeSurfaceKey ? 'active' : ''}`}
-              key={key}
-              draggable
-              onClick={() => { setActiveSurfaceKey(key); activateWorkspaceSurface(target) }}
-              onContextMenu={(event) => { if (target.kind !== 'chat') return; event.preventDefault(); setSurfaceTabMenu({ target, x: event.clientX, y: event.clientY }) }}
-              onDragEnd={(event) => { if (workspaceDragEndedOutside(event)) moveSurfaceByDrag(target, { screenX: event.screenX, screenY: event.screenY }) }}
-              title={target.kind === 'editor' ? target.path : surfaceLabel(target)}
-            ><Icon name={target.kind === 'chat' ? 'send' : target.kind === 'editor' ? 'code' : 'terminal'} size={12}/><span>{surfaceLabel(target)}</span></button>
-          })}
-        </div>
+        <WorkspaceSurfaceTabs targets={surfaceTabs} activeKey={activeSurfaceKey} label={surfaceLabel}
+          onSelect={(target) => { setActiveSurfaceKey(workspaceSurfaceKey(target)); activateWorkspaceSurface(target) }}
+          onContextMenu={(event, target) => { if (target.kind !== 'chat') return; event.preventDefault(); setSurfaceTabMenu({ target, x: event.clientX, y: event.clientY }) }}
+          onMove={moveSurfaceByDrag}/>
+
         <div className="workspace-surface-window-controls"><button type="button" onClick={() => void desktopBridge()?.windows.minimize()} aria-label="Minimizar">—</button><button type="button" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label="Maximizar ou restaurar">□</button><button type="button" onClick={() => void desktopBridge()?.windows.close()} aria-label="Fechar">×</button></div>
       </header>}
       {surfaceTabMenu && <div className="chat-tab-context-menu workspace-surface-tab-menu" role="menu" aria-label="Ações da tab de chat" style={{ left: surfaceTabMenu.x, top: surfaceTabMenu.y }} onPointerDown={(event) => event.stopPropagation()}>

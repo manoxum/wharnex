@@ -1,5 +1,4 @@
-@media (max-width: 1100px) {
-}
+
 
 /* Durable ChatGPT task queue, kept separate from the Worker inspector so the
    operator can read queue state without selecting an agent. */
@@ -82,13 +81,6 @@
 .agent-runtime-summary span { min-width:0; padding:8px 10px; display:flex; align-items:baseline; gap:6px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); color:var(--theme-text-muted); }
 .agent-runtime-summary b { color:var(--theme-text); font:700 calc(13px * var(--ui-font-scale))/1 var(--mono-font-family); font-variant-numeric:tabular-nums; }
 .agent-runtime-summary small { overflow:hidden; font-size:calc(8.6px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
-.agent-runtime-tabs { min-height:43px; padding:6px 12px 0; display:flex; align-items:end; gap:3px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
-.agent-runtime-tabs button { min-width:0; min-height:36px; padding:0 10px; position:relative; display:flex; align-items:center; gap:7px; border:0; border-radius:8px 8px 0 0; background:transparent; color:var(--theme-text-muted); cursor:pointer; font-size:calc(9px * var(--ui-font-scale)); }
-.agent-runtime-tabs button:hover { background:var(--theme-hover); color:var(--theme-text-soft); }
-.agent-runtime-tabs button.active { color:var(--theme-text); background:color-mix(in srgb,var(--theme-surface) 72%,transparent); }
-.agent-runtime-tabs button.active::after { content:''; position:absolute; left:9px; right:9px; bottom:-1px; height:2px; border-radius:999px; background:var(--theme-accent); }
-.agent-runtime-tabs button span { font-weight:700; }
-.agent-runtime-tabs button small { padding:2px 5px; border:1px solid var(--theme-border-soft); border-radius:999px; color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); line-height:1; }
 .agent-runtime-tab-panel { min-height:0; overflow:auto; background:color-mix(in srgb,var(--theme-bg) 96%,var(--theme-surface)); }
 .agent-runtime-tab-panel.agents { overflow:hidden; display:grid; grid-template-rows:auto auto minmax(0,1fr); }
 .agent-runtime-tab-panel.agents .agent-runtime-body { height:100%; }
@@ -128,10 +120,6 @@
 .agent-runtime-pause-controls input { width:74px; padding:0 7px; font-family:var(--mono-font-family); font-variant-numeric:tabular-nums; }
 .agent-runtime-pause-controls .agent-runtime-icon-button { flex:0 0 auto; }
 .agent-runtime-pause-controls :disabled { opacity:.4; cursor:default; }
-.agent-runtime-task-suspension { margin:0; padding:9px 11px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 12px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
-.agent-runtime-task-suspension legend { padding:0 5px; color:var(--theme-text-muted); font-size:calc(8.5px * var(--ui-font-scale)); }
-.agent-runtime-task-suspension label { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:6px; color:var(--theme-text); font-size:calc(8.5px * var(--ui-font-scale)); }
-.agent-runtime-task-suspension code { overflow:hidden; color:var(--theme-text-muted); font-size:calc(7.2px * var(--ui-font-scale)); text-overflow:ellipsis; }
 .agent-runtime-scale { padding:10px 12px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); }
 .agent-runtime-scale-card { min-width:0; padding:9px 11px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:9px; border:1px solid var(--theme-border-soft); border-radius:10px; background:var(--theme-surface); }
 .agent-runtime-scale-card > div:first-child { min-width:0; display:grid; gap:3px; }

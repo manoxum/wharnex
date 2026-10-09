@@ -2,6 +2,7 @@ import { readDesktopIPCSource } from '../ipc/source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 test('Portuguese spell checking is configured from Chromium dictionaries', async () => {
   const source = await readFile(new URL('../../chatgpt/session/session-setup.mjs', import.meta.url), 'utf8')
@@ -16,7 +17,7 @@ test('local editable fields wire native spelling corrections into the Electron m
   const windowRuntime = await readFile(new URL('../window/creation-runtime.mjs', import.meta.url), 'utf8')
   const menu = await readFile(new URL('../../window/lifecycle/create/editor-menu.mjs', import.meta.url), 'utf8')
   const createWindow = await readFile(new URL('../../window/lifecycle/create/window.mjs', import.meta.url), 'utf8')
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopEntrypointRuntime/)
+  assert.match(await readDesktopCompositionSource(), /createDesktopEntrypointRuntime/)
   assert.match(windowRuntime, /createDesktopWindowCreator\(\{[\s\S]*spellcheckContextMenuTemplate: d\.spellcheckContextMenuTemplate/)
   assert.match(createWindow, /installLocalEditorContextMenu\(win, \{ Menu, spellcheckContextMenuTemplate \}\)/)
   assert.match(menu, /webContents\.on\('context-menu'/)
@@ -46,7 +47,7 @@ test('Ctrl+Space can reopen native spelling suggestions at the composer caret', 
   assert.match(handler, /sendCommand\('Input\.dispatchMouseEvent', \{ type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1 \}\)/)
   assert.match(handler, /input\.debugger\.detach\(\)/)
   assert.doesNotMatch(handler, /\.sendInputEvent\(/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopEntrypointRuntime/)
+  assert.match(await readDesktopCompositionSource(), /createDesktopEntrypointRuntime/)
   assert.match(await readFile(new URL('../window/creation-runtime.mjs', import.meta.url), 'utf8'), /createDesktopWindowCreator\(\{/)
   assert.match(menu, /Menu\.buildFromTemplate\(template\)\.popup\(\{ window: win, x: params\.x, y: params\.y \}\)/)
   assert.match(preload, /spellcheck: Object\.freeze\(\{[\s\S]*showSuggestions: \(point = \{\}\) => invoke\('wharness:spellcheck:show-suggestions'/)

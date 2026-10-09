@@ -1,4 +1,4 @@
-import { chatGPTShowSidebarScript, chatGPTConfirmDeleteScript } from '../chatgpt-account.mjs'
+import { chatGPTShowSidebarScript, chatGPTConfirmDeleteScript } from '../scripts/index.mjs'
 
 export function createAccountDelete(context) {
   const {

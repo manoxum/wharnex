@@ -152,6 +152,7 @@ test('the IPC handler is gated, owned, origin-checked and never plan-reachable',
   const channels = [...exposed.matchAll(/(?:invoke|ipcRenderer\.(?:on|removeListener|send))\(([^,)]+)/g)]
   assert.ok(channels.length > 20, 'expected the exposed surface to be enumerated')
   for (const [, channel] of channels) {
-    assert.match(channel.trim(), /^'wharness:[a-z-]+:[a-z-]+'$/, `channel ${channel.trim()} must be a string literal`)
+    // `wharness:` is the shipped channel namespace; new channels use the canonical `wharnex:` (AGENTS.md §4).
+    assert.match(channel.trim(), /^'wharne(?:ss|x):[a-z-]+:[a-z-]+'$/, `channel ${channel.trim()} must be a string literal`)
   }
 })

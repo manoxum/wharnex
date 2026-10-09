@@ -2,6 +2,7 @@ import { readPromptTransportSource } from '../transport/prompt-source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 
 test('internal ChatGPT browser reuses the isolated Electron partition without privileged preload', async () => {
@@ -14,7 +15,7 @@ test('internal ChatGPT browser reuses the isolated Electron partition without pr
     readFile(new URL('../../chatgpt/session/views/cleanup.mjs', import.meta.url), 'utf8'),
   ])
 
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopEntrypointRuntime\(\{/)
+  assert.match(await readDesktopCompositionSource(), /compose\(ctx, 'entrypoint', \(deps\) => \(\{ desktopEntrypoint: createDesktopEntrypointRuntime\(deps\) \}\)/)
   assert.match(browserRuntime, /const openInternalChatGPTBrowser = createInternalChatGPTBrowser\(\{/)
   assert.match(browserRuntime, /partition: d\.CHATGPT_PARTITION/)
   assert.match(internalBrowser, /new BrowserWindow/)
@@ -41,7 +42,7 @@ test('dual ChatGPT auth uses a real managed browser and never forwards an in-fli
   assert.notEqual(routeStart, -1)
   assert.notEqual(routeEnd, -1)
   const route = navigation.slice(routeStart, routeEnd)
-  assert.match(source, /createDesktopAuthViewRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'auth-views', createDesktopAuthViewRuntime, \{/)
   assert.match(authViewRuntime, /createChatGPTAuthentication\(\{/)
   assert.match(route, /startExternalAuthentication\(entry, disposition\.provider \|\| 'OpenAI'\)/)
   assert.match(route, /disposition\.provider === 'Google'/)
@@ -75,7 +76,7 @@ test('external auth reuses the persistent Wharnex browser profile and clear-sess
   assert.notEqual(clearStart, -1)
   assert.notEqual(clearEnd, -1)
   assert.match(browserSession.slice(clearStart, clearEnd), /rm\(authProfilePath\(\), \{ recursive: true, force: true/)
-  assert.match(await readFile(new URL('../../main.mjs', import.meta.url), 'utf8'), /createDesktopEntrypointRuntime\(\{/)
+  assert.match(await readDesktopCompositionSource(), /compose\(ctx, 'entrypoint', \(deps\) => \(\{ desktopEntrypoint: createDesktopEntrypointRuntime\(deps\) \}\)/)
   assert.match(browserRuntime, /authProfilePath: d\.managedAuthProfilePath/)
 })
 
@@ -124,7 +125,7 @@ test('same-origin ChatGPT auth redirects stay embedded and explicit loads are se
   const authViewRuntime = await readFile(new URL('./auth-view/runtime.mjs', import.meta.url), 'utf8')
   const routeStart = navigation.indexOf('function routeChatGPTNavigation')
   const route = navigation.slice(routeStart)
-  assert.match(source, /createDesktopAuthViewRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'auth-views', createDesktopAuthViewRuntime, \{/)
   assert.match(authViewRuntime, /createChatGPTAuthentication\(\{/)
   assert.match(route, /disposition\.kind === 'chatgpt-auth'/)
   const authStart = route.indexOf("disposition.kind === 'chatgpt-auth'")
@@ -150,7 +151,7 @@ test('desktop ChatGPT state publishes only a boolean authentication result to th
   const embedded = await readFile(new URL('../../chatgpt/session/auth/embedded.mjs', import.meta.url), 'utf8')
   assert.match(source, /createChatGPTViewState\(\{/)
   assert.match(viewState, /authenticated: Boolean\(entry\?\.authenticated\)/)
-  assert.match(source, /createDesktopAuthViewRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'auth-views', createDesktopAuthViewRuntime, \{/)
   assert.match(authViewRuntime, /createEmbeddedChatGPTAuthentication\(\{/)
   assert.match(embedded, /executeJavaScript\(chatGPTSessionProbeExpression\(\), true\)/)
 })

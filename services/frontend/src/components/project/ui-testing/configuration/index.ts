@@ -1,0 +1,1 @@
+export { UIConfigTab } from './UIConfigTab'

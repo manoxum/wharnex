@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { installNativeSurfaceLifecycleGuard, shouldSuspendNativeSurfacesForNavigation } from './native-surface-lifecycle.mjs'
+import { readDesktopCompositionSourceSync } from '../../composition/entry/source.mjs'
 
 const FRONTEND_ORIGIN = 'http://127.0.0.1:5173'
 
@@ -27,10 +28,10 @@ test('Electron navigation details and renderer loss share the suspension boundar
 })
 
 test('Desktop wires the guard to the complete native-surface suspension helper', () => {
-  const source = readFileSync(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = readDesktopCompositionSourceSync()
   const windowRuntime = readFileSync(new URL('../../composition/window/creation-runtime.mjs', import.meta.url), 'utf8')
   const createWindow = readFileSync(new URL('./create/window.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopEntrypointRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'entrypoint', \(deps\) => \(\{ desktopEntrypoint: createDesktopEntrypointRuntime\(deps\) \}\)/)
   assert.match(windowRuntime, /createDesktopWindowCreator\(\{[\s\S]*installNativeSurfaceLifecycleGuard: d\.installNativeSurfaceLifecycleGuard,[\s\S]*suspendNativeSurfacesForWindow: d\.suspendNativeSurfacesForWindow/)
   assert.match(createWindow, /installNativeSurfaceLifecycleGuard\(win\.webContents, \{ frontendOrigin: FRONTEND_ORIGIN, suspend: \(\) => suspendNativeSurfacesForWindow\(state\) \}\)/)
 })

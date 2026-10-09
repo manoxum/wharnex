@@ -123,12 +123,6 @@
 :root[data-theme='light'] .explorer-context-menu button { color: #4d574a; }
 :root[data-theme='light'] .explorer-context-menu button:hover { background: #e8ece4; color: #22291f; }
 :root[data-theme='light'] .menu-separator { background: var(--theme-border); }
-:root[data-theme='light'] .editor-tabbar { border-color: var(--theme-border); background: #e6eae2; }
-:root[data-theme='light'] .editor-tab { border-color: var(--theme-border); background: #e9ece5; color: #687265; }
-:root[data-theme='light'] .editor-tab.active { border-top-color: transparent; background: color-mix(in srgb, var(--theme-accent-soft) 58%, #f7f8f4); color: #242a21; box-shadow: inset 0 -2px var(--theme-accent), inset 0 0 0 1px color-mix(in srgb, var(--theme-accent) 24%, var(--theme-border)); }
-:root[data-theme='light'] .editor-tab:hover { background: #f0f2ed; color: #3f473c; }
-:root[data-theme='light'] .editor-tab-close { color: #818a7e; }
-:root[data-theme='light'] .editor-tab-close:hover { background: #dce1d8; color: #343c31; }
 :root[data-theme='light'] .editor-tabbar .editor-save { border-color: #c7cec1; background: #f8f9f5; color: #4e584a; }
 :root[data-theme='light'] .editor-tabbar .editor-save:hover:not(:disabled) { background: #e2e7de; }
 :root[data-theme='light'] .editor-contextbar { border-color: var(--theme-border-soft); background: #f0f2ed; color: #697466; }

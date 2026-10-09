@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { css, lastRule, firstRule } from '../../../cascade/styleRules'
+import { firstRule } from '../../../cascade/styleRules'
+import { projectTabsSource, tabButtonSource, projectChromeSource } from '../../../cascade/tabStyles'
 
-describe('multi-project shell CSS', () => {
+describe('multi-project shell chrome', () => {
   it('uses the shell header as draggable title-bar chrome without swallowing controls', () => {
     const bar = firstRule('.multi-project-bar')
     const controls = firstRule(".multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar .project-window-popover")
@@ -9,31 +10,24 @@ describe('multi-project shell CSS', () => {
     expect(bar).not.toContain('titlebar-area-width')
     expect(bar).toContain('height: 48px')
     expect(controls).toContain('-webkit-app-region: no-drag')
+    expect(projectTabsSource).toContain('[-webkit-app-region:no-drag]')
   })
-
-  it('keeps the active project accent visible without a heavy glow', () => {
-    const activeProject = lastRule('.project-quick-switch button.active')
-    const activeUnderline = lastRule('.project-quick-switch button.active::after')
-    const activeMark = lastRule('.project-quick-switch button.active .project-color-mark')
-
-    expect(activeProject).toContain('box-shadow: 0 1px 3px color-mix(in srgb, var(--theme-shadow) 32%, transparent)')
-    expect(activeUnderline).not.toContain('box-shadow')
-    expect(activeMark).toContain('box-shadow: none')
+  it('restores the restrained original project hue, rounded button and active selection', () => {
+    expect(projectTabsSource).toContain('style={accentStyle(path)}')
+    expect(projectChromeSource).toContain('hsl(var(--project-hue)_68%_72%)')
+    expect(tabButtonSource).toContain('shadow-none')
+    expect(tabButtonSource).toContain('aria-selected:after:bg-[hsl(var(--project-hue)_78%_50%)]')
+    expect(projectTabsSource).toContain('appearance="project"')
   })
-
-  it('keeps unlink affordance embedded in project tabs', () => {
-    expect(lastRule('.project-tab-shell')).toContain('position: relative')
-    expect(lastRule('.project-quick-switch .project-tab-shell > .project-tab-main')).toContain('padding-right: 30px')
-    expect(lastRule('.project-tab-unbind')).toContain('position: absolute !important')
-    expect(css).toContain('.project-tab-shell:hover .project-tab-unbind, .project-tab-shell.active .project-tab-unbind, .project-tab-unbind:focus-visible { opacity: 1; }')
+  it('keeps unlink affordance embedded as a separate explicit project action', () => {
+    expect(projectTabsSource).toContain('absolute right-1 top-1/2')
+    expect(projectTabsSource).toContain('onClick={() => onUnbind(path)}')
+    expect(projectTabsSource).toContain('aria-label={`Desvincular ${projectName(path)} desta janela`}')
   })
-
-  it('pulses the active project while a composer is being edited', () => {
-    const typingProject = firstRule('.project-quick-switch button.active.composer-typing-attention')
-    expect(typingProject).toContain('animation: current-project-composer-pulse .9s ease-in-out infinite')
-    expect(css).toContain('@keyframes current-project-composer-pulse')
-    expect(css).toContain('@media (prefers-reduced-motion: reduce)')
-    expect(css).toContain('.project-quick-switch button.active.composer-typing-attention { animation: none;')
-    expect(css).toContain('outline: 2px solid hsl(var(--project-hue) 78% 52% / .58)')
+  it('emphasizes only the active project on composer input and respects reduced motion', () => {
+    expect(projectTabsSource).toContain('active && composerTypingProject === path')
+    expect(projectTabsSource).toContain("typing ? projectTypingChrome : ''")
+    expect(projectChromeSource).toContain('motion-reduce:animate-none')
+    expect(projectChromeSource).toContain('wharnex-project-composer-pulse')
   })
 })

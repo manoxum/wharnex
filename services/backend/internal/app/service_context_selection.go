@@ -10,10 +10,12 @@ import (
 	"sort"
 	"strings"
 
+	"kernl.local/harness/backend/internal/app/contextbudget"
+	"kernl.local/harness/backend/internal/app/normativecontext"
 	"kernl.local/harness/backend/internal/domain"
 )
 
-const maxSelectedContextBytes = 64 << 20
+const maxSelectedContextBytes = contextbudget.MaxSelectedBytes
 
 func contextArchiveEntries(contextPath string) (map[string]*zip.File, *zip.ReadCloser, error) {
 	source, err := zip.OpenReader(filepath.Clean(contextPath))
@@ -89,6 +91,29 @@ func selectContextPaths(contextPath string, previous, requested []string) ([]str
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+// normativeContextSeed is the selection a Partial request starts from: the
+// primary project's normative documents. Full needs no seed, and an unreadable
+// snapshot seeds nothing because the planner can still request the files.
+func normativeContextSeed(mode domain.ContextMode, contextPath string) normativecontext.Selection {
+	if domain.EffectiveContextMode(mode) != domain.ContextModePartial {
+		return normativecontext.Selection{}
+	}
+	entries, source, err := contextArchiveEntries(contextPath)
+	if err != nil {
+		return normativecontext.Selection{}
+	}
+	defer source.Close()
+	candidates := make([]normativecontext.Entry, 0, len(entries))
+	for name, file := range entries {
+		candidates = append(candidates, normativecontext.Entry{Name: name, Size: file.UncompressedSize64})
+	}
+	return normativecontext.Select(candidates, requestPrimaryContextRoot)
+}
+
+func normativeSeedEvent(requestID string, seed normativecontext.Selection) map[string]any {
+	return map[string]any{"request_id": requestID, "seeded": len(seed.Paths), "seeded_bytes": seed.Bytes, "omitted": seed.Omitted}
 }
 
 func selectedContextBytes(contextPath string, paths []string) uint64 {

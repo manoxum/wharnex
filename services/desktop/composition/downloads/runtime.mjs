@@ -29,15 +29,18 @@ export function createDesktopDownloadRuntime(d) {
 
   const {
     registerChatGPTMarkdownTranslationDownload,
-    registerChatGPTTodoClassificationDownload,
+    registerChatGPTTodoClassificationDownload, registerChatGPTUITestDiscoveryDownload,
   } = createChatGPTUtilityDownloads({
     expectedChatGPTTranslations: d.expectedChatGPTTranslations,
     expectedChatGPTTodoClassifications: d.expectedChatGPTTodoClassifications,
+    expectedChatGPTUITestDiscoveries: d.expectedChatGPTUITestDiscoveries,
     tempPath: d.tempPath,
     MARKDOWN_TRANSLATION_TIMEOUT_MS: d.MARKDOWN_TRANSLATION_TIMEOUT_MS,
     MAX_MARKDOWN_TRANSLATION_RESULT_BYTES: d.MAX_MARKDOWN_TRANSLATION_RESULT_BYTES,
     TODO_CLASSIFICATION_TIMEOUT_MS: d.TODO_CLASSIFICATION_TIMEOUT_MS,
     MAX_TODO_CLASSIFICATION_BYTES: d.MAX_TODO_CLASSIFICATION_BYTES,
+    UI_TEST_DISCOVERY_TIMEOUT_MS: d.UI_TEST_DISCOVERY_TIMEOUT_MS,
+    MAX_UI_TEST_DISCOVERY_BYTES: d.MAX_UI_TEST_DISCOVERY_BYTES,
   })
 
   const chatGPTDownloadIsHumanBrowsing = createChatGPTDownloadSource(d.internalChatGPTBrowsers)
@@ -92,10 +95,10 @@ export function createDesktopDownloadRuntime(d) {
     registerChatGPTMarkdownTranslationDownload,
     registerReleaseNotesBundleDownload: d.registerReleaseNotesBundleDownload,
     expectedChatGPTReleaseNotes: d.expectedChatGPTReleaseNotes,
-    registerChatGPTTodoClassificationDownload,
+    registerChatGPTTodoClassificationDownload, registerChatGPTUITestDiscoveryDownload,
     expectedChatGPTBundleForDownload: d.expectedChatGPTBundleForDownload,
     chatGPTKeyForWebContents: d.chatGPTKeyForWebContents,
-    canonicalWharnessBundleDownload: d.canonicalWharnessBundleDownload,
+    canonicalWharnexBundleDownload: d.canonicalWharnexBundleDownload,
     BundleOwnershipError: d.BundleOwnershipError, path: d.path,
     publishBundleDownloadError, handleBundleDownload, handleLegacyPlanDownload,
   })
@@ -105,7 +108,7 @@ export function createDesktopDownloadRuntime(d) {
     publishBundleDownload, publishBundleDownloadError,
     deliverOrchestratorTaskBundle,
     registerChatGPTMarkdownTranslationDownload,
-    registerChatGPTTodoClassificationDownload,
+    registerChatGPTTodoClassificationDownload, registerChatGPTUITestDiscoveryDownload,
     chatGPTDownloadIsHumanBrowsing, orchestratorPlanDownloads,
     registerChatGPTOrchestratorPlanDownload,
     takeRetainedChatGPTOrchestratorPlan,

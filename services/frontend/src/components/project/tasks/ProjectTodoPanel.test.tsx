@@ -51,7 +51,7 @@ describe('ProjectTodoPanel', () => {
     render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
     await screen.findByText('Melhorar a pesquisa')
 
-    const tabs = screen.getByRole('navigation', { name: 'Estado dos TODOs' })
+    const tabs = screen.getByRole('tablist', { name: 'Estado dos TODOs' })
     const buttons = Array.from(tabs.querySelectorAll<HTMLButtonElement>('button'))
     expect(buttons).toHaveLength(5)
     expect(buttons.map((button) => button.title)).toEqual(['Abertos', 'Fazendo', 'Feito', 'Falha', 'Concluídos'])

@@ -1,11 +1,4 @@
 /* Chat management */
-.agent-chat-management-tabs {
-  padding-inline: 10px;
-  background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg));
-}
-.agent-chat-management-tabs button > svg { flex: 0 0 auto; opacity: .72; }
-.agent-chat-management-tabs button[aria-selected='true'] > svg { color: var(--theme-accent); opacity: 1; }
-.agent-chat-management-tabs button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-archive-toolbar { padding-inline: 12px; }
 .agent-archive-list { padding: 10px 12px 14px; gap: 8px; }
 .agent-archive-item {

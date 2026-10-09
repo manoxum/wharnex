@@ -1,4 +1,4 @@
-import { chatAgentLane, orchestratorTaskChat } from '../scheduling/residency/chat-agent-residency.mjs'
+import { chatAgentLane, orchestratorTaskChat } from '../scheduling/residency/lanes.mjs'
 
 // A Worker that takes an Orchestrator execution stays with that task until the
 // task settles. Handing the lane back between attempts made the next attempt

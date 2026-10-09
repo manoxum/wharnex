@@ -1,3 +1,4 @@
+import { observeGuardedResponseProgress } from './guarded-progress.mjs'
 export function createExpectedBundlePoll(context) {
   const {
     pollingExpectedChatGPTBundles, expectedChatGPTBundles, hasPendingChatGPTComments, pendingChatGPTBundleDeliveries, chatgptTransportModes, EXPECTED_BUNDLE_TTL_MS, sendToChatGPTKey, chatgptViews, chatGPTSupervisorOwnsExpectedResponse, isTrustedChatGPTOrigin, chooseChatGPTRecoveryAction, performChatGPTRecoveryAction,
@@ -38,10 +39,11 @@ export function createExpectedBundlePoll(context) {
       if (Number(entry?.transportPreparationCount || 0) > 0) return
       const wc = entry?.view.webContents
       if (!entry || wc?.isDestroyed() || !isTrustedChatGPTOrigin(wc.getURL())) return
-      if (entry.humanAction?.active) return
+      const transportAttention = entry.humanAction?.active && ['transport', 'stalled'].includes(entry.humanAction.kind)
+      if (entry.humanAction?.active && !transportAttention) return
       if (Number(expected.backoffUntil || 0) > now) return
       try {
-        const faultAction = chooseChatGPTRecoveryAction(expected.recovery, {}, now, { faultOnly: true })
+        const faultAction = !transportAttention && chooseChatGPTRecoveryAction(expected.recovery, {}, now, { faultOnly: true })
         if (faultAction) {
           await performChatGPTRecoveryAction(key, expected, entry, faultAction)
           return
@@ -80,7 +82,7 @@ export function createExpectedBundlePoll(context) {
         const keepFlowing = chatAgentKeepFlowingRequestActive(expected.requestId)
         if (!expected.downloadInFlight && (!keepFlowing || Number(expected.invalidBundleCount || 0) === 0) && (!expected.lastDOMClick || now - expected.lastDOMClick >= DOM_DOWNLOAD_RETRY_MS)) {
           await captureChatGPTProcessingDuration(entry, expected)
-          const clickMode = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
+          const clickMode = await wc.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline, false, Boolean(transportAttention || expected.rehydrating)), true)
           if (clickMode) {
             expected.lastDOMClick = now
             expected.downloadInFlight = true
@@ -106,9 +108,7 @@ export function createExpectedBundlePoll(context) {
           console.warn(`[chatgpt-bundle-dom] download-stalled key=${key} file=${expected.filename} pendingMs=${pendingMs}`)
         }
 
-        // A restored conversation may contain many historical assistant turns.
-        // During rehydration only the exact bundle affordance is authoritative;
-        // terminal/recovery decisions begin after a fresh structural baseline.
+        if (await observeGuardedResponseProgress({ expected, wc, now, attention: transportAttention, completionScript: chatGPTResponseCompletionScript })) return
         if (expected.rehydrating) return
         if (Number(expected.recoveryEligibleAt || 0) > now) return
 

@@ -1,3 +1,4 @@
+import { WorkbenchTabs } from '../../presentation/tabs'
 import { useEffect, useMemo, useState } from 'react'
 import type { ExecutionErrorRecord, Session } from '../../../types'
 import type { WorkspaceChat } from '../../../lib/chat/history/workspaceMemory'
@@ -68,7 +69,10 @@ export function ExecutionErrorsDrawer({ chats, currentSession, activeChatId, onC
       <span><b>{totals.total}</b><small>Total</small></span><span className={totals.open ? 'danger' : ''}><b>{totals.open}</b><small>Abertas</small></span><span><b>{totals.resolved}</b><small>Resolvidas</small></span><span><b>{totals.kinds}</b><small>Tipos</small></span>
     </div>
     <div className="execution-errors-toolbar">
-      <div className="execution-errors-filters" role="tablist" aria-label="Estado das ocorrências">{(['all', 'open', 'resolved'] as Filter[]).map((value) => <button key={value} type="button" role="tab" aria-selected={filter === value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{value === 'all' ? 'Todas' : value === 'open' ? 'Abertas' : 'Resolvidas'}</button>)}</div>
+      <WorkbenchTabs className="min-w-0 flex-1" label="Estado das ocorrências" value={filter} onChange={setFilter} items={[
+        { id: 'all', label: 'Todas', icon: 'list', badge: totals.total }, { id: 'open', label: 'Abertas', icon: 'alert', badge: totals.open },
+        { id: 'resolved', label: 'Resolvidas', icon: 'check', badge: totals.resolved },
+      ]}/>
       <label><Icon name="search" size={13}/><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Erro, causa, request, plano…" aria-label="Pesquisar erros de execução"/></label>
     </div>
     {distribution.length ? <div className="execution-errors-distribution" aria-label="Distribuição por tipo de falha">{distribution.map(([kind, count]) => <div key={kind}><span>{kind}</span><i><b style={{ width: `${Math.max(8, Math.round((count / totals.total) * 100))}%` }}/></i><strong>{count}</strong></div>)}</div> : null}

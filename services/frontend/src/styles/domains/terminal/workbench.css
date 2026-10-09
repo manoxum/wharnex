@@ -1,18 +1,7 @@
 /* Persistent multi-terminal workbench + editor execution tools */
-.terminal-workspace { flex: 0 0 auto; width: auto; min-height: 185px; max-height: 78vh; display: grid; grid-template-rows: 30px minmax(0, 1fr); overflow: hidden; border-top: 1px solid #34382f; background: #121411; }
+.terminal-workspace { flex: 0 0 auto; width: auto; min-height: 185px; max-height: 78vh; display: grid;  overflow: hidden; border-top: 1px solid #34382f; background: #121411; }
 .terminal-workspace-hidden { display: none; }
-.terminal-tabbar { min-width: 0; display: flex; align-items: stretch; justify-content: space-between; border-bottom: 1px solid #292d26; background: #171916; }
-.terminal-tabs { min-width: 0; padding: 3px 4px 0; display: flex; align-items: end; gap: 3px; overflow-x: auto; scrollbar-width: none; }
-.terminal-tabs::-webkit-scrollbar { display: none; }
-.terminal-tab-shell { min-width: 112px; max-width: 210px; height: 27px; display: flex; align-items: center; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; color: #778072; transition: background .12s ease, border-color .12s ease, color .12s ease; }
-.terminal-tab-shell:hover { background: #20231e; color: #b7c0b1; }
-.terminal-tab-shell.active { border-color: #343a30; background: #232720; color: #d9dfd3; box-shadow: inset 0 -2px #8db94b; }
-.terminal-tab-select { min-width: 0; height: 100%; padding: 0 3px 0 8px; flex: 1; display: flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; font: 9px var(--mono-font-family); cursor: pointer; }
-.terminal-tab-title { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.terminal-tab-action { width: 19px; height: 19px; margin-right: 2px; flex: 0 0 19px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #687063; opacity: 0; cursor: pointer; transition: opacity .12s ease, background .12s ease, color .12s ease; }
-.terminal-tab-shell:hover .terminal-tab-action, .terminal-tab-shell.active .terminal-tab-action, .terminal-tab-action:focus-visible { opacity: 1; }
-.terminal-tab-action:hover { background: #373c34; color: #eef2ea; }
-.terminal-tab-close { font: 13px/1 sans-serif; }
+
 .terminal-tab-edit { min-width: 0; padding-left: 7px; flex: 1; display: flex; align-items: center; gap: 5px; }
 .terminal-tab-edit input { min-width: 0; width: 100%; height: 20px; padding: 1px 5px; border: 1px solid #66765a; border-radius: 4px; outline: none; background: #151814; color: #edf1e8; font: 9px var(--mono-font-family); box-shadow: 0 0 0 1px rgba(141,185,75,.12); }
 .terminal-add-tab { width: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 0; border-left: 1px solid #292d26; background: transparent; color: #899382; cursor: pointer; }
@@ -60,11 +49,6 @@
 .database-health i { width: 7px; height: 7px; border-radius: 50%; background: var(--theme-text-muted); }
 .database-health.ready { border-color: color-mix(in srgb, var(--success) 40%, var(--theme-border)); color: var(--success); }
 .database-health.ready i { background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 14%, transparent); }
-.database-workspace-tabs { min-height: 43px; padding: 5px 8px 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; border-bottom: 1px solid var(--theme-border-soft); background: var(--theme-surface); }
-.database-workspace-tabs button { min-width: 0; position: relative; padding: 0 7px; border: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--theme-text-muted); font-size: calc(10px * var(--ui-font-scale)); font-weight: 700; cursor: pointer; }
-.database-workspace-tabs button:hover { background: var(--theme-hover); color: var(--theme-text-soft); }
-.database-workspace-tabs button.active { background: var(--theme-elevated); color: var(--theme-text); }
-.database-workspace-tabs button.active::after { content: ''; height: 2px; position: absolute; left: 12px; right: 12px; bottom: -1px; border-radius: 999px; background: var(--theme-accent); }
 .database-status { min-height: 34px; padding: 7px 10px 7px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--theme-border-soft); background: color-mix(in srgb, var(--theme-accent) 7%, var(--theme-bg)); color: var(--theme-text-soft); font-size: calc(9.5px * var(--ui-font-scale)); }
 .database-status > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .database-status > button { width: 25px; height: 25px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--theme-text-muted); cursor: pointer; }
@@ -106,10 +90,6 @@
 .database-connect-empty button { margin-top: 5px; }
 .database-object-workspace, .database-data-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .database-object-toolbar { padding: 9px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--theme-border-soft); background: var(--theme-bg); }
-.database-object-kind-tabs { min-width: 0; display: flex; gap: 4px; overflow-x: auto; }
-.database-object-kind-tabs button { min-height: 31px; padding: 0 9px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--theme-text-muted); font-size: calc(9.5px * var(--ui-font-scale)); font-weight: 700; cursor: pointer; }
-.database-object-kind-tabs button:hover { background: var(--theme-hover); color: var(--theme-text-soft); }
-.database-object-kind-tabs button.active { border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border)); background: color-mix(in srgb, var(--theme-accent) 11%, var(--theme-elevated)); color: var(--theme-text); }
 .database-object-search { min-height: 41px; margin: 0 10px 8px; padding: 0 10px; display: flex; align-items: center; gap: 7px; border: 1px solid var(--theme-border); border-radius: 9px; background: var(--theme-elevated); color: var(--theme-text-muted); }
 .database-object-search input { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--theme-text); font-size: calc(10.5px * var(--ui-font-scale)); outline: none; }
 .database-object-list { flex: 0 1 35%; min-height: 112px; max-height: 245px; margin: 0 10px 9px; overflow: auto; border: 1px solid var(--theme-border); border-radius: 10px; background: var(--theme-surface); }

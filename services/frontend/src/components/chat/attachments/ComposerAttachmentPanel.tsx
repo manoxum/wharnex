@@ -1,3 +1,4 @@
+import { ComposerAttachmentTabs } from './ComposerAttachmentTabs'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../../../lib/transport/http/api'
 import type { AttachmentInspection, ContextInventoryEntry } from '../../../types'
@@ -133,17 +134,7 @@ export function ComposerAttachmentPanel({ sessionId, message, onMessage, onClose
       {!attachments.length
         ? <p className="composer-attachment-empty">Escreva <code>@attach:</code> no prompt e escolha um ficheiro ou pasta para o anexar. Aqui pode depois decidir o que dele é enviado.</p>
         : <>
-          <div className="composer-attachment-tabs" role="tablist" aria-label="Caminhos anexados a este prompt">
-            {attachments.map((directive) => <button
-              key={`${directive.start}:${directive.value}`}
-              type="button" role="tab"
-              aria-selected={directiveKey(directive) === (selected ? directiveKey(selected) : '')}
-              className={directiveKey(directive) === (selected ? directiveKey(selected) : '') ? 'active' : ''}
-              onClick={() => setSelectedKey(directiveKey(directive))}
-            >
-              <Icon name={directive.kind === 'ref' ? 'workspace' : 'folder'} size={12}/><span className="semantic-tab-label">{directive.kind === 'ref' ? directive.project : directive.path.split('/').filter(Boolean).pop() || directive.path}</span>
-            </button>)}
-          </div>
+          <ComposerAttachmentTabs attachments={attachments} selectedKey={selected ? directiveKey(selected) : ''} onChange={setSelectedKey}/>
 
           {selected && <div className="composer-attachment-body">
             <div className="composer-attachment-root">

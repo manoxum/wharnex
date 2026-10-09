@@ -69,6 +69,22 @@ architecture dependency or create a cycle. Preserve lazy imports and
 initialization order when changing a runtime entry point. Existing long import
 preludes migrate by domain when touched.
 
+The Desktop composes through one composition context
+(`services/desktop/composition/context/`). `main.mjs` only starts
+`composeDesktop()`; ordered stages under `composition/entry/stages/` run each
+domain factory over the context and provide its outputs back to it, so a
+factory receives every dependency by name without a parameter list being
+threaded through the entry point. A stage MUST provide a name at most once
+(redefinition throws), MUST ask for a dependency a later stage provides through
+`late()` rather than a hand-written forwarder, and MUST keep state access behind
+the live views in `composition/state/views.mjs`. Stage-local overrides are
+reserved for real renames, deliberately narrowed callbacks and generic names
+that must not enter the shared context. `composition/entry/graph/graph.test.mjs`
+composes the real Desktop against an inert Electron stub, so a missing
+provider, a collision or an initialization-order fault fails the test suite
+instead of the next launch. Source-level tests read the flattened composition
+through `composition/entry/source.mjs`, never `main.mjs` directly.
+
 For CSS, `styles/index.css` imports ordered domain or cascade entry points,
 which import their own subdomain sheets recursively. Aggregators MUST keep
 the effective rule order, layers, asset resolution and output CSS unchanged

@@ -6,10 +6,6 @@
 .execution-errors-summary small { color:var(--theme-text-muted); font-size:calc(7.5px * var(--ui-font-scale)); }
 .execution-errors-summary .danger b { color:var(--danger); }
 .execution-errors-toolbar { min-height:42px; padding:6px 9px; display:flex; align-items:center; gap:7px; border-bottom:1px solid var(--theme-border-soft); }
-.execution-errors-filters { display:flex; gap:2px; }
-.execution-errors-filters button { min-height:27px; padding:0 8px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--theme-text-muted); font-size:calc(8px * var(--ui-font-scale)); cursor:pointer; }
-.execution-errors-filters button:hover { background:var(--theme-hover); color:var(--theme-text); }
-.execution-errors-filters button.active { border-color:var(--theme-border); background:var(--theme-accent-soft); color:var(--theme-text); }
 .execution-errors-toolbar label { min-width:130px; flex:1; min-height:29px; padding:0 8px; display:flex; align-items:center; gap:6px; border:1px solid var(--theme-border); border-radius:8px; background:var(--theme-surface); color:var(--theme-text-muted); }
 .execution-errors-toolbar input { width:100%; min-width:0; border:0; outline:0; background:transparent; color:var(--theme-text); font-size:calc(8px * var(--ui-font-scale)); }
 .execution-errors-distribution { padding:7px 10px; display:grid; gap:4px; border-bottom:1px solid var(--theme-border-soft); background:color-mix(in srgb,var(--theme-surface) 78%,var(--theme-bg)); }

@@ -34,7 +34,7 @@ export function createChatGPTComposerTarget({
       if (health?.required === true) {
         const kind = String(health.kind || 'verification')
         setChatGPTHumanAction(key, kind, '', 'dom')
-        throw new Error(chatGPTHumanActionMessage(kind))
+        throw Object.assign(new Error(chatGPTHumanActionMessage(kind)), { humanAction: kind })
       }
       if (entry.humanAction?.source === 'dom' && health?.composerReady === true) clearChatGPTHumanAction(key, 'interface disponível')
     }

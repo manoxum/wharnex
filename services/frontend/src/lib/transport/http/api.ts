@@ -2,6 +2,7 @@ import type { AgentTurn, AppConfig, AttachmentInspection, KnownProjectRef, Artif
 import type { DurableWorkspaceChatRecord } from '../../chat/history/workspaceMemory'
 import type { OrchestratorTaskRetryContext, ReasoningEffort, ContextMode } from '../../../types'
 import { createOrchestratorApi, normalizeOrchestratorOverview } from '../../orchestrator/coordination/orchestratorApi'
+import { createBrowserMonitorCatalogApi } from './browser-monitor/catalog'
 import type { WorkspaceAttentionPayload } from '../../orchestrator/coordination/orchestratorAttention'
 import { API_URL, APIError, request } from './apiRequest'
 export { normalizeOrchestratorOverview } from '../../orchestrator/coordination/orchestratorApi'
@@ -355,6 +356,7 @@ export const api = {
   gitMerge: (id: string, ref: string, repository = '') => request<GitMergeResult>(`/api/sessions/${id}/git/merge`, { method: 'POST', body: JSON.stringify({ ref, repository }) }),
   gitRemoteMerge: (id: string, targetRef: string, sourceRefs: string[], repository = '') => request<GitRemoteMergeResult>(`/api/sessions/${id}/git/remote-merge`, { method: 'POST', body: JSON.stringify({ target_ref: targetRef, source_refs: sourceRefs, repository, confirmation: 'merge_remote' }) }),
   ...createOrchestratorApi(request),
+  ...createBrowserMonitorCatalogApi(request),
   proposeOrchestratorPlan: (id: string, objective: string, composer?: { include_context?: boolean; project_files?: string[]; attachment_cache_key?: string; attachments?: Array<{ name: string; size: number; mime: string; storage_ref: string }>; todo_ids?: string[] }) => request<OrchestratorProposalResult>(`/api/sessions/${id}/orchestrator/plans/propose`, { method: 'POST', body: JSON.stringify({ objective, ...composer }) }),
   orchestratorPlanningDetail: (id: string, requestId: string) => request<OrchestratorPlanningDetail>(`/api/sessions/${id}/orchestrator/planning/${encodeURIComponent(requestId)}`).then(normalizeOrchestratorPlanningDetail),
   retryOrchestratorPlanning: (id: string, requestId: string) => request<OrchestratorPlanningRequest>(`/api/sessions/${id}/orchestrator/planning/${encodeURIComponent(requestId)}/retry`, { method: 'POST', body: '{}' }),

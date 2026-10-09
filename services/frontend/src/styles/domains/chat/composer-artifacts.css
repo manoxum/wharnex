@@ -3,7 +3,7 @@ body { font-family: var(--ui-font-family); font-size: calc(14px * var(--ui-font-
 code, pre, kbd, .status-pill, .panel-kicker, .eyebrow, .message-label, .message-tools time, .message-meta, .bootstrap-meta { font-family: var(--mono-font-family); }
 .message-body { font-size: calc(13px * var(--ui-font-scale)); }
 .composer textarea { font-size: calc(12px * var(--ui-font-scale)); line-height: 1.5; }
-.panel-header, .tabs, .workspace-topbar { font-size: calc(11px * var(--ui-font-scale)); }
+.panel-header, .workspace-topbar { font-size: calc(11px * var(--ui-font-scale)); }
 
 .composer-artifact-strip { min-height: 36px; padding: 5px 8px 2px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid #e0e3da; }
 .composer-artifact-label { margin-right: 2px; color: #7c8277; font-size: calc(8px * var(--ui-font-scale)); font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }

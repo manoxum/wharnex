@@ -2,7 +2,7 @@
 
 Este documento descreve o contrato atualmente implementado para a automação do ChatGPT no Desktop, como investigar mudanças estruturais da página e como validar uma correção. Use-o quando uma atualização do ChatGPT quebrar uma operação, quando houver HTTP 429/“too many requests” ou antes de aceitar uma alteração no engine.
 
-Última revisão estrutural e operacional: **2026-09-27**.
+Última revisão estrutural e operacional: **2026-10-06** (limite de upload da conta, testes UI nos Workers e estatísticas de transporte, `adr/ADR-0093` e `adr/ADR-0095`).
 
 ## 1. Limites de segurança
 
@@ -18,14 +18,22 @@ Este documento descreve o contrato atualmente implementado para a automação do
 | Pool | Operações | Cadência normal |
 |---|---|---:|
 | Supervisor | `BOT_WRITE`, `RECOVERY_WRITE`, `AWAIT_RESPONSE` e observação do bundle esperado do chat vinculado | Não usa o pacer comum de Worker |
-| Worker | `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT`, `TODO_CLASSIFY`, `RELEASE_NOTES`, `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` | 10 s globais mínimos (alargados por pressão de 429) |
+| Worker | `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP`, `TITLE_AWAIT`, `TODO_CLASSIFY`, `RELEASE_NOTES`, `ORCHESTRATOR_PLAN`, `ORCHESTRATOR_EXECUTE`, `UI_TEST_DISCOVER` e `UI_TEST_RUN` (no máximo uma execução UI de cada vez) | 10 s globais mínimos (alargados por pressão de 429) |
 | Worker efémero (role `translator`) | `TRANSLATE_MARKDOWN`, `ORCHESTRATOR_PLAN` e `RELEASE_NOTES`; cria uma instância por tarefa, que vive até a tarefa terminar (um plano em WAITING mantém a conversa aberta), sem limite de política nem competição com os Workers | 5 s para tradução; 10 s para os outros, com prioridade máxima no pacer |
 
 `DELETE_DOUBLE` não é um tipo durável atual. A remoção de artefato duplicado/expirado é representada por `DELETE_BUNDLE`; duplicidade de tarefas é controlada por `dedupe_key`.
 
 A suspensão automática por rate limit aplica-se somente aos **Workers persistentes**. Supervisores e Translator continuam a fazer claims e executar as suas operações. Evidência 429 observada por qualquer superfície continua a alimentar o estado durável que protege os Workers.
 
-Por padrão ficam seletivamente suspensos `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP` e `TITLE_AWAIT`. `TODO_CLASSIFY` permanece elegível. Na aba **Agentes → Agentes**, o operador pode suspender todos os tipos de Worker ou escolher um conjunto validado; a filtragem ocorre no claim e não consome tentativa.
+Por padrão ficam suspensos `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_TEMP_CHAT`, `DELETE_BUNDLE`, `TITLE_DISCOVER`, `TITLE_GENERATE_TEMP` e `TITLE_AWAIT`. `TODO_CLASSIFY` permanece elegível.
+
+Desde `adr/ADR-0093`, **todos** os tipos de tarefa do navegador estão sob política, de qualquer pool. Na aba **Políticas** (gaveta de Agentes e monitor do navegador), cada categoria lista os seus tipos com o estado efetivo calculado pelo backend:
+
+- **Ativo**;
+- **Suspenso**, manualmente ou por omissão;
+- **Cooldown**, por rate limit ou por limite de upload, com a hora de retoma.
+
+Cada tipo e cada categoria tem **Suspender**/**Retomar**. Um hold durável `task:<TIPO>` é aplicado no claim de todos os pools, sem gastar tentativa. Retomar um cooldown liberta uma pausa da conta inteira e pede confirmação. **Suspender o pool de Workers inteiro** continua a ser o interruptor local do pool (tray incluído). A seleção por tipos antiga, guardada na política da Desktop, é migrada uma vez para os holds (`[chat-agent] worker type suspension migrated to task holds`).
 
 ## 3. Cadência global dos Workers
 
@@ -41,6 +49,65 @@ Por padrão ficam seletivamente suspensos `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHI
 - Pressão recente do provedor pode aumentar a separação; nunca pode reduzi-la abaixo dos mínimos acima.
 
 Implementação principal: `services/desktop/chat-agent-pacer.mjs` e os limites finais em `services/desktop/main.mjs`.
+
+## 3A. Limite de upload da conta (desde 2026-10-06, `adr/ADR-0093`)
+
+O ChatGPT limita os uploads de ficheiros por conta numa janela móvel. Atingido
+o limite, o menu "+" do composer mostra o item de anexar desativado ("aguarde
+2 horas"). A seleção nativa do ficheiro continua a ser aceite, mas nenhum
+pedido de upload sai da página. **Não é falha do scraper**: com outra conta, o
+mesmo pedido carrega à primeira (confirmado ao vivo em 2026-10-06).
+
+- **Evidência.** Duas tentativas seguidas sem arranque
+  (`ChatGPT did not start the file upload before timeout`), de qualquer
+  superfície e sem upload confirmado entre elas, abrem o gate da conta. Basta
+  uma quando a sonda estrutural mostra os controlos de upload do composer
+  todos desativados. A sonda lê só `disabled`/`aria-disabled` e contagens,
+  nunca texto.
+- **Gate aberto.** Todas as ações com upload, de qualquer pool, adiam antes da
+  seleção do ficheiro como observação gratuita. Não há 5 retentativas locais e
+  não se gasta tentativa.
+- **Janelas e sonda.** As janelas são de 10, 20, 40, 80 e depois 120 min.
+  Quando uma janela termina, só um upload entra como sonda: se confirmar, o
+  gate fecha; se não arrancar, o gate reabre na janela seguinte.
+- **Fecho.** O gate também fecha com um upload confirmado, um login
+  concluído, uma sessão importada ou limpa, ou **Libertar limite** no UI Lab
+  (use-o depois de trocar de conta).
+- **Estado durável.** O hold `chatgpt_upload` (`GET /api/automation-holds`)
+  mantém a janela após reiniciar a Desktop.
+
+Log: `[chatgpt-upload-limit] not-started wc=… structural=… inputs=a/b
+triggers=c/d`, `opened level=… until=…`, `probe owner=…`, `closed reason=…`.
+O mapa estrutural do controlo desativado ainda não foi confirmado ao vivo. Na
+próxima ocorrência natural, registe as contagens `inputs`/`triggers` aqui e
+fixe a regra estrutural.
+
+Os testes UI correm nos Workers persistentes. O browser efémero serve apenas
+para navegar a aplicação testada. **Suspender testes UI** levanta os holds
+`task:UI_TEST_DISCOVER` e `task:UI_TEST_RUN`.
+
+## 3B. Estatísticas de bundles no workspace (`adr/ADR-0095`)
+
+O contador no canto inferior direito mantém a janela móvel de três horas.
+Clicar nele abre uma janela interna com **enviados**, **recebidos** e **total**
+por tipo de tarefa, abrangendo todos os projetos, Supervisores, Workers e
+Workers efémeros. O total de cada linha conta ficheiros ZIP, não tarefas:
+passos UI, guias, partes e reenvios confirmados contam individualmente.
+
+Em runtimes persistidos, `GET /api/bundle-quota` calcula a janela completa do
+log operacional. `[chatgpt-upload] confirmed … observed=true` prova um envio;
+preparação e retry sem confirmação não contam. O campo `name` acrescenta
+somente o nome canónico do ficheiro, sem caminhos privados.
+`[chatgpt-bundle-received] completed file=… bytes=… task=…` regista um download
+concluído antes da validação sem ler ou guardar o seu conteúdo no log.
+
+Recebidos anteriores a esse registo são estimados a partir de entregas locais
+e marcados com `*`; um download e a entrega posterior contam uma só vez.
+Tipos desconhecidos continuam visíveis. Falhas de consulta preservam os
+últimos valores no UI e mostram o erro, sem apresentar zero como sucesso.
+O modo sem PostgreSQL identifica explicitamente a contagem por artefactos
+preparados. O limite apresentado continua a ser uma estimativa local
+configurável e não consulta a quota oficial da conta.
 
 ## 4. Suspensão automática por rate limit
 
@@ -129,6 +196,16 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
   imagem e ficheiro geral sem `accept`. O upload de ZIP deve preferir o ID ou
   `data-testid` explícito e, na ausência deles, o input geral sem `accept`
   dentro do composer. Nunca selecione o primeiro input `multiple`.
+- Regressão de manutenção de **2026-10-05** (`revision=2026-10-05.1`): a
+  seleção de ficheiro e a observação do upload usam a mesma procura de
+  composer utilizável que o preenchimento/submissão. Uma superfície SPA
+  dormente pode conservar outro `#prompt-textarea`: `querySelector` global
+  selecionava o input dessa superfície e observava os seus marcadores, mesmo
+  com o composer ativo pronto. A regressão
+  `chatgpt/transport/uploads/upload-active-composer.test.mjs` verifica o input
+  ativo e a confirmação do anexo, reproduzindo antes da correção o timeout
+  `ChatGPT did not start the file upload before timeout`. Esta reprodução
+  local não substitui a confirmação do reenvio ao vivo após rollout.
 - Cada Supervisor possui a sua própria fila de transporte. Um upload em
   `supervisor-1` só adia chats que realmente precisariam dessa instância; não
   bloqueia um chat residente ou disponível em `supervisor-2`.
@@ -148,6 +225,35 @@ Nunca aceite uma implementação que libere a fila apenas porque o relógio expi
   Se um request voltar a mostrar "a publicar túneis", é regressão.
 
 Quando o mapa mudar, incremente `CHATGPT_BEHAVIOR.revision`, acrescente a regressão correspondente e registre a data da nova confirmação.
+
+### Confirmação de transporte em 2026-10-08 (`revision=2026-10-08.1`)
+
+- A conversa carregada pode não ter `data-message-author-role`, `data-turn-id`
+  nem `#prompt-textarea`. Foram observados `data-chatgpt-agent-turn-start`,
+  `group/user-message`, o compositor `role=textbox` e cartões `group/resource-card`.
+  Conte o marcador do turno e compare a ordem com o último turno do utilizador;
+  ausência dos marcadores antigos não significa ausência de resposta.
+- O seletor acessível «Selecionar modelo do ChatGPT» não prova, sozinho, o nível
+  de raciocínio. O transporte mantém 1280 × 900 durante a preparação e verifica
+  as folhas do controle e o slider antes de selecionar o ZIP. O teste ao vivo
+  confirmou `high`, um upload e um submit às 15:59 UTC.
+- Um `BOT_WRITE` que falha depois do upload não pode voltar a selecionar o ZIP
+  por rotina. Falhas estruturais ou seleção ambígua entram em `ATTENTION`;
+  reenvios verificam primeiro o nome exato do ZIP no turno do utilizador e
+  adotam a observação, inclusive na recuperação da entrada persistida.
+- `ATTENTION` de transporte/paragem mantém a captura do ZIP exato sem reload
+  nem continuação. Autenticação, acesso, verificação e Manual continuam a bloquear.
+- Exclua o turno do utilizador e o compositor na busca de downloads: o bootstrap
+  contém o nome esperado da resposta, mas não é o ficheiro de resposta.
+- O ZIP do chat `5cf6288b-b066-4344-939e-891f8e15015f` foi recuperado sem
+  reenvio às 15:40:58 UTC. O `host.applied` das 15:46:40 revelou-se falso sucesso:
+  a integração deixou o submódulo backend antigo após `index.lock`. A conclusão
+  exige comprovar os HEADs integrados e validar o comportamento real, conforme
+  ADR-0096 e `.harness/logs/coordination-soft-delete.md`.
+- Um nível selecionado com ícone não é uma folha DOM. Além das folhas, leia apenas
+  texto direto de wrappers visíveis no único controle do compositor, com limites
+  de 64 nós/120 caracteres. `5.6` e «Esforço de raciocínio» não provam um nível;
+  valores desconhecidos ou múltiplos continuam a impedir o envio.
 
 ## 5A. Observação ao vivo: reconstruir a linha do tempo de um request
 
@@ -234,6 +340,15 @@ compositor → upload → submit → `PATCH …/workspace-chats/<chat>/remote` �
 
 ## 5B. Estados presos depois de Apply ou build no host
 
+Um primeiro upload que falhou antes de enviar pode deixar o ZIP de entrada
+persistido e nenhum `chatgpt_url`. Após reiniciar, “Retomar pedido” encaminha
+esse caso para entrega do arquivo completo, mediante ação humana. Antes de
+abrir o composer, o Desktop verifica sessão/pedido pendente, ausência de
+vinculação ou candidatos de recuperação e ausência de tasks de escrita ou
+observação desse pedido. Evidência ambígua bloqueia o reenvio. O envio aceite
+deve criar a vinculação concreta e a task `AWAIT_RESPONSE`; só o teste local
+não comprova esses dois passos no chat ao vivo (ADR-0091).
+
 Sintoma: a candidata continua `verified`, o chat não avança, não mostra falha e
 não oferece ação. Verifique pela ordem:
 
@@ -318,6 +433,147 @@ Aprendidas nas sessões Codex e Claude de 2026-09-25:
   chat ao vivo depois de `make build`/reinício. Se outra sessão estiver a meio
   de alterações não commitadas, o rebuild leva-as também; coordene antes de
   reiniciar.
+
+### 6.2 Preflight de patches e recuperação — incidente de 2026-10-06
+
+No chat `571da97e-a35c-43e7-a1a4-5cd27caca7f5`, com contexto
+`594b0dd833265fe7a1908752a242a29f6d8c6c77280189454e54fec1ea3be44a`,
+o ledger registou `remote_input.failed` às **10:14:58 UTC**, uma recuperação
+preparada às **10:15:18** e uma segunda rejeição às **10:19:26**, ambas com
+`operation 0 patch preflight: patch must be raw unified diff without Markdown fences`.
+A recuperação foi enviada por `BOT_WRITE` e terminou o envio na primeira
+tentativa. A segunda rejeição esgotou o único reenvio automático permitido;
+nunca se deve aumentar esse limite para esconder uma falha determinística.
+
+A regressão local reproduziu a mesma mensagem com um diff válido, aceite por
+`git apply --check`, que altera documentação contendo blocos de código. O
+validador procurava três backticks no patch inteiro e recusava também conteúdo
+legítimo dentro de hunks. A correção distingue linhas estruturais das linhas
+de conteúdo contadas pelo hunk: estas preservam fences, aspas, backslashes e
+exemplos de diff; wrappers Markdown externos continuam recusados, incluindo
+fences de tildes. O contrato enviado ao provider segue a mesma distinção.
+
+Regressões: `internal/protocol/patchdiff`,
+`internal/executionbundle/patchcontent` e `internal/planner/delivery`.
+Os ZIPs recusados não estavam no arquivo de artefactos da sessão; portanto a
+reprodução confirma o defeito do validador, mas não prova o conteúdo dos dois
+ZIPs originais.
+
+**Verificação ao vivo:** o backend passou a usar a imagem
+`7e14bda5e97c3082cdef74cf5998f773544f48531a507d311111b32320b6211c`
+e ficou saudável. O pedido já existente
+`req_20261006T105550_c9087c9391e36aa5` retomou a mesma conversa: upload
+confirmado às **11:04:21**, submit aceite às **11:04:24** e
+`BOT_WRITE cat_24d07541781867fe11d9` em `DONE`, com
+`AWAIT_RESPONSE cat_d37857167ae2d4a320b5` em observação gratuita.
+Não foi criado um envio duplicado durante a intervenção. Às **11:12:16**, o
+bundle de resposta foi aceite (`bundle.received`, `plan.received`, Policy
+permitida); às **11:12:18**, começou `execution.started` na sandbox Protected.
+O erro de preflight não voltou nessa entrega. A conclusão da execução/Apply
+é uma etapa posterior e não é inferida da aceitação do bundle.
+
+Às **11:16:12**, a execução terminou com sucesso. O Apply ficou bloqueado
+pelo `index.lock` do superprojeto, com mais de 18 horas. Uma única retoma
+local de Apply confirmou a mesma recusa, conservando o candidato `verified`.
+A operação nomeada `recover_index_lock` do bridge também recusou a limpeza:
+`recovered=false`, `reason=process_visibility_incomplete`. O lock não foi
+removido manualmente e não se abriu outro pedido GPT para este impedimento
+local. O erro de importação ficou resolvido nessa intervenção; a recuperação
+posterior do host e a aplicação concluída estão registadas em 6.3.
+
+A fixture temporária local
+`ses_20261006T110638_891e416e4e7147c8`, sem conversa no provider, confirmou
+na API implantada que o wrapper é recusado (**HTTP 400**) e o diff com fences
+literais é aceite (**HTTP 200**, `planned`). Correu em modo manual; o conteúdo
+do host permaneceu igual e a sessão foi arquivada. Este teste de ingestão não
+conta como uma amostra de transporte ChatGPT.
+
+**Gates:** `go vet ./...`, as regressões focadas, a verificação HTTP acima e o
+limite de 200 linhas passaram. `go test ./...` conservou a falha de
+`TestRemoteInputChannelReusesMainRequestNamespaceAndRefreshesContext`; o
+mesmo teste falhou no baseline `b24ea6d7`. `go test -race ./...` conservou essa
+falha e a limpeza intermitente de `TestReArchivingDisposesNothing`; esta
+última passou isoladamente no código alterado e foi reproduzida com `-race`
+e 50 repetições no mesmo baseline. Não foram alteradas assertions.
+
+### 6.3 Recuperação de bloqueios do host — 2026-10-06
+
+No mesmo chat e candidato da secção 6.2, `recover_index_lock` reproduziu
+`process_visibility_incomplete`: a prova dependia de enumerar os descritores
+privados de todas as aplicações do utilizador. Além disso, processos Git
+zombie eram classificados como ativos, embora já não possam manter ficheiros
+abertos. A inspeção leu somente nomes/estado/UID e resultados de acesso, nunca
+argumentos, ambientes, credenciais ou prosa do ChatGPT.
+
+A recuperação agora combina nomes/estados completos do host, sem Git vivo,
+com uma lease exclusiva do kernel sobre o inode exato (`adr/ADR-0092`). A lease
+prova ausência de outros descritores sem acesso às aplicações privadas e fica
+retida até à quarentena/remoção. Lock aberto, lease indisponível ou quebrada,
+metadados incompletos e todos os outros impedimentos do ADR continuam recusados.
+O comando original só pode ser repetido de forma limitada; não se abre GPT nem
+se pede outra aprovação para a integração já autorizada.
+
+**Ao vivo:** uma primeira prova atualizada recusou corretamente `git_process_active`.
+Depois de esse processo terminar, a mesma operação recuperou o lock vazio com
+`age_seconds=67322` e `reason=abandoned`, sem alterar índice/worktree. O Apply
+avançou para o merge e os gates, encontrando às **11:33:46 UTC** outro problema:
+`EACCES: permission denied, rmdir .../services/drcae-backend/dist/api/admin`.
+Os descendentes gerados de `dist` pertenciam a UID 0. O merge foi revertido;
+a reparação GPT indevida `req_20261006T113353_10b700caddc101e9` foi cancelada
+pelo endpoint nomeado, preservando o candidato verificado.
+
+Confirmados `git ls-files dist` vazio, exclusão Git de `dist`, `deleteOutDir=true`
+no build e ausência de symlinks nos componentes do caminho, a intervenção
+preservou a saída antiga em
+`.harness/maintenance/dist-backend-20261006T1135`. Foi um rename reversível,
+sem apagar conteúdo, chmod/chown ou escalar privilégios. O build recriou a
+saída com a identidade corrente. A aplicação repetida passou todos os gates
+e publicou **`host.applied` às 11:39:02 UTC**; a sessão terminou `applied`.
+Esse evento declara os dois submódulos integrados e ainda não enviados ao remoto.
+
+O motor passa a classificar um errno de filesystem concreto (`EACCES`/`EPERM`,
+syscall e caminho) na verificação de host como `host_working_state_blocked`.
+Lê ambos os streams: no caso real stdout trazia a causa e stderr somente
+`exit status 1`. Faz rollback, conserva o candidato e oferece a correção local;
+não salta o gate nem inicia GPT. A manutenção de `dist` acima não se torna uma
+permissão genérica de remover artefactos ou mudar ownership automaticamente.
+
+**Regressões:** `internal/gitops/recovery` verifica zombies, lock aberto,
+inventário privado, lease quebrada e conservação de índice/worktree;
+`internal/hostrepo/commitrecovery` verifica retoma da integração preservando
+trabalho local. `internal/app/hostverification` reproduz a falha de permissões
+com um Apply real, verifica rollback/candidato e ausência de pedido GPT.
+Todas passam também com `-race`. O loop de gates foi extraído de `service.go`
+para o módulo existente de verificação; novos ficheiros ficam abaixo de 200 linhas.
+
+`go vet ./...` passou. As suítes completas normal e race, numa ferramenta
+isolada com `/tmp` partilhado para os testes de supervisor Docker, conservaram
+somente `TestRemoteInputChannelReusesMainRequestNamespaceAndRefreshesContext`
+(a falha já atribuída ao baseline em 6.2). O primeiro ambiente de teste, sem esse
+mount de `/tmp`, também recusava o supervisor efémero por não encontrar o seu
+`worker.sh`; corrigiu-se o ambiente, sem alterar o teste. O gate global de tamanho
+aponta `services/desktop/agent/scheduling/queue/scheduler/settlement.test.mjs`
+(223 linhas), fora desta alteração; o de estrutura conserva os diretórios
+legados `app` (291 ficheiros) e `uitesting/httpapi` (21). Nenhum foi ampliado por
+esta correção. Os testes do verificador de estrutura passaram.
+
+**Rollout confirmado:** o backend usa
+`f794ad315e770389f441db4e1c24a9d3104baee1fc735f9d58d58543dd569323`,
+com saúde `ok`, e a sessão continua `applied` após reiniciar. A restauração das
+sessões demorou mais que a primeira janela de saúde; a ativação repetida
+concluiu com a mesma imagem. O Desktop carregou a ponte Git recompilada: uma
+fixture local com lock vazio de uma hora devolveu `recovered=true/abandoned`
+no socket canónico; a fixture foi removida. Não se repetiu o envio ao ChatGPT.
+Os módulos de protocolo, parsing do bundle e contratos do planner passaram
+nas duas suítes. O gate de estrutura ainda aponta o diretório legado `app`
+(291 ficheiros, também no baseline) e `uitesting/httpapi` (21 ficheiros,
+fora desta alteração).
+
+A refatoração ficou limitada à validação estrutural em `protocol/patchdiff`
+e aos contratos de entrega em `planner/delivery`. Permanecem como dívida
+nomeada, para extração noutras intervenções, o protocolo geral e revisão de
+conhecimento em `planner/prompt.go` e o ciclo de vida/mapa de recursos do
+canal legado em `app/service_remote_channel.go`.
 
 ## 7. Aceitação por tipo: regra 4/5
 
@@ -466,3 +722,20 @@ Todas as entradas abaixo pertencem à fixture do projeto Wharnex, chegaram ao bu
 A tradução `cat_0159bb49b339548bf400` (23:14:33–23:15:58 UTC) foi uma sexta amostra diagnóstica, também `DONE` na primeira tentativa. O plano de teste passou `DRAFT → ACTIVE → COMPLETED`; as tarefas passaram `READY → DOING → REVIEW → COMPLETE` e `WAITING → READY → DOING → REVIEW → COMPLETE`. A promoção da segunda ocorreu sem ação manual. Os dois ficheiros de teste foram removidos após a confirmação.
 
 A aceitação 4/5 de transporte foi atingida para `TRANSLATE_MARKDOWN` e `RELEASE_NOTES`. A pedido do operador, esta rodada usou uma única orchestration de raiz; `ORCHESTRATOR_PLAN` e `ORCHESTRATOR_EXECUTE` têm respetivamente uma e duas amostras, abaixo das cinco exigidas para aceitação estatística por tipo. O esforço `instant` das tarefas utilitárias e da segunda tarefa do Orchestrator permaneceu **não confirmado** no ChatGPT: na vista Worker oculta, o botão estava ativo, tinha geometria válida e recebia hover, mas as tentativas nativas não abriram o slider. O backend guardou corretamente o esforço pedido; o nível aplicado pelo provedor não pode ser afirmado. A tentativa antes do upload, o fallback de ponteiro e o ajuste do evento de teclado foram testados e retirados por não corrigirem a falha.
+
+### UI Lab: retomar não liberta tarefas adiadas para 2100 (2026-10-06)
+
+A instalação tinha o trigger provisório `wharnex_temp_hold_ui_tests` na fila
+PostgreSQL. Ele voltava a atribuir `not_before=2100-01-01` em cada atualização
+de uma tarefa UI pendente/em espera; libertar `task:UI_TEST_RUN` não chegava.
+A recuperação removeu o trigger identificado e retomou 12 execuções e uma
+descoberta, sem repor tentativas ou alterar payloads. A leitura da fila confirmou
+zero tarefas UI adiadas para 2100 e uma descoberta em execução no `worker-3`.
+O controlo do painel também passa a distinguir suspensão parcial (descoberta
+ativa mas execução suspensa) e oferece retomar ambos os tipos.
+
+Recuperação de compatibilidade: `scripts/ui-testing/recover-legacy-suspension.sql`
+(aplicar numa transação). O teste PostgreSQL compõe a fixture e a consulta real:
+`bash scripts/ui-testing/recover-legacy-suspension.test.sh | psql -X -v ON_ERROR_STOP=1`.
+Não usar uma atualização genérica de `not_before`: esperas normais, tarefas
+terminais e suspensões de outros tipos devem permanecer intactas.

@@ -21,7 +21,9 @@ export function createHostedChatGPTSurface(native, { View, host }) {
   let bounds
   let visible = false
   let presentedIn
+  let keepsContentSize = false
   let sized = { width: 0, height: 0 }
+  let automationHolds = 0
 
   // Electron delivers a resize to the renderer only while the view is visible;
   // the synchronous show/resize/hide produces no compositor frame on screen,
@@ -36,21 +38,63 @@ export function createHostedChatGPTSurface(native, { View, host }) {
     sized = { width, height }
   }
 
-  const requestedSize = () => ({
+  const requestedSize = () => automationHolds > 0 ? PARKED_SIZE : ({
     width: Math.max(1, Math.floor(Number(bounds?.width) || PARKED_SIZE.width)),
     height: Math.max(1, Math.floor(Number(bounds?.height) || PARKED_SIZE.height)),
   })
+
+  // A view just attached to the monitor shows nothing until its renderer
+  // produces a new frame, and a page that is not repainting never does on its
+  // own. A visible one-pixel capture forces that frame; invalidate() does not
+  // (measured on Electron 44). It runs again shortly after, once the native
+  // attachment has settled.
+  function refreshFrame() {
+    const wc = native.webContents
+    const force = () => {
+      if (presentedIn && !wc.isDestroyed()) void wc.capturePage({ x: 0, y: 0, width: 1, height: 1 }).catch(() => undefined)
+    }
+    force()
+    setTimeout(force, 200)
+  }
 
   function detachFrom(window) {
     try { if (window && !window.isDestroyed()) window.contentView.removeChildView(box) } catch { /* window is closing */ }
   }
 
+  function sizePresented(width, height) {
+    presentedIn.contentView.removeChildView(box)
+    native.setBounds({ x: 0, y: 0, width, height })
+    presentedIn.contentView.addChildView(box)
+    sized = { width, height }
+  }
+
   host.attach(box)
   native.webContents.once('destroyed', () => { detachFrom(presentedIn); host.detach(box) })
+  // Earlier builds compensated a presented Worker with zoom, which Chromium
+  // applies to the whole origin and persists; agent views always render at 1.
+  native.webContents.on('did-finish-load', () => {
+    if (!native.webContents.isDestroyed() && native.webContents.getZoomFactor() !== 1) native.webContents.setZoomFactor(1)
+  })
 
   return {
     native,
     webContents: native.webContents,
+    holdAutomationViewport() {
+      automationHolds += 1
+      if (presentedIn) sizePresented(PARKED_SIZE.width, PARKED_SIZE.height)
+      else sizeNative(PARKED_SIZE.width, PARKED_SIZE.height)
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        automationHolds -= 1
+        const size = requestedSize()
+        if (!automationHolds && presentedIn && !keepsContentSize) {
+          const target = box.getBounds()
+          sizePresented(target.width, target.height)
+        } else sizeNative(size.width, size.height)
+      }
+    },
     setBounds(next) {
       bounds = { x: Number(next?.x) || 0, y: Number(next?.y) || 0, width: Number(next?.width) || 0, height: Number(next?.height) || 0 }
       const size = requestedSize()
@@ -64,30 +108,31 @@ export function createHostedChatGPTSurface(native, { View, host }) {
     getVisible() { return Boolean(presentedIn) && native.getVisible() },
     setBackgroundColor(color) { native.setBackgroundColor(color) },
     isPresented() { return Boolean(presentedIn) },
-    present(window, target) {
+    // A Worker presented mid-task keeps its content size so its automation
+    // layout never changes; the container then crops or pads it.
+    present(window, target, { keepContentSize = false } = {}) {
       if (presentedIn === window) return this.resizePresented(target)
       if (presentedIn) this.release()
       host.detach(box)
-      native.setBounds({ x: 0, y: 0, width: target.width, height: target.height })
+      keepsContentSize = keepContentSize
+      if (!keepsContentSize && !automationHolds) native.setBounds({ x: 0, y: 0, width: target.width, height: target.height })
       native.setVisible(true)
       window.contentView.addChildView(box)
       box.setBounds(target)
       presentedIn = window
+      refreshFrame()
     },
     resizePresented(target) {
       if (!presentedIn) return
       const current = box.getBounds()
-      if (current.width !== target.width || current.height !== target.height) {
-        presentedIn.contentView.removeChildView(box)
-        native.setBounds({ x: 0, y: 0, width: target.width, height: target.height })
-        presentedIn.contentView.addChildView(box)
-      }
+      if (!keepsContentSize && !automationHolds && (current.width !== target.width || current.height !== target.height)) sizePresented(target.width, target.height)
       box.setBounds(target)
+      refreshFrame()
     },
     release() {
       if (!presentedIn) return
-      native.setVisible(false)
       detachFrom(presentedIn)
+      native.setVisible(false)
       presentedIn = undefined
       host.attach(box)
       const size = requestedSize()

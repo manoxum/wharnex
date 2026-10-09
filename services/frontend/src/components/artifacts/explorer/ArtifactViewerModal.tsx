@@ -63,6 +63,7 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
       const ratio = Math.max(1, window.devicePixelRatio || 1)
       canvas.width = Math.max(1, Math.round(rect.width * ratio))
       canvas.height = Math.max(1, Math.round(rect.height * ratio))
+      if (!drawing) return
       const context = canvas.getContext('2d')
       context?.setTransform(ratio, 0, 0, ratio, 0, 0)
       if (context) { context.lineWidth = 2; context.lineCap = 'round'; context.lineJoin = 'round' }
@@ -71,7 +72,7 @@ export function ArtifactViewerModal({ sessionId, bundleId, artifactId, items, in
     const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(resize)
     observer?.observe(canvas)
     return () => observer?.disconnect()
-  }, [cropRatio, definition.kind, index])
+  }, [cropRatio, definition.kind, drawing, index])
 
   const onViewerKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     const target = event.target

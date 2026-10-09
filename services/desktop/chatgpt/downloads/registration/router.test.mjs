@@ -24,7 +24,7 @@ function routerHarness({ classify = () => undefined, expected = undefined } = {}
     registerChatGPTTodoClassificationDownload: () => false,
     expectedChatGPTBundleForDownload: () => expected,
     chatGPTKeyForWebContents: () => 'visible-chat',
-    canonicalWharnessBundleDownload: classify,
+    canonicalWharnexBundleDownload: classify,
     BundleOwnershipError, path: { basename: (value) => value.split('/').at(-1) },
     publishBundleDownloadError: (...args) => calls.push(['error', ...args]),
     handleBundleDownload: (...args) => calls.push(['bundle', ...args]),

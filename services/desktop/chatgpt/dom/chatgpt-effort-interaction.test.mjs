@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { stepChatGPTEffort } from './chatgpt-effort-interaction.mjs'
+import { readDesktopCompositionSource } from '../../composition/entry/source.mjs'
 
 function fakeControl(visible = false) {
   const commands = []
@@ -103,7 +104,7 @@ test('effort control scripts stay composer-scoped and do not synthesize clicks',
   assert.match(source, /slider\.focus\(\)/)
   assert.match(source, /getAttribute\('aria-valuenow'\)/)
   assert.doesNotMatch(source, /\.click\(\)/)
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const dispatch = await readFile(new URL('../transport/requests/wiring/desktop.mjs', import.meta.url), 'utf8')
   const submission = await readFile(new URL('../transport/requests/submission/draft.mjs', import.meta.url), 'utf8')
   const interaction = await readFile(new URL('./chatgpt-effort-interaction.mjs', import.meta.url), 'utf8')
@@ -111,7 +112,7 @@ test('effort control scripts stay composer-scoped and do not synthesize clicks',
   assert.match(interaction, /await pressKey\(entry, wc, direction\)/)
   assert.match(interaction, /withWorkerPageInput\(entry, wc, async \(\) =>/)
   const stage = await readFile(new URL('../../composition/transport/stage/runtime.mjs', import.meta.url), 'utf8')
-  assert.match(main, /createDesktopChatGPTTransportStage\(chatGPTTransportStageDependencies\)/)
+  assert.match(main, /compose\(ctx, 'chatgpt-transport', createDesktopChatGPTTransportStage, \{/)
   assert.match(stage, /createDesktopPromptDispatch\(\{/)
   assert.match(dispatch, /press: d\.pressChatGPTControl, pressKey: d\.pressChatGPTControlKey/)
   assert.match(dispatch, /createChatGPTDraftSubmission\(\{/)

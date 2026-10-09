@@ -101,6 +101,12 @@ authorizes the bounded repository tree as one post-verification transaction. An
 integration retry reuses that decision and does not request a second Apply
 approval. The authorization does not cover remote pushes or unrelated nested Git repositories.
 
+The skip reporting rule for generic reconciliation MUST NOT turn a failed
+owned repository-tree update into a completed integration. Owned checkout
+failures block host verification and Apply completion, roll back the bounded
+transaction, and preserve its verified candidate for local recovery
+(ADR-0096). Tests run on a stale owned checkout provide no integration verdict.
+
 A path-scoped read-only Git verification whose complete path set belongs to
 one initialized submodule MUST run with that submodule as its working root and
 with the submodule-relative pathspecs. Running `git grep` or `git diff --check`

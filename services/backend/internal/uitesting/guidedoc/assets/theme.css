@@ -1,0 +1,61 @@
+/* Design tokens of a UI Lab guide: one accent pair per theme, light and dark. */
+:root {
+  --font: "Inter", "Segoe UI Variable", "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Inter Display", "Inter", "SF Pro Display", "Segoe UI Variable Display", system-ui, sans-serif;
+  --accent: #4f46e5;
+  --accent-2: #06b6d4;
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --surface-2: #f1f3f9;
+  --text: #0f172a;
+  --muted: #5b6478;
+  --line: #e3e7ef;
+  --shadow: 0 1px 2px rgb(15 23 42 / .05), 0 12px 32px -12px rgb(15 23 42 / .18);
+  --radius: 18px;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 35%, transparent);
+  --gradient: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color-scheme: light;
+}
+[data-accent="violet"] { --accent: #7c3aed; --accent-2: #ec4899; }
+[data-accent="emerald"] { --accent: #059669; --accent-2: #0ea5e9; }
+[data-accent="teal"] { --accent: #0d9488; --accent-2: #6366f1; }
+[data-accent="sky"] { --accent: #0284c7; --accent-2: #8b5cf6; }
+[data-accent="amber"] { --accent: #d97706; --accent-2: #ef4444; }
+[data-accent="rose"] { --accent: #e11d48; --accent-2: #f59e0b; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0f19; --surface: #121826; --surface-2: #182033; --text: #e8ecf5; --muted: #9aa4b8; --line: #243049;
+    --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 16px 40px -16px rgb(0 0 0 / .7);
+    --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0f19; --surface: #121826; --surface-2: #182033; --text: #e8ecf5; --muted: #9aa4b8; --line: #243049;
+  --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 16px 40px -16px rgb(0 0 0 / .7);
+  --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 84px; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 var(--font);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.2; letter-spacing: -.02em; margin: 0; }
+p { margin: 0; }
+svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+strong.ui {
+  font-weight: 600; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-line);
+  border-radius: 7px; padding: 0 .4em; white-space: nowrap; box-decoration-break: clone;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent-line); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

@@ -1,7 +1,7 @@
 export function publicChatAgentTask(task) {
   if (!task) return undefined
   return {
-    task_id: String(task.task_id || ''), type: String(task.type || ''), chat_id: String(task.chat_id || ''),
+    task_id: String(task.task_id || ''), type: String(task.type || ''), chat_id: String(task.chat_id || ''), session_id: String(task.session_id || ''),
     // The pool is global, so a task must retain the project owning it.
     project_id: String(task.project_id || ''),
     request_id: String(task.request_id || ''), root_request_id: String(task.root_request_id || ''),

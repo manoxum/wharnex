@@ -1,30 +1,7 @@
-import { RATE_LIMIT_GATE_SELECTORS } from '../transport/recovery/chatgpt-rate-limit.mjs'
+import { composerLookupSource, encode } from './chatgpt-composer-lookup.mjs'
 export { chatGPTVisibleActivityScript } from './chatgpt-visible-activity.mjs'
-
-function encode(value) {
-  return JSON.stringify(String(value ?? ''))
-}
-
-export function chooseUsableChatGPTDOMCandidate(candidates, styleFor = (node) => globalThis.getComputedStyle?.(node)) {
-  const seen = new Set()
-  for (const candidate of Array.isArray(candidates) ? candidates : []) {
-    if (!candidate || seen.has(candidate)) continue
-    seen.add(candidate)
-    if (candidate.isConnected === false || candidate.disabled === true || candidate.getAttribute?.('aria-disabled') === 'true') continue
-    if (candidate.hidden === true || candidate.closest?.('[hidden], [aria-hidden="true"], [inert]')) continue
-    const style = styleFor?.(candidate)
-    if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') continue
-    return candidate
-  }
-  return undefined
-}
-
-function composerLookupSource() {
-  return `
-    const chooseUsable = ${chooseUsableChatGPTDOMCandidate.toString()};
-    const composerSelectors = ['#prompt-textarea','div[contenteditable="true"][data-testid*="composer"]','div[contenteditable="true"][role="textbox"]','textarea[placeholder]'];
-    const composer = chooseUsable(composerSelectors.flatMap((selector) => [...document.querySelectorAll(selector)]));`
-}
+export { chooseUsableChatGPTDOMCandidate } from './chatgpt-composer-lookup.mjs'
+export { chatGPTHumanActionScript } from './chatgpt-human-action.mjs'
 
 export function chatGPTFillComposerScript(text) {
   const value = encode(text)
@@ -89,9 +66,7 @@ export function chatGPTSubmitScript() {
 }
 
 
-export function chatGPTAssistantTurnCountScript() {
-  return `(() => document.querySelectorAll('[data-message-author-role="assistant"]').length)()`
-}
+export { chatGPTAssistantTurnCountScript, chatGPTResponseCompletionScript } from './response/index.mjs'
 
 export function chatGPTSubmittedRequestEvidenceScript(filename) {
   const expected = encode(filename)
@@ -133,71 +108,6 @@ export function chatGPTComposerReadyScript() {
   return `(() => {
     ${composerLookupSource()}
     return Boolean(composer);
-  })()`
-}
-
-export function chatGPTHumanActionScript() {
-  return `(() => {
-    try {
-    const path = String(location.pathname || '');
-    const href = String(location.href || '');
-    const title = String(document.title || '').trim().toLowerCase();
-    const visible = (node) => { const rect = node?.getBoundingClientRect?.(); return Boolean(rect && rect.width > 0 && rect.height > 0); };
-    const firstVisible = (selector) => [...document.querySelectorAll(selector)].find(visible);
-    const challenge = Boolean(
-      firstVisible('iframe[src*="challenges.cloudflare.com"],iframe[src*="/cdn-cgi/challenge-platform/"],iframe[src*="captcha" i],iframe[src*="arkoselabs" i],iframe[src*="funcaptcha" i],iframe[src*="hcaptcha.com" i],iframe[src*="recaptcha" i],input[name="cf-turnstile-response"],.cf-turnstile,.h-captcha,.g-recaptcha,#arkose,[data-testid*="captcha" i],[data-testid*="challenge" i]')
-      || /\\/cdn-cgi\\/challenge-platform\\//i.test(href)
-      || title === 'just a moment...'
-      || title === 'security verification'
-      || title === 'verify you are human'
-      || title.startsWith('attention required')
-    );
-    const authentication = /^\\/auth(?:\\/|$)/i.test(path);
-    const access = Boolean(firstVisible('[data-testid*="access-denied" i],[data-testid*="blocked" i],[data-testid*="unsupported-browser" i]'));
-    // ChatGPT's own "too many requests" affordance. Structural selectors only,
-    // so this reads the same in every interface language. It is deliberately
-    // NOT a human-action kind: the account reopens on its own, so the answer is
-    // a durable provider suspension, not a notification asking for a person.
-    const rateLimited = Boolean(firstVisible(${encode(RATE_LIMIT_GATE_SELECTORS.join(','))}));
-    ${composerLookupSource()}
-    const kind = challenge ? 'verification' : authentication ? 'authentication' : access ? 'access' : '';
-    return {
-      required: Boolean(kind),
-      kind,
-      rateLimited,
-      composerReady: Boolean(composer),
-      pageVisible: document.visibilityState !== 'hidden',
-      capturedAt: new Date().toISOString(),
-    };
-    } catch (_error) {
-      return { required: false, kind: '', rateLimited: false, composerReady: false, pageVisible: false, capturedAt: new Date().toISOString() };
-    }
-  })()`
-}
-
-export function chatGPTResponseCompletionScript(assistantBaseline = 0) {
-  const baseline = Math.max(0, Number(assistantBaseline) || 0)
-  return `(() => {
-    const baseline = ${baseline};
-    const assistantCount = document.querySelectorAll('[data-message-author-role="assistant"]').length;
-    // The stop-button testid is the primary "still generating/reasoning"
-    // signal, but a renamed/restructured control must never read as "idle" —
-    // that misreading is what makes the automatic recovery reload above
-    // interrupt a genuinely still-running response. ".result-streaming" is
-    // ChatGPT's own longstanding marker on the assistant message while its
-    // text/reasoning is still being produced, independent of the button's
-    // current testid/label.
-    const stop = document.querySelector('button[data-testid="stop-button"], button[data-testid*="stop-button" i], button:has(svg.icon-primary-action path[d^="M4.5 5.75"])')
-      || document.querySelector('.result-streaming, [class*="result-streaming" i]');
-    const failed = document.querySelector('[data-testid="conversation-turn-error"] button,button[data-testid="retry-button"],[data-testid="message-error"] button');
-    ${composerLookupSource()}
-    const composerReady = Boolean(composer);
-    // A reloaded long conversation renders only its latest turns, so the count
-    // can fall to or below the baseline taken at submit. The author of the last
-    // rendered turn still tells whether the answer to the latest user turn is there.
-    const turns = document.querySelectorAll('[data-message-author-role]');
-    const lastRole = turns.length ? String(turns[turns.length - 1].getAttribute('data-message-author-role') || '') : '';
-    return { assistantCount, lastRole, thinking: Boolean(stop), failed: Boolean(failed), composerReady, complete: Boolean(assistantCount > baseline && !stop && !failed && composerReady) };
   })()`
 }
 

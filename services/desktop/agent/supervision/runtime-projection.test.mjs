@@ -4,11 +4,12 @@ import { chatAgentAgentProject, publicAgentBrowser, publicChatAgentTask, unavail
 
 test('task projection retains durable ownership and bounded status fields', () => {
   const task = publicChatAgentTask({
-    task_id: 42, project_id: 'project-a', chat_id: 'chat-a', status: 'RUNNING',
+    task_id: 42, project_id: 'project-a', chat_id: 'chat-a', session_id: 'ses-owner', status: 'RUNNING',
     attempt: -3, max_attempts: 4, keep_flowing: true, payload: { secret: 'hidden' },
   })
   assert.equal(task.project_id, 'project-a')
   assert.equal(task.chat_id, 'chat-a')
+  assert.equal(task.session_id, 'ses-owner')
   assert.equal(task.attempt, 0)
   assert.equal(task.keep_flowing, true)
   assert.equal('payload' in task, false)

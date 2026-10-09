@@ -45,6 +45,7 @@ export function createDesktopRuntimeState({ clipboard, ClipboardItem, environmen
       deferredSupervisorNavigationTimer: undefined,
       pollingChatGPTVisibleActivity: false,
       chatGPTRateLimitUntil: 0,
+      chatGPTAutomationHoldsListener: null,
       chatGPTRateLimitResumeProbeRequired: false,
       chatGPTRateLimitResumeProbe: undefined,
       chatGPTRateLimitResumeProbeNotBefore: 0,

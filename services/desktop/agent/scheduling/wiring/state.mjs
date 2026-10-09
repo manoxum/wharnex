@@ -19,6 +19,7 @@ export function createDesktopSchedulingState({ agentRuntime: agent, chatgptRunti
     get dueChatTranslations() { return agent.dueChatTranslations },
     set dueChatTranslations(value) { agent.dueChatTranslations = value },
     get quitting() { return window.quitting },
+    get chatGPTAutomationHoldsListener() { return chatgpt.chatGPTAutomationHoldsListener },
     get chatGPTRateLimitUntil() { return chatgpt.chatGPTRateLimitUntil },
     set chatGPTRateLimitUntil(value) { chatgpt.chatGPTRateLimitUntil = value },
     get chatGPTRateLimitResumeProbeRequired() { return chatgpt.chatGPTRateLimitResumeProbeRequired },

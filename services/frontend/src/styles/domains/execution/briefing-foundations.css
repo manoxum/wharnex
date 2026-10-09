@@ -109,10 +109,6 @@
 .folder-row { font-weight: 500; color: #464b42; }
 .editor-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #161814; }
 .editor-area { flex: 1; min-height: 150px; display: flex; flex-direction: column; background: #fafaf6; }
-.editor-tabbar { height: 39px; flex: 0 0 39px; display: flex; align-items: center; justify-content: space-between; background: #e7e9e1; border-bottom: 1px solid #cdd1c5; }
-.editor-tab { height: 39px; max-width: 65%; display: flex; align-items: center; gap: 6px; padding: 0 12px; color: #555a50; border-right: 1px solid #cdd1c5; font: 10px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
-.editor-tab.active { background: #fafaf6; color: #242720; border-top: 2px solid #648f26; }
-.editor-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dirty-dot { width: 6px; height: 6px; background: #7aa536; border-radius: 50%; }
 .editor-save { margin-right: 7px; min-height: 28px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #c8ccc0; border-radius: 6px; background: #f3f4ef; color: #4d5148; font-size: calc(10px * var(--ui-font-scale)); cursor: pointer; }
 .code-editor { flex: 1; min-height: 0; width: 100%; resize: none; border: 0; border-radius: 0; outline: none; padding: 16px 18px; background: #fafaf6; color: #252821; caret-color: #4b701d; tab-size: 2; white-space: pre; overflow: auto; font: 12px/1.65 ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }

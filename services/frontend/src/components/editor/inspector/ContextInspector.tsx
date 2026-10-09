@@ -1,3 +1,4 @@
+import { WorkbenchTabs } from '../../presentation/tabs'
 import { useMemo, useState } from 'react'
 import type { ContextInspection, ContextInventoryEntry } from '../../../types'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -49,11 +50,9 @@ export function ContextInspector({ inspection, refreshing, configuring = false, 
       <Summary label="Snapshot" value={inspection.sha256.slice(0, 10)} detail={inspection.snapshot_id} tone="mono" />
     </div>
     <div className="context-inspector-bar">
-      <div className="context-view-switch" role="tablist" aria-label="Explorador do contexto">
-        <button className={view === 'files' ? 'active' : ''} onClick={() => changeView('files')}><Icon name="file" size={13}/><span className="semantic-tab-label">Por ficheiro</span></button>
-        <button className={view === 'folders' ? 'active' : ''} onClick={() => changeView('folders')}><Icon name="folder" size={13}/><span className="semantic-tab-label">Por pasta</span></button>
-        <button className={view === 'rules' ? 'active' : ''} onClick={() => changeView('rules')}><Icon name="shield" size={13}/><span className="semantic-tab-label">Regras</span></button>
-      </div>
+      <WorkbenchTabs className="min-w-0 flex-1" label="Explorador do contexto" value={view} onChange={changeView} items={[
+        { id: 'files', label: 'Por ficheiro', icon: 'file' }, { id: 'folders', label: 'Por pasta', icon: 'folder' }, { id: 'rules', label: 'Regras', icon: 'shield' },
+      ]}/>
       <button className="secondary-button compact" disabled={refreshing || configuring} onClick={onRefresh} title="Reconstruir o ZIP e atualizar esta inspeção"><Icon name="refresh" size={13}/>{refreshing ? 'A reconstruir…' : 'Reconstruir'}</button>
     </div>
     {view !== 'rules' && <div className="context-final-view">

@@ -42,7 +42,7 @@ It is not a JavaScript evaluation capability. Four properties define it:
 
 1. **Closed vocabulary.** The caller names a control from a fixed enum
    (`sidebar-toggle`, `conversation-menu`, `menu-items`, `project-anchors`,
-   `project-dialog`, `delete-dialog`, `reasoning-effort`). An unrecognized name is rejected before
+   `project-dialog`, `delete-dialog`, `reasoning-effort`, `composer-transport`). An unrecognized name is rejected before
    anything is built. Adding a control is a reviewed change, exactly like
    admitting a planner reason code.
 
@@ -67,6 +67,15 @@ It is not a JavaScript evaluation capability. Four properties define it:
 The probe grants the layout viewport before measuring, because a slot stranded
 at 0×0 would otherwise report every control as absent — the precise confusion
 this ADR exists to remove.
+
+The 2026-10-08 transport maintenance adds `composer-transport`: counts of
+composer/turn/streaming wrappers and at most 16 composer control identities,
+including popup and disabled attributes. It reads no conversation text. When
+the diagnostic flag is enabled, an owned idle transport may sample this and
+`reasoning-effort` once per 30 seconds; only changed bounded shapes are logged.
+The existing named response-completion operation may contribute structural
+booleans and counts for the armed request. Sampling stays passive, never runs
+during prompt preparation, and cannot fail or change liveness classification.
 
 ## Consequences
 

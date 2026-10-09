@@ -126,10 +126,6 @@
 .orchestrator-task-actions { flex-wrap:wrap; }
 .orchestrator-task-actions .primary { margin-right:auto; }
 .orchestrator-drawer.task-detail { width:min(940px,94vw); grid-template-rows:auto auto minmax(0,1fr) auto; }
-.orchestrator-task-tabs { padding:0 14px; display:flex; gap:2px; overflow-x:auto; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-elevated); }
-.orchestrator-task-tabs button { min-height:38px; padding:0 11px; display:inline-flex; align-items:center; gap:6px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:var(--theme-text-muted); font-weight:600; cursor:pointer; white-space:nowrap; }
-.orchestrator-task-tabs button:hover { color:var(--theme-text); }
-.orchestrator-task-tabs button.active { border-bottom-color:var(--theme-accent); color:var(--theme-text); }
 .orchestrator-task-detail-body.wide { padding:14px 16px; display:grid; grid-template-columns:minmax(0,1fr); align-content:start; gap:12px; }
 /* The agentic history surfaces declare container-type:inline-size and centre
    themselves with auto margins; as grid items that made them shrink to their

@@ -15,7 +15,7 @@ export async function readArtifactWorkersSource() {
     if (start < 0 || end <= start) throw new Error(`Artifact worker section missing: ${file}`)
     return module.slice(start, end).replace(/^  /gm, '').trim()
   }))
-  const start = main.indexOf('const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification } = createArtifactWorkers(deps)')
+  const start = main.indexOf('const { executeChatAgentMarkdownTranslation, executeChatAgentTodoClassification, executeUITestingTask } = createArtifactWorkers(deps)')
   const end = main.indexOf('\nasync function chatAgentLifecycleRetry(', start)
   const agent = await readFile(new URL('../../agent/index.mjs', import.meta.url), 'utf8')
   const automation = await readFile(new URL('../../agent/automation/index.mjs', import.meta.url), 'utf8')
@@ -35,7 +35,7 @@ export async function readArtifactWorkersSource() {
   if (ephemeralStart < 0 || ephemeralEnd <= ephemeralStart || implementationStart < 0 || implementationEnd <= implementationStart
       || !agent.includes('createEphemeralWorkerRuntime') || !automation.includes("from './artifact-workers/index.mjs'")
       || !artifactIndex.includes("from './ephemeral-runtime.mjs'")) {
-    throw new Error('Ephemeral Worker domain composition missing from main.mjs')
+    throw new Error('Ephemeral Worker domain composition missing')
   }
   const implementation = ephemeralModule.slice(implementationStart, implementationEnd).replace(/^  /gm, '').trim()
   const withEphemeral = `${source.slice(0, ephemeralStart)}${implementation}\n${source.slice(ephemeralEnd)}`
@@ -48,7 +48,7 @@ export async function readArtifactWorkersSource() {
   if (translatorStart < 0 || translatorEnd <= translatorStart || translatorCompositionStart < 0
       || translatorCompositionEnd <= translatorCompositionStart || !agent.includes('createTranslatorTaskRuntime')
       || !translationIndex.includes("from './task-runtime.mjs'")) {
-    throw new Error('Translator task runtime composition missing from main.mjs')
+    throw new Error('Translator task runtime composition missing')
   }
   const translatorBody = translator.slice(translatorStart, translatorEnd).replace(/^  /gm, '').trim()
   return `${withEphemeral.slice(0, translatorCompositionStart)}${translatorBody}\n${withEphemeral.slice(translatorCompositionEnd)}`

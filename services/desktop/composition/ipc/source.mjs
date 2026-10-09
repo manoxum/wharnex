@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { compositionSection, readDesktopCompositionSource } from '../entry/source.mjs'
 
 const registrations = [
   ['window', 'registerWindowIPC', 'registerWindowDomainIPC'],
@@ -7,15 +8,16 @@ const registrations = [
   ['browser', 'registerBrowserDataIPC', 'registerBrowserDomainIPC'],
   ['attachments', 'registerChatAttachmentIPC', 'registerAttachmentsDomainIPC'],
   ['clipboard', 'registerClipboardIPC', 'registerClipboardDomainIPC'],
+  ['uitesting', 'registerUITestingGuideIPC', 'registerUITestingDomainIPC'],
 ]
 
 // Source-level regression tests can inspect the real domain registrars in the
 // same order as the Electron composition entry point.
 export async function readDesktopIPCSource() {
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const dependencyIndex = await readFile(new URL('../entry/dependencies/index.mjs', import.meta.url), 'utf8')
   const dependencyDomains = ['platform', 'agent', 'chatgpt', 'desktop', 'transport']
-  if (!main.includes("from './composition/entry/dependencies/index.mjs'")
+  if (!main.includes("from '../dependencies/index.mjs'")
       || dependencyDomains.some((domain) => !dependencyIndex.includes(`from './${domain}.mjs'`))) {
     throw new Error('Desktop dependency domain composition is missing')
   }
@@ -28,20 +30,18 @@ export async function readDesktopIPCSource() {
   const entry = await readFile(new URL('../entry/runtime.mjs', import.meta.url), 'utf8')
   const runtimeStart = runtime.indexOf('  function registerIPC() {')
   const runtimeEnd = runtime.indexOf('\n  }\n\n  return registerIPC', runtimeStart)
-  const compositionStart = main.indexOf('const desktopEntrypoint = createDesktopEntrypointRuntime({')
-  const compositionEnd = main.indexOf('\napp.whenReady()', compositionStart)
+  const { start: compositionStart, end: compositionEnd } = compositionSection(main, 'entrypoint')
   if (Math.min(runtimeStart, runtimeEnd, compositionStart, compositionEnd) < 0
       || !index.includes("from './runtime.mjs'")
       || !index.includes("from './register.mjs'")
       || !main.includes("from './composition/entry/index.mjs'")
       || !entry.includes('const monitor = createBrowserMonitorPresentation({ ...deps, normalizeBounds })')
       || !entry.includes('createDesktopIPCRegistrar({ ...deps, ...browser, ...monitor, ...window })')) {
-    throw new Error('Desktop IPC composition is missing from main.mjs')
+    throw new Error('Desktop IPC composition is missing from the Desktop composition')
   }
   const body = runtime.slice(runtimeStart, runtimeEnd + '\n  }'.length).replace(/^  /gm, '')
   const source = `${main.slice(0, compositionStart)}${body}\n${main.slice(compositionEnd)}`
-  const start = source.indexOf('function registerIPC() {')
-  const end = source.indexOf('\n}\n\napp.whenReady()', start)
+  const end = compositionStart + body.lastIndexOf('\n}')
   const bodies = await Promise.all(registrations.map(async ([domain, firstCall, exported]) => {
     const module = await readFile(new URL(`./${domain}.mjs`, import.meta.url), 'utf8')
     const first = module.indexOf(`  ${firstCall}({`)

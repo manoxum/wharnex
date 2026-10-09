@@ -5,7 +5,9 @@
       "Skill(loop:*)",
       "Bash(bash /tmp/claude-1000/-home-zootakuxy-workspace-wharnex/79031651-ef30-4a8c-891a-97a297a4410e/scratchpad/whx_watch.sh)",
       "Skill(update-config)",
-      "Skill(update-config:*)"
+      "Skill(update-config:*)",
+      "Bash(rm .git/index.lock)",
+      "Bash(git reset *)"
     ],
     "additionalDirectories": [
       "/home/zootakuxy/workspace/wharnex-statable/.harness",

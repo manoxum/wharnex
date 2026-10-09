@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { readDesktopIPCSource } from '../ipc/source.mjs'
+import { compositionSection } from '../entry/source.mjs'
 
 const sections = [
   ['slots', 'function retireChatGPTSupervisorSurface('],
@@ -15,13 +16,12 @@ export async function readSupervisorSurfaceSource() {
   const supervision = await readFile(new URL('../../agent/supervision/index.mjs', import.meta.url), 'utf8')
   const surface = await readFile(new URL('../../agent/supervision/surface/index.mjs', import.meta.url), 'utf8')
   const wiring = await readFile(new URL('../../agent/supervision/surface/wiring/desktop.mjs', import.meta.url), 'utf8')
-  const start = main.indexOf('const supervisorSurfaceDependencies = {')
-  const end = main.indexOf('function wait(ms)', start)
+  const { start, end } = compositionSection(main, 'supervisor-surfaces')
   if (start < 0 || end <= start || !main.includes("from './agent/index.mjs'")
       || !agent.includes("from './supervision/index.mjs'")
       || !supervision.includes("from './surface/index.mjs'")
       || !surface.includes("from './wiring/index.mjs'")
-      || !main.includes('createDesktopSupervisorSurfaces(supervisorSurfaceDependencies)')) {
+      || !main.includes("compose(ctx, 'supervisor-surfaces', ctx.createDesktopSupervisorSurfaces, {")) {
     throw new Error('Supervisor surface domain composition missing')
   }
   const bodies = await Promise.all(sections.map(async ([file, signature]) => {

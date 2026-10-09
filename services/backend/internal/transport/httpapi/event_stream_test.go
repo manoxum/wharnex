@@ -37,3 +37,19 @@ func TestEventStreamCatchUpIsBoundedLikeTheHistoryEndpoint(t *testing.T) {
 		t.Fatalf("catch-up frames = %d, want %d", frames, maxHistoryEvents)
 	}
 }
+
+func TestEventStreamDoesNotReplayOldGitInvalidations(t *testing.T) {
+	bus := audit.NewBus()
+	bus.Publish("ses-stream", "git.changed", map[string]any{})
+	bus.Publish("ses-stream", "plan.received", map[string]any{})
+	api := &API{bus: bus}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest(http.MethodGet, "/api/sessions/ses-stream/events", nil).WithContext(ctx)
+	request.SetPathValue("id", "ses-stream")
+	response := httptest.NewRecorder()
+	api.events(response, request)
+	if got := response.Body.String(); strings.Contains(got, "git.changed") || !strings.Contains(got, "plan.received") {
+		t.Fatalf("unexpected catch-up: %s", got)
+	}
+}

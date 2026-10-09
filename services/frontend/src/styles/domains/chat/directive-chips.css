@@ -96,9 +96,6 @@
 .composer-attachment-heading { position: sticky; top: 0; z-index: 1; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--theme-border-soft); background: var(--theme-surface); }
 .composer-attachment-heading strong { display: block; color: var(--theme-text); font-size: calc(13px * var(--ui-font-scale)); }
 .composer-attachment-empty { margin: 0; padding: 16px; color: var(--theme-text-muted); font-size: calc(9px * var(--ui-font-scale)); line-height: 1.5; }
-.composer-attachment-tabs { padding: 10px 14px 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.composer-attachment-tabs button { min-height: 27px; padding: 3px 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--theme-border); border-radius: 7px; background: var(--theme-elevated); color: var(--theme-text-soft); font-size: calc(8.6px * var(--ui-font-scale)); cursor: pointer; }
-.composer-attachment-tabs button.active { border-color: #b08e56; background: color-mix(in srgb, #b08e56 20%, var(--theme-surface)); color: var(--theme-text); font-weight: 700; }
 .composer-attachment-body { padding: 14px 16px 18px; display: grid; gap: 11px; }
 .composer-attachment-root { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .composer-attachment-root code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 calc(8.6px * var(--ui-font-scale))/1.3 var(--mono-font-family); color: var(--theme-text-soft); }

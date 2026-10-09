@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { readSchedulerStartupSource } from '../workers/scheduler-startup-source.mjs'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 // Measured on Electron 44: a WebContentsView given bounds while already hidden
 // reports a 0x0 viewport to its renderer, because Electron delivers a resize
@@ -13,13 +14,13 @@ import { readSchedulerStartupSource } from '../workers/scheduler-startup-source.
 // operation reports `action-offscreen`; and every percentage-width node
 // collapses to width 0, so the shared `visible()` predicate rejects it.
 test('a chat slot is given its layout viewport before it is ever hidden', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopCompositionSource()
   const authViewRuntime = await readFile(new URL('../session/auth-view/runtime.mjs', import.meta.url), 'utf8')
   const viewportSource = await readFile(new URL('../../chatgpt/account/control/viewport.mjs', import.meta.url), 'utf8')
   const supervisorSource = await readFile(new URL('../../chatgpt/session/views/supervisor.mjs', import.meta.url), 'utf8')
   const workerSource = await readFile(new URL('../../chatgpt/session/views/worker.mjs', import.meta.url), 'utf8')
   const entrySource = await readFile(new URL('../../chatgpt/session/views/entry.mjs', import.meta.url), 'utf8')
-  assert.match(source, /createDesktopAuthViewRuntime\(\{/)
+  assert.match(source, /compose\(ctx, 'auth-views', createDesktopAuthViewRuntime, \{/)
   assert.match(authViewRuntime, /createChatGPTViewOperations\(\{/)
 
   const grantStart = viewportSource.indexOf('function grantChatGPTLayoutViewport(')
@@ -110,7 +111,7 @@ test('the layout viewport guard does not read native bounds as renderer evidence
 })
 
 test('startup restores every saved window session without asking', async () => {
-  const main = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const main = await readDesktopCompositionSource()
   const wiring = await readFile(new URL('../startup/runtime.mjs', import.meta.url), 'utf8')
   const context = await readFile(new URL('../../lifecycle/startup/context.mjs', import.meta.url), 'utf8')
   const runtime = await readFile(new URL('../../lifecycle/startup/runtime.mjs', import.meta.url), 'utf8')
@@ -128,7 +129,7 @@ test('startup restores every saved window session without asking', async () => {
 })
 
 test('every class that extends another is declared after its base', async () => {
-  const source = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const source = await readDesktopCompositionSource()
   for (const match of source.matchAll(/^class (\w+) extends (\w+)/gm)) {
     const base = source.search(new RegExp(`^class ${match[2]}\\b`, 'm'))
     if (base >= 0) assert.ok(base < match.index, `${match[1]} is declared before its base ${match[2]}`)

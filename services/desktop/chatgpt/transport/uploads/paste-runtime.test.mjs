@@ -2,9 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createChatGPTFileUpload } from './paste-runtime.mjs'
 
-function fixture({ cooldown = 0, ready = true } = {}) {
+function fixture({ cooldown = 0, ready = true, gate = '' } = {}) {
   const events = []
-  const wc = { id: 7, executeJavaScript: async (script) => script === 'composer' ? ready : { markerCount: 2 } }
+  const wc = { id: 7, executeJavaScript: async (script) => script === 'composer' ? ready : script === 'health' ? { required: Boolean(gate), kind: gate } : { markerCount: 2 } }
   const entry = { view: { webContents: wc } }
   class Deferral extends Error { constructor(delayMs) { super('deferred'); this.delayMs = delayMs } }
   const { pasteChatGPTFile } = createChatGPTFileUpload({
@@ -27,6 +27,9 @@ function fixture({ cooldown = 0, ready = true } = {}) {
     path: { basename: () => 'request.zip' },
     chatGPTUploads: { expect: () => ({ baselineMarkerCount: 2 }), cancel: () => events.push('cancel') },
     selectChatGPTUploadFile: async () => events.push('select'),
+    chatGPTHumanActionScript: () => 'health',
+    setChatGPTHumanAction: (key, kind) => events.push(`human:${key}:${kind}`),
+    chatGPTHumanActionMessage: (kind) => `needs ${kind}`,
   })
   return { pasteChatGPTFile, entry, events, Deferral }
 }
@@ -46,5 +49,15 @@ test('confirmed upload observes the composer and selects the exact request archi
 test('missing composer blocks file selection', async () => {
   const { pasteChatGPTFile, entry, events } = fixture({ ready: false })
   await assert.rejects(pasteChatGPTFile(entry, '/tmp/request.zip', 1, 1), /composer DOM was not found/)
+  assert.ok(!events.includes('select'))
+})
+
+test('a sign-in gate stops the upload as non-retryable human attention before selection', async () => {
+  const { pasteChatGPTFile, entry, events } = fixture({ gate: 'authentication' })
+  const error = await pasteChatGPTFile(entry, '/tmp/request.zip', 1, 1, { pacedWorker: true }).catch((reason) => reason)
+  assert.equal(error.humanAction, 'authentication')
+  assert.equal(error.retryUpload, false)
+  assert.equal(error.message, 'needs authentication')
+  assert.ok(events.includes('human:chat-1:authentication'))
   assert.ok(!events.includes('select'))
 })

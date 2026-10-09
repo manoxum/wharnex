@@ -114,6 +114,7 @@ export function buildChatAgentRuntimeState({
     scheduler: chatAgentRuntimeDiagnostics.scheduler,
     queue: chatAgentRuntimeDiagnostics.queue,
     provider: chatAgentRuntimeDiagnostics.provider,
+    holds: chatAgentRuntimeDiagnostics.holds || {},
     worker_pause: workerPause,
     memory: memory.totals,
     agents: agents.map((agent) => ({ ...agent, memory: memory.by_agent[agent.id] })),

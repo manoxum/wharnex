@@ -35,13 +35,20 @@ describe('BundleExchangeBar', () => {
       id: 'artifact_1', request_id: 'req_20260905T220000_1234567890abcdef', direction: 'input', kind: 'bundle', name: 'whx_bundle_req_chat-1_req_20260905T220000_1234567890abcdef.zip', content_type: 'application/zip',
       size: 2048, sha256: 'a'.repeat(64), created_at: '2026-09-05T22:00:00Z', expires_at: '2026-10-05T22:00:00Z', bundle: true, entry_count: 1,
     }
-    render(<BundleExchangeBar sessionId="ses_1" artifacts={[bundle]} />)
+    const response: ArtifactRecord = { ...bundle, id: 'artifact_2', direction: 'output', name: 'whx_bundle_res_chat-1_req_20260905T220000_1234567890abcdef.zip', size: 4096, created_at: '2026-09-05T22:01:00Z' }
+    render(<BundleExchangeBar sessionId="ses_1" artifacts={[bundle, response]} />)
     expect(screen.getByText('whx_bundle_req_chat-1_req_20260905T220000_1234567890abcdef.zip')).toBeTruthy()
     expect(screen.getByText(/2.0 KB/)).toBeTruthy()
     fireEvent.click(screen.getByTitle('Explorar whx_bundle_req_chat-1_req_20260905T220000_1234567890abcdef.zip'))
     await waitFor(() => expect(mocks.artifactEntries).toHaveBeenCalledWith('ses_1', 'artifact_1'))
     expect(await screen.findByText('turn.json')).toBeTruthy()
     expect(screen.getByText('Bundle inteiro')).toBeTruthy()
+    const summary = screen.getByRole('region', { name: 'Resumo dos bundles trocados' })
+    expect(summary.textContent).toContain('Bundles trocados2')
+    expect(summary.textContent).toMatch(/Ocupação em disco6(?:\.0)? KB/)
+    expect(summary.classList.contains('sticky')).toBe(true)
+    expect(summary.classList.contains('bottom-0')).toBe(true)
+    expect(summary.classList.contains('grid-cols-2')).toBe(true)
     expect(document.querySelector('.bundle-explorer-backdrop')?.parentElement).toBe(document.body)
   })
   it('ignores auxiliary ZIP artifacts even when legacy metadata marks them as bundles', () => {

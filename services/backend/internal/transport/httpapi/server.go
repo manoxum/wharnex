@@ -17,14 +17,21 @@ import (
 
 	"kernl.local/harness/backend/internal/app"
 	"kernl.local/harness/backend/internal/audit"
+	"kernl.local/harness/backend/internal/automationhold"
 	"kernl.local/harness/backend/internal/config"
 	"kernl.local/harness/backend/internal/contextbundle"
 	"kernl.local/harness/backend/internal/documentpreview"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/gitlive"
 	"kernl.local/harness/backend/internal/pairing"
 	"kernl.local/harness/backend/internal/projectconfig"
 	"kernl.local/harness/backend/internal/session"
+	"kernl.local/harness/backend/internal/transport/httpapi/automationholds"
+	monitorhttp "kernl.local/harness/backend/internal/transport/httpapi/browsermonitor"
 	"kernl.local/harness/backend/internal/transport/httpapi/settings"
+	"kernl.local/harness/backend/internal/transport/httpapi/taskclaim"
+	"kernl.local/harness/backend/internal/transport/httpapi/workspacetranscript"
+	uitestinghttp "kernl.local/harness/backend/internal/uitesting/httpapi"
 	"kernl.local/harness/backend/internal/utility"
 	"kernl.local/harness/backend/internal/workspacefs"
 )
@@ -35,12 +42,29 @@ type API struct {
 	bus          *audit.Bus
 	cfg          config.Config
 	pairingStore *pairing.Store
+	gitHub       *gitlive.Hub
 }
 
 func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.Config) http.Handler {
 	a := &API{service: service, store: store, bus: bus, cfg: cfg, pairingStore: pairing.NewStore(filepath.Join(filepath.Dir(cfg.StateFile), "remote-pairing.json"))}
+	a.gitHub = gitlive.NewHub(3*time.Second, gitlive.Snapshot, func(sessionID string) {
+		bus.Publish(sessionID, "git.changed", map[string]any{})
+	})
 	mux := http.NewServeMux()
 	settingsRoutes := settings.New(service, cfg)
+	var refreshContext func(string) (domain.Session, error)
+	if service != nil {
+		refreshContext = service.RefreshContext
+	}
+	if err := uitestinghttp.Mount(mux, store, filepath.Dir(cfg.StateFile), cfg.DatabaseURL, refreshContext); err != nil {
+		panic(fmt.Sprintf("initialize UI testing routes: %v", err))
+	}
+	holdCatalog := automationholds.Catalog()
+	holds, err := automationhold.Open(cfg.DatabaseURL, holdCatalog)
+	if err != nil {
+		panic(fmt.Sprintf("initialize automation holds: %v", err))
+	}
+	automationholds.Register(mux, holds, holdCatalog, store)
 	mux.HandleFunc("GET /api/health", a.health)
 	mux.HandleFunc("GET /api/config", a.config)
 	mux.HandleFunc("GET /api/execution-concurrency", a.executionConcurrency)
@@ -75,6 +99,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("GET /api/workspace-attention", a.workspaceAttention)
 	// Durable workspace chat index and transcripts (previously localStorage).
 	mux.HandleFunc("GET /api/workspace-chats", a.listWorkspaceChats)
+	monitorhttp.Register(mux, service.BrowserMonitorChats)
 	mux.HandleFunc("PUT /api/workspace-chats/{id}", a.saveWorkspaceChat)
 	mux.HandleFunc("PATCH /api/workspace-chats/{id}/remote", a.updateWorkspaceChatRemote)
 	mux.HandleFunc("GET /api/workspace-chats/{id}/binding-recovery", a.recoverWorkspaceChatBinding)
@@ -83,6 +108,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("DELETE /api/workspace-chats/{id}", a.deleteWorkspaceChat)
 	mux.HandleFunc("GET /api/workspace-chats/{id}/items", a.listWorkspaceChatItems)
 	mux.HandleFunc("PUT /api/workspace-chats/{id}/items", a.replaceWorkspaceChatItems)
+	mux.HandleFunc("POST /api/workspace-chats/{id}/items", workspacetranscript.Append(a.service))
 	// Durable ChatGPT browser-agent scheduler. Electron is a lease-based
 	// executor; PostgreSQL remains authoritative across Desktop restarts.
 	mux.HandleFunc("GET /api/chat-agent/provider", a.chatAgentProviderState)
@@ -93,7 +119,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/chat-agent/tasks", a.enqueueChatAgentTask)
 	mux.HandleFunc("GET /api/chat-agent/tasks", a.listChatAgentTasks)
 	mux.HandleFunc("GET /api/chat-agent/tasks/summary", a.chatAgentTaskSummary)
-	mux.HandleFunc("POST /api/chat-agent/tasks/claim", a.claimChatAgentTask)
+	taskclaim.Register(mux, store, holds, holdCatalog)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/assign", a.assignChatAgentTask)
 	mux.HandleFunc("POST /api/chat-agent/tasks/cancel-lineage", a.cancelChatAgentLineage)
 	mux.HandleFunc("POST /api/chat-agent/tasks/{id}/start", a.startChatAgentTask)

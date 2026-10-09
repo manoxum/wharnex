@@ -17,7 +17,6 @@
 }
 .agent-runtime-summary span:last-child,
 .agent-runtime-memory-summary span:last-child { border-right: 0; }
-.agent-runtime-tabs { padding-inline: 10px; background: var(--theme-surface); }
 .agent-runtime-body { gap: 0; padding: 0; }
 .agent-runtime-list,
 .agent-runtime-detail {
@@ -85,18 +84,3 @@
 }
 .agent-runtime-policy-chip,
 .agent-runtime-inline-status { border-radius: 4px; }
-.agent-runtime-task-tree-root,
-.agent-runtime-task-tree-group,
-.agent-runtime-task-tree-group header,
-.agent-runtime-task-tree-leaf {
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.agent-runtime-task-tree-group {
-  border: 0;
-  border-left: 1px solid var(--theme-border-soft);
-}
-.agent-runtime-task-tree-group header { border-bottom: 1px solid var(--theme-border-soft); }
-.agent-runtime-task-tree-leaf { min-height: 32px; }
-.agent-runtime-task-tree-node-mark { border-radius: 4px; background: transparent; }

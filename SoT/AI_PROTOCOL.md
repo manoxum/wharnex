@@ -74,6 +74,18 @@ Wharness is a project copilot, not a coding-only agent. Every provider result MU
 
 Questions and advice requests SHOULD terminate as `answer` when the attached context is sufficient. Diagnostic/audit requests SHOULD terminate as `investigation` when evidence is sufficient. An explicit request to devise, elaborate, propose, draft, present, or structure an implementation plan MUST terminate as `plan` even when the composer is in Direct mode. The UI toggle is a convenience hint, not the only way to select planning-only behavior. Project context, Agent mode, or an automatic execution mode MUST NOT by themselves upgrade ASK/INVESTIGATE intent into CHANGE. Ambiguous mutation intent defaults to non-mutation or clarification.
 
+## Acceptance evidence for corrective changes
+
+For a reported runtime defect, the planner MUST distinguish a prepared change,
+Protected test evidence, host integration evidence, and observed runtime
+acceptance. An `applied` session, a successful build, or a mocked query test
+alone MUST NOT be described as proof that the live symptom is resolved.
+Acceptance checks MUST cover the reported entry points and a valid unaffected
+case. Missing local evidence is requested through a bounded workflow; host
+rollout remains behind the engine's informed-command approval boundary. The
+terminal summary MUST name checks that actually ran and checks still pending.
+These reporting requirements add no command authority or wire fields.
+
 ## Iterative workflow turn
 
 A `workflow` turn exists so one user request can span multiple ChatGPT ⇄ Wharness reasoning rounds without scraping model prose.
@@ -93,7 +105,7 @@ After the step, Wharness captures structured argv/cwd/exit/stdout/stderr evidenc
 
 The planner MAY therefore return a `workflow` bundle specifically to request missing local information. Its human explanation states what evidence is needed, while its command-only plan is the complete machine-readable extraction instruction. Wharness classifies this as an **evidence iteration**, executes it locally under the restrictions above, and returns the structured observations to the same Main Request.
 
-The workflow is bounded to six local rounds per original user turn. The final continuation explicitly requires a terminal result. An additional `workflow` bundle after the cap MUST be rejected while leaving the current request pending so a terminal bundle can still be supplied.
+The workflow is bounded to six executed local steps per original user turn (interactive protocols: twenty-four). Partial context increments are planner-paced snapshot reads, not executed steps: they never spend this budget and have no round ceiling of their own (`SoT/CONTEXT_PROTOCOL.md`). The final executed-step continuation explicitly requires a terminal result. An additional `workflow` bundle after the cap MUST be rejected while leaving the current request pending so a terminal bundle can still be supplied.
 
 Command failure in a workflow is evidence, not an automatic repair trigger. Automatic repair remains specific to a requested `change` plan.
 
@@ -298,7 +310,7 @@ The same snapshot MUST be used by direct Desktop ZIPs, one-shot remote ZIPs, liv
 
 ## Patch representation
 
-Source mutation uses unified diff text in `apply_patch` operations. Paths must be relative to the project root. Patches are valid only for `change` turns. A delivered `patches/*.patch` file is raw UTF-8 diff bytes, not Markdown: every `diff --git` header has exactly `diff --git a/relative/path b/relative/path`, with exactly two unquoted paths and no trailing backslash or extra text. Markdown fences and proprietary patch dialects are invalid.
+Source mutation uses unified diff text in `apply_patch` operations. Paths must be relative to the project root. Patches are valid only for `change` turns. A delivered `patches/*.patch` file is raw UTF-8 diff bytes, not Markdown: every `diff --git` header has exactly `diff --git a/relative/path b/relative/path`, with exactly two unquoted paths and no trailing backslash or extra text. Markdown wrappers around a diff and proprietary patch dialects are invalid. Fence markers, quotes, backslashes and diff examples inside structurally counted hunk body lines are ordinary project content and MUST remain permitted unchanged. Envelope checks MUST distinguish those body lines from patch headers and framing; neither the validator nor provider instructions may ban such bytes globally.
 
 Change plans MAY declare `read_files` and `barrier_files`. They are bounded relative paths and scheduling/verification evidence only; Wharness derives the authoritative write set from the validated patch result. A conflict-resolution request contains one `harness.conflict/v1` capsule with bounded BASE/CURRENT/RESULT data and hashes. Conflict detection pauses before any model dispatch and requires an explicit operator choice: resolve locally in the three-way workbench or delegate to GPT. A pure GPT resolution MUST cover every conflicting path and MUST NOT modify any path outside the capsule. In hybrid resolution, paths the operator marks resolved are locked: Wharness stores a backend-generated patch authored against CURRENT, removes those paths from the delegated capsule, rejects any GPT patch that touches them, and injects the operator patch into the accepted plan. A fully manual resolution follows the same Protected verification/integration path as an ordinary candidate; for a Git-origin conflict it concludes the exact merge the operator started. A conflict turn never broadens or repeats the original task.
 
@@ -474,3 +486,158 @@ Before every ChatGPT submission, the owning Supervisor or Worker attempts the ta
 Every planner-authored command and every typed Interactive v2 operation SHOULD carry a short operator-facing `rationale`: why that concrete step is needed and what evidence or effect it should produce. This is an execution-purpose summary, not private model reasoning. Execution events propagate that rationale so **Execução observável** can show it alongside argv, stdout, stderr, exit status and duration. Persisted/legacy plans without the field remain executable and receive an engine fallback purpose so observability never becomes blank.
 
 Interactive v2 authorization is lineage-bound. A grant records the Main Request root, protocol, target, access, capability set, scope, and an operation digest. Modify grants are one-shot and exact-plan/digest bound. A new protocol/configuration boundary or disabling Interativo clears the durable grant. SQL references engine-owned connection handles only; connection credentials/DSNs are never planner-visible data. Shell operations inherit no ambient host secrets: only `PATH`, the non-interactive Git guard, and explicitly allowlisted environment names are exposed. Engine-resident SQL/log/filesystem/process/network/container/service adapters are host-target-only in the initial v2 implementation; sandbox target plans use sandbox-runner command/shell operations.
+
+
+## UI test discovery bundle contract
+
+`UI_TEST_DISCOVER` is an engine-owned bundle exchange. The backend builds
+`whx_ui_test_discovery_req_<task_id>.zip` with root `transport.json`
+(`wharnex.ui-test-discovery-input/v1`), authoritative
+`prompt/wharnex-ui-test-discovery-prompt.md`, and `context/project-context.zip`.
+The manifest binds `discover_ui_tests`, the durable task ID, context SHA-256,
+source archive SHA-256, exact request/response names and request metadata.
+The Worker MUST verify both filenames against its own task ID before uploading
+exactly that request archive. It sends only the engine bootstrap in the composer.
+An attachment or composer failure MUST stop submission; there is no inline fallback.
+
+The only response is `whx_ui_test_discovery_res_<task_id>.zip`, containing
+exactly one regular root file `discovery.json` (`harness.ui-test-discovery/v1`,
+a retained compatibility identifier). The backend MUST reject bare JSON/prose,
+foreign filenames, extra or unsafe entries, oversized compressed/expanded data,
+unknown fields, trailing JSON/data, mismatched task/hashes and invalid catalog
+references before saving environments/tests. Desktop observes only the exact
+artifact affordance and forwards bytes; it MUST NOT read assistant prose.
+Existing valid v1 bundles remain valid; previously tolerated malformed inputs
+fail closed. This contract grants no execution or credential authority.
+
+### UI test discovery v2: incremental catalog and operator design (see `adr/ADR-0088`)
+
+New discovery requests use `wharnex.ui-test-discovery-input/v2` with the same
+task-bound filenames. Besides the v1 entries, the archive carries
+`catalog/current.json` (`wharnex.ui-test-catalog/v1`): every environment with
+its local configuration state (URL, `url_configured`, profiles with
+`configured` only, and the operator's `notes`: non-secret reference data such
+as identifiers of existing records, at most 4000 characters, never authored by
+GPT and preserved across merges) and every stored test with its definition, `source`
+(`discovered` | `user`) and latest run outcome. It MUST NOT carry credentials
+or browser-session material. The manifest adds `catalog_path` and
+`catalog_sha256`. A synchronization uses task `discover_ui_tests`; an
+operator-requested design uses task `design_ui_test` and adds the brief as
+`brief/request.md` (`brief_path`, at most 8000 bytes). The composer bootstrap
+never contains the brief.
+
+The answer stays `discovery.json` inside the exact response archive, with
+protocol `wharnex.ui-test-discovery/v2` and exactly `protocol`, `task`,
+`task_id`, `context_sha256`, `source_sha256`, `catalog_sha256`, `summary`,
+`environments`, `tests`, `obsolete_test_ids`; every identity and hash MUST match
+the request. It is incremental: only new or revised tests and new or changed
+environments, plus obsolete discovered test ids. Each test MUST declare
+`access` (`public` | `authenticated`); a public test MUST NOT name a profile.
+Optional detail fields are bounded: `category`, `priority`, `preconditions`,
+`steps` (`{action, expected}`, at most 40), `expected_result`, `test_data`,
+`depends_on` (at most 8) and `tags` (arrays of strings; a flat object item is normalized to
+`key: value` text, nested structures are refused). A design answer MUST add at
+least one test and MUST NOT retire tests or environments.
+
+Planning is limited to what a regular desktop web browser can complete. An
+environment that runs inside a native shell, kiosk or mobile app, needs device
+pairing or physical-device approval, or needs real hardware, is out of scope:
+the answer lists it in the optional `obsolete_environment_ids`, and the merge
+retires it together with its discovered tests (an environment still holding an
+operator test is kept). Individual out-of-scope flows of a browser
+application are simply not planned.
+
+The engine merges the answer, never replaces the catalog: omitted tests and
+local configuration survive; a synchronization never overwrites or retires a
+`user` test nor a test another test depends on. The merged catalog MUST
+validate as a whole before it is saved: references resolve, `depends_on` is
+acyclic and stays within one environment, a chain never mixes profiles, public
+tests inherit no profile and authenticated tests resolve one. Rejection leaves
+the stored catalog unchanged.
+
+### UI test run v2: chains and persisted sessions
+
+`UI_TEST_RUN` payloads use `harness.ui-test-run/v2`: `full_chain` lists every
+prerequisite in execution order followed by the selected test, each with its own
+run id; `chain` is the suffix the worker executes; `restore` optionally names the
+persisted session that stands in for the skipped prefix. The worker reports a
+result per run id, reports `skipped` for tests after a failed prerequisite, and
+hands the browser state to `POST /api/ui-testing/tasks/{id}/session` after each
+passed run. The executor's `finish.status` MAY be `session_invalid` only on the
+first test after a restore; the worker then invalidates that session and replays
+`full_chain` from a clean browser once. v1 payloads execute as a one-test chain.
+
+### UI test run exchanges (step and guide)
+
+A spent file-upload allowance (uploads that never start) is a provider
+limit, not a test outcome. The Desktop's account-wide upload gate
+(`adr/ADR-0093`) raises a typed deferral; discovery and runs return to the
+queue as a free `waiting` observation until the gate's window ends instead of
+failing. Both task types run on the persistent Worker pool, at most one run at
+a time, and their durable task holds (`task:UI_TEST_DISCOVER`, `task:UI_TEST_RUN`) suspend them.
+
+Every GPT exchange of a `UI_TEST_RUN` is a bundle built and validated by the
+backend (`internal/uitesting/exchange`); the Desktop only transports it and
+MUST NOT read assistant prose. One controller iteration is
+`whx_ui_test_step_req_<task_id>_<sequence>.zip` (`wharnex.ui-test-step-input/v1`)
+carrying `transport.json`, `prompt/wharnex-ui-test-step-prompt.md`,
+`state/step.json` (test definition and strategy from the task payload, chain
+position, current URL, bounded history) and `screenshots/current.png`. Its only
+answer is `whx_ui_test_step_res_<task_id>_<sequence>.zip` holding exactly
+`action.json` (`wharnex.ui-test-step/v1`) that echoes task, run, sequence and
+`input_sha256`, a mandatory `screen_caption` (at most 400 characters: what
+the attached screenshot shows, written for an end user — it becomes that
+capture's legend in the run, the live guide and the PDF), and either one
+`action` or a planned sequence `actions` (1..15) from the closed set
+`navigate`, `click`, `fill`, `fill_credential`, `press`, `wait`,
+`assert_text`, `finish`, with `finish` only last. Because every exchange costs
+one upload from the account's limited file-upload allowance, the executor runs
+a planned sequence without returning and asks for a new plan only when an
+action fails or the plan ends without `finish`; each action gets the capture
+of the screen it acted on. The backend
+normalizes it: same-origin navigation only, bounded fields, allowlisted keys,
+clamped waits, and `finish.status=session_invalid` only after a restore.
+Sequences are unique per task (1..999). `state/step.json` carries the
+environment's `environment_notes` and
+`elements`: at most 200 visible interactive elements of the page under test,
+each with a selector the Desktop proved unique, bounded and treated as
+untrusted page data. An answer the backend refuses is requested once more for
+the same page state with `previous_answer_error`; `fill_credential` is refused
+when the test has no configured credentials. A failed browser action (selector
+not found, failed assertion) is recorded in the history as feedback for the
+next iteration rather than failing the test; leaving the environment origin
+remains fatal. Each capture also carries the elements measured on the page
+when it was taken (interactive elements first, then landmarks such as
+headings, alerts and dialogs, each with its box in viewport fractions), and
+each recorded step names the `selector` it targeted. The user guide of the
+selected test is `whx_ui_test_guide_req_<task_id>.zip`
+(`wharnex.ui-test-guide-input/v2`, `adr/ADR-0094`) with `state/steps.json`
+(test, run steps and `captures`: each capture's pixel size and at most 60
+in-view elements with ids `e1…`, `acted_on` and `box`),
+`catalog/planned-tests.json` (the environment's current test plan) and at most
+30 `screenshots/step-NN.png`. It is answered by
+`whx_ui_test_guide_res_<task_id>.zip` holding exactly `guide.json`
+(`wharnex.ui-test-guide/v2`, echoing identity and `input_sha256`): title,
+subtitle, summary, audience, duration, `theme` (`accent` and `cover` from
+closed sets), `before_you_start`, `sections` of steps (short imperative
+`instructions` with interface labels in `**…**`, `layout` from `split`,
+`hero`, `focus` or `compact`, optional `capture`, `view` `focus|full`, optional
+crop `region`, 1..6 `annotations` on a measured element id or an explicit
+region, `caption`, optional typed `callout`), `expected_result`,
+`troubleshooting`, `related`, `captions`, `proposed_tests` and `verdict`. A
+capture is used at most once and in the order taken, so redundant captures
+are omitted. `captions` still gives a legend of at most 400 characters to
+every capture sent, none missing and none extra. The backend resolves every
+marker to its measured box and every focused view to a bounded crop that keeps
+the markers inside; the resolved document is rendered by the engine alone into
+Markdown, the HTML page and the PDF, and GPT text is always escaped.
+`proposed_tests` (at most 12) are tests for interface elements the plan does
+not exercise. They follow the discovery field rules, MUST name the run's own
+web environment, and are merged as new `discovered` tests only, never
+revising or retiring one. `verdict` `{status: passed|failed, reason}` is GPT's
+visual review of the run from the captures: a run whose actions succeeded but
+whose review fails is recorded as failed with that reason. An answer to a v1
+guide request already in flight (`manifest.json` plus free `guide.md`) is
+still accepted. Each answer is validated against the request the backend
+issued and consumed once; a request the backend did not issue, or an answer
+replayed, is refused. Credentials never enter any of these archives.

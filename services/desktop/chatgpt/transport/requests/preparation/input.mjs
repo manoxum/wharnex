@@ -69,7 +69,7 @@ export function createChatInputPreparation({
   async function fillBundledChatGPTComposer(key, entry, sessionId, requestId, promptText, expectedFilename, attachments = [], requestMetadata = {}) {
     const signal = entry?.transportAbortSignal
     const input = await withRequestPreparationDeadline(signal, (bounded) => materializeProtocolChatInput(key, sessionId, requestId, promptText, attachments, requestMetadata, bounded))
-    const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, [], input.requestMetadata, input.multipart)
+    const bootstrap = localChatInputBootstrap(requestId, input.archiveName, expectedFilename, input.requestMetadata, input.multipart)
     try {
       throwIfChatGPTTransportAborted(signal)
       const filled = await entry.view.webContents.executeJavaScript(chatGPTFillComposerScript(bootstrap), true)

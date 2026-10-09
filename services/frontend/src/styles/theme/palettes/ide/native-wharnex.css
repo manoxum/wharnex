@@ -38,9 +38,6 @@
 :root[data-theme] .terminal-workspace {
   background: color-mix(in srgb, var(--theme-bg) 72%, #070908);
 }
-:root[data-theme] .terminal-tabbar {
-  background: color-mix(in srgb, var(--theme-bg) 82%, var(--theme-surface));
-}
 :root[data-theme] .chat-panel .composer {
   border-color: var(--theme-border);
   background: var(--theme-surface);

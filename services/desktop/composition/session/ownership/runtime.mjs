@@ -8,7 +8,7 @@ import { createSupervisorTransport } from '../../../chatgpt/transport/requests/s
 export function createDesktopOwnershipRuntime(deps) {
   const {
     desktopWindows, chatgptViews, chatGPTWorkerEntries, expectedChatGPTBundles, expectedChatGPTTranslations,
-    expectedChatGPTReleaseNotes, expectedChatGPTTodoClassifications, expectedChatGPTOrchestratorPlans, pendingChatGPTComments, chatgptTransportModes,
+    expectedChatGPTReleaseNotes, expectedChatGPTTodoClassifications, expectedChatGPTUITestDiscoveries, expectedChatGPTOrchestratorPlans, pendingChatGPTComments, chatgptTransportModes,
     canonicalChatGPTConversationURL, sameConversationURL, pendingChatGPTBundleDeliveries, chatGPTTransportTails, chatSupervisorStates,
     preparedChatGPTDrafts, retryableChatGPTPrompts, RETRYABLE_PROMPT_TTL_MS, sanitizeOptionalChatCacheKey, chatAgentConversationID,
     chatAgentResidency, withTrace, traceId, sanitizeChatCacheKey,
@@ -42,7 +42,7 @@ export function createDesktopOwnershipRuntime(deps) {
     reconcileChatGPTThrottle,
   } = createChatGPTThrottle({
     expectedChatGPTBundles, expectedChatGPTTranslations,
-    expectedChatGPTReleaseNotes, expectedChatGPTTodoClassifications,
+    expectedChatGPTReleaseNotes, expectedChatGPTTodoClassifications, expectedChatGPTUITestDiscoveries,
     expectedChatGPTOrchestratorPlans, chatgptViews, pendingChatGPTComments,
     windowStateForEntry,
   })

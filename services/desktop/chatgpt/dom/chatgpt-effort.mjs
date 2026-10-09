@@ -27,7 +27,8 @@ export async function ensureChatGPTReasoningEffort({
   for (let attempt = 0; attempt <= CHATGPT_REASONING_EFFORTS.length; attempt += 1) {
     const result = await observe()
     if (!result?.ok || !CHATGPT_REASONING_EFFORTS.includes(result.effort)) {
-      throw new Error(`ChatGPT reasoning effort is unavailable (${String(result?.state || 'unknown')})`)
+      console.warn(`[chatgpt-effort] unavailable state=${String(result?.state || 'unknown')} labels=${JSON.stringify((result?.labels || []).slice(0, 8).map((label) => String(label).slice(0, 120)))}`)
+      throw Object.assign(new Error(`ChatGPT reasoning effort is unavailable (${String(result?.state || 'unknown')})`), { retryTransport: false })
     }
     seen.push(result.effort)
     if (result.effort === wanted) return { effort: wanted, changed: attempt > 0, cycles: attempt }
@@ -35,5 +36,5 @@ export async function ensureChatGPTReasoningEffort({
     await cycle()
     await wait(settleMs)
   }
-  throw new Error(`ChatGPT reasoning effort did not reach ${wanted} after bounded cycling (${seen.join(' -> ')})`)
+  throw Object.assign(new Error(`ChatGPT reasoning effort did not reach ${wanted} after bounded cycling (${seen.join(' -> ')})`), { retryTransport: false })
 }

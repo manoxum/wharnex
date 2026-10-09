@@ -21,7 +21,7 @@ const withTools = (env) => {
   return { ...env, PATH: dir }
 }
 
-test('the up-link is on by default and can be disabled or required', () => {
+test('the up-link defaults to required and recognizes legacy override values for rejection', () => {
   assert.equal(upLinkMode({}), 'required')
   assert.equal(upLinkMode({ WHARNESS_UP_LINK: 'auto' }), 'auto')
   assert.equal(upLinkMode({ WHARNESS_UP_LINK: 'off' }), 'off')
@@ -41,8 +41,8 @@ test('the launch chain keeps the dedicated helper and gateway positional across 
   assert.deepEqual(launch.args, ['-c', UP_LINK_OUTER_SCRIPT, 'up-whx-link', UP_LINK_ENTER_SCRIPT, '/run/r.conf', '1000', '1000', '5173,6969', UP_LINK_DNS, UP_LINK_UNSHARE, '192.168.1.1', '/opt/electron', '.', '--ozone-platform=x11'])
   for (const script of [UP_LINK_OUTER_SCRIPT, UP_LINK_ENTER_SCRIPT]) assert.doesNotMatch(script, /\/opt\/electron|6969|1000|169\.254|192\.168\.1\.1/)
   assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" --user --map-root-user/)
-  assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" "\$gw" "\$@"/)
-  assert.match(UP_LINK_ENTER_SCRIPT, /r=\$1; u=\$2; g=\$3; h=\$4; gw=\$5; shift 5/)
+  assert.match(UP_LINK_OUTER_SCRIPT, /"\$h" "\$gw" "\$p" "\$@"/)
+  assert.match(UP_LINK_ENTER_SCRIPT, /r=\$1; u=\$2; g=\$3; h=\$4; gw=\$5; p=\$6; shift 6/)
   assert.match(UP_LINK_ENTER_SCRIPT, /"\$h" --user --map-user="\$u"/)
 })
 
@@ -90,23 +90,29 @@ test('an active up-link switches the sandbox to user namespaces and writes its r
   assert.equal(JSON.parse(readFileSync(path.join(dir, 'up-whx-link.state'), 'utf8')).active, true)
 })
 
-test('auto mode falls back to the ordinary launch and keeps the sandbox untouched', () => {
-  const env = withTools(gatewayEnv({ WHARNESS_UP_LINK: 'auto' }))
-  const plan = prepareUpLink(env, { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => { throw new Error('userns denied') } })
-  assert.equal(plan.active, false)
-  assert.match(plan.reason, /preflight failed: userns denied/)
+test('opted-in host ports are forwarded and loopback aliases reach them', () => {
+  const env = withTools(gatewayEnv({ WHARNEX_UP_LINK_HOST_PORTS: '443,80' }))
+  const plan = prepareUpLink(env, { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => {}, uid: 1000, gid: 1000 })
+  assert.deepEqual(plan.ports, [80, 443, 6969])
+  // The forwarded set reaches the namespace root, which redirects other
+  // loopback aliases to 127.0.0.1 on exactly those ports before Electron runs.
+  assert.match(UP_LINK_OUTER_SCRIPT, /up-whx-link-ns "\$r" "\$u" "\$g" "\$h" "\$gw" "\$p" "\$@"/)
+  const dnat = UP_LINK_ENTER_SCRIPT.indexOf('ip daddr 127.0.0.0/8 ip daddr != 127.0.0.1 tcp dport "{ $p }" dnat to 127.0.0.1')
+  assert.ok(dnat > -1 && dnat < UP_LINK_ENTER_SCRIPT.indexOf('exec "$h"'))
+})
+
+test('an unavailable namespace never falls back to the host network', () => {
   let attempts = 0
-  const retryEnv = withTools(gatewayEnv({ WHARNESS_UP_LINK: 'auto' }))
+  const retryEnv = withTools(gatewayEnv())
   const retried = prepareUpLink(retryEnv, { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => { if (++attempts === 1) throw new Error('settling') } })
   assert.equal(retried.active, true, 'one transient preflight failure is retried')
   assert.equal(attempts, 2)
   assert.equal(retryEnv.WHARNESS_LINUX_SANDBOX_MODE, 'userns', 'successful retry keeps the sandbox mode switch')
-  assert.equal(env.WHARNESS_LINUX_SANDBOX_MODE, 'runtime')
-  // Inject an absent dedicated helper so the assertion stays deterministic
-  // even when the execution host has the production helper installed in /opt.
-  assert.equal(prepareUpLink(gatewayEnv({ WHARNESS_UP_LINK: 'auto', PATH: '/nonexistent' }), { runtimeDir: runtimeDir(), platform: 'linux', unsharePath: '/nonexistent/wharnex-up-link-unshare' }).reason, 'missing pasta, ip, mount, unshare')
+  assert.throws(() => prepareUpLink(retryEnv, { runtimeDir: runtimeDir(), platform: 'linux', preflight: () => { throw new Error('userns denied') } }), /required but unavailable: preflight failed/)
   assert.equal(prepareUpLink(gatewayEnv(), { runtimeDir: runtimeDir(), platform: 'darwin' }).reason, 'unsupported-platform')
-  assert.equal(prepareUpLink(gatewayEnv({ WHARNESS_UP_LINK: 'off' }), { runtimeDir: runtimeDir(), platform: 'linux' }).reason, 'disabled')
+  for (const mode of ['auto', 'off']) {
+    assert.throws(() => prepareUpLink(gatewayEnv({ WHARNESS_UP_LINK: mode }), { runtimeDir: runtimeDir(), platform: 'linux' }), /obrigatório no Linux/)
+  }
 })
 
 test('required mode refuses to start without the up-link', () => {

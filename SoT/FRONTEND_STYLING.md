@@ -176,3 +176,43 @@ the existing appearance:
 - This does not extend to `services/desktop/main.mjs` or other non-CSS
   legacy files — those are governed by `SoT/CODE_QUALITY.md`'s
   extract-on-touch rule, not by this document.
+
+## 7. Shared tab implementation
+
+All tab styling and responsive behavior MUST follow `SoT/TABS.md`. The tab
+refresh authorized on 2026-10-06 adopts Version Control chrome throughout the
+workbench; visual parity elsewhere remains required. Shared tab primitives use
+Tailwind and theme tokens, including the blue `--theme-tab-active` token, and
+migrated surfaces MUST remove their superseded legacy tab selectors.
+
+## Native bootstrap splash exception
+
+`services/desktop/splash/view` is standalone Electron bootstrap chrome, shown
+before the frontend or its build exists. Its local data-URL page may retain small,
+domain-owned inline CSS instead of depending on a generated Tailwind bundle or a
+network stylesheet. This exception applies only to this native splash, preserves
+its existing visual identity, and does not extend to frontend components.
+
+## Restored resource chrome
+
+The explicit terminal/conversation/linked-project/document exceptions in `TABS.md` retain
+their original appearance through Tailwind variants of the shared tab primitives.
+The 2026-10-06 restoration of all four resource strips to `main` retains document
+chrome at 36px with its original fixed 10px monospace title typography, a named
+visual-parity exception to scaled typography for this existing resource surface.
+Terminal, conversation and project typography continues to follow UI scale.
+Only linked-project composer attention keyframes use domain CSS
+(`styles/domains/window/project-attention.css`); custom hue/shadow interpolation
+cannot be expressed with stock animation utilities. This is a keyframe-only
+exception and does not authorize legacy tab selector restoration.
+
+## UI Lab refresh (2026-10-06)
+
+The operator explicitly requested a visual refresh of Teste de UI, including
+its catalog, documentation and configuration. Visual parity is waived only
+for these named surfaces. They use Tailwind with theme and scaled typography
+tokens. UI Lab had no dedicated legacy selectors to delete. Shared unlayered
+element defaults for buttons, inputs and headings still serve untouched UI;
+removing them would widen this task, so the UI Lab control contracts explicitly
+use important utility precedence. This is the shared-cascade exception in §3,
+not permission to add CSS overrides or change global element defaults.

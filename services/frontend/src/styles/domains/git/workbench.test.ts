@@ -1,29 +1,34 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { css, lastRule, firstRule } from '../../cascade/styleRules'
+import { tabBarSource } from '../../cascade/tabStyles'
 
 describe('Git workbench CSS', () => {
   it('uses project theme tokens instead of the old green-tinted dark island', () => {
     const drawer = lastRule('.git-drawer')
     const section = lastRule('.git-section')
-    const tabs = lastRule('.git-tabs')
+    const tabs = tabBarSource
 
     expect(drawer).toContain('background: var(--theme-bg)')
     expect(drawer).toContain('color: var(--theme-text)')
     expect(section).toContain('background: var(--theme-surface)')
     expect(section).toContain('border: 1px solid var(--theme-border-soft)')
-    expect(tabs).toContain('background: var(--theme-surface)')
+    expect(tabs).toContain('bg-whx-surface')
     expect(tabs).not.toContain('#1b1e19')
     expect(section).not.toContain('#1a1d18')
   })
 
   it('keeps Git tabs fully visible and increases the working-copy reading density', () => {
-    const tabs = lastRule('.git-tabs')
-    const changeTabs = lastRule('.git-changes-tabs')
+    const tabs = tabBarSource
+    const gitTabs = readFileSync(resolve(process.cwd(), 'src/components/git/review/GitTabs.tsx'), 'utf8')
     const pendingCommit = lastRule('.git-unpushed-list li')
-    expect(tabs).toContain('grid-template-columns: repeat(5, minmax(0, 1fr))')
-    expect(tabs).toContain('overflow: visible')
-    expect(changeTabs).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
-    expect(changeTabs).toContain('overflow: visible')
+    expect(gitTabs).toContain('label="Secções do Git"')
+    expect(gitTabs.match(/id: '(?:changes|history|contributors|branches|settings)'/g)).toHaveLength(5)
+    expect(tabs).toContain('overflow-x-auto')
+    expect(gitTabs).toContain('label="Tipos de alterações locais"')
+    expect(gitTabs.match(/id: '(?:working|pending)'/g)).toHaveLength(2)
+    expect(tabs).not.toContain('overflow-hidden')
     expect(pendingCommit).toContain('min-height: 52px')
     expect(lastRule('.agent-tree-row')).toContain('height: 30px')
   })

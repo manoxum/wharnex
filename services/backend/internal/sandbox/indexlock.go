@@ -11,7 +11,9 @@ import (
 // Editors poll `git status` on the open project continuously, and each poll
 // takes the lock for a moment; a merge or revert that loses that race once is
 // not a blocked host, only an unlucky instant. A lock held for longer than the
-// whole window is still reported, and still never deleted.
+// whole window is still reported. The shared Git command boundary owns the
+// host-only abandoned-lock proof and cleanup (ADR-0092); this outer wait keeps
+// the existing longer rollback contention window.
 const (
 	indexLockRetries    = 20
 	indexLockRetryDelay = 250 * time.Millisecond

@@ -3,14 +3,15 @@ import { mkdirSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 
 export function createChatGPTUtilityDownloads({
-  expectedChatGPTTranslations, expectedChatGPTTodoClassifications, tempPath,
+  expectedChatGPTTranslations, expectedChatGPTTodoClassifications, expectedChatGPTUITestDiscoveries, tempPath,
   MARKDOWN_TRANSLATION_TIMEOUT_MS, MAX_MARKDOWN_TRANSLATION_RESULT_BYTES,
   TODO_CLASSIFICATION_TIMEOUT_MS, MAX_TODO_CLASSIFICATION_BYTES,
+  UI_TEST_DISCOVERY_TIMEOUT_MS, MAX_UI_TEST_DISCOVERY_BYTES,
 }) {
   // Chromium appends its own browser-side duplicate-name suffix ("(2)") when a
   // name it already has a download for is offered again - exactly what happens
   // when a worker clicks the same result card more than once. The Supervisor's
-  // canonicalWharnessBundleDownload already tolerates this (bundlename.mjs's
+  // canonicalWharnexBundleDownload already tolerates this (bundlename.mjs's
   // parseBundleNameWithDuplicateSuffix); these background-worker downloads used
   // a strict exact-match instead, so a suffixed repeat fell through every
   // recognizer here and reached the OS as an ordinary, undismissable download
@@ -113,5 +114,46 @@ export function createChatGPTUtilityDownloads({
     return true
   }
 
-  return { registerChatGPTMarkdownTranslationDownload, registerChatGPTTodoClassificationDownload }
+
+  function registerChatGPTUITestDiscoveryDownload(item, sourceFilename) {
+    const rawFilename = path.basename(String(sourceFilename || ''))
+    const filename = stripChatGPTDownloadDuplicateSuffix(rawFilename)
+    const expected = expectedChatGPTUITestDiscoveries.get(filename)
+    // Discovery, run-step and user-guide answers share one UI Lab expectation map.
+    const looksInternal = /^whx_ui_test_(?:discovery|step|guide)_res_cat_[a-f0-9]{20}(?:_[0-9]{1,3})?\.zip$/.test(filename)
+    if (!expected && !looksInternal) return false
+    if (rawFilename !== filename) console.warn(`[ui-test-discovery] normalized duplicate-suffixed download name=${rawFilename} -> ${filename}`)
+    if (!expected || Date.now() - expected.armedAt > UI_TEST_DISCOVERY_TIMEOUT_MS + 60_000) {
+      item.cancel()
+      return true
+    }
+    expected.downloadStarted = true
+    if (Number(item.getTotalBytes?.() || 0) > MAX_UI_TEST_DISCOVERY_BYTES) {
+      item.cancel(); expected.reject(new Error('UI test discovery bundle exceeds the transport limit')); return true
+    }
+    const dir = path.join(tempPath(), 'wharnex-ui-testing', expected.taskId)
+    const savePath = path.join(dir, filename)
+    try { mkdirSync(dir, { recursive: true, mode: 0o700 }); item.setSavePath(savePath) }
+    catch (error) { item.cancel(); expected.reject(error instanceof Error ? error : new Error(String(error))); return true }
+    item.on('updated', () => {
+      if (item.getReceivedBytes() > MAX_UI_TEST_DISCOVERY_BYTES) {
+        item.cancel(); expected.reject(new Error('UI test discovery bundle exceeds the transport limit'))
+      }
+    })
+    item.once('done', async (_event, state) => {
+      if (state !== 'completed') {
+        if (state !== 'cancelled') expected.reject(new Error(`UI test discovery download ended in state ${state}`))
+        return
+      }
+      try {
+        const bytes = await readFile(savePath)
+        if (bytes.byteLength > MAX_UI_TEST_DISCOVERY_BYTES) throw new Error('UI test discovery bundle exceeds the transport limit')
+        expected.resolve(bytes)
+      } catch (error) { expected.reject(error instanceof Error ? error : new Error(String(error))) }
+      finally { await rm(savePath, { force: true }).catch(() => undefined) }
+    })
+    return true
+  }
+
+  return { registerChatGPTMarkdownTranslationDownload, registerChatGPTTodoClassificationDownload, registerChatGPTUITestDiscoveryDownload }
 }

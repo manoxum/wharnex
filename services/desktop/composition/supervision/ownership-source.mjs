@@ -19,7 +19,7 @@ export async function readOwnershipSource() {
       || !chatSession.includes("from './ownership/index.mjs'")
       || !agent.includes('createSupervisorOwnership')
       || !chatTransport.includes('createSupervisorTransport')
-      || !main.includes("from './composition/window/index.mjs'")
+      || !main.includes("from '../../window/index.mjs'")
       || !windowIndex.includes("from './message-routing.mjs'")) {
     throw new Error('Ownership domain facades missing')
   }
@@ -32,7 +32,7 @@ export async function readOwnershipSource() {
   const sectionStart = main.indexOf('const {\n  chatGPTArtifactExpectationArmed,')
   const sectionEnd = main.indexOf('\nconst { abortChatGPTTransportPreparations', sectionStart)
   const transportCompositionStart = main.indexOf('const { withChatGPTSupervisorTransport } = createSupervisorTransport({', sectionEnd)
-  const transportCompositionEnd = main.indexOf('\nconst {\n  acquireProjectForWindow,', transportCompositionStart)
+  const transportCompositionEnd = main.indexOf("compose(ctx, 'window-assembly'", transportCompositionStart)
   const routingStart = routing.indexOf('  function windowStateForWebContents(')
   const routingEnd = routing.lastIndexOf('\n  return {')
   if (Math.min(throttleStart, throttleEnd, bindingStart, bindingEnd, transportStart, transportEnd,

@@ -80,7 +80,8 @@ interface WharnessDesktopBridge {
     // The Engine pane shows a live mirror of the real view in the browser
     // monitor; the user's input on it is forwarded to that view.
     mirrorInput(cacheKey: string, input: DesktopMirrorInput): Promise<{ ok: boolean }>
-    onMirrorFrame(callback: (frame: DesktopMirrorFrame & { cacheKey: string }) => void): () => void
+    // Follows the real view's live stream; call `ready` once a frame is drawn.
+    subscribeMirror(cacheKey: string, onFrame: DesktopMirrorFrameHandler): () => void
     navigate(url: string, cacheKey: string, options?: { resetToHomeIfConversation?: boolean; bounds?: DesktopBounds }): Promise<DesktopChatGPTState>
     confirmAffinity(cacheKey: string, conversationUrl: string): Promise<{ ok: boolean; cacheKey: string; conversationUrl: string; affinityPhase: DesktopChatGPTAffinityPhase; boundConversationUrl: string; bindingCandidate: string }>
     rejectAffinity(cacheKey: string, conversationUrl: string): Promise<{ ok: boolean; cacheKey: string; affinityPhase: DesktopChatGPTAffinityPhase; boundConversationUrl: string; bindingCandidate: string }>
@@ -153,6 +154,10 @@ interface WharnessDesktopBridge {
     copyContextZip(request: { sessionId: string }): Promise<ContextClipboardResult>
     readText(): Promise<string>
     writeText(text: string): Promise<{ ok: boolean }>
+  }
+  /** Opens a UI Lab guide in the Wharnex-owned browser; the URL is derived in the main process. */
+  uiTesting?: {
+    openGuide(request: { sessionId: string; runId: string; format: 'html' | 'pdf' | 'md' }): Promise<{ ok: boolean }>
   }
 }
 

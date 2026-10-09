@@ -11,6 +11,11 @@ BUILD_STAMP="$ROOT/.harness/build-success"
 SOURCE_FINGERPRINT="$ROOT/scripts/source-fingerprint.sh"
 # Optional per-checkout overrides (Electron profile dir, etc). Gitignored.
 [ -f "$ROOT/.harness/env" ] && . "$ROOT/.harness/env"
+# IDE terminals export Electron-as-Node mode; the splash and the Desktop must
+# never inherit it, exactly as in launcher.sh (AGENTS.md §9).
+unset ELECTRON_RUN_AS_NODE 2>/dev/null || true
+# Host ports UI Lab may reach from inside the up-whx-link (adr/ADR-0089).
+if [ -n "${WHARNEX_UP_LINK_HOST_PORTS:-}" ]; then export WHARNEX_UP_LINK_HOST_PORTS; fi
 # A `make start` run directly from a terminal, outside the installed
 # launcher, previously left WHARNESS_DESKTOP_USER_DATA_DIR unset. Electron
 # then fell back to its own default profile directory instead of the
@@ -30,21 +35,22 @@ alive() {
 if [ -f "$PID_FILE" ]; then
   pid=$(cat "$PID_FILE" 2>/dev/null || true)
   if alive "$pid"; then
-    # A launcher invocation while the coordinator is alive must still bring
-    # the Desktop back to the foreground. Starting this short-lived second
-    # Electron instance is the narrow, native handoff Electron requires: the
-    # primary process receives `second-instance`, restores a minimized window
-    # and focuses it, while this process immediately exits under its existing
-    # single-instance lock. Merely returning here left the OS launcher inert.
+    # A launcher invocation while the coordinator is alive must bring the
+    # Desktop back to the foreground. On Linux, signal the already-isolated
+    # Electron instead of launching another Chromium process on the host.
     if [ "$(uname -s 2>/dev/null || printf unknown)" = "Linux" ]; then
-      focus_electron=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-runtime.sh" path 2>/dev/null || true)
+      focus_pid=$(cat "$RUN_DIR/electron-main.pid" 2>/dev/null || true)
+      wrapper_pid=$(cat "$RUN_DIR/electron.pid" 2>/dev/null || true)
+      focus_parent=$(awk '/^PPid:/ { print $2 }' "/proc/$focus_pid/status" 2>/dev/null || true)
+      if ! alive "$focus_pid" || [ "$focus_parent" != "$wrapper_pid" ] || ! kill -USR1 "$focus_pid" 2>/dev/null; then
+        echo 'Wharnex coordinator is running without a reachable Desktop; use make restart.' >&2
+        exit 1
+      fi
     else
-      focus_electron=''
+      focus_electron="$ROOT/services/desktop/node_modules/.bin/electron"
+      nohup env WHARNESS_DESKTOP_USER_DATA_DIR="${WHARNESS_DESKTOP_USER_DATA_DIR:-}" "$focus_electron" "$ROOT/services/desktop/main.mjs" \
+        >>"$LOG_FILE" 2>&1 </dev/null &
     fi
-    [ -n "${focus_electron:-}" ] || focus_electron="$ROOT/services/desktop/node_modules/.bin/electron"
-    unset ELECTRON_RUN_AS_NODE 2>/dev/null || true
-    nohup env WHARNESS_DESKTOP_USER_DATA_DIR="${WHARNESS_DESKTOP_USER_DATA_DIR:-}" "$focus_electron" "$ROOT/services/desktop/main.mjs" \
-      >>"$LOG_FILE" 2>&1 </dev/null &
     printf 'Wharnex Desktop is already running (pid %s).\n' "$pid"
     printf 'Requested foreground handoff to the running Desktop.\n'
     printf 'Use: make status | make logs | make stop\n'
@@ -58,18 +64,20 @@ fi
 # WHARNESS_LAUNCHER_SPLASH_ACTIVE is set, the launcher already owns one
 # around this call (see launcher.sh), so a second splash here would just be a
 # redundant window flashing on top of it.
+. "$SCRIPT_DIR/splash-lib.sh"
 own_splash=0
 if [ "${WHARNESS_LAUNCHER_SPLASH_ACTIVE:-}" != 1 ]; then
-  . "$SCRIPT_DIR/splash-lib.sh"
-  trap 'wharness_splash_close' EXIT HUP INT TERM
-  if wharness_splash_open 'A verificar o código do projeto…'; then
+  trap 'wharnex_start_result=$?; [ "$wharnex_start_result" -eq 0 ] || wharnex_splash_show_failure; wharnex_splash_close' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' HUP TERM
+  if wharnex_splash_open 'A verificar o código do projeto…'; then
     own_splash=1
   else
-    wharness_splash_close
+    wharnex_splash_close
   fi
 fi
 
-WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack "$ROOT/scripts/orphan-recovery.sh"
+WHARNESS_ROOT="$ROOT" WHARNESS_SERVICES_MODE=stack wharnex_splash_run "$ROOT/scripts/orphan-recovery.sh"
 
 build_required=''
 if [ "${WHARNEX_BOOT_PREVIOUS:-0}" = 1 ]; then
@@ -86,11 +94,11 @@ fi
 
 if [ -n "$build_required" ]; then
   printf 'Wharnex build is required (%s); rebuilding before startup...\n' "$build_required"
-  [ "$own_splash" -eq 1 ] && wharness_splash_update 'A compilar a nova versão. Isto pode demorar alguns minutos…' || true
-  (cd "$ROOT" && make build)
+  [ "$own_splash" -eq 1 ] && wharnex_splash_update 'A compilar a nova versão. Isto pode demorar alguns minutos…' || true
+  (cd "$ROOT" && wharnex_splash_run make build)
 fi
 
-[ "$own_splash" -eq 1 ] && wharness_splash_update 'A iniciar o Desktop…' || true
+[ "$own_splash" -eq 1 ] && wharnex_splash_update 'A iniciar o Desktop…' || true
 
 if [ ! -x "$ROOT/services/desktop/node_modules/.bin/electron" ]; then
   echo 'Electron dependencies are missing. Run: make build' >&2
@@ -98,7 +106,7 @@ if [ ! -x "$ROOT/services/desktop/node_modules/.bin/electron" ]; then
 fi
 
 if [ "$(uname -s 2>/dev/null || printf unknown)" = "Linux" ]; then
-  WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-runtime.sh" check
+  WHARNESS_ROOT="$ROOT" wharnex_splash_run "$ROOT/scripts/electron-runtime.sh" check
   WHARNESS_LINUX_SANDBOX_MODE=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-runtime.sh" mode)
   WHARNESS_ELECTRON_BINARY=$(WHARNESS_ROOT="$ROOT" "$ROOT/scripts/electron-runtime.sh" path)
   export WHARNESS_LINUX_SANDBOX_MODE WHARNESS_ELECTRON_BINARY
@@ -107,7 +115,7 @@ fi
 
 # Gateway/backend/frontend/webapp/PostgreSQL/tunnel/terminal are persistent Compose services.
 # The Desktop reaches backend and frontend exclusively through the gateway.
-WHARNESS_ROOT="$ROOT" "$ROOT/scripts/stack.sh" ensure
+WHARNESS_ROOT="$ROOT" wharnex_splash_run "$ROOT/scripts/stack.sh" ensure
 
 # stack.sh ensure just (re)wrote the only published application port.
 GATEWAY_PORT=$(sed -n 's/^WHARNESS_GATEWAY_PORT=//p' "$ROOT/.harness/state/stack.env" 2>/dev/null | head -n 1)

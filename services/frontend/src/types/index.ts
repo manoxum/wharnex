@@ -28,3 +28,5 @@ export type * from './settings/connections'
 export type * from './settings/records'
 export type * from './workspace/mode'
 export type * from './workspace/project-files'
+
+export type * from './ui/testing'

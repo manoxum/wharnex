@@ -12,7 +12,7 @@ test('task-scoped Keep flowing survives WAITING and ends when that task is termi
   assert.match(sponsorship, /lastResult\?\.status[\s\S]*=== 'waiting'/)
   assert.match(sponsorship, /taskEnabled\(runtime\?\.lastTask\)/)
   assert.match(sponsorship, /sponsored\(runtime\)/)
-  assert.match(source, /const chatAgentKeepFlowingActive = keepFlowingState\.active/)
+  assert.match(source, /chatAgentKeepFlowingActive: keepFlowing\.active/)
   assert.match(snapshot, /chatAgentKeepFlowingActive\(worker\) \|\| pinnedTaskId \? 'claimed' : 'idle'/)
   assert.match(projection, /keep_flowing: task\.keep_flowing === true/)
 })

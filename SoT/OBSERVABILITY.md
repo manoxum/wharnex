@@ -1,5 +1,29 @@
 # Observability SoT
 
+## Bundle transport statistics
+
+The workspace three-hour bundle counter projects persisted operational evidence,
+across every pool and task type. `chatgpt-upload confirmed` records one observed
+successful file upload; preparation, retries without confirmation and downloads
+never consume the upload limit. Its bounded metadata includes the owned filename
+and task when known. `chatgpt-bundle-received` records completed, bounded bundle
+downloads before semantic validation, including responses subsequently rejected.
+Only metadata is recorded, never bundle bytes, screenshots or remote prose.
+Historical chat acknowledgements and utility bundle-delivery HTTP calls may fill
+older receive counts, with inferred deliveries explicitly labelled as estimates.
+One download and its later delivery/acknowledgement must never be counted twice.
+The projection uses the complete filtered window, not a paginated log sample,
+and survives runtime restart within the operational log retention period. Query
+failure is reported as unavailable instead of a successful zero-consumption
+snapshot. Existing artifact counts remain a development-store fallback only.
+
+Git index-lock maintenance emits `git.index_lock_recovery_completed` or
+`git.index_lock_recovery_blocked` operational records with repository, bounded
+lock path, age and a categorical reason (`adr/ADR-0092`). The calling context's
+session/request/chat/task identities are retained when available. Recording
+uses the asynchronous redacted operational writer and cannot fail the Git work.
+Process arguments, environments, descriptors and file contents are never logged.
+
 Every session emits ordered events with timestamp, type, session ID, and concise data. Events include context, planning, policy, execution, command, patch, verification, apply, and failure transitions.
 
 Request and execution lifecycle events carry request lineage whenever applicable: `request_id`, `root_request_id`, optional `parent_request_id`, and `iteration_kind`. This correlation is durable and must not be inferred from localized error prose.
@@ -125,6 +149,8 @@ Self-evolution status reconciliation runs on every session read and MUST persist
 Backend memory MUST be bounded by live work, never by uptime or by accumulated history. Durable history is read back from its store: the event bus MUST NOT keep persisted events in memory, and only events the store refused are kept, in a bounded per-session window. Subscriber bookkeeping for a session MUST be released with its last subscription. Session residency follows `SoT/ARCHITECTURE.md` (Session residency).
 
 Polled read-only JSON snapshots (session, project file tree, Git overview/head, Orchestrator overview, browser-agent tasks/summary/provider, workspace attention) MUST carry an `ETag` and answer a matching `If-None-Match` with `304` and no body. The Desktop client MUST resolve a `304` to the object the previous poll produced, so an unchanged poll neither re-parses the document nor re-renders the view that holds it.
+
+The Desktop Git surface MUST NOT poll `/git/head`. Its live session stream carries a `git.changed` invalidation after the backend observes a changed repository signature. One backend observer per project samples only while at least one session stream is subscribed, and the renderer reloads its authoritative Git overview on invalidation and stream reconnection. The invalidation contains no repository contents and is appended to the durable event ledger; old invalidations are omitted from stream catch-up to avoid a request burst after reconnect. Other session mutations continue to use the existing classified event stream. Snapshot ETags remain available for explicit reads and older clients.
 
 A browser-agent task transition (`start`, `heartbeat`, `wait`, `checkpoint`, `complete`, `fail`, `attention`, `assign`) requested with `Prefer: return=minimal` (RFC 7240) MUST be answered with the lease-state acknowledgement only — id, status, attempts, `not_before`, lease expiry, update time — and `Preference-Applied`; callers that omit the preference keep receiving the whole task. The Desktop scheduler never reads a transitioned task back and MUST ask for the minimal form. Scheduler loops whose claims find nothing MUST back off exponentially from their idle cadence to a ceiling of a few seconds, resetting on a claimed task or an explicit wake; lane residency and pin release are measured in elapsed time, so the ceiling delays them by at most one step.
 

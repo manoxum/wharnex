@@ -22,7 +22,7 @@ const autoScale = await readFile(new URL('../agent/scheduling/capacity/auto-scal
 const runtimeControls = await readFile(new URL('../agent/scheduling/diagnostics/controls.mjs', import.meta.url), 'utf8')
 
 test('desktop tray owns background lifecycle, project controls and recoverable shutdown', async () => {
-  assert.match(main, /createDesktopWindowAssembly\(\{/)
+  assert.match(main, /compose\(ctx, 'window-assembly', createDesktopWindowAssembly, \{/)
   assert.match(windowAssembly, /createDesktopWindowRuntime\(\{/)
   assert.match(windowRuntime, /createDesktopTrayComposition\(\{/)
   assert.match(trayComposition, /createDesktopTrayControl\(\{/)
@@ -73,7 +73,7 @@ test('Worker suspension stays durable when tray and Agents panel share the contr
   const scaleEnd = autoScale.indexOf('function reconcileChatAgentSupervisorAutoScale', scaleStart)
   const scale = autoScale.slice(scaleStart, scaleEnd)
 
-  assert.match(controls, /workers_suspended_types: Array\.isArray\(request\?\.taskTypes\)/)
+  assert.match(controls, /workers_suspended_types: state\.policies\?\.task_holds_migrated \? \[\] : \(Array\.isArray\(request\?\.taskTypes\)/)
   assert.match(controls, /workers_suspended: false, workers_suspended_until: '', workers_suspended_types: \[\]/)
   assert.match(controls, /persistChatAgentPolicies\(\)/)
   assert.match(source, /registerAgentIPC\(\{/)
@@ -84,7 +84,7 @@ test('Worker suspension stays durable when tray and Agents panel share the contr
   assert.match(main, /get policies\(\) \{ return desktopState\.agent\.chatAgentPolicies \}/)
   assert.match(startupContext, /getChatAgentPolicies: \(\) => state\.policies/)
   assert.match(workerScheduler, /workerSuspendsAllTaskTypes\(getChatAgentPolicies\(\)\)\) return \{ skip: true \}/)
-  assert.match(workerScheduler, /excluded_types: manualSuspension\.paused \? manualSuspension\.task_types : \[\]/)
+  assert.match(workerScheduler, /excluded_types: \[\.\.\.new Set\(\[\.\.\.\(manualSuspension\.paused && !getChatAgentPolicies\(\)\.task_holds_migrated \? manualSuspension\.task_types : \[\]\), \.\.\.uiTestRunSlots\.excludedTypes\(\)\]\)\]/)
   assert.doesNotMatch(supervisorScheduler, /workerSuspensionState\(chatAgentPolicies\)/)
   assert.ok(scale.indexOf('reconcileChatAgentSupervisorAutoScale(queue)') < scale.indexOf('autoScaleWorkerDemand(summary, state.chatAgentPolicies)'))
 })

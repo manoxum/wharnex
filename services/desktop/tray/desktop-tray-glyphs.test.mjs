@@ -47,13 +47,20 @@ test('glyph images are cached per name and colour', () => {
   assert.equal(built, 2)
 })
 
-test('a HiDPI-capable nativeImage receives a 2x buffer at 16 logical points', () => {
+test('a HiDPI-capable nativeImage receives 2x and Linux-compatible 1x representations', () => {
   const calls = []
+  const representations = []
   const glyph = createTrayGlyphs({
-    createFromBuffer: (buffer, options) => { calls.push([buffer, options]); return { buffer, options } },
+    createFromBuffer: (buffer, options) => {
+      calls.push([buffer, options])
+      return { buffer, options, addRepresentation: (representation) => representations.push(representation) }
+    },
     createFromDataURL: () => { throw new Error('should not fall back') },
   })
   glyph('close', '#9ca3af')
   assert.deepEqual(calls[0][1], { width: 16, height: 16, scaleFactor: 2 })
   assert.equal(calls[0][0].readUInt32BE(16), 32)
+  assert.deepEqual(representations[0], {
+    buffer: glyphPNG('close', '#9ca3af', 16), width: 16, height: 16, scaleFactor: 1,
+  })
 })

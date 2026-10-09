@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { readOwnershipSource } from '../supervision/ownership-source.mjs'
+import { readDesktopCompositionSource } from '../entry/source.mjs'
 
 const schedulers = [
   ['worker', 'chatAgentScheduler', 'createWorkerScheduler', 'workerScheduler'],
@@ -11,7 +12,7 @@ const schedulers = [
 // checking that the entry point really delegates through the startup facade.
 export async function readSchedulerStartupSource() {
   const main = await readOwnershipSource()
-  const entrypoint = await readFile(new URL('../../main.mjs', import.meta.url), 'utf8')
+  const entrypoint = await readDesktopCompositionSource()
   const agent = await readFile(new URL('../../agent/index.mjs', import.meta.url), 'utf8')
   const scheduling = await readFile(new URL('../../agent/scheduling/index.mjs', import.meta.url), 'utf8')
   const startup = await readFile(new URL('../../agent/scheduling/startup/index.mjs', import.meta.url), 'utf8')
@@ -26,7 +27,7 @@ export async function readSchedulerStartupSource() {
   const config = await readFile(new URL('../../chatgpt/config/index.mjs', import.meta.url), 'utf8')
   if (!main.includes("from './agent/index.mjs'") || !agent.includes("from './scheduling/index.mjs'")
       || !scheduling.includes("from './startup/index.mjs'")
-      || !entrypoint.includes('createDesktopEntrypointRuntime({')
+      || !entrypoint.includes('createDesktopEntrypointRuntime(deps)')
       || !main.includes('desktopEntrypoint.start()')
       || !main.includes('desktopEntrypoint.registerLifecycle()')
       || !entry.includes('createDesktopStartupRuntime(')

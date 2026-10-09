@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func newChatArchiveTestHandler(t *testing.T) (http.Handler, *session.Store) {
 	bus := audit.NewBus()
 	service := app.NewService(store, bus, contextbundle.NewBuilder(1<<20, 1<<20), manualplanner.New(), policy.NewEngine(), sandbox.NewLocalRunner())
 	service.SetArtifactStore(&chatArchiveTestArtifactStore{objects: map[string][]byte{}}, 30)
-	return New(service, store, bus, config.Config{}), store
+	return New(service, store, bus, config.Config{StateFile: filepath.Join(t.TempDir(), "state.json")}), store
 }
 
 func TestArchiveChatEndpointFlipsState(t *testing.T) {

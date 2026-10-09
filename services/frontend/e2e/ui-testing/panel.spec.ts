@@ -1,0 +1,56 @@
+import { expect, test } from '@playwright/test'
+import { catalog } from './catalog'
+
+for (const theme of ['light', 'dark']) {
+  test(`UI Lab is readable and operable in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1100, height: 960 })
+    await page.route('**/api/sessions/ui-lab-fixture/ui-testing', (route) => route.fulfill({ json: catalog }))
+    const suspended = new Set(['UI_TEST_RUN'])
+    await page.route('**/api/automation-holds**', async (route) => {
+      const name = route.request().url().split('/').at(-1) || ''
+      if (route.request().method() === 'PUT') {
+        if (route.request().postDataJSON().active) suspended.add(name.replace('task:', ''))
+        else suspended.delete(name.replace('task:', ''))
+        return route.fulfill({ json: { name, active: false } })
+      }
+      return route.fulfill({ json: { holds: {}, task_policies: ['UI_TEST_DISCOVER', 'UI_TEST_RUN'].map((type) => ({ type, state: suspended.has(type) ? 'suspended' : 'active', pool: 'worker', uploads: true, hold: { active: suspended.has(type) }, cooldowns: [] })) } })
+    })
+    await page.goto('/e2e/ui-testing/fixture.html')
+    await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; document.documentElement.style.setProperty('--ui-font-scale', '1.3') }, theme)
+    await expect(page.getByRole('status')).toContainText('Execução suspensa')
+    await page.getByRole('button', { name: 'Retomar testes UI' }).click()
+    await expect(page.getByRole('status')).toContainText('Testes UI ativos')
+    await expect(page.getByText('Na fila', { exact: true })).toBeVisible()
+    await expect(page.getByText('Em espera', { exact: true })).toBeVisible()
+    const button = page.getByRole('button', { name: 'Sincronizar', exact: true })
+    const appearance = await button.evaluate((node) => ({ font: getComputedStyle(node).fontSize, background: getComputedStyle(node).backgroundColor, height: node.getBoundingClientRect().height }))
+    expect(parseFloat(appearance.font)).toBeCloseTo(14.3, 0)
+    expect(appearance.height).toBeLessThan(46)
+    expect(appearance.background).not.toBe('rgb(239, 239, 239)')
+    await page.screenshot({ path: `/tmp/wharnex-ui-tests-${theme}.png` })
+    await page.getByRole('searchbox', { name: 'Pesquisar testes' }).fill('documento')
+    await expect(page.getByRole('checkbox')).toHaveCount(1)
+    await page.getByRole('tab', { name: 'Documentação' }).click()
+    const environments = page.getByRole('tablist', { name: 'Ambientes do manual' })
+    await expect(environments.getByRole('tab', { selected: true })).toHaveCount(1)
+    await expect(page.getByRole('region', { name: 'Índice' })).toBeVisible()
+    await page.screenshot({ path: `/tmp/wharnex-ui-manual-${theme}.png` })
+    await page.getByRole('tab', { name: 'Guias individuais' }).click()
+    await page.getByRole('button', { name: 'Validar um documento emitido' }).click()
+    await expect(page.getByRole('tab', { name: 'Markdown' })).toHaveAttribute('aria-selected', 'true')
+    await page.screenshot({ path: `/tmp/wharnex-ui-guides-${theme}.png` })
+    await page.getByRole('tab', { name: 'Configuração' }).click()
+    const username = page.getByRole('textbox', { name: 'Utilizador Cidadão' })
+    await expect(username).toBeVisible()
+    expect(await username.evaluate((node) => node.getBoundingClientRect().height)).toBe(36)
+    await page.screenshot({ path: `/tmp/wharnex-ui-config-${theme}.png` })
+    await page.locator('#lab-owner').evaluate((node) => { node.style.width = '340px' })
+    const tabs = page.getByRole('tablist', { name: 'Áreas do UI Lab' })
+    await expect(tabs).toHaveAttribute('data-density', 'compact')
+    await page.getByRole('tab', { name: 'Testes UI' }).click()
+    await expect(page.getByRole('searchbox', { name: 'Pesquisar testes' })).toBeVisible()
+    const overflow = await page.locator('#lab-owner').evaluate((node) => node.scrollWidth > node.clientWidth)
+    expect(overflow).toBe(false)
+    await page.screenshot({ path: `/tmp/wharnex-ui-narrow-${theme}.png` })
+  })
+}

@@ -1,6 +1,9 @@
 package session
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // Lower values claim first. FIFO decides ties across all open projects.
 var chatAgentPriorities = map[string]int{
@@ -8,6 +11,8 @@ var chatAgentPriorities = map[string]int{
 	"ORCHESTRATOR_PLAN":    -2,
 	"ORCHESTRATOR_EXECUTE": -1,
 	"RELEASE_NOTES":        -1,
+	"UI_TEST_DISCOVER":     -1,
+	"UI_TEST_RUN":          0,
 	"BOT_WRITE":            0, "RECOVERY_WRITE": 0,
 	"AWAIT_RESPONSE": 1,
 	"TITLE_DISCOVER": 2, "TITLE_GENERATE_TEMP": 2, "TITLE_AWAIT": 2,
@@ -44,4 +49,38 @@ func chatAgentEffectivePrioritySQL(alias string) string {
 		WHEN ` + alias + `.priority<=1 THEN ` + alias + `.priority
 		ELSE GREATEST(1, ` + alias + `.priority-LEAST(` + alias + `.priority-1, FLOOR(EXTRACT(EPOCH FROM (now()-` + alias + `.created_at))/900)::int))
 	END`
+}
+
+// ChatAgentTaskKind describes one browser task type for policy surfaces.
+type ChatAgentTaskKind struct {
+	Type string `json:"type"`
+	// Pool is the partition that claims it: supervisor, worker or ephemeral.
+	Pool string `json:"pool"`
+	// Uploads reports whether the task attaches a request archive, and is
+	// therefore subject to the account file-upload limit.
+	Uploads bool `json:"uploads"`
+}
+
+var chatAgentUploadTypes = []string{
+	"BOT_WRITE", "RECOVERY_WRITE", "ORCHESTRATOR_PLAN", "ORCHESTRATOR_EXECUTE",
+	"TRANSLATE_MARKDOWN", "RELEASE_NOTES", "TODO_CLASSIFY", "UI_TEST_DISCOVER", "UI_TEST_RUN",
+}
+
+// ChatAgentTaskCatalog lists every browser task type the queue accepts, so a
+// policy surface can never miss one: it is derived from the same table the
+// queue validates against.
+func ChatAgentTaskCatalog() []ChatAgentTaskKind {
+	kinds := make([]ChatAgentTaskKind, 0, len(chatAgentPriorities))
+	for taskType := range chatAgentPriorities {
+		pool := "worker"
+		switch {
+		case chatAgentTaskSupervisor(taskType):
+			pool = "supervisor"
+		case chatAgentTaskEphemeral(taskType):
+			pool = "ephemeral"
+		}
+		kinds = append(kinds, ChatAgentTaskKind{Type: taskType, Pool: pool, Uploads: chatAgentTaskTypeIn(taskType, chatAgentUploadTypes)})
+	}
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i].Type < kinds[j].Type })
+	return kinds
 }

@@ -146,6 +146,7 @@ async function main() {
   }
 
   const desktopEnv = desktopRuntimeEnvironment()
+  desktopEnv.WHARNESS_RUNTIME_DIR = runtimeDir
   const upLink = startUpLink(desktopEnv, runtimeDir)
   const launch = electronLaunchArguments(process.platform, desktopEnv)
   // Electron's default userData directory is derived only from package.json's

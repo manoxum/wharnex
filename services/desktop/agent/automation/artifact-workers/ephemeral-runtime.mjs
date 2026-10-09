@@ -33,6 +33,10 @@ export function createEphemeralWorkerRuntime({
     }
     const host = [...desktopWindows.values()].find((state) => state.window && !state.window.isDestroyed())
     if (!host) return { status: 'failed', error: 'Ephemeral Worker has no host window' }
+    return runEphemeral(task, context, host)
+  }
+
+  async function runEphemeral(task, context, host) {
     let kept = ephemeralWorkerViews.get(task.task_id)
     if (kept && kept.entry.view.webContents.isDestroyed()) {
       retireEphemeralWorkerView(task.task_id, 'destroyed')

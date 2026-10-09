@@ -125,22 +125,9 @@
   color: var(--theme-text);
 }
 .git-file-diff-action:disabled { opacity: .42; cursor: default; }
-.git-worktree-commit {
-  padding: 8px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 7px;
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 8px;
-  background: var(--theme-surface);
-}
-.git-worktree-commit label { min-width: 0; display: grid; gap: 4px; }
-.git-worktree-commit label > span {
-  color: var(--theme-text-muted);
-  font-size: calc(6.8px * var(--ui-font-scale));
-  font-weight: 650;
-}
+
+
+
 
 .git-unpushed-summary {
   min-height: 46px;

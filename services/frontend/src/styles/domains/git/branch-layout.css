@@ -127,8 +127,8 @@
 }
 
 @media (max-width: 720px) {
-  .git-worktree-commit { grid-template-columns: 1fr; }
-  .git-worktree-commit .git-action { justify-self: start; }
+
+
   .git-unpushed-summary,
   .git-unpushed-actions { align-items: stretch; flex-direction: column; }
   .git-unpushed-summary .git-action,
