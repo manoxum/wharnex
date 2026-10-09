@@ -1,5 +1,6 @@
 import { api } from '../../../../lib/transport/http/api'
-import { currentBranch, repositoryLabel, repositoryOutgoing, repositoryRemote, type GitRepositoryOverviewEntry as Entry } from '../../../../lib/git/workflow/gitProjectOverview'
+import { repositoryLabel, repositoryOutgoing, type GitRepositoryOverviewEntry as Entry } from '../../../../lib/git/workflow/gitProjectOverview'
+import { useGitPublication } from '../../publication'
 import { splitWorktreeKey } from '../../../../lib/git/workflow/gitWorktreeKey'
 import type { useGitOperationFlow } from '../../../../lib/git/workflow/useGitOperationFlow'
 import type { GitOverview, GitOperationPreview } from '../../../../types'
@@ -19,6 +20,7 @@ type Params = {
 }
 
 export function useGitChangesActions({ sessionId, entries, selected, message, resetCommit, flow, loadOverview, runForRepositories, repositoryTargets }: Params) {
+  const { reviewPush } = useGitPublication({ sessionId, flow, loadOverview })
   const commitPlan = commitRepositories(entries)
   const outgoing = childrenFirst(entries.filter((entry) => entry.repository.available && entry.overview && repositoryOutgoing(entry) > 0))
   const publishPlan = childrenFirst([...new Set([...commitPlan, ...outgoing])])
@@ -65,34 +67,6 @@ export function useGitChangesActions({ sessionId, entries, selected, message, re
       resetCommit()
       return `${completed} commit(s) criado(s).`
     } finally { await loadOverview() }
-  }
-
-  async function freshPublishEntries(plan: Entry[]) {
-    const fresh = await Promise.all(plan.map(async (entry) => ({ ...entry, overview: await api.gitOverview(sessionId, entry.repository.path) })))
-    const reason = pushUnavailableReason(fresh)
-    if (reason) throw new Error(reason)
-    return fresh
-  }
-
-  async function reviewPush(plan: Entry[]) {
-    let reviewed: Entry[] = []
-    await flow.reviewGitOperation('A enviar commits de todos os repositórios', 'Os submódulos são enviados antes do superprojeto. Confirme os diffs e os remotos de destino.', async () => {
-      reviewed = await freshPublishEntries(plan)
-      return Promise.all(reviewed.map((entry) => api.gitPreview(sessionId, { operation: 'push', repository: entry.repository.path, remote: repositoryRemote(entry), branch: currentBranch(entry.overview)!.name })))
-    }, async () => {
-      let completed = 0
-      try {
-        for (const entry of reviewed) {
-          const branch = currentBranch(entry.overview)!
-          try {
-            const result = await api.gitPush(sessionId, repositoryRemote(entry), branch.name, !branch.has_upstream || branch.gone, entry.repository.path)
-            if (result.outcome !== 'pushed' && result.outcome !== 'up_to_date') throw new Error(result.detail || `Push não concluído (${result.outcome})`)
-          } catch (error) { throw new Error(`${repositoryLabel(entry)}: ${error instanceof Error ? error.message : String(error)}. ${completed} repositório(s) enviado(s); o envio dos restantes foi interrompido.`) }
-          completed++
-        }
-        return `Envio concluído em ${completed} repositório(s).`
-      } finally { await loadOverview() }
-    }, true)
   }
 
   async function reviewCommit(push: boolean) {

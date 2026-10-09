@@ -164,6 +164,18 @@ completed work and refreshing the panel; they never claim atomic rollback.
 Missing identities, unresolved conflicts, detached HEADs and missing remotes
 expose actionable reasons before the affected collective action can run.
 
+**Publicar projeto** is reachable from every Git section and reviews all project
+repositories together, including nested submodules and repositories whose local
+outgoing count is zero. It refreshes the complete inventory before review and
+publishes existing commits on each current branch to its configured remote,
+children first and the superproject last, after one shared confirmation. It
+does not create commits or initialize unavailable submodules. Every repository
+must be available, on a branch, without unresolved operations, and have a remote;
+otherwise the review fails before any push. Report each completed repository,
+including those already up to date, and identify the failing repository and
+completed work if publication stops. Existing selective and outgoing-only
+publication actions retain their scope.
+
 Every action here is an explicit human action and is never reachable from a
 model plan. Pending records may be committed in full or selectively; a
 selection that would fold an earlier unselected record into a later one is

@@ -14,7 +14,7 @@ import { GitDiffReview } from './GitDiffReview'
 import { ChangeDiffEditor } from '../../editor/canvas/ChangeDiffEditor'
 import { GitOperationModal, type GitOperationTarget } from './GitOperationModal'
 import { GitContributorsSection } from '../history/GitContributorsSection'
-import { GitRepositorySummary } from '../history/GitRepositorySummary'
+import { GitProjectPublication } from '../publication'
 import { HistorySection } from '../history'
 import { GitChangesPanel, visibleChangesRepositories, gitPushMessage } from './changes'
 import { GitReleasePanel, type GitReleasePublishResult } from '../release/GitReleasePanel'
@@ -201,7 +201,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
     {!loading && overview && !overview.available && <p className="git-empty warning-card">Não foi possível inspecionar o repositório: {overview.unavailable}</p>}
 
     {overview?.available && <>
-      <GitRepositorySummary entries={activeTab === 'changes' ? visibleChangesRepositories(repositoryEntries) : repositoryEntries}/>
+      <GitProjectPublication sessionId={session.id} entries={repositoryEntries} summaryEntries={activeTab === 'changes' ? visibleChangesRepositories(repositoryEntries) : repositoryEntries} disabled={disabled} flow={{ reviewGitOperation }} loadOverview={loadOverview}/>
       <GitTabs active={activeTab} onChange={setActiveTab} overview={overview}/>
       {notice && <p className={`git-notice ${noticeError ? 'error-card' : ''}`} role={noticeError ? 'alert' : 'status'}>{notice}</p>}
       {overview.conflict && <div className="git-conflict-card warning-card">
