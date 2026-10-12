@@ -86,4 +86,13 @@ func TestOversizedStoreSessionRemainsWholeOnReadAndWriteWithoutRetention(t *test
 	if full.State != "applied" || full.Context.Manifest.Files[0].Path != item.Context.Manifest.Files[0].Path {
 		t.Fatal("update persisted the slim projection over the durable aggregate")
 	}
+	if string(full.RequestSupportArtifacts["req"][0].Content) != "fixture capsule" {
+		t.Fatal("update lost durable support artifact bytes")
+	}
+	reopened, err := session.NewPostgresStore(context.Background(), connection.String(), "")
+	if err != nil { t.Fatal(err) }
+	defer reopened.Close()
+	if reopened.List()[0].RequestSupportArtifacts != nil {
+		t.Fatal("startup SQL projection decoded historical support artifacts")
+	}
 }
