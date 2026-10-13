@@ -12,7 +12,7 @@ export type QueuedChatRequest = {
   requestMode: ChatRequestMode
   createdAt: string
 }
-export type ChatItemSource = 'user' | 'chatgpt' | 'wharness'
+export type ChatItemSource = 'user' | 'chatgpt' | 'codex' | 'wharness'
 export type ChatItemPresentation = 'message' | 'notice' | 'thought' | 'plan' | 'change'
 export type ChatPlanApproval = { status: 'pending' | 'approved' | 'rejected' | 'superseded'; originalMessage?: string; requestId: string }
 export type ChatChangeFile = { path: string; additions: number; deletions: number; diff: string }

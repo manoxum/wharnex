@@ -9,6 +9,7 @@ export type ComposerRequestControlsProps = {
   reasoningEffort: ReasoningEffort
   contextMode: ContextMode
   chatTransportMode: ChatTransportMode
+  showChatGPTTransport?: boolean
   busy?: boolean
   onAutomationMode?: (mode: AutomationMode) => void
   onEffortLevel?: (level: EffortLevel) => void
@@ -23,6 +24,7 @@ export function ComposerRequestControls({
   reasoningEffort,
   contextMode,
   chatTransportMode,
+  showChatGPTTransport = true,
   busy = false,
   onAutomationMode,
   onEffortLevel,
@@ -50,10 +52,10 @@ export function ComposerRequestControls({
     </label>
     <ComposerContextModeControl mode={contextMode} disabled={busy} onChange={onContextMode} />
     <ComposerReasoningControl value={reasoningEffort} disabled={busy} onChange={onReasoningEffort} />
-    <span className="composer-mode-group" role="group" aria-label="Transporte com o ChatGPT">
+    {showChatGPTTransport && <span className="composer-mode-group" role="group" aria-label="Transporte com o ChatGPT">
       <button type="button" className={`composer-round-action mode-scraper ${chatTransportMode === 'scraper' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={chatTransportMode === 'scraper'} aria-label="Scraper" title="Scraper · o Wharnex interage diretamente com o ChatGPT" onClick={() => onChatTransportMode?.('scraper')}><Icon name="chatgpt" size={12}/></button>
       <button type="button" className={`composer-round-action mode-manual-transport ${chatTransportMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onChatTransportMode} aria-pressed={chatTransportMode === 'manual'} aria-label="Manual (transporte)" title="Manual · copie o prompt e entregue o bundle de resposta manualmente" onClick={() => onChatTransportMode?.('manual')}><Icon name="clipboard" size={12}/></button>
-    </span>
+    </span>}
   </>
 }
 

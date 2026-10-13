@@ -1,5 +1,5 @@
 const SENSITIVE = /(?:api[_-]?key|token|secret|password|passwd|credential|authorization|cookie|private[_-]?key)/i
-export function createOutputRedactor(environment = {}) {
+export function createOutputRedactor(environment = {}, { maxLength = 2000 } = {}) {
   const secrets = Object.entries(environment).filter(([key, value]) => SENSITIVE.test(key) && String(value).length >= 4)
     .map(([, value]) => String(value)).sort((a, b) => b.length - a.length)
   let privateKey = false
@@ -16,6 +16,6 @@ export function createOutputRedactor(environment = {}) {
       .replace(/\bBearer\s+[^\s"']+/gi, 'Bearer [REDACTED]')
       .replace(/\b(?:sk-[a-zA-Z0-9_-]{8,}|eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)\b/g, '[REDACTED]')
       .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[REDACTED]@')
-    return text.slice(0, 2000)
+    return text.slice(0, maxLength)
   }
 }

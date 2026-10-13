@@ -2,7 +2,23 @@
 
 ## Macro architecture
 
-Wharness uses ports-and-adapters / Clean Architecture boundaries:
+The Agent supports ChatGPT Scraper and Codex Native (`adr/ADR-0098`).
+Engine/model choice is durable per workspace chat. ChatGPT uses the existing
+request/response ZIP, Policy and executor ports. Explicitly selected Codex runs
+the official app-server as a native host agent: only the user prompt and selected
+attachments/references are sent, and normal streamed messages/items complete a
+turn without a response ZIP, Wharnex plan, repair loop or Apply. Its local IPC
+is scoped to the owning project/chat; the application core stays independent
+of provider details. Earlier Codex planner ZIPs remain recoverable only for
+already pending legacy requests (`adr/ADR-0097`).
+
+Native manual continuation preserves thread history and explicit account
+ownership across restart and quota exhaustion. Account selection and login are
+typed Desktop operations with isolated runtime credential homes; live requests
+keep their original profile. Auto Evolution awareness is authoritative session
+metadata, not a renderer-provided instruction or a context-bundle requirement.
+
+Wharnex uses ports-and-adapters / Clean Architecture boundaries:
 
 `transport -> application -> domain <- ports <- adapters`
 
@@ -43,7 +59,10 @@ The iterative evidence branch is bounded and non-mutating on the host:
 
 `Workflow Plan -> Policy -> Disposable Protected Sandbox -> Structured Observations -> Refreshed Context -> Same Planner Conversation -> next Agent Turn`
 
-There is no direct `AI -> shell` path. MCP, when introduced, is an adapter behind application ports rather than a route around Policy/sandbox boundaries.
+There is no direct `AI -> shell` path in the Wharnex protocol planner. Codex
+Native is the explicit host-agent exception in `AGENTS.md` §2; its own runtime
+executes its tools, independently of Wharnex's planner/executor workflow. MCP
+in that workflow remains an adapter behind application ports.
 
 ## Services
 

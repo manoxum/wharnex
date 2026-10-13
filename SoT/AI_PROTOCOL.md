@@ -142,6 +142,32 @@ The effort budget applies only while the Main Request is unresolved: the initial
 
 ## AI output rule
 
+Codex Native (`adr/ADR-0098`) does not participate in this bundle protocol.
+Its input is the literal user prompt, selected attachments/artifacts and file
+references; its outputs are ordinary runtime messages and execution items.
+Wharnex MUST NOT send protocol prompts, project snapshots, synthetic export
+inventories or instructions to create a response ZIP to native Codex. Questions
+use `item/tool/requestUserInput` and answers preserve question identifiers;
+native approvals are answered only for the exact outstanding owned request.
+Secret answers are ephemeral. Native completion is not Wharnex verification.
+Native permission choices map to the runtime's sandbox/approval reviewer;
+manual continuation uses the owned saved thread and explicit continuation text.
+Account quota exhaustion and session/context exhaustion are distinct native
+states. Account profiles isolate runtime credentials and never move an active
+request. Auto Evolution adds a short authoritative session-mode annotation,
+without changing the literal user prompt into a Wharnex protocol request.
+
+The legacy Codex planner adapter (`adr/ADR-0097`), retained only for requests
+already waiting for delivery, exposes bounded request-archive
+reading, pure UTF-8 SHA-256 calculation and exact response-archive creation tools. Creating a ZIP from
+model-authored entries is transport packaging; the ZIP must still pass the
+ordinary backend bundle validator. Streaming text and tool arguments cannot
+be ingested as plans or bypass Policy, approval, verification or integration.
+The app-server Code Mode host MUST remain available for model families that
+dispatch these archive tools through `functions.exec`. This isolated JavaScript
+dispatcher grants no Node, filesystem, network or shell capabilities; nested
+calls still pass through the same owned-request archive boundary.
+
 The provider returns a structured agent turn. `workflow` and `change` carry a structured JSON `ExecutionPlan`; `plan` is an approval proposal in `turn.message` and carries no execution plan or patches; all remaining kinds also carry no plan. Markdown command extraction and regex-based shell scraping are forbidden.
 
 Every newly requested `harness.execution/v2` `change` plan MUST be an informed execution contract: `document` contains the complete Markdown implementation plan, `dependencies` lists every install/update/remove by service/scope and package manager, and `system_tools` lists every sandbox/host tool to use/install/update/configure. Empty lists are explicit when there is no such impact. The exact `operations` patches and commands remain authoritative and must be sufficient for the Plan surface to display every create/modify/delete diff without deriving executable work from prose.

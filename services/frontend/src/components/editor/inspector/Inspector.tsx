@@ -7,7 +7,7 @@ import { StatusPill } from '../../presentation/chrome/StatusPill'
 import { riskLabel } from '../../../lib/execution/recovery/risk'
 import { api } from '../../../lib/transport/http/api'
 import { isDesktop } from '../../../lib/desktop/bridge/desktop'
-import { ChatGPTDesktopPane } from '../../chatgpt/surface/ChatGPTDesktopPane'
+import { InspectorEngineSurface } from './engine'
 import { DirectChatGPTPane } from '../../chatgpt/surface/DirectChatGPTPane'
 import { MarkdownContent } from '../../presentation/content/MarkdownContent'
 import { TranslatableMarkdown } from '../../presentation/content/TranslatableMarkdown'
@@ -15,7 +15,6 @@ import { ConflictResolverModal } from './ConflictResolverModal'
 import { ExecutionPlanAdjustment } from './ExecutionPlanAdjustment'
 import type { WorkspaceChat } from '../../../lib/chat/history/workspaceMemory'
 import { sessionHostResolutionBlocked } from '../../../lib/attention/center/attentionCenter'
-import { activePendingRequestId } from '../../../lib/agent/runtime/pendingRequest'
 import { sessionCanExecutePlan, sessionNeedsExecutionConsent } from '../../../lib/execution/recovery/executionRecovery'
 import { SignalCore } from '../../presentation/chrome/SignalCore'
 import { ChatArtifactLibrary } from '../../artifacts/explorer/BundleExplorer'
@@ -88,6 +87,8 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
     selectTab('plan')
     return message
   }
+  const activeChat = (chats?.length ? chats : chat ? [chat] : []).find((item) => item.id === chat?.id)
+  const engineSuspended = !activeChat || activeChat.sessionId !== session.id
   return (
     <section className={`inspector-panel ${embedded ? 'embedded' : ''}`}>
       {!embedded && <header className="panel-header inspector-header">
@@ -108,11 +109,11 @@ export function Inspector({ config, session, events, manualPrompt, busy, chat, c
         {selectedTab === 'plan' && <PlanHistorySurface session={session} chat={chat} events={auditEvents} loading={historyLoading} error={historyError} renderHistoricalPlan={(historySession) => <PlanView session={historySession} readOnly/>} currentPlan={<PlanView session={session} busy={busy} canExecute={canExecute} needsApproval={needsApproval} canRejectPending={canReject} onExecute={onExecute} onApproveDebug={onApproveDebug} onAdjustExecutionPlan={onAdjustExecutionPlan} onRejectExecutionPlan={onRejectExecutionPlan} onRejectPendingChanges={onRejectPendingChanges} onControlExecutionPlan={onControlExecutionPlan} onPrepareExecutionPlanReversal={onPrepareExecutionPlanReversal} conflictGuidance={conflictGuidance} onConflictGuidance={setConflictGuidance} onResolveManually={() => setConflictResolverOpen(true)} onResolveWithGPT={() => void (async () => { const updated = await api.delegateConflictToGPT(session.id, [], conflictGuidance); onSession(updated); await onResolveConflictWithGPT?.(updated) })()} />}/>}
         {selectedTab === 'terminal' && <ExecutionHistorySurface session={session} events={auditEvents} loading={historyLoading} error={historyError}/>}
         {selectedTab === 'chatgpt' && !desktop && <ChatGPTWebFallback config={config} session={session} manualPrompt={manualPrompt} manualJSON={manualJSON} setManualJSON={setManualJSON} busy={busy} copy={copy} onManualPlan={onManualPlan} />}
-        {desktop && <ChatGPTEnginePool
+        {desktop && activeChat && !engineSuspended && <InspectorEngineSurface
           visible={selectedTab === 'chatgpt'}
           globallySuspended={chatgptSuspended}
-          chats={chats && chats.length ? chats : (chat ? [chat] : [])}
-          activeChatId={chat?.id || ''}
+          activeChat={activeChat}
+          chatgptUrl={activeChat.chatgptUrl}
           busy={busy}
           session={session}
           manualPrompt={manualPrompt}
@@ -156,59 +157,6 @@ function ChatGPTWebFallback({ config, session, manualPrompt, manualJSON, setManu
     <label className="field-label" htmlFor="manual-json">Plano JSON recebido</label>
     <textarea id="manual-json" className="json-input" spellCheck={false} value={manualJSON} onChange={(e) => setManualJSON(e.target.value)} placeholder={'{\n  "protocol": "harness.execution/v1",\n  ...\n}'} />
     <button className="primary-button full" disabled={busy || !manualJSON.trim()} onClick={() => onManualPlan(manualJSON)}>Validar plano no Harness</button>
-  </div>
-}
-
-// The renderer exposes exactly one human-facing Supervisor pane. Background
-// automation is owned by the Desktop process' three hidden worker browsers and
-// the durable backend queue, so React must not keep a pane mounted per chat.
-// Re-rendering the same component with another chat id preserves one Supervisor
-// surface while Desktop coalesces navigation around submit/write critical phases.
-function ChatGPTEnginePool({ visible, globallySuspended, chats, activeChatId, busy, session, manualPrompt, onChatGPTURL, onChatGPTActivity, onTransportFailure, onCancelPendingRequest, onResendPendingRequest, onPlanFile, onBundleFile }: {
-  visible: boolean
-  globallySuspended: boolean
-  chats: WorkspaceChat[]
-  activeChatId: string
-  busy: boolean
-  session: Session
-  manualPrompt: string
-  onChatGPTURL: (url: string) => boolean
-  onChatGPTActivity?: (activity: ChatGPTActivity) => void
-  onTransportFailure?: (requestId: string, reason: string) => void
-  onCancelPendingRequest?: (requestId: string) => Promise<void>
-  onResendPendingRequest?: (requestId: string) => Promise<void>
-  onPlanFile: (json: string, requestId: string) => Promise<string>
-  onBundleFile: (contentBase64: string, requestId: string, filename: string) => Promise<string>
-}) {
-  const activeChat = chats.find((chat) => chat.id === activeChatId)
-  // React commits the selected chat id before an uncached Session fetch can
-  // finish. Never mount a remote surface using the previous chat's Session in
-  // that interval: its pending request/conflict identity belongs elsewhere.
-  if (!activeChat || activeChat.sessionId !== session.id) return <div className="desktop-chatgpt-pool" hidden />
-  return <div className="desktop-chatgpt-pool" hidden={!visible}>
-    <div className="desktop-chatgpt-pool-item active">
-      <ChatGPTDesktopPane
-        suspended={globallySuspended || !visible}
-        busy={busy}
-        chatId={activeChat.id}
-        chatTitle={activeChat.title}
-        chatgptUrl={activeChat.chatgptUrl}
-        pendingRequestId={activePendingRequestId(session)}
-        sessionId={session.id}
-        chatHash={session.context.workspace_sha256 || session.context.manifest.sha256}
-        requestedAt={session.request_lineages?.[activePendingRequestId(session)]?.created_at || session.created_at}
-        recoveryBootstrap={session.last_manual_prompt}
-        transportMode={session.chat_transport_mode || 'scraper'}
-        manualPrompt={manualPrompt}
-        onChatGPTURL={onChatGPTURL}
-        onActivity={onChatGPTActivity}
-        onTransportFailure={onTransportFailure}
-        onCancelPendingRequest={onCancelPendingRequest}
-        onResendPendingRequest={onResendPendingRequest}
-        onPlanFile={onPlanFile}
-        onBundleFile={onBundleFile}
-      />
-    </div>
   </div>
 }
 

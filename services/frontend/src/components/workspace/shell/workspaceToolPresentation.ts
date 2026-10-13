@@ -20,7 +20,7 @@ export function workspaceToolMeta(tool: WorkspaceTool, context: MetaContext): Wo
   if (tool === 'knowledge') return { label: 'Conhecimento do projeto', title: 'Conhecimento adquirido', icon: 'knowledge', drawer: 'knowledge' }
   if (tool === 'git') return { label: 'Git do projeto', title: 'Git do projeto', icon: 'git', drawer: 'git', badge: context.pendingCommitCount }
   if (tool === 'agents') return { label: 'Gestão de agentes', title: 'Supervisor e Workers', icon: 'agent', drawer: 'agents' }
-  if (tool === 'external-agents') return { label: 'Hub de agentes IA', title: 'Codex, Claude Code e Cline', icon: 'sparkles', drawer: 'external-agents' }
+  if (tool === 'external-agents') return { label: 'Codex', title: 'Codex · conta, consumo e conversas', icon: 'code', drawer: 'external-agents' }
   if (tool === 'tasks') return { label: 'Tarefas do projeto', title: 'Chats, workers, traduções, orquestração e execuções', icon: 'list', drawer: 'tasks' }
   if (tool === 'errors') return { label: 'Erros de execução', title: 'Ocorrências, causas, logs e soluções', icon: 'alert', drawer: 'errors' }
   if (tool === 'evolution') return { label: 'Logs de auto-evolução', title: 'Logs e análise de auto-evolução', icon: 'refresh', drawer: 'evolution' }

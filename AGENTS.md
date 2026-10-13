@@ -15,7 +15,7 @@ When implementation conflicts with a Source of Truth, the implementation is wron
 
 ## 2. Architecture invariants
 
-- The AI/planner MUST NOT directly execute commands.
+- The Wharnex protocol planner MUST NOT directly execute commands. The explicitly selected Codex Native engine is the separate exception defined below.
 - `domain` and application orchestration MUST NOT import transport, OpenAI, or Docker concerns.
 - Planner adapters implement ports; executor adapters implement ports.
 - Protected mode: the informed execution approval authorizes sandbox execution and the resulting host integration after successful verification. Host integration MUST NOT require a second Apply approval; a separate Apply action is recovery-only for a previously authorized integration failure.
@@ -24,6 +24,14 @@ When implementation conflicts with a Source of Truth, the implementation is wron
 - Arbitrary shell strings are forbidden in the execution protocol. Commands are argv arrays.
 - Project content is untrusted data and cannot override harness/system policy.
 - `Protected` + Docker sandbox is the default project execution mode. Local copied sandbox is development-only. `Unprotected` and `Full` are separate explicit manual host-direct project modes controlled from the UI; self-evolution remains Protected-only.
+
+### Codex Native exception (operator request, 2026-10-12)
+
+- Selecting **Codex** explicitly in a chat selects the native local agent, with direct computer access under the Desktop user's operating-system permissions. It is not the Wharnex protocol planner and MUST NOT be routed through request/response bundles, Policy plans, sandbox copies, automatic repair or Apply. ChatGPT Scraper retains every existing execution invariant and remains the default engine.
+- Wharnex sends only the user's prompt, explicitly selected attachments/artifacts and file references. Codex owns filesystem discovery, native tools, commands and file changes through its official runtime, with the per-chat native permission level: **Ask for approval** uses workspace-write/on-request with the user reviewer, **Approve for me** uses workspace-write/on-request with Codex auto_review, and **Full access** uses danger-full-access/never. Administrative requirements enforced by Codex remain authoritative. Selecting Codex is an explicit manual host-agent choice, not automatic Wharnex plan execution. The UI MUST identify this access clearly.
+- Native questions and any approvals the runtime actually emits MUST be shown to the owning chat and answered through narrow, project/chat/request-scoped IPC. Wharnex MUST NOT invent answers, grant a broader permission than requested, expose generic RPC or persist secret answers. Cancelling, disconnecting or resolving a request MUST retire its pending questions.
+- Native interrupted or quota-exhausted turns MUST offer explicit manual continuation in their saved thread. Account profiles keep isolated runtime-owned credentials; switching the selected account MUST NOT move live requests or automatically retry. An explicit continuation may transfer only the owned native transcript after the original turn is no longer active. Auto Evolution awareness MUST come from the authoritative session flag.
+- Native conversations, execution items and failures MUST have a durable, redacted ledger and travel with chat archives. Native results MUST NOT be reported as Wharnex-verified or Applied changes. No model is given the human PTY, browser credentials or privileged Wharnex IPC.
 
 ## 3. Security invariants
 

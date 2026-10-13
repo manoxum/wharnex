@@ -31,7 +31,7 @@ const EvolutionEvidenceDrawer = lazy(() => import('../../project/knowledge/Evolu
 const ProjectKnowledgeDrawer = lazy(() => import('../../project/knowledge/ProjectKnowledgeDrawer').then((m) => ({ default: m.ProjectKnowledgeDrawer })))
 const GitDrawer = lazy(() => import('../../git/review/GitDrawer').then((m) => ({ default: m.GitDrawer })))
 const AgentRuntimeDrawer = lazy(() => import('../../agent/runtime/AgentRuntimeDrawer').then((m) => ({ default: m.AgentRuntimeDrawer })))
-const ExternalAgentsPanel = lazy(() => import('../../agent/runtime/ExternalAgentsPanel').then((m) => ({ default: m.ExternalAgentsPanel })))
+const CodexPanel = lazy(() => import('../../codex/surface').then((m) => ({ default: m.CodexPanel })))
 const ProjectTasksDrawer = lazy(() => import('../../project/tasks/ProjectTasksDrawer').then((m) => ({ default: m.ProjectTasksDrawer })))
 const ArtifactExplorerPanel = lazy(() => import('../../artifacts/explorer/ArtifactExplorerPanel').then((m) => ({ default: m.ArtifactExplorerPanel })))
 const DatabaseExplorerPanel = lazy(() => import('../../database/browser/DatabaseExplorerPanel').then((m) => ({ default: m.DatabaseExplorerPanel })))
@@ -238,7 +238,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
         {candidate === 'knowledge' ? <ProjectKnowledgeDrawer session={session} busy={busy} onConsolidate={props.onConsolidateKnowledge} onClose={close}/> : null}
         {candidate === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession} onResolveConflictWithGPT={props.onResolveConflictWithGPT} onOpenGitConflictChat={props.onOpenGitConflictChat}/> : null}
         {candidate === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
-        {candidate === 'external-agents' ? <ExternalAgentsPanel projectPath={session.project_path} onRunInTerminal={props.onRunInTerminal}/> : null}
+        {candidate === 'external-agents' ? <CodexPanel projectPath={session.project_path} chatId={props.chatProps?.activeChatId} onSelectChat={props.chatProps?.onSelectChat}/> : null}
         {candidate === 'tasks' ? <ProjectTasksDrawer projectPath={session.project_path} currentSession={session} chats={props.chats} savedChats={savedChats} archivedChats={archivedChats} activeChatId={props.activeChatId} activeEvents={props.activeEvents} executionFIFO={executionFIFO} onClose={close} onError={onError} onGoToChat={props.onGoToChat}/> : null}
         {candidate === 'errors' ? <ExecutionErrorsDrawer chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} onClose={close}/> : null}
         {candidate === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}

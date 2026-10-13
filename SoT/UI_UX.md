@@ -52,6 +52,40 @@ The Agent MUST expose a project-level **Centro de notificações** that aggregat
 The fixed **Ficheiros**, **Plano**, **Execução** and **Engine** surface icons belong at the far-right edge of the Agent chat switcher, after the scrollable conversation tabs; in `singlePane`, **Chat** joins the same fixed surface group. When the currently open chat owns an alert targeted at one of those surfaces, that icon MUST receive a persistent visual highlight or pulse (with reduced-motion fallback) using the alert severity; alerts from other chats MUST NOT pulse the current chat's surface icons. While a command is actively running for the current chat and **Execução** is not selected, the **Execução** icon MUST also pulse as a non-alert activity cue; selecting that surface suppresses the pulse while it is open, and command completion removes it. Conversations that do not fit in the scrollable region MUST remain reachable through a fixed overflow menu that preserves open, save/archive and the same drag-and-drop ordering model as visible tabs. Reduced-motion users receive a persistent highlight instead of animation.
 
 
+## Codex Engine presentation
+
+The explicitly selected native Codex Engine uses a restrained, readable local
+surface. Its unified header identifies Codex as a local agent, shows account,
+connection and plan information, and clearly states that it can execute commands
+and change files directly on the computer. Login, logout and refresh remain
+explicit controls. Shared workbench tabs separate conversations from usage.
+
+An Engine bound to a chat shows that conversation's title and textual state once,
+without a redundant disabled conversation selector. Unbound surfaces retain an
+explicit selector. Messages identify their author and use theme-aware, scaled
+typography. Progress, work plans, commands and file changes form one collapsible
+activity section; command output and diffs remain individually expandable.
+Native questions and permissions keep explicit, unselected answers and their
+existing scoped reply boundary. Usage separates limits, conversation tokens and
+account metrics, retaining unavailable values as unavailable. Light/Dark themes,
+UI scale, narrow containers, keyboard focus and reduced motion remain supported.
+Native work MUST NOT be presented as Wharnex-verified or Applied changes.
+The Codex composer exposes the runtime model/effort and the three native
+permission levels (Ask for approval, Approve for me, Full access), while hiding
+Wharnex context, intelligence, ZIP preview and plan-execution controls. Named
+accounts can be selected without moving a live request. Interrupted or
+quota-exhausted work offers explicit manual continuation through play; context
+exhaustion is identified separately. The authoritative Auto Evolution flag is
+visible in the owning conversation. Automatic approval decisions show only
+the public rationale, risk and outcome reported by the Codex runtime.
+Every owned native `attention` request exposes manual continuation, including
+saved snapshots predating recovery metadata. Recovery is a compact play icon
+in the conversation footer, with an accessible name and explanatory tooltip;
+it has no instruction form, heading or persistent explanatory block. Failure
+appears beside the action and leaves it retryable. Long output cannot hide it. Migrating
+recovery metadata never submits a turn; resuming still verifies the exact
+request and the runtime's live state before continuing the stored thread.
+
 ## Desktop ChatGPT composition (v1.2)
 
 Wharness Desktop composes the real ChatGPT web surface inside the Agent inspector using a native Electron `WebContentsView`. The request-bound automated surface is labelled **Engine**. A separate **ChatGPT** tab provides an ordinary, project-scoped human ChatGPT browser with no Wharness scraping, prompt submission, bundle supervision, recovery, affinity, or account automation. ChatGPT transport intent is controlled from the **Wharness chat composer**, not from manual artefact cards in the Engine header. Compact composer selectors represent the artefacts that will accompany the next iteration: project context, planner prompt, execution result, execution error and user-provided files. A selected selector means that artefact is part of the next ChatGPT payload. Wharness MAY auto-select an artefact when it is required by state, including forcing fresh context after another Harness chat changes the project snapshot, and selecting result/error evidence after execution or repair; required selections must not be silently deselectable.

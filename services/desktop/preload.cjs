@@ -48,6 +48,40 @@ const subscribeMirror = (channel, request, onFrame) => {
 
 contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
   platform: process.platform,
+  codex: Object.freeze({
+    status: (projectPath) => invoke('wharnex:codex:native-status', { projectPath }),
+    login: (projectPath) => invoke('wharnex:codex:native-login', { projectPath }),
+    logout: (projectPath) => invoke('wharnex:codex:native-logout', { projectPath }),
+    preparePrompt: (request) => invoke('wharnex:codex:prepare', request),
+    prepareNative: (request) => invoke('wharnex:codex:native-prepare', request),
+    answer: (projectPath, chatId, requestId, askId, response) => invoke('wharnex:codex:native-answer', { projectPath, chatId, requestId, askId, response }),
+    cancelNativeRequest: (projectPath, chatId, requestId) => invoke('wharnex:codex:native-cancel', { projectPath, chatId, requestId }),
+    resumeNative: (projectPath, chatId, requestId, text) => invoke('wharnex:codex:native-resume', { projectPath, chatId, requestId, text }),
+    createAccount: (projectPath, label) => invoke('wharnex:codex:native-account-create', { projectPath, label }),
+    selectAccount: (projectPath, accountId) => invoke('wharnex:codex:native-account-select', { projectPath, accountId }),
+    threads: (projectPath) => invoke('wharnex:codex:threads', { projectPath }),
+    history: (projectPath, chatId) => invoke('wharnex:codex:native-history', { projectPath, chatId }),
+    cancelRequest: (projectPath, chatId, requestId) => invoke('wharnex:codex:cancel', { projectPath, chatId, requestId }),
+    pendingBundles: (projectPath) => invoke('wharnex:codex:pending', { projectPath }),
+    acknowledge: (projectPath, chatId, requestId) => invoke('wharnex:codex:acknowledge', { projectPath, chatId, requestId }),
+    subscribe: (projectPath) => invoke('wharnex:codex:subscribe', { projectPath }),
+    unsubscribe: (projectPath) => invoke('wharnex:codex:unsubscribe', { projectPath }),
+    onAccountChange: (callback) => {
+      const handler = () => callback()
+      ipcRenderer.on('wharnex:codex:account-changed', handler)
+      return () => ipcRenderer.removeListener('wharnex:codex:account-changed', handler)
+    },
+    onEvent: (callback) => {
+      const handler = (_event, payload) => { if (typeof callback === 'function') callback(payload) }
+      ipcRenderer.on('wharnex:codex:event', handler)
+      return () => ipcRenderer.removeListener('wharnex:codex:event', handler)
+    },
+    onBundle: (callback) => {
+      const handler = (_event, payload) => { if (typeof callback === 'function') callback(payload) }
+      ipcRenderer.on('wharnex:codex:bundle', handler)
+      return () => ipcRenderer.removeListener('wharnex:codex:bundle', handler)
+    },
+  }),
   projects: Object.freeze({
     pickDirectory: (request = {}) => invoke('wharness:projects:pick-directory', request),
     pickImage: (request = {}) => invoke('wharness:projects:pick-image', request),
