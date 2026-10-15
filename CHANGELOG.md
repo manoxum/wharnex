@@ -4,11 +4,6 @@
 _(reserved — no entries yet)_
 
 
-### Chat 0bd29091-ede2-455b-b37e-cd6ea1ef1a90 (2026-10-12)
-
-_(reserved — no entries yet)_
-
-
 ### Chat 9c2ddb50-7c1f-48df-a13f-d436ed75b5f3 (2026-10-01)
 
 - Corrige as tarefas efémeras do UI Lab para usarem o próprio `task_id` como chave de cache ChatGPT, eliminando os `:` rejeitados pelo Desktop tanto na descoberta como na execução de testes.
