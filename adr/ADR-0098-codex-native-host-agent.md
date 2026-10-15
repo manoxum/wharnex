@@ -178,3 +178,27 @@ with the same four mock errors. The one additional timeout passes unchanged in
 both isolated reruns. Lint has the same three Drawio errors; domain-layout has
 the same two backend violations. Desktop's launcher shell-handoff failure also
 reproduces in unmodified HEAD. Existing failing assertions were not changed.
+
+Composer preference follow-up (operator request, 2026-10-15): Codex remembers
+its last selected or successfully submitted model and the effort for each
+model under the canonical local `wharnex.codex.preferences.v1` key. Explicit
+chat choices remain authoritative in the existing durable chat `extra`; new
+or unconfigured chats inherit defaults, and successful submission pins the
+resolved pair to the owning chat. Switching models saves the former effort
+and restores the target model's remembered effort. Empty strings explicitly
+select runtime defaults. Temporarily absent catalog entries retain a labelled
+saved option rather than silently showing a different selection. Permissions
+remain per chat. No automatic submission, account operation or migration is
+introduced. The composer callbacks were extracted from the oversized App into
+the Codex preferences domain; no styling rules changed. Focused tests cover
+persistence, durable-chat precedence, blocked controls, model switching and
+actual dispatch. Browser tests cover reload and the existing six native flows.
+
+Preference validation: final focused suite 12/12 and browser scenarios 7/7 pass;
+reload screenshot inspected at 380px. Typecheck, build and file-size checks pass.
+Full frontend: 1,275 passed/64 failed with the same four mock errors. The broad
+process had cached the preference helper before its final correction; that
+case passes in the final focused rerun. Three additional unrelated failures
+pass unchanged in isolated changed/baseline comparisons. Lint retains the same
+three existing Drawio errors. Remaining legacy App composition is follow-up
+debt outside the extracted Codex selection concern.

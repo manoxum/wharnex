@@ -6,3 +6,4 @@ export { validatePlannerBundle, type ValidatedBundleSubmit } from './bundleDeliv
 export { recoverCodexContinuation } from './recovery'
 export { dispatchNativeCodex, useNativeActivity } from './native'
 export type { CodexAsk, CodexAnswer, NativeCodexRequest, CodexActivity } from './native'
+export { createCodexComposerControls } from './preferences'

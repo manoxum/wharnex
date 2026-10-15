@@ -1,4 +1,4 @@
-import { dispatchNativeCodex, useNativeActivity, preparePlannerPrompt, transportPlannerContinuation as dispatchPlannerContinuation, useCodexInbox, recoverCodexContinuation, validatePlannerBundle, type ValidatedBundleSubmit } from '../../lib/codex'
+import { createCodexComposerControls, dispatchNativeCodex, useNativeActivity, preparePlannerPrompt, transportPlannerContinuation as dispatchPlannerContinuation, useCodexInbox, recoverCodexContinuation, validatePlannerBundle, type ValidatedBundleSubmit } from '../../lib/codex'
 import { WorkspaceSurfaceTabs } from '../../components/workspace/surfaces'
 import { createChatSessionActions } from '../settings'
 import { createRestartActions, useEventStreamConnection, canRetryDependencyNetwork, canRepairFailureWithGPT, recoveryHumanAction } from '../execution'
@@ -1325,7 +1325,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       if (targetChat.engine === 'codex') {
         const bridge = desktopBridge()
         if (!bridge) throw new Error('Codex Native requer o Wharnex Desktop.')
-        await dispatchNativeCodex(bridge, targetSession, { ...targetChat, title: generatedChatTitle }, message, encoded, projectFiles)
+        await dispatchNativeCodex(bridge, targetSession, { ...targetChat, title: generatedChatTitle }, message, encoded, projectFiles, (selection) => updateWorkspaceChat(targetChat.id, projectPath, selection))
         onAccepted?.()
         return
       }
@@ -2972,13 +2972,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
 
   const sharedChatProps: ComponentProps<typeof ChatPanel> = {
     session, items, chats, archivedChats, activeChatId, busy: activeBusy, executionMode, automationMode, effortLevel, reasoningEffort: session.reasoning_effort || 'high', chatTransportMode,
-    engine: activeChat?.engine || 'chatgpt', codexModel: activeChat?.codexModel,
-    onEngine: (engine) => { if (!taskInFlight && !activeBusy && !preparedDrafts[activeChatId]) updateWorkspaceChat(activeChatId, session.project_path, { engine }) },
-    onCodexModel: (codexModel) => { if (!taskInFlight && !activeBusy) updateWorkspaceChat(activeChatId, session.project_path, { codexModel, codexEffort: undefined }) },
-    codexPermission: activeChat?.codexPermission,
-    onCodexPermission: (codexPermission) => { if (!taskInFlight && !activeBusy) updateWorkspaceChat(activeChatId, session.project_path, { codexPermission }) },
-    codexEffort: activeChat?.codexEffort,
-    onCodexEffort: (codexEffort) => { if (!taskInFlight && !activeBusy) updateWorkspaceChat(activeChatId, session.project_path, { codexEffort }) },
+    ...createCodexComposerControls(activeChat, Boolean(taskInFlight || activeBusy), Boolean(taskInFlight || activeBusy || preparedDrafts[activeChatId]), (patch) => updateWorkspaceChat(activeChatId, session.project_path, patch)),
     attachmentsEnabled: isDesktop() && (activeChat?.engine === 'codex' || config?.planner === 'manual'), preparedAttachmentCount: preparedDrafts[activeChatId], failedPromptDelivery: failedPromptDeliveries[activeChatId],
     artifactSelection: composerArtifacts, artifactRequired: { context: contextArtifactRequired, error: errorArtifactRequired },
     artifactContent: { context: contextArtifact(session), prompt: manualPrompt || session.last_manual_prompt || '', result: executionArtifact(session), error: errorArtifact(session) },

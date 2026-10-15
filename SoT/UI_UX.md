@@ -54,6 +54,13 @@ The fixed **Ficheiros**, **Plano**, **Execução** and **Engine** surface icons 
 
 ## Codex Engine presentation
 
+The Codex composer remembers the last selected/used model and the effort per
+model in local Desktop preferences. Chats with explicit durable choices retain
+them; new/unconfigured chats inherit those defaults, and submitting pins them
+to that chat. Explicit runtime-default selections remain valid choices. Loading
+or temporarily missing catalog entries must not erase the displayed selection.
+Permission levels remain per chat and are never inherited from these defaults.
+
 After a successful native change, the owning chat uses the shared changed-file
 card and Monaco diff inspector, labelled **Alterações nativas do Codex**. Its
 footer carries the native commit and canonical version, or the manual-commit

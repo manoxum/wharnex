@@ -1,0 +1,20 @@
+import { expect, test } from '@playwright/test'
+
+test('Codex restores the last model and per-model effort after reloading the Desktop UI', async ({ page }) => {
+  await page.goto('/e2e/codex/fixture.html?native=1')
+  const model = page.getByRole('combobox', { name: 'Modelo Codex' })
+  const effort = page.getByRole('combobox', { name: 'Esforço Codex' })
+  await expect(model.locator('option[value="fixture-model"]')).toHaveCount(1)
+  await model.selectOption('fixture-model')
+  await effort.selectOption('xhigh')
+  await page.reload()
+  await expect(model).toHaveValue('fixture-model')
+  await expect(effort).toHaveValue('xhigh')
+  await model.selectOption('')
+  await effort.selectOption('medium')
+  await model.selectOption('fixture-model')
+  await expect(effort).toHaveValue('xhigh')
+  await page.setViewportSize({ width: 380, height: 850 })
+  expect(await page.locator('#codex-owner').evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(false)
+  await page.screenshot({ path: '/tmp/wharnex-codex-preferences.png' })
+})

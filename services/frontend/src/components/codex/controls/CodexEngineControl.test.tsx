@@ -25,4 +25,9 @@ describe('composer engine selector', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Modelo Codex' }), { target: { value: 'official-model' } })
     expect(onCodexModel).toHaveBeenCalledWith('official-model')
   })
+  it('keeps the saved model and effort visible when their catalog entries are unavailable', () => {
+    render(<CodexEngineControl projectPath="/project" engine="codex" codexModel="saved-model" codexEffort="xhigh"/>)
+    expect((screen.getByRole('combobox', { name: 'Modelo Codex' }) as HTMLSelectElement).value).toBe('saved-model')
+    expect((screen.getByRole('combobox', { name: 'Esforço Codex' }) as HTMLSelectElement).value).toBe('xhigh')
+  })
 })

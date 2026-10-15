@@ -26,9 +26,9 @@ export function CodexEngineControl({ engine = 'chatgpt', onEngine, projectPath, 
       options={[{ value: 'ask', label: 'Pedir aprovação' }, { value: 'auto', label: 'Aprovar por mim' }, { value: 'full', label: 'Acesso total' }]}/>}
     {engine === 'codex' && <ComposerSelectChoice label="Modelo Codex" title="Modelos disponibilizados pelo runtime Codex" icon={<Icon name="sparkles" size={12}/>}
       value={codexModel} onChange={onCodexModel} disabled={disabled}
-      options={[{ value: '', label: 'Padrão do Codex' }, ...(data?.models || []).map((model) => ({ value: model.model, label: model.label || model.model }))]}/>}
+      options={[{ value: '', label: 'Padrão do Codex' }, ...(codexModel && !data?.models.some((item) => item.model === codexModel) ? [{ value: codexModel, label: `${codexModel} · guardado` }] : []), ...(data?.models || []).map((model) => ({ value: model.model, label: model.label || model.model }))]}/>}
     {engine === 'codex' && <ComposerSelectChoice label="Esforço Codex" title="Esforços disponibilizados pelo modelo Codex selecionado" icon={<Icon name="activity" size={12}/>}
-      value={efforts.some((item) => item.reasoningEffort === codexEffort) ? codexEffort : ''} onChange={onCodexEffort} disabled={disabled}
-      options={[{ value: '', label: `Esforço · ${model?.defaultReasoningEffort || 'padrão'}` }, ...efforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort }))]}/>}
+      value={codexEffort} onChange={onCodexEffort} disabled={disabled}
+      options={[{ value: '', label: `Esforço · ${model?.defaultReasoningEffort || 'padrão'}` }, ...(codexEffort && !efforts.some((item) => item.reasoningEffort === codexEffort) ? [{ value: codexEffort, label: `${codexEffort} · guardado` }] : []), ...efforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort }))]}/>}
   </>
 }
