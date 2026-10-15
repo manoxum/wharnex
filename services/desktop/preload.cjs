@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('wharnessDesktop', Object.freeze({
     prepareNative: (request) => invoke('wharnex:codex:native-prepare', request),
     answer: (projectPath, chatId, requestId, askId, response) => invoke('wharnex:codex:native-answer', { projectPath, chatId, requestId, askId, response }),
     cancelNativeRequest: (projectPath, chatId, requestId) => invoke('wharnex:codex:native-cancel', { projectPath, chatId, requestId }),
+    steerNative: (projectPath, chatId, requestId, commentId, text, attachments) => invoke('wharnex:codex:native-steer', { projectPath, chatId, requestId, commentId, text, attachments }),
     resumeNative: (projectPath, chatId, requestId, text) => invoke('wharnex:codex:native-resume', { projectPath, chatId, requestId, text }),
     createAccount: (projectPath, label) => invoke('wharnex:codex:native-account-create', { projectPath, label }),
     selectAccount: (projectPath, accountId) => invoke('wharnex:codex:native-account-select', { projectPath, accountId }),

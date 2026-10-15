@@ -1,4 +1,5 @@
 import { ChatNavigation } from './chatNavigation'
+import { handleComposerSubmitShortcut, activeComposerLabel, activeComposerHint } from '../../../lib/chat/composer'
 import { ChatTranscript } from './chatTranscript'
 import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatChangeFile, ChatItem, ExecutionPlan, Interview, InterviewQuestion, ManagedArtifact, ChatFileRecord, ProjectTodo, Session } from '../../../types'
@@ -914,10 +915,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               return
             }
             if (fileSuggestions.length && (event.key === 'Enter' || event.key === 'Tab')) { event.preventDefault(); event.stopPropagation(); selectDirective(fileSuggestions[selectedSuggestionIndex]); return }
-            if (event.key !== 'Enter' || event.shiftKey) return
-            event.preventDefault(); event.stopPropagation()
+            if (!handleComposerSubmitShortcut(event)) return
             if (planAdjustment) void submitMain()
-            else if (engine === 'codex') void submitMain()
             else if ((event.ctrlKey || event.metaKey) && taskInFlight) void submitComment()
             else void submitMain()
           }}
@@ -966,10 +965,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </>}
           <button type="button" className={`composer-round-action ${queueOpen ? 'selected' : ''}`} aria-label="Fila de espera" title="Fila de requests principais" onClick={() => setQueueOpen((current) => !current)}><Icon name="clipboard" size={12}/>{queuedRequests.length > 0 && <b>{queuedRequests.length}</b>}</button>
           {engine !== 'codex' && <button type="button" className={`composer-round-action ${todoOpen ? 'selected' : ''}`} aria-label="Tarefas TODO" title="Tarefas da iteração" disabled={!todos.length} onClick={() => setTodoOpen((current) => !current)}><Icon name="check" size={12}/>{todos.length > 0 && <b>{todos.filter((todo) => !todo.done).length}</b>}</button>}
-          {planAdjustment ? <span className="composer-comment-state plan-adjustment-state"><Icon name="edit" size={12}/> Ajuste do plano · use @see para referenciar a miniatura</span> : taskInFlight && <span className="composer-comment-state"><span className="comment-pulse"/><Icon name={engine === 'codex' ? 'code' : 'chatgpt'} size={12}/>{engine === 'codex' ? 'Codex ativo · próximo pedido entra na fila' : 'Request ativa · Ctrl+Enter comenta'}</span>}
+          {planAdjustment ? <span className="composer-comment-state plan-adjustment-state"><Icon name="edit" size={12}/> Ajuste do plano · use @see para referenciar a miniatura</span> : taskInFlight && <span className="composer-comment-state"><span className="comment-pulse"/><Icon name={engine === 'codex' ? 'code' : 'chatgpt'} size={12}/>{activeComposerLabel(engine)}</span>}
           </>}
         </div><button className="send-button" disabled={commentBusy || (planAdjustment ? !message.trim() : (!message.trim() && !attachments.length)) || Boolean(preparedAttachmentCount)} aria-label={planAdjustment ? 'Enviar ajuste do plano' : composerSendLabel || (taskInFlight ? 'Adicionar request à fila' : 'Enviar ao agente')} title={planAdjustment ? 'Enviar ajuste do plano' : composerSendLabel || (taskInFlight ? 'Adicionar à fila' : 'Enviar')}><Icon name="send" size={15}/></button></div>
-        <div className="composer-hint">{planAdjustment ? 'Descreva o ajuste · @see pode referenciar o plano atual · Shift+Enter cria linha' : composerHint || (taskInFlight ? (engine === 'codex' ? 'Enter adiciona à fila · Shift+Enter cria linha' : 'Enter adiciona à fila · Ctrl+Enter envia comentário · Shift+Enter cria linha') : engine !== 'codex' && requestMode === 'plan_first' ? 'Enter inicia a próxima request · Plan first aguarda aprovação' : 'Enter inicia a próxima request · Shift+Enter cria linha')}</div>
+        <div className="composer-hint">{planAdjustment ? 'Descreva o ajuste · @see pode referenciar o plano atual · Shift+Enter cria linha' : composerHint || (taskInFlight ? engine === 'codex' ? activeComposerHint(engine) : 'Enter adiciona à fila · Ctrl+Enter envia comentário · Shift+Enter cria linha' : engine !== 'codex' && requestMode === 'plan_first' ? 'Enter inicia a próxima request · Plan first aguarda aprovação' : 'Enter inicia a próxima request · Shift+Enter cria linha')}</div>
       </div>
     </form>
 

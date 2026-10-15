@@ -3,6 +3,12 @@
 ## Macro architecture
 
 The Agent supports ChatGPT Scraper and Codex Native (`adr/ADR-0098`).
+During a native turn, explicit Ctrl/Cmd+Enter guidance is sent immediately via
+the official `turn/steer` operation, scoped to project/chat/request and the
+expected active turn on its original account. It never enters the Scraper
+comment queue or starts another turn. Duplicate deliveries converge by comment
+identity; rejected/uncertain delivery is surfaced without an automatic retry.
+Guidance and selected attachments are retained in the redacted native ledger.
 Engine/model choice is durable per workspace chat. ChatGPT uses the existing
 request/response ZIP, Policy and executor ports. Explicitly selected Codex runs
 the official app-server as a native host agent: only the user prompt and selected

@@ -202,3 +202,42 @@ case passes in the final focused rerun. Three additional unrelated failures
 pass unchanged in isolated changed/baseline comparisons. Lint retains the same
 three existing Drawio errors. Remaining legacy App composition is follow-up
 debt outside the extracted Codex selection concern.
+
+Incremental prompt correction (operator request, 2026-10-15): Ctrl/Cmd+Enter
+was intercepted by a Codex-specific main-submit branch, and the only comment
+handler addressed the Scraper queue. An active native prompt therefore became
+a queued main request. Keyboard matching and comment transport now have narrow
+modules: Ctrl/Cmd+Enter steers the owned active native turn; Enter retains the
+serialized main-request queue. The existing Scraper shortcut and immediate
+composer clearing remain covered by their unchanged regression assertions.
+
+The packaged app-server's generated schema and a real isolated runtime fixture
+verify `turn/steer` with threadId, expectedTurnId and native input. It does not
+interrupt, start a turn, change model/permissions, answer an approval, or move
+accounts. The original account and request/turn identity are frozen and checked
+before delivery and on acknowledgment. Comment identities deduplicate attempts;
+uncertain delivery is durably classified and never replayed automatically.
+Completion waits for an in-flight delivery before archiving the redacted prompt
+and its selected attachments. New native IPC is project/chat/request scoped,
+uses a closed vocabulary and requires a Desktop restart; it has no generic RPC
+or Scraper fallback. Existing records need no migration.
+
+The original reproductions failed with `engine.steer is not a function` and
+Ctrl+Enter calling the main-submit callback. Both now pass, alongside the real
+runtime fixture and seven browser cases. Public hint text now describes the
+native shortcut. Styling exception: the existing composer footer retains its
+appearance and CSS; only its text changed, with no new legacy rules. The touched
+App comment transport and ChatPanel keyboard handling were extracted by concern;
+remaining legacy workspace/composer composition is follow-up debt. New source
+and test files remain below 200 lines in named domains.
+
+Final correction verification: Desktop 1,194 passed/one unchanged launcher
+shell-handoff failure; the earlier original-runtime cleanup race passes on
+rerun. Frontend 1,276 passed/67 failed with the same four mock errors; failure
+identities were compared with the saved baseline runs, and the two additional
+navigation cases pass unchanged in both current and HEAD-isolated reruns.
+The final four focused frontend cases pass, including Ctrl and Cmd modifiers.
+Typecheck, build, seven browser cases and the 200-line gate pass. Lint retains
+the same three existing Drawio errors. Existing assertions were not weakened;
+the shared inline routing contract remains directly inspectable while keyboard
+matching is extracted. No test or runtime fixture required provider credentials.

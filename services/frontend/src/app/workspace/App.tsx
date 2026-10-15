@@ -4,7 +4,7 @@ import { createChatSessionActions } from '../settings'
 import { createRestartActions, useEventStreamConnection, canRetryDependencyNetwork, canRepairFailureWithGPT, recoveryHumanAction } from '../execution'
 import { useWorkspaceAttention } from '../attention'
 import { createBundleInboxDelivery, deferBundleRouting } from '../transport'
-import { createTranscriptMutator, createTranscriptAppender, createActiveChatLifecycleActions, createChatCatalogActions, createQueueActions, createPlanProposalActions, hydrateChatTranscript, hydrateWorkspaceMemory, selectedArtifactKinds, continuationArtifactSelection, contextArtifact, sessionContextSHA, pendingBundleRequestIDs, iterationRef, turnMeta, welcomeItem, truncateRepairCause, chatGPTProjectName } from '../chat'
+import { sendTaskComment, createTranscriptMutator, createTranscriptAppender, createActiveChatLifecycleActions, createChatCatalogActions, createQueueActions, createPlanProposalActions, hydrateChatTranscript, hydrateWorkspaceMemory, selectedArtifactKinds, continuationArtifactSelection, contextArtifact, sessionContextSHA, pendingBundleRequestIDs, iterationRef, turnMeta, welcomeItem, truncateRepairCause, chatGPTProjectName } from '../chat'
 import { api, APIError, type LiveEventStream, type EventStreamCoalescer } from '../../lib/transport'
 import { exportTraceChatItem, resolveExportTraceMetadata, BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError, expectedResponseBundleName } from '../../lib/artifacts'
 import { isAutomaticAutomationMode, isAutoApproveAutomationMode, knowledgeConsolidationPending, requestChainActive, activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest, sessionOwnsRequest, hasRecordedRequest, pendingDeliveryResumeOutcome } from '../../lib/agent'
@@ -2505,14 +2505,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   async function commentOnActiveTask(message: string, attachments: File[] = []) {
     if (!session) return
     const active = chats.find((chat) => chat.id === activeChatId)
-    const requestId = activePendingRequestId(session) || active?.pendingPlan?.requestId || ''
-    if (!active || !requestId) throw new Error('Nenhuma tarefa ChatGPT ativa para comentar.')
+    if (!active) throw new Error('Nenhuma tarefa ativa para comentar.')
     try {
       const bridge = desktopBridge()
       if (!bridge) throw new Error('Comentários de tarefa requerem Wharnex Desktop.')
-      const encoded = attachments.length ? await encodeChatAttachments(attachments) : []
-      const result = await bridge.chatgpt.queueComment({ cacheKey: active.id, sessionId: session.id, text: message, url: active.chatgptUrl, requestId, commentId: crypto.randomUUID(), attachments: encoded, reasoningEffort: session.reasoning_effort || 'high' })
-      const item: ChatItem = { id: crypto.randomUUID(), role: 'user', source: 'user', text: message, createdAt: new Date().toISOString(), meta: `${result.queued ? 'Comentário em fila' : 'Comentário enviado'} para a tarefa ativa${attachments.length ? ` · ${attachments.length} anexo(s)` : ''}`, iteration: iterationRef(requestId, 'submitted', ['prompt'], active.chatgptUrl) }
+      const item = await sendTaskComment(bridge, session, active, activeNativeThread, message, attachments)
       appendChatItem(active, session.project_path, item)
     } catch (error) {
       setError(messageOf(error))

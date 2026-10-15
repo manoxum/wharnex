@@ -10,7 +10,7 @@ export function publicNativeThread(record) {
     startedAt: record.startedAt, completedAt: record.completedAt, accountId: record.accountId || 'default', permissionLevel: record.permissionLevel || 'full', selfEvolution: Boolean(record.selfEvolution), resumeAvailable: Boolean(record.resumeAvailable), pauseReason: record.pauseReason || '' }
 }
 
-export function createNativeEvents({ find, save, publish, journal, interactions, finalize = finalizeNativeChanges }) {
+export function createNativeEvents({ find, save, publish, journal, interactions, finalize = finalizeNativeChanges, beforeComplete = async () => {} }) {
   return async function notification(method, params) {
     const record = find(params.threadId)
     if (!record || (params.turnId && record.turnId && params.turnId !== record.turnId)) return
@@ -56,6 +56,7 @@ export function createNativeEvents({ find, save, publish, journal, interactions,
     if (method === 'serverRequest/resolved') interactions.retire(record, params.requestId)
     record.messages = record.messages.slice(-80)
     if (method === 'turn/completed') {
+      await beforeComplete(record)
       interactions.retire(record)
       record.completedAt = new Date().toISOString()
       record.status = params.turn?.status === 'completed' ? 'completed' : params.turn?.status === 'interrupted' ? 'idle' : 'attention'

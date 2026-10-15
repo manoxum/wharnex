@@ -30,6 +30,11 @@ export function configureNativeFixture(status: CodexStatus, thread: CodexThread)
   }
 }
 export function installNativeActions(bridge: CodexBridge, status: CodexStatus, thread: CodexThread, publish: () => void) {
+  bridge.steerNative = async (projectPath, chatId, requestId, commentId, text) => {
+    if (projectPath !== thread.projectPath || chatId !== thread.chatId || requestId !== thread.requestId || thread.status !== 'running') throw new Error('Turno incremental incorreto.')
+    thread.messages.push({ id: commentId, role: 'user', text }, { id: `ack-${commentId}`, role: 'assistant', text: 'Orientação recebida durante a execução.' })
+    publish(); return { ok: true }
+  }
   bridge.prepareNative = async () => ({ ok: true })
   bridge.answer = async (projectPath, chatId, requestId, askId, answer) => {
     if (projectPath !== thread.projectPath || chatId !== thread.chatId || requestId !== thread.requestId || thread.pendingAsks?.[0]?.id !== askId || !('answers' in answer) || answer.answers.strategy?.answers[0] !== 'Corrigir agora') throw new Error('Resposta não corresponde ao pedido de teste.')

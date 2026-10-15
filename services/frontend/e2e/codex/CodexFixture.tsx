@@ -4,9 +4,11 @@ import { ComposerSessionControls } from '../../src/components/chat/composer/Comp
 import { createCodexComposerControls, type PlannerChatConfiguration } from '../../src/lib/codex'
 import { completeFixtureTurn, pauseFixtureQuota, requestFixtureAnswer } from './bridge'
 import { nativeFixture } from './nativeFixture'
+import { IncrementalComposer } from './IncrementalComposer'
 export function CodexFixture() {
   const [chat, setChat] = useState<PlannerChatConfiguration>({ engine: 'codex' })
   const controls = createCodexComposerControls(chat, false, false, (patch) => setChat((current) => ({ ...current, ...patch })))
+  if (new URLSearchParams(location.search).has('incremental')) return <main className="flex h-screen flex-col bg-whx-bg text-whx-text"><CodexPanel projectPath="/workspace/wharnex" chatId="chat-parser"/><IncrementalComposer/></main>
   return <main className="flex h-screen min-h-0 flex-col bg-whx-bg text-whx-text">
     <div className="border-b border-whx-border-soft px-5 py-3 font-mono text-xs">Wharnex / integração Codex</div>
     <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_400px]">

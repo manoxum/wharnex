@@ -54,6 +54,13 @@ The fixed **Ficheiros**, **Plano**, **Execução** and **Engine** surface icons 
 
 ## Codex Engine presentation
 
+While a Codex turn is active, Ctrl/Cmd+Enter sends the composer text and selected
+attachments as immediate guidance to that same native turn. Plain Enter queues
+the next main request; Shift+Enter inserts a line. The composer advertises this
+distinction, and the owning chat reports delivery only after native acknowledgment.
+No Scraper queue, new turn, cancellation or invented approval may implement this
+shortcut. Stale or uncertain delivery surfaces an actionable error without retry.
+
 The Codex composer remembers the last selected/used model and the effort per
 model in local Desktop preferences. Chats with explicit durable choices retain
 them; new/unconfigured chats inherit those defaults, and submitting pins them

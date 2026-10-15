@@ -32,6 +32,7 @@ export interface CodexBridge {
   prepareNative?(request: NativeCodexRequest): Promise<CodexPrepared>
   answer?(projectPath: string, chatId: string, requestId: string, askId: string, response: CodexAnswer): Promise<{ ok: boolean }>
   cancelNativeRequest?(projectPath: string, chatId: string, requestId: string): Promise<unknown>
+  steerNative?(projectPath: string, chatId: string, requestId: string, commentId: string, text: string, attachments: DesktopUserAttachment[]): Promise<{ ok: boolean }>
   resumeNative?(projectPath: string, chatId: string, requestId: string, text?: string): Promise<unknown>
   createAccount?(projectPath: string, label: string): Promise<{ id: string }>
   selectAccount?(projectPath: string, accountId: string): Promise<unknown>

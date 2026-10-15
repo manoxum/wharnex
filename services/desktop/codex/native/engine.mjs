@@ -10,6 +10,7 @@ import { nativePermissionPolicy } from './permissions.mjs'
 import { createNativeContinuation } from './continuation.mjs'
 import { normalizeNativeRecovery } from './recovery/state.mjs'
 import { captureNativeBaseline, finalizeNativeChanges } from './finalization/index.mjs'
+import { createNativeSteering } from './steering/index.mjs'
 
 const ACTIVE = new Set(['submitting', 'running', 'waiting', 'attention'])
 export function createNativeCodexEngine({ root, publish: onPublish, publishAccount = () => {}, archive, gitSettings = async () => ({ commit_mode: 'auto' }), rpcFactory = (options) => new CodexRPC(options) }) {
@@ -31,6 +32,7 @@ export function createNativeCodexEngine({ root, publish: onPublish, publishAccou
   const find = (id, accountId) => records.find((record) => record.threadId === id && (!accountId || (record.accountId || 'default') === accountId))
   const interactions = createNativeInteractions({ find, save, publish, journal })
   const notification = createNativeEvents({ find, save, publish, journal, interactions,
+    beforeComplete: (record) => steering.flush(record),
     finalize: async (record) => {
       const settings = await gitSettings(record)
       if (!['auto', 'manual'].includes(settings.commit_mode)) throw new Error('Modo de commit indisponível.')
@@ -87,7 +89,7 @@ export function createNativeCodexEngine({ root, publish: onPublish, publishAccou
     try {
       const preparedInput = await prepareNativeInput(root, request)
       record.gitBaseline = request.gitBaseline || await captureNativeBaseline(request.projectPath, record)
-      record.nativeChangedPaths = request.nativeChangedPaths || []
+      record.nativeChangedPaths = request.nativeChangedPaths || []; record.steerDeliveries = []
       const concurrent = records.filter((item) => item !== record && item.projectPath === record.projectPath && ['submitting', 'running', 'waiting'].includes(item.status))
       for (const item of concurrent) {
         if (item.gitBaseline) { item.gitBaseline.concurrent = true; await save(item) }
@@ -135,7 +137,8 @@ export function createNativeCodexEngine({ root, publish: onPublish, publishAccou
     return { ok: true }
   }
   const resume = createNativeContinuation({ owned, accounts, save, publish, interactions, journal, prepare, flush: () => events })
-  return { rpc, accounts, prepare, owned, cancel, resume,
+  const steering = createNativeSteering({ root, owned, accounts, save, publish, journal })
+  return { rpc, accounts, prepare, owned, cancel, resume, steer: steering.steer,
     answer: async (projectPath, chatId, requestId, askId, value) => {
       const record = await owned(projectPath, chatId)
       if (record.requestId !== requestId) throw new Error('Resposta pertence a outro pedido Codex.')

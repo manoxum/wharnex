@@ -66,6 +66,7 @@ export function registerNativeCodexIPC(d, { handle, send, accountChanged, legacy
   })
   handle('native-answer', ({ projectPath }, request) => runtime().answer(projectPath, request.chatId, request.requestId, request.askId, request.response))
   handle('native-cancel', ({ projectPath }, request) => runtime().cancel(projectPath, request.chatId, request.requestId))
+  handle('native-steer', ({ projectPath }, request) => runtime().steer(projectPath, request.chatId, request.requestId, request.commentId, request.text, request.attachments))
   handle('native-resume', async ({ projectPath }, request) => {
     const current = runtime(), record = await current.owned(projectPath, request.chatId)
     const session = await sessionFor(projectPath, record.sessionId, record.chatId)
