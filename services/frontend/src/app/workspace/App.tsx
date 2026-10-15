@@ -2,7 +2,7 @@ import { createCodexComposerControls, dispatchNativeCodex, useNativeActivity, pr
 import { WorkspaceSurfaceTabs } from '../../components/workspace/surfaces'
 import { createChatSessionActions } from '../settings'
 import { createRestartActions, useEventStreamConnection, canRetryDependencyNetwork, canRepairFailureWithGPT, recoveryHumanAction } from '../execution'
-import { useWorkspaceAttention } from '../attention'
+import { useWorkspaceAttention, useCompletionNotifications } from '../attention'
 import { createBundleInboxDelivery, deferBundleRouting } from '../transport'
 import { sendTaskComment, createTranscriptMutator, createTranscriptAppender, createActiveChatLifecycleActions, createChatCatalogActions, createQueueActions, createPlanProposalActions, hydrateChatTranscript, hydrateWorkspaceMemory, selectedArtifactKinds, continuationArtifactSelection, contextArtifact, sessionContextSHA, pendingBundleRequestIDs, iterationRef, turnMeta, welcomeItem, truncateRepairCause, chatGPTProjectName } from '../chat'
 import { api, APIError, type LiveEventStream, type EventStreamCoalescer } from '../../lib/transport'
@@ -13,8 +13,8 @@ import { AgentWorkspace } from '../../components/agent'
 import { ChatPanel } from '../../components/chat'
 import { TerminalWorkspace } from '../../components/terminal'
 import { executionQueueActiveCount, executionQueueIsActive, finishExecutionQueueItem, upsertExecutionQueueItem, visibleExecutionQueueItems, type ExecutionFIFOItem, appliedChangePresentationItems, mergeAppliedChangePresentationItems, plannerDeclaredNonRetryable, promptGPTRepairDetail, errorArtifact, executionArtifact, isRestartPending, type RestartReport, executionNeedsAttention, sessionNeedsExecutionConsent, clearSelfEvolutionBlockForRetry } from '../../lib/execution'
-import { collectAttentionItems, summarizeAttention, type AttentionItem, type AttentionTarget, mergeAttentionItems, useAttentionNavigation, acknowledgeCompletedAttention, filterActiveAttentionItems, loadCompletedAttentionHistory } from '../../lib/attention'
-import { orchestratorConclusionAttentionItems, shouldPublishNativeAttentionAfterBaseline } from '../../lib/orchestrator'
+import { collectAttentionItems, collectNativeAttentionItems, summarizeAttention, type AttentionItem, type AttentionTarget, mergeAttentionItems, useAttentionNavigation, acknowledgeCompletedAttention, filterActiveAttentionItems, loadCompletedAttentionHistory } from '../../lib/attention'
+import { orchestratorConclusionAttentionItems } from '../../lib/orchestrator'
 import { InterruptedExecutionRecovery, type InterruptedExecutionTarget, RestartConfirmation } from '../../components/execution'
 import { DeferredEditorWorkspace } from '../../components/editor'
 import { OrchestratorWorkspace } from '../../components/orchestrator'
@@ -147,8 +147,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const failedPromptDeliveryKeysRef = useRef(new Set<string>())
   const cancelledPromptDeliveryIdsRef = useRef(new Set<string>())
   const submitBundleFileRef = useRef<ValidatedBundleSubmit>(async () => '')
-  const nativeCompletionBaselineRef = useRef(Date.now())
-  const nativeNotificationIdsRef = useRef(new Set<string>())
   const bootstrapPromptInFlightRef = useRef(new Set<string>())
   const [bootstrapPromptRevision, setBootstrapPromptRevision] = useState(0)
   const [shellActive, setShellActive] = useState(() => embeddedProject ? embeddedProjectInitiallyActive() : true)
@@ -2731,11 +2729,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   submitBundleFileRef.current = submitBundleFile
 
   const orchestratorConclusions = orchestratorConclusionState.projectPath === session?.project_path ? orchestratorConclusionState.items : []
-  // Ordinary chat attention, self-evolution restart decisions and successful
+  // Scraper, native Codex, self-evolution restart decisions and successful
   // Orchestrator runs share one project-level list. Merge by semantic id so a
   // conclusion stays singular across polls and REVIEW → COMPLETE → ARCHIVED.
   const allAttentionItems = mergeAttentionItems(
     collectAttentionItems(chats, attentionSessions, chatgptHumanActions),
+    collectNativeAttentionItems(session?.project_path || '', chats, nativeThreads),
     collectAttentionItems(orchestratorRestart.chats, orchestratorRestart.sessions).filter((item) => item.kind === 'restart-pending'),
     orchestratorConclusionAttentionItems(orchestratorConclusions),
   )
@@ -2752,24 +2751,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     openRestart: openRestartConfirmation,
     focusInspector: (target) => setInspectorAttention((current) => ({ tab: target, nonce: current.nonce + 1 })),
   })
-  useEffect(() => {
-    const notifications = desktopBridge()?.notifications
-    if (!notifications || !session) return
-    for (const entry of attentionItems) {
-      if (!entry.kind || !entry.occurredAt || nativeNotificationIdsRef.current.has(entry.id)) continue
-      nativeNotificationIdsRef.current.add(entry.id)
-      if (!shouldPublishNativeAttentionAfterBaseline(entry, nativeCompletionBaselineRef.current)) continue
-      void notifications.publish({
-        id: entry.id,
-        projectPath: session.project_path,
-        chatId: entry.chatId,
-        kind: entry.kind,
-        title: entry.title,
-        body: entry.detail,
-        occurredAt: entry.occurredAt,
-      }).catch(() => undefined)
-    }
-  }, [attentionItems, session?.project_path])
+  useCompletionNotifications(session?.project_path || '', attentionItems)
   useEffect(() => {
     const notifications = desktopBridge()?.notifications
     if (!notifications?.onOpen || !session) return

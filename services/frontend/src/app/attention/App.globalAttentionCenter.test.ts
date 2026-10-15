@@ -2,10 +2,20 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const source = [readFileSync(resolve(process.cwd(), 'src/app/workspace/App.tsx'), 'utf8'), readFileSync(resolve(process.cwd(), 'src/app/attention/useWorkspaceAttention.ts'), 'utf8'), readFileSync(resolve(process.cwd(), 'src/app/workspace/useEmbeddedProjectBridge.ts'), 'utf8')].join('\n')
+const source = [
+  'src/app/workspace/App.tsx',
+  'src/app/attention/useWorkspaceAttention.ts',
+  'src/app/attention/useCompletionNotifications.ts',
+  'src/app/workspace/useEmbeddedProjectBridge.ts',
+].map((path) => readFileSync(resolve(process.cwd(), path), 'utf8')).join('\n')
 const routingSource = readFileSync(resolve(process.cwd(), 'src/lib/attention/center/useAttentionNavigation.ts'), 'utf8')
 
 describe('App global attention session refresh', () => {
+  it('feeds background Codex completions into the shared notification pipeline', () => {
+    expect(source).toContain("collectNativeAttentionItems(session?.project_path || '', chats, nativeThreads)")
+    expect(source).toContain("useCompletionNotifications(session?.project_path || '', attentionItems)")
+  })
+
   it('refreshes inactive chat sessions on a bounded cadence and feeds the Agent center', () => {
     expect(source).toMatch(/setAttentionSessions/)
     // Sequential, on a bounded interval: fetching every chat's session at once

@@ -54,6 +54,16 @@ The fixed **Ficheiros**, **Plano**, **Execução** and **Engine** surface icons 
 
 ## Codex Engine presentation
 
+Successful native Codex turns MUST enter the same project notification center
+and Desktop task-completion channel as Scraper, including background chats and
+Auto Evolution. The alert identifies native completion without claiming
+Protected verification, host integration or activation readiness. Completion is
+published only after native finalization settles, once per project/chat/request.
+Running, waiting, interrupted and failed turns are not successful completions.
+Restored completions remain visible in the center, but pre-start completions MUST
+NOT replay operating-system notifications. Opening an alert selects its owning
+chat and acknowledges it through the shared completion history.
+
 While a Codex turn is active, Ctrl/Cmd+Enter sends the composer text and selected
 attachments as immediate guidance to that same native turn. Plain Enter queues
 the next main request; Shift+Enter inserts a line. The composer advertises this
