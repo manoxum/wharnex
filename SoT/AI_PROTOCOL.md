@@ -86,6 +86,14 @@ rollout remains behind the engine's informed-command approval boundary. The
 terminal summary MUST name checks that actually ran and checks still pending.
 These reporting requirements add no command authority or wire fields.
 
+Diagnostic workflows MUST preserve bounded stage identifiers, native error
+codes (including SQLSTATE where available), and successful partial evidence.
+Client wrapper codes alone MUST NOT replace the underlying failure. They MUST
+NOT emit credentials, connection strings, raw business records or unbounded
+error messages. A process exit zero or `workflow.completed` does not establish
+that every diagnostic stage passed: the planner MUST inspect stage failure
+flags and missing prerequisites before claiming diagnostic or runtime success.
+
 ## Iterative workflow turn
 
 A `workflow` turn exists so one user request can span multiple ChatGPT ⇄ Wharness reasoning rounds without scraping model prose.
@@ -134,6 +142,32 @@ The effort budget applies only while the Main Request is unresolved: the initial
 
 ## AI output rule
 
+Codex Native (`adr/ADR-0098`) does not participate in this bundle protocol.
+Its input is the literal user prompt, selected attachments/artifacts and file
+references; its outputs are ordinary runtime messages and execution items.
+Wharnex MUST NOT send protocol prompts, project snapshots, synthetic export
+inventories or instructions to create a response ZIP to native Codex. Questions
+use `item/tool/requestUserInput` and answers preserve question identifiers;
+native approvals are answered only for the exact outstanding owned request.
+Secret answers are ephemeral. Native completion is not Wharnex verification.
+Native permission choices map to the runtime's sandbox/approval reviewer;
+manual continuation uses the owned saved thread and explicit continuation text.
+Account quota exhaustion and session/context exhaustion are distinct native
+states. Account profiles isolate runtime credentials and never move an active
+request. Auto Evolution adds a short authoritative session-mode annotation,
+without changing the literal user prompt into a Wharnex protocol request.
+
+The legacy Codex planner adapter (`adr/ADR-0097`), retained only for requests
+already waiting for delivery, exposes bounded request-archive
+reading, pure UTF-8 SHA-256 calculation and exact response-archive creation tools. Creating a ZIP from
+model-authored entries is transport packaging; the ZIP must still pass the
+ordinary backend bundle validator. Streaming text and tool arguments cannot
+be ingested as plans or bypass Policy, approval, verification or integration.
+The app-server Code Mode host MUST remain available for model families that
+dispatch these archive tools through `functions.exec`. This isolated JavaScript
+dispatcher grants no Node, filesystem, network or shell capabilities; nested
+calls still pass through the same owned-request archive boundary.
+
 The provider returns a structured agent turn. `workflow` and `change` carry a structured JSON `ExecutionPlan`; `plan` is an approval proposal in `turn.message` and carries no execution plan or patches; all remaining kinds also carry no plan. Markdown command extraction and regex-based shell scraping are forbidden.
 
 Every newly requested `harness.execution/v2` `change` plan MUST be an informed execution contract: `document` contains the complete Markdown implementation plan, `dependencies` lists every install/update/remove by service/scope and package manager, and `system_tools` lists every sandbox/host tool to use/install/update/configure. Empty lists are explicit when there is no such impact. The exact `operations` patches and commands remain authoritative and must be sufficient for the Plan surface to display every create/modify/delete diff without deriving executable work from prose.
@@ -150,7 +184,7 @@ The recovery surface for a non-completed outcome MUST preserve the original goal
 
 `retryable=false` MUST be honoured by every retry path, manual as well as automatic. A blocker that only Wharnex's integration layer can remove MUST be reported with `kind=blocked`, `retryable=false` and `reason_code=integration_action_required`, and the instruction MUST tell the planner so; Wharnex performs that recovery itself rather than waiting for operator guidance (`SoT/ERROR_MODEL.md`). `reason_code` is matched against a hand-reviewed closed infrastructure allowlist, while an otherwise-unclassified non-retryable result receives Wharnex's own `planner_guidance_required` failure kind; `retryable` is a required boolean the planner is instructed to set accurately, and it therefore remains authoritative without depending on a growing reason-code vocabulary. A bare manual retry of a `retryable=false` outcome MUST be refused, naming the planner's own reason, because it asks the planner to solve a condition it has already declared unsolvable and is answered identically every round. Explicit operator guidance is the deliberate escape: supplying it is the operator stating that something outside the planner's view has changed. Because that refusal is certain, the recovery surface MUST NOT offer a bare retry for such an outcome at all: it withdraws every no-guidance resume action, labels the state as requiring new evidence, and validates a non-empty bounded evidence/guidance field before the request is sent, so the operator is never handed an action whose only possible answer is the refusal. When the missing evidence may contain multi-line diagnostics, the input MUST preserve those lines. When a continuation receives failure evidence, the planner MUST NOT repeat a semantically equivalent plan, blocked target/root, command strategy, or merely restate the same blocker as another retry. It must either choose a materially different approach that addresses the named root cause, or terminate as `blocked` with `retryable=false` and the concrete operator action required.
 
-Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `plan_approval`, `plan_correction`, `execution_plan_adjustment`, `repair`, `improvement`, `evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host on planner-patchable paths — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Git conflicts confined to Wharnex-managed `.wharnex/knowledge/**` are local integration drift, not a model task: preserve the current host version and do not spend a planner round on them. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
+Every request iteration records its immutable `request_id`, `root_request_id`, optional parent, and classification (`standard`, `plan_approval`, `plan_correction`, `execution_plan_adjustment`, `repair`, `improvement`, `evidence`, `post_integration_evidence`, or `conflict`). A retained candidate that fails to replay/merge cleanly against the current host on planner-patchable paths — whether a ChangeSet replay conflict or a real Git merge conflict on its integration branch — MUST enter the dedicated `harness.conflict/v1` path before generic repair is considered; generating another ordinary repair while the predecessor still fails replay is prohibited. Git conflicts confined to Wharnex-managed `.wharnex/knowledge/**` are local integration drift, not a model task: preserve the current host version and do not spend a planner round on them. Cancelling an active request terminates its pending transport/planner iterations and releases the conversation for a new Main Request. It preserves transcript, evidence, artifacts, and any independently verified Protected candidate; rejecting that candidate remains a separate explicit action.
 
 Only `change` may contain patches or continue to host Apply. `workflow` may execute safe local commands only to improve reasoning.
 
@@ -183,17 +217,21 @@ other prompt. Submitting that draft creates a fresh derived request classified
 plan request as parent and the same Main Request root. Its input bundle type is
 `adjustment`, never `correction`/`plan_correction`.
 
+An explicit operator adjustment MAY also replace a failed Protected execution of the latest plan, but only when its matching execution result is unsuccessful, no execution is in flight, and no host candidate is pending. It MUST NOT adjust successful, integrated or host-direct executed work. This is operator-authored review guidance, never an automatic source repair for infrastructure failure; the failure evidence remains in the durable history and the replacement stays in the original Main Request lineage.
+
+An operator MAY request `post_integration_evidence` after the latest Protected change is actually integrated and its matching verification succeeded. This is a derived request in the same Main Request, carrying the integration receipt and operator's runtime-check guidance; it does not execute or integrate the source again. The initial response MUST be a bounded workflow, context request, clarification or blocked result, never another patch or an unsupported claim of runtime success. Protocol-repair and context continuations MUST retain this observation requirement until an engine-owned workflow/evidence continuation carries actual execution results back to the planner; repairing an invalid response is not runtime evidence. Host rollout and runtime access retain their normal exact-plan approval boundaries. `applied` remains source integration evidence until those runtime checks have been observed. Explicit operator adjustment and post-integration guidance MUST appear as idempotent backend-owned request entries in the bound durable Chat transcript, even when submitted through the API; automatic repairs remain engine events rather than user-authored prompts.
+
 An execution-plan adjustment MUST be self-contained: it carries the original
 Main Request text in `requests/main.md`, the current adjustment prompt in
 `requests/adjustment.md`, and the cumulative prior response history already
 required for derived requests. The planner uses those inputs to supersede the
-unexecuted plan with a fresh executable result. `adjust_plan` MUST NOT return a
+unintegrated plan with a fresh executable result. `adjust_plan` MUST NOT return a
 planning-only `kind=plan`; it returns a normal executable `change` when the
 adjustment is implementable, or a terminal clarification/blocked result when it
 is not. The prior plan remains historical evidence and MUST NOT be executed once
 the adjustment continuation is created. A Protected adjusted execution plan
 returns to the informed execution-consent gate; creating the adjustment never
-inherits approval from the unexecuted plan it replaced.
+inherits approval from the plan it replaced.
 
 While a plan proposal is waiting for the user, the session is in `awaiting_plan_approval`; the linked transport channel stays associated with the same Main Request. Rejecting the proposal terminates that approval path without mutation and releases the transport channel. Historical plan-first responses created before this protocol addition remain readable, but new `plan_first` responses MUST use `kind=plan`.
 

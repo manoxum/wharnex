@@ -72,6 +72,8 @@ services:
 
   backend:
     image: "wharness-backend:${WHARNESS_STACK_ID}"
+    init: true
+    stop_grace_period: 30s
     build:
       context: ./services/backend
       args:

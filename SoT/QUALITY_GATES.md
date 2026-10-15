@@ -19,6 +19,9 @@ No credentials, generated context bundles, or temporary workspaces committed.
 
 - `go test ./...`
 - frontend tests
+- Desktop frontend Vitest defaults to at most two workers, with one minimum,
+  so a full verification does not occupy every CPU alongside the live workbench.
+  Test discovery, isolation, assertions and coverage MUST remain unchanged.
 - Tab changes MUST pass the shared-implementation coverage and behavior tests in
   `components/presentation/tabs`, the icon-only Agent surface selection tests, and
   `e2e/tabs/workbench.spec.ts` as specified by `SoT/TABS.md`.

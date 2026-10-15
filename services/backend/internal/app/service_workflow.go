@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"kernl.local/harness/backend/internal/app/workflowbudget"
+	"kernl.local/harness/backend/internal/app/workflowobservation"
 	"kernl.local/harness/backend/internal/domain"
 	"kernl.local/harness/backend/internal/ids"
 	"kernl.local/harness/backend/internal/planner"
@@ -138,7 +139,7 @@ func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, pla
 		if queryErr != nil {
 			result.Error = queryErr.Error()
 			result.CompletedAt = time.Now().UTC()
-			s.storeWorkflowObservation(sessionID, result, decision)
+			s.storeWorkflowObservation(sessionID, plan.RequestID, result, decision)
 			return result, queryErr
 		}
 	}
@@ -153,7 +154,7 @@ func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, pla
 	if len(plan.Operations) == 0 && len(plan.Verification) == 0 {
 		result.Success = true
 		result.CompletedAt = time.Now().UTC()
-		s.storeWorkflowObservation(sessionID, result, decision)
+		s.storeWorkflowObservation(sessionID, plan.RequestID, result, decision)
 		s.bus.Publish(sessionID, "workflow.completed", map[string]any{"plan_id": plan.PlanID, "commands": len(result.Commands), "transport": transport, "target": target})
 		return result, nil
 	}
@@ -181,7 +182,7 @@ func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, pla
 			result.Error = err.Error()
 			result.CompletedAt = time.Now().UTC()
 			result.Success = false
-			s.storeWorkflowObservation(sessionID, result, decision)
+			s.storeWorkflowObservation(sessionID, plan.RequestID, result, decision)
 			return result, err
 		}
 	}
@@ -190,28 +191,19 @@ func (s *Service) executeWorkflowPlan(ctx context.Context, sessionID string, pla
 			result.Error = err.Error()
 			result.CompletedAt = time.Now().UTC()
 			result.Success = false
-			s.storeWorkflowObservation(sessionID, result, decision)
+			s.storeWorkflowObservation(sessionID, plan.RequestID, result, decision)
 			return result, err
 		}
 	}
 	result.Success = true
 	result.CompletedAt = time.Now().UTC()
-	s.storeWorkflowObservation(sessionID, result, decision)
+	s.storeWorkflowObservation(sessionID, plan.RequestID, result, decision)
 	s.bus.Publish(sessionID, "workflow.completed", map[string]any{"plan_id": plan.PlanID, "commands": len(result.Commands), "transport": transport, "target": target})
 	return result, nil
 }
 
-func (s *Service) storeWorkflowObservation(sessionID string, result domain.ExecutionResult, decision domain.PolicyDecision) {
-	// A workflow round is an execution the operator can inspect, and the next
-	// round overwrites LastExecution — so without this the evidence that shaped
-	// the answer is gone by the time anyone looks for it.
-	s.recordExecutionActivity(sessionID, result.PlanID, result)
-	_, _ = s.store.Update(sessionID, func(item *domain.Session) error {
-		item.Policy = &decision
-		item.LastExecution = &result
-		item.State = "workflow_observed"
-		return nil
-	})
+func (s *Service) storeWorkflowObservation(sessionID, requestID string, result domain.ExecutionResult, decision domain.PolicyDecision) {
+	workflowobservation.Record(s.store, s.recordExecutionActivity, sessionID, requestID, result, decision)
 }
 
 func (s *Service) prepareWorkflowContinuation(ctx context.Context, sessionID string, execution domain.ExecutionResult, round int, message string) error {

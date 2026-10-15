@@ -1,13 +1,27 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"kernl.local/harness/backend/internal/app/postintegration"
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/planner"
 )
+
+func (s *Service) SubmitPostIntegrationObservation(ctx context.Context, sessionID, guidance string) (planner.Result, domain.Session, error) {
+	current, err := s.store.Get(sessionID)
+	if err != nil {
+		return planner.Result{}, current, err
+	}
+	if err := postintegration.Validate(current, guidance); err != nil {
+		return planner.Result{}, current, err
+	}
+	return s.submitPlannerRequest(ctx, sessionID, postintegration.Prompt(current, guidance), "direct", current.Plan.RequestID, postintegration.RequestKind)
+}
 
 const (
 	planControlActive    = "active"

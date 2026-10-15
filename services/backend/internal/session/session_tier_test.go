@@ -12,21 +12,6 @@ import (
 	"kernl.local/harness/backend/internal/domain"
 )
 
-func TestSessionTierDemotesLeastRecentlyUsedBeyondBudget(t *testing.T) {
-	tier := newSessionTier(true)
-	tier.maxItems = 2
-	tier.promote("a", 10)
-	tier.promote("b", 10)
-	tier.touch("a")
-	if demoted := tier.promote("c", 10); len(demoted) != 1 || demoted[0] != "b" {
-		t.Fatalf("expected the least recently used session to be demoted, got %v", demoted)
-	}
-	tier.maxBytes = 15
-	if demoted := tier.promote("d", 10); len(demoted) != 2 || !tier.isHot("d") {
-		t.Fatalf("the byte budget must demote older sessions but keep the promoted one, got %v", demoted)
-	}
-}
-
 func TestDisabledSessionTierKeepsEverySessionWhole(t *testing.T) {
 	store := NewStore()
 	if err := store.Put(heavySession("ses_mem")); err != nil {

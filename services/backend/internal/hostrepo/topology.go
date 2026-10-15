@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"kernl.local/harness/backend/internal/gitops"
+	"kernl.local/harness/backend/internal/hostrepo/submodules"
 )
 
 // InProgressOperation names a Git operation the operator has started and not
@@ -44,12 +45,7 @@ const (
 // .gitmodules entry was removed is still a gitlink as far as merge and status
 // are concerned, which is exactly the sort of asymmetry that made the previous
 // code fail unpredictably.
-type Submodule struct {
-	Path        string
-	CommitSHA   string
-	Registered  bool
-	Initialized bool
-}
+type Submodule = submodules.Link
 
 // Topology is the static shape of a repository: where its Git directory
 // actually lives, what kind of worktree it is, and what it contains that
@@ -157,7 +153,7 @@ func Inspect(ctx context.Context, root string) (Topology, error) {
 		topology.Detached = true
 	}
 	topology.InProgress = detectInProgress(topology.GitDir)
-	submodules, err := inspectSubmodules(ctx, abs)
+	submodules, err := submodules.Inspect(ctx, abs)
 	if err != nil {
 		return Topology{}, err
 	}
@@ -187,62 +183,4 @@ func detectInProgress(gitDir string) InProgressOperation {
 		return OperationBisect
 	}
 	return OperationNone
-}
-
-// inspectSubmodules lists gitlinks from the index rather than from
-// .gitmodules. The index is what merge, status and `git add` actually act on:
-// a gitlink whose .gitmodules entry was deleted still shadows its directory,
-// and a .gitmodules entry with no gitlink does not.
-func inspectSubmodules(ctx context.Context, root string) ([]Submodule, error) {
-	output, err := run(ctx, root, "ls-files", "--stage", "-z")
-	if err != nil {
-		return nil, fmt.Errorf("list index entries: %s", output)
-	}
-	registered := registeredSubmodulePaths(ctx, root)
-	submodules := make([]Submodule, 0)
-	for _, entry := range strings.Split(output, "\x00") {
-		if !strings.HasPrefix(entry, "160000 ") {
-			continue
-		}
-		// Format: "<mode> <sha> <stage>\t<path>"
-		meta, path, found := strings.Cut(entry, "\t")
-		if !found {
-			continue
-		}
-		fields := strings.Fields(meta)
-		if len(fields) < 2 {
-			continue
-		}
-		path = filepath.ToSlash(path)
-		submodules = append(submodules, Submodule{
-			Path:        path,
-			CommitSHA:   fields[1],
-			Registered:  registered[path],
-			Initialized: submoduleInitialized(root, path),
-		})
-	}
-	return submodules, nil
-}
-
-func registeredSubmodulePaths(ctx context.Context, root string) map[string]bool {
-	paths := map[string]bool{}
-	output, err := run(ctx, root, "config", "-f", ".gitmodules", "--get-regexp", `^submodule\..*\.path$`)
-	if err != nil {
-		return paths
-	}
-	for _, line := range strings.Split(output, "\n") {
-		if _, value, found := strings.Cut(strings.TrimSpace(line), " "); found {
-			paths[filepath.ToSlash(strings.TrimSpace(value))] = true
-		}
-	}
-	return paths
-}
-
-// submoduleInitialized reports whether the submodule has a working checkout.
-// An uninitialized submodule is an empty directory: its content is absent, so
-// nothing can be verified or patched there, and a gitlink change is safe to
-// leave alone.
-func submoduleInitialized(root, path string) bool {
-	_, err := os.Lstat(filepath.Join(root, filepath.FromSlash(path), ".git"))
-	return err == nil
 }

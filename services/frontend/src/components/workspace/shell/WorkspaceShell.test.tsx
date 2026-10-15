@@ -161,6 +161,37 @@ it('shows recent projects directly in the project action hub before browsing fol
     await waitFor(() => expect(pickDirectory).toHaveBeenCalledWith({ title: 'Vincular projeto' }))
   })
 
+it('opens a recent project from its name or open icon without hijacking other actions', () => {
+    const onOpenProject = vi.fn()
+    const onLinkProject = vi.fn()
+    const onForgetProject = vi.fn()
+    render(<ShellChrome projects={[]} recent={['/tmp/recent-project']} activeProject="" mode="agent" busy={false}
+      onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()}
+      onOpenProject={onOpenProject} onLinkProject={onLinkProject} onForgetProject={onForgetProject} onNewWindow={vi.fn()} />)
+    const trigger = screen.getByRole('button', { name: 'Ações de projeto' })
+
+    fireEvent.click(trigger)
+    const projectEntry = within(screen.getByRole('menu')).getByRole('button', { name: 'Abrir projeto recent-project pela lista' })
+    expect(projectEntry.tagName).toBe('BUTTON')
+    fireEvent.click(projectEntry)
+    expect(onOpenProject).toHaveBeenCalledWith('/tmp/recent-project')
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    fireEvent.click(trigger)
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('button', { name: 'Abrir recent-project' }))
+    expect(onOpenProject).toHaveBeenCalledTimes(2)
+    expect(onOpenProject).toHaveBeenLastCalledWith('/tmp/recent-project')
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    fireEvent.click(trigger)
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('button', { name: 'Vincular recent-project' }))
+    expect(onLinkProject).toHaveBeenCalledWith('/tmp/recent-project')
+    fireEvent.click(trigger)
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('button', { name: 'Remover recent-project dos recentes' }))
+    expect(onForgetProject).toHaveBeenCalledWith('/tmp/recent-project')
+    expect(onOpenProject).toHaveBeenCalledTimes(2)
+  })
+
 it('can unlink any project bound to the current window from the project switcher', async () => {
     const onActivate = vi.fn()
     const onUnbind = vi.fn()

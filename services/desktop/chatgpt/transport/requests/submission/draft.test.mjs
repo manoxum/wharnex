@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createChatGPTDraftSubmission } from './draft.mjs'
 
-function fixture({ currentURL = 'https://chatgpt.com/c/owned', effortFails = false, cooldown = 0 } = {}) {
+function fixture({ currentURL = 'https://chatgpt.com/c/owned', effortFails = false, cooldown = 0, modelCheck = undefined } = {}) {
   const events = []
   const wc = {
     id: 7, getURL: () => currentURL,
@@ -34,6 +34,7 @@ function fixture({ currentURL = 'https://chatgpt.com/c/owned', effortFails = fal
     ChatGPTRateLimitDeferral: class extends Error {},
     chatGPTSubmissions: { expect: () => events.push('observe') },
     chatGPTSubmitScript: () => 'submit-script',
+    ensureSelectedChatGPTModel: modelCheck,
   })
   return { submitChatGPTDraft, verifyChatGPTDraft, events }
 }
@@ -63,4 +64,18 @@ test('requested effort and provider cooldown fail before a network observation',
   const paused = fixture({ cooldown: 100 })
   await assert.rejects(paused.submitChatGPTDraft('chat', undefined, '', undefined, { rateLimitExempt: false }), Error)
   assert.deepEqual(paused.events, ['submitting', 'affinity'])
+})
+
+
+test('stored model is applied during preflight and a changed selection blocks submission before network observation', async () => {
+  const checks = []
+  const f = fixture({ modelCheck: async (_key, _entry, options) => {
+    checks.push(options.allowChange)
+    if (!options.allowChange) throw Object.assign(new Error('model-changed-before-submit'), { retryTransport: false })
+  } })
+  const target = { entry: { reasoningEffort: 'high' }, wc: { getURL: () => 'https://chatgpt.com/c/owned' }, conversationUrl: 'https://chatgpt.com/c/owned' }
+  await f.verifyChatGPTDraft('chat', target)
+  await assert.rejects(f.submitChatGPTDraft('chat'), /model-changed-before-submit/)
+  assert.deepEqual(checks, [true, false])
+  assert.deepEqual(f.events, ['submitting'])
 })

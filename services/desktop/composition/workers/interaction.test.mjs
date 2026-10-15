@@ -160,7 +160,10 @@ test('auto submit persists binding and delegates response supervision to workers
   assert.doesNotMatch(prepare, /organizeChatGPTConversation\(/)
   assert.doesNotMatch(prepare, /publishChatGPTAccountAction\(key, 'organize'/)
 
-  const followups = source.slice(source.indexOf('async function enqueueChatAgentFollowups('), source.indexOf('\nfunction hydrateExpectedChatAgentBundle', source.indexOf('async function enqueueChatAgentFollowups(')))
+  const followupStart = source.indexOf('async function enqueueChatAgentFollowups(')
+  const followupEnd = source.indexOf('\nasync function hydrateExpectedChatAgentBundle', followupStart)
+  assert.ok(followupStart >= 0 && followupEnd > followupStart, 'followup domain boundaries must exist')
+  const followups = source.slice(followupStart, followupEnd)
   assert.match(followups, /enqueueChatAgentTask\('AWAIT_RESPONSE'/)
   assert.doesNotMatch(followups, /TITLE_DISCOVER/)
 })

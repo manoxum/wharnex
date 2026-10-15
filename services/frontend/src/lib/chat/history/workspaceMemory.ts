@@ -1,3 +1,4 @@
+import type { PlannerChatConfiguration } from '../../codex/contracts'
 import type { AutomationMode, EffortLevel, ChatArtifactSelection, ChatItem, ChatRequestMode, ChatTransportMode, ContextMode, ExecutionMode, HarnessEvent, ReasoningEffort, WorkspaceMode } from '../../../types'
 import { chatgptConversationURL } from '../../desktop/bridge/desktop'
 
@@ -80,7 +81,7 @@ export type ChatNaming = {
   projectAssigned?: boolean
 }
 
-export type WorkspaceChat = {
+export type WorkspaceChat = PlannerChatConfiguration & {
   id: string
   title: string
   sessionId: string

@@ -14,6 +14,8 @@ Wharness is an engineering workspace, not a chatbot skin.
 
 The Agent composer exposes provider reasoning depth as **Inteligência**, with `Instantâneo`, `Médio` and `Elevado`. This control is per chat and is distinct from **Esforço**, which remains the autonomous attempt budget. Changing Inteligência persists the session choice and affects the next and subsequent provider submissions; document translation remains fixed to Instantâneo.
 
+**Contexto** and **Inteligência** use compact icon-and-value choices with accessible names and tooltips, avoiding duplicated visible labels. The Agent composer also exposes **Modelo do ChatGPT** for its owned chat. Its options MUST come from a fresh structural inspection of that chat's actual model control, initiated by the user's gesture; mounting the composer MUST NOT open a remote menu. Missing or ambiguous controls expose attention without fallback model names or stale selectable options. A selection becomes current only after the remote control confirms it. The model choice is unavailable during an active request, a prepared upload or manual transport, and changing chats discards pending UI results from the previous chat. The Desktop retains the confirmed per-chat preference and validates it before transport, independently of the required reasoning-effort validation.
+
 ## Appearance themes
 
 - Wharness supports complete Light and Dark themes across bootstrap, workspace chrome, Agent, Editor, Monaco, terminal, settings, dialogs and observability surfaces. Theme selection is a local interface preference and MUST NOT alter project data.
@@ -49,6 +51,62 @@ The Agent MUST expose a project-level **Centro de notificações** that aggregat
 
 The fixed **Ficheiros**, **Plano**, **Execução** and **Engine** surface icons belong at the far-right edge of the Agent chat switcher, after the scrollable conversation tabs; in `singlePane`, **Chat** joins the same fixed surface group. When the currently open chat owns an alert targeted at one of those surfaces, that icon MUST receive a persistent visual highlight or pulse (with reduced-motion fallback) using the alert severity; alerts from other chats MUST NOT pulse the current chat's surface icons. While a command is actively running for the current chat and **Execução** is not selected, the **Execução** icon MUST also pulse as a non-alert activity cue; selecting that surface suppresses the pulse while it is open, and command completion removes it. Conversations that do not fit in the scrollable region MUST remain reachable through a fixed overflow menu that preserves open, save/archive and the same drag-and-drop ordering model as visible tabs. Reduced-motion users receive a persistent highlight instead of animation.
 
+
+## Codex Engine presentation
+
+While a Codex turn is active, Ctrl/Cmd+Enter sends the composer text and selected
+attachments as immediate guidance to that same native turn. Plain Enter queues
+the next main request; Shift+Enter inserts a line. The composer advertises this
+distinction, and the owning chat reports delivery only after native acknowledgment.
+No Scraper queue, new turn, cancellation or invented approval may implement this
+shortcut. Stale or uncertain delivery surfaces an actionable error without retry.
+
+The Codex composer remembers the last selected/used model and the effort per
+model in local Desktop preferences. Chats with explicit durable choices retain
+them; new/unconfigured chats inherit those defaults, and submitting pins them
+to that chat. Explicit runtime-default selections remain valid choices. Loading
+or temporarily missing catalog entries must not erase the displayed selection.
+Permission levels remain per chat and are never inherited from these defaults.
+
+After a successful native change, the owning chat uses the shared changed-file
+card and Monaco diff inspector, labelled **Alterações nativas do Codex**. Its
+footer carries the native commit and canonical version, or the manual-commit
+state. It never offers Protected revert or claims Wharnex verification/Apply.
+The Engine activity also retains the final diffs and bookkeeping failures.
+These results are durable per request, including when a later turn clears the
+live activity list; hydration must not duplicate their chat cards.
+
+The explicitly selected native Codex Engine uses a restrained, readable local
+surface. Its unified header identifies Codex as a local agent, shows account,
+connection and plan information, and clearly states that it can execute commands
+and change files directly on the computer. Login, logout and refresh remain
+explicit controls. Shared workbench tabs separate conversations from usage.
+
+An Engine bound to a chat shows that conversation's title and textual state once,
+without a redundant disabled conversation selector. Unbound surfaces retain an
+explicit selector. Messages identify their author and use theme-aware, scaled
+typography. Progress, work plans, commands and file changes form one collapsible
+activity section; command output and diffs remain individually expandable.
+Native questions and permissions keep explicit, unselected answers and their
+existing scoped reply boundary. Usage separates limits, conversation tokens and
+account metrics, retaining unavailable values as unavailable. Light/Dark themes,
+UI scale, narrow containers, keyboard focus and reduced motion remain supported.
+Native work MUST NOT be presented as Wharnex-verified or Applied changes.
+The Codex composer exposes the runtime model/effort and the three native
+permission levels (Ask for approval, Approve for me, Full access), while hiding
+Wharnex context, intelligence, ZIP preview and plan-execution controls. Named
+accounts can be selected without moving a live request. Interrupted or
+quota-exhausted work offers explicit manual continuation through play; context
+exhaustion is identified separately. The authoritative Auto Evolution flag is
+visible in the owning conversation. Automatic approval decisions show only
+the public rationale, risk and outcome reported by the Codex runtime.
+Every owned native `attention` request exposes manual continuation, including
+saved snapshots predating recovery metadata. Recovery is a compact play icon
+in the conversation footer, with an accessible name and explanatory tooltip;
+it has no instruction form, heading or persistent explanatory block. Failure
+appears beside the action and leaves it retryable. Long output cannot hide it. Migrating
+recovery metadata never submits a turn; resuming still verifies the exact
+request and the runtime's live state before continuing the stored thread.
 
 ## Desktop ChatGPT composition (v1.2)
 
@@ -161,6 +219,18 @@ Collective pushes run children first and stop on a failure or conflict, reportin
 completed work and refreshing the panel; they never claim atomic rollback.
 Missing identities, unresolved conflicts, detached HEADs and missing remotes
 expose actionable reasons before the affected collective action can run.
+
+**Publicar projeto** is reachable from every Git section and reviews all project
+repositories together, including nested submodules and repositories whose local
+outgoing count is zero. It refreshes the complete inventory before review and
+publishes existing commits on each current branch to its configured remote,
+children first and the superproject last, after one shared confirmation. It
+does not create commits or initialize unavailable submodules. Every repository
+must be available, on a branch, without unresolved operations, and have a remote;
+otherwise the review fails before any push. Report each completed repository,
+including those already up to date, and identify the failing repository and
+completed work if publication stops. Existing selective and outgoing-only
+publication actions retain their scope.
 
 Every action here is an explicit human action and is never reachable from a
 model plan. Pending records may be committed in full or selectively; a

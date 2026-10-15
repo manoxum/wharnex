@@ -1,0 +1,30 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+import { CodexAccounts } from './CodexAccounts'
+const fixture = vi.hoisted(() => ({ selectAccount: vi.fn(async () => {}), createAccount: vi.fn(async () => ({ id: 'account-new' })), login: vi.fn(async () => ({ started: true })) }))
+vi.mock('../../../lib/desktop/bridge/desktop', () => ({ desktopBridge: () => ({ codex: fixture }) }))
+afterEach(() => { cleanup(); vi.clearAllMocks() })
+it('switches named profiles explicitly and creates accounts through native login', async () => {
+  const refresh = vi.fn(async () => {})
+  render(<CodexAccounts projectPath="/project" refresh={refresh} accounts={{ selected: 'default', profiles: [{ id: 'default', label: 'CLI', account: null, rateLimits: null }, { id: 'second', label: 'Second', account: null, rateLimits: null }] }}/>)
+  expect(fixture.selectAccount).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'second' } })
+  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+  expect(fixture.selectAccount).toHaveBeenCalledWith('/project', 'second')
+  fireEvent.click(screen.getByRole('button', { name: 'Adicionar conta' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Nome da conta Codex' }), { target: { value: 'Work' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Criar e entrar' }))
+  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2))
+  expect(fixture.createAccount).toHaveBeenCalledWith('/project', 'Work'); expect(fixture.login).toHaveBeenCalledWith('/project')
+})
+it('does not create duplicate profiles after a failed login ceremony', async () => {
+  fixture.login.mockRejectedValueOnce(new Error('Login indisponível.'))
+  const refresh = vi.fn(async () => {})
+  render(<CodexAccounts projectPath="/project" refresh={refresh} accounts={{ selected: 'default', profiles: [{ id: 'default', label: 'CLI', account: null, rateLimits: null }] }}/>)
+  fireEvent.click(screen.getByRole('button', { name: 'Adicionar conta' }))
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Work' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Criar e entrar' }))
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Login indisponível'))
+  expect(screen.queryByRole('button', { name: 'Criar e entrar' })).toBeNull()
+  expect(fixture.createAccount).toHaveBeenCalledTimes(1); expect(refresh).toHaveBeenCalledTimes(1)
+})

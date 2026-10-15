@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { createConnection } from 'node:net'
+import { homedir } from 'node:os'
 import path from 'node:path'
 
 export function startHostGitBridge(projectRoot, run) {
@@ -7,6 +8,9 @@ export function startHostGitBridge(projectRoot, run) {
   const socketPath = path.resolve(projectRoot, '.harness/bridge/host-git.sock')
   if (!existsSync(binaryPath)) throw new Error(`Host Git bridge is missing: ${binaryPath}. Run make build.`)
   const child = run('hostpty', binaryPath, ['--git-socket', socketPath], projectRoot, {
+    // Desktop launchers may omit HOME; Git and gh still need the host user's
+    // configuration directory to resolve their existing credential helpers.
+    HOME: process.env.HOME || homedir(),
     HARNESS_HOST_GIT_SOCKET: socketPath,
   })
   return { child, socketPath }

@@ -113,3 +113,55 @@ test('a static historical completion cannot renew an adopted request lease', asy
   await poll('owned')
   assert.equal(expected.progressAt, 1)
 })
+
+test('a structured no-selection diagnostic cannot be mistaken for a successful download click', async () => {
+  const lines = []
+  const f = pollHarness({ logDownloadDiagnostic: (line) => lines.push(line), chatGPTResponseCompletionScript: () => 'completion' })
+  f.expected.rehydrating = true
+  f.context.chatgptViews.get('owned').view.webContents.executeJavaScript = async (script) => script === 'completion'
+    ? { thinking: false, complete: false }
+    : { mode: '', diagnostic: { state: 'exact-only-blocked', exactOnly: true, scanned: 9, exact: 0, latest: 1 } }
+  await f.poll('owned')
+  assert.notEqual(f.expected.downloadInFlight, true)
+  assert.equal(f.expected.lastDOMClick, undefined)
+  assert.match(lines.join('\n'), /exact-only-blocked/)
+  assert.equal(f.calls.includes('recovery'), false)
+})
+
+test('locating a native target does not mark a download pending before accepted native input', async () => {
+  let finish
+  const accepted = new Promise((resolve) => { finish = resolve })
+  const f = pollHarness({ activateExpectedDownloadNative: async () => accepted })
+  f.context.chatgptViews.get('owned').view.webContents.executeJavaScript = async () => ({ mode: 'exact', nativeTarget: { kind: 'exact-role-link' } })
+  const running = f.poll('owned')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.notEqual(f.expected.downloadInFlight, true)
+  assert.equal(f.expected.lastDOMClick, undefined)
+  finish(true)
+  await running
+  assert.equal(f.expected.downloadInFlight, true)
+  assert.ok(f.expected.lastDOMClick > 0)
+})
+
+test('native input rejection cannot spend recovery or mark a download in flight', async () => {
+  const f = pollHarness({ activateExpectedDownloadNative: async () => false })
+  f.context.chatgptViews.get('owned').view.webContents.executeJavaScript = async () => ({ mode: 'exact', nativeTarget: { kind: 'exact-role-link' } })
+  await f.poll('owned')
+  assert.notEqual(f.expected.downloadInFlight, true)
+  assert.equal(f.expected.lastDOMClick, undefined)
+  assert.equal(f.calls.includes('recovery'), false)
+})
+
+test('rejected native input has its own cooldown without resetting progress or download state', async () => {
+  let attempts = 0
+  const f = pollHarness({ activateExpectedDownloadNative: async () => { attempts += 1; return false }, chatGPTResponseCompletionScript: () => 'completion' })
+  f.expected.rehydrating = true
+  f.expected.progressAt = 123
+  f.context.chatgptViews.get('owned').view.webContents.executeJavaScript = async (script) => script === 'completion' ? { complete: true } : { mode: 'exact', nativeTarget: { kind: 'exact-role-link' } }
+  await f.poll('owned')
+  await f.poll('owned')
+  assert.equal(attempts, 1)
+  assert.equal(f.expected.progressAt, 123)
+  assert.equal(f.expected.lastDOMClick, undefined)
+  assert.notEqual(f.expected.downloadInFlight, true)
+})

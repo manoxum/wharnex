@@ -6,6 +6,7 @@ import { startDesktopRuntime } from '../../lifecycle/index.mjs'
 import { createBrowserMonitorPresentation } from '../../agent/index.mjs'
 import { normalizeBounds } from '../../security/security.mjs'
 import { createAgentMirrorStreams, registerAgentMirrorStreamIPC } from '../../chatgpt/session/mirror/frames.mjs'
+import { registerCodexIPC } from '../../codex/index.mjs'
 
 export function createDesktopEntrypointRuntime(deps) {
   const browser = createDesktopBrowserRuntime(deps)
@@ -15,7 +16,7 @@ export function createDesktopEntrypointRuntime(deps) {
     suspendNativeSurfacesForWindow: (state) => { if (state.id === 'browser-monitor') monitor.releaseBrowserMonitor(state); deps.suspendNativeSurfacesForWindow(state) },
   })
   const registerIPC = createDesktopIPCRegistrar({ ...deps, ...browser, ...monitor, ...window })
-  const registerAllIPC = () => { registerIPC(); registerAgentMirrorStreamIPC({ ...deps, mirrorStreams }) }
+  const registerAllIPC = () => { registerIPC(); registerAgentMirrorStreamIPC({ ...deps, mirrorStreams }); registerCodexIPC(deps) }
   // Keep inherited dependency getters live until the ready callback builds its context.
   const startup = createDesktopStartupRuntime(Object.assign(Object.create(deps), browser, window, { registerIPC: registerAllIPC }))
 

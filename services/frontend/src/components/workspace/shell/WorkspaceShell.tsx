@@ -411,6 +411,11 @@ export function ShellChrome({ projects, recent = [], activeProject, composerTypi
     try { await desktopBridge()?.windows.focusProject(item.projectPath) } catch { /* owning window may have closed between snapshot and click */ }
   }
 
+  function openRecentProject(projectPath: string) {
+    setProjectActionsOpen(false)
+    onOpenProject?.(projectPath)
+  }
+
   const otherWindows = projectWindows.items.filter((item) => item.windowId !== projectWindows.currentWindowId)
   const orderedProjects = activeProject ? [activeProject, ...projects.filter((projectPath) => projectPath !== activeProject)] : projects
 
@@ -434,12 +439,14 @@ export function ShellChrome({ projects, recent = [], activeProject, composerTypi
           <div className="project-actions-hub-heading"><span><strong>Projetos recentes</strong><small>Abrir, vincular ou remover desta lista.</small></span><b>{recent.length}</b></div>
           <div className="project-actions-recent-list">
             {recent.length ? recent.map((projectPath) => <div key={projectPath} className="project-actions-recent-row" style={projectAccentStyle(projectPath)}>
-              <span className="project-actions-recent-mark"><Icon name="workspace" size={13}/></span>
-              <span className="project-actions-recent-copy"><strong>{projectName(projectPath)}</strong><small>{projectPath}</small></span>
+              <button type="button" className="project-actions-recent-open" disabled={busy} onClick={() => openRecentProject(projectPath)} title="Abrir projeto" aria-label={`Abrir projeto ${projectName(projectPath)} pela lista`}>
+                <span className="project-actions-recent-mark"><Icon name="workspace" size={13}/></span>
+                <span className="project-actions-recent-copy"><strong>{projectName(projectPath)}</strong><small>{projectPath}</small></span>
+              </button>
               <div className="project-actions-recent-buttons">
                 <button type="button" disabled={busy} onClick={() => onForgetProject?.(projectPath)} title="Remover dos recentes" aria-label={`Remover ${projectName(projectPath)} dos recentes`}><Icon name="close" size={12}/></button>
                 <button type="button" disabled={busy || projects.includes(projectPath)} onClick={() => { setProjectActionsOpen(false); onLinkProject?.(projectPath) }} title="Vincular nesta janela" aria-label={`Vincular ${projectName(projectPath)}`}><Icon name="link" size={12}/></button>
-                <button type="button" disabled={busy} onClick={() => { setProjectActionsOpen(false); onOpenProject?.(projectPath) }} title="Abrir projeto" aria-label={`Abrir ${projectName(projectPath)}`}><Icon name="external" size={12}/></button>
+                <button type="button" disabled={busy} onClick={() => openRecentProject(projectPath)} title="Abrir projeto" aria-label={`Abrir ${projectName(projectPath)}`}><Icon name="external" size={12}/></button>
               </div>
             </div>) : <div className="project-actions-empty"><Icon name="history" size={15}/><span>Nenhum projeto recente.</span></div>}
           </div>

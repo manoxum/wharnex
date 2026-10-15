@@ -1,11 +1,11 @@
 package session
 
 import (
-	"container/list"
 	"encoding/json"
 	"fmt"
 
 	"kernl.local/harness/backend/internal/domain"
+	"kernl.local/harness/backend/internal/session/residency"
 )
 
 // Session residency tiers for the PostgreSQL-backed store.
@@ -21,99 +21,52 @@ import (
 // durable record.
 const (
 	defaultHotSessionLimit = 24
-	defaultHotSessionBytes = 64 << 20
+	// Decoded maps cost substantially more than their serialized payload.
+	// Reserve headroom for live execution rather than retaining 64 MiB of JSON.
+	defaultHotSessionBytes = 16 << 20
 )
 
-// slimSessionProjection is the SQL form of slimSession: it strips the same
-// heavy fields server-side so startup neither transfers nor decodes them.
-const slimSessionProjection = `payload - '_request_knowledge' - 'baseline_file_snapshots' #- '{context,manifest,files}'`
-
-// slimSession drops the fields that dominate a session's size and that only
-// request preparation, baseline reconciliation and knowledge review read.
-// Those paths reach a session through Get/Update, which always hydrate.
-func slimSession(item domain.Session) domain.Session {
-	item.Context.Manifest.Files = nil
-	item.RequestKnowledge = nil
-	item.BaselineFileSnapshots = nil
-	return item
-}
-
-type hotSession struct {
-	id    string
-	bytes int64
-}
-
-// sessionTier tracks which resident sessions are whole. It is guarded by the
-// owning Store's mutex held for writing, which is why a tiered Get takes the
-// exclusive lock: even a hit reorders the recency list.
+// sessionTier adapts Store admission to the domain-owned LRU tracker. Store
+// callers hold its write mutex while promotion and value demotion happen.
 type sessionTier struct {
 	enabled  bool
 	maxItems int
 	maxBytes int64
-	bytes    int64
-	order    *list.List
-	index    map[string]*list.Element
+	cache    *residency.Cache
 }
 
 func newSessionTier(enabled bool) *sessionTier {
-	return &sessionTier{enabled: enabled, maxItems: defaultHotSessionLimit, maxBytes: defaultHotSessionBytes, order: list.New(), index: make(map[string]*list.Element)}
+	t := &sessionTier{enabled: enabled, maxItems: defaultHotSessionLimit, maxBytes: defaultHotSessionBytes}
+	if enabled {
+		t.cache = residency.New(t.maxItems, t.maxBytes)
+	}
+	return t
 }
 
 func (t *sessionTier) isHot(id string) bool {
-	if t == nil || !t.enabled {
-		return true
-	}
-	_, ok := t.index[id]
-	return ok
+	return t == nil || t.cache.Hot(id)
 }
-
-// promote marks id whole and returns the ids that must be demoted to stay
-// within the item and byte budgets. The promoted id is never demoted by its
-// own promotion.
 func (t *sessionTier) promote(id string, bytes int64) []string {
 	if t == nil || !t.enabled {
 		return nil
 	}
-	t.forget(id)
-	t.index[id] = t.order.PushFront(&hotSession{id: id, bytes: bytes})
-	t.bytes += bytes
-	var demoted []string
-	for t.order.Len() > 1 && (t.order.Len() > t.maxItems || t.bytes > t.maxBytes) {
-		oldest := t.order.Back()
-		entry := oldest.Value.(*hotSession)
-		t.forget(entry.id)
-		demoted = append(demoted, entry.id)
-	}
-	return demoted
+	t.cache.SetLimits(t.maxItems, t.maxBytes)
+	return t.cache.Promote(id, bytes)
 }
-
 func (t *sessionTier) touch(id string) {
-	if t == nil || !t.enabled {
-		return
-	}
-	if element, ok := t.index[id]; ok {
-		t.order.MoveToFront(element)
+	if t != nil {
+		t.cache.Touch(id)
 	}
 }
-
 func (t *sessionTier) forget(id string) {
-	if t == nil {
-		return
-	}
-	if element, ok := t.index[id]; ok {
-		t.bytes -= element.Value.(*hotSession).bytes
-		t.order.Remove(element)
-		delete(t.index, id)
+	if t != nil {
+		t.cache.Forget(id)
 	}
 }
-
 func (t *sessionTier) reset() {
-	if t == nil {
-		return
+	if t != nil {
+		t.cache.Reset()
 	}
-	t.bytes = 0
-	t.order.Init()
-	t.index = make(map[string]*list.Element)
 }
 
 // residentLocked returns id's whole session, hydrating it from PostgreSQL when
@@ -139,13 +92,13 @@ func (s *Store) residentLocked(id string) (domain.Session, error) {
 	return full, nil
 }
 
-// keepWholeLocked stores item as a whole resident session and demotes the
-// least recently used ones beyond the budget to their slim view.
+// keepWholeLocked admits fitting aggregates and demotes evictions or an
+// oversized candidate to its slim view. The caller still owns the full value.
 func (s *Store) keepWholeLocked(item domain.Session, bytes int64) {
 	s.items[item.ID] = item
 	for _, id := range s.tier.promote(item.ID, bytes) {
 		if demoted, ok := s.items[id]; ok {
-			s.items[id] = slimSession(demoted)
+			s.items[id] = residency.Slim(demoted)
 		}
 	}
 }
@@ -160,7 +113,7 @@ func (s *Store) postgresPayload(id string) ([]byte, error) {
 
 // postgresListSlim loads every session's slim view for startup residency.
 func (s *Store) postgresListSlim() ([]domain.Session, error) {
-	rows, err := s.db.Query(`SELECT ` + slimSessionProjection + ` FROM harness_sessions ORDER BY created_at, id`)
+	rows, err := s.db.Query(`SELECT ` + residency.Projection + ` FROM harness_sessions ORDER BY created_at, id`)
 	if err != nil {
 		return nil, wrapPostgresError("list sessions", err)
 	}
@@ -175,7 +128,7 @@ func (s *Store) postgresListSlim() ([]domain.Session, error) {
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, slimSession(item))
+		items = append(items, residency.Slim(item))
 	}
 	return items, wrapPostgresError("iterate sessions", rows.Err())
 }

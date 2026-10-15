@@ -9,7 +9,7 @@ export function createResponseProbe(context) {
   } = context
 
   async function probeChatAgentResponse(task, entry, key, payload, conversationURL) {
-    const expected = hydrateExpectedChatAgentBundle(key, task, payload)
+    const expected = await hydrateExpectedChatAgentBundle(key, task, payload)
     // The Supervisor that submitted this request is already reading the page it
     // never left, so this lease attempted nothing and stands back. It stands back
     // at the observation cadence rather than at the DOM poll: a Worker re-claiming
@@ -46,7 +46,7 @@ export function createResponseProbe(context) {
       return { status: 'waiting', delayMs: chatAgentRateLimitDelayMs(), observation: true, error: 'ChatGPT rate-limit gate is active' }
     }
     if (health?.required === true) return { status: 'attention', providerWide: true, error: chatGPTHumanActionMessage(String(health.kind || 'verification')) }
-    const keepFlowing = chatAgentKeepFlowingEnabled(Number(String(entry.slotId || '').replace('worker-', '')), task)
+    const keepFlowing = !expected.rehydrating && chatAgentKeepFlowingEnabled(Number(String(entry.slotId || '').replace('worker-', '')), task)
     if (keepFlowing) {
       const faultAction = chooseChatGPTRecoveryAction(expected.recovery, {}, Date.now(), { faultOnly: true })
       if (faultAction) {
@@ -82,7 +82,7 @@ export function createResponseProbe(context) {
     if (expected.processingObservedAt && !expected.processingAbsentSince) expected.processingAbsentSince = now
     const responseStarted = Number(completion?.assistantCount || 0) > Number(expected.assistantBaseline || 0)
     const processingInterrupted = Boolean(
-      expected.processingObservedAt
+      !expected.rehydrating && expected.processingObservedAt
       && expected.processingAbsentSince
       && !responseStarted
       && completion?.composerReady === true
@@ -122,13 +122,14 @@ export function createResponseProbe(context) {
       }
       return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true }
     }
-    expected.progressAt = now
+    if (!expected.rehydrating) expected.progressAt = now
     await captureChatGPTProcessingDuration(entry, expected)
     if (!expected.downloadInFlight && (!keepFlowing || Number(expected.invalidBundleCount || 0) === 0)) {
-      const clickMode = await entry.view.webContents.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline), true)
+      const clickMode = await entry.view.webContents.executeJavaScript(chatGPTExpectedDownloadScript(expected.filename, expected.assistantBaseline, false, Boolean(expected.rehydrating)), true)
       if (clickMode) {
         expected.downloadInFlight = true
         expected.lastDOMClick = Date.now()
+        expected.progressAt = expected.lastDOMClick
         setRecentExpectedDownload({ key, requestId: expected.requestId, at: Date.now() })
         return { status: 'waiting', delayMs: DOM_DOWNLOAD_RETRY_MS, observation: true }
       }
@@ -144,6 +145,12 @@ export function createResponseProbe(context) {
       if (pendingMs < DOWNLOAD_INFLIGHT_TIMEOUT_MS) return { status: 'waiting', delayMs: DOM_DOWNLOAD_RETRY_MS, observation: true }
       expected.downloadInFlight = false
       console.warn(`[chatgpt-bundle-dom] download-stalled key=${key} file=${expected.filename} pendingMs=${pendingMs}`)
+    }
+    if (expected.rehydrating) {
+      if (now - Number(expected.progressAt || now) >= AWAIT_STALL_ATTENTION_MS) {
+        return { status: 'attention', error: `A observação passiva não recebeu ${expected.filename}; verifique a conversa vinculada.` }
+      }
+      return { status: 'waiting', delayMs: CHAT_AGENT_AWAIT_PROBE_MS, observation: true }
     }
     if (keepFlowing) {
       noteChatGPTRecoveryAssistantCount(expected.recovery, completion?.assistantCount, now)

@@ -11,7 +11,7 @@ export function workspaceDrawerLabel(drawer: Exclude<Drawer, ''>) {
   if (drawer === 'knowledge') return 'Conhecimento do projeto'
   if (drawer === 'git') return 'Git do projeto'
   if (drawer === 'agents') return 'Gestão de agentes'
-  if (drawer === 'external-agents') return 'Hub de agentes IA'
+  if (drawer === 'external-agents') return 'Codex'
   if (drawer === 'tasks') return 'Tarefas do projeto'
   if (drawer === 'errors') return 'Erros de execução'
   if (drawer === 'evolution') return 'Logs de auto-evolução'

@@ -1,3 +1,4 @@
+import { AgentChatSurface } from './AgentChatSurface'
 import { AgentSurfaceTabs } from './AgentSurfaceTabs'
 import { ChatTabs } from '../../chat/navigation'
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from 'react'
@@ -244,7 +245,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
 
 
   if (minimalSurface) return <section ref={workspaceRef} className="agent-workspace agent-surface-only">
-    <div className="agent-chat-stage"><ChatPanel ref={chatPanelRef} key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
+    <div className="agent-chat-stage"><AgentChatSurface chatProps={chatProps} inspectorProps={inspectorProps} panelRef={chatPanelRef} viewportStore={chatViewportStoreRef.current} onExportChat={onExportChat}/></div>
   </section>
 
   const commandbar = <header className="agent-commandbar" aria-label="Atalhos do Agent">
@@ -298,7 +299,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
       className={`agent-chat-stage${singlePane && singlePaneSurface !== 'chat' ? ' surface-hidden' : ''}`}
       onPointerDownCapture={() => setFocusedPane('chat')}
       onFocusCapture={() => setFocusedPane('chat')}
-    ><ChatPanel ref={chatPanelRef} key={chatProps.activeChatId} {...chatProps} historyViewportStore={chatViewportStoreRef.current} embedded hideSwitcher onExportChat={onExportChat} /></div>
+    ><AgentChatSurface chatProps={chatProps} inspectorProps={inspectorProps} panelRef={chatPanelRef} viewportStore={chatViewportStoreRef.current} onExportChat={onExportChat}/></div>
     {!singlePane && (
       <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
     )}

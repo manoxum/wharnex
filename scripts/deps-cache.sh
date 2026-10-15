@@ -225,6 +225,32 @@ sync_go() {
   write_stamp "$stamp" "$fingerprint"
 }
 
+# npm ci removes the entire node_modules tree, including Vite's disposable
+# optimizer cache. The host and self-evolution container share that tree;
+# files created by a different UID inside .vite/deps can therefore make npm ci
+# fail with EACCES while unlinking a file that is not an npm dependency.
+# Try to discard the cache first. If its contents are not removable, park the
+# entire dependency tree into the Wharnex cache. A non-owner cannot move
+# .vite across parent directories on Linux; moving its writable parent
+# node_modules instead avoids traversing the protected cache files.
+# This fallback only runs when npm ci was already required.
+prepare_npm_ci_vite_cache() {
+  name=$1
+  service=$2
+  vite_cache="$service/node_modules/.vite"
+  [ -d "$vite_cache" ] && [ ! -L "$vite_cache" ] || return 0
+  if rm -rf "$vite_cache" 2>/dev/null; then return 0; fi
+
+  quarantine=$(mktemp -d "$CACHE_DIR/${name}-vite-cache-orphan.XXXXXX")
+  if mv "$service/node_modules" "$quarantine/node_modules"; then
+    printf '[deps] %s: quarantined node_modules with unremovable Vite cache (%s)\n' "$name" "$quarantine"
+    return 0
+  fi
+  rmdir "$quarantine" 2>/dev/null || true
+  printf '[deps] %s: cannot remove Vite cache or relocate node_modules at %s; fix filesystem ownership before npm ci\n' "$name" "$vite_cache" >&2
+  return 1
+}
+
 sync_node() {
   name=$1
   service="$ROOT/services/$name"
@@ -244,6 +270,7 @@ sync_node() {
   fi
 
   require_supported_node
+  prepare_npm_ci_vite_cache "$name" "$service"
   printf '[deps] %s: dependency metadata changed or install missing; running deterministic npm ci\n' "$name"
   (
     cd "$service"

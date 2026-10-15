@@ -28,6 +28,7 @@ import (
 	"kernl.local/harness/backend/internal/session"
 	"kernl.local/harness/backend/internal/transport/httpapi/automationholds"
 	monitorhttp "kernl.local/harness/backend/internal/transport/httpapi/browsermonitor"
+	"kernl.local/harness/backend/internal/transport/httpapi/postintegration"
 	"kernl.local/harness/backend/internal/transport/httpapi/settings"
 	"kernl.local/harness/backend/internal/transport/httpapi/taskclaim"
 	"kernl.local/harness/backend/internal/transport/httpapi/workspacetranscript"
@@ -158,6 +159,7 @@ func New(service *app.Service, store *session.Store, bus *audit.Bus, cfg config.
 	mux.HandleFunc("POST /api/sessions/{id}/plans/{request_id}/reject", a.rejectPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/reject", a.rejectExecutionPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/adjust", a.adjustExecutionPlan)
+	postintegration.Register(mux, a.service)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/control", a.controlExecutionPlan)
 	mux.HandleFunc("POST /api/sessions/{id}/execution-plan/reversal", a.prepareExecutionPlanReversal)
 	mux.HandleFunc("POST /api/sessions/{id}/remote-input", a.remoteInput)

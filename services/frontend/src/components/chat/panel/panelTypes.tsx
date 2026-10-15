@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+import type { CodexPermissionLevel, PlannerChatConfiguration, PlannerEngine } from '../../../lib/codex'
 import type { AutomationMode, EffortLevel, ArtifactRecord, ChatArtifactKind, ChatArtifactSelection, ChatItem, ChatRequestMode, ChatTransportMode, ExecutionMode, ExecutionPlan, QueuedChatRequest, Session } from '../../../types'
 import type { ContextMode, ReasoningEffort } from '../../../types'
 import { type WorkspaceChat } from '../../../lib/chat/history/workspaceMemory'
@@ -14,7 +16,11 @@ import { type ChatViewportStore } from './useProgressiveChatHistory'
  */
 export type ChatPanelHandle = { getComposerEditor: () => ReturnType<ComposerRichEditorHandle['getEditor']>; prepareExecutionPlanAdjustment: (plan: ExecutionPlan) => void }
 
-export type ChatPanelProps = {
+export type ChatPanelProps = PlannerChatConfiguration & {
+  onEngine?: (engine: PlannerEngine) => void
+  onCodexModel?: (model: string) => void
+  onCodexEffort?: (effort: string) => void
+  onCodexPermission?: (level: CodexPermissionLevel) => void
   session: Session
   items: ChatItem[]
   chats: WorkspaceChat[]
@@ -27,6 +33,7 @@ export type ChatPanelProps = {
   compactComposer?: boolean
   composerPlaceholder?: string
   composerSendLabel?: string
+  executionApproval?: ReactNode
   composerHint?: string
   historyViewportStore?: ChatViewportStore
   executionMode?: ExecutionMode

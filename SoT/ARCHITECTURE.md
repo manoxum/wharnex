@@ -2,7 +2,48 @@
 
 ## Macro architecture
 
-Wharness uses ports-and-adapters / Clean Architecture boundaries:
+The Agent supports ChatGPT Scraper and Codex Native (`adr/ADR-0098`).
+During a native turn, explicit Ctrl/Cmd+Enter guidance is sent immediately via
+the official `turn/steer` operation, scoped to project/chat/request and the
+expected active turn on its original account. It never enters the Scraper
+comment queue or starts another turn. Duplicate deliveries converge by comment
+identity; rejected/uncertain delivery is surfaced without an automatic retry.
+Guidance and selected attachments are retained in the redacted native ledger.
+Engine/model choice is durable per workspace chat. ChatGPT uses the existing
+request/response ZIP, Policy and executor ports. Explicitly selected Codex runs
+the official app-server as a native host agent: only the user prompt and selected
+attachments/references are sent, and normal streamed messages/items complete a
+turn without a response ZIP, Wharnex plan, repair loop or Apply. Its local IPC
+is scoped to the owning project/chat; the application core stays independent
+of provider details. Earlier Codex planner ZIPs remain recoverable only for
+already pending legacy requests (`adr/ADR-0097`).
+
+Successful native turns have engine-owned Git bookkeeping: capture the initial
+HEAD and dirty paths, present the final diff for native file-change paths, and
+commit eligible changes with the canonical VERSION advanced by one patch
+(`vA.B.C.D`). Advice without changes does not bump or commit. Existing dirty
+paths, a moved HEAD, unsafe paths, missing Git identity or failed turns prevent
+automatic bookkeeping and surface an actionable result; user work is preserved.
+Automatic bookkeeping disables repository hooks and signing, and uses the
+configured Git identity; untrusted project hooks acquire no engine authority.
+This is native bookkeeping, never Protected verification or Apply. The model
+does not write VERSION. The final result is redacted, persisted and archived
+with the native transcript, and restored in the owning chat.
+The project's current Git commit mode is read from the backend at completion;
+manual mode leaves the change and version in the worktree for an operator
+commit. Overlapping native turns in one project disable automatic bookkeeping.
+Only runtime-declared file-change paths are eligible; shell-only mutations
+remain visible in Git for manual review. Scraper integration is unchanged.
+The shared chat diff card retains its existing appearance as an explicit
+styling exception: this change alters its native labels only, with no new CSS.
+
+Native manual continuation preserves thread history and explicit account
+ownership across restart and quota exhaustion. Account selection and login are
+typed Desktop operations with isolated runtime credential homes; live requests
+keep their original profile. Auto Evolution awareness is authoritative session
+metadata, not a renderer-provided instruction or a context-bundle requirement.
+
+Wharnex uses ports-and-adapters / Clean Architecture boundaries:
 
 `transport -> application -> domain <- ports <- adapters`
 
@@ -43,7 +84,10 @@ The iterative evidence branch is bounded and non-mutating on the host:
 
 `Workflow Plan -> Policy -> Disposable Protected Sandbox -> Structured Observations -> Refreshed Context -> Same Planner Conversation -> next Agent Turn`
 
-There is no direct `AI -> shell` path. MCP, when introduced, is an adapter behind application ports rather than a route around Policy/sandbox boundaries.
+There is no direct `AI -> shell` path in the Wharnex protocol planner. Codex
+Native is the explicit host-agent exception in `AGENTS.md` §2; its own runtime
+executes its tools, independently of Wharnex's planner/executor workflow. MCP
+in that workflow remains an adapter behind application ports.
 
 ## Services
 
@@ -70,6 +114,18 @@ The canonical local lifecycle owns PostgreSQL as a persistent Compose service ba
 
 PostgreSQL is authoritative; the in-process session map is a residency cache and MUST stay bounded by recent use, not by how many sessions were ever created. Every session is resident as a slim scan view without its context file list (`context.manifest.files`), per-request knowledge snapshots and baseline file snapshots; only a least-recently-used set, bounded by count and by stored payload bytes, is resident whole. Startup MUST load the slim projection server-side instead of transferring and decoding every aggregate. `Get` and `Update` MUST always return the whole session, hydrating from PostgreSQL on demand, and a write MUST NEVER persist a slim view over the durable aggregate. `List` is a scan: a caller that reads one of the stripped fields, or hands a scanned session to request, knowledge, baseline or Apply logic, MUST first `Get` it.
 
+The whole-session cache MUST reject retention of a payload larger than its
+byte budget, including when it is the only requested session. `Get`/`Update`
+still return that session whole to their caller; its resident scan view stays
+slim and future access hydrates again. Admission MUST NOT evict useful small
+entries merely to admit an oversized aggregate. Serialized bytes are an
+admission budget, not a measurement of decoded heap usage.
+Cold scan views MUST also omit request support artifact bodies. Those capsule
+bytes belong to the complete persisted aggregate and are hydrated through
+`Get`/`Update` when request transport needs them; scanning historical sessions
+MUST NOT retain them. The SQL startup projection and in-memory demotion MUST
+strip the same fields, without mutating the complete value returned to a caller.
+
 ### Tunnel daemon boundary
 
 The backend MUST NOT own tunnel process lifetime in stack mode. It communicates with the dedicated tunnel daemon over an internal Docker-network HTTP API authenticated with a generated local bearer token. The daemon owns provider processes, provider credentials, request-channel storage, retention and public URL lifetime. Backend shutdown/replacement therefore cannot call provider session stop. Normal lifecycle reconciliation MUST preserve the tunnel container. Explicit `stack-stop`/`stack-down` may terminate it and consequently invalidate ephemeral URLs.
@@ -95,7 +151,7 @@ A Supervisor slot is bound to one Harness chat for the life of its request (see 
 
 Every Supervisor and Worker `WebContentsView` lives, from creation to close, inside its own container `View` in one process-global **browser host** window: mapped but one pixel, unfocusable, click-through and off the taskbar. Two measured Electron 44 Linux constraints fix that shape. A view in a window that is hidden or was never shown has no compositor surface, so it cannot be captured; and a `WebContentsView` that was sized while attached at a non-zero window offset never repaints once it is re-parented. The content view is therefore sized only at the host origin (with a synchronous show/resize/hide, which also recreates a surface a parked navigation dropped) or while its container is out of any window; only the container is moved and positioned. Project windows never hold a ChatGPT view. The Desktop still drives `entry.view` as the project's Engine surface: a hosted surface records the requested pane bounds and visibility, gives the real view the same size so the page lays out for that pane, and reports real compositing through `getVisible()` so automation keeps choosing its hidden-surface input route.
 
-A project window shows its Engine Supervisor, or the one Worker it surfaced, as a live mirror fed by a stream. The main process keeps one stream per agent view, shared by every pane subscribed to it: a pane subscribes explicitly and receives its own `MessagePort`, and only the window that owns the chat, or that surfaced the Worker, is granted one, re-checked while the subscription lives. The stream is driven by the view's own paints through a frame subscription, so a page that does not repaint sends nothing; paints are coalesced and JPEG-encoded once for all subscribers at a bounded rate that rises briefly after the user's input. A single capture seeds a new subscriber or a page that just navigated, and repaints a parked view whose surface was dropped. Delivery is credit-based: a pane receives the next frame only after acknowledging that it drew the previous one, frames are decoded straight into a canvas, and capture stops while no subscriber's window is showing and when the last subscriber closes its port. The user's own pointer, wheel and key events on the mirror are forwarded to that one view over its debugger, from a closed vocabulary with coordinates normalized to the mirrored image; key text and editing commands (copy, paste, select all, undo, redo) are derived in the main process. The IPC accepts input only from the trusted window that owns the chat or surfaced the Worker.
+A project window shows its Engine Supervisor, or the one Worker it surfaced, as a live mirror fed by a stream. The main process keeps one stream per agent view, shared by every pane subscribed to it: a pane subscribes explicitly and receives its own `MessagePort`, and only the window that owns the chat, or that surfaced the Worker, is granted one, re-checked while the subscription lives. The stream is driven by the view's own paints through a frame subscription, so a page that does not repaint sends nothing; paints are coalesced and JPEG-encoded once for all subscribers at a bounded rate that rises briefly after the user's input. A single capture seeds a new subscriber or a page that just navigated, and repaints a parked view whose surface was dropped. Delivery and JPEG encoding are credit-based: while no visible authorized subscriber can receive a frame, the stream retains only the latest unencoded paint and performs no JPEG work. Acknowledgement schedules that latest paint at the existing bounded cadence before delivering it; an already encoded seed is reused for a new subscriber until navigation or capture suspension invalidates it. A pane receives the next frame only after acknowledging that it drew the previous one, frames are decoded straight into a canvas, and capture stops while no subscriber's window is showing and when the last subscriber closes its port. The user's own pointer, wheel and key events on the mirror are forwarded to that one view over its debugger, from a closed vocabulary with coordinates normalized to the mirrored image; key text and editing commands (copy, paste, select all, undo, redo) are derived in the main process. The IPC accepts input only from the trusted window that owns the chat or surfaced the Worker.
 
 The tray exposes one process-global browser monitor window independent of project windows; closing it sends it to the background and the tray brings it back, optionally selecting an instance. Its list and task details come from the bounded Agent runtime projection, including Supervisor slots, persistent Workers and ephemeral utility Workers, and it also manages the runtime policies (provider protection, pool capacity, Worker automation) with the same controls as the Agent drawer. Selecting an instance moves its container from the host into the monitor pane, sizing the content only while the container is detached, so the user sees and drives the real browser; switching, closing or a monitor renderer suspension returns it to the host at its project pane size. Presenting never creates another browser, navigates, inspects response prose, or changes task ownership, leases or affinity, and only one instance is presented at a time. A Worker is presented at its own content size, cropped or padded by its container, so its automation layout never changes; zoom cannot be used for that because Chromium shares a zoom level across every view of an origin, so agent views always render at zoom 1. A view newly attached to the monitor shows nothing until its renderer produces a new frame, which a page that is not repainting never does on its own, so presenting and resizing force one with a visible one-pixel capture. The monitor IPC accepts only its own trusted local window and a canonical existing agent id. The passive snapshot endpoint captures any agent where its view is parked.
 That one queue serves every project, so a task's owning project is a first-class durable field: the canonical absolute host project path, resolved by the store at enqueue from a supplied absolute path, else from the task's own workspace chat, else from its session (see `adr/ADR-0044`). A ChatGPT project display name is never that identity. The renderer pool stays process-global and shared across projects; what is scoped per project is the claim. The Desktop passes the set of projects currently open in some window, and the durable claim admits a task only when the caller did not scope by project, or the task has no project attribution, or its project is open, or it is account-lifecycle work — `ORGANIZE_CHAT`, `RENAME_CHAT`, `ARCHIVE_CHAT`, `DELETE_CHAT`, `DELETE_BUNDLE`, `DELETE_TEMP_CHAT` — which acts on the ChatGPT account rather than the project and MUST converge whatever is open. Scoping is a claim predicate, never a claim followed by a release: a claim charges an attempt. Closing a project admits nothing new and interrupts nothing already leased.
@@ -184,3 +240,11 @@ Global language preferences are a small state-directory document (`language-sett
 ## Browser monitor chat links
 
 The monitor's **Links GPT** tab lists durable created conversations from workspace chats and Orchestrator planning/execution tasks across projects, with their recorded titles (`adr/ADR-0090`). The earlier no-creation/no-navigation rule applies to presenting an existing Agent instance. Selecting a link already loaded by a Supervisor or Worker presents that instance; otherwise an explicit local click MAY create one short-lived, human-only ChatGPT view using the dedicated partition and the same renderer isolation settings. This view is not an Agent slot, has no task, transport, account-automation or content-observation listeners, and does not change affinity. At most one exists per monitor; switching links or suspending the monitor closes it. Its initial navigation is restricted to the selected canonical conversation URL. The backend catalog is read-only. Each selection shows instance-style metadata and owner-scoped exchanged bundles as the last detail section. Opening the bundle explorer releases the native browser surface before drawing the modal.
+
+The persistent Compose backend MUST run behind Docker’s init (`init: true`).
+The backend receives a 30 s shutdown grace for its bounded HTTP shutdown and
+asynchronous log drain. The init owns PID 1, forwards lifecycle signals, and reaps orphaned toolchain/Git
+descendants after their parent exits or times out. Backend code MUST continue
+to wait for its own direct children; a global Go `waitpid(-1)` reaper is forbidden
+because it can steal an executor’s exit status. Enabling init changes no planner,
+executor, sandbox or durable-task authority.

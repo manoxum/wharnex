@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -85,30 +86,8 @@ func (r *DockerRunner) RunStreaming(ctx context.Context, workspace Workspace, co
 	if _, err := safeWorkspaceCwd(workspace.Path, command.Cwd); err != nil {
 		return domain.CommandResult{}, err
 	}
-	needNodeAcquisition := false
-	if err := prepareCommandDependenciesContext(runCtx, workspace, command); err != nil {
-		if errors.Is(err, ErrNodeDependenciesUnavailable) {
-			needNodeAcquisition = true
-		} else {
-			return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: -1, DurationMS: time.Since(started).Milliseconds()}, commandPreparationError(runCtx, timeout, "dependency preparation", err)
-		}
-	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		return domain.CommandResult{}, errors.New("docker CLI not found; build/install Docker or use explicitly-enabled local dev sandbox")
-	}
-	if err := refuseDockerSocketActivationContext(runCtx); err != nil {
-		return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: -1, DurationMS: time.Since(started).Milliseconds()}, commandPreparationError(runCtx, timeout, "Docker daemon preflight", err)
-	}
-	if err := ensureLocalRunnerImage(runCtx, r.image); err != nil {
-		return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: -1, DurationMS: time.Since(started).Milliseconds()}, commandPreparationError(runCtx, timeout, "runner image check", err)
-	}
-	if needNodeAcquisition {
-		if err := r.acquireNodeDependencies(runCtx, workspace, command); err != nil {
-			return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: -1, DurationMS: time.Since(started).Milliseconds(), Stderr: limit(err.Error())}, commandPreparationError(runCtx, timeout, "node dependency acquisition", err)
-		}
-		if err := prepareCommandDependenciesContext(runCtx, workspace, command); err != nil {
-			return domain.CommandResult{Argv: command.Argv, Cwd: command.Cwd, ExitCode: -1, DurationMS: time.Since(started).Milliseconds()}, commandPreparationError(runCtx, timeout, "dependency preparation after acquisition", err)
-		}
+	if result, err := r.prepareDockerCommand(runCtx, workspace, command, timeout, started); err != nil {
+		return result, err
 	}
 	network := "none"
 	if command.Network {
@@ -204,12 +183,7 @@ func processStderr(captured string, runErr error) string {
 	return limit(runErr.Error())
 }
 func containsInt(values []int, target int) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 func limit(s string) string {
 	const max = 200000
