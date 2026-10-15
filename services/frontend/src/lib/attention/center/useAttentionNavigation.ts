@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Session, WorkspaceMode } from '../../../types'
 import type { AttentionItem, AttentionTarget } from './attentionCenter'
 
@@ -19,6 +19,8 @@ type Options = {
 }
 
 export function useAttentionNavigation({ session, activeChatId, chats, allAttentionItems, chatgptHumanActionActive, acknowledge, openHumanAction, setMode, selectChat, openRestart, focusInspector }: Options) {
+  const currentAttention = useRef(allAttentionItems)
+  currentAttention.current = allAttentionItems
   const [orchestratorTaskFocus, setOrchestratorTaskFocus] = useState<{ projectPath: string; taskId: string; nonce: number }>({ projectPath: '', taskId: '', nonce: 0 })
 
   function openOrchestratorTask(taskId: string) {
@@ -49,7 +51,7 @@ export function useAttentionNavigation({ session, activeChatId, chats, allAttent
 
   async function openDesktopNotification(notice: DesktopCompletionNotification) {
     if (notice.kind === 'task-completed') {
-      const completed = allAttentionItems.find((item) => item.id === notice.id && item.kind === 'task-completed')
+      const completed = currentAttention.current.find((item) => item.id === notice.id && item.kind === 'task-completed')
       if (completed) {
         acknowledge(completed)
         if (completed.orchestratorTaskId) {

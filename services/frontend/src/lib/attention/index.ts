@@ -1,1 +1,1 @@
-export { collectAttentionItems, summarizeAttention, type AttentionItem, type AttentionTarget, mergeAttentionItems, useAttentionNavigation, acknowledgeCompletedAttention, filterActiveAttentionItems, loadCompletedAttentionHistory } from './center'
+export { collectAttentionItems, collectNativeAttentionItems, summarizeAttention, type AttentionItem, type AttentionTarget, mergeAttentionItems, useAttentionNavigation, acknowledgeCompletedAttention, filterActiveAttentionItems, loadCompletedAttentionHistory } from './center'

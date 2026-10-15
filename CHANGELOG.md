@@ -1,4 +1,10 @@
 ## Unreleased — Wharnex / WHX identity, concurrency and account lifecycle
+### Chat e19c9e62-379e-4ee0-9640-23633da1c43b (2026-10-15)
+
+- O Codex passa a emitir a notificação de conclusão pelo mesmo canal Desktop e centro de notificações do Scraper, incluindo chats em segundo plano e Auto Evolution, sem duplicar avisos ou repetir conclusões antigas ao reiniciar.
+- Abrir uma notificação reconhece a conclusão mais recente e seleciona o chat correspondente; falhas e interrupções não são anunciadas como sucesso.
+
+
 ### Chat ac2c1efc-9d61-46c6-8dfa-98591271e27c (2026-10-15)
 
 _(reserved — no entries yet)_

@@ -241,3 +241,35 @@ Typecheck, build, seven browser cases and the 200-line gate pass. Lint retains
 the same three existing Drawio errors. Existing assertions were not weakened;
 the shared inline routing contract remains directly inspectable while keyboard
 matching is extracted. No test or runtime fixture required provider credentials.
+
+Completion notification correction (operator request, 2026-10-15): the shared
+attention list previously projected only Scraper host integration and Orchestrator
+conclusions. Successful native turns now contribute project/chat/request-scoped
+completion items after native finalization, including background chats and Auto
+Evolution. They use the same notification center, Desktop publication channel,
+baseline suppression, deduplication and acknowledgment history. Their text says
+Codex completed the request and makes no verification, Apply or activation claim.
+Running/finalizing, waiting, interrupted and failed turns do not announce success;
+historical completions can remain in the center without replaying OS alerts.
+
+The publisher was extracted from the oversized App into its attention domain,
+preserving Scraper/restart behavior. Desktop click handlers read current attention
+so a completion received after subscription is acknowledged and opens the owning
+chat. Existing source assertions remain intact; their read set includes the
+extracted module. No IPC, runtime protocol, stored schema, permission, automatic
+submission or account behavior changes. Existing records need no migration.
+The bounded refactoring pass covers projection, publication, navigation and
+their tests; remaining App composition is existing follow-up debt. Production
+UI markup and styling are unchanged; browser-fixture additions use Tailwind.
+
+Notification verification: the initial wiring regression failed before the fix;
+all 56 focused attention tests, seven browser scenarios and five existing Desktop
+notification tests pass. The browser completion scenario passes again after the
+fixture refactor. Typecheck, production build, focused lint and the nine-new-file
+size gate pass. Full frontend: 1,296 passed/63 failed, with the same four existing
+mock errors. Failure identities match the saved baseline runs except two unrelated
+navigation cases: the knowledge-explorer case fails identically on unmodified
+HEAD, while all 20 WorkspaceShell cases pass unchanged in both isolated reruns.
+Global lint retains the same three Drawio errors; domain layout retains the same
+two backend directory violations. No assertions or gates were weakened. No Go
+or Desktop production code changed, and no provider credentials were required.
